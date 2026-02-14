@@ -1,5 +1,5 @@
 const state = {
-  token: localStorage.getItem("teaparty_token") || "",
+  token: sessionStorage.getItem("teaparty_token") || localStorage.getItem("teaparty_token") || "",
   user: null,
   config: null,
   workgroups: [],
@@ -9,6 +9,7 @@ const state = {
   workgroupCreateFiles: [],
   workgroupCreateAgents: [],
   selectedWorkgroupId: "",
+  bladeWorkgroupId: "",
   activeConversationId: "",
   activeNodeKey: "",
   selectedWorkgroupFileIdByWorkgroup: {},
@@ -25,11 +26,18 @@ const state = {
   fileOverlayViewMode: "raw",
   fileOverlayParsedJson: null,
   fileOverlayLastContent: "",
+  fileOverlayMemberContext: null,
   crossGroupTasks: [],
   activeTaskId: "",
   workgroupDirectory: [],
   conversationUsage: null,
   usagePollCounter: 0,
+  myInvites: [],
+  invitePollCounter: 0,
+  fileBrowserOpen: false,
+  fileBrowserWorkgroupId: "",
+  fileBrowserPath: [],
+  fileBrowserFileId: "",
 };
 
 const qs = (id) => document.getElementById(id);
@@ -94,6 +102,18 @@ function isImageFile(filePath) {
 
 function isDataUrl(content) {
   return /^data:image\//.test(content);
+}
+
+function isAgentConfigPath(p) { return /^agents\/[^/]+\.json$/i.test(p); }
+function isWorkgroupConfigPath(p) { return p === "workgroup.json"; }
+function isToolsManifestPath(p) { return p === "tools.json"; }
+function isAgentConfigShape(d) {
+  return d && typeof d === "object" && !Array.isArray(d)
+    && "name" in d && "model" in d && "temperature" in d;
+}
+function isToolsManifestShape(d) {
+  return d && typeof d === "object" && !Array.isArray(d)
+    && "categories" in d && Array.isArray(d.categories);
 }
 
 function tryParseJson(content) {
@@ -165,6 +185,507 @@ function renderJsonFormField(key, value, readonly, path, lockedKeys) {
     default:
       return buildScalarField(key, "string", String(value), readonly, path);
   }
+}
+
+function showToolPicker(choices, onSelect) {
+  // Remove any existing picker
+  document.querySelector(".cfg-tool-picker-backdrop")?.remove();
+
+  const backdrop = document.createElement("div");
+  backdrop.className = "cfg-tool-picker-backdrop";
+
+  const panel = document.createElement("div");
+  panel.className = "cfg-tool-picker";
+
+  const header = document.createElement("div");
+  header.className = "cfg-tool-picker-header";
+  header.textContent = "Add Tool";
+  panel.appendChild(header);
+
+  const list = document.createElement("div");
+  list.className = "cfg-tool-picker-list";
+
+  for (const tool of choices) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "cfg-tool-picker-item";
+    row.textContent = tool.display_name || tool.name;
+    row.addEventListener("click", () => {
+      onSelect(tool.name);
+      backdrop.remove();
+    });
+    list.appendChild(row);
+  }
+
+  panel.appendChild(list);
+  backdrop.appendChild(panel);
+  backdrop.addEventListener("click", (e) => {
+    if (e.target === backdrop) backdrop.remove();
+  });
+  document.body.appendChild(backdrop);
+}
+
+function renderAgentConfigForm(data, readonly) {
+  const container = qs("file-overlay-form");
+  container.innerHTML = "";
+
+  // Decorative header
+  const header = document.createElement("div");
+  header.className = "cfg-agent-header";
+  const avatarEl = document.createElement("div");
+  avatarEl.className = "cfg-agent-avatar";
+  if (data.icon && isDataUrl(data.icon)) {
+    avatarEl.innerHTML = `<img src="${escapeHtml(data.icon)}" alt="">`;
+  } else {
+    avatarEl.innerHTML = generateBotSvg(data.name || "Agent");
+  }
+  const nameBlock = document.createElement("div");
+  nameBlock.innerHTML = `<strong>${escapeHtml(data.name || "Agent")}</strong>`;
+  if (data.role) nameBlock.innerHTML += `<div class="meta">${escapeHtml(data.role)}</div>`;
+  header.appendChild(avatarEl);
+  header.appendChild(nameBlock);
+  container.appendChild(header);
+
+  // Root section (compatible with collectJsonFromForm)
+  const details = document.createElement("details");
+  details.className = "json-section json-root";
+  details.open = true;
+  details.dataset.key = "root";
+  details.dataset.type = "object";
+
+  const summary = document.createElement("summary");
+  summary.className = "json-section-summary";
+  summary.textContent = "root";
+  details.appendChild(summary);
+
+  const body = document.createElement("div");
+  body.className = "json-section-body";
+
+  const knownKeys = new Set();
+  const emit = (el) => { body.appendChild(el); };
+  const field = (key) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    emit(renderJsonFormField(key, data[key], readonly, [key]));
+  };
+  const textareaField = (key, label) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    emit(buildTextareaField(key, data[key], readonly, label));
+  };
+  const rangeField = (key, min, max, step, label) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    emit(buildRangeField(key, data[key], readonly, min, max, step, label));
+  };
+  const hiddenField = (key) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    emit(buildHiddenField(key, data[key]));
+  };
+
+  // Identity
+  emit(buildSectionDivider("Identity"));
+  hiddenField("id");
+  field("name");
+  field("role");
+  textareaField("description", "description");
+
+  // Personality
+  emit(buildSectionDivider("Personality"));
+  textareaField("personality", "personality");
+  textareaField("backstory", "backstory");
+
+  // Model & Behavior
+  emit(buildSectionDivider("Model & Behavior"));
+  field("model");
+  rangeField("temperature", 0, 2, 0.1, "temperature");
+  rangeField("verbosity", 0, 1, 0.05, "verbosity");
+  rangeField("response_threshold", 0, 1, 0.05, "response_threshold");
+  field("follow_up_minutes");
+
+  // Tools
+  if ("tool_names" in data && Array.isArray(data.tool_names)) {
+    knownKeys.add("tool_names");
+    emit(buildSectionDivider("Tools"));
+
+    const toolSection = document.createElement("details");
+    toolSection.className = "json-section";
+    toolSection.open = true;
+    toolSection.dataset.key = "tool_names";
+    toolSection.dataset.type = "array";
+
+    const toolSummary = document.createElement("summary");
+    toolSummary.className = "json-section-summary";
+    toolSummary.textContent = `tool_names (${data.tool_names.length} items)`;
+    toolSection.appendChild(toolSummary);
+
+    const toolBody = document.createElement("div");
+    toolBody.className = "json-section-body cfg-tools-grid";
+
+    const currentTools = [...data.tool_names];
+    let addBtn = null;
+
+    if (!readonly) {
+      addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "cfg-tool-add";
+      addBtn.textContent = "+";
+      addBtn.addEventListener("click", async () => {
+        const workgroupId = state.fileOverlayWorkgroupId;
+        if (!workgroupId) return;
+        try {
+          const available = await api(`/api/workgroups/${workgroupId}/tools`);
+          const used = new Set(currentTools);
+          const choices = available.filter((t) => !used.has(t.name));
+          if (!choices.length) {
+            flash("No more tools available to add", "info");
+            return;
+          }
+          showToolPicker(choices, (toolName) => {
+            currentTools.push(toolName);
+            rebuildToolPills();
+          });
+        } catch (err) {
+          flash(err.message || "Failed to load tools", "error");
+        }
+      });
+    }
+
+    function rebuildToolPills() {
+      toolBody.innerHTML = "";
+      currentTools.forEach((tool, i) => {
+        const pill = document.createElement("label");
+        pill.className = "cfg-tool-pill";
+        pill.dataset.key = String(i);
+
+        const inp = document.createElement("input");
+        inp.type = "hidden";
+        inp.dataset.type = "string";
+        inp.dataset.key = String(i);
+        inp.value = tool;
+        pill.appendChild(inp);
+
+        const txt = document.createElement("span");
+        txt.textContent = tool;
+        pill.appendChild(txt);
+
+        if (!readonly) {
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "cfg-tool-remove";
+          removeBtn.textContent = "\u00d7";
+          removeBtn.addEventListener("click", () => {
+            currentTools.splice(i, 1);
+            rebuildToolPills();
+          });
+          pill.appendChild(removeBtn);
+        }
+
+        toolBody.appendChild(pill);
+      });
+      if (addBtn) toolBody.appendChild(addBtn);
+      toolSummary.textContent = `tool_names (${currentTools.length} items)`;
+    }
+
+    rebuildToolPills();
+
+    toolSection.appendChild(toolBody);
+    emit(toolSection);
+  }
+
+  // Hidden icon
+  hiddenField("icon");
+
+  // Fallback: any unknown keys get generic fields
+  for (const [k, v] of Object.entries(data)) {
+    if (!knownKeys.has(k)) {
+      emit(renderJsonFormField(k, v, readonly, [k]));
+    }
+  }
+
+  details.appendChild(body);
+  container.appendChild(details);
+}
+
+function renderToolsManifestForm(data, readonly) {
+  const container = qs("file-overlay-form");
+  container.innerHTML = "";
+
+  // Header
+  const header = document.createElement("div");
+  header.className = "cfg-wg-header";
+  header.innerHTML = `<h3>Tools Manifest</h3><div class="meta">Workgroup Tool Configuration</div>`;
+  container.appendChild(header);
+
+  // Root section
+  const details = document.createElement("details");
+  details.className = "json-section json-root";
+  details.open = true;
+  details.dataset.key = "root";
+  details.dataset.type = "object";
+
+  const summary = document.createElement("summary");
+  summary.className = "json-section-summary";
+  summary.textContent = "root";
+  details.appendChild(summary);
+
+  const body = document.createElement("div");
+  body.className = "json-section-body";
+
+  // Hidden version field
+  const versionWrap = document.createElement("div");
+  versionWrap.dataset.key = "version";
+  const versionInput = document.createElement("input");
+  versionInput.type = "hidden";
+  versionInput.dataset.type = "number";
+  versionInput.dataset.key = "version";
+  versionInput.value = data.version || 1;
+  versionWrap.appendChild(versionInput);
+  body.appendChild(versionWrap);
+
+  // Categories array section
+  const catArraySection = document.createElement("details");
+  catArraySection.className = "json-section";
+  catArraySection.open = true;
+  catArraySection.dataset.key = "categories";
+  catArraySection.dataset.type = "array";
+
+  const catArraySummary = document.createElement("summary");
+  catArraySummary.className = "json-section-summary";
+  catArraySummary.textContent = `categories (${(data.categories || []).length} items)`;
+  catArraySection.appendChild(catArraySummary);
+
+  const catArrayBody = document.createElement("div");
+  catArrayBody.className = "json-section-body";
+
+  (data.categories || []).forEach((cat, catIdx) => {
+    const enabledCount = (cat.tools || []).filter((t) => t.enabled !== false).length;
+    const totalCount = (cat.tools || []).length;
+
+    const catSection = document.createElement("details");
+    catSection.className = "json-section";
+    catSection.open = true;
+    catSection.dataset.key = String(catIdx);
+    catSection.dataset.type = "object";
+
+    const catSummary = document.createElement("summary");
+    catSummary.className = "json-section-summary";
+    catSummary.innerHTML = `${escapeHtml(cat.label || cat.key)} <span class="cfg-category-badge">${enabledCount}/${totalCount}</span>`;
+    catSection.appendChild(catSummary);
+
+    const catBody = document.createElement("div");
+    catBody.className = "json-section-body";
+
+    // Hidden key field
+    const keyWrap = document.createElement("div");
+    keyWrap.dataset.key = "key";
+    const keyInput = document.createElement("input");
+    keyInput.type = "hidden";
+    keyInput.dataset.type = "string";
+    keyInput.dataset.key = "key";
+    keyInput.value = cat.key || "";
+    keyWrap.appendChild(keyInput);
+    catBody.appendChild(keyWrap);
+
+    // Hidden label field
+    const labelWrap = document.createElement("div");
+    labelWrap.dataset.key = "label";
+    const labelInput = document.createElement("input");
+    labelInput.type = "hidden";
+    labelInput.dataset.type = "string";
+    labelInput.dataset.key = "label";
+    labelInput.value = cat.label || "";
+    labelWrap.appendChild(labelInput);
+    catBody.appendChild(labelWrap);
+
+    // Tools array section
+    const toolsArraySection = document.createElement("details");
+    toolsArraySection.className = "json-section";
+    toolsArraySection.open = true;
+    toolsArraySection.dataset.key = "tools";
+    toolsArraySection.dataset.type = "array";
+
+    const toolsArraySummary = document.createElement("summary");
+    toolsArraySummary.className = "json-section-summary hidden";
+    toolsArraySummary.textContent = `tools`;
+    toolsArraySection.appendChild(toolsArraySummary);
+
+    const toolsArrayBody = document.createElement("div");
+    toolsArrayBody.className = "json-section-body";
+
+    (cat.tools || []).forEach((tool, toolIdx) => {
+      // Each tool is an object section
+      const toolSection = document.createElement("div");
+      toolSection.className = "json-section cfg-tool-manifest-row";
+      toolSection.dataset.key = String(toolIdx);
+      toolSection.dataset.type = "object";
+
+      const toolBody = document.createElement("div");
+      toolBody.className = "json-section-body";
+
+      // Hidden: name
+      const nameInput = document.createElement("input");
+      nameInput.type = "hidden";
+      nameInput.dataset.type = "string";
+      nameInput.dataset.key = "name";
+      nameInput.value = tool.name || "";
+      toolBody.appendChild(nameInput);
+
+      // Hidden: display_name
+      const dnInput = document.createElement("input");
+      dnInput.type = "hidden";
+      dnInput.dataset.type = "string";
+      dnInput.dataset.key = "display_name";
+      dnInput.value = tool.display_name || "";
+      toolBody.appendChild(dnInput);
+
+      // Hidden: description
+      const descInput = document.createElement("input");
+      descInput.type = "hidden";
+      descInput.dataset.type = "string";
+      descInput.dataset.key = "description";
+      descInput.value = tool.description || "";
+      toolBody.appendChild(descInput);
+
+      // Hidden: source
+      const srcInput = document.createElement("input");
+      srcInput.type = "hidden";
+      srcInput.dataset.type = "string";
+      srcInput.dataset.key = "source";
+      srcInput.value = tool.source || "";
+      toolBody.appendChild(srcInput);
+
+      // Hidden: source_workgroup_id (nullable)
+      const swInput = document.createElement("input");
+      swInput.type = "hidden";
+      swInput.dataset.type = tool.source_workgroup_id != null ? "string" : "null";
+      swInput.dataset.key = "source_workgroup_id";
+      swInput.value = tool.source_workgroup_id || "";
+      toolBody.appendChild(swInput);
+
+      // Checkbox: enabled
+      const toggleLabel = document.createElement("label");
+      toggleLabel.className = "cfg-tool-toggle";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.type = "boolean";
+      checkbox.dataset.key = "enabled";
+      checkbox.checked = tool.enabled !== false;
+      checkbox.disabled = readonly;
+      checkbox.addEventListener("change", () => {
+        const badge = catSummary.querySelector(".cfg-category-badge");
+        if (badge) {
+          const checks = toolsArrayBody.querySelectorAll('input[type="checkbox"]');
+          let count = 0;
+          checks.forEach((c) => { if (c.checked) count++; });
+          badge.textContent = `${count}/${totalCount}`;
+        }
+      });
+      toggleLabel.appendChild(checkbox);
+      toolBody.appendChild(toggleLabel);
+
+      // Visual info
+      const info = document.createElement("div");
+      info.className = "cfg-tool-manifest-info";
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "cfg-tool-manifest-name";
+      nameSpan.textContent = tool.display_name || tool.name;
+      info.appendChild(nameSpan);
+
+      const badge = document.createElement("span");
+      badge.className = `cfg-tool-source-badge cfg-tool-source-${(tool.source || "").replace(/ /g, "_")}`;
+      badge.textContent = (tool.source || "").replace(/_/g, " ");
+      info.appendChild(badge);
+
+      const desc = document.createElement("div");
+      desc.className = "cfg-tool-manifest-desc";
+      desc.textContent = tool.description || "";
+      info.appendChild(desc);
+
+      toolBody.appendChild(info);
+      toolSection.appendChild(toolBody);
+      toolsArrayBody.appendChild(toolSection);
+    });
+
+    toolsArraySection.appendChild(toolsArrayBody);
+    catBody.appendChild(toolsArraySection);
+    catSection.appendChild(catBody);
+    catArrayBody.appendChild(catSection);
+  });
+
+  catArraySection.appendChild(catArrayBody);
+  body.appendChild(catArraySection);
+  details.appendChild(body);
+  container.appendChild(details);
+}
+
+function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
+  const container = qs("file-overlay-form");
+  container.innerHTML = "";
+
+  // Decorative header
+  const header = document.createElement("div");
+  header.className = "cfg-wg-header";
+  header.innerHTML = `<h3>${escapeHtml(data.name || "Workgroup")}</h3><div class="meta">Workgroup Configuration</div>`;
+  container.appendChild(header);
+
+  // Root section
+  const details = document.createElement("details");
+  details.className = "json-section json-root";
+  details.open = true;
+  details.dataset.key = "root";
+  details.dataset.type = "object";
+
+  const summary = document.createElement("summary");
+  summary.className = "json-section-summary";
+  summary.textContent = "root";
+  details.appendChild(summary);
+
+  const body = document.createElement("div");
+  body.className = "json-section-body";
+
+  const knownKeys = new Set();
+  const emit = (el) => { body.appendChild(el); };
+  const field = (key, forceReadonly) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    const ro = readonly || forceReadonly || (lockedKeys && lockedKeys.has(key));
+    emit(renderJsonFormField(key, data[key], ro, [key]));
+  };
+  const textareaField = (key, label, forceReadonly) => {
+    knownKeys.add(key);
+    if (!(key in data)) return;
+    const ro = readonly || forceReadonly || (lockedKeys && lockedKeys.has(key));
+    emit(buildTextareaField(key, data[key], ro, label));
+  };
+
+  // General
+  emit(buildSectionDivider("General"));
+  field("name");
+  textareaField("service_description", "service_description");
+  if ("is_discoverable" in data) {
+    knownKeys.add("is_discoverable");
+    emit(buildBooleanField("is_discoverable", data.is_discoverable, readonly, ["is_discoverable"]));
+  }
+
+  // System (locked)
+  const sysDiv = buildSectionDivider("System");
+  sysDiv.classList.add("cfg-section-locked");
+  emit(sysDiv);
+  field("id", true);
+  field("owner_id", true);
+  field("created_at", true);
+
+  // Fallback: unknown keys
+  for (const [k, v] of Object.entries(data)) {
+    if (!knownKeys.has(k)) {
+      emit(renderJsonFormField(k, v, readonly, [k]));
+    }
+  }
+
+  details.appendChild(body);
+  container.appendChild(details);
 }
 
 function buildScalarField(key, type, value, readonly, path) {
@@ -247,6 +768,84 @@ function buildCollapsibleSection(key, value, readonly, path, isArray, lockedKeys
   return details;
 }
 
+function buildSectionDivider(title) {
+  const div = document.createElement("div");
+  div.className = "cfg-section-header";
+  div.textContent = title;
+  return div;
+}
+
+function buildTextareaField(key, value, readonly, label) {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-field-wide";
+  wrap.dataset.key = key;
+
+  const span = document.createElement("span");
+  span.className = "json-field-label";
+  span.textContent = label || key;
+
+  const ta = document.createElement("textarea");
+  ta.dataset.type = "string";
+  ta.dataset.key = key;
+  ta.value = value ?? "";
+  ta.rows = 3;
+  if (readonly) ta.disabled = true;
+
+  wrap.appendChild(span);
+  wrap.appendChild(ta);
+  return wrap;
+}
+
+function buildRangeField(key, value, readonly, min, max, step, label) {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-range-field";
+  wrap.dataset.key = key;
+
+  const span = document.createElement("span");
+  span.className = "json-field-label";
+  span.textContent = label || key;
+
+  const row = document.createElement("div");
+  row.className = "cfg-range-row";
+
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = min;
+  input.max = max;
+  input.step = step;
+  input.value = value ?? min;
+  input.dataset.type = "number";
+  input.dataset.key = key;
+  if (readonly) input.disabled = true;
+
+  const valSpan = document.createElement("span");
+  valSpan.className = "cfg-range-value";
+  valSpan.textContent = value ?? min;
+
+  input.oninput = () => { valSpan.textContent = input.value; };
+
+  row.appendChild(input);
+  row.appendChild(valSpan);
+  wrap.appendChild(span);
+  wrap.appendChild(row);
+  return wrap;
+}
+
+function buildHiddenField(key, value) {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-hidden-field";
+  wrap.dataset.key = key;
+
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.dataset.type = "string";
+  input.dataset.key = key;
+  input.value = value ?? "";
+
+  wrap.appendChild(input);
+  return wrap;
+}
+
 function collectJsonFromForm() {
   const root = qs("file-overlay-form").querySelector(".json-section");
   if (!root) return null;
@@ -277,7 +876,7 @@ function collectJsonValue(el) {
     }
   }
 
-  const input = el.querySelector("input") || el;
+  const input = el.querySelector("input, textarea") || el;
   const type = input.dataset.type;
 
   switch (type) {
@@ -648,10 +1247,24 @@ function normalizeWorkgroupFiles(files) {
       id = `${id}:${suffix}`;
     }
 
+    const topic_id = (item && typeof item === "object") ? String(item.topic_id || "") : "";
+
     seenIds.add(id);
-    normalized.push({ id, path, content });
+    normalized.push({ id, path, content, topic_id });
   }
   return normalized;
+}
+
+function filesForConversationContext(files, workgroupId) {
+  const conversationId = state.activeConversationId;
+  if (!conversationId || !workgroupId) return files;
+  const conversation = conversationById(workgroupId, conversationId);
+  if (!conversation || conversation.kind === "admin") return files;
+  if (conversation.kind === "topic") {
+    return files.filter(f => !f.topic_id || f.topic_id === conversationId);
+  }
+  // direct and everything else: shared files only
+  return files.filter(f => !f.topic_id);
 }
 
 function normalizePathEntry(value) {
@@ -842,6 +1455,21 @@ function updateFileSelection(workgroupId, fileId) {
   }
 }
 
+function showOverlaySplit() {
+  const chatPanel = document.getElementById("chat-panel");
+  document.getElementById("file-overlay-resize-handle").classList.remove("hidden");
+  chatPanel.classList.add("overlay-split");
+  const prefs = (state.user && state.user.preferences) || {};
+  if (prefs.overlayHeight) {
+    chatPanel.style.setProperty("--overlay-height", prefs.overlayHeight + "px");
+  }
+}
+
+function hideOverlaySplit() {
+  document.getElementById("file-overlay-resize-handle").classList.add("hidden");
+  document.getElementById("chat-panel").classList.remove("overlay-split");
+}
+
 function openFileOverlay(workgroupId, fileId) {
   const data = state.treeData[workgroupId];
   if (!data) {
@@ -874,10 +1502,18 @@ function openFileOverlay(workgroupId, fileId) {
     if (parsed.ok) {
       rendered.innerHTML = "";
       rendered.classList.add("hidden");
-      const lockedKeys = file.path.endsWith("workgroup.json")
-        ? new Set(["id", "owner_id", "created_at"])
-        : null;
-      renderJsonForm(parsed.data, !isOwner, lockedKeys);
+      if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
+        renderAgentConfigForm(parsed.data, !isOwner);
+      } else if (isToolsManifestPath(file.path) && isToolsManifestShape(parsed.data)) {
+        renderToolsManifestForm(parsed.data, !isOwner);
+      } else if (isWorkgroupConfigPath(file.path)) {
+        renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
+      } else {
+        const lockedKeys = file.path.endsWith("workgroup.json")
+          ? new Set(["id", "owner_id", "created_at"])
+          : null;
+        renderJsonForm(parsed.data, !isOwner, lockedKeys);
+      }
       rawToggle.classList.remove("hidden");
       setFileOverlayViewMode("form");
       updateFileOverlayEditButton(isOwner, true, true);
@@ -935,6 +1571,7 @@ function openFileOverlay(workgroupId, fileId) {
   qs("file-overlay-delete").classList.toggle("hidden", !isOwner);
 
   qs("file-overlay").classList.remove("hidden");
+  showOverlaySplit();
   state.fileOverlayOpen = true;
   state.fileOverlayWorkgroupId = workgroupId;
   state.fileOverlayFileId = fileId;
@@ -970,6 +1607,7 @@ function openConfigOverlay(workgroupId, label, data) {
   qs("file-overlay-delete").classList.add("hidden");
 
   qs("file-overlay").classList.remove("hidden");
+  showOverlaySplit();
   state.fileOverlayOpen = true;
   state.fileOverlayWorkgroupId = workgroupId;
   state.fileOverlayFileId = "";
@@ -991,12 +1629,20 @@ async function openConfigAndAdmin(workgroupId, label, configData) {
 }
 
 function closeFileOverlay() {
+  document.querySelector(".cfg-tool-picker-backdrop")?.remove();
   qs("file-overlay").classList.add("hidden");
+  hideOverlaySplit();
   state.fileOverlayOpen = false;
   state.fileOverlayShowRaw = false;
   state.fileOverlayViewMode = "raw";
   state.fileOverlayParsedJson = null;
   state.fileOverlayLastContent = "";
+  state.fileOverlayMemberContext = null;
+
+  state.fileBrowserOpen = false;
+  state.fileBrowserWorkgroupId = "";
+  state.fileBrowserPath = [];
+  state.fileBrowserFileId = "";
 
   const rendered = qs("file-overlay-rendered");
   rendered.innerHTML = "";
@@ -1006,6 +1652,10 @@ function closeFileOverlay() {
   form.innerHTML = "";
   form.classList.add("hidden");
 
+  const listing = qs("file-browser-listing");
+  listing.innerHTML = "";
+  listing.classList.add("hidden");
+
   const editBtn = qs("file-overlay-edit");
   editBtn.textContent = "Edit";
 
@@ -1014,10 +1664,263 @@ function closeFileOverlay() {
   qs("file-overlay-content").classList.remove("hidden");
   qs("file-overlay-raw-toggle").classList.add("hidden");
 
+  // Restore title elements that renderFileBrowser may have hidden
+  qs("file-overlay-path").classList.remove("hidden");
+  qs("file-overlay-workgroup").classList.remove("hidden");
+  const breadcrumbWrap = qs("file-browser-breadcrumb");
+  breadcrumbWrap.innerHTML = "";
+  breadcrumbWrap.classList.add("hidden");
+
   qs("composer-file-context").classList.add("hidden");
 }
 
+function openFileBrowser(workgroupId, pathSegments = []) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  state.fileBrowserOpen = true;
+  state.fileBrowserWorkgroupId = workgroupId;
+  state.fileBrowserPath = pathSegments;
+  state.fileBrowserFileId = "";
+
+  state.fileOverlayOpen = false;
+  state.fileOverlayParsedJson = null;
+
+  renderFileBrowser();
+}
+
+function renderFileBrowserBreadcrumbs() {
+  const data = state.treeData[state.fileBrowserWorkgroupId];
+  const wgName = data?.workgroup?.name || "Files";
+  const parts = [];
+
+  // Root crumb (workgroup name)
+  if (state.fileBrowserPath.length > 0 || state.fileBrowserFileId) {
+    parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="0">${escapeHtml(wgName)}</button>`);
+  } else {
+    parts.push(`<span class="file-browser-crumb-current">${escapeHtml(wgName)}</span>`);
+  }
+
+  // Path segments
+  for (let i = 0; i < state.fileBrowserPath.length; i++) {
+    parts.push(`<span class="file-browser-sep">\u203A</span>`);
+    const isLast = i === state.fileBrowserPath.length - 1 && !state.fileBrowserFileId;
+    if (isLast) {
+      parts.push(`<span class="file-browser-crumb-current">${escapeHtml(state.fileBrowserPath[i])}</span>`);
+    } else {
+      parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="${i + 1}">${escapeHtml(state.fileBrowserPath[i])}</button>`);
+    }
+  }
+
+  // File name breadcrumb
+  if (state.fileBrowserFileId) {
+    const files = filesForConversationContext(normalizeWorkgroupFiles(data?.workgroup?.files), state.fileBrowserWorkgroupId);
+    const file = files.find((f) => f.id === state.fileBrowserFileId);
+    if (file) {
+      const fileName = file.path.split("/").pop() || file.path;
+      parts.push(`<span class="file-browser-sep">\u203A</span>`);
+      parts.push(`<span class="file-browser-crumb-current">${escapeHtml(fileName)}</span>`);
+    }
+  }
+
+  return `<div class="file-browser-breadcrumbs">${parts.join("")}</div>`;
+}
+
+function renderFileBrowserListing(node) {
+  const folders = Array.from(node.folders.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
+  const files = [...node.files]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+
+  if (!folders.length && !files.length) {
+    return `<div class="finder-empty">Empty folder</div>`;
+  }
+
+  let html = "";
+
+  for (const [folderName, folderNode] of folders) {
+    const childCount = folderNode.folders.size + folderNode.files.length;
+    const itemLabel = childCount + " item" + (childCount !== 1 ? "s" : "");
+    html += `<button class="file-browser-item" data-action="browser-drill" data-folder="${escapeHtml(folderName)}">
+      <span class="finder-icon folder">${FINDER_FOLDER_ICON_SVG}</span>
+      <span class="file-browser-name">${escapeHtml(folderName)}</span>
+      <span class="file-browser-meta">${itemLabel}</span>
+    </button>`;
+  }
+
+  for (const file of files) {
+    const iconClass = file.isLink ? "link" : "file";
+    const iconSvg = file.isLink ? FINDER_LINK_ICON_SVG : FINDER_FILE_ICON_SVG;
+    html += `<button class="file-browser-item" data-action="browser-open-file" data-file-id="${escapeHtml(file.id)}" data-workgroup="${escapeHtml(state.fileBrowserWorkgroupId)}">
+      <span class="finder-icon ${iconClass}">${iconSvg}</span>
+      <span class="file-browser-name">${escapeHtml(file.name)}</span>
+      <span class="file-browser-meta">File</span>
+    </button>`;
+  }
+
+  return html;
+}
+
+function renderFileBrowser() {
+  const data = state.treeData[state.fileBrowserWorkgroupId];
+  if (!data) return;
+
+  const overlay = qs("file-overlay");
+  const listing = qs("file-browser-listing");
+  const pre = qs("file-overlay-content");
+  const rendered = qs("file-overlay-rendered");
+  const form = qs("file-overlay-form");
+
+  // Show breadcrumbs, hide normal title elements
+  qs("file-overlay-path").classList.add("hidden");
+  qs("file-overlay-workgroup").classList.add("hidden");
+  const breadcrumbEl = qs("file-browser-breadcrumb");
+  breadcrumbEl.innerHTML = renderFileBrowserBreadcrumbs();
+  breadcrumbEl.classList.remove("hidden");
+
+  if (state.fileBrowserFileId) {
+    // Viewing a file within the browser
+    listing.innerHTML = "";
+    listing.classList.add("hidden");
+
+    // Set file overlay state so edit/delete handlers work
+    state.fileOverlayOpen = true;
+    state.fileOverlayWorkgroupId = state.fileBrowserWorkgroupId;
+    state.fileOverlayFileId = state.fileBrowserFileId;
+
+    const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
+    const file = files.find((f) => f.id === state.fileBrowserFileId);
+    if (!file) return;
+
+    const isOwner = isWorkgroupOwner(state.fileBrowserWorkgroupId);
+
+    // Reuse existing file rendering logic
+    pre.textContent = file.content;
+    state.fileOverlayShowRaw = false;
+    state.fileOverlayLastContent = file.content;
+
+    const rawToggle = qs("file-overlay-raw-toggle");
+
+    if (isJsonFile(file.path)) {
+      const parsed = tryParseJson(file.content);
+      state.fileOverlayParsedJson = parsed.ok ? parsed.data : null;
+
+      if (parsed.ok) {
+        rendered.innerHTML = "";
+        rendered.classList.add("hidden");
+        if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
+          renderAgentConfigForm(parsed.data, !isOwner);
+        } else if (isWorkgroupConfigPath(file.path)) {
+          renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
+        } else {
+          const lockedKeys = file.path.endsWith("workgroup.json")
+            ? new Set(["id", "owner_id", "created_at"])
+            : null;
+          renderJsonForm(parsed.data, !isOwner, lockedKeys);
+        }
+        rawToggle.classList.remove("hidden");
+        setFileOverlayViewMode("form");
+        updateFileOverlayEditButton(isOwner, true, true);
+      } else {
+        form.innerHTML = "";
+        form.classList.add("hidden");
+        rendered.innerHTML = "";
+        rendered.classList.add("hidden");
+        pre.classList.remove("hidden");
+        rawToggle.classList.add("hidden");
+        state.fileOverlayViewMode = "raw";
+        state.fileOverlayParsedJson = null;
+        const editBtn = qs("file-overlay-edit");
+        editBtn.textContent = "Edit";
+        editBtn.classList.toggle("hidden", !isOwner);
+      }
+    } else if (isMarkdownFile(file.path)) {
+      form.innerHTML = "";
+      form.classList.add("hidden");
+      state.fileOverlayParsedJson = null;
+      state.fileOverlayViewMode = "raw";
+      pre.classList.add("hidden");
+      rendered.innerHTML = renderMarkdown(file.content);
+      rendered.classList.remove("hidden");
+      rawToggle.textContent = "Raw";
+      rawToggle.classList.remove("hidden");
+      const editBtn = qs("file-overlay-edit");
+      editBtn.textContent = "Edit";
+      editBtn.classList.toggle("hidden", !isOwner);
+    } else if (isImageFile(file.path) || isDataUrl(file.content)) {
+      form.innerHTML = "";
+      form.classList.add("hidden");
+      state.fileOverlayParsedJson = null;
+      state.fileOverlayViewMode = "raw";
+      pre.classList.add("hidden");
+      const src = escapeHtml(file.content);
+      rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
+      rendered.classList.remove("hidden");
+      rawToggle.classList.add("hidden");
+      qs("file-overlay-edit").classList.add("hidden");
+    } else {
+      form.innerHTML = "";
+      form.classList.add("hidden");
+      state.fileOverlayParsedJson = null;
+      state.fileOverlayViewMode = "raw";
+      pre.classList.remove("hidden");
+      rendered.innerHTML = "";
+      rendered.classList.add("hidden");
+      rawToggle.classList.add("hidden");
+      const editBtn = qs("file-overlay-edit");
+      editBtn.textContent = "Edit";
+      editBtn.classList.toggle("hidden", !isOwner);
+    }
+
+    qs("file-overlay-delete").classList.toggle("hidden", !isOwner);
+
+    // Show composer file context
+    const ctxBar = qs("composer-file-context");
+    ctxBar.innerHTML = `<span>Attached: <strong>${escapeHtml(file.path)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
+    ctxBar.classList.remove("hidden");
+  } else {
+    // Browsing directory listing
+    state.fileOverlayOpen = false;
+    state.fileOverlayParsedJson = null;
+
+    pre.classList.add("hidden");
+    rendered.innerHTML = "";
+    rendered.classList.add("hidden");
+    form.innerHTML = "";
+    form.classList.add("hidden");
+    qs("file-overlay-raw-toggle").classList.add("hidden");
+    qs("file-overlay-edit").classList.add("hidden");
+    qs("file-overlay-delete").classList.add("hidden");
+    qs("composer-file-context").classList.add("hidden");
+
+    // Navigate to the current path in the file tree
+    const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
+    const tree = buildWorkgroupFileTree(files);
+    let node = tree;
+    for (const segment of state.fileBrowserPath) {
+      if (node.folders.has(segment)) {
+        node = node.folders.get(segment);
+      } else {
+        // Path no longer exists, reset to root
+        state.fileBrowserPath = [];
+        node = tree;
+        break;
+      }
+    }
+
+    listing.innerHTML = renderFileBrowserListing(node);
+    listing.classList.remove("hidden");
+  }
+
+  overlay.classList.remove("hidden");
+  showOverlaySplit();
+}
+
 function refreshFileOverlayIfOpen() {
+  if (state.fileBrowserOpen) {
+    renderFileBrowser();
+    return;
+  }
   if (!state.fileOverlayOpen) {
     return;
   }
@@ -1057,10 +1960,18 @@ function refreshFileOverlayIfOpen() {
     if (parsed.ok) {
       rendered.innerHTML = "";
       rendered.classList.add("hidden");
-      const lockedKeys = file.path.endsWith("workgroup.json")
-        ? new Set(["id", "owner_id", "created_at"])
-        : null;
-      renderJsonForm(parsed.data, !isOwner, lockedKeys);
+      if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
+        renderAgentConfigForm(parsed.data, !isOwner);
+      } else if (isToolsManifestPath(file.path) && isToolsManifestShape(parsed.data)) {
+        renderToolsManifestForm(parsed.data, !isOwner);
+      } else if (isWorkgroupConfigPath(file.path)) {
+        renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
+      } else {
+        const lockedKeys = file.path.endsWith("workgroup.json")
+          ? new Set(["id", "owner_id", "created_at"])
+          : null;
+        renderJsonForm(parsed.data, !isOwner, lockedKeys);
+      }
       rawToggle.classList.remove("hidden");
       if (state.fileOverlayViewMode === "form") {
         setFileOverlayViewMode("form");
@@ -2181,11 +3092,14 @@ function addWorkgroupFile(workgroupId) {
     subtitle: data.workgroup.name,
     onSubmit: async ({ path, content }) => {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
-      const exists = files.some((item) => item.path === path);
+      const scopedFiles = filesForConversationContext(files, workgroupId);
+      const exists = scopedFiles.some((item) => item.path === path);
       if (exists) {
         throw new Error("A file with that path already exists");
       }
-      const newFile = { id: newWorkgroupFileId(), path, content };
+      const conversation = conversationById(workgroupId, state.activeConversationId);
+      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = newFile.id;
       renderTree();
@@ -2351,6 +3265,134 @@ async function ensureAgentLearningsFile(workgroupId, agent) {
   openFileOverlay(workgroupId, file.id);
 }
 
+async function ensureWorkgroupConfigFile(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  const wg = data.workgroup;
+  const filePath = "workgroup.json";
+  const files = normalizeWorkgroupFiles(wg?.files);
+
+  const configData = {
+    id: wg.id,
+    name: wg.name,
+    service_description: wg.service_description || "",
+    is_discoverable: !!wg.is_discoverable,
+    owner_id: wg.owner_id,
+    created_at: wg.created_at,
+  };
+  const content = JSON.stringify(configData, null, 2);
+
+  let file = files.find((f) => f.path === filePath);
+  let needsSave = false;
+
+  if (!file) {
+    file = { id: newWorkgroupFileId(), path: filePath, content };
+    needsSave = true;
+  } else if (file.content !== content) {
+    file = { ...file, content };
+    needsSave = true;
+  }
+
+  if (needsSave) {
+    const updatedFiles = files.filter((f) => f.path !== filePath);
+    updatedFiles.push(file);
+    try {
+      await saveWorkgroupFiles(workgroupId, updatedFiles);
+    } catch (err) {
+      flash(err.message || "Failed to save workgroup config", "error");
+      return;
+    }
+  }
+
+  const admin = data.topics.find((c) => c.kind === "admin");
+  if (admin) {
+    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+  }
+
+  state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
+  openFileOverlay(workgroupId, file.id);
+}
+
+async function buildToolsManifest(workgroupId) {
+  return await api(`/api/workgroups/${workgroupId}/tools/catalog`);
+}
+
+function mergeToolsManifest(existing, fresh) {
+  const existingByName = {};
+  for (const cat of (existing.categories || [])) {
+    for (const tool of (cat.tools || [])) {
+      existingByName[tool.name] = tool;
+    }
+  }
+  const merged = { ...fresh };
+  merged.categories = (fresh.categories || []).map((cat) => ({
+    ...cat,
+    tools: (cat.tools || []).map((tool) => {
+      const prev = existingByName[tool.name];
+      return prev !== undefined ? { ...tool, enabled: prev.enabled } : tool;
+    }),
+  }));
+  return merged;
+}
+
+async function ensureToolsManifestFile(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  const filePath = "tools.json";
+  const files = normalizeWorkgroupFiles(data.workgroup?.files);
+
+  let fresh;
+  try {
+    fresh = await buildToolsManifest(workgroupId);
+  } catch (err) {
+    flash(err.message || "Failed to load tool catalog", "error");
+    return;
+  }
+
+  let existingFile = files.find((f) => f.path === filePath);
+  let manifestData = fresh;
+
+  if (existingFile) {
+    const parsed = tryParseJson(existingFile.content);
+    if (parsed.ok && isToolsManifestShape(parsed.data)) {
+      manifestData = mergeToolsManifest(parsed.data, fresh);
+    }
+  }
+
+  const content = JSON.stringify(manifestData, null, 2);
+  let file = existingFile;
+  let needsSave = false;
+
+  if (!file) {
+    file = { id: newWorkgroupFileId(), path: filePath, content };
+    needsSave = true;
+  } else if (file.content !== content) {
+    file = { ...file, content };
+    needsSave = true;
+  }
+
+  if (needsSave) {
+    const updatedFiles = files.filter((f) => f.path !== filePath);
+    updatedFiles.push(file);
+    try {
+      await saveWorkgroupFiles(workgroupId, updatedFiles);
+    } catch (err) {
+      flash(err.message || "Failed to save tools manifest", "error");
+      return;
+    }
+  }
+
+  const admin = data.topics.find((c) => c.kind === "admin");
+  if (admin) {
+    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+  }
+
+  state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
+  openFileOverlay(workgroupId, file.id);
+}
+
 async function ensureAgentConfigFile(workgroupId, agent) {
   const data = state.treeData[workgroupId];
   if (!data) return;
@@ -2408,36 +3450,117 @@ async function ensureAgentConfigFile(workgroupId, agent) {
   openFileOverlay(workgroupId, file.id);
 }
 
-async function createTopicPrompt(workgroupId) {
-  const topicName = prompt("Topic name:");
-  if (!topicName || !topicName.trim()) {
-    return;
-  }
-  const name = topicName.trim();
+async function inviteMemberPrompt(workgroupId) {
+  const email = prompt("Email address to invite:");
+  if (!email || !email.trim()) return;
   try {
-    const result = await api(`/api/workgroups/${workgroupId}/conversations`, {
+    await api(`/api/workgroups/${workgroupId}/invites`, {
       method: "POST",
-      body: {
-        kind: "topic",
-        topic: name,
-        name: name,
-        description: "",
-        participant_user_ids: [],
-        participant_agent_ids: [],
-      },
+      body: { email: email.trim() },
     });
-    const data = state.treeData[workgroupId];
-    if (data) {
-      await refreshWorkgroupTree(data.workgroup);
+    flash(`Invite sent to ${email.trim()}`, "success");
+    if (state.treeData[workgroupId]) {
+      await refreshWorkgroupTree(state.treeData[workgroupId].workgroup);
       renderTree();
     }
-    if (result?.id) {
-      await selectConversation(workgroupId, result.id, `topic:${workgroupId}:${result.id}`);
-    }
-    flash(`Topic "${name}" created`, "success");
   } catch (error) {
-    flash(error.message || "Failed to create topic", "error");
+    flash(error.message || "Failed to send invite", "error");
   }
+}
+
+function slugify(text) {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function createTopicPrompt(workgroupId) {
+  const data = state.treeData[workgroupId];
+  const workgroupName = data?.workgroup?.name || "Workgroup";
+  let keyTouched = false;
+
+  openSettingsModal({
+    title: "New topic",
+    subtitle: `${workgroupName} · New topic`,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">Display name</span>
+        <input name="name" type="text" required maxlength="120" placeholder="e.g. Design Reviews" autofocus />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Topic key <span class="settings-field-auto" id="topic-key-auto">auto</span></span>
+        <div class="settings-slug-wrap">
+          <span class="topic-key-prefix">#</span>
+          <input name="topic" type="text" required maxlength="120" class="settings-slug-input" placeholder="topic-key" />
+        </div>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Description</span>
+        <textarea name="description" rows="3" placeholder="What's this topic about?"></textarea>
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Create</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const name = String(formData.get("name") || "").trim();
+      const topic = String(formData.get("topic") || "").trim();
+      const description = String(formData.get("description") || "").trim();
+      if (!name) throw new Error("Display name cannot be empty");
+      if (!topic) throw new Error("Topic key cannot be empty");
+
+      const result = await api(`/api/workgroups/${workgroupId}/conversations`, {
+        method: "POST",
+        body: {
+          kind: "topic",
+          topic,
+          name,
+          description,
+          participant_user_ids: [],
+          participant_agent_ids: [],
+        },
+      });
+      const treeData = state.treeData[workgroupId];
+      if (treeData) {
+        await refreshWorkgroupTree(treeData.workgroup);
+        renderTree();
+      }
+      if (result?.id) {
+        await selectConversation(workgroupId, result.id, `topic:${workgroupId}:${result.id}`);
+      }
+      flash(`Topic "${name}" created`, "success");
+    },
+    onRender: (form) => {
+      const nameInput = form.querySelector("input[name='name']");
+      const topicInput = form.querySelector("input[name='topic']");
+      const autoIndicator = form.querySelector("#topic-key-auto");
+
+      nameInput.addEventListener("input", () => {
+        if (!keyTouched) {
+          topicInput.value = slugify(nameInput.value);
+        }
+      });
+
+      topicInput.addEventListener("input", () => {
+        if (topicInput.value === "") {
+          keyTouched = false;
+          if (autoIndicator) autoIndicator.style.display = "";
+        } else {
+          const expected = slugify(nameInput.value);
+          if (topicInput.value !== expected) {
+            keyTouched = true;
+            if (autoIndicator) autoIndicator.style.display = "none";
+          }
+        }
+      });
+
+      topicInput.addEventListener("focus", () => {
+        if (!keyTouched && topicInput.value) {
+          keyTouched = true;
+          if (autoIndicator) autoIndicator.style.display = "none";
+        }
+      });
+    },
+  });
 }
 
 function openTopicSettings(workgroupId, conversationId) {
@@ -2452,21 +3575,31 @@ function openTopicSettings(workgroupId, conversationId) {
   const canClearHistory = editable && isWorkgroupOwner(workgroupId);
   const disabledAttr = editable ? "" : "disabled";
   const note = editable
-    ? canClearHistory
-      ? ""
-      : "<p class='meta settings-note'>Only workgroup owners can clear topic history.</p>"
+    ? ""
     : "<p class='meta settings-note'>Administration topic settings are managed by the system.</p>";
-  const clearHistoryButton = editable
-    ? `<button type="button" class="danger" data-action="clear-topic-history" ${canClearHistory ? "" : "disabled"}>Clear history</button>`
+  const dangerZone = editable
+    ? `<div class="settings-danger-zone">
+        <div class="settings-danger-zone-title">Danger zone</div>
+        ${canClearHistory
+          ? `<button type="button" class="danger" data-action="clear-topic-history">Clear history</button>`
+          : `<button type="button" class="danger" data-action="clear-topic-history" disabled>Clear history</button>
+             <p class='meta settings-note'>Only workgroup owners can clear topic history.</p>`}
+      </div>`
     : "";
 
   openSettingsModal({
     title: "Topic settings",
     subtitle: `${data.workgroup.name} · ${topicDisplayName(conversation)}`,
     formHtml: `
+      <div class="topic-preview">
+        <h2>${escapeHtml(topicDisplayName(conversation))}</h2>
+      </div>
       <label class="settings-field">
         <span class="settings-label">Topic key</span>
-        <input name="topic" type="text" required maxlength="120" value="${escapeHtml(conversation.topic || "")}" ${disabledAttr} />
+        <div class="settings-slug-wrap">
+          <span class="topic-key-prefix">#</span>
+          <input name="topic" type="text" required maxlength="120" class="settings-slug-input" value="${escapeHtml(conversation.topic || "")}" ${disabledAttr} />
+        </div>
       </label>
       <label class="settings-field">
         <span class="settings-label">Display name</span>
@@ -2477,8 +3610,8 @@ function openTopicSettings(workgroupId, conversationId) {
         <textarea name="description" rows="4" ${disabledAttr}>${escapeHtml(conversation.description || "")}</textarea>
       </label>
       ${note}
+      ${dangerZone}
       <div class="settings-actions">
-        ${clearHistoryButton}
         <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
         <button type="submit" ${disabledAttr}>Save</button>
       </div>
@@ -2562,351 +3695,204 @@ async function openAgentSettings(workgroupId, agentId) {
     return;
   }
 
-  const [availableTools, learnings] = await Promise.all([
-    api(`/api/workgroups/${workgroupId}/tools`).catch(() => []),
-    api(`/api/workgroups/${workgroupId}/agents/${agentId}/learnings`).catch(() => null),
-  ]);
+  await ensureAgentConfigFile(workgroupId, agent);
+}
 
-  const editable = isWorkgroupOwner(workgroupId);
-  const disabledAttr = editable ? "" : "disabled";
-  const ownerNote = editable ? "" : "<p class='meta settings-note'>Only workgroup owners can edit agent settings.</p>";
-  const clearConversationAction = editable
-    ? '<button type="button" class="danger" data-action="settings-clear-agent-conversation">Clear conversation</button>'
-    : "";
+function renderMemberContactCard(member, isOwner) {
+  const container = qs("file-overlay-form");
+  container.innerHTML = "";
 
-  const currentIcon = agent.icon || "";
-  const iconPreviewContent = currentIcon
-    ? `<img src="${escapeHtml(currentIcon)}" alt="" />`
-    : generateBotSvg(agent.name);
-  const iconUploadHtml = `
-    <div class="settings-field">
-      <span class="settings-label">Icon</span>
-      <div class="icon-upload-wrap">
-        <div class="icon-upload-preview" id="agent-icon-preview">${iconPreviewContent}</div>
-        <div class="icon-upload-controls">
-          <input type="file" accept="image/*" id="agent-icon-file" ${disabledAttr} />
-          <input type="hidden" name="icon" id="agent-icon-data" value="${escapeHtml(currentIcon)}" />
-          ${currentIcon ? `<button type="button" class="secondary" id="agent-icon-remove" ${disabledAttr} style="font-size:0.75rem;padding:4px 8px;">Remove</button>` : ""}
-        </div>
-      </div>
-    </div>
-  `;
+  // Header with avatar
+  const header = document.createElement("div");
+  header.className = "cfg-agent-header";
+  const avatarEl = document.createElement("div");
+  avatarEl.className = "cfg-agent-avatar";
+  if (member.picture) {
+    avatarEl.innerHTML = `<img src="${escapeHtml(member.picture)}" alt="">`;
+  } else {
+    avatarEl.innerHTML = generateHumanSvg(member.name || member.email);
+  }
+  const nameBlock = document.createElement("div");
+  nameBlock.innerHTML = `<strong>${escapeHtml(member.name || member.email)}</strong>`;
+  if (member.role) nameBlock.innerHTML += `<div class="meta">${escapeHtml(member.role)}</div>`;
+  header.appendChild(avatarEl);
+  header.appendChild(nameBlock);
+  container.appendChild(header);
 
-  openSettingsModal({
-    title: "Agent settings",
-    subtitle: `${data.workgroup.name} · ${agent.name}`,
-    formHtml: `
-      ${iconUploadHtml}
-      <label class="settings-field">
-        <span class="settings-label">Name</span>
-        <input name="name" type="text" required maxlength="80" value="${escapeHtml(agent.name)}" ${disabledAttr} />
-      </label>
-      <label class="settings-field">
-        <span class="settings-label">Role</span>
-        <input name="role" type="text" value="${escapeHtml(agent.role || "")}" ${disabledAttr} />
-      </label>
-      <label class="settings-field">
-        <span class="settings-label">Description</span>
-        <textarea name="description" rows="3" ${disabledAttr}>${escapeHtml(agent.description || "")}</textarea>
-      </label>
-      <label class="settings-field">
-        <span class="settings-label">Personality</span>
-        <textarea name="personality" rows="3" ${disabledAttr}>${escapeHtml(agent.personality || "")}</textarea>
-      </label>
-      <label class="settings-field">
-        <span class="settings-label">Backstory</span>
-        <textarea name="backstory" rows="3" ${disabledAttr}>${escapeHtml(agent.backstory || "")}</textarea>
-      </label>
-      <div class="settings-grid">
-        <label class="settings-field">
-          <span class="settings-label">Model</span>
-          <input name="model" type="text" value="${escapeHtml(agent.model || "")}" ${disabledAttr} />
-        </label>
-        <label class="settings-field">
-          <span class="settings-label">Temperature</span>
-          <input name="temperature" type="number" step="0.01" min="0" max="2" value="${escapeHtml(String(agent.temperature ?? 0.7))}" ${disabledAttr} />
-        </label>
-        <label class="settings-field">
-          <span class="settings-label">Verbosity</span>
-          <input name="verbosity" id="agent-verbosity" type="range" step="0.05" min="0" max="1" value="${escapeHtml(
-            String(agent.verbosity ?? 0.5),
-          )}" ${disabledAttr} />
-          <span class="meta">Current: <strong id="agent-verbosity-value">${escapeHtml(
-            Number(agent.verbosity ?? 0.5).toFixed(2),
-          )}</strong> (low = terse, high = detailed)</span>
-        </label>
-        <label class="settings-field">
-          <span class="settings-label">Response threshold</span>
-          <input name="response_threshold" type="number" step="0.01" min="0" max="1" value="${escapeHtml(
-            String(agent.response_threshold ?? 0.55),
-          )}" ${disabledAttr} />
-        </label>
-        <label class="settings-field">
-          <span class="settings-label">Follow-up minutes</span>
-          <input name="follow_up_minutes" type="number" step="1" min="1" max="10080" value="${escapeHtml(
-            String(agent.follow_up_minutes ?? 60),
-          )}" ${disabledAttr} />
-        </label>
-      </div>
-      <div class="settings-field">
-        <span class="settings-label">Tools</span>
-        <div class="tool-picker">
-          ${(() => {
-            const agentToolNames = agent.tool_names || [];
-            const knownNames = new Set(availableTools.map((t) => t.name));
-            const unknownTools = agentToolNames.filter((n) => !knownNames.has(n));
-            const toolItems = availableTools
-              .map((t) => {
-                const checked = agentToolNames.includes(t.name) ? "checked" : "";
-                const typeClass = t.tool_type === "custom" ? " custom" : t.tool_type === "webhook" ? " webhook" : "";
-                return `<label class="tool-picker-item">
-                  <input type="checkbox" name="tool_names" value="${escapeHtml(t.name)}" ${checked} ${disabledAttr} />
-                  <div>
-                    <span class="tool-picker-name">${escapeHtml(t.display_name || t.name)}</span>
-                    <span class="tool-picker-type${typeClass}">${escapeHtml(t.tool_type || "builtin")}</span>
-                    ${t.description ? `<span class="tool-picker-desc meta">${escapeHtml(t.description)}</span>` : ""}
-                  </div>
-                </label>`;
-              })
-              .join("");
-            const unknownItems = unknownTools
-              .map((n) => {
-                return `<label class="tool-picker-item">
-                  <input type="checkbox" name="tool_names" value="${escapeHtml(n)}" checked ${disabledAttr} />
-                  <div>
-                    <span class="tool-picker-name" style="font-style:italic">${escapeHtml(n)}</span>
-                    <span class="tool-picker-type unknown">unknown</span>
-                  </div>
-                </label>`;
-              })
-              .join("");
-            const all = toolItems + unknownItems;
-            return all || '<div class="tool-picker-empty">No tools available</div>';
-          })()}
-        </div>
-      </div>
-      ${(() => {
-        if (!learnings) return "";
-        const { learning_state, sentiment_state, memories, recent_signals } = learnings;
-        const hasBiases = learning_state && Object.keys(learning_state).length > 0;
-        const hasSentiment = sentiment_state && Object.keys(sentiment_state).length > 0;
-        const hasMemories = memories && memories.length > 0;
-        const hasSignals = recent_signals && recent_signals.length > 0;
-        if (!hasBiases && !hasSentiment && !hasMemories && !hasSignals) {
-          return `<div class="learnings-section"><span class="settings-label">Learnings</span><div class="learnings-empty">No learnings recorded yet.</div></div>`;
-        }
+  // Root section (compatible with collectJsonFromForm)
+  const details = document.createElement("details");
+  details.className = "json-section json-root";
+  details.open = true;
+  details.dataset.key = "root";
+  details.dataset.type = "object";
 
-        let html = '<div class="learnings-section"><span class="settings-label">Learnings</span>';
+  const summary = document.createElement("summary");
+  summary.className = "json-section-summary";
+  summary.textContent = "root";
+  details.appendChild(summary);
 
-        if (hasBiases || hasSentiment) {
-          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Current Disposition</span><div class="learnings-biases">';
-          if (hasBiases) {
-            for (const [k, v] of Object.entries(learning_state)) {
-              html += `<div class="learnings-bias-item"><span class="learnings-bias-label">${escapeHtml(k.replace(/_/g, " "))}</span><span class="learnings-bias-value">${escapeHtml(typeof v === "number" ? v.toFixed(3) : String(v))}</span></div>`;
-            }
-          }
-          if (hasSentiment) {
-            for (const [k, v] of Object.entries(sentiment_state)) {
-              html += `<div class="learnings-bias-item"><span class="learnings-bias-label">${escapeHtml(k.replace(/_/g, " "))}</span><span class="learnings-bias-value">${escapeHtml(typeof v === "number" ? v.toFixed(3) : String(v))}</span></div>`;
-            }
-          }
-          html += '</div></div>';
-        }
+  const body = document.createElement("div");
+  body.className = "json-section-body";
 
-        if (hasMemories) {
-          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Long-term Memories</span><div class="learnings-list">';
-          for (const m of memories) {
-            const typeClass = { insight: "insight", correction: "correction", pattern: "pattern", domain_knowledge: "domain-knowledge" }[m.memory_type] || "";
-            html += `<div class="learnings-item"><div class="learnings-item-header"><span class="learnings-type ${escapeHtml(typeClass)}">${escapeHtml(m.memory_type.replace(/_/g, " "))}</span><span class="learnings-meta">${Math.round(m.confidence * 100)}% confidence</span></div><div class="learnings-content">${escapeHtml(m.content)}</div>${m.source_summary ? `<div class="learnings-meta">${escapeHtml(m.source_summary)}</div>` : ""}</div>`;
-          }
-          html += '</div></div>';
-        }
+  const emit = (el) => { body.appendChild(el); };
 
-        if (hasSignals) {
-          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Recent Signals</span><div class="learnings-list">';
-          for (const s of recent_signals) {
-            const brief = Object.entries(s.value || {}).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ");
-            const ts = new Date(s.created_at).toLocaleString();
-            html += `<div class="learnings-item compact"><div class="learnings-item-header"><span class="learnings-type signal">${escapeHtml(s.signal_type.replace(/_/g, " "))}</span><span class="learnings-meta">${escapeHtml(ts)}</span></div>${brief ? `<div class="learnings-content">${escapeHtml(brief)}</div>` : ""}</div>`;
-          }
-          html += '</div></div>';
-        }
+  // Identity (read-only)
+  emit(buildSectionDivider("Identity"));
+  emit(buildScalarField("name", "string", member.name || "", true, ["name"]));
+  emit(buildScalarField("email", "string", member.email || "", true, ["email"]));
 
-        html += '</div>';
-        return html;
-      })()}
-      ${ownerNote}
-      <div class="settings-actions">
-        ${clearConversationAction}
-        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
-        <button type="submit" ${disabledAttr}>Save</button>
-      </div>
-    `,
-    onSubmit: async (formData) => {
-      if (!editable) {
-        return;
-      }
+  // Role & Permissions
+  emit(buildSectionDivider("Role & Permissions"));
 
-      const temperature = Number(formData.get("temperature"));
-      const responseThreshold = Number(formData.get("response_threshold"));
-      const followUpMinutes = Number.parseInt(String(formData.get("follow_up_minutes") || ""), 10);
-      if (!Number.isFinite(temperature)) {
-        throw new Error("Temperature must be a number");
-      }
-      const verbosity = Number(formData.get("verbosity"));
-      if (!Number.isFinite(verbosity)) {
-        throw new Error("Verbosity must be a number");
-      }
-      if (!Number.isFinite(responseThreshold)) {
-        throw new Error("Response threshold must be a number");
-      }
-      if (!Number.isFinite(followUpMinutes)) {
-        throw new Error("Follow-up minutes must be a number");
-      }
+  const isSelf = member.user_id === state.user?.id;
+  const canEditRole = isOwner && !isSelf && member.role !== "owner";
 
-      const iconValue = String(formData.get("icon") || "");
-      const payload = {
-        name: String(formData.get("name") || "").trim(),
-        role: String(formData.get("role") || "").trim(),
-        description: String(formData.get("description") || "").trim(),
-        personality: String(formData.get("personality") || "").trim(),
-        backstory: String(formData.get("backstory") || "").trim(),
-        model: String(formData.get("model") || "").trim(),
-        temperature,
-        verbosity,
-        response_threshold: responseThreshold,
-        follow_up_minutes: followUpMinutes,
-        tool_names: formData.getAll("tool_names"),
-        icon: iconValue,
-      };
+  // Role field — dropdown for editable, plain text for read-only
+  const roleLabel = document.createElement("label");
+  roleLabel.className = "json-field";
+  const roleSpan = document.createElement("span");
+  roleSpan.className = "json-field-label";
+  roleSpan.textContent = "role";
+  roleLabel.appendChild(roleSpan);
 
-      if (!payload.name) {
-        throw new Error("Agent name cannot be empty");
-      }
-      if (!payload.model) {
-        throw new Error("Model cannot be empty");
-      }
+  if (canEditRole) {
+    const select = document.createElement("select");
+    select.dataset.key = "role";
+    select.dataset.type = "string";
+    for (const r of ["member", "editor"]) {
+      const opt = document.createElement("option");
+      opt.value = r;
+      opt.textContent = r;
+      if (r === member.role) opt.selected = true;
+      select.appendChild(opt);
+    }
+    roleLabel.appendChild(select);
+  } else {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = member.role || "";
+    input.disabled = true;
+    roleLabel.appendChild(input);
+  }
+  emit(roleLabel);
 
-      const updated = await api(`/api/workgroups/${workgroupId}/agents/${agentId}`, {
+  // Budget limit
+  const canEditBudget = isOwner && !isSelf;
+  emit(buildScalarField("budget_limit_usd", "number", member.budget_limit_usd ?? "", !canEditBudget, ["budget_limit_usd"]));
+
+  // Budget used (always read-only)
+  emit(buildScalarField("budget_used_usd", "number", member.budget_used_usd ?? 0, true, ["budget_used_usd"]));
+
+  details.appendChild(body);
+  container.appendChild(details);
+}
+
+async function saveMemberContactCard() {
+  const ctx = state.fileOverlayMemberContext;
+  if (!ctx) return;
+
+  const { workgroupId, memberId, originalRole, originalBudgetLimit } = ctx;
+
+  const form = qs("file-overlay-form");
+  const roleSelect = form.querySelector('select[data-key="role"]');
+  const budgetInput = form.querySelector('input[data-key="budget_limit_usd"]');
+
+  const newRole = roleSelect ? roleSelect.value : originalRole;
+  const rawBudget = budgetInput && !budgetInput.disabled ? budgetInput.value : null;
+  const newBudgetLimit = rawBudget === "" || rawBudget === null ? null : Number(rawBudget);
+
+  try {
+    if (newRole !== originalRole) {
+      await api(`/api/workgroups/${workgroupId}/members/${memberId}/role`, {
         method: "PATCH",
-        body: payload,
+        body: { role: newRole },
       });
-      applyAgentUpdateInState(workgroupId, updated);
-      flash("Agent settings saved", "success");
-    },
-    onRender: (form) => {
-      const slider = form.querySelector("#agent-verbosity");
-      const valueNode = form.querySelector("#agent-verbosity-value");
-      if (slider && valueNode) {
-        const sync = () => {
-          valueNode.textContent = Number(slider.value).toFixed(2);
-        };
-        sync();
-        slider.addEventListener("input", sync);
-      }
-
-      const iconFileInput = form.querySelector("#agent-icon-file");
-      const iconDataInput = form.querySelector("#agent-icon-data");
-      const iconPreview = form.querySelector("#agent-icon-preview");
-      const iconRemoveBtn = form.querySelector("#agent-icon-remove");
-
-      if (iconFileInput && iconDataInput && iconPreview) {
-        iconFileInput.addEventListener("change", () => {
-          const file = iconFileInput.files?.[0];
-          if (!file) return;
-          const reader = new FileReader();
-          reader.onload = () => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement("canvas");
-              canvas.width = 64;
-              canvas.height = 64;
-              const ctx = canvas.getContext("2d");
-              ctx.drawImage(img, 0, 0, 64, 64);
-              const dataUrl = canvas.toDataURL("image/png");
-              iconDataInput.value = dataUrl;
-              iconPreview.innerHTML = `<img src="${dataUrl}" alt="" />`;
-              if (iconRemoveBtn) iconRemoveBtn.style.display = "";
-            };
-            img.src = reader.result;
-          };
-          reader.readAsDataURL(file);
-        });
-      }
-
-      if (iconRemoveBtn && iconDataInput && iconPreview) {
-        iconRemoveBtn.addEventListener("click", () => {
-          iconDataInput.value = "";
-          iconPreview.innerHTML = generateBotSvg(agent.name);
-          iconRemoveBtn.style.display = "none";
-          if (iconFileInput) iconFileInput.value = "";
-        });
-      }
-
-      const clearButton = form.querySelector("[data-action='settings-clear-agent-conversation']");
-      if (!clearButton) {
-        return;
-      }
-      clearButton.addEventListener("click", async () => {
-        const confirmed = window.confirm(
-          `Clear all messages in your conversation with ${agent.name}? This cannot be undone.`,
-        );
-        if (!confirmed) {
-          return;
-        }
-
-        const originalLabel = clearButton.textContent || "Clear conversation";
-        clearButton.disabled = true;
-        clearButton.textContent = "Clearing...";
-        try {
-          const cleared = await api(`/api/workgroups/${workgroupId}/agents/${agentId}/clear-conversation`, {
-            method: "POST",
-          });
-
-          const treeData = state.treeData[workgroupId];
-          if (treeData) {
-            await refreshWorkgroupTree(treeData.workgroup);
-            renderTree();
-          }
-
-          const isActiveAgentConversation =
-            state.selectedWorkgroupId === workgroupId &&
-            state.activeNodeKey === `agent:${workgroupId}:${agentId}` &&
-            Boolean(state.activeConversationId);
-
-          if (isActiveAgentConversation && state.activeConversationId) {
-            delete state.thinkingByConversation[state.activeConversationId];
-            await loadMessages();
-          }
-
-          const deletedMessages = Number(cleared?.deleted_messages || 0);
-          if (deletedMessages > 0) {
-            const suffix = deletedMessages === 1 ? "" : "s";
-            flash(`Cleared ${deletedMessages} message${suffix}`, "success");
-          } else {
-            flash("No messages to clear", "info");
-          }
-        } catch (error) {
-          flash(error.message || "Failed to clear conversation", "error");
-        } finally {
-          clearButton.disabled = false;
-          clearButton.textContent = originalLabel;
-        }
+    }
+    if (newBudgetLimit !== originalBudgetLimit) {
+      await api(`/api/workgroups/${workgroupId}/members/${memberId}/budget`, {
+        method: "PATCH",
+        body: { budget_limit_usd: newBudgetLimit },
       });
-    },
-  });
+    }
+    flash("Member updated", "success");
+    const wg = state.treeData[workgroupId]?.workgroup;
+    if (wg) await refreshWorkgroupTree(wg);
+    renderTree();
+  } catch (err) {
+    flash(err.message || "Failed to update member", "error");
+  }
+}
+
+function openMemberContactCard(workgroupId, memberId) {
+  const data = state.treeData[workgroupId];
+  const member = data?.members.find((m) => m.user_id === memberId);
+  if (!data || !member) {
+    flash("Member not found", "error");
+    return;
+  }
+
+  const isOwner = isWorkgroupOwner(workgroupId);
+
+  qs("file-overlay-path").textContent = `member: ${member.name || member.email}`;
+  qs("file-overlay-workgroup").textContent = data.workgroup?.name || "";
+
+  qs("file-overlay-content").classList.add("hidden");
+  qs("file-overlay-rendered").innerHTML = "";
+  qs("file-overlay-rendered").classList.add("hidden");
+  qs("file-overlay-raw-toggle").classList.add("hidden");
+  qs("file-overlay-delete").classList.add("hidden");
+
+  state.fileOverlayShowRaw = false;
+  state.fileOverlayParsedJson = null;
+  state.fileOverlayLastContent = "";
+  state.fileOverlayViewMode = "form";
+
+  renderMemberContactCard(member, isOwner);
+  setFileOverlayViewMode("form");
+
+  const isSelf = member.user_id === state.user?.id;
+  const canEdit = isOwner && !isSelf;
+  const editBtn = qs("file-overlay-edit");
+  if (canEdit) {
+    editBtn.textContent = "Save";
+    editBtn.classList.remove("hidden");
+  } else {
+    editBtn.classList.add("hidden");
+  }
+
+  state.fileOverlayMemberContext = {
+    workgroupId,
+    memberId: member.user_id,
+    originalRole: member.role || "",
+    originalBudgetLimit: member.budget_limit_usd ?? null,
+  };
+
+  qs("file-overlay").classList.remove("hidden");
+  showOverlaySplit();
+  state.fileOverlayOpen = true;
+  state.fileOverlayWorkgroupId = workgroupId;
+  state.fileOverlayFileId = "";
+
+  const ctxBar = qs("composer-file-context");
+  const label = `member: ${member.name || member.email}`;
+  ctxBar.innerHTML = `<span>Viewing: <strong>${escapeHtml(label)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
+  ctxBar.classList.remove("hidden");
 }
 
 async function refreshWorkgroupTree(workgroup) {
-  const [conversations, members, agents, crossGroupTasks] = await Promise.all([
+  const isOwner = workgroup.owner_id === state.user?.id;
+  const [conversations, members, agents, crossGroupTasks, invites] = await Promise.all([
     api(`/api/workgroups/${workgroup.id}/conversations`),
     api(`/api/workgroups/${workgroup.id}/members`),
     api(`/api/workgroups/${workgroup.id}/agents?include_hidden=true`),
     api(`/api/workgroups/${workgroup.id}/cross-group-tasks`).catch(() => []),
+    isOwner ? api(`/api/workgroups/${workgroup.id}/invites`).catch(() => []) : Promise.resolve([]),
   ]);
 
   const topics = conversations.filter((item) => item.kind === "topic" || item.kind === "admin");
   const directs = conversations.filter((item) => item.kind === "direct");
+
+  const pendingInvites = (invites || []).filter((inv) => inv.status === "pending");
 
   state.treeData[workgroup.id] = {
     workgroup,
@@ -2915,6 +3901,7 @@ async function refreshWorkgroupTree(workgroup) {
     members,
     agents,
     crossGroupTasks: crossGroupTasks || [],
+    invites: pendingInvites,
   };
 
   const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id];
@@ -2929,196 +3916,232 @@ async function refreshWorkgroupTree(workgroup) {
 
 function renderTree() {
   const node = qs("treeview");
+  const breadcrumb = document.getElementById("blade-breadcrumb");
+  const createWrap = document.getElementById("workgroup-create-wrap");
+  const addBtn = document.getElementById("new-workgroup-toggle");
+
   if (!state.workgroups.length) {
+    if (breadcrumb) breadcrumb.innerHTML = "<span>Workgroups</span>";
+    if (createWrap) createWrap.classList.remove("hidden-by-blade");
+    if (addBtn) addBtn.classList.remove("hidden");
     node.innerHTML = "<p class='tree-caption'>No workgroups yet.</p>";
     updateMetrics();
     return;
   }
 
-  const html = state.workgroups
-    .map((workgroup) => {
-      const data = state.treeData[workgroup.id];
-      if (!data) {
-        return "";
-      }
+  const drillId = state.bladeWorkgroupId;
 
-      const isExpanded =
-        workgroup.id === state.selectedWorkgroupId || Boolean(state.expandedWorkgroupIds[workgroup.id]);
-      const groupOpen = isExpanded ? "open" : "";
+  if (!drillId) {
+    // ── List View ──
+    if (breadcrumb) breadcrumb.innerHTML = "<span>Workgroups</span>";
+    if (createWrap) createWrap.classList.remove("hidden-by-blade");
+    if (addBtn) addBtn.classList.remove("hidden");
 
-      const topicNodes = data.topics.length
-        ? data.topics
-            .map((conversation) => {
-              const key = `topic:${workgroup.id}:${conversation.id}`;
-              const activeClass = state.activeNodeKey === key ? "active" : "";
-              const isAdmin = conversation.kind === "admin";
-              const classes = `tree-button ${isAdmin ? "admin " : ""}${activeClass}`.trim();
-              const displayName = topicDisplayName(conversation);
-              const label = isAdmin ? escapeHtml(displayName) : `# ${escapeHtml(displayName)}`;
-              return `
-                <div class="tree-item-row">
-                  <button class="${classes}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${label}</button>
-                  <button
-                    type="button"
-                    class="tree-gear"
-                    data-action="settings-topic"
-                    data-workgroup="${escapeHtml(workgroup.id)}"
-                    data-conversation="${escapeHtml(conversation.id)}"
-                    aria-label="Topic settings for ${escapeHtml(displayName)}"
-                  >${GEAR_ICON_SVG}</button>
-                </div>
-              `;
-            })
-            .join("")
-        : "<div class='tree-caption'>No topics</div>";
+    let invitesHtml = "";
+    if (state.myInvites.length > 0) {
+      const cards = state.myInvites.map((inv) => {
+        const inviterLabel = inv.invited_by_name ? ` by ${escapeHtml(inv.invited_by_name)}` : "";
+        return `<div class="invite-card">
+          <div class="invite-info">
+            <strong>${escapeHtml(inv.workgroup_name || "Unknown workgroup")}</strong>
+            <span class="invite-meta">Invited${inviterLabel}</span>
+          </div>
+          <div class="invite-actions">
+            <button type="button" data-action="accept-invite" data-workgroup="${escapeHtml(inv.workgroup_id)}" data-token="${escapeHtml(inv.token)}">Accept</button>
+            <button type="button" class="secondary" data-action="decline-invite" data-workgroup="${escapeHtml(inv.workgroup_id)}" data-token="${escapeHtml(inv.token)}">Decline</button>
+          </div>
+        </div>`;
+      }).join("");
+      invitesHtml = `<div class="tree-section">
+        <div class="tree-section-title"><span>Invites</span><span class="task-badge requested">${state.myInvites.length}</span></div>
+        <div class="tree-list">${cards}</div>
+      </div>`;
+    }
 
-      const taskList = data.crossGroupTasks || [];
-      const taskNodes = taskList.length
-        ? taskList.map((task) => {
-            const direction = task.target_workgroup_id === workgroup.id ? "incoming" : "outgoing";
-            const key = `task:${workgroup.id}:${task.id}`;
-            const activeClass = state.activeNodeKey === key ? "active" : "";
-            return `
-              <button class="tree-button ${activeClass}" data-action="open-task" data-workgroup="${escapeHtml(workgroup.id)}" data-task="${escapeHtml(task.id)}">
-                <span class="task-direction">[${direction}]</span>
-                ${escapeHtml(task.title)}
-                <span class="task-badge ${escapeHtml(task.status)}">${escapeHtml(task.status)}</span>
-              </button>
-            `;
-          }).join("")
-        : "<div class='tree-caption'>No cross-group tasks</div>";
+    const wgHtml = state.workgroups
+      .map((workgroup) => {
+        const activeClass = workgroup.id === state.selectedWorkgroupId ? "active" : "";
+        return `<button class="blade-workgroup-item ${activeClass}" data-action="drill-workgroup" data-workgroup="${escapeHtml(workgroup.id)}">${escapeHtml(workgroup.name)}</button>`;
+      })
+      .join("");
 
-      const humanNodes = data.members
-        .map((member) => {
-          const name = member.name || member.email;
-          const roleSuffix = member.role === "owner" ? " (owner)" : "";
-          const selfSuffix = member.user_id === state.user?.id ? " (you)" : "";
-          const label = `${escapeHtml(name)}${selfSuffix}${roleSuffix}`;
-          const memberAvatar = member.picture
-            ? `<span class="tree-avatar human"><img src="${escapeHtml(member.picture)}" alt="" /></span>`
-            : `<span class="tree-avatar human">${generateHumanSvg(name)}</span>`;
+    node.innerHTML = `${invitesHtml}<div class="tree-list">${wgHtml}</div>`;
+    updateMetrics();
+    return;
+  }
 
-          if (member.user_id === state.user?.id) {
-            return `<div class="tree-member-row">${memberAvatar}<span>${label}</span></div>`;
-          }
+  // ── Detail View ──
+  const workgroup = state.workgroups.find((w) => w.id === drillId);
+  if (!workgroup) {
+    state.bladeWorkgroupId = "";
+    renderTree();
+    return;
+  }
 
-          const key = `member:${workgroup.id}:${member.user_id}`;
+  const data = state.treeData[workgroup.id];
+  if (!data) {
+    state.bladeWorkgroupId = "";
+    renderTree();
+    return;
+  }
+
+  // Update breadcrumb
+  if (breadcrumb) {
+    breadcrumb.innerHTML = `<button data-action="blade-back" class="blade-crumb-link">Workgroups</button><span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(workgroup.name)}</span><button class="tree-gear summary" data-action="settings-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}">${GEAR_ICON_SVG}</button><button class="tree-gear summary" data-action="settings-tools" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Tools manifest for ${escapeHtml(workgroup.name)}" title="Tools"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+  }
+
+  // Hide create form and + button in detail view
+  if (createWrap) createWrap.classList.add("hidden-by-blade");
+  if (addBtn) addBtn.classList.add("hidden");
+
+  // Topics
+  const topicNodes = data.topics.length
+    ? data.topics
+        .map((conversation) => {
+          const key = `topic:${workgroup.id}:${conversation.id}`;
           const activeClass = state.activeNodeKey === key ? "active" : "";
-          return `<button class="tree-button member ${activeClass}" data-action="open-member" data-workgroup="${escapeHtml(workgroup.id)}" data-member="${escapeHtml(member.user_id)}">${memberAvatar}<span>${label}</span></button>`;
-        })
-        .join("");
-
-      const agentNodes = (data.agents || [])
-        .filter((agent) => agent.description !== "__system_admin_agent__")
-        .map((agent) => {
-          const key = `agent:${workgroup.id}:${agent.id}`;
-          const activeClass = state.activeNodeKey === key ? "active" : "";
-          const agentAvatar = agent.icon
-            ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
-            : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
+          const isAdmin = conversation.kind === "admin";
+          const classes = `tree-button ${isAdmin ? "admin " : ""}${activeClass}`.trim();
+          const displayName = topicDisplayName(conversation);
+          const label = isAdmin ? escapeHtml(displayName) : `# ${escapeHtml(displayName)}`;
           return `
             <div class="tree-item-row">
-              <button class="tree-button member ${activeClass}" data-action="open-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
-                ${agentAvatar}
-                <span>${escapeHtml(agent.name)}</span>
-              </button>
+              <button class="${classes}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${label}</button>
               <button
                 type="button"
                 class="tree-gear"
-                data-action="settings-agent"
+                data-action="settings-topic"
                 data-workgroup="${escapeHtml(workgroup.id)}"
-                data-agent="${escapeHtml(agent.id)}"
-                aria-label="Agent settings for ${escapeHtml(agent.name)}"
+                data-conversation="${escapeHtml(conversation.id)}"
+                aria-label="Topic settings for ${escapeHtml(displayName)}"
               >${GEAR_ICON_SVG}</button>
             </div>
           `;
         })
-        .join("");
-      const workgroupFiles = normalizeWorkgroupFiles(data.workgroup?.files);
-      const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id] || "";
-      const selectedFile = workgroupFiles.find((item) => item.id === selectedFileId) || null;
-      const canManageFiles = isWorkgroupOwner(workgroup.id);
-      const canEditSelectedFile = canManageFiles && Boolean(selectedFileId);
-      const fileOwnerNote = canManageFiles ? "" : "<div class='finder-owner-note'>Only workgroup owners can manage files.</div>";
-      const fileTools = `
-        <div class="file-tools">
-          <button type="button" class="tree-tool" data-action="file-add" data-workgroup="${escapeHtml(workgroup.id)}" ${
-            canManageFiles ? "" : "disabled"
-          }>Add</button>
-          <button type="button" class="tree-tool" data-action="file-edit" data-workgroup="${escapeHtml(workgroup.id)}" ${
-            canEditSelectedFile ? "" : "disabled"
-          }>Edit</button>
-          <button type="button" class="tree-tool" data-action="file-rename" data-workgroup="${escapeHtml(workgroup.id)}" ${
-            canEditSelectedFile ? "" : "disabled"
-          }>Rename</button>
-          <button type="button" class="tree-tool danger" data-action="file-delete" data-workgroup="${escapeHtml(workgroup.id)}" ${
-            canEditSelectedFile ? "" : "disabled"
-          }>Delete</button>
+        .join("")
+    : "<div class='tree-caption'>No topics</div>";
+
+  // Members — unified list: humans first (owner at top), then agents
+  const sortedHumans = [...data.members].sort((a, b) => {
+    if (a.role === "owner" && b.role !== "owner") return -1;
+    if (b.role === "owner" && a.role !== "owner") return 1;
+    return (a.name || a.email).localeCompare(b.name || b.email);
+  });
+  const sortedAgents = (data.agents || [])
+    .filter((agent) => agent.description !== "__system_admin_agent__")
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const pendingInvites = isWorkgroupOwner(workgroup.id) ? (data.invites || []) : [];
+
+  const memberNodes = [
+    ...sortedHumans.map((member) => {
+      const name = member.name || member.email;
+      const roleSuffix = member.role === "owner" ? " (owner)" : "";
+      const selfSuffix = member.user_id === state.user?.id ? " (you)" : "";
+      const label = `${escapeHtml(name)}${selfSuffix}${roleSuffix}`;
+      const memberAvatar = member.picture
+        ? `<span class="tree-avatar human"><img src="${escapeHtml(member.picture)}" alt="" /></span>`
+        : `<span class="tree-avatar human">${generateHumanSvg(name)}</span>`;
+      const isSelf = member.user_id === state.user?.id;
+      const key = `member:${workgroup.id}:${member.user_id}`;
+      const activeClass = !isSelf && state.activeNodeKey === key ? "active" : "";
+      const action = isSelf ? "" : `data-action="open-member"`;
+      const clickableClass = isSelf ? "no-click" : "";
+      return `
+        <div class="tree-item-row">
+          <button class="tree-button member ${clickableClass} ${activeClass}" ${action} data-workgroup="${escapeHtml(workgroup.id)}" data-member="${escapeHtml(member.user_id)}">${memberAvatar}<span>${label}</span></button>
+          <button
+            type="button"
+            class="tree-gear"
+            data-action="settings-member"
+            data-workgroup="${escapeHtml(workgroup.id)}"
+            data-member="${escapeHtml(member.user_id)}"
+            aria-label="Contact card for ${escapeHtml(name)}"
+          >${GEAR_ICON_SVG}</button>
         </div>
       `;
-      const fileNodes = workgroupFiles.length
-        ? renderWorkgroupFileTreeNode(buildWorkgroupFileTree(workgroupFiles), workgroup.id, selectedFileId, 0, "", canManageFiles)
-        : "<div class='finder-empty'>No files in this workgroup</div>";
-      const fileCountLabel = `${workgroupFiles.length} item${workgroupFiles.length === 1 ? "" : "s"}`;
-      const fileStatus = selectedFile ? `Selected: ${selectedFile.path}` : fileCountLabel;
-
+    }),
+    ...sortedAgents.map((agent) => {
+      const key = `agent:${workgroup.id}:${agent.id}`;
+      const activeClass = state.activeNodeKey === key ? "active" : "";
+      const agentAvatar = agent.icon
+        ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
+        : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
       return `
-        <details class="tree-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" ${groupOpen}>
-          <summary>
-            <span class="tree-workgroup-name">${escapeHtml(workgroup.name)}</span>
-            <span class="tree-summary-right">
-              <span class="tree-caption">${escapeHtml(workgroup.id.slice(0, 8))}</span>
-              <button
-                type="button"
-                class="tree-gear summary"
-                data-action="settings-workgroup"
-                data-workgroup="${escapeHtml(workgroup.id)}"
-                aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}"
-              >${GEAR_ICON_SVG}</button>
-            </span>
-          </summary>
-
-          <div class="tree-section">
-            <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
-            <div class="tree-list">${topicNodes}</div>
-          </div>
-
-          <div class="tree-section">
-            <div class="tree-section-title">Tasks</div>
-            <div class="tree-list">${taskNodes}</div>
-            <button type="button" class="tree-tool" data-action="browse-services" data-workgroup="${escapeHtml(workgroup.id)}">Browse Services</button>
-          </div>
-
-          <div class="tree-section">
-            <div class="tree-section-title">Members</div>
-            <div class="tree-subtitle">Humans</div>
-            <div class="tree-list">${humanNodes || "<div class='tree-caption'>No human members</div>"}</div>
-            <div class="tree-subtitle">Agents</div>
-            <div class="tree-list">${agentNodes || "<div class='tree-caption'>No agents</div>"}</div>
-          </div>
-
-          <div class="tree-section">
-            <div class="tree-section-title">Files</div>
-            <div class="finder-panel">
-              <div class="finder-toolbar">
-                ${fileTools}
-                ${fileOwnerNote}
-              </div>
-              <div class="finder-columns">
-                <span>Name</span>
-                <span>Kind</span>
-              </div>
-              <div class="workgroup-files-tree blade finder-tree">${fileNodes}</div>
-              <div class="finder-status" title="${escapeHtml(fileStatus)}">${escapeHtml(fileStatus)}</div>
-            </div>
-          </div>
-        </details>
+        <div class="tree-item-row">
+          <button class="tree-button member ${activeClass}" data-action="open-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
+            ${agentAvatar}
+            <span>${escapeHtml(agent.name)}</span>
+          </button>
+          <button
+            type="button"
+            class="tree-gear"
+            data-action="settings-agent"
+            data-workgroup="${escapeHtml(workgroup.id)}"
+            data-agent="${escapeHtml(agent.id)}"
+            aria-label="Agent settings for ${escapeHtml(agent.name)}"
+          >${GEAR_ICON_SVG}</button>
+        </div>
       `;
-    })
-    .join("");
+    }),
+    ...pendingInvites.map((inv) => {
+      const invAvatar = `<span class="tree-avatar human">${generateHumanSvg(inv.email)}</span>`;
+      return `
+        <div class="tree-item-row invite-pending">
+          <button class="tree-button member no-click" data-workgroup="${escapeHtml(workgroup.id)}">
+            ${invAvatar}
+            <span>${escapeHtml(inv.email)}</span>
+            <span class="task-badge requested">invited</span>
+          </button>
+          <button
+            type="button"
+            class="tree-gear danger"
+            data-action="cancel-invite"
+            data-workgroup="${escapeHtml(workgroup.id)}"
+            data-invite-id="${escapeHtml(inv.id)}"
+            aria-label="Cancel invite for ${escapeHtml(inv.email)}"
+          >&times;</button>
+        </div>
+      `;
+    }),
+  ].join("");
+
+  const fileCount = normalizeWorkgroupFiles(data.workgroup?.files).length;
+  const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
+
+  const html = `
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
+      <div class="tree-list">${topicNodes}</div>
+    </div>
+
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Members</span>${isWorkgroupOwner(workgroup.id) ? `<button type="button" class="tree-tool" data-action="invite-member" data-workgroup="${escapeHtml(workgroup.id)}">+</button>` : ""}</div>
+      <div class="tree-list">${memberNodes || "<div class='tree-caption'>No members</div>"}</div>
+    </div>
+
+    <div class="tree-section">
+      <div class="tree-section-title">Files</div>
+      <div class="tree-list">
+        <button class="tree-button member" data-action="open-file-browser" data-workgroup="${escapeHtml(workgroup.id)}">
+          <span class="finder-icon folder">${FINDER_FOLDER_ICON_SVG}</span>
+          <span style="flex:1">Browse Files</span>
+          <span class="finder-kind">${filesLabel}</span>
+        </button>
+      </div>
+    </div>
+  `;
 
   node.innerHTML = html;
   updateMetrics();
+}
+
+async function loadMyInvites() {
+  try {
+    state.myInvites = await api("/api/invites/mine");
+  } catch {
+    state.myInvites = [];
+  }
 }
 
 async function loadWorkgroups() {
@@ -3128,6 +4151,9 @@ async function loadWorkgroups() {
   state.expandedWorkgroupIds = Object.fromEntries(
     Object.entries(state.expandedWorkgroupIds).filter(([workgroupId, expanded]) => expanded && workgroupIds.has(workgroupId))
   );
+  if (state.bladeWorkgroupId && !workgroupIds.has(state.bladeWorkgroupId)) {
+    state.bladeWorkgroupId = "";
+  }
 
   await Promise.all(state.workgroups.map((workgroup) => refreshWorkgroupTree(workgroup)));
 
@@ -3174,11 +4200,10 @@ async function loadWorkgroups() {
 }
 
 async function selectConversation(workgroupId, conversationId, nodeKey = "") {
-  if (state.fileOverlayOpen) {
-    closeFileOverlay();
-  }
+  closeFileOverlay();
 
   state.selectedWorkgroupId = workgroupId;
+  state.bladeWorkgroupId = workgroupId;
   state.activeConversationId = conversationId;
   state.activeNodeKey = nodeKey;
   state.usagePollCounter = 0;
@@ -3332,14 +4357,14 @@ async function loadConversationUsage(conversationId) {
     const data = await api(`/api/conversations/${conversationId}/usage`);
     state.conversationUsage = data;
     if (el && data.api_calls > 0) {
-      el.textContent =
-        formatTokenCount(data.total_tokens) +
-        " tokens | ~$" +
+      el.innerHTML =
+        '<span class="usage-stat"><span class="usage-label">elapsed</span><span class="usage-value">' +
+        formatDuration(data.total_duration_ms) +
+        '</span></span><span class="usage-dot"></span><span class="usage-stat"><span class="usage-label">cost</span><span class="usage-value">$' +
         data.estimated_cost_usd.toFixed(4) +
-        " | " +
-        data.api_calls +
-        " API call" +
-        (data.api_calls !== 1 ? "s" : "");
+        '</span></span><span class="usage-dot"></span><span class="usage-stat"><span class="usage-label">tokens</span><span class="usage-value">' +
+        formatTokenCount(data.total_tokens) +
+        "</span></span>";
       el.classList.remove("hidden");
     } else if (el) {
       el.classList.add("hidden");
@@ -3386,6 +4411,18 @@ function startPolling() {
         }
       }
 
+      // Poll invites every ~32s (8 cycles × 4s)
+      state.invitePollCounter = (state.invitePollCounter || 0) + 1;
+      if (state.invitePollCounter >= 8) {
+        state.invitePollCounter = 0;
+        const prevCount = state.myInvites.length;
+        await loadMyInvites();
+        if (state.myInvites.length > prevCount) {
+          flash("You have new workgroup invites", "info");
+        }
+        renderTree();
+      }
+
       if (shouldWatchTree) {
         const afterLatestId = polledMessages.length ? polledMessages[polledMessages.length - 1].id : "";
         if (afterLatestId && afterLatestId !== beforeLatestId) {
@@ -3419,6 +4456,7 @@ async function loginWithGoogleCredential(credential) {
 async function setSignedIn(user, token) {
   state.user = user;
   state.token = token;
+  sessionStorage.setItem("teaparty_token", token);
   localStorage.setItem("teaparty_token", token);
 
   // Apply server-side preferences
@@ -3433,6 +4471,11 @@ async function setSignedIn(user, token) {
       layout.style.setProperty("--blade-width", prefs.bladeWidth + "px");
     }
   }
+  if (prefs.overlayHeight) {
+    document.getElementById("chat-panel").style.setProperty(
+      "--overlay-height", prefs.overlayHeight + "px"
+    );
+  }
 
   updateAuthUI();
   closeUserMenu();
@@ -3446,6 +4489,7 @@ async function setSignedIn(user, token) {
     state.workgroupCreateAgents = [];
     renderWorkgroupCreateEditor();
   }
+  await loadMyInvites();
   await loadWorkgroups();
   startPolling();
 }
@@ -3474,7 +4518,10 @@ function signOut() {
   state.fileOverlayWorkgroupId = "";
   state.fileOverlayFileId = "";
   state.fileOverlayShowRaw = false;
+  state.myInvites = [];
+  state.invitePollCounter = 0;
 
+  sessionStorage.removeItem("teaparty_token");
   localStorage.removeItem("teaparty_token");
 
   closeFileOverlay();
@@ -3760,42 +4807,6 @@ function openTaskCreationForm(sourceWorkgroupId, targetWorkgroupId, targetName) 
 }
 
 function bindTreeEvents() {
-  qs("treeview").addEventListener(
-    "toggle",
-    (event) => {
-      const target = event.target;
-      if (!(target instanceof HTMLDetailsElement) || !target.classList.contains("tree-workgroup")) {
-        return;
-      }
-
-      const workgroupId = target.dataset.workgroup || "";
-      if (!workgroupId) {
-        return;
-      }
-
-      if (target.open) {
-        // Accordion: close every other workgroup
-        state.expandedWorkgroupIds = { [workgroupId]: true };
-        document.querySelectorAll("details.tree-workgroup").forEach((el) => {
-          if (el !== target && el.open) {
-            el.open = false;
-          }
-        });
-        // Close file preview if it belonged to a now-closed workgroup
-        if (state.fileOverlayOpen && state.fileOverlayWorkgroupId !== workgroupId) {
-          closeFileOverlay();
-        }
-      } else {
-        delete state.expandedWorkgroupIds[workgroupId];
-        // Close file preview if it belongs to this workgroup
-        if (state.fileOverlayOpen && state.fileOverlayWorkgroupId === workgroupId) {
-          closeFileOverlay();
-        }
-      }
-    },
-    true
-  );
-
   qs("treeview").addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
@@ -3808,12 +4819,23 @@ function bindTreeEvents() {
     }
 
     const action = button.dataset.action;
+
+    if (action === "drill-workgroup") {
+      const workgroupId = button.dataset.workgroup || "";
+      if (workgroupId) {
+        closeFileOverlay();
+        state.bladeWorkgroupId = workgroupId;
+        renderTree();
+      }
+      return;
+    }
+
     const workgroupId = button.dataset.workgroup || "";
     if (!workgroupId) {
       return;
     }
 
-    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "create-topic")) {
+    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "create-topic" || action === "invite-member" || action === "open-file-browser" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -3843,22 +4865,11 @@ function bindTreeEvents() {
       }
 
       if (action === "settings-workgroup") {
-        const wgData = state.treeData[workgroupId];
-        if (wgData) {
-          const admin = wgData.topics.find((c) => c.kind === "admin");
-          if (admin) {
-            await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
-          }
-          const files = normalizeWorkgroupFiles(wgData.workgroup?.files);
-          const configFile = files.find((f) => f.path === "workgroup.json");
-          if (configFile) {
-            state.expandedWorkgroupIds[workgroupId] = true;
-            state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = configFile.id;
-            openFileOverlay(workgroupId, configFile.id);
-          } else {
-            openConfigOverlay(workgroupId, "workgroup.json", wgData.workgroup);
-          }
-        }
+        await ensureWorkgroupConfigFile(workgroupId);
+      }
+
+      if (action === "settings-tools") {
+        await ensureToolsManifestFile(workgroupId);
       }
 
       if (action === "settings-topic") {
@@ -3881,12 +4892,18 @@ function bindTreeEvents() {
         await openAgentSettings(workgroupId, agentId);
       }
 
+      if (action === "settings-member") {
+        const memberId = button.dataset.member || "";
+        if (memberId) {
+          openMemberContactCard(workgroupId, memberId);
+        }
+      }
+
       if (action === "select-file") {
         const fileId = button.dataset.fileId || "";
         if (!fileId) {
           return;
         }
-        state.expandedWorkgroupIds[workgroupId] = true;
         state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = fileId;
         updateFileSelection(workgroupId, fileId);
         openFileOverlay(workgroupId, fileId);
@@ -3926,8 +4943,46 @@ function bindTreeEvents() {
         browseServices(workgroupId);
       }
 
+      if (action === "open-file-browser") {
+        openFileBrowser(workgroupId);
+      }
+
       if (action === "create-topic") {
         await createTopicPrompt(workgroupId);
+      }
+
+      if (action === "invite-member") {
+        await inviteMemberPrompt(workgroupId);
+      }
+
+      if (action === "accept-invite") {
+        const token = button.dataset.token || "";
+        if (token) {
+          await api(`/api/workgroups/${workgroupId}/invites/${token}/accept`, { method: "POST" });
+          flash("Invite accepted!", "success");
+          await loadMyInvites();
+          await loadWorkgroups();
+        }
+      }
+
+      if (action === "decline-invite") {
+        const token = button.dataset.token || "";
+        if (token && confirm("Decline this invite?")) {
+          await api(`/api/workgroups/${workgroupId}/invites/${token}/decline`, { method: "POST" });
+          flash("Invite declined", "info");
+          await loadMyInvites();
+          renderTree();
+        }
+      }
+
+      if (action === "cancel-invite") {
+        const inviteId = button.dataset.inviteId || "";
+        if (inviteId && confirm("Cancel this invite?")) {
+          await api(`/api/workgroups/${workgroupId}/invites/${inviteId}`, { method: "DELETE" });
+          flash("Invite cancelled", "info");
+          await refreshWorkgroupTree(state.treeData[workgroupId].workgroup);
+          renderTree();
+        }
       }
     } catch (error) {
       flash(error.message, "error");
@@ -3953,6 +5008,40 @@ function bindTreeEvents() {
     state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = fileId;
     updateFileSelection(workgroupId, fileId);
   });
+
+  // Breadcrumb navigation (blade-back and settings-workgroup from breadcrumb)
+  const breadcrumbEl = document.getElementById("blade-breadcrumb");
+  if (breadcrumbEl) {
+    breadcrumbEl.addEventListener("click", async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const button = target.closest("button[data-action]");
+      if (!button) return;
+      const action = button.dataset.action;
+      if (action === "blade-back") {
+        closeFileOverlay();
+        clearActiveConversationUI();
+        state.bladeWorkgroupId = "";
+        renderTree();
+      } else if (action === "settings-workgroup") {
+        const workgroupId = button.dataset.workgroup || "";
+        if (!workgroupId) return;
+        try {
+          await ensureWorkgroupConfigFile(workgroupId);
+        } catch (error) {
+          flash(error.message, "error");
+        }
+      } else if (action === "settings-tools") {
+        const workgroupId = button.dataset.workgroup || "";
+        if (!workgroupId) return;
+        try {
+          await ensureToolsManifestFile(workgroupId);
+        } catch (error) {
+          flash(error.message, "error");
+        }
+      }
+    });
+  }
 }
 
 function bindEvents() {
@@ -3971,6 +5060,40 @@ function bindEvents() {
 
   qs("file-overlay-close").addEventListener("click", closeFileOverlay);
 
+  qs("file-overlay").addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("button[data-action]");
+    if (!button) return;
+    const action = button.dataset.action;
+
+    if (!state.fileBrowserOpen) return;
+
+    if (action === "browser-drill") {
+      const folder = button.dataset.folder;
+      if (folder) {
+        state.fileBrowserPath = [...state.fileBrowserPath, folder];
+        state.fileBrowserFileId = "";
+        renderFileBrowser();
+      }
+    }
+
+    if (action === "browser-navigate") {
+      const depth = parseInt(button.dataset.depth, 10);
+      state.fileBrowserPath = state.fileBrowserPath.slice(0, depth);
+      state.fileBrowserFileId = "";
+      renderFileBrowser();
+    }
+
+    if (action === "browser-open-file") {
+      const fileId = button.dataset.fileId;
+      if (fileId) {
+        state.fileBrowserFileId = fileId;
+        renderFileBrowser();
+      }
+    }
+  });
+
   qs("chat-tool-buttons").addEventListener("click", (event) => {
     const btn = event.target.closest(".chat-tool-btn");
     if (!btn) return;
@@ -3982,7 +5105,9 @@ function bindEvents() {
   });
 
   qs("file-overlay-edit").addEventListener("click", () => {
-    if (state.fileOverlayViewMode === "form" && state.fileOverlayParsedJson !== null) {
+    if (state.fileOverlayMemberContext) {
+      saveMemberContactCard();
+    } else if (state.fileOverlayViewMode === "form" && state.fileOverlayParsedJson !== null) {
       saveJsonFormOverlay();
     } else {
       editWorkgroupFile(state.fileOverlayWorkgroupId);
@@ -4082,7 +5207,7 @@ function bindEvents() {
         requestSettingsClose({ saveIfDirty: true }).catch((error) => {
           flash(error.message || "Failed to close settings", "error");
         });
-      } else if (state.fileOverlayOpen) {
+      } else if (state.fileOverlayOpen || state.fileBrowserOpen) {
         closeFileOverlay();
       }
     }
@@ -4189,7 +5314,7 @@ function bindEvents() {
     const deleteWorkgroupPost =
       isAdminConversation(state.selectedWorkgroupId, state.activeConversationId) && isDeleteWorkgroupCommand(content);
 
-    const optimisticId = `local-${Date.now()}`;
+    const optimisticId = `local-${crypto.randomUUID()}`;
     const optimisticMessage = {
       id: optimisticId,
       conversation_id: state.activeConversationId,
@@ -4312,6 +5437,44 @@ function bindEvents() {
       if (currentWidth) {
         savePreferences({ bladeWidth: currentWidth });
       }
+    });
+  }
+
+  // File overlay resize handle
+  {
+    const handle = document.getElementById("file-overlay-resize-handle");
+    const chatPanel = document.getElementById("chat-panel");
+    const MIN_HEIGHT = 100;
+    const MAX_FRAC = 0.85;
+
+    let dragging = false;
+
+    handle.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      dragging = true;
+      handle.classList.add("dragging");
+      handle.setPointerCapture(e.pointerId);
+    });
+
+    handle.addEventListener("pointermove", (e) => {
+      if (!dragging) return;
+      const chatRect = chatPanel.getBoundingClientRect();
+      const headerEl = chatPanel.querySelector(".chat-header");
+      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
+      const composerEl = document.getElementById("message-form");
+      const composerH = composerEl.getBoundingClientRect().height;
+      const maxH = (chatRect.height - headerH - composerH) * MAX_FRAC;
+      const height = Math.min(maxH, Math.max(MIN_HEIGHT, e.clientY - chatRect.top - headerH));
+      chatPanel.style.setProperty("--overlay-height", height + "px");
+    });
+
+    handle.addEventListener("pointerup", (e) => {
+      if (!dragging) return;
+      dragging = false;
+      handle.classList.remove("dragging");
+      handle.releasePointerCapture(e.pointerId);
+      const val = parseInt(chatPanel.style.getPropertyValue("--overlay-height"), 10);
+      if (val) savePreferences({ overlayHeight: val });
     });
   }
 

@@ -41,12 +41,14 @@ class WorkgroupFileWrite(BaseModel):
     id: str | None = None
     path: str = Field(min_length=1, max_length=512)
     content: str = ""
+    topic_id: str | None = None
 
 
 class WorkgroupFileRead(BaseModel):
     id: str
     path: str
     content: str
+    topic_id: str = ""
 
 
 class WorkgroupTemplateAgentWrite(BaseModel):
@@ -117,12 +119,34 @@ class InviteRead(ORMBaseModel):
     created_at: datetime
 
 
+class InviteDetailRead(ORMBaseModel):
+    id: str
+    workgroup_id: str
+    workgroup_name: str = ""
+    invited_by_name: str = ""
+    email: EmailStr
+    token: str
+    status: str
+    created_at: datetime
+
+
 class MemberRead(BaseModel):
     user_id: str
     email: EmailStr
     name: str
     role: str
     picture: str = ""
+    budget_limit_usd: float | None = None
+    budget_used_usd: float = 0.0
+
+
+class MemberRoleUpdateRequest(BaseModel):
+    role: Literal["editor", "member"]
+
+
+class MemberBudgetUpdateRequest(BaseModel):
+    budget_limit_usd: float | None = Field(default=None, ge=0.0)
+    reset_usage: bool = False
 
 
 class AgentCreateRequest(BaseModel):
@@ -407,6 +431,26 @@ class AgentLearningsRead(BaseModel):
     sentiment_state: dict[str, Any]
     memories: list[AgentMemoryRead]
     recent_signals: list[AgentLearningSignalRead]
+
+
+class ToolCatalogEntry(BaseModel):
+    name: str
+    display_name: str
+    description: str
+    source: str  # "builtin" | "admin" | "server_side" | "special" | "custom_prompt" | "custom_webhook" | "custom_granted"
+    enabled: bool = True
+    source_workgroup_id: str | None = None
+
+
+class ToolCatalogCategory(BaseModel):
+    key: str
+    label: str
+    tools: list[ToolCatalogEntry]
+
+
+class ToolCatalogRead(BaseModel):
+    version: int = 1
+    categories: list[ToolCatalogCategory]
 
 
 class ConversationUsageRead(BaseModel):
