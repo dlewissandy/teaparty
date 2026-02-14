@@ -2020,6 +2020,10 @@ function openWorkgroupSettings(workgroupId) {
     title: "Workgroup settings",
     subtitle: `${workgroup.name} (${workgroup.id.slice(0, 8)})`,
     formHtml: `
+      <div class="settings-usage" id="workgroup-usage-section">
+        <span class="settings-label">Usage</span>
+        <div class="settings-usage-body" id="workgroup-usage-body">Loading usage&hellip;</div>
+      </div>
       <label class="settings-field">
         <span class="settings-label">Name</span>
         <input name="name" type="text" maxlength="120" required value="${escapeHtml(workgroup.name)}" ${disabledAttr} />
@@ -2039,6 +2043,21 @@ function openWorkgroupSettings(workgroupId) {
         <button type="submit" ${disabledAttr}>Save</button>
       </div>
     `,
+    onRender: () => {
+      api(`/api/workgroups/${workgroupId}/usage`).then((usage) => {
+        const el = document.getElementById("workgroup-usage-body");
+        if (!el) return;
+        el.textContent = "";
+        el.innerHTML =
+          `<span>${formatTokenCount(usage.total_tokens)} tokens</span>` +
+          `<span>~$${usage.estimated_cost_usd.toFixed(4)}</span>` +
+          `<span>${usage.api_calls} API calls</span>` +
+          `<span>${formatDuration(usage.total_duration_ms)}</span>`;
+      }).catch(() => {
+        const el = document.getElementById("workgroup-usage-body");
+        if (el) el.textContent = "Unable to load usage";
+      });
+    },
     onSubmit: async (formData) => {
       if (!editable) {
         return;
@@ -2457,12 +2476,10 @@ async function openAgentSettings(workgroupId, agentId) {
     return;
   }
 
-  let availableTools = [];
-  try {
-    availableTools = await api(`/api/workgroups/${workgroupId}/tools`);
-  } catch {
-    // Fall back to empty list — user can still see what's assigned
-  }
+  const [availableTools, learnings] = await Promise.all([
+    api(`/api/workgroups/${workgroupId}/tools`).catch(() => []),
+    api(`/api/workgroups/${workgroupId}/agents/${agentId}/learnings`).catch(() => null),
+  ]);
 
   const editable = isWorkgroupOwner(workgroupId);
   const disabledAttr = editable ? "" : "disabled";
@@ -2582,6 +2599,56 @@ async function openAgentSettings(workgroupId, agentId) {
           })()}
         </div>
       </div>
+      ${(() => {
+        if (!learnings) return "";
+        const { learning_state, sentiment_state, memories, recent_signals } = learnings;
+        const hasBiases = learning_state && Object.keys(learning_state).length > 0;
+        const hasSentiment = sentiment_state && Object.keys(sentiment_state).length > 0;
+        const hasMemories = memories && memories.length > 0;
+        const hasSignals = recent_signals && recent_signals.length > 0;
+        if (!hasBiases && !hasSentiment && !hasMemories && !hasSignals) {
+          return `<div class="learnings-section"><span class="settings-label">Learnings</span><div class="learnings-empty">No learnings recorded yet.</div></div>`;
+        }
+
+        let html = '<div class="learnings-section"><span class="settings-label">Learnings</span>';
+
+        if (hasBiases || hasSentiment) {
+          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Current Disposition</span><div class="learnings-biases">';
+          if (hasBiases) {
+            for (const [k, v] of Object.entries(learning_state)) {
+              html += `<div class="learnings-bias-item"><span class="learnings-bias-label">${escapeHtml(k.replace(/_/g, " "))}</span><span class="learnings-bias-value">${escapeHtml(typeof v === "number" ? v.toFixed(3) : String(v))}</span></div>`;
+            }
+          }
+          if (hasSentiment) {
+            for (const [k, v] of Object.entries(sentiment_state)) {
+              html += `<div class="learnings-bias-item"><span class="learnings-bias-label">${escapeHtml(k.replace(/_/g, " "))}</span><span class="learnings-bias-value">${escapeHtml(typeof v === "number" ? v.toFixed(3) : String(v))}</span></div>`;
+            }
+          }
+          html += '</div></div>';
+        }
+
+        if (hasMemories) {
+          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Long-term Memories</span><div class="learnings-list">';
+          for (const m of memories) {
+            const typeClass = { insight: "insight", correction: "correction", pattern: "pattern", domain_knowledge: "domain-knowledge" }[m.memory_type] || "";
+            html += `<div class="learnings-item"><div class="learnings-item-header"><span class="learnings-type ${escapeHtml(typeClass)}">${escapeHtml(m.memory_type.replace(/_/g, " "))}</span><span class="learnings-meta">${Math.round(m.confidence * 100)}% confidence</span></div><div class="learnings-content">${escapeHtml(m.content)}</div>${m.source_summary ? `<div class="learnings-meta">${escapeHtml(m.source_summary)}</div>` : ""}</div>`;
+          }
+          html += '</div></div>';
+        }
+
+        if (hasSignals) {
+          html += '<div class="learnings-subsection"><span class="meta" style="font-weight:600">Recent Signals</span><div class="learnings-list">';
+          for (const s of recent_signals) {
+            const brief = Object.entries(s.value || {}).map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`).join(", ");
+            const ts = new Date(s.created_at).toLocaleString();
+            html += `<div class="learnings-item compact"><div class="learnings-item-header"><span class="learnings-type signal">${escapeHtml(s.signal_type.replace(/_/g, " "))}</span><span class="learnings-meta">${escapeHtml(ts)}</span></div>${brief ? `<div class="learnings-content">${escapeHtml(brief)}</div>` : ""}</div>`;
+          }
+          html += '</div></div>';
+        }
+
+        html += '</div>';
+        return html;
+      })()}
       ${ownerNote}
       <div class="settings-actions">
         ${clearConversationAction}
@@ -3157,6 +3224,17 @@ function formatTokenCount(count) {
   return String(count);
 }
 
+function formatDuration(ms) {
+  if (ms < 1000) return ms + "ms";
+  const totalSeconds = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return hours + "h " + minutes + "m";
+  if (minutes > 0) return minutes + "m " + seconds + "s";
+  return seconds + "s";
+}
+
 async function loadConversationUsage(conversationId) {
   const el = qs("active-usage");
   if (!conversationId) {
@@ -3717,7 +3795,7 @@ function bindTreeEvents() {
         const agentData = state.treeData[workgroupId];
         const agent = agentData?.agents?.find((a) => a.id === agentId);
         if (agent) {
-          await ensureAgentLearningsFile(workgroupId, agent);
+          await openConfigAndAdmin(workgroupId, `agent: ${agent.name}`, agent);
         }
       }
 

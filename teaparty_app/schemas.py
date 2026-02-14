@@ -418,3 +418,14 @@ class ConversationUsageRead(BaseModel):
     estimated_cost_usd: float
     api_calls: int
     by_model: dict[str, Any] = {}
+
+
+class WorkgroupUsageRead(BaseModel):
+    workgroup_id: str
+    total_input_tokens: int
+    total_output_tokens: int
+    total_tokens: int
+    total_duration_ms: int
+    estimated_cost_usd: float
+    api_calls: int
+    by_model: dict[str, Any] = {}

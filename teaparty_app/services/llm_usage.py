@@ -5,7 +5,7 @@ from contextlib import contextmanager
 
 from sqlmodel import Session, select
 
-from teaparty_app.models import LLMUsageEvent
+from teaparty_app.models import Conversation, LLMUsageEvent
 
 
 @contextmanager
@@ -74,6 +74,35 @@ def get_conversation_usage(session: Session, conversation_id: str) -> dict:
         entry["calls"] += 1
     return {
         "conversation_id": conversation_id,
+        "total_input_tokens": total_input,
+        "total_output_tokens": total_output,
+        "total_tokens": total_input + total_output,
+        "total_duration_ms": total_duration,
+        "estimated_cost_usd": round(total_cost, 6),
+        "api_calls": len(rows),
+        "by_model": by_model,
+    }
+
+
+def get_workgroup_usage(session: Session, workgroup_id: str) -> dict:
+    rows = session.exec(
+        select(LLMUsageEvent)
+        .join(Conversation, LLMUsageEvent.conversation_id == Conversation.id)
+        .where(Conversation.workgroup_id == workgroup_id)
+    ).all()
+    total_input = sum(r.input_tokens for r in rows)
+    total_output = sum(r.output_tokens for r in rows)
+    total_duration = sum(r.duration_ms for r in rows)
+    total_cost = sum(_estimate_cost(r.model, r.input_tokens, r.output_tokens) for r in rows)
+    by_model: dict[str, dict] = {}
+    for r in rows:
+        entry = by_model.setdefault(r.model, {"input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0, "calls": 0})
+        entry["input_tokens"] += r.input_tokens
+        entry["output_tokens"] += r.output_tokens
+        entry["cost_usd"] += _estimate_cost(r.model, r.input_tokens, r.output_tokens)
+        entry["calls"] += 1
+    return {
+        "workgroup_id": workgroup_id,
         "total_input_tokens": total_input,
         "total_output_tokens": total_output,
         "total_tokens": total_input + total_output,

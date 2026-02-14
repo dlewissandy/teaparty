@@ -6,11 +6,14 @@ from sqlmodel import Session, select
 
 from teaparty_app.deps import get_current_user
 from teaparty_app.db import get_session
-from teaparty_app.models import Agent, Conversation, Invite, Membership, User, Workgroup, utc_now
+from teaparty_app.models import Agent, AgentLearningEvent, AgentMemory, Conversation, Invite, Membership, User, Workgroup, utc_now
 from teaparty_app.schemas import (
     AgentCloneRequest,
     AgentConversationClearRead,
     AgentCreateRequest,
+    AgentLearningSignalRead,
+    AgentLearningsRead,
+    AgentMemoryRead,
     AgentRead,
     AgentUpdateRequest,
     ConversationRead,
@@ -23,6 +26,7 @@ from teaparty_app.schemas import (
     WorkgroupTemplateAgentWrite,
     WorkgroupTemplateRead,
     WorkgroupUpdateRequest,
+    WorkgroupUsageRead,
 )
 from teaparty_app.services.activity import (
     add_activity_participant,
@@ -38,6 +42,7 @@ from teaparty_app.services.admin_workspace import (
     ensure_admin_workspace_for_workgroup_id,
     list_members as list_workgroup_members,
 )
+from teaparty_app.services.llm_usage import get_workgroup_usage
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
 from teaparty_app.services.tools import available_tools, available_tools_for_workgroup
 from teaparty_app.services.workgroup_templates import (
@@ -809,6 +814,48 @@ def clone_agent(
     return AgentRead.model_validate(cloned)
 
 
+@router.get("/workgroups/{workgroup_id}/agents/{agent_id}/learnings", response_model=AgentLearningsRead)
+def get_agent_learnings(
+    workgroup_id: str,
+    agent_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> AgentLearningsRead:
+    require_workgroup_membership(session, workgroup_id, user.id)
+
+    agent = session.get(Agent, agent_id)
+    if not agent or agent.workgroup_id != workgroup_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+
+    memories = session.exec(
+        select(AgentMemory)
+        .where(AgentMemory.agent_id == agent_id)
+        .order_by(AgentMemory.created_at.desc())
+        .limit(20)
+    ).all()
+
+    signals = session.exec(
+        select(AgentLearningEvent)
+        .where(AgentLearningEvent.agent_id == agent_id)
+        .order_by(AgentLearningEvent.created_at.desc())
+        .limit(15)
+    ).all()
+
+    return AgentLearningsRead(
+        learning_state=dict(agent.learning_state or {}),
+        sentiment_state=dict(agent.sentiment_state or {}),
+        memories=[AgentMemoryRead.model_validate(m) for m in memories],
+        recent_signals=[
+            AgentLearningSignalRead(
+                signal_type=s.signal_type,
+                value=dict(s.value or {}),
+                created_at=s.created_at,
+            )
+            for s in signals
+        ],
+    )
+
+
 @router.get("/workgroups/{workgroup_id}/members", response_model=list[MemberRead])
 def list_members(
     workgroup_id: str,
@@ -827,6 +874,17 @@ def list_members(
         )
         for row_membership, row_user in rows
     ]
+
+
+@router.get("/workgroups/{workgroup_id}/usage", response_model=WorkgroupUsageRead)
+def get_usage(
+    workgroup_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> WorkgroupUsageRead:
+    require_workgroup_membership(session, workgroup_id, user.id)
+    usage = get_workgroup_usage(session, workgroup_id)
+    return WorkgroupUsageRead(**usage)
 
 
 @router.get("/workgroups/{workgroup_id}/administration", response_model=ConversationRead)
