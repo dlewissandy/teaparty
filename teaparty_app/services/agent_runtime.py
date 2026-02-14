@@ -31,7 +31,7 @@ from teaparty_app.services.admin_workspace import (
     is_admin_agent,
 )
 from teaparty_app.services.llm_usage import record_llm_usage
-from teaparty_app.services.tools import resolve_custom_tool, run_tool
+from teaparty_app.services.tools import SERVER_SIDE_TOOLS, resolve_custom_tool, run_tool
 
 logger = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ def _match_custom_tool(session: Session, custom_refs: list[str], content: str) -
 
 
 def _select_tool(agent: Agent, content: str, session: Session | None = None) -> str | None:
-    allowed = set(agent.tool_names or [])
+    allowed = set(agent.tool_names or []) - SERVER_SIDE_TOOLS
     for pattern, tool_name in TOOL_PATTERNS:
         if tool_name in allowed and pattern.search(content):
             return tool_name
@@ -467,6 +467,17 @@ def apply_learning_signal(session: Session, agent: Agent, trigger: Message) -> N
     session.add(event)
 
 
+def _is_question_like(text: str | None) -> bool:
+    lowered = (text or "").strip().lower()
+    if not lowered:
+        return False
+    if "?" in lowered:
+        return True
+    return lowered.startswith(
+        ("who ", "what ", "when ", "where ", "why ", "how ", "can ", "could ", "would ", "is ", "are ", "do ", "does ")
+    )
+
+
 def _heuristic_response_score(agent: Agent, conversation: Conversation, trigger: Message) -> float:
     if trigger.sender_type == "agent" and trigger.sender_agent_id == agent.id:
         return -1.0
@@ -485,10 +496,7 @@ def _heuristic_response_score(agent: Agent, conversation: Conversation, trigger:
     if mentioned:
         score += 0.6
 
-    question_like = "?" in content or lowered.startswith(
-        ("who ", "what ", "when ", "where ", "why ", "how ", "can ", "could ", "would ", "is ", "are ", "do ", "does ")
-    )
-    if question_like:
+    if _is_question_like(content):
         score += 0.32 if conversation.kind == "topic" else 0.25
 
     # In topic chat, unmentioned agents should answer only when the message appears relevant.
@@ -659,161 +667,6 @@ def _selector_history_context(
     return history
 
 
-def _agent_name_aliases(agent: Agent) -> list[str]:
-    name = (agent.name or "").strip().lower()
-    if not name:
-        return []
-
-    aliases: list[str] = [name]
-    first = name.split()[0]
-    if first and first not in aliases:
-        aliases.append(first)
-    # Common shorthand: "Matt" -> "Mat"
-    if len(first) >= 4:
-        shortened = first[:-1]
-        if shortened not in aliases:
-            aliases.append(shortened)
-    return aliases
-
-
-def _first_name_match_index(text: str, aliases: list[str]) -> int | None:
-    earliest: int | None = None
-    for alias in aliases:
-        pattern = rf"(?:^|[^a-z0-9])@?\s*{re.escape(alias)}(?:$|[^a-z0-9])"
-        match = re.search(pattern, text)
-        if not match:
-            continue
-        if earliest is None or match.start() < earliest:
-            earliest = match.start()
-    return earliest
-
-
-def _extract_turn_order_from_text(content: str, candidates: list[Agent]) -> list[str]:
-    text = (content or "").strip().lower()
-    if not text:
-        return []
-
-    mentions: list[tuple[str, int, bool, bool]] = []
-    has_order_keywords = False
-
-    for agent in candidates:
-        match_index = _first_name_match_index(text, _agent_name_aliases(agent))
-        if match_index is None:
-            continue
-
-        window = text[max(0, match_index - 24) : min(len(text), match_index + 100)]
-        is_first = bool(re.search(r"\b(first|start|kick off|lead off)\b", window))
-        is_last = bool(re.search(r"\b(last|go last|goes last)\b", window))
-        if is_first or is_last or (" next" in window):
-            has_order_keywords = True
-
-        mentions.append((agent.id, match_index, is_first, is_last))
-
-    if not mentions:
-        return []
-
-    mentions.sort(key=lambda item: item[1])
-    front = [agent_id for agent_id, _pos, is_first, is_last in mentions if is_first and not is_last]
-    middle = [agent_id for agent_id, _pos, is_first, is_last in mentions if not is_first and not is_last]
-    tail = [agent_id for agent_id, _pos, _is_first, is_last in mentions if is_last]
-
-    ordered: list[str] = []
-    for agent_id in front + middle + tail:
-        if agent_id not in ordered:
-            ordered.append(agent_id)
-
-    if not ordered:
-        return []
-
-    # Single direct mention ("Matt, anything to add?") should still map to that speaker.
-    if len(ordered) == 1:
-        return ordered
-
-    # For multi-speaker ordering, only activate when message reads like turn-taking guidance.
-    if has_order_keywords:
-        return ordered
-
-    moderation_cues = ("moderator", "go next", "go last", "you will go", "before we wrap up", "wrap up")
-    if any(cue in text for cue in moderation_cues):
-        return ordered
-
-    return []
-
-
-def _active_turn_order_hint(
-    session: Session,
-    conversation: Conversation,
-    trigger: Message,
-    available_agents: list[Agent],
-) -> tuple[list[str], dict[str, object]]:
-    rows = session.exec(
-        select(Message)
-        .where(Message.conversation_id == conversation.id)
-        .order_by(Message.created_at.asc())
-    ).all()
-    if not rows:
-        return [], {}
-
-    candidate_ids = {agent.id for agent in available_agents}
-    trigger_index = len(rows) - 1
-    for index, row in enumerate(rows):
-        if row.id == trigger.id:
-            trigger_index = index
-            break
-
-    latest_user_index: int | None = None
-    for index in range(trigger_index, -1, -1):
-        if rows[index].sender_type == "user":
-            latest_user_index = index
-            break
-    if latest_user_index is None:
-        return [], {}
-
-    latest_user_message = rows[latest_user_index]
-    ordered_ids = _extract_turn_order_from_text(latest_user_message.content, available_agents)
-    if not ordered_ids:
-        return [], {}
-
-    responded_ids = {
-        item.sender_agent_id
-        for item in rows[latest_user_index + 1 : trigger_index + 1]
-        if item.sender_type == "agent" and item.sender_agent_id
-    }
-    unresolved = [agent_id for agent_id in ordered_ids if agent_id not in responded_ids and agent_id in candidate_ids]
-    meta = {
-        "anchor_message_id": latest_user_message.id,
-        "ordered_agent_ids": [agent_id for agent_id in ordered_ids if agent_id in candidate_ids],
-        "already_responded_agent_ids": sorted(agent_id for agent_id in responded_ids if agent_id in candidate_ids),
-        "order_exhausted": not unresolved,
-    }
-    return unresolved, meta
-
-
-def _deterministic_turn_order_selection(
-    session: Session,
-    conversation: Conversation,
-    trigger: Message,
-    candidates: list[Agent],
-    blocked_agent_ids: set[str],
-) -> tuple[Agent | None, bool]:
-    available_agents = [agent for agent in candidates if agent.id not in blocked_agent_ids]
-    if not available_agents:
-        return None, False
-
-    turn_order_hint, turn_order_meta = _active_turn_order_hint(session, conversation, trigger, available_agents)
-    if turn_order_hint:
-        selected_id = turn_order_hint[0]
-        selected_agent = next((agent for agent in available_agents if agent.id == selected_id), None)
-        if selected_agent:
-            return selected_agent, True
-
-    if trigger.sender_type == "agent" and bool(turn_order_meta.get("order_exhausted")):
-        # A deliberate no-op: turn order from the latest moderator message is complete.
-        return None, True
-
-    return None, False
-
-
 def _llm_select_responders(
     session: Session,
     conversation: Conversation,
@@ -851,8 +704,6 @@ def _llm_select_responders(
         }
         for agent in available_agents
     ]
-    turn_order_hint, turn_order_meta = _active_turn_order_hint(session, conversation, trigger, available_agents)
-
     history = _selector_history_context(session, conversation)
     response_rule = (
         f"- You must select between {min_select} and {max_select} agents.\n"
@@ -870,17 +721,19 @@ def _llm_select_responders(
         "- Select only agents with materially distinct, additive contributions.\n"
         "- Prefer diversity of viewpoint and role fit over agreement.\n"
         "- Avoid dogpiling with redundant responses.\n"
-        "- Highest priority is explicit turn-taking direction from the most recent human moderator message.\n"
-        "- If active_turn_order_hint is non-empty, selected_agent_ids[0] must equal its first id.\n"
-        "- If active_turn_order_hint is empty and turn_order_meta.order_exhausted is true on an agent-triggered turn, prefer no selection.\n"
-        f"{response_rule}"
+        + (
+            "- For agent-triggered turns: apply a higher bar. Only select if the agent has "
+            "a materially different viewpoint or new information. Mere agreement or "
+            "encouragement does NOT warrant a response. When in doubt, select no one.\n"
+            if trigger.sender_type == "agent"
+            else ""
+        )
+        + f"{response_rule}"
         f"{selector_guidance.strip()}\n\n"
         f"Conversation kind: {conversation.kind}\n"
         f"Conversation topic: {conversation.topic}\n"
         f"Trigger sender_type: {trigger.sender_type}\n"
         f"Trigger content: {trigger.content}\n"
-        f"active_turn_order_hint: {json.dumps(turn_order_hint)}\n"
-        f"turn_order_meta: {json.dumps(turn_order_meta)}\n"
         f"blocked_agent_ids: {json.dumps(sorted(blocked_agent_ids))}\n\n"
         f"candidate_agents:\n{json.dumps(candidate_payload, indent=2)}\n\n"
         "Recent conversation history (oldest to newest):\n"
@@ -892,8 +745,7 @@ def _llm_select_responders(
     selector_system = (
         "You are the orchestration policy for a multi-agent chat. "
         "Choose the best next responders from candidates using relevance, role fit, personality fit, "
-        "current disposition, and recent dialogue dynamics. "
-        "When a human gives speaking order or calls on specific people, obey that order first."
+        "current disposition, and recent dialogue dynamics."
     )
     for selector_model in _runtime_model_candidates(settings.admin_agent_model):
         try:
@@ -958,26 +810,6 @@ def _llm_select_responders(
             seen.add(agent.id)
             if len(selected_ids) >= min_select:
                 break
-
-    if turn_order_hint:
-        forced_first = turn_order_hint[0]
-        if forced_first in candidate_by_id:
-            selected_ids = [forced_first] + [item for item in selected_ids if item != forced_first]
-            selected_ids = selected_ids[:max_select]
-            seen = set(selected_ids)
-            if len(selected_ids) < min_select:
-                remaining = [agent for agent in available_agents if agent.id not in seen]
-                remaining.sort(
-                    key=lambda agent: _heuristic_response_score(agent, conversation, trigger) - agent.response_threshold,
-                    reverse=True,
-                )
-                for agent in remaining:
-                    selected_ids.append(agent.id)
-                    seen.add(agent.id)
-                    if len(selected_ids) >= min_select:
-                        break
-    elif trigger.sender_type == "agent" and bool(turn_order_meta.get("order_exhausted")):
-        selected_ids = []
 
     confidence = _clamp(_safe_float(parsed.get("confidence"), 0.5), 0.0, 1.0)
     rationale = str(parsed.get("rationale") or "").strip()[:300]
@@ -1090,16 +922,6 @@ def _select_responder(
 ) -> Agent | None:
     if not candidates:
         return None
-
-    deterministic, handled = _deterministic_turn_order_selection(
-        session=session,
-        conversation=conversation,
-        trigger=trigger,
-        candidates=candidates,
-        blocked_agent_ids=blocked_agent_ids,
-    )
-    if handled:
-        return deterministic
 
     try:
         selected = _llm_select_responder(
@@ -1548,6 +1370,28 @@ def _runtime_reply_system_instructions(
     )
 
 
+def _extract_web_search_reply(response: anthropic.types.Message) -> str:
+    text_parts: list[str] = []
+    sources: list[tuple[str, str]] = []
+    for block in response.content:
+        if hasattr(block, "text"):
+            text_parts.append(block.text)
+            if hasattr(block, "citations") and block.citations:
+                for cite in block.citations:
+                    if hasattr(cite, "url") and hasattr(cite, "title"):
+                        sources.append((cite.title, cite.url))
+    combined = " ".join(text_parts).strip()
+    if sources:
+        seen: set[str] = set()
+        unique: list[str] = []
+        for title, url in sources:
+            if url not in seen:
+                seen.add(url)
+                unique.append(f"{title}: {url}")
+        combined += "\n\nSources: " + " | ".join(unique)
+    return combined
+
+
 def _build_agent_reply_with_llm(
     session: Session,
     agent: Agent,
@@ -1669,10 +1513,25 @@ def _build_agent_reply_with_llm(
             if intro_turn
             else ""
         )
+        + (
+            "- You have web search available. Use it when the question requires current or factual information.\n"
+            "- When you use web search, cite your sources naturally in your response.\n"
+            if "web_search" in (agent.tool_names or [])
+            else ""
+        )
     )
 
+    has_web_search = "web_search" in (agent.tool_names or [])
+    api_tools = None
+    if has_web_search:
+        api_tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
+
     client = _get_anthropic_client()
-    for runtime_model in _runtime_model_candidates(model_name):
+    model_candidates = _runtime_model_candidates(model_name)
+    if not model_candidates:
+        logger.warning("No LLM model candidates for agent %s (primary model: %s)", agent.id, model_name)
+        return None
+    for runtime_model in model_candidates:
         try:
             t0 = time.monotonic()
             response = client.messages.create(
@@ -1681,6 +1540,7 @@ def _build_agent_reply_with_llm(
                 temperature=temperature,
                 system=system_instructions,
                 messages=[{"role": "user", "content": input_text}],
+                **({"tools": api_tools} if api_tools else {}),
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
             record_llm_usage(
@@ -1688,9 +1548,17 @@ def _build_agent_reply_with_llm(
                 response.usage.input_tokens, response.usage.output_tokens,
                 "reply", duration_ms,
             )
-            output = _normalize_agent_reply_text(agent, response.content[0].text)
+            if has_web_search:
+                raw_text = _extract_web_search_reply(response)
+            else:
+                raw_text = response.content[0].text if response.content else ""
+            output = _normalize_agent_reply_text(agent, raw_text)
             if output:
                 return output
+            logger.warning(
+                "LLM reply for agent %s normalized to empty (model=%s, raw_len=%d, raw_preview=%.120s)",
+                agent.id, runtime_model, len(raw_text), raw_text[:120],
+            )
         except Exception as exc:
             logger.warning("LLM runtime reply failed for agent %s with model %s: %s", agent.id, runtime_model, exc)
     return None
@@ -1724,25 +1592,12 @@ def _persona_guardrails(agent: Agent) -> list[str]:
     return rules
 
 
-def _fallback_agent_claim(agent: Agent, trigger: Message) -> str:
-    profile = f"{_agent_role(agent)} {_clean_agent_personality_text(agent)} {_agent_backstory(agent)}".lower()
-    lowered = (trigger.content or "").lower()
-
-    if "grothendieck" in lowered or "category" in lowered or "categorical" in lowered:
-        if any(token in profile for token in ["skeptic", "hostile", "critical", "doubt"]):
-            return "I think the Grothendieck construction is useful as a conceptual lens, but it rarely pays off as the primary operational model for deployed systems."
-        if any(token in profile for token in ["enthusiastic", "supportive", "optimistic"]):
-            return "I think the Grothendieck construction is valuable when we need principled composition across changing contexts, but claims should stay tied to concrete system boundaries."
-        return "I see value in using the Grothendieck construction for compositional clarity, as long as we anchor it to concrete modeling choices."
-
-    return "My contribution is to push one concrete claim and one practical implication so we can move the discussion forward."
-
-
 def _fallback_agent_reply(agent: Agent, conversation: Conversation, trigger: Message, tool_output: str | None) -> str:
     role = _agent_role(agent).strip()
-    role_phrase = f" My role here is {role}." if role else ""
-    claim = _fallback_agent_claim(agent, trigger)
     lowered = (trigger.content or "").lower()
+    trigger_preview = " ".join((trigger.content or "").split())
+    if len(trigger_preview) > 100:
+        trigger_preview = trigger_preview[:100].rstrip() + "..."
 
     if _is_introduction_request(lowered):
         if role:
@@ -1753,12 +1608,19 @@ def _fallback_agent_reply(agent: Agent, conversation: Conversation, trigger: Mes
         snippet = " ".join(tool_output.split())
         if len(snippet) > 180:
             snippet = snippet[:180].rstrip() + "..."
-        return f"{claim} Tool context: {snippet}"
+        return f"Here's what I found: {snippet}"
 
-    if conversation.kind == "topic":
-        return claim
+    # For direct conversations, acknowledge the user's message rather than
+    # reciting role boilerplate.  The fallback is intentionally brief so it
+    # doesn't pretend to have LLM-quality answers.
+    if _is_question_like(trigger.content):
+        if role:
+            return f"That's a good question. I'd like to think through it carefully from my perspective as {role}, but I'm having trouble formulating a full response right now. Could you try again in a moment?"
+        return "That's a good question. I'd like to think through it carefully, but I'm having trouble formulating a full response right now. Could you try again in a moment?"
 
-    return f"I'm {agent.name}.{role_phrase} {claim}"
+    if role:
+        return f"I hear you. Let me think about that from my perspective as {role} and get back to you."
+    return "I hear you. Let me think about that and get back to you."
 
 
 def build_agent_reply(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
@@ -1806,6 +1668,10 @@ def build_agent_reply(session: Session, agent: Agent, conversation: Conversation
     except Exception as exc:
         logger.warning("LLM runtime reply failed for agent %s: %s", agent.id, exc)
 
+    logger.warning(
+        "Agent %s (%s) using fallback reply for trigger %.80s",
+        agent.id, agent.name, (trigger.content or "")[:80],
+    )
     fallback = _fallback_agent_reply(agent=agent, conversation=conversation, trigger=trigger, tool_output=tool_output)
     return _normalize_agent_reply_text(agent, fallback)
 
@@ -1915,6 +1781,41 @@ def close_tasks_satisfied_by_message(session: Session, message: Message) -> None
         session.add(task)
 
 
+def _build_chain_selector_guidance(
+    chain_step: int,
+    chain_responded_ids: list[str],
+    candidates: list[Agent],
+) -> str:
+    if chain_step == 0:
+        return ""
+
+    names = {a.id: a.name for a in candidates}
+    responded = [names.get(aid, aid) for aid in chain_responded_ids]
+
+    lines = [
+        f"- CHAIN CONTEXT: Step {chain_step + 1} of discussion chain.",
+        f"- Already responded: {', '.join(responded)}.",
+        "- Only select an agent with something GENUINELY NEW: a distinct perspective, "
+        "new information, a counterargument, or a concrete next step.",
+        "- Do NOT select an agent to agree, paraphrase, or validate what was said.",
+        "- If the discussion has reached a natural stopping point, select NO agents.",
+    ]
+
+    if chain_step >= 3:
+        lines.append(
+            "- WARNING: Long chain. Apply a VERY HIGH bar — only continue "
+            "for critical disagreements or essential new information."
+        )
+
+    if len(set(chain_responded_ids)) < len(chain_responded_ids):
+        lines.append(
+            "- An agent has spoken multiple times. Avoid a third turn "
+            "for any agent unless absolutely necessary."
+        )
+
+    return "\n".join(lines)
+
+
 def run_agent_auto_responses(session: Session, conversation: Conversation, trigger: Message) -> list[Message]:
     agents = _agents_for_auto_response(session, conversation)
     if not agents:
@@ -1948,22 +1849,18 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if not candidates:
         return []
 
-    max_chain = 1 if len(candidates) == 1 else min(3, len(candidates))
+    max_chain = 1 if len(candidates) == 1 else min(settings.agent_chain_max, 2 * len(candidates))
     created: list[Message] = []
     chain_trigger = trigger
     thread_anchor = trigger if trigger.sender_type == "user" else None
+    chain_responded_ids: list[str] = []
 
-    for _ in range(max_chain):
-        if chain_trigger.sender_type == "agent":
-            active_order, _meta = _active_turn_order_hint(session, conversation, chain_trigger, candidates)
-            if not active_order:
-                break
-
+    for chain_step in range(max_chain):
         blocked_agent_ids: set[str] = set()
-        # Enforce "no same agent twice in a row" only for immediate agent->agent turns.
-        # A human post resets turn order and should not inherit prior blocking.
         if len(candidates) > 1 and chain_trigger.sender_type == "agent" and chain_trigger.sender_agent_id:
             blocked_agent_ids.add(chain_trigger.sender_agent_id)
+
+        guidance = _build_chain_selector_guidance(chain_step, chain_responded_ids, candidates)
 
         selected = _select_responder(
             session=session,
@@ -1971,6 +1868,7 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             trigger=chain_trigger,
             candidates=candidates,
             blocked_agent_ids=blocked_agent_ids,
+            selector_guidance=guidance,
         )
         if not selected:
             break
@@ -1996,6 +1894,7 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             logger.warning("Short-term learning failed for agent %s: %s", selected.id, exc)
 
         schedule_follow_up_if_needed(session, conversation, selected, agent_message)
+        chain_responded_ids.append(selected.id)
         created.append(agent_message)
         chain_trigger = agent_message
 

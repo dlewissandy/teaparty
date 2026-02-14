@@ -2,10 +2,10 @@ import unittest
 
 from teaparty_app.models import Agent
 from teaparty_app.services.agent_runtime import (
-    _agent_name_aliases,
+    _build_chain_selector_guidance,
     _extract_file_tool_command,
     _extract_json_object,
-    _extract_turn_order_from_text,
+    _extract_web_search_reply,
     _is_valid_file_tool_command,
     _model_supports_temperature,
     _normalize_agent_reply_text,
@@ -88,24 +88,22 @@ class AgentRuntimeHelperTests(unittest.TestCase):
         self.assertTrue(_model_supports_temperature("claude-haiku-4-5"))
         self.assertTrue(_model_supports_temperature(""))
 
-    def test_agent_name_aliases_include_first_name_and_shortening(self) -> None:
-        agent = _make_agent(agent_id="a1", name="Matt Parker")
-        self.assertEqual(_agent_name_aliases(agent), ["matt parker", "matt", "mat"])
+    def test_build_chain_selector_guidance_empty_at_step_zero(self) -> None:
+        agents = [_make_agent(agent_id="a1", name="Alice"), _make_agent(agent_id="a2", name="Bob")]
+        self.assertEqual(_build_chain_selector_guidance(0, [], agents), "")
 
-    def test_extract_turn_order_from_text(self) -> None:
-        matt = _make_agent(agent_id="m1", name="Matt")
-        priya = _make_agent(agent_id="p1", name="Priya")
-        jordan = _make_agent(agent_id="j1", name="Jordan")
-        candidates = [matt, priya, jordan]
+    def test_build_chain_selector_guidance_includes_context_at_step_one(self) -> None:
+        agents = [_make_agent(agent_id="a1", name="Alice"), _make_agent(agent_id="a2", name="Bob")]
+        guidance = _build_chain_selector_guidance(1, ["a1"], agents)
+        self.assertIn("Step 2", guidance)
+        self.assertIn("Alice", guidance)
+        self.assertNotIn("WARNING", guidance)
 
-        ordered = _extract_turn_order_from_text("Matt first, Priya next, Jordan goes last.", candidates)
-        self.assertEqual(ordered, ["m1", "p1", "j1"])
-
-        single = _extract_turn_order_from_text("Matt, anything to add?", candidates)
-        self.assertEqual(single, ["m1"])
-
-        no_order = _extract_turn_order_from_text("Matt and Priya should review this.", candidates)
-        self.assertEqual(no_order, [])
+    def test_build_chain_selector_guidance_warns_on_long_chain(self) -> None:
+        agents = [_make_agent(agent_id="a1", name="Alice"), _make_agent(agent_id="a2", name="Bob")]
+        guidance = _build_chain_selector_guidance(3, ["a1", "a2", "a1"], agents)
+        self.assertIn("WARNING", guidance)
+        self.assertIn("spoken multiple times", guidance)
 
     def test_trim_helpers(self) -> None:
         self.assertEqual(_trim_to_words("one two three four", 3), "one two three...")
@@ -136,4 +134,58 @@ class AgentRuntimeHelperTests(unittest.TestCase):
         self.assertEqual(_topic_relevance_bonus(agent, "Need help with CSS gradients"), 0.0)
         self.assertEqual(_role_identity_bonus(agent, "Who can help with this?"), 0.22)
         self.assertEqual(_role_identity_bonus(agent, "Please draft a budget memo"), 0.0)
+
+    def test_select_tool_skips_web_search(self) -> None:
+        agent = _make_agent(agent_id="a1", name="Researcher", tool_names=["web_search", "summarize_topic"])
+        self.assertIsNone(_select_tool(agent, "search the web for latest AI news"))
+        self.assertEqual(_select_tool(agent, "give me a summary"), "summarize_topic")
+
+    def test_extract_web_search_reply_text_only(self) -> None:
+        class FakeBlock:
+            def __init__(self, text: str, citations=None):
+                self.text = text
+                self.citations = citations
+
+        class FakeResponse:
+            def __init__(self, content):
+                self.content = content
+
+        response = FakeResponse([FakeBlock("Hello world")])
+        result = _extract_web_search_reply(response)
+        self.assertEqual(result, "Hello world")
+
+    def test_extract_web_search_reply_multiple_blocks_with_citations(self) -> None:
+        class FakeCitation:
+            def __init__(self, title: str, url: str):
+                self.title = title
+                self.url = url
+
+        class FakeBlock:
+            def __init__(self, text: str, citations=None):
+                self.text = text
+                self.citations = citations
+
+        class FakeToolUseBlock:
+            pass
+
+        class FakeResponse:
+            def __init__(self, content):
+                self.content = content
+
+        blocks = [
+            FakeBlock("Part one.", [FakeCitation("Source A", "https://a.com")]),
+            FakeToolUseBlock(),
+            FakeBlock("Part two.", [
+                FakeCitation("Source B", "https://b.com"),
+                FakeCitation("Source A dup", "https://a.com"),
+            ]),
+        ]
+        response = FakeResponse(blocks)
+        result = _extract_web_search_reply(response)
+        self.assertIn("Part one.", result)
+        self.assertIn("Part two.", result)
+        self.assertIn("Sources:", result)
+        self.assertIn("https://a.com", result)
+        self.assertIn("https://b.com", result)
+        self.assertEqual(result.count("https://a.com"), 1)
 

@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     follow_up_scan_limit: int = 100
     admin_agent_use_sdk: bool = True
     admin_agent_model: str = "claude-sonnet-4-5"
+    agent_chain_max: int = 8
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
 
     model_config = SettingsConfigDict(
