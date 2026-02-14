@@ -396,6 +396,19 @@ class AgentMemoryRead(ORMBaseModel):
     created_at: datetime
 
 
+class AgentLearningSignalRead(BaseModel):
+    signal_type: str
+    value: dict[str, Any]
+    created_at: datetime
+
+
+class AgentLearningsRead(BaseModel):
+    learning_state: dict[str, Any]
+    sentiment_state: dict[str, Any]
+    memories: list[AgentMemoryRead]
+    recent_signals: list[AgentLearningSignalRead]
+
+
 class ConversationUsageRead(BaseModel):
     conversation_id: str
     total_input_tokens: int
