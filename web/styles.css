@@ -815,6 +815,13 @@ h3 {
   color: var(--ink);
 }
 
+.file-overlay-image {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+}
+
 /* Rendered markdown in file overlay */
 .file-overlay-rendered {
   white-space: normal;

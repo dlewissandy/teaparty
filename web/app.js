@@ -88,6 +88,14 @@ function isJsonFile(filePath) {
   return /\.json$/i.test(filePath);
 }
 
+function isImageFile(filePath) {
+  return /\.(png|jpe?g|gif|svg|webp|bmp|ico)$/i.test(filePath);
+}
+
+function isDataUrl(content) {
+  return /^data:image\//.test(content);
+}
+
 function tryParseJson(content) {
   try {
     return { ok: true, data: JSON.parse(content) };
@@ -899,6 +907,17 @@ function openFileOverlay(workgroupId, fileId) {
     const editBtn = qs("file-overlay-edit");
     editBtn.textContent = "Edit";
     editBtn.classList.toggle("hidden", !isOwner);
+  } else if (isImageFile(file.path) || isDataUrl(file.content)) {
+    form.innerHTML = "";
+    form.classList.add("hidden");
+    state.fileOverlayParsedJson = null;
+    state.fileOverlayViewMode = "raw";
+    pre.classList.add("hidden");
+    const src = isDataUrl(file.content) ? escapeHtml(file.content) : escapeHtml(file.content);
+    rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
+    rendered.classList.remove("hidden");
+    rawToggle.classList.add("hidden");
+    qs("file-overlay-edit").classList.add("hidden");
   } else {
     form.innerHTML = "";
     form.classList.add("hidden");
@@ -1079,6 +1098,16 @@ function refreshFileOverlayIfOpen() {
     const editBtn = qs("file-overlay-edit");
     editBtn.textContent = "Edit";
     editBtn.classList.toggle("hidden", !isOwner);
+  } else if (isImageFile(file.path) || isDataUrl(file.content)) {
+    form.innerHTML = "";
+    form.classList.add("hidden");
+    state.fileOverlayParsedJson = null;
+    pre.classList.add("hidden");
+    const src = isDataUrl(file.content) ? escapeHtml(file.content) : escapeHtml(file.content);
+    rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
+    rendered.classList.remove("hidden");
+    rawToggle.classList.add("hidden");
+    qs("file-overlay-edit").classList.add("hidden");
   } else {
     form.innerHTML = "";
     form.classList.add("hidden");
@@ -2308,6 +2337,63 @@ async function ensureAgentLearningsFile(workgroupId, agent) {
       file = newFile;
     } catch (err) {
       flash(err.message || "Failed to create learnings file", "error");
+      return;
+    }
+  }
+
+  const admin = data.topics.find((c) => c.kind === "admin");
+  if (admin) {
+    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+  }
+
+  state.expandedWorkgroupIds[workgroupId] = true;
+  state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
+  openFileOverlay(workgroupId, file.id);
+}
+
+async function ensureAgentConfigFile(workgroupId, agent) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  const slug = agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const filePath = `agents/${slug}.json`;
+  const files = normalizeWorkgroupFiles(data.workgroup?.files);
+
+  const configData = {
+    id: agent.id,
+    name: agent.name,
+    description: agent.description,
+    role: agent.role,
+    personality: agent.personality,
+    backstory: agent.backstory,
+    model: agent.model,
+    temperature: agent.temperature,
+    verbosity: agent.verbosity,
+    tool_names: agent.tool_names || [],
+    response_threshold: agent.response_threshold,
+    follow_up_minutes: agent.follow_up_minutes,
+    icon: agent.icon || "",
+  };
+  const content = JSON.stringify(configData, null, 2);
+
+  let file = files.find((f) => f.path === filePath);
+  let needsSave = false;
+
+  if (!file) {
+    file = { id: newWorkgroupFileId(), path: filePath, content };
+    needsSave = true;
+  } else if (file.content !== content) {
+    file = { ...file, content };
+    needsSave = true;
+  }
+
+  if (needsSave) {
+    const updatedFiles = files.filter((f) => f.path !== filePath);
+    updatedFiles.push(file);
+    try {
+      await saveWorkgroupFiles(workgroupId, updatedFiles);
+    } catch (err) {
+      flash(err.message || "Failed to save agent config", "error");
       return;
     }
   }
@@ -3792,11 +3878,7 @@ function bindTreeEvents() {
         if (!agentId) {
           return;
         }
-        const agentData = state.treeData[workgroupId];
-        const agent = agentData?.agents?.find((a) => a.id === agentId);
-        if (agent) {
-          await openConfigAndAdmin(workgroupId, `agent: ${agent.name}`, agent);
-        }
+        await openAgentSettings(workgroupId, agentId);
       }
 
       if (action === "select-file") {
@@ -4285,11 +4367,16 @@ function bindEvents() {
         }
 
         try {
+          const isImage = file.type.startsWith("image/");
           const content = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
             reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
-            reader.readAsText(file);
+            if (isImage) {
+              reader.readAsDataURL(file);
+            } else {
+              reader.readAsText(file);
+            }
           });
 
           const path = `topics/uploads/${file.name}`;
