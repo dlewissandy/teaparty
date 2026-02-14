@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TeaParty Workgroup Chat</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css?v=20260214a" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-mark">TP</div>
+        <div>
+          <h1>TeaParty</h1>
+          <p class="meta">Workgroup Chat</p>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="metrics">
+          <span class="metric">Workgroups <strong id="metric-workgroups">0</strong></span>
+          <span class="metric">Threads <strong id="metric-conversations">0</strong></span>
+          <span class="metric">Messages <strong id="metric-messages">0</strong></span>
+        </div>
+
+        <div class="user-menu">
+          <button id="user-menu-button" class="menu-button" aria-expanded="false">User</button>
+          <div id="user-menu-dropdown" class="menu-dropdown hidden">
+            <div class="menu-block menu-theme">
+              <label class="switch-row" for="theme-toggle">
+                <span class="meta">Dark mode</span>
+                <input id="theme-toggle" type="checkbox" />
+              </label>
+            </div>
+
+            <div id="menu-authenticated" class="hidden menu-block">
+              <p id="menu-user-label" class="meta"></p>
+              <button id="logout-button" class="secondary">Log Out</button>
+            </div>
+
+            <div id="menu-login-controls" class="menu-block">
+              <p class="meta">Login</p>
+              <div id="google-login"></div>
+              <form id="dev-login-form" class="stack-form">
+                <input id="dev-email" type="email" placeholder="dev email" required />
+                <input id="dev-name" type="text" placeholder="name" value="Developer" required />
+                <button type="submit">Dev Login</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <aside class="tree-blade">
+        <div class="tree-header">
+          <h2>Workgroups</h2>
+          <button id="new-workgroup-toggle" class="tree-tool">+</button>
+        </div>
+
+        <div id="auth-state" class="status-line">Not authenticated</div>
+
+        <div id="workgroup-create-wrap" class="hidden">
+          <form id="workgroup-create-form" class="stack-form create-workgroup-form">
+            <label class="settings-field">
+              <span class="settings-label">Workgroup name</span>
+              <input id="workgroup-name" type="text" placeholder="new workgroup" required />
+            </label>
+
+            <label class="settings-field">
+              <span class="settings-label">Template</span>
+              <select id="workgroup-template"></select>
+            </label>
+            <p id="workgroup-template-description" class="meta">
+              Choose a template. Template definitions are managed in the Administration workgroup under
+              <code>.templates/workgroups/</code>.
+            </p>
+
+            <div class="inline-form create-workgroup-actions">
+              <button type="submit">Create</button>
+            </div>
+          </form>
+        </div>
+
+        <div id="treeview" class="treeview"></div>
+      </aside>
+
+      <div id="blade-resize-handle" class="blade-resize-handle"></div>
+
+      <section id="chat-panel" class="chat-panel hidden">
+        <header class="chat-header">
+          <div class="chat-header-top">
+            <h3 id="active-conversation">No active conversation</h3>
+            <button id="copy-chat" class="secondary hidden">Copy</button>
+          </div>
+          <p id="active-context" class="meta">
+            Use the tree to open a topic, member DM, or administration conversation.
+          </p>
+          <div id="chat-tool-buttons" class="chat-tool-buttons hidden"></div>
+          <p id="active-usage" class="meta usage-line hidden"></p>
+        </header>
+
+        <div id="messages" class="messages"></div>
+
+        <div id="file-overlay" class="file-overlay hidden">
+          <div class="file-overlay-header">
+            <div class="file-overlay-title">
+              <h3 id="file-overlay-path">file.txt</h3>
+              <p id="file-overlay-workgroup" class="meta"></p>
+            </div>
+            <div class="file-overlay-actions">
+              <button id="file-overlay-raw-toggle" class="secondary hidden">Raw</button>
+              <button id="file-overlay-edit" class="secondary hidden">Edit</button>
+              <button id="file-overlay-delete" class="danger hidden">Delete</button>
+              <button id="file-overlay-close" class="icon-button" aria-label="Close file viewer">×</button>
+            </div>
+          </div>
+          <pre id="file-overlay-content" class="file-overlay-content"></pre>
+          <div id="file-overlay-rendered" class="file-overlay-content file-overlay-rendered hidden"></div>
+          <div id="file-overlay-form" class="file-overlay-form hidden"></div>
+        </div>
+
+        <form id="message-form" class="composer">
+          <div id="composer-file-context" class="composer-file-context hidden"></div>
+          <input id="message-content" type="text" placeholder="Type a message..." required />
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <section id="empty-panel" class="empty-panel">
+        <h2>Login To Start</h2>
+        <p class="meta">Open the User menu in the top-right corner and sign in.</p>
+      </section>
+    </main>
+
+    <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="settings-title">Settings</h3>
+          <button id="settings-close" type="button" class="icon-button" aria-label="Close settings">×</button>
+        </div>
+        <p id="settings-subtitle" class="meta hidden"></p>
+        <form id="settings-form" class="stack-form"></form>
+      </div>
+    </div>
+
+    <div id="flash-stack" aria-live="polite" aria-atomic="true"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked@15/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+    <script src="/app.js?v=20260214a"></script>
+  </body>
+</html>
