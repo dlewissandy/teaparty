@@ -250,6 +250,7 @@ class ConversationUpdateRequest(BaseModel):
     topic: str | None = None
     name: str | None = None
     description: str | None = None
+    is_archived: bool | None = None
 
 
 class ConversationRead(ORMBaseModel):

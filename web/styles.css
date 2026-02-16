@@ -799,6 +799,62 @@ body[data-theme="dark"] .unread-dot {
   color: var(--primary);
 }
 
+.chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chat-menu-wrapper {
+  position: relative;
+}
+
+.chat-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 4px;
+  z-index: 30;
+}
+
+.chat-menu-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  font-size: 0.82rem;
+  cursor: pointer;
+  border-radius: 4px;
+  color: var(--fg, var(--ink));
+}
+
+.chat-menu-dropdown button:hover {
+  background: var(--hover, var(--primary-soft));
+}
+
+.chat-menu-dropdown button.danger {
+  color: var(--danger, #c0392b);
+}
+
+.chat-header-actions .icon-button {
+  border-radius: 6px;
+  padding: 4px 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.chat-header-actions .icon-button.has-tools {
+  color: var(--primary);
+}
+
 .usage-line {
   font-size: 0.7rem;
   margin-top: 4px;

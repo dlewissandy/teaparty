@@ -5,7 +5,8 @@ from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
 from teaparty_app.models import Agent, Membership, User
 from teaparty_app.schemas import AgentRead, MessageRead, TickResponse
-from teaparty_app.services.agent_runtime import process_due_followups
+from teaparty_app.services.agent_runtime import process_due_followups, process_triggered_todos
+from teaparty_app.services.engagement_sync import sync_engagement_messages
 from teaparty_app.services.task_sync import sync_cross_group_messages
 
 router = APIRouter(prefix="/api", tags=["agents"])
@@ -41,8 +42,14 @@ def tick_agents(
 
     created = process_due_followups(session, allowed_workgroup_ids, limit=limit)
 
+    todo_created = process_triggered_todos(session, allowed_workgroup_ids)
+    created.extend(todo_created)
+
     synced = sync_cross_group_messages(session, allowed_workgroup_ids)
     created.extend(synced)
+
+    engagement_synced = sync_engagement_messages(session, allowed_workgroup_ids)
+    created.extend(engagement_synced)
 
     session.commit()
     for message in created:

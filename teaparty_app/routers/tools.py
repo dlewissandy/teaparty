@@ -7,9 +7,12 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, ToolDefinition, ToolGrant, User
+from teaparty_app.models import Agent, ToolDefinition, ToolGrant, User, Workgroup
 from teaparty_app.schemas import (
     AvailableToolRead,
+    ToolCatalogCategory,
+    ToolCatalogEntry,
+    ToolCatalogRead,
     ToolDefinitionCreateRequest,
     ToolDefinitionRead,
     ToolDefinitionUpdateRequest,
@@ -17,7 +20,7 @@ from teaparty_app.schemas import (
     ToolGrantRead,
 )
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
-from teaparty_app.services.tools import TOOL_REGISTRY, available_tools_for_workgroup
+from teaparty_app.services.tools import SERVER_SIDE_TOOLS, TOOL_REGISTRY, available_tools, available_tools_for_workgroup, get_workgroup_disabled_tools
 
 logger = logging.getLogger(__name__)
 
@@ -25,15 +28,25 @@ router = APIRouter(prefix="/api", tags=["tools"])
 
 
 def _build_available_tool_list(session: Session, workgroup_id: str) -> list[AvailableToolRead]:
+    workgroup = session.get(Workgroup, workgroup_id)
+    disabled = get_workgroup_disabled_tools(workgroup) if workgroup else set()
+
     results: list[AvailableToolRead] = []
 
-    for name in sorted(TOOL_REGISTRY.keys()):
+    for name in available_tools():
+        if name in disabled:
+            continue
+        tool_type = "builtin"
+        if name in SERVER_SIDE_TOOLS:
+            tool_type = "server_side"
+        elif name == "claude_code":
+            tool_type = "special"
         results.append(
             AvailableToolRead(
                 name=name,
                 display_name=name.replace("_", " ").title(),
-                description=name.replace("_", " "),
-                tool_type="builtin",
+                description=TOOL_DESCRIPTIONS.get(name, name.replace("_", " ")),
+                tool_type=tool_type,
             )
         )
 
@@ -44,9 +57,12 @@ def _build_available_tool_list(session: Session, workgroup_id: str) -> list[Avai
         )
     ).all()
     for td in own_tools:
+        ref = f"custom:{td.id}"
+        if ref in disabled:
+            continue
         results.append(
             AvailableToolRead(
-                name=f"custom:{td.id}",
+                name=ref,
                 display_name=td.name,
                 description=td.description,
                 tool_type=td.tool_type,
@@ -67,9 +83,12 @@ def _build_available_tool_list(session: Session, workgroup_id: str) -> list[Avai
         td = session.get(ToolDefinition, tool_def_id)
         if not td or not td.enabled:
             continue
+        ref = f"custom:{td.id}"
+        if ref in disabled:
+            continue
         results.append(
             AvailableToolRead(
-                name=f"custom:{td.id}",
+                name=ref,
                 display_name=td.name,
                 description=td.description,
                 tool_type=td.tool_type,
@@ -154,6 +173,143 @@ def list_own_tool_definitions(
         .order_by(ToolDefinition.created_at.asc())
     ).all()
     return [ToolDefinitionRead.model_validate(td) for td in tools]
+
+
+# ── Tool catalog ──
+
+TOOL_CATALOG_CATEGORIES = [
+    ("file_management", "File Management", [
+        ("list_files", "builtin"), ("add_file", "builtin"), ("edit_file", "builtin"),
+        ("rename_file", "builtin"), ("delete_file", "builtin"),
+    ]),
+    ("topic_management", "Topic Management", [
+        ("add_topic", "admin"), ("archive_topic", "admin"), ("unarchive_topic", "admin"),
+        ("remove_topic", "admin"), ("clear_topic_messages", "admin"), ("list_topics", "admin"),
+    ]),
+    ("member_management", "Agent & Member Management", [
+        ("add_agent", "admin"), ("add_user", "admin"),
+        ("remove_member", "admin"), ("list_members", "admin"),
+    ]),
+    ("collaboration", "Collaboration", [
+        ("list_tasks", "admin"), ("accept_task", "admin"),
+        ("decline_task", "admin"), ("complete_task", "admin"),
+    ]),
+    ("research", "Research", [
+        ("web_search", "server_side"), ("claude_code", "special"),
+    ]),
+    ("utility", "Utility", [
+        ("summarize_topic", "builtin"), ("list_open_followups", "builtin"),
+        ("suggest_next_step", "builtin"),
+    ]),
+]
+
+TOOL_DESCRIPTIONS: dict[str, str] = {
+    # File Management
+    "list_files": "List all files in the workgroup.",
+    "add_file": "Create a new file in the workgroup.",
+    "edit_file": "Edit an existing file's content.",
+    "rename_file": "Rename or move a file.",
+    "delete_file": "Delete a file from the workgroup.",
+    # Topic Management
+    "add_topic": "Create a new conversation topic.",
+    "archive_topic": "Archive a topic to hide it from active view.",
+    "unarchive_topic": "Restore an archived topic.",
+    "remove_topic": "Permanently remove a topic and its messages.",
+    "clear_topic_messages": "Delete all messages in a topic.",
+    "list_topics": "List all topics in the workgroup.",
+    # Agent & Member Management
+    "add_agent": "Add a new AI agent to the workgroup.",
+    "add_user": "Invite a user to the workgroup.",
+    "remove_member": "Remove a member or agent from the workgroup.",
+    "list_members": "List all members and agents.",
+    # Collaboration
+    "list_tasks": "List cross-group tasks.",
+    "accept_task": "Accept an incoming cross-group task.",
+    "decline_task": "Decline an incoming cross-group task.",
+    "complete_task": "Mark a cross-group task as complete.",
+    # Research
+    "web_search": "Search the web for information.",
+    "claude_code": "Run Claude Code for advanced coding tasks.",
+    # Utility
+    "summarize_topic": "Summarize recent messages in a topic.",
+    "list_open_followups": "List pending follow-up tasks.",
+    "suggest_next_step": "Suggest the next action for the conversation.",
+}
+
+
+@router.get("/workgroups/{workgroup_id}/tools/catalog", response_model=ToolCatalogRead)
+def get_tool_catalog(
+    workgroup_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> ToolCatalogRead:
+    require_workgroup_membership(session, workgroup_id, user.id)
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if not workgroup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
+
+    disabled = get_workgroup_disabled_tools(workgroup)
+
+    categories: list[ToolCatalogCategory] = []
+    for cat_key, cat_label, tool_list in TOOL_CATALOG_CATEGORIES:
+        entries: list[ToolCatalogEntry] = []
+        for tool_name, tool_source in tool_list:
+            entries.append(ToolCatalogEntry(
+                name=tool_name,
+                display_name=tool_name.replace("_", " ").title(),
+                description=TOOL_DESCRIPTIONS.get(tool_name, tool_name.replace("_", " ")),
+                source=tool_source,
+                enabled=tool_name not in disabled,
+            ))
+        categories.append(ToolCatalogCategory(key=cat_key, label=cat_label, tools=entries))
+
+    # Custom tools: own + granted
+    custom_entries: list[ToolCatalogEntry] = []
+    own_tools = session.exec(
+        select(ToolDefinition).where(
+            ToolDefinition.workgroup_id == workgroup_id,
+            ToolDefinition.enabled == True,  # noqa: E712
+        )
+    ).all()
+    own_tool_ids = {td.id for td in own_tools}
+    for td in own_tools:
+        ref = f"custom:{td.id}"
+        source = "custom_prompt" if td.tool_type == "prompt" else "custom_webhook"
+        custom_entries.append(ToolCatalogEntry(
+            name=ref,
+            display_name=td.name,
+            description=td.description or td.name,
+            source=source,
+            enabled=ref not in disabled,
+            source_workgroup_id=td.workgroup_id,
+        ))
+
+    granted_tool_ids = session.exec(
+        select(ToolGrant.tool_definition_id).where(
+            ToolGrant.grantee_workgroup_id == workgroup_id,
+        )
+    ).all()
+    for tool_def_id in granted_tool_ids:
+        if tool_def_id in own_tool_ids:
+            continue
+        td = session.get(ToolDefinition, tool_def_id)
+        if not td or not td.enabled:
+            continue
+        ref = f"custom:{td.id}"
+        custom_entries.append(ToolCatalogEntry(
+            name=ref,
+            display_name=td.name,
+            description=td.description or td.name,
+            source="custom_granted",
+            enabled=ref not in disabled,
+            source_workgroup_id=td.workgroup_id,
+        ))
+
+    if custom_entries:
+        categories.append(ToolCatalogCategory(key="custom", label="Custom Tools", tools=custom_entries))
+
+    return ToolCatalogRead(categories=categories)
 
 
 @router.get("/workgroups/{workgroup_id}/tools/{tool_id}", response_model=ToolDefinitionRead)

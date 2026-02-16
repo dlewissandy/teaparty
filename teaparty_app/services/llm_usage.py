@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
 import time
 from contextlib import contextmanager
 
 from sqlmodel import Session, select
 
-from teaparty_app.models import Conversation, LLMUsageEvent
+from teaparty_app.db import commit_with_retry
+from teaparty_app.models import Conversation, LLMUsageEvent, Membership
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
@@ -24,17 +28,62 @@ def record_llm_usage(
     output_tokens: int,
     purpose: str,
     duration_ms: int,
+    triggering_user_id: str | None = None,
 ) -> None:
-    event = LLMUsageEvent(
-        conversation_id=conversation_id,
-        agent_id=agent_id,
-        model=model,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        purpose=purpose,
-        duration_ms=duration_ms,
-    )
-    session.add(event)
+    """Record usage and commit immediately to release the SQLite write lock before the next LLM call."""
+    try:
+        event = LLMUsageEvent(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            model=model,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            purpose=purpose,
+            duration_ms=duration_ms,
+        )
+        session.add(event)
+        if triggering_user_id:
+            cost = _estimate_cost(model, input_tokens, output_tokens)
+            _increment_member_budget(session, conversation_id, triggering_user_id, cost)
+        commit_with_retry(session)
+    except Exception:
+        logger.warning("Failed to record LLM usage for %s/%s", conversation_id, agent_id, exc_info=True)
+        try:
+            session.rollback()
+        except Exception:
+            pass
+
+
+def _increment_member_budget(
+    session: Session, conversation_id: str, user_id: str, cost_usd: float
+) -> None:
+    conversation = session.get(Conversation, conversation_id)
+    if not conversation:
+        return
+    membership = session.exec(
+        select(Membership).where(
+            Membership.workgroup_id == conversation.workgroup_id,
+            Membership.user_id == user_id,
+        )
+    ).first()
+    if membership and membership.budget_limit_usd is not None:
+        membership.budget_used_usd = round((membership.budget_used_usd or 0.0) + cost_usd, 6)
+        session.add(membership)
+
+
+def get_member_usage(session: Session, workgroup_id: str, user_id: str) -> dict:
+    membership = session.exec(
+        select(Membership).where(
+            Membership.workgroup_id == workgroup_id,
+            Membership.user_id == user_id,
+        )
+    ).first()
+    return {
+        "workgroup_id": workgroup_id,
+        "user_id": user_id,
+        "budget_limit_usd": membership.budget_limit_usd if membership else None,
+        "budget_used_usd": membership.budget_used_usd if membership else 0.0,
+    }
 
 
 # Model pricing (USD per million tokens)
@@ -53,7 +102,8 @@ def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
                 pricing = MODEL_PRICING[key]
                 break
         if not pricing:
-            pricing = MODEL_PRICING["claude-sonnet-4-5"]
+            # Unknown models (Ollama, local, etc.) default to zero cost
+            return 0.0
     return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
 
 

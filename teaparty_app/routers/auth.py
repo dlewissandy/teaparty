@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session
 
@@ -74,6 +76,17 @@ def update_preferences(
     merged = {**user.preferences, **payload.preferences}
     user.preferences = merged
     session.add(user)
-    session.commit()
+    for attempt in range(3):
+        try:
+            session.commit()
+            break
+        except Exception:
+            if attempt < 2:
+                session.rollback()
+                user.preferences = merged
+                session.add(user)
+                time.sleep(0.15 * (attempt + 1))
+            else:
+                raise
     session.refresh(user)
     return UserRead.model_validate(user)

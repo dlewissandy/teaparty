@@ -351,8 +351,8 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             result = synthesize_long_term_memories(session, conv)
             self.assertEqual(result, {})
 
-    @patch("teaparty_app.services.agent_learning._get_anthropic_client")
-    def test_creates_memories_from_valid_llm_response(self, mock_client_factory: MagicMock) -> None:
+    @patch("teaparty_app.services.llm_client.create_message")
+    def test_creates_memories_from_valid_llm_response(self, mock_create_message: MagicMock) -> None:
         with Session(self.engine) as session:
             wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
             session.add(wg)
@@ -388,9 +388,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             mock_response.usage.input_tokens = 100
             mock_response.usage.output_tokens = 50
 
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_factory.return_value = mock_client
+            mock_create_message.return_value = mock_response
 
             result = synthesize_long_term_memories(session, conv)
             session.commit()
@@ -408,8 +406,8 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             self.assertIn("insight", types)
             self.assertIn("domain_knowledge", types)
 
-    @patch("teaparty_app.services.agent_learning._get_anthropic_client")
-    def test_handles_llm_failure_gracefully(self, mock_client_factory: MagicMock) -> None:
+    @patch("teaparty_app.services.llm_client.create_message")
+    def test_handles_llm_failure_gracefully(self, mock_create_message: MagicMock) -> None:
         with Session(self.engine) as session:
             wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
             session.add(wg)
@@ -432,15 +430,13 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
                 )
             session.commit()
 
-            mock_client = MagicMock()
-            mock_client.messages.create.side_effect = Exception("API error")
-            mock_client_factory.return_value = mock_client
+            mock_create_message.side_effect = Exception("API error")
 
             result = synthesize_long_term_memories(session, conv)
             self.assertEqual(result, {})
 
-    @patch("teaparty_app.services.agent_learning._get_anthropic_client")
-    def test_enforces_five_per_agent_cap(self, mock_client_factory: MagicMock) -> None:
+    @patch("teaparty_app.services.llm_client.create_message")
+    def test_enforces_five_per_agent_cap(self, mock_create_message: MagicMock) -> None:
         with Session(self.engine) as session:
             wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
             session.add(wg)
@@ -476,9 +472,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             mock_response.usage.input_tokens = 100
             mock_response.usage.output_tokens = 50
 
-            mock_client = MagicMock()
-            mock_client.messages.create.return_value = mock_response
-            mock_client_factory.return_value = mock_client
+            mock_create_message.return_value = mock_response
 
             result = synthesize_long_term_memories(session, conv)
             session.commit()

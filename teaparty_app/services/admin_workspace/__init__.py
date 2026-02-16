@@ -29,6 +29,18 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_TOOL_REMOVE_TOPIC,
     ADMIN_TOOL_RENAME_FILE,
     ADMIN_TOOL_UNARCHIVE_TOPIC,
+    ADMINISTRATION_WORKGROUP_NAME,
+    GLOBAL_TOOL_ADD_AGENT,
+    GLOBAL_TOOL_ADD_FILE,
+    GLOBAL_TOOL_ADD_TOPIC,
+    GLOBAL_TOOL_CREATE_ORGANIZATION,
+    GLOBAL_TOOL_CREATE_WORKGROUP,
+    GLOBAL_TOOL_LIST_AGENTS,
+    GLOBAL_TOOL_LIST_ORGANIZATIONS,
+    GLOBAL_TOOL_LIST_TEMPLATES,
+    GLOBAL_TOOL_LIST_TOPICS,
+    GLOBAL_TOOL_LIST_WORKGROUPS,
+    GLOBAL_TOOL_NAMES,
     SESSION_DELETE_WORKGROUP_KEY,
     direct_topic_key,
     direct_topic_key_user_agent,
@@ -124,11 +136,11 @@ def _handle_admin_message_deterministic(
 
     unarchive_match = UNARCHIVE_TOPIC_RE.match(message)
     if unarchive_match:
-        return admin_tool_unarchive_topic(session, workgroup_id, unarchive_match.group(1))
+        return admin_tool_unarchive_topic(session, workgroup_id, requester_user_id, unarchive_match.group(1))
 
     archive_match = ARCHIVE_TOPIC_RE.match(message)
     if archive_match:
-        return admin_tool_archive_topic(session, workgroup_id, archive_match.group(1))
+        return admin_tool_archive_topic(session, workgroup_id, requester_user_id, archive_match.group(1))
 
     remove_topic_match = REMOVE_TOPIC_RE.match(message)
     if remove_topic_match:
@@ -287,6 +299,25 @@ def handle_admin_message(
     content: str,
     conversation_id: str | None = None,
 ) -> str:
+    from teaparty_app.services.admin_workspace.sdk_integration import (
+        _handle_admin_message_with_sdk,
+        _sdk_enabled,
+    )
+
+    # Primary path: LLM-driven agentic loop.
+    if _sdk_enabled():
+        try:
+            return _handle_admin_message_with_sdk(
+                session=session,
+                workgroup_id=workgroup_id,
+                requester_user_id=requester_user_id,
+                content=content,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+    # Fallback: deterministic regex dispatch (no API key needed).
     deterministic = _handle_admin_message_deterministic(
         session=session,
         workgroup_id=workgroup_id,
@@ -296,21 +327,4 @@ def handle_admin_message(
     if deterministic is not None:
         return deterministic
 
-    from teaparty_app.services.admin_workspace.sdk_integration import (
-        _handle_admin_message_with_sdk,
-        _sdk_enabled,
-    )
-
-    if not _sdk_enabled():
-        return _help_text()
-
-    try:
-        return _handle_admin_message_with_sdk(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            content=content,
-            conversation_id=conversation_id,
-        )
-    except Exception:
-        return _help_text()
+    return _help_text()

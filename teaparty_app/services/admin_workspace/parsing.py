@@ -348,7 +348,10 @@ def _normalize_workgroup_files_for_tool(workgroup) -> list[dict[str, str]]:
         if len(content) > 200000:
             continue
 
-        normalized.append({"id": file_id or str(uuid4()), "path": path, "content": content})
+        topic_id = ""
+        if isinstance(raw, dict):
+            topic_id = str(raw.get("topic_id", "")).strip()
+        normalized.append({"id": file_id or str(uuid4()), "path": path, "content": content, "topic_id": topic_id})
         seen_paths.add(path)
     return normalized
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 import re
@@ -111,9 +112,22 @@ def _normalize_workgroup_files(workgroup: Workgroup) -> list[dict[str, str]]:
             continue
         if len(path) > 512 or len(content) > 200000:
             continue
-        normalized.append({"id": file_id or str(uuid4()), "path": path, "content": content})
+        topic_id = ""
+        if isinstance(raw, dict):
+            topic_id = str(raw.get("topic_id", "")).strip()
+        normalized.append({"id": file_id or str(uuid4()), "path": path, "content": content, "topic_id": topic_id})
         seen_paths.add(path)
     return normalized
+
+
+def _files_for_conversation(workgroup: Workgroup, conversation: Conversation) -> list[dict[str, str]]:
+    all_files = _normalize_workgroup_files(workgroup)
+    if conversation.kind == "admin":
+        return all_files
+    if conversation.kind == "topic":
+        return [f for f in all_files if not f.get("topic_id") or f["topic_id"] == conversation.id]
+    # direct and everything else: shared files only
+    return [f for f in all_files if not f.get("topic_id")]
 
 
 def _file_tool_workgroup_and_error(
@@ -121,7 +135,7 @@ def _file_tool_workgroup_and_error(
     conversation: Conversation,
     trigger: Message,
     *,
-    require_owner: bool = True,
+    require_editor: bool = True,
 ) -> tuple[Workgroup | None, str | None]:
     if trigger.sender_type != "user" or not trigger.sender_user_id:
         return None, "File tools require a direct user request."
@@ -134,8 +148,8 @@ def _file_tool_workgroup_and_error(
     ).first()
     if not membership:
         return None, "User is not a member of this workgroup."
-    if require_owner and membership.role != "owner":
-        return None, "Only the workgroup owner can modify files."
+    if require_editor and membership.role not in ("owner", "editor"):
+        return None, "Editor permissions required to modify files."
 
     workgroup = session.get(Workgroup, conversation.workgroup_id)
     if not workgroup:
@@ -162,14 +176,16 @@ def add_file(session: Session, agent: Agent, conversation: Conversation, trigger
     if len(content) > 200000:
         return "File content must be 200000 characters or fewer."
 
-    files = _normalize_workgroup_files(workgroup)
-    for entry in files:
+    all_files = _normalize_workgroup_files(workgroup)
+    scoped_files = _files_for_conversation(workgroup, conversation)
+    for entry in scoped_files:
         if entry["path"] == path:
             return f"File '{path}' already exists (id={entry['id']})."
 
-    created = {"id": str(uuid4()), "path": path, "content": content}
-    files.append(created)
-    workgroup.files = files
+    topic_id = conversation.id if conversation.kind == "topic" else ""
+    created = {"id": str(uuid4()), "path": path, "content": content, "topic_id": topic_id}
+    all_files.append(created)
+    workgroup.files = all_files
     session.add(workgroup)
     post_file_change_activity(
         session, conversation.workgroup_id, "file_added", path,
@@ -195,21 +211,28 @@ def edit_file(session: Session, agent: Agent, conversation: Conversation, trigge
     if len(content) > 200000:
         return "File content must be 200000 characters or fewer."
 
-    files = _normalize_workgroup_files(workgroup)
-    for entry in files:
-        if entry["path"] != path:
-            continue
-        if entry["content"] == content:
-            return f"File '{path}' is unchanged."
-        entry["content"] = content
-        workgroup.files = files
-        session.add(workgroup)
-        post_file_change_activity(
-            session, conversation.workgroup_id, "file_updated", path,
-            actor_user_id=trigger.sender_user_id, actor_agent_id=trigger.sender_agent_id,
-        )
-        return f"Updated file '{path}' (id={entry['id']})."
-    return f"File '{path}' was not found."
+    scoped_files = _files_for_conversation(workgroup, conversation)
+    target: dict[str, str] | None = None
+    for entry in scoped_files:
+        if entry["path"] == path:
+            target = entry
+            break
+    if not target:
+        return f"File '{path}' was not found."
+    if target["content"] == content:
+        return f"File '{path}' is unchanged."
+    all_files = _normalize_workgroup_files(workgroup)
+    for entry in all_files:
+        if entry["id"] == target["id"]:
+            entry["content"] = content
+            break
+    workgroup.files = all_files
+    session.add(workgroup)
+    post_file_change_activity(
+        session, conversation.workgroup_id, "file_updated", path,
+        actor_user_id=trigger.sender_user_id, actor_agent_id=trigger.sender_agent_id,
+    )
+    return f"Updated file '{path}' (id={target['id']})."
 
 
 def rename_file(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
@@ -230,9 +253,9 @@ def rename_file(session: Session, agent: Agent, conversation: Conversation, trig
     if source_path == destination_path:
         return f"File path is already '{source_path}'."
 
-    files = _normalize_workgroup_files(workgroup)
+    scoped_files = _files_for_conversation(workgroup, conversation)
     source: dict[str, str] | None = None
-    for entry in files:
+    for entry in scoped_files:
         if entry["path"] == destination_path:
             return f"File '{destination_path}' already exists."
         if entry["path"] == source_path:
@@ -240,8 +263,12 @@ def rename_file(session: Session, agent: Agent, conversation: Conversation, trig
     if not source:
         return f"File '{source_path}' was not found."
 
-    source["path"] = destination_path
-    workgroup.files = files
+    all_files = _normalize_workgroup_files(workgroup)
+    for entry in all_files:
+        if entry["id"] == source["id"]:
+            entry["path"] = destination_path
+            break
+    workgroup.files = all_files
     session.add(workgroup)
     post_file_change_activity(
         session, conversation.workgroup_id, "file_renamed", f"{source_path} -> {destination_path}",
@@ -265,18 +292,18 @@ def delete_file(session: Session, agent: Agent, conversation: Conversation, trig
     if len(path) > 512:
         return "File path must be 512 characters or fewer."
 
-    files = _normalize_workgroup_files(workgroup)
-    retained: list[dict[str, str]] = []
+    scoped_files = _files_for_conversation(workgroup, conversation)
     removed: dict[str, str] | None = None
-    for entry in files:
-        if removed is None and entry["path"] == path:
+    for entry in scoped_files:
+        if entry["path"] == path:
             removed = entry
-            continue
-        retained.append(entry)
+            break
 
     if not removed:
         return f"File '{path}' was not found."
 
+    all_files = _normalize_workgroup_files(workgroup)
+    retained = [entry for entry in all_files if entry["id"] != removed["id"]]
     workgroup.files = retained
     session.add(workgroup)
     post_file_change_activity(
@@ -286,12 +313,23 @@ def delete_file(session: Session, agent: Agent, conversation: Conversation, trig
     return f"Deleted file '{path}' (id={removed['id']})."
 
 
-def list_files(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
-    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger, require_owner=False)
+def search_files(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger, require_editor=False)
     if error or not workgroup:
         return error or "Workgroup not found."
 
-    files = _normalize_workgroup_files(workgroup)
+    from teaparty_app.services.agent_tools import _tool_search_files
+
+    query = _normalize_trigger_for_matching(trigger.content)
+    return _tool_search_files(session, workgroup, conversation, agent.id, query)
+
+
+def list_files(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger, require_editor=False)
+    if error or not workgroup:
+        return error or "Workgroup not found."
+
+    files = _files_for_conversation(workgroup, conversation)
     if not files:
         return "No files in this workgroup."
 
@@ -340,20 +378,110 @@ def suggest_next_step(session: Session, agent: Agent, conversation: Conversation
     return "Suggested next step: clarify owner, deadline, and explicit done condition."
 
 
+def list_workflows(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger, require_editor=False)
+    if error or not workgroup:
+        return error or "Workgroup not found."
+
+    from teaparty_app.services.agent_tools import _tool_list_workflows
+    return _tool_list_workflows(workgroup, conversation)
+
+
+def get_workflow_state(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger, require_editor=False)
+    if error or not workgroup:
+        return error or "Workgroup not found."
+
+    from teaparty_app.services.agent_tools import _tool_get_workflow_state
+    return _tool_get_workflow_state(workgroup, conversation)
+
+
+def advance_workflow(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    workgroup, error = _file_tool_workgroup_and_error(session, conversation, trigger)
+    if error or not workgroup:
+        return error or "Workgroup not found."
+
+    from teaparty_app.services.agent_tools import _tool_advance_workflow
+    state_content = _normalize_trigger_for_matching(trigger.content)
+    return _tool_advance_workflow(session, workgroup, conversation, agent.id, state_content)
+
+
+def create_todo(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    from teaparty_app.services.agent_tools import _tool_create_todo
+    # Parse a simple JSON payload from the trigger content, or treat as title
+    import json as _json
+    try:
+        payload = _json.loads(trigger.content)
+        if isinstance(payload, dict):
+            return _tool_create_todo(session, agent, conversation, payload)
+    except (ValueError, TypeError):
+        pass
+    return _tool_create_todo(session, agent, conversation, {"title": trigger.content.strip()})
+
+
+def list_todos(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    from teaparty_app.services.agent_tools import _tool_list_todos
+    return _tool_list_todos(session, agent, {})
+
+
+def update_todo(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    from teaparty_app.services.agent_tools import _tool_update_todo
+    import json as _json
+    try:
+        payload = _json.loads(trigger.content)
+        if isinstance(payload, dict):
+            return _tool_update_todo(session, agent, conversation, payload)
+    except (ValueError, TypeError):
+        pass
+    return "Error: update_todo requires a JSON payload with todo_id."
+
+
 TOOL_REGISTRY: dict[str, ToolHandler] = {
     "summarize_topic": summarize_topic,
     "list_open_followups": list_open_followups,
     "suggest_next_step": suggest_next_step,
     "list_files": list_files,
+    "search_files": search_files,
     "add_file": add_file,
     "edit_file": edit_file,
     "rename_file": rename_file,
     "delete_file": delete_file,
+    "list_workflows": list_workflows,
+    "get_workflow_state": get_workflow_state,
+    "advance_workflow": advance_workflow,
+    "create_todo": create_todo,
+    "list_todos": list_todos,
+    "update_todo": update_todo,
 }
 
 
+SERVER_SIDE_TOOLS = {"web_search"}
+
+
 def available_tools() -> list[str]:
-    return sorted(list(TOOL_REGISTRY.keys()) + ["claude_code"])
+    return sorted(list(TOOL_REGISTRY.keys()) + ["claude_code", "web_search"])
+
+
+def get_workgroup_disabled_tools(workgroup: Workgroup) -> set[str]:
+    raw_files = workgroup.files if isinstance(workgroup.files, list) else []
+    for raw in raw_files:
+        if isinstance(raw, dict) and raw.get("path") == "tools.json":
+            content = raw.get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                return set()
+            try:
+                data = json.loads(content)
+            except (json.JSONDecodeError, TypeError):
+                return set()
+            disabled: set[str] = set()
+            for cat in data.get("categories", []):
+                for tool in cat.get("tools", []):
+                    if isinstance(tool, dict) and tool.get("enabled") is False:
+                        name = tool.get("name", "")
+                        if name:
+                            disabled.add(name)
+            return disabled
+    return set()
 
 
 def available_tools_for_workgroup(session: Session, workgroup_id: str) -> list[str]:
@@ -379,7 +507,15 @@ def available_tools_for_workgroup(session: Session, workgroup_id: str) -> list[s
             if ref not in custom:
                 custom.append(ref)
 
-    return sorted(builtin + custom)
+    all_tools = sorted(builtin + custom)
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if workgroup:
+        disabled = get_workgroup_disabled_tools(workgroup)
+        if disabled:
+            all_tools = [t for t in all_tools if t not in disabled]
+
+    return all_tools
 
 
 def resolve_custom_tool(session: Session, tool_ref: str) -> ToolDefinition | None:
@@ -402,6 +538,9 @@ def _has_custom_tool_access(session: Session, tool_def: ToolDefinition, workgrou
 
 
 def run_tool(name: str, session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+    if name in SERVER_SIDE_TOOLS:
+        return f"Tool '{name}' is a server-side tool handled directly by the LLM API."
+
     if name == "claude_code":
         from teaparty_app.services.claude_code import claude_code as claude_code_handler
         return claude_code_handler(session, agent, conversation, trigger)

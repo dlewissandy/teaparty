@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.deps import get_current_user
 from teaparty_app.db import get_session
-from teaparty_app.models import Agent, AgentLearningEvent, AgentMemory, Conversation, Invite, Membership, User, Workgroup, utc_now
+from teaparty_app.models import Agent, AgentLearningEvent, AgentMemory, Conversation, Invite, Membership, Organization, User, Workgroup, utc_now
 from teaparty_app.schemas import (
     AgentCloneRequest,
     AgentConversationClearRead,
@@ -45,6 +45,7 @@ from teaparty_app.services.admin_workspace import (
     ensure_admin_workspace_for_workgroup_id,
     list_members as list_workgroup_members,
 )
+from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
 from teaparty_app.services.llm_usage import get_workgroup_usage
 from teaparty_app.services.permissions import require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
 from teaparty_app.services.tools import available_tools, available_tools_for_workgroup
@@ -59,7 +60,18 @@ from teaparty_app.services.workgroup_templates import (
 )
 
 router = APIRouter(prefix="/api", tags=["workgroups"])
-ADMINISTRATION_WORKGROUP_NAME = "Administration"
+
+
+def _enrich_org_names(session: Session, reads: list[WorkgroupRead]) -> list[WorkgroupRead]:
+    org_ids = {r.organization_id for r in reads if r.organization_id}
+    if not org_ids:
+        return reads
+    orgs = session.exec(select(Organization).where(Organization.id.in_(org_ids))).all()
+    name_map = {o.id: o.name for o in orgs}
+    for r in reads:
+        if r.organization_id:
+            r.organization_name = name_map.get(r.organization_id, "")
+    return reads
 
 
 def _normalize_utc(value):
@@ -148,7 +160,12 @@ def _template_storage_seed_files() -> list[dict[str, str]]:
 
 def _is_template_storage_path(path: str) -> bool:
     normalized = path.replace("\\", "/").lstrip("/")
-    return normalized.startswith(f"{TEMPLATE_ROOT}/") or normalized.startswith("templates/")
+    return (
+        normalized.startswith(f"{TEMPLATE_ROOT}/")
+        or normalized.startswith(".templates/workgroups/")
+        or normalized.startswith(".templates/organizations/")
+        or normalized.startswith("templates/")
+    )
 
 
 def _reconcile_administration_template_files(existing_files: list[dict[str, str]]) -> tuple[list[dict[str, str]], bool]:
@@ -370,32 +387,44 @@ def _resolve_workgroup_creation_agents(
     return [WorkgroupTemplateAgentWrite.model_validate(item.model_dump()) for item in template.agents]
 
 
-@router.get("/workgroup-templates", response_model=list[WorkgroupTemplateRead])
-def list_available_workgroup_templates(
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
-) -> list[WorkgroupTemplateRead]:
-    templates, changed = _load_user_workgroup_templates(session, user)
-    if changed:
-        session.commit()
-    return templates
+def create_workgroup_with_template(
+    session: Session,
+    owner: User,
+    name: str,
+    organization_id: str,
+    template_key: str | None = None,
+) -> Workgroup:
+    """Create a workgroup with optional template, returning the new Workgroup.
 
-
-@router.post("/workgroups", response_model=WorkgroupRead)
-def create_workgroup(
-    payload: WorkgroupCreateRequest,
-    session: Session = Depends(get_session),
-    user: User = Depends(get_current_user),
-) -> WorkgroupRead:
-    name = payload.name.strip()
+    Reusable from both the REST endpoint and global admin tools.
+    """
+    name = name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workgroup name cannot be empty")
 
-    templates, _changed = _load_user_workgroup_templates(session, user)
+    templates, _changed = _load_user_workgroup_templates(session, owner)
     templates_by_key = {item.key: item for item in templates}
-    selected_template = _resolve_template_for_create(payload, templates_by_key)
-    files = _resolve_workgroup_creation_files(payload, selected_template)
-    template_agents = _resolve_workgroup_creation_agents(payload, selected_template)
+
+    selected_template: WorkgroupTemplateRead | None = None
+    if template_key:
+        template_key = template_key.strip()
+        selected_template = templates_by_key.get(template_key)
+        if not selected_template:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown workgroup template '{template_key}'",
+            )
+
+    files: list[dict[str, str]] = []
+    template_agents: list[WorkgroupTemplateAgentWrite] = []
+    if selected_template:
+        files = _normalize_workgroup_files(
+            [WorkgroupFileWrite(path=item.path, content=item.content) for item in selected_template.files]
+        )
+        template_agents = [
+            WorkgroupTemplateAgentWrite.model_validate(item.model_dump()) for item in selected_template.agents
+        ]
+
     allowed_tools = set(available_tools())
     requested_tools = sorted({tool for agent in template_agents for tool in agent.tool_names})
     unknown_tools = sorted(
@@ -407,12 +436,11 @@ def create_workgroup(
             detail=f"Unknown tools: {', '.join(unknown_tools)}",
         )
 
-    group = Workgroup(name=name, files=files, owner_id=user.id)
+    group = Workgroup(name=name, files=files, owner_id=owner.id, organization_id=organization_id)
     session.add(group)
     session.flush()
 
-    owner_membership = Membership(workgroup_id=group.id, user_id=user.id, role="owner")
-    session.add(owner_membership)
+    session.add(Membership(workgroup_id=group.id, user_id=owner.id, role="owner"))
 
     for draft in template_agents:
         agent_name = draft.name.strip()
@@ -421,7 +449,7 @@ def create_workgroup(
         session.add(
             Agent(
                 workgroup_id=group.id,
-                created_by_user_id=user.id,
+                created_by_user_id=owner.id,
                 name=agent_name,
                 description=draft.description.strip(),
                 role=(draft.role.strip() or draft.description.strip()),
@@ -441,10 +469,102 @@ def create_workgroup(
 
     ensure_admin_workspace(session, group)
     ensure_activity_conversation(session, group)
+    session.flush()
+    return group
+
+
+@router.get("/workgroup-templates", response_model=list[WorkgroupTemplateRead])
+def list_available_workgroup_templates(
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[WorkgroupTemplateRead]:
+    templates, changed = _load_user_workgroup_templates(session, user)
+    if changed:
+        session.commit()
+    return templates
+
+
+@router.post("/workgroups", response_model=WorkgroupRead)
+def create_workgroup(
+    payload: WorkgroupCreateRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> WorkgroupRead:
+    # When explicit files/agents are provided, use the full resolution path
+    if payload.files is not None or payload.agents is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workgroup name cannot be empty")
+
+        templates, _changed = _load_user_workgroup_templates(session, user)
+        templates_by_key = {item.key: item for item in templates}
+        selected_template = _resolve_template_for_create(payload, templates_by_key)
+        files = _resolve_workgroup_creation_files(payload, selected_template)
+        template_agents = _resolve_workgroup_creation_agents(payload, selected_template)
+        allowed_tools = set(available_tools())
+        requested_tools = sorted({tool for agent in template_agents for tool in agent.tool_names})
+        unknown_tools = sorted(
+            tool for tool in set(requested_tools) - allowed_tools if not tool.startswith("custom:")
+        )
+        if unknown_tools:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unknown tools: {', '.join(unknown_tools)}",
+            )
+
+        org = session.get(Organization, payload.organization_id)
+        if not org:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
+
+        group = Workgroup(name=name, files=files, owner_id=user.id, organization_id=payload.organization_id)
+        session.add(group)
+        session.flush()
+        session.add(Membership(workgroup_id=group.id, user_id=user.id, role="owner"))
+
+        for draft in template_agents:
+            agent_name = draft.name.strip()
+            if not agent_name:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
+            session.add(
+                Agent(
+                    workgroup_id=group.id,
+                    created_by_user_id=user.id,
+                    name=agent_name,
+                    description=draft.description.strip(),
+                    role=(draft.role.strip() or draft.description.strip()),
+                    personality=draft.personality.strip(),
+                    backstory=draft.backstory.strip(),
+                    model=draft.model.strip() or "claude-sonnet-4-5",
+                    temperature=draft.temperature,
+                    verbosity=draft.verbosity,
+                    tool_names=draft.tool_names,
+                    response_threshold=draft.response_threshold,
+                    follow_up_minutes=draft.follow_up_minutes,
+                    learning_state={},
+                    sentiment_state={},
+                    learned_preferences={},
+                )
+            )
+
+        ensure_admin_workspace(session, group)
+        ensure_activity_conversation(session, group)
+    else:
+        org = session.get(Organization, payload.organization_id)
+        if not org:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
+        group = create_workgroup_with_template(
+            session=session,
+            owner=user,
+            name=payload.name,
+            template_key=payload.template_key,
+            organization_id=payload.organization_id,
+        )
+
     session.commit()
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(group)
-    return WorkgroupRead.model_validate(group)
+    result = WorkgroupRead.model_validate(group)
+    return _enrich_org_names(session, [result])[0]
 
 
 @router.get("/workgroups", response_model=list[WorkgroupRead])
@@ -469,7 +589,8 @@ def list_workgroups(
     if changed or groups_changed:
         session.commit()
 
-    return [WorkgroupRead.model_validate(item) for item in rows]
+    results = [WorkgroupRead.model_validate(item) for item in rows]
+    return _enrich_org_names(session, results)
 
 
 @router.patch("/workgroups/{workgroup_id}", response_model=WorkgroupRead)
@@ -479,7 +600,14 @@ def update_workgroup(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> WorkgroupRead:
-    files_only = payload.files is not None and payload.name is None and payload.is_discoverable is None and payload.service_description is None
+    files_only = (
+        payload.files is not None
+        and payload.name is None
+        and payload.is_discoverable is None
+        and payload.service_description is None
+        and payload.workspace_enabled is None
+        and payload.organization_id is None
+    )
     if files_only:
         require_workgroup_editor(session, workgroup_id, user.id)
     else:
@@ -489,7 +617,14 @@ def update_workgroup(
     if not workgroup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
 
-    if payload.name is None and payload.files is None and payload.is_discoverable is None and payload.service_description is None:
+    if (
+        payload.name is None
+        and payload.files is None
+        and payload.is_discoverable is None
+        and payload.service_description is None
+        and payload.workspace_enabled is None
+        and payload.organization_id is None
+    ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No updates provided")
 
     old_files = _normalize_persisted_workgroup_files(workgroup.files) if payload.files is not None else None
@@ -509,6 +644,41 @@ def update_workgroup(
     if payload.service_description is not None:
         workgroup.service_description = payload.service_description.strip()
 
+    if payload.workspace_enabled is not None and payload.workspace_enabled != workgroup.workspace_enabled:
+        workgroup.workspace_enabled = payload.workspace_enabled
+        try:
+            from teaparty_app.services.workspace_manager import workspace_root_configured
+
+            if workspace_root_configured():
+                if payload.workspace_enabled:
+                    from teaparty_app.services.workspace_manager import init_workspace
+
+                    init_workspace(session, workgroup_id)
+                else:
+                    from teaparty_app.models import Workspace
+
+                    ws = session.exec(
+                        select(Workspace).where(Workspace.workgroup_id == workgroup_id)
+                    ).first()
+                    if ws:
+                        from teaparty_app.services.workspace_manager import destroy_workspace
+
+                        destroy_workspace(session, ws)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Workspace toggle failed for workgroup %s", workgroup_id, exc_info=True
+            )
+
+    if payload.organization_id is not None:
+        if not payload.organization_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workgroups must belong to an organization")
+        org = session.get(Organization, payload.organization_id)
+        if not org:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
+        workgroup.organization_id = org.id
+
     if old_files is not None:
         new_files = _normalize_persisted_workgroup_files(workgroup.files)
         post_bulk_file_change_activity(session, workgroup_id, old_files, new_files, actor_user_id=user.id)
@@ -517,7 +687,8 @@ def update_workgroup(
     session.commit()
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(workgroup)
-    return WorkgroupRead.model_validate(workgroup)
+    result = WorkgroupRead.model_validate(workgroup)
+    return _enrich_org_names(session, [result])[0]
 
 
 @router.post("/workgroups/{workgroup_id}/invites", response_model=InviteRead)
@@ -1090,7 +1261,7 @@ def get_administration_conversation(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> ConversationRead:
-    require_workgroup_membership(session, workgroup_id, user.id)
+    require_workgroup_owner(session, workgroup_id, user.id)
     _admin_agent, admin_conversation, changed = ensure_admin_workspace_for_workgroup_id(session, workgroup_id)
     if changed:
         session.commit()

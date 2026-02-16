@@ -19,6 +19,7 @@ from teaparty_app.services.admin_workspace.parsing import _parse_temperature
 ADMIN_AGENT_SENTINEL = "__system_admin_agent__"
 ADMIN_AGENT_NAME = "Admin Agent"
 ADMIN_CONVERSATION_TOPIC = "Administration"
+ADMINISTRATION_WORKGROUP_NAME = "Administration"
 
 ADMIN_TOOL_ADD_TOPIC = "add_topic"
 ADMIN_TOOL_ARCHIVE_TOPIC = "archive_topic"
@@ -62,6 +63,34 @@ ADMIN_TOOL_NAMES = [
     ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_COMPLETE_TASK,
+]
+
+GLOBAL_TOOL_CREATE_ORGANIZATION = "global_create_organization"
+GLOBAL_TOOL_LIST_ORGANIZATIONS = "global_list_organizations"
+GLOBAL_TOOL_CREATE_WORKGROUP = "global_create_workgroup"
+GLOBAL_TOOL_LIST_WORKGROUPS = "global_list_workgroups"
+GLOBAL_TOOL_ADD_AGENT = "global_add_agent"
+GLOBAL_TOOL_LIST_AGENTS = "global_list_agents"
+GLOBAL_TOOL_ADD_TOPIC = "global_add_topic"
+GLOBAL_TOOL_LIST_TOPICS = "global_list_topics"
+GLOBAL_TOOL_ADD_FILE = "global_add_file"
+GLOBAL_TOOL_LIST_TEMPLATES = "global_list_templates"
+GLOBAL_TOOL_LIST_AVAILABLE_TOOLS = "global_list_available_tools"
+GLOBAL_TOOL_UPDATE_AGENT = "global_update_agent"
+
+GLOBAL_TOOL_NAMES = [
+    GLOBAL_TOOL_CREATE_ORGANIZATION,
+    GLOBAL_TOOL_LIST_ORGANIZATIONS,
+    GLOBAL_TOOL_CREATE_WORKGROUP,
+    GLOBAL_TOOL_LIST_WORKGROUPS,
+    GLOBAL_TOOL_ADD_AGENT,
+    GLOBAL_TOOL_LIST_AGENTS,
+    GLOBAL_TOOL_ADD_TOPIC,
+    GLOBAL_TOOL_LIST_TOPICS,
+    GLOBAL_TOOL_ADD_FILE,
+    GLOBAL_TOOL_LIST_TEMPLATES,
+    GLOBAL_TOOL_LIST_AVAILABLE_TOOLS,
+    GLOBAL_TOOL_UPDATE_AGENT,
 ]
 
 SESSION_DELETE_WORKGROUP_KEY = "delete_workgroup_after_response"

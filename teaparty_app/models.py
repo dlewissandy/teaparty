@@ -27,6 +27,17 @@ class User(SQLModel, table=True):
     name: str = Field(default="")
     picture: str = Field(default="")
     preferences: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    is_system_admin: bool = Field(default=False)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class Organization(SQLModel, table=True):
+    __tablename__ = "organizations"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    name: str = Field(index=True)
+    description: str = Field(default="")
+    owner_id: str = Field(foreign_key="users.id", index=True)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -37,9 +48,39 @@ class Workgroup(SQLModel, table=True):
     name: str = Field(index=True)
     files: list[JSONDict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     owner_id: str = Field(foreign_key="users.id", index=True)
+    organization_id: str | None = Field(default=None, foreign_key="organizations.id", index=True)
     is_discoverable: bool = Field(default=False, index=True)
     service_description: str = Field(default="")
+    workspace_enabled: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class Workspace(SQLModel, table=True):
+    __tablename__ = "workspaces"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    workgroup_id: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    repo_path: str
+    main_worktree_path: str
+    status: str = Field(default="active")
+    error_message: str = Field(default="")
+    last_synced_at: datetime | None = Field(default=None)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class WorkspaceWorktree(SQLModel, table=True):
+    __tablename__ = "workspace_worktrees"
+    __table_args__ = (UniqueConstraint("workspace_id", "conversation_id", name="uq_worktree_conv"),)
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    workspace_id: str = Field(foreign_key="workspaces.id", index=True)
+    conversation_id: str = Field(foreign_key="conversations.id", index=True)
+    branch_name: str = Field(index=True)
+    worktree_path: str
+    status: str = Field(default="active")
+    created_at: datetime = Field(default_factory=utc_now)
+    merged_at: datetime | None = Field(default=None)
+    removed_at: datetime | None = Field(default=None)
 
 
 class Membership(SQLModel, table=True):
@@ -50,6 +91,9 @@ class Membership(SQLModel, table=True):
     workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     user_id: str = Field(foreign_key="users.id", index=True)
     role: str = Field(default="member")
+    budget_limit_usd: float | None = Field(default=None)
+    budget_used_usd: float = Field(default=0.0)
+    budget_refreshed_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -251,6 +295,82 @@ class LLMUsageEvent(SQLModel, table=True):
     purpose: str = Field(default="reply")
     duration_ms: int = Field(default=0)
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class SeedRecord(SQLModel, table=True):
+    __tablename__ = "seed_records"
+    __table_args__ = (UniqueConstraint("seed_key", name="uq_seed_key"),)
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    seed_key: str = Field(index=True)
+    entity_type: str = Field(default="")
+    entity_id: str = Field(default="")
+    seed_version: int = Field(default=1)
+    checksum: str = Field(default="")
+    applied_at: datetime = Field(default_factory=utc_now)
+
+
+class Engagement(SQLModel, table=True):
+    __tablename__ = "engagements"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    source_workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    target_workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    proposed_by_user_id: str = Field(foreign_key="users.id", index=True)
+
+    status: str = Field(default="proposed", index=True)
+    title: str = Field()
+    scope: str = Field(default="")
+    requirements: str = Field(default="")
+    terms: str = Field(default="")
+    deliverables: str = Field(default="")
+
+    source_conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+    target_conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+
+    created_at: datetime = Field(default_factory=utc_now)
+    accepted_at: datetime | None = Field(default=None)
+    declined_at: datetime | None = Field(default=None)
+    completed_at: datetime | None = Field(default=None)
+    reviewed_at: datetime | None = Field(default=None)
+    cancelled_at: datetime | None = Field(default=None)
+
+    review_rating: str | None = Field(default=None)
+    review_feedback: str = Field(default="")
+
+
+class EngagementSyncedMessage(SQLModel, table=True):
+    __tablename__ = "engagement_synced_messages"
+    __table_args__ = (
+        UniqueConstraint("origin_message_id", "synced_message_id", name="uq_engagement_synced_message"),
+    )
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    engagement_id: str = Field(foreign_key="engagements.id", index=True)
+    origin_message_id: str = Field(foreign_key="messages.id", index=True)
+    synced_message_id: str = Field(foreign_key="messages.id", index=True)
+    direction: str = Field(index=True)  # "source_to_target" | "target_to_source"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentTodoItem(SQLModel, table=True):
+    __tablename__ = "agent_todo_items"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+    title: str = Field()
+    description: str = Field(default="")
+    status: str = Field(default="pending", index=True)  # pending | in_progress | done | cancelled
+    priority: str = Field(default="medium")  # low | medium | high | urgent
+    trigger_type: str = Field(default="manual")  # time | topic_stall | message_match | file_changed | topic_resolved | todo_completed | manual
+    trigger_config: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    triggered_at: datetime | None = Field(default=None)
+    due_at: datetime | None = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = Field(default=None)
 
 
 class SyncedMessage(SQLModel, table=True):

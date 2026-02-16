@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+from pathlib import Path
 from typing import TypedDict
 
+import yaml
 
-TEMPLATE_ROOT = ".templates/workgroups"
+logger = logging.getLogger(__name__)
+
+TEMPLATE_ROOT = ".templates/organizations/default/workgroups"
 TEMPLATE_WORKGROUP_FILENAME = "workgroup.json"
 WORKGROUP_STORAGE_ROOT = "workgroups"
 
@@ -37,301 +42,40 @@ class WorkgroupTemplate(TypedDict):
     agents: list[WorkgroupTemplateAgent]
 
 
-_WORKGROUP_TEMPLATES: tuple[WorkgroupTemplate, ...] = (
-    {
-        "key": "coding",
-        "name": "Coding",
-        "description": "Implementation-focused workspace with architecture, backlog, and notes scaffolding.",
-        "files": [
-            {
-                "path": "README.md",
-                "content": (
-                    "# Project Brief\n\n"
-                    "## Goal\n"
-                    "- \n\n"
-                    "## Constraints\n"
-                    "- \n\n"
-                    "## Current Status\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "docs/architecture.md",
-                "content": (
-                    "# Architecture Notes\n\n"
-                    "## Context\n"
-                    "- \n\n"
-                    "## Decisions\n"
-                    "- \n\n"
-                    "## Open Questions\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "backlog/todo.md",
-                "content": (
-                    "# Backlog\n\n"
-                    "## Now\n"
-                    "- [ ] \n\n"
-                    "## Next\n"
-                    "- [ ] \n\n"
-                    "## Later\n"
-                    "- [ ] \n"
-                ),
-            },
-        ],
-        "agents": [
-            {
-                "name": "Implementer",
-                "description": "Turns requirements into concrete implementation steps and code plans.",
-                "role": "Implementation lead",
-                "personality": "Practical, concise, and execution-focused.",
-                "backstory": "",
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.4,
-                "verbosity": 0.45,
-                "tool_names": ["suggest_next_step", "summarize_topic", "list_open_followups"],
-                "response_threshold": 0.5,
-                "follow_up_minutes": 45,
-            },
-            {
-                "name": "Reviewer",
-                "description": "Challenges edge cases, regressions, and test coverage before changes ship.",
-                "role": "Code review partner",
-                "personality": "Skeptical but constructive.",
-                "backstory": "",
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.35,
-                "verbosity": 0.4,
-                "tool_names": ["summarize_topic", "list_open_followups"],
-                "response_threshold": 0.58,
-                "follow_up_minutes": 60,
-            },
-        ],
-    },
-    {
-        "key": "dialectic",
-        "name": "Dialectic",
-        "description": "Four-agent reasoning workshop: thesis, antithesis, synthesis, and Socratic questioning.",
-        "files": [
-            {
-                "path": "topic.md",
-                "content": (
-                    "# Topic\n\n"
-                    "## Question or Proposition\n"
-                    "- \n\n"
-                    "## Context & Constraints\n"
-                    "- \n\n"
-                    "## What Would a Good Answer Look Like?\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "positions/proponent.md",
-                "content": (
-                    "# Proponent Position\n\n"
-                    "## Core Thesis\n"
-                    "- \n\n"
-                    "## Key Arguments\n"
-                    "- \n\n"
-                    "## Strongest Evidence\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "positions/opponent.md",
-                "content": (
-                    "# Opponent Position\n\n"
-                    "## Core Objections\n"
-                    "- \n\n"
-                    "## Counterarguments\n"
-                    "- \n\n"
-                    "## Strongest Evidence\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "synthesis.md",
-                "content": (
-                    "# Synthesis\n\n"
-                    "## Points of Agreement\n"
-                    "- \n\n"
-                    "## Irreducible Tensions\n"
-                    "- \n\n"
-                    "## Strongest Composite Position\n"
-                    "- \n\n"
-                    "## Open Questions\n"
-                    "- \n"
-                ),
-            },
-        ],
-        "agents": [
-            {
-                "name": "Proponent",
-                "description": "Builds and defends the strongest case for the proposition.",
-                "role": "Thesis advocate",
-                "personality": (
-                    "Enthusiastic, evidence-driven, and persuasive. "
-                    "Steelmans your own position rather than strawmanning the opposition. "
-                    "Concedes points when the Opponent's evidence is stronger, "
-                    "then pivots to where your case remains solid."
-                ),
-                "backstory": (
-                    "You are the voice of the affirmative. Your job is not to win "
-                    "but to ensure the strongest version of the thesis is heard. "
-                    "Acknowledge good counterpoints from the Opponent openly."
-                ),
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.5,
-                "verbosity": 0.5,
-                "tool_names": ["summarize_topic", "suggest_next_step"],
-                "response_threshold": 0.35,
-                "follow_up_minutes": 40,
-            },
-            {
-                "name": "Opponent",
-                "description": "Stress-tests claims, surfaces hidden assumptions, and argues the antithesis.",
-                "role": "Antithesis advocate",
-                "personality": (
-                    "Rigorous, precise, and respectfully skeptical. "
-                    "Attacks the argument, never the arguer. "
-                    "When a point is well-made, acknowledge it before countering. "
-                    "Prioritize the most consequential weaknesses over nitpicks."
-                ),
-                "backstory": (
-                    "You are the loyal opposition. Your goal is to make the final "
-                    "conclusion stronger by finding every crack in the Proponent's case. "
-                    "If you cannot find a flaw, say so honestly."
-                ),
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.45,
-                "verbosity": 0.5,
-                "tool_names": ["summarize_topic", "suggest_next_step"],
-                "response_threshold": 0.35,
-                "follow_up_minutes": 40,
-            },
-            {
-                "name": "Synthesist",
-                "description": "Identifies convergence, names remaining tensions, and proposes integrated positions.",
-                "role": "Synthesis facilitator",
-                "personality": (
-                    "Calm, integrative, and precise. "
-                    "Finds the strongest composite position rather than splitting the difference. "
-                    "Names where positions genuinely conflict instead of papering over disagreement. "
-                    "Calls convergence when the debate stops producing new insight."
-                ),
-                "backstory": (
-                    "You wait until both sides have spoken before weighing in. "
-                    "Your job is not to be neutral but to be accurate about where "
-                    "the evidence actually points. Flag when the discussion is looping."
-                ),
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.35,
-                "verbosity": 0.55,
-                "tool_names": ["summarize_topic", "list_open_followups", "suggest_next_step"],
-                "response_threshold": 0.7,
-                "follow_up_minutes": 60,
-            },
-            {
-                "name": "Neophyte",
-                "description": "Asks clarifying and Socratic questions to ground the discussion in fundamentals.",
-                "role": "Socratic questioner",
-                "personality": (
-                    "Curious, unpretentious, and gently persistent. "
-                    "Asks 'why' and 'what do you mean by' questions that force explicit reasoning. "
-                    "Requests concrete examples when claims stay abstract. "
-                    "Occasionally plays devil's advocate from a naive perspective."
-                ),
-                "backstory": (
-                    "You approach every topic as a bright newcomer. "
-                    "Your questions are pedagogical: they help everyone, including the audience, "
-                    "understand what is actually being claimed and why it matters. "
-                    "Never pretend to know less than you do — genuinely probe for clarity."
-                ),
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.6,
-                "verbosity": 0.4,
-                "tool_names": ["summarize_topic"],
-                "response_threshold": 0.5,
-                "follow_up_minutes": 50,
-            },
-        ],
-    },
-    {
-        "key": "roleplay",
-        "name": "Roleplay",
-        "description": "Character, setting, and scene templates for collaborative storytelling sessions.",
-        "files": [
-            {
-                "path": "setting/world.md",
-                "content": (
-                    "# World Setup\n\n"
-                    "## Premise\n"
-                    "- \n\n"
-                    "## Tone\n"
-                    "- \n\n"
-                    "## Boundaries\n"
-                    "- \n"
-                ),
-            },
-            {
-                "path": "characters/cast.md",
-                "content": (
-                    "# Character Cast\n\n"
-                    "## Name\n"
-                    "- Role:\n"
-                    "- Motivation:\n"
-                    "- Voice:\n"
-                ),
-            },
-            {
-                "path": "sessions/session-001.md",
-                "content": (
-                    "# Session 001\n\n"
-                    "## Opening Beat\n"
-                    "- \n\n"
-                    "## Key Scene Turns\n"
-                    "- \n\n"
-                    "## Debrief\n"
-                    "- Favorite moment:\n"
-                    "- Threads to continue:\n"
-                ),
-            },
-        ],
-        "agents": [
-            {
-                "name": "Scene Director",
-                "description": "Keeps scene momentum, proposes beats, and balances participation.",
-                "role": "Session facilitator",
-                "personality": "Energetic, playful, and supportive.",
-                "backstory": "",
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.9,
-                "verbosity": 0.6,
-                "tool_names": ["suggest_next_step", "summarize_topic"],
-                "response_threshold": 0.45,
-                "follow_up_minutes": 25,
-            },
-            {
-                "name": "Character Coach",
-                "description": "Strengthens character consistency, motivations, and dialogue voice.",
-                "role": "Character specialist",
-                "personality": "Imaginative and detail-oriented.",
-                "backstory": "",
-                "model": "claude-sonnet-4-5",
-                "temperature": 0.85,
-                "verbosity": 0.65,
-                "tool_names": ["summarize_topic"],
-                "response_threshold": 0.5,
-                "follow_up_minutes": 30,
-            },
-        ],
-    },
-)
+_YAML_TEMPLATES_DIR = Path(__file__).parent.parent / "seeds" / "templates"
 
-_WORKGROUP_TEMPLATE_BY_KEY: dict[str, WorkgroupTemplate] = {
-    template["key"]: template for template in _WORKGROUP_TEMPLATES
-}
+_cached_templates: list[WorkgroupTemplate] | None = None
+
+
+def _load_templates_from_yaml() -> list[WorkgroupTemplate]:
+    templates: list[WorkgroupTemplate] = []
+    seen_keys: set[str] = set()
+
+    if not _YAML_TEMPLATES_DIR.is_dir():
+        logger.warning("YAML templates directory not found: %s", _YAML_TEMPLATES_DIR)
+        return templates
+
+    for yaml_path in sorted(_YAML_TEMPLATES_DIR.glob("*.yaml")):
+        try:
+            with open(yaml_path) as fh:
+                data = yaml.safe_load(fh)
+        except Exception:
+            logger.exception("Failed to load template YAML: %s", yaml_path)
+            continue
+
+        if not isinstance(data, dict):
+            continue
+
+        normalized = _normalize_storage_template(data, fallback_key=yaml_path.stem)
+        if not normalized:
+            continue
+
+        if normalized["key"] in seen_keys:
+            continue
+        seen_keys.add(normalized["key"])
+        templates.append(normalized)
+
+    return templates
 
 
 def _clone_template(template: WorkgroupTemplate) -> WorkgroupTemplate:
@@ -360,7 +104,10 @@ def _clone_template(template: WorkgroupTemplate) -> WorkgroupTemplate:
 
 
 def list_workgroup_templates() -> list[WorkgroupTemplate]:
-    return [_clone_template(template) for template in _WORKGROUP_TEMPLATES]
+    global _cached_templates
+    if _cached_templates is None:
+        _cached_templates = _load_templates_from_yaml()
+    return [_clone_template(template) for template in _cached_templates]
 
 
 def get_workgroup_template(template_key: str | None) -> WorkgroupTemplate | None:
@@ -371,10 +118,10 @@ def get_workgroup_template(template_key: str | None) -> WorkgroupTemplate | None
     if not normalized_key:
         return None
 
-    template = _WORKGROUP_TEMPLATE_BY_KEY.get(normalized_key)
-    if not template:
-        return None
-    return _clone_template(template)
+    for template in list_workgroup_templates():
+        if template["key"] == normalized_key:
+            return template
+    return None
 
 
 def _coerce_float(value: object, default: float, minimum: float, maximum: float) -> float:
@@ -519,15 +266,23 @@ def template_storage_files(templates: list[WorkgroupTemplate] | None = None) -> 
     rows = sorted(catalog, key=lambda item: item["key"])
     files: list[WorkgroupTemplateFile] = [
         {
+            "path": ".templates/organizations/default/organization.json",
+            "content": json.dumps(
+                {"key": "default", "name": "Default", "description": "Default organization template"},
+                indent=2,
+                sort_keys=True,
+            ),
+        },
+        {
             "path": f"{TEMPLATE_ROOT}/README.md",
             "content": (
                 "# Workgroup Templates\n\n"
                 "Each template lives in its own folder:\n"
-                f"- `.templates/workgroups/<template>/{TEMPLATE_WORKGROUP_FILENAME}`\n"
-                "- `.templates/workgroups/<template>/agents/*.json`\n"
-                "- `.templates/workgroups/<template>/files/**`\n"
+                f"- `{TEMPLATE_ROOT}/<template>/{TEMPLATE_WORKGROUP_FILENAME}`\n"
+                f"- `{TEMPLATE_ROOT}/<template>/agents/*.json`\n"
+                f"- `{TEMPLATE_ROOT}/<template>/files/**`\n"
             ),
-        }
+        },
     ]
 
     for template in rows:
@@ -577,23 +332,34 @@ def template_storage_files(templates: list[WorkgroupTemplate] | None = None) -> 
 
 
 def _templates_from_structured_storage(entries_by_path: dict[str, str]) -> list[WorkgroupTemplate]:
+    _LEGACY_TEMPLATE_ROOT = ".templates/workgroups"
     config_pattern = re.compile(
-        rf"^{re.escape(TEMPLATE_ROOT)}/([^/]+)/(?:{re.escape(TEMPLATE_WORKGROUP_FILENAME)}|config\.json)$"
+        r"^(?P<root>"
+        + re.escape(TEMPLATE_ROOT)
+        + r"|"
+        + re.escape(_LEGACY_TEMPLATE_ROOT)
+        + r")/(?P<folder>[^/]+)/(?:"
+        + re.escape(TEMPLATE_WORKGROUP_FILENAME)
+        + r"|config\.json)$"
     )
-    template_folders = sorted(
-        {
-            match.group(1)
-            for path in entries_by_path
-            for match in [config_pattern.match(path)]
-            if match is not None
-        }
-    )
+
+    # Collect (folder, root) pairs — prefer new root over legacy
+    folder_roots: dict[str, str] = {}
+    for path in entries_by_path:
+        match = config_pattern.match(path)
+        if match:
+            folder = match.group("folder")
+            root = match.group("root")
+            if folder not in folder_roots or root == TEMPLATE_ROOT:
+                folder_roots[folder] = root
+    template_folders = sorted(folder_roots.keys())
 
     parsed: list[WorkgroupTemplate] = []
     seen_keys: set[str] = set()
     for folder in template_folders:
-        config_path = f"{TEMPLATE_ROOT}/{folder}/{TEMPLATE_WORKGROUP_FILENAME}"
-        legacy_config_path = f"{TEMPLATE_ROOT}/{folder}/config.json"
+        root = folder_roots[folder]
+        config_path = f"{root}/{folder}/{TEMPLATE_WORKGROUP_FILENAME}"
+        legacy_config_path = f"{root}/{folder}/config.json"
         config_payload: object = {}
         try:
             config_payload = json.loads(
@@ -608,7 +374,7 @@ def _templates_from_structured_storage(entries_by_path: dict[str, str]) -> list[
         template_name = str(config_payload.get("name", template_key)).strip() or template_key
         description = str(config_payload.get("description", ""))
 
-        agent_prefix = f"{TEMPLATE_ROOT}/{folder}/agents/"
+        agent_prefix = f"{root}/{folder}/agents/"
         agents: list[WorkgroupTemplateAgent] = []
         seen_agent_names: set[str] = set()
         for path, content in sorted(entries_by_path.items()):
@@ -638,7 +404,7 @@ def _templates_from_structured_storage(entries_by_path: dict[str, str]) -> list[
                 seen_agent_names.add(lowered)
                 agents.append(normalized_agent)
 
-        files_prefix = f"{TEMPLATE_ROOT}/{folder}/files/"
+        files_prefix = f"{root}/{folder}/files/"
         files: list[WorkgroupTemplateFile] = []
         seen_file_paths: set[str] = set()
         for path, content in sorted(entries_by_path.items()):

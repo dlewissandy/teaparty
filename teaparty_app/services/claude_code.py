@@ -6,13 +6,13 @@ import logging
 import os
 from uuid import uuid4
 
-import anthropic
 from sqlmodel import Session, select
 
 from teaparty_app.config import settings
 from teaparty_app.models import Agent, Conversation, Membership, Message, Workgroup
+from teaparty_app.services import llm_client
 from teaparty_app.services.activity import post_file_change_activity
-from teaparty_app.services.tools import _normalize_workgroup_files
+from teaparty_app.services.tools import _files_for_conversation, _normalize_workgroup_files
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +72,16 @@ def _get_api_key() -> str:
     return os.getenv("ANTHROPIC_API_KEY", "").strip() or (settings.anthropic_api_key or "").strip()
 
 
-def _tool_list_files(workgroup: Workgroup) -> str:
-    files = _normalize_workgroup_files(workgroup)
+def _tool_list_files(workgroup: Workgroup, conversation: Conversation) -> str:
+    files = _files_for_conversation(workgroup, conversation)
     if not files:
         return "No files in this workgroup."
     paths = sorted(entry["path"] for entry in files)
     return "\n".join(paths)
 
 
-def _tool_read_file(workgroup: Workgroup, path: str) -> str:
-    files = _normalize_workgroup_files(workgroup)
+def _tool_read_file(workgroup: Workgroup, conversation: Conversation, path: str) -> str:
+    files = _files_for_conversation(workgroup, conversation)
     for entry in files:
         if entry["path"] == path:
             return entry["content"] or "(empty file)"
@@ -91,6 +91,7 @@ def _tool_read_file(workgroup: Workgroup, path: str) -> str:
 def _tool_create_file(
     session: Session,
     workgroup: Workgroup,
+    conversation: Conversation,
     wg_id: str,
     agent_id: str,
     path: str,
@@ -101,14 +102,16 @@ def _tool_create_file(
     if len(content) > 200_000:
         return "Error: file content must be 200000 characters or fewer."
 
-    files = _normalize_workgroup_files(workgroup)
-    for entry in files:
+    scoped_files = _files_for_conversation(workgroup, conversation)
+    for entry in scoped_files:
         if entry["path"] == path:
             return f"Error: file '{path}' already exists."
 
-    created = {"id": str(uuid4()), "path": path, "content": content}
-    files.append(created)
-    workgroup.files = files
+    topic_id = conversation.id if conversation.kind == "topic" else ""
+    all_files = _normalize_workgroup_files(workgroup)
+    created = {"id": str(uuid4()), "path": path, "content": content, "topic_id": topic_id}
+    all_files.append(created)
+    workgroup.files = all_files
     session.add(workgroup)
     post_file_change_activity(
         session, wg_id, "file_added", path, actor_agent_id=agent_id,
@@ -119,6 +122,7 @@ def _tool_create_file(
 def _tool_edit_file(
     session: Session,
     workgroup: Workgroup,
+    conversation: Conversation,
     wg_id: str,
     agent_id: str,
     path: str,
@@ -129,17 +133,26 @@ def _tool_edit_file(
     if len(content) > 200_000:
         return "Error: file content must be 200000 characters or fewer."
 
-    files = _normalize_workgroup_files(workgroup)
-    for entry in files:
+    scoped_files = _files_for_conversation(workgroup, conversation)
+    target: dict[str, str] | None = None
+    for entry in scoped_files:
         if entry["path"] == path:
+            target = entry
+            break
+    if not target:
+        return f"Error: file '{path}' not found."
+
+    all_files = _normalize_workgroup_files(workgroup)
+    for entry in all_files:
+        if entry["id"] == target["id"]:
             entry["content"] = content
-            workgroup.files = files
-            session.add(workgroup)
-            post_file_change_activity(
-                session, wg_id, "file_updated", path, actor_agent_id=agent_id,
-            )
-            return f"Updated file '{path}'."
-    return f"Error: file '{path}' not found."
+            break
+    workgroup.files = all_files
+    session.add(workgroup)
+    post_file_change_activity(
+        session, wg_id, "file_updated", path, actor_agent_id=agent_id,
+    )
+    return f"Updated file '{path}'."
 
 
 def _dispatch_tool(
@@ -147,21 +160,22 @@ def _dispatch_tool(
     tool_input: dict,
     session: Session,
     workgroup: Workgroup,
+    conversation: Conversation,
     wg_id: str,
     agent_id: str,
 ) -> str:
     if tool_name == "list_files":
-        return _tool_list_files(workgroup)
+        return _tool_list_files(workgroup, conversation)
     if tool_name == "read_file":
-        return _tool_read_file(workgroup, tool_input.get("path", ""))
+        return _tool_read_file(workgroup, conversation, tool_input.get("path", ""))
     if tool_name == "create_file":
         return _tool_create_file(
-            session, workgroup, wg_id, agent_id,
+            session, workgroup, conversation, wg_id, agent_id,
             tool_input.get("path", ""), tool_input.get("content", ""),
         )
     if tool_name == "edit_file":
         return _tool_edit_file(
-            session, workgroup, wg_id, agent_id,
+            session, workgroup, conversation, wg_id, agent_id,
             tool_input.get("path", ""), tool_input.get("content", ""),
         )
     return f"Error: unknown tool '{tool_name}'."
@@ -231,19 +245,16 @@ def _run_loop(
     trigger: Message,
     workgroup: Workgroup,
 ) -> str:
-    api_key = _get_api_key()
-    client = anthropic.Anthropic(api_key=api_key)
-
     system_prompt = _build_system_prompt(agent, conversation, workgroup)
     user_message = _build_user_message(session, conversation, trigger)
 
-    model = (agent.model or "").strip() or settings.admin_agent_model or "claude-sonnet-4-5"
+    model = llm_client.resolve_model("reply", (agent.model or "").strip())
     messages: list[dict] = [{"role": "user", "content": user_message}]
     wg_id = workgroup.id
     agent_id = agent.id
 
     for _turn in range(_MAX_TOOL_TURNS):
-        response = client.messages.create(
+        response = llm_client.create_message(
             model=model,
             max_tokens=_MAX_TOKENS,
             system=system_prompt,
@@ -273,7 +284,7 @@ def _run_loop(
             result = _dispatch_tool(
                 tool_use.name,
                 tool_use.input,
-                session, workgroup, wg_id, agent_id,
+                session, workgroup, conversation, wg_id, agent_id,
             )
             tool_results.append({
                 "type": "tool_result",
@@ -312,9 +323,8 @@ def claude_code(
     if not workgroup:
         return "Workgroup not found."
 
-    api_key = _get_api_key()
-    if not api_key:
-        return "claude_code unavailable: missing API key."
+    if not llm_client.llm_enabled():
+        return "claude_code unavailable: no LLM provider configured."
 
     try:
         result = _run_loop(session, agent, conversation, trigger, workgroup)

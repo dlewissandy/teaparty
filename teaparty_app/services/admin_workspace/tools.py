@@ -15,12 +15,20 @@ from teaparty_app.models import (
     AgentFollowUpTask,
     AgentLearningEvent,
     AgentMemory,
+    AgentTodoItem,
     Conversation,
     ConversationParticipant,
     CrossGroupTask,
+    CrossGroupTaskMessage,
+    Engagement,
+    EngagementSyncedMessage,
     Invite,
+    LLMUsageEvent,
     Membership,
     Message,
+    SyncedMessage,
+    ToolDefinition,
+    ToolGrant,
     User,
     Workgroup,
     utc_now,
@@ -54,11 +62,16 @@ class ResolvedMemberTarget:
     agent: Agent | None = None
 
 
-def _owner_role(session: Session, workgroup_id: str, user_id: str) -> bool:
+_ROLE_RANK = {"owner": 3, "editor": 2, "member": 1}
+
+
+def _has_role(session: Session, workgroup_id: str, user_id: str, min_role: str = "owner") -> bool:
     membership = session.exec(
         select(Membership).where(Membership.workgroup_id == workgroup_id, Membership.user_id == user_id)
     ).first()
-    return bool(membership and membership.role == "owner")
+    if not membership:
+        return False
+    return _ROLE_RANK.get(membership.role, 0) >= _ROLE_RANK.get(min_role, 3)
 
 
 def queue_workgroup_deletion(session: Session, workgroup_id: str) -> None:
@@ -92,6 +105,26 @@ def _delete_messages_and_dependents(session: Session, messages: list[Message]) -
     response_links_cleared = 0
 
     for chunk in _iter_chunks(message_ids):
+        # Clean up synced message links that reference these messages
+        synced_rows = session.exec(
+            select(SyncedMessage).where(
+                or_(SyncedMessage.source_message_id.in_(chunk), SyncedMessage.mirror_message_id.in_(chunk))
+            )
+        ).all()
+        for row in synced_rows:
+            session.delete(row)
+
+        eng_synced_rows = session.exec(
+            select(EngagementSyncedMessage).where(
+                or_(
+                    EngagementSyncedMessage.origin_message_id.in_(chunk),
+                    EngagementSyncedMessage.synced_message_id.in_(chunk),
+                )
+            )
+        ).all()
+        for row in eng_synced_rows:
+            session.delete(row)
+
         response_rows = session.exec(select(Message).where(Message.response_to_message_id.in_(chunk))).all()
         for row in response_rows:
             if row.response_to_message_id is None:
@@ -151,6 +184,11 @@ def _delete_conversation_tree(session: Session, conversation_id: str) -> dict[st
         "followup_tasks": 0,
         "response_links_cleared": 0,
     }
+    # Delete LLM usage events for this conversation
+    usage_rows = session.exec(select(LLMUsageEvent).where(LLMUsageEvent.conversation_id == conversation_id)).all()
+    for row in usage_rows:
+        session.delete(row)
+
     message_rows = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
     _merge_counts(counts, _delete_messages_and_dependents(session, message_rows))
 
@@ -230,6 +268,78 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
         "memberships": 0,
         "invites": 0,
     }
+
+    # Destroy workspace if it exists
+    try:
+        from teaparty_app.services.workspace_manager import destroy_workspace, workspace_root_configured
+
+        if workspace_root_configured():
+            from teaparty_app.models import Workspace as WS
+
+            ws = session.exec(select(WS).where(WS.workgroup_id == workgroup_id)).first()
+            if ws:
+                destroy_workspace(session, ws)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Failed to destroy workspace for workgroup %s", workgroup_id, exc_info=True)
+
+    # Delete ToolGrant → ToolDefinition
+    tool_defs = session.exec(select(ToolDefinition).where(ToolDefinition.workgroup_id == workgroup_id)).all()
+    tool_def_ids = [td.id for td in tool_defs]
+    for chunk in _iter_chunks(tool_def_ids):
+        grants = session.exec(select(ToolGrant).where(ToolGrant.tool_definition_id.in_(chunk))).all()
+        for g in grants:
+            session.delete(g)
+    grants_to = session.exec(select(ToolGrant).where(ToolGrant.grantee_workgroup_id == workgroup_id)).all()
+    for g in grants_to:
+        session.delete(g)
+    for td in tool_defs:
+        session.delete(td)
+
+    # Delete SyncedMessage → CrossGroupTaskMessage → CrossGroupTask
+    tasks = session.exec(
+        select(CrossGroupTask).where(
+            or_(
+                CrossGroupTask.source_workgroup_id == workgroup_id,
+                CrossGroupTask.target_workgroup_id == workgroup_id,
+            )
+        )
+    ).all()
+    task_ids = [t.id for t in tasks]
+    for chunk in _iter_chunks(task_ids):
+        synced = session.exec(select(SyncedMessage).where(SyncedMessage.task_id.in_(chunk))).all()
+        for s in synced:
+            session.delete(s)
+        task_msgs = session.exec(select(CrossGroupTaskMessage).where(CrossGroupTaskMessage.task_id.in_(chunk))).all()
+        for m in task_msgs:
+            session.delete(m)
+    for t in tasks:
+        session.delete(t)
+
+    # Delete EngagementSyncedMessage → Engagement
+    engagements = session.exec(
+        select(Engagement).where(
+            or_(
+                Engagement.source_workgroup_id == workgroup_id,
+                Engagement.target_workgroup_id == workgroup_id,
+            )
+        )
+    ).all()
+    engagement_ids = [e.id for e in engagements]
+    for chunk in _iter_chunks(engagement_ids):
+        eng_synced = session.exec(
+            select(EngagementSyncedMessage).where(EngagementSyncedMessage.engagement_id.in_(chunk))
+        ).all()
+        for s in eng_synced:
+            session.delete(s)
+    for e in engagements:
+        session.delete(e)
+
+    # Delete AgentTodoItem by workgroup_id
+    todos = session.exec(select(AgentTodoItem).where(AgentTodoItem.workgroup_id == workgroup_id)).all()
+    for t in todos:
+        session.delete(t)
 
     for conversation_id in _workgroup_conversation_ids(session, workgroup_id):
         _merge_counts(counts, _delete_conversation_tree(session, conversation_id))
@@ -389,6 +499,8 @@ def admin_tool_add_topic(
     topic_name: str,
     description: str = "",
 ) -> str:
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to add topics."
     topic = _normalize_topic_selector(topic_name)
     if not topic:
         return "Usage: add topic <name> [description=<text>]"
@@ -435,6 +547,13 @@ def admin_tool_add_topic(
     )
     session.add(conversation)
     session.flush()
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if workgroup:
+        from teaparty_app.services.agent_tools import auto_select_workflow
+
+        auto_select_workflow(session, workgroup, conversation)
+
     session.add(ConversationParticipant(conversation_id=conversation.id, user_id=requester_user_id))
 
     return f"Created topic '{conversation.topic}' with id={conversation.id}."
@@ -443,8 +562,11 @@ def admin_tool_add_topic(
 def admin_tool_archive_topic(
     session: Session,
     workgroup_id: str,
+    requester_user_id: str,
     selector: str,
 ) -> str:
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to archive topics."
     conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
     if not conversation:
         return error or "Topic not found."
@@ -455,6 +577,34 @@ def admin_tool_archive_topic(
     conversation.is_archived = True
     conversation.archived_at = utc_now()
     session.add(conversation)
+
+    # Remove worktree but keep branch for history
+    try:
+        from teaparty_app.services.workspace_manager import remove_worktree, workspace_root_configured
+
+        if workspace_root_configured():
+            from teaparty_app.models import Workspace, WorkspaceWorktree
+
+            ws = session.exec(
+                select(Workspace).where(Workspace.workgroup_id == workgroup_id, Workspace.status == "active")
+            ).first()
+            if ws:
+                wt = session.exec(
+                    select(WorkspaceWorktree).where(
+                        WorkspaceWorktree.workspace_id == ws.id,
+                        WorkspaceWorktree.conversation_id == conversation.id,
+                        WorkspaceWorktree.status == "active",
+                    )
+                ).first()
+                if wt:
+                    remove_worktree(session, wt, delete_branch=False)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Failed to remove worktree on archive for %s", conversation.id, exc_info=True)
+
+    from teaparty_app.services.agent_tools import evaluate_topic_resolved_todos
+    evaluate_topic_resolved_todos(session, conversation.id)
 
     memory_note = ""
     try:
@@ -473,8 +623,11 @@ def admin_tool_archive_topic(
 def admin_tool_unarchive_topic(
     session: Session,
     workgroup_id: str,
+    requester_user_id: str,
     selector: str,
 ) -> str:
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to unarchive topics."
     conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
     if not conversation:
         return error or "Topic not found."
@@ -494,12 +647,37 @@ def admin_tool_remove_topic(
     requester_user_id: str,
     selector: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can remove topics."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to remove topics."
 
     conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
     if not conversation:
         return error or "Topic not found."
+
+    # Remove worktree and delete branch before deleting the conversation
+    try:
+        from teaparty_app.services.workspace_manager import remove_worktree, workspace_root_configured
+
+        if workspace_root_configured():
+            from teaparty_app.models import Workspace, WorkspaceWorktree
+
+            ws = session.exec(
+                select(Workspace).where(Workspace.workgroup_id == workgroup_id, Workspace.status == "active")
+            ).first()
+            if ws:
+                wt = session.exec(
+                    select(WorkspaceWorktree).where(
+                        WorkspaceWorktree.workspace_id == ws.id,
+                        WorkspaceWorktree.conversation_id == conversation.id,
+                        WorkspaceWorktree.status == "active",
+                    )
+                ).first()
+                if wt:
+                    remove_worktree(session, wt, delete_branch=True)
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning("Failed to remove worktree on delete for %s", conversation.id, exc_info=True)
 
     counts = _delete_conversation_tree(session, conversation.id)
     return (
@@ -514,8 +692,8 @@ def admin_tool_clear_topic_messages(
     requester_user_id: str,
     selector: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can clear topic messages."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to clear topic messages."
 
     conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
     if not conversation:
@@ -624,8 +802,8 @@ def admin_tool_add_file(
     path: str,
     content: str = "",
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can add files."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to add files."
 
     normalized_path = _normalize_file_path(path)
     if not normalized_path:
@@ -661,8 +839,8 @@ def admin_tool_edit_file(
     path: str,
     content: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can edit files."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to edit files."
 
     normalized_path = _normalize_file_path(path)
     if not normalized_path:
@@ -700,8 +878,8 @@ def admin_tool_rename_file(
     source_path: str,
     destination_path: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can rename files."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to rename files."
 
     old_path = _normalize_file_path(source_path)
     new_path = _normalize_file_path(destination_path)
@@ -740,8 +918,8 @@ def admin_tool_delete_file(
     requester_user_id: str,
     path: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can delete files."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
+        return "Editor permissions required to delete files."
 
     normalized_path = _normalize_file_path(path)
     if not normalized_path:
@@ -782,8 +960,8 @@ def admin_tool_add_agent(
     model: str = "",
     temperature: float | str | None = None,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can add agents."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to add agents."
 
     inferred_temperature, _ = _parse_temperature(temperature, default=0.7)
 
@@ -863,8 +1041,8 @@ def admin_tool_add_user(
     requester_user_id: str,
     email: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can add users."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to add users."
 
     normalized = email.lower().strip()
     user = session.exec(select(User).where(User.email == normalized)).first()
@@ -914,8 +1092,8 @@ def admin_tool_remove_member(
     requester_user_id: str,
     member_selector: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can remove members."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to remove members."
 
     selector = _normalize_member_selector(member_selector)
     if not selector:
@@ -1064,8 +1242,8 @@ def admin_tool_delete_workgroup(
     requester_user_id: str,
     confirmed: bool = False,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can delete the workgroup."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to delete the workgroup."
 
     workgroup = session.get(Workgroup, workgroup_id)
     if not workgroup:
@@ -1166,8 +1344,8 @@ def admin_tool_accept_task(
     requester_user_id: str,
     selector: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can accept tasks."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to accept tasks."
 
     task, error = _resolve_cross_group_task(session, workgroup_id, selector)
     if not task:
@@ -1256,8 +1434,8 @@ def admin_tool_decline_task(
     requester_user_id: str,
     selector: str,
 ) -> str:
-    if not _owner_role(session, workgroup_id, requester_user_id):
-        return "Only the workgroup owner can decline tasks."
+    if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
+        return "Owner permissions required to decline tasks."
 
     task, error = _resolve_cross_group_task(session, workgroup_id, selector)
     if not task:

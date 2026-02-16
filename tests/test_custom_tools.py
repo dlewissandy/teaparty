@@ -247,16 +247,15 @@ class TestPromptToolTemplateSubstitution(unittest.TestCase):
             id="m1", conversation_id="c1", sender_type="user",
             sender_user_id="u1", content="Hello world",
         )
-        with patch("teaparty_app.services.custom_tool_executor._get_anthropic_api_key", return_value="test-key"):
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(text="Bonjour le monde")]
-            with patch("anthropic.Anthropic") as mock_client_cls:
-                mock_client_cls.return_value.messages.create.return_value = mock_response
-                result = _execute_prompt_tool(td, trigger)
-                call_args = mock_client_cls.return_value.messages.create.call_args
-                prompt_sent = call_args.kwargs["messages"][0]["content"]
-                self.assertIn("Hello world", prompt_sent)
-                self.assertNotIn("{{input}}", prompt_sent)
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="Bonjour le monde")]
+        mock_response.usage = MagicMock(input_tokens=10, output_tokens=5)
+        with patch("teaparty_app.services.llm_client.create_message", return_value=mock_response) as mock_create:
+            result = _execute_prompt_tool(td, trigger)
+            call_args = mock_create.call_args
+            prompt_sent = call_args.kwargs["messages"][0]["content"]
+            self.assertIn("Hello world", prompt_sent)
+            self.assertNotIn("{{input}}", prompt_sent)
         self.assertEqual(result, "Bonjour le monde")
 
 

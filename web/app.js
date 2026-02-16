@@ -46,6 +46,7 @@ const state = {
   fileBrowserCompositeFiles: [],
   thoughtsByMessageId: {},
   lastLiveActivity: null,
+  toolbarVisible: false,
 };
 
 const qs = (id) => document.getElementById(id);
@@ -2938,6 +2939,8 @@ function clearActiveConversationUI() {
   if (usageEl) usageEl.classList.add("hidden");
   const toolBar = qs("chat-tool-buttons");
   if (toolBar) { toolBar.innerHTML = ""; toolBar.classList.add("hidden"); }
+  const headerActions = qs("chat-header-actions");
+  if (headerActions) headerActions.classList.add("hidden");
   const composerForm = qs("message-form");
   if (composerForm) composerForm.classList.remove("hidden");
 }
@@ -3467,14 +3470,21 @@ function refreshActiveConversationHeader() {
   }
 
   const agent = getConversationAgent(state.selectedWorkgroupId, state.activeConversationId);
-  if (agent && agent.tool_names && agent.tool_names.length) {
+  const hasTools = agent && agent.tool_names && agent.tool_names.length;
+  if (hasTools) {
     toolBar.innerHTML = agent.tool_names
       .map((name) => `<button type="button" class="chat-tool-btn" data-tool-name="${escapeHtml(name)}">${escapeHtml(toolDisplayLabel(name))}</button>`)
       .join("");
-    toolBar.classList.remove("hidden");
+    toolBar.classList.toggle("hidden", !state.toolbarVisible);
   } else {
     toolBar.innerHTML = "";
     toolBar.classList.add("hidden");
+  }
+
+  // Highlight toolbar toggle when tools exist but toolbar is hidden
+  const toggleBtn = qs("toggle-toolbar-btn");
+  if (toggleBtn) {
+    toggleBtn.classList.toggle("has-tools", !!hasTools && !state.toolbarVisible);
   }
 }
 
@@ -5597,7 +5607,7 @@ function renderMessages(messages) {
   syncThinkingState(messages);
   const pending = state.thinkingByConversation[state.activeConversationId];
 
-  qs("copy-chat").classList.toggle("hidden", !messages.length);
+  qs("chat-header-actions").classList.toggle("hidden", !messages.length);
 
   if (!messages.length && !pending) {
     node.innerHTML = "<p class='meta'>No messages yet.</p>";
@@ -6857,7 +6867,82 @@ function bindEvents() {
     });
   });
 
-  qs("copy-chat").addEventListener("click", copyChatToClipboard);
+  // --- Chat header action buttons ---
+  qs("toggle-files-btn").addEventListener("click", () => {
+    if (state.selectedWorkgroupId) {
+      openFileBrowser(state.selectedWorkgroupId);
+    }
+  });
+
+  qs("toggle-toolbar-btn").addEventListener("click", () => {
+    state.toolbarVisible = !state.toolbarVisible;
+    refreshActiveConversationHeader();
+  });
+
+  qs("chat-menu-btn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    const dropdown = qs("chat-menu-dropdown");
+    const opening = dropdown.classList.contains("hidden");
+    dropdown.classList.toggle("hidden");
+    if (opening) {
+      // Update archive button label
+      const archiveBtn = qs("chat-archive-btn");
+      if (archiveBtn) {
+        const archived = isActiveConversationArchived();
+        archiveBtn.textContent = archived ? "Unarchive" : "Archive";
+        archiveBtn.dataset.action = archived ? "chat-unarchive" : "chat-archive";
+      }
+    }
+  });
+
+  qs("chat-menu-dropdown").addEventListener("click", async (e) => {
+    const button = e.target.closest("button[data-action]");
+    if (!button) return;
+    const action = button.dataset.action;
+    const dropdown = qs("chat-menu-dropdown");
+    dropdown.classList.add("hidden");
+
+    if (action === "chat-copy") {
+      copyChatToClipboard();
+    } else if (action === "chat-archive" || action === "chat-unarchive") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const archiving = action === "chat-archive";
+      try {
+        await api(`/api/workgroups/${wgId}/conversations/${convId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_archived: archiving }),
+        });
+        const wgData = state.treeData[wgId];
+        if (wgData) {
+          await refreshWorkgroupTree(wgData.workgroup);
+        }
+        refreshActiveConversationHeader();
+        flash(archiving ? "Archived" : "Unarchived", "success");
+      } catch (err) {
+        flash(err.message || "Failed to update archive status", "error");
+      }
+    } else if (action === "chat-clear-history") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const confirmed = window.confirm("Clear all messages in this conversation? This cannot be undone.");
+      if (!confirmed) return;
+      try {
+        const result = await api(`/api/workgroups/${wgId}/conversations/${convId}/messages`, {
+          method: "DELETE",
+        });
+        delete state.thinkingByConversation[convId];
+        await loadMessages();
+        const deleted = Number(result?.deleted_messages || 0);
+        flash(deleted > 0 ? `Cleared ${deleted} message${deleted === 1 ? "" : "s"}` : "History already empty", "success");
+      } catch (err) {
+        flash(err.message || "Failed to clear history", "error");
+      }
+    }
+  });
 
   qs("file-overlay-close").addEventListener("click", closeFileOverlay);
 
@@ -7034,6 +7119,13 @@ function bindEvents() {
     const button = qs("user-menu-button");
     if (!menu.contains(target) && !button.contains(target)) {
       closeUserMenu();
+    }
+
+    // Close chat menu dropdown on click-outside
+    const chatDropdown = qs("chat-menu-dropdown");
+    const chatMenuBtn = qs("chat-menu-btn");
+    if (chatDropdown && chatMenuBtn && !chatDropdown.contains(target) && !chatMenuBtn.contains(target)) {
+      chatDropdown.classList.add("hidden");
     }
   });
 

@@ -15,10 +15,14 @@ from teaparty_app.services.tools import available_tools, run_tool
 from teaparty_app.services.agent_runtime import DIRECT_RETURN_TOOL_NAMES, TOOL_PATTERNS
 
 
+def _admin_conv() -> Conversation:
+    return Conversation(id="admin-c", workgroup_id="wg-1", kind="admin", created_by_user_id="u1")
+
+
 class ClaudeCodeToolListFilesTests(unittest.TestCase):
     def test_list_files_empty(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
-        self.assertEqual(_tool_list_files(wg), "No files in this workgroup.")
+        self.assertEqual(_tool_list_files(wg, _admin_conv()), "No files in this workgroup.")
 
     def test_list_files_returns_sorted_paths(self) -> None:
         wg = Workgroup(
@@ -28,7 +32,7 @@ class ClaudeCodeToolListFilesTests(unittest.TestCase):
                 {"id": "2", "path": "README.md", "content": "readme"},
             ],
         )
-        result = _tool_list_files(wg)
+        result = _tool_list_files(wg, _admin_conv())
         self.assertEqual(result, "README.md\nsrc/main.py")
 
 
@@ -38,18 +42,18 @@ class ClaudeCodeToolReadFileTests(unittest.TestCase):
             id="wg-1", name="Test", owner_id="u1",
             files=[{"id": "1", "path": "notes.md", "content": "hello world"}],
         )
-        self.assertEqual(_tool_read_file(wg, "notes.md"), "hello world")
+        self.assertEqual(_tool_read_file(wg, _admin_conv(), "notes.md"), "hello world")
 
     def test_read_empty_file(self) -> None:
         wg = Workgroup(
             id="wg-1", name="Test", owner_id="u1",
             files=[{"id": "1", "path": "empty.txt", "content": ""}],
         )
-        self.assertEqual(_tool_read_file(wg, "empty.txt"), "(empty file)")
+        self.assertEqual(_tool_read_file(wg, _admin_conv(), "empty.txt"), "(empty file)")
 
     def test_read_missing_file(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
-        result = _tool_read_file(wg, "nope.txt")
+        result = _tool_read_file(wg, _admin_conv(), "nope.txt")
         self.assertIn("not found", result)
 
 
@@ -57,7 +61,7 @@ class ClaudeCodeToolCreateFileTests(unittest.TestCase):
     def test_create_file_success(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _tool_create_file(session, wg, "wg-1", "agent-1", "new.py", "print('hi')")
+        result = _tool_create_file(session, wg, _admin_conv(), "wg-1", "agent-1", "new.py", "print('hi')")
         self.assertIn("Created", result)
         self.assertEqual(len(wg.files), 1)
         self.assertEqual(wg.files[0]["path"], "new.py")
@@ -69,19 +73,19 @@ class ClaudeCodeToolCreateFileTests(unittest.TestCase):
             files=[{"id": "1", "path": "existing.py", "content": "code"}],
         )
         session = _FakeSession()
-        result = _tool_create_file(session, wg, "wg-1", "agent-1", "existing.py", "new code")
+        result = _tool_create_file(session, wg, _admin_conv(), "wg-1", "agent-1", "existing.py", "new code")
         self.assertIn("already exists", result)
 
     def test_create_file_path_too_long(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _tool_create_file(session, wg, "wg-1", "agent-1", "x" * 513, "content")
+        result = _tool_create_file(session, wg, _admin_conv(), "wg-1", "agent-1", "x" * 513, "content")
         self.assertIn("512 characters", result)
 
     def test_create_file_content_too_large(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _tool_create_file(session, wg, "wg-1", "agent-1", "big.txt", "x" * 200_001)
+        result = _tool_create_file(session, wg, _admin_conv(), "wg-1", "agent-1", "big.txt", "x" * 200_001)
         self.assertIn("200000 characters", result)
 
 
@@ -92,14 +96,14 @@ class ClaudeCodeToolEditFileTests(unittest.TestCase):
             files=[{"id": "1", "path": "app.py", "content": "old"}],
         )
         session = _FakeSession()
-        result = _tool_edit_file(session, wg, "wg-1", "agent-1", "app.py", "new code")
+        result = _tool_edit_file(session, wg, _admin_conv(), "wg-1", "agent-1", "app.py", "new code")
         self.assertIn("Updated", result)
         self.assertEqual(wg.files[0]["content"], "new code")
 
     def test_edit_file_not_found(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _tool_edit_file(session, wg, "wg-1", "agent-1", "missing.py", "code")
+        result = _tool_edit_file(session, wg, _admin_conv(), "wg-1", "agent-1", "missing.py", "code")
         self.assertIn("not found", result)
 
 
@@ -107,13 +111,13 @@ class ClaudeCodeDispatchTests(unittest.TestCase):
     def test_dispatch_list_files(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _dispatch_tool("list_files", {}, session, wg, "wg-1", "a1")
+        result = _dispatch_tool("list_files", {}, session, wg, _admin_conv(), "wg-1", "a1")
         self.assertEqual(result, "No files in this workgroup.")
 
     def test_dispatch_unknown_tool(self) -> None:
         wg = Workgroup(id="wg-1", name="Test", owner_id="u1", files=[])
         session = _FakeSession()
-        result = _dispatch_tool("nope", {}, session, wg, "wg-1", "a1")
+        result = _dispatch_tool("nope", {}, session, wg, _admin_conv(), "wg-1", "a1")
         self.assertIn("unknown tool", result)
 
 
@@ -164,9 +168,9 @@ class ClaudeCodeAccessControlTests(unittest.TestCase):
             id="a1", workgroup_id="wg-1", created_by_user_id="u1",
             name="Coder", tool_names=["claude_code"],
         )
-        with patch("teaparty_app.services.claude_code._get_api_key", return_value=""):
+        with patch("teaparty_app.services.llm_client.llm_enabled", return_value=False):
             result = claude_code(session, agent, conversation, trigger)
-        self.assertIn("missing API key", result)
+        self.assertIn("no LLM provider configured", result)
 
 
 class ClaudeCodeSystemPromptTests(unittest.TestCase):

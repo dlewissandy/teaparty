@@ -46,14 +46,14 @@ class WorkgroupTemplateTests(unittest.TestCase):
         self.assertIsNone(get_workgroup_template("unknown-template"))
 
     def test_resolve_creation_files_uses_template_when_files_omitted(self) -> None:
-        payload = WorkgroupCreateRequest(name="Dialectic Team", template_key="dialectic")
+        payload = WorkgroupCreateRequest(name="Dialectic Team", template_key="dialectic", organization_id="org-1")
         template = _resolve_template_for_create(payload, self._template_lookup())
         files = _resolve_workgroup_creation_files(payload, template)
         self.assertGreater(len(files), 0)
         self.assertTrue(any(item["path"] == "topic.md" for item in files))
 
     def test_resolve_creation_agents_uses_template_when_agents_omitted(self) -> None:
-        payload = WorkgroupCreateRequest(name="Dialectic Team", template_key="dialectic")
+        payload = WorkgroupCreateRequest(name="Dialectic Team", template_key="dialectic", organization_id="org-1")
         template = _resolve_template_for_create(payload, self._template_lookup())
         agents = _resolve_workgroup_creation_agents(payload, template)
         self.assertGreater(len(agents), 0)
@@ -64,6 +64,7 @@ class WorkgroupTemplateTests(unittest.TestCase):
             name="Research",
             template_key="dialectic",
             files=[{"path": "notes/custom.md", "content": "custom"}],
+            organization_id="org-1",
         )
         template = _resolve_template_for_create(payload, self._template_lookup())
         files = _resolve_workgroup_creation_files(payload, template)
@@ -81,6 +82,7 @@ class WorkgroupTemplateTests(unittest.TestCase):
                     "tool_names": ["summarize_topic"],
                 }
             ],
+            organization_id="org-1",
         )
         template = _resolve_template_for_create(payload, self._template_lookup())
         agents = _resolve_workgroup_creation_agents(payload, template)
@@ -88,19 +90,19 @@ class WorkgroupTemplateTests(unittest.TestCase):
         self.assertEqual(agents[0].name, "Custom Analyst")
 
     def test_resolve_creation_files_allows_explicit_empty_override(self) -> None:
-        payload = WorkgroupCreateRequest(name="Research", template_key="dialectic", files=[])
+        payload = WorkgroupCreateRequest(name="Research", template_key="dialectic", files=[], organization_id="org-1")
         template = _resolve_template_for_create(payload, self._template_lookup())
         files = _resolve_workgroup_creation_files(payload, template)
         self.assertEqual(files, [])
 
     def test_resolve_creation_agents_allows_explicit_empty_override(self) -> None:
-        payload = WorkgroupCreateRequest(name="Research", template_key="dialectic", agents=[])
+        payload = WorkgroupCreateRequest(name="Research", template_key="dialectic", agents=[], organization_id="org-1")
         template = _resolve_template_for_create(payload, self._template_lookup())
         agents = _resolve_workgroup_creation_agents(payload, template)
         self.assertEqual(agents, [])
 
     def test_resolve_creation_files_raises_for_unknown_template(self) -> None:
-        payload = WorkgroupCreateRequest(name="Project", template_key="missing-key")
+        payload = WorkgroupCreateRequest(name="Project", template_key="missing-key", organization_id="org-1")
         with self.assertRaises(HTTPException) as ctx:
             _resolve_template_for_create(payload, self._template_lookup())
         self.assertEqual(ctx.exception.status_code, 400)
@@ -117,11 +119,12 @@ class WorkgroupTemplateTests(unittest.TestCase):
     def test_storage_files_include_required_structure(self) -> None:
         storage_files = template_storage_files()
         paths = {item["path"] for item in storage_files}
+        self.assertIn(".templates/organizations/default/organization.json", paths)
         for template_key in ("coding", "dialectic", "roleplay"):
-            config_path = f".templates/workgroups/{template_key}/workgroup.json"
+            config_path = f".templates/organizations/default/workgroups/{template_key}/workgroup.json"
             self.assertIn(config_path, paths)
-            self.assertTrue(any(path.startswith(f".templates/workgroups/{template_key}/agents/") for path in paths))
-            self.assertTrue(any(path.startswith(f".templates/workgroups/{template_key}/files/") for path in paths))
+            self.assertTrue(any(path.startswith(f".templates/organizations/default/workgroups/{template_key}/agents/") for path in paths))
+            self.assertTrue(any(path.startswith(f".templates/organizations/default/workgroups/{template_key}/files/") for path in paths))
 
     def test_administration_template_reconcile_prunes_legacy_entries(self) -> None:
         existing_files = [
@@ -138,5 +141,6 @@ class WorkgroupTemplateTests(unittest.TestCase):
         self.assertIn("notes.txt", paths)
         self.assertFalse(any(path.startswith("templates/") for path in paths))
         self.assertFalse(any(path.endswith("/config.json") for path in paths))
+        self.assertIn(".templates/organizations/default/organization.json", paths)
         for template_key in ("coding", "dialectic", "roleplay"):
-            self.assertIn(f".templates/workgroups/{template_key}/workgroup.json", paths)
+            self.assertIn(f".templates/organizations/default/workgroups/{template_key}/workgroup.json", paths)

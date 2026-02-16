@@ -1,9 +1,12 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+import time
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from teaparty_app.db import engine, get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, Conversation, ConversationParticipant, Membership, Message, User
+from teaparty_app.models import Agent, AgentLearningEvent, Conversation, ConversationParticipant, Membership, Message, User, Workspace, Workgroup, utc_now
 from teaparty_app.schemas import (
     ConversationCreateRequest,
     ConversationHistoryClearResponse,
@@ -16,6 +19,7 @@ from teaparty_app.schemas import (
 )
 from teaparty_app.services.agent_runtime import (
     close_tasks_satisfied_by_message,
+    get_conversation_activity,
     infer_requires_response,
     run_agent_auto_responses,
 )
@@ -26,9 +30,31 @@ from teaparty_app.services.admin_workspace import (
     ensure_direct_conversation,
     ensure_direct_conversation_with_agent,
 )
-from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
+from teaparty_app.services.permissions import check_budget, require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
 
 router = APIRouter(prefix="/api", tags=["conversations"])
+
+_IDEMPOTENCY_CACHE: dict[str, tuple[float, MessageEnvelope]] = {}
+_IDEMPOTENCY_TTL = 300  # 5 minutes
+
+
+def _idempotency_check(key: str | None) -> MessageEnvelope | None:
+    if not key:
+        return None
+    now = time.monotonic()
+    # Prune expired entries
+    expired = [k for k, (ts, _) in _IDEMPOTENCY_CACHE.items() if now - ts > _IDEMPOTENCY_TTL]
+    for k in expired:
+        del _IDEMPOTENCY_CACHE[k]
+    entry = _IDEMPOTENCY_CACHE.get(key)
+    if entry:
+        return entry[1]
+    return None
+
+
+def _idempotency_store(key: str | None, envelope: MessageEnvelope) -> None:
+    if key:
+        _IDEMPOTENCY_CACHE[key] = (time.monotonic(), envelope)
 
 
 def _conversation_for_user(session: Session, conversation_id: str, user_id: str) -> Conversation:
@@ -40,14 +66,29 @@ def _conversation_for_user(session: Session, conversation_id: str, user_id: str)
 
 
 def _process_auto_responses_in_background(conversation_id: str, trigger_message_id: str) -> None:
-    with Session(engine) as background_session:
-        conversation = background_session.get(Conversation, conversation_id)
-        trigger = background_session.get(Message, trigger_message_id)
-        if not conversation or not trigger:
-            return
+    import logging
 
-        run_agent_auto_responses(background_session, conversation, trigger)
-        background_session.commit()
+    logger = logging.getLogger(__name__)
+    try:
+        with Session(engine, autoflush=False) as background_session:
+            conversation = background_session.get(Conversation, conversation_id)
+            trigger = background_session.get(Message, trigger_message_id)
+            if not conversation or not trigger:
+                logger.warning(
+                    "Background auto-response skipped: conversation=%s trigger=%s (missing)",
+                    conversation_id,
+                    trigger_message_id,
+                )
+                return
+
+            run_agent_auto_responses(background_session, conversation, trigger)
+            background_session.commit()
+    except Exception:
+        logger.exception(
+            "Background auto-response failed for conversation=%s trigger=%s",
+            conversation_id,
+            trigger_message_id,
+        )
 
 
 @router.post("/workgroups/{workgroup_id}/conversations", response_model=ConversationRead)
@@ -98,6 +139,33 @@ def create_conversation(
     session.add(conversation)
     session.flush()
 
+    if payload.kind == "topic":
+        from teaparty_app.services.agent_tools import auto_select_workflow
+
+        workgroup = session.get(Workgroup, workgroup_id)
+        if workgroup:
+            auto_select_workflow(session, workgroup, conversation)
+
+            if getattr(workgroup, "workspace_enabled", False):
+                try:
+                    from teaparty_app.services.workspace_manager import create_worktree_for_topic, workspace_root_configured
+
+                    if workspace_root_configured():
+                        ws = session.exec(
+                            select(Workspace).where(
+                                Workspace.workgroup_id == workgroup_id,
+                                Workspace.status == "active",
+                            )
+                        ).first()
+                        if ws:
+                            create_worktree_for_topic(session, ws, conversation)
+                except Exception:
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "Failed to create worktree for topic %s", conversation.id, exc_info=True
+                    )
+
     all_user_ids = set(payload.participant_user_ids)
     all_user_ids.add(user.id)
     for participant_user_id in all_user_ids:
@@ -128,7 +196,8 @@ def list_conversations(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[ConversationRead]:
-    require_workgroup_membership(session, workgroup_id, user.id)
+    membership = require_workgroup_membership(session, workgroup_id, user.id)
+    is_owner = membership.role == "owner"
     _agent, _conversation, admin_changed = ensure_admin_workspace_for_workgroup_id(session, workgroup_id)
     _activity_conversation, activity_changed = ensure_activity_conversation_for_workgroup_id(session, workgroup_id)
     if admin_changed or activity_changed:
@@ -136,8 +205,28 @@ def list_conversations(
     query = select(Conversation).where(Conversation.workgroup_id == workgroup_id)
     if not include_archived:
         query = query.where(Conversation.is_archived == False)  # noqa: E712
+    if not is_owner:
+        query = query.where(Conversation.kind != "admin")
     conversations = session.exec(query.order_by(Conversation.created_at.desc())).all()
-    return [ConversationRead.model_validate(item) for item in conversations]
+
+    conv_ids = [c.id for c in conversations]
+    if conv_ids:
+        latest_stmt = (
+            select(Message.conversation_id, func.max(Message.created_at).label("latest"))
+            .where(
+                Message.conversation_id.in_(conv_ids),
+                (Message.sender_user_id != user.id) | (Message.sender_user_id == None),  # noqa: E711
+            )
+            .group_by(Message.conversation_id)
+        )
+        latest_map = {row.conversation_id: row.latest for row in session.exec(latest_stmt).all()}
+    else:
+        latest_map = {}
+
+    return [
+        ConversationRead(**{**ConversationRead.model_validate(c).model_dump(), "latest_message_at": latest_map.get(c.id)})
+        for c in conversations
+    ]
 
 
 @router.post("/workgroups/{workgroup_id}/members/{member_user_id}/direct-conversation", response_model=ConversationRead)
@@ -210,6 +299,11 @@ def update_topic_conversation(
     if payload.description is not None:
         conversation.description = payload.description.strip()
 
+    if payload.is_archived is not None:
+        require_workgroup_editor(session, workgroup_id, user.id)
+        conversation.is_archived = payload.is_archived
+        conversation.archived_at = utc_now() if payload.is_archived else None
+
     session.add(conversation)
     session.commit()
     session.refresh(conversation)
@@ -251,15 +345,17 @@ def clear_topic_conversation_history(
 @router.get("/conversations/{conversation_id}/messages", response_model=list[MessageRead])
 def list_messages(
     conversation_id: str,
+    since_id: str | None = Query(default=None),
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[MessageRead]:
     _conversation_for_user(session, conversation_id, user.id)
-    rows = session.exec(
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.asc())
-    ).all()
+    query = select(Message).where(Message.conversation_id == conversation_id)
+    if since_id:
+        anchor = session.get(Message, since_id)
+        if anchor and anchor.conversation_id == conversation_id:
+            query = query.where(Message.created_at > anchor.created_at)
+    rows = session.exec(query.order_by(Message.created_at.asc())).all()
     return [MessageRead.model_validate(item) for item in rows]
 
 
@@ -283,8 +379,19 @@ def post_message(
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
+    x_idempotency_key: str | None = Header(default=None),
 ) -> MessageEnvelope:
+    cached = _idempotency_check(x_idempotency_key)
+    if cached is not None:
+        return cached
+
     conversation = _conversation_for_user(session, conversation_id, user.id)
+    if conversation.is_archived:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot post to an archived conversation")
+    membership = require_workgroup_membership(session, conversation.workgroup_id, user.id)
+    if conversation.kind == "admin" and membership.role != "owner":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner permissions required")
+    check_budget(membership)
     content = payload.content.strip()
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message content cannot be empty")
@@ -303,12 +410,68 @@ def post_message(
     session.flush()
 
     close_tasks_satisfied_by_message(session, message)
+
+    from teaparty_app.services.agent_tools import evaluate_message_match_todos
+    evaluate_message_match_todos(session, message)
+
     session.commit()
     session.refresh(message)
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 
-    return MessageEnvelope(
+    envelope = MessageEnvelope(
         posted=MessageRead.model_validate(message),
         agent_replies=[],
     )
+    _idempotency_store(x_idempotency_key, envelope)
+    return envelope
+
+
+@router.get("/conversations/{conversation_id}/activity")
+def get_activity(
+    conversation_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[dict]:
+    _conversation_for_user(session, conversation_id, user.id)
+    return get_conversation_activity(conversation_id)
+
+
+@router.get("/conversations/{conversation_id}/thoughts")
+def get_thoughts(
+    conversation_id: str,
+    message_ids: str = Query(default=""),
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    _conversation_for_user(session, conversation_id, user.id)
+
+    if message_ids.strip():
+        target_ids = [mid.strip() for mid in message_ids.split(",") if mid.strip()]
+    else:
+        # Fall back to last 50 agent messages in this conversation.
+        rows = session.exec(
+            select(Message.id)
+            .where(
+                Message.conversation_id == conversation_id,
+                Message.sender_type == "agent",
+            )
+            .order_by(Message.created_at.desc())
+            .limit(50)
+        ).all()
+        target_ids = list(rows)
+
+    if not target_ids:
+        return {}
+
+    events = session.exec(
+        select(AgentLearningEvent).where(
+            AgentLearningEvent.message_id.in_(target_ids),
+            AgentLearningEvent.signal_type == "agent_thoughts",
+        )
+    ).all()
+
+    result: dict[str, dict] = {}
+    for event in events:
+        result[event.message_id] = event.value
+    return result

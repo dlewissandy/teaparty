@@ -47,24 +47,23 @@ def _execute_prompt_tool(
 
     prompt_text = template.replace("{{input}}", trigger.content)
 
-    api_key = _get_anthropic_api_key()
-    if not api_key:
-        return "Custom prompt tool unavailable: missing API key."
+    from teaparty_app.services import llm_client
 
-    import anthropic
+    if not llm_client.llm_enabled():
+        return "Custom prompt tool unavailable: no LLM provider configured."
 
-    client = anthropic.Anthropic(api_key=api_key)
     try:
+        model = llm_client.resolve_model("cheap", "claude-haiku-4-5")
         t0 = time.monotonic()
-        response = client.messages.create(
-            model="claude-haiku-4-5",
+        response = llm_client.create_message(
+            model=model,
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt_text}],
         )
         duration_ms = int((time.monotonic() - t0) * 1000)
         if session is not None and conversation_id:
             record_llm_usage(
-                session, conversation_id, None, "claude-haiku-4-5",
+                session, conversation_id, None, model,
                 response.usage.input_tokens, response.usage.output_tokens,
                 "custom_tool", duration_ms,
             )

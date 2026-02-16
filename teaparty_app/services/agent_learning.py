@@ -37,9 +37,9 @@ _STOPWORDS = {
 def is_learning_eligible(conversation: Conversation) -> bool:
     """Return False for conversations that should not produce learning signals."""
     topic = (conversation.topic or "").strip()
-    if topic.startswith("task:") or topic.startswith("task-mirror:"):
+    if topic.startswith("task:") or topic.startswith("task-mirror:") or topic.startswith("engagement:"):
         return False
-    if conversation.kind in ("activity", "admin"):
+    if conversation.kind in ("activity", "admin", "engagement"):
         return False
     return True
 
@@ -149,20 +149,12 @@ def _build_transcript(messages: list[Message], max_chars: int = 8000) -> str:
     return full[:half] + "\n...[truncated]...\n" + full[-half:]
 
 
-def _get_anthropic_client():
-    import anthropic
-
-    api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if not api_key:
-        from teaparty_app.config import settings
-
-        api_key = (settings.anthropic_api_key or "").strip()
-    return anthropic.Anthropic(api_key=api_key)
-
-
 def _runtime_model_candidates() -> list[str]:
     from teaparty_app.config import settings
 
+    override = settings.llm_default_model.strip()
+    if override:
+        return [override]
     candidates: list[str] = []
     for model in [settings.admin_agent_model, "claude-sonnet-4-5", "claude-haiku-4-5"]:
         normalized = (model or "").strip()
@@ -245,13 +237,15 @@ def synthesize_long_term_memories(
     )
 
     try:
-        client = _get_anthropic_client()
+        from teaparty_app.services import llm_client
+
         raw = ""
         for model in _runtime_model_candidates():
             try:
+                resolved = llm_client.resolve_model("cheap", model)
                 t0 = time.monotonic()
-                response = client.messages.create(
-                    model=model,
+                response = llm_client.create_message(
+                    model=resolved,
                     max_tokens=2048,
                     temperature=0.3,
                     system=system_prompt,
@@ -259,7 +253,7 @@ def synthesize_long_term_memories(
                 )
                 duration_ms = int((time.monotonic() - t0) * 1000)
                 record_llm_usage(
-                    session, conversation.id, None, model,
+                    session, conversation.id, None, resolved,
                     response.usage.input_tokens, response.usage.output_tokens,
                     "memory_synthesis", duration_ms,
                 )

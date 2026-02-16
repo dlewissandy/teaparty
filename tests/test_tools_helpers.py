@@ -1,7 +1,8 @@
 import unittest
 
-from teaparty_app.models import Workgroup
+from teaparty_app.models import Conversation, Workgroup
 from teaparty_app.services.tools import (
+    _files_for_conversation,
     _is_ambiguous_add_path,
     _normalize_trigger_for_matching,
     _normalize_workgroup_files,
@@ -60,7 +61,92 @@ class ToolHelperTests(unittest.TestCase):
         self.assertIn("add_file", tools)
         self.assertIn("summarize_topic", tools)
 
+    def test_available_tools_includes_web_search(self) -> None:
+        tools = available_tools()
+        self.assertIn("web_search", tools)
+
+    def test_available_tools_includes_workflow_tools(self) -> None:
+        tools = available_tools()
+        self.assertIn("list_workflows", tools)
+        self.assertIn("get_workflow_state", tools)
+        self.assertIn("advance_workflow", tools)
+
+    def test_run_tool_returns_server_side_message_for_web_search(self) -> None:
+        result = run_tool("web_search", None, None, None, None)  # type: ignore[arg-type]
+        self.assertIn("server-side tool", result)
+
     def test_run_tool_returns_error_for_unknown_tool(self) -> None:
         result = run_tool("missing_tool", None, None, None, None)  # type: ignore[arg-type]
         self.assertEqual(result, "Tool 'missing_tool' is not available.")
+
+    def test_normalize_preserves_topic_id(self) -> None:
+        workgroup = Workgroup(
+            id="wg-1",
+            name="Core",
+            owner_id="user-1",
+            files=[
+                {"id": "1", "path": "shared.md", "content": "shared"},
+                {"id": "2", "path": "topic.md", "content": "scoped", "topic_id": "conv-1"},
+                {"id": "3", "path": "empty-tid.md", "content": "no tid"},
+            ],
+        )
+        normalized = _normalize_workgroup_files(workgroup)
+        self.assertEqual(len(normalized), 3)
+        self.assertEqual(normalized[0]["topic_id"], "")
+        self.assertEqual(normalized[1]["topic_id"], "conv-1")
+        self.assertEqual(normalized[2]["topic_id"], "")
+
+    def test_files_for_topic_sees_shared_and_own(self) -> None:
+        workgroup = Workgroup(
+            id="wg-1",
+            name="Core",
+            owner_id="user-1",
+            files=[
+                {"id": "1", "path": "shared.md", "content": "shared"},
+                {"id": "2", "path": "topic-a.md", "content": "a", "topic_id": "conv-a"},
+                {"id": "3", "path": "topic-b.md", "content": "b", "topic_id": "conv-b"},
+            ],
+        )
+        conv = Conversation(id="conv-a", workgroup_id="wg-1", kind="topic", created_by_user_id="u1")
+        result = _files_for_conversation(workgroup, conv)
+        paths = [f["path"] for f in result]
+        self.assertIn("shared.md", paths)
+        self.assertIn("topic-a.md", paths)
+        self.assertNotIn("topic-b.md", paths)
+
+    def test_files_for_admin_sees_all(self) -> None:
+        workgroup = Workgroup(
+            id="wg-1",
+            name="Core",
+            owner_id="user-1",
+            files=[
+                {"id": "1", "path": "shared.md", "content": "shared"},
+                {"id": "2", "path": "topic-a.md", "content": "a", "topic_id": "conv-a"},
+                {"id": "3", "path": "topic-b.md", "content": "b", "topic_id": "conv-b"},
+            ],
+        )
+        conv = Conversation(id="admin-conv", workgroup_id="wg-1", kind="admin", created_by_user_id="u1")
+        result = _files_for_conversation(workgroup, conv)
+        paths = [f["path"] for f in result]
+        self.assertEqual(len(paths), 3)
+        self.assertIn("shared.md", paths)
+        self.assertIn("topic-a.md", paths)
+        self.assertIn("topic-b.md", paths)
+
+    def test_files_for_direct_sees_shared_only(self) -> None:
+        workgroup = Workgroup(
+            id="wg-1",
+            name="Core",
+            owner_id="user-1",
+            files=[
+                {"id": "1", "path": "shared.md", "content": "shared"},
+                {"id": "2", "path": "topic-a.md", "content": "a", "topic_id": "conv-a"},
+            ],
+        )
+        conv = Conversation(id="dm-conv", workgroup_id="wg-1", kind="direct", created_by_user_id="u1")
+        result = _files_for_conversation(workgroup, conv)
+        paths = [f["path"] for f in result]
+        self.assertEqual(len(paths), 1)
+        self.assertIn("shared.md", paths)
+        self.assertNotIn("topic-a.md", paths)
 

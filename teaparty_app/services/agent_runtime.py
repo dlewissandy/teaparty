@@ -4,6 +4,7 @@ import logging
 import json
 import os
 import re
+import threading
 import time
 from datetime import timedelta
 
@@ -11,6 +12,7 @@ import anthropic
 from sqlmodel import Session, select
 
 from teaparty_app.config import settings
+from teaparty_app.services import llm_client
 from teaparty_app.models import (
     Agent,
     AgentFollowUpTask,
@@ -23,6 +25,7 @@ from teaparty_app.models import (
     Workgroup,
     utc_now,
 )
+from teaparty_app.db import commit_with_retry
 from teaparty_app.services.admin_workspace import (
     ADMIN_AGENT_SENTINEL,
     consume_queued_workgroup_deletion,
@@ -34,6 +37,52 @@ from teaparty_app.services.llm_usage import record_llm_usage
 from teaparty_app.services.tools import SERVER_SIDE_TOOLS, resolve_custom_tool, run_tool
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# In-memory live activity store (per-conversation agent phase tracking)
+# ---------------------------------------------------------------------------
+_conversation_activity: dict[str, list[dict]] = {}
+_activity_lock = threading.Lock()
+
+
+def _set_activity(conversation_id: str, agent_id: str, agent_name: str, phase: str, detail: str = "") -> None:
+    with _activity_lock:
+        entries = _conversation_activity.setdefault(conversation_id, [])
+        for entry in entries:
+            if entry["agent_id"] == agent_id:
+                entry.update(agent_name=agent_name, phase=phase, detail=detail, started_at=time.time())
+                return
+        entries.append(
+            {"agent_id": agent_id, "agent_name": agent_name, "phase": phase, "detail": detail, "started_at": time.time()}
+        )
+
+
+def _clear_activity(conversation_id: str, agent_id: str | None = None) -> None:
+    with _activity_lock:
+        if agent_id is None:
+            _conversation_activity.pop(conversation_id, None)
+        else:
+            entries = _conversation_activity.get(conversation_id)
+            if entries:
+                _conversation_activity[conversation_id] = [e for e in entries if e["agent_id"] != agent_id]
+                if not _conversation_activity[conversation_id]:
+                    del _conversation_activity[conversation_id]
+
+
+def get_conversation_activity(conversation_id: str) -> list[dict]:
+    now = time.time()
+    with _activity_lock:
+        entries = _conversation_activity.get(conversation_id, [])
+        fresh = [e for e in entries if now - e["started_at"] <= 120]
+        if entries and not fresh:
+            _conversation_activity.pop(conversation_id, None)
+        elif len(fresh) != len(entries):
+            _conversation_activity[conversation_id] = fresh
+        return [
+            {"agent_id": e["agent_id"], "agent_name": e["agent_name"], "phase": e["phase"], "detail": e["detail"]}
+            for e in fresh
+        ]
+
 
 TOOL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(?:list|show)\s+(?:me\s+)?(?:the\s+|all\s+|workgroup\s+)?files?\b", re.IGNORECASE), "list_files"),
@@ -213,6 +262,7 @@ def _rewrite_file_tool_trigger(
     conversation: Conversation,
     trigger: Message,
     tool_name: str,
+    triggering_user_id: str | None = None,
 ) -> Message | None:
     if tool_name not in FILE_RESULT_TOOL_NAMES:
         return None
@@ -222,19 +272,12 @@ def _rewrite_file_tool_trigger(
     existing_paths: list[str] = []
     existing_content_by_path: dict[str, str] = {}
     try:
+        from teaparty_app.services.tools import _files_for_conversation
         workgroup = session.get(Workgroup, conversation.workgroup_id)
-        raw_files = workgroup.files if workgroup and isinstance(workgroup.files, list) else []
-        for item in raw_files:
-            if isinstance(item, dict):
-                path = str(item.get("path") or "").strip()
-                raw_content = item.get("content", "")
-                content = raw_content if isinstance(raw_content, str) else str(raw_content or "")
-            elif isinstance(item, str):
-                path = item.strip()
-                content = ""
-            else:
-                path = ""
-                content = ""
+        scoped = _files_for_conversation(workgroup, conversation) if workgroup else []
+        for item in scoped:
+            path = item.get("path", "")
+            content = item.get("content", "")
             if path:
                 existing_paths.append(path)
                 if content and path not in existing_content_by_path:
@@ -291,22 +334,23 @@ def _rewrite_file_tool_trigger(
         "When appending to an existing file and current content is provided, include the merged full content."
     )
 
-    client = _get_anthropic_client()
     for runtime_model in _runtime_model_candidates(_agent_model(agent)):
         try:
+            resolved = llm_client.resolve_model("reply", runtime_model)
             t0 = time.monotonic()
-            response = client.messages.create(
-                model=runtime_model,
-                max_tokens=1024,
+            response = llm_client.create_message(
+                model=resolved,
+                max_tokens=16384,
                 temperature=min(_agent_temperature(agent), 0.4),
                 system=rewrite_instruction,
                 messages=[{"role": "user", "content": input_text}],
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
             record_llm_usage(
-                session, conversation.id, agent.id, runtime_model,
+                session, conversation.id, agent.id, resolved,
                 response.usage.input_tokens, response.usage.output_tokens,
                 "file_rewrite", duration_ms,
+                triggering_user_id=triggering_user_id,
             )
             raw = response.content[0].text.strip()
             command = _extract_file_tool_command(raw)
@@ -522,24 +566,19 @@ def _get_anthropic_client() -> anthropic.Anthropic:
 
 
 def _runtime_agent_llm_enabled() -> bool:
-    env_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
-    if env_key:
-        return True
-
-    settings_key = (settings.anthropic_api_key or "").strip()
-    if not settings_key:
-        logger.debug("LLM runtime disabled for non-admin agents: missing ANTHROPIC_API_KEY")
-        return False
-
-    return True
+    return llm_client.llm_enabled()
 
 
 def _runtime_model_candidates(primary_model: str | None) -> list[str]:
     candidates: list[str] = []
-    for model in [primary_model, settings.admin_agent_model, "claude-sonnet-4-5", "claude-haiku-4-5"]:
-        normalized = (model or "").strip()
-        if normalized and normalized not in candidates:
-            candidates.append(normalized)
+    override = settings.llm_default_model.strip()
+    if override:
+        candidates.append(override)
+    else:
+        for model in [primary_model, settings.admin_agent_model, "claude-sonnet-4-5", "claude-haiku-4-5"]:
+            normalized = (model or "").strip()
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
     return candidates
 
 
@@ -589,6 +628,207 @@ def _extract_json_object(text: str) -> dict | None:
         return parsed if isinstance(parsed, dict) else None
     except json.JSONDecodeError:
         return None
+
+
+def _probe_agent_intent(
+    session: Session,
+    agent: Agent,
+    conversation: Conversation,
+    trigger: Message,
+    chain_step: int,
+    chain_responded_ids: list[str],
+    candidates: list[Agent],
+    triggering_user_id: str | None = None,
+) -> tuple[str | None, float]:
+    """Ask an individual agent whether it has a specific contribution to make.
+
+    Returns (intent_text, urgency).  On abstention or error: (None, 0.0).
+    """
+    try:
+        name = agent.name
+        role = _agent_role(agent) or name
+        personality_text = _clean_agent_personality_text(agent)
+        disposition = _current_disposition(agent)
+        voice_hint = _disposition_voice_hint(disposition)
+        sentiment = _agent_sentiment_state(agent)
+        confidence = sentiment.get("confidence", 0.0)
+
+        system_prompt = (
+            f"You are {name}. Role: {role}. Personality: {personality_text}.\n"
+            f"Disposition: {voice_hint}. Confidence: {confidence}.\n\n"
+            "Decide whether you have a specific, distinct contribution to this conversation. "
+            "Return JSON only."
+        )
+
+        trigger_sender = "human" if _is_human_post(trigger) else f"agent:{trigger.sender_agent_id or 'unknown'}"
+
+        chain_context_block = ""
+        if chain_step > 0:
+            names_map = {a.id: a.name for a in candidates}
+            responded_names = [names_map.get(aid, aid) for aid in chain_responded_ids]
+            chain_context_block = (
+                f"Chain step: {chain_step + 1}. Already responded: {', '.join(responded_names)}. "
+                "Don't repeat what they said.\n"
+            )
+
+        history = _selector_history_context(session, conversation, max_messages=10, max_chars=2000)
+
+        workflow_hint = ""
+        try:
+            wg = session.get(Workgroup, conversation.workgroup_id)
+            if wg:
+                workflow_hint = _build_workflow_hint(wg, conversation)
+        except Exception:
+            pass
+
+        user_prompt = (
+            f"Topic: {conversation.topic}\n"
+            f"Kind: {conversation.kind}\n"
+            f"Trigger from: {trigger_sender}\n"
+            f"Trigger: {trigger.content[:400]}\n\n"
+            + (f"{chain_context_block}\n" if chain_context_block else "")
+            + (f"{workflow_hint}\n\n" if workflow_hint else "")
+            + f"Recent messages:\n{history}\n\n"
+            "Return strict JSON:\n"
+            '{"intent": "<one sentence: your specific point, or null>", "urgency": <0.0 to 1.0>}\n\n'
+            "Rules:\n"
+            "- 0: nothing to add, would just agree or paraphrase\n"
+            "- 0.3-0.5: tangentially related comment\n"
+            "- 0.6-0.8: relevant perspective, useful information, or building on others' points\n"
+            "- 0.8-1.0: new insight, unique angle, critical disagreement, essential correction, or aha-moment\n"
+            "- null intent + 0 urgency if you would just validate, encourage, or restate"
+        )
+
+        resolved = llm_client.resolve_model("cheap", settings.intent_probe_model)
+        model_candidates = [resolved]
+        if not model_candidates:
+            return (None, 0.0)
+
+        for runtime_model in model_candidates:
+            try:
+                t0 = time.monotonic()
+                response = llm_client.create_message(
+                    model=runtime_model,
+                    max_tokens=256,
+                    temperature=0.3,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
+                duration_ms = int((time.monotonic() - t0) * 1000)
+                record_llm_usage(
+                    session, conversation.id, agent.id, runtime_model,
+                    response.usage.input_tokens, response.usage.output_tokens,
+                    "intent_probe", duration_ms,
+                    triggering_user_id=triggering_user_id,
+                )
+
+                raw_text = response.content[0].text if response.content else ""
+                parsed = _extract_json_object(raw_text)
+                if not parsed:
+                    logger.warning("Intent probe for agent %s returned unparseable JSON: %.120s", agent.id, raw_text)
+                    return (None, 0.0)
+
+                intent = parsed.get("intent")
+                if intent is not None:
+                    intent = str(intent).strip()
+                    if not intent or intent.lower() == "null":
+                        intent = None
+
+                urgency = _clamp(_safe_float(parsed.get("urgency"), 0.0), 0.0, 1.0)
+                return (intent, urgency)
+            except Exception as exc:
+                logger.warning("Intent probe LLM call failed for agent %s with model %s: %s", agent.id, runtime_model, exc)
+
+        return (None, 0.0)
+    except Exception as exc:
+        logger.warning("Intent probe failed for agent %s: %s", agent.id, exc)
+        return (None, 0.0)
+
+
+def _gather_agent_intents(
+    session: Session,
+    conversation: Conversation,
+    trigger: Message,
+    candidates: list[Agent],
+    blocked_agent_ids: set[str],
+    chain_step: int = 0,
+    chain_responded_ids: list[str] | None = None,
+    triggering_user_id: str | None = None,
+) -> list[tuple[Agent, str | None, float]]:
+    """Probe each non-blocked candidate for intent. Return list sorted by urgency descending."""
+    results: list[tuple[Agent, str | None, float]] = []
+    responded = chain_responded_ids or []
+
+    for agent in candidates:
+        if agent.id in blocked_agent_ids:
+            continue
+
+        _set_activity(conversation.id, agent.id, agent.name, "probing")
+
+        intent, urgency = _probe_agent_intent(
+            session=session,
+            agent=agent,
+            conversation=conversation,
+            trigger=trigger,
+            chain_step=chain_step,
+            chain_responded_ids=responded,
+            candidates=candidates,
+            triggering_user_id=triggering_user_id,
+        )
+
+        # Record as learning event for observability.
+        try:
+            event = AgentLearningEvent(
+                agent_id=agent.id,
+                message_id=trigger.id,
+                signal_type="intent_probe",
+                value={
+                    "intent": intent,
+                    "urgency": urgency,
+                    "threshold": agent.response_threshold,
+                    "chain_step": chain_step,
+                },
+            )
+            session.add(event)
+            commit_with_retry(session)
+        except Exception as exc:
+            logger.warning("Failed to record intent_probe event for agent %s: %s", agent.id, exc)
+            try:
+                session.rollback()
+            except Exception:
+                pass
+
+        results.append((agent, intent, urgency))
+
+    results.sort(key=lambda r: r[2], reverse=True)
+    return results
+
+
+def _store_agent_thoughts(
+    session: Session,
+    agent: Agent,
+    message: Message,
+    intent: str | None,
+    urgency: float,
+    tool_name: str | None,
+    chain_step: int,
+) -> None:
+    value: dict = {}
+    if intent is not None:
+        value["intent"] = intent
+    if urgency:
+        value["urgency"] = urgency
+    if tool_name:
+        value["tool_name"] = tool_name
+    if chain_step:
+        value["chain_step"] = chain_step
+    event = AgentLearningEvent(
+        agent_id=agent.id,
+        message_id=message.id,
+        signal_type="agent_thoughts",
+        value=value,
+    )
+    session.add(event)
 
 
 def _apply_disposition_delta(
@@ -676,6 +916,7 @@ def _llm_select_responders(
     min_select: int = 0,
     max_select: int = 1,
     selector_guidance: str = "",
+    triggering_user_id: str | None = None,
 ) -> list[Agent]:
     if not _runtime_agent_llm_enabled() or not candidates:
         return []
@@ -741,16 +982,16 @@ def _llm_select_responders(
     )
 
     raw = ""
-    client = _get_anthropic_client()
     selector_system = (
         "You are the orchestration policy for a multi-agent chat. "
         "Choose the best next responders from candidates using relevance, role fit, personality fit, "
         "current disposition, and recent dialogue dynamics."
     )
-    for selector_model in _runtime_model_candidates(settings.admin_agent_model):
+    resolved = llm_client.resolve_model("cheap", settings.admin_agent_model)
+    for selector_model in [resolved]:
         try:
             t0 = time.monotonic()
-            response = client.messages.create(
+            response = llm_client.create_message(
                 model=selector_model,
                 max_tokens=1024,
                 system=selector_system,
@@ -761,6 +1002,7 @@ def _llm_select_responders(
                 session, conversation.id, None, selector_model,
                 response.usage.input_tokens, response.usage.output_tokens,
                 "selector", duration_ms,
+                triggering_user_id=triggering_user_id,
             )
             raw = response.content[0].text.strip()
             if raw:
@@ -868,6 +1110,7 @@ def _llm_select_responder(
     blocked_agent_ids: set[str],
     must_respond: bool | None = None,
     selector_guidance: str = "",
+    triggering_user_id: str | None = None,
 ) -> Agent | None:
     required = _is_human_post(trigger) if must_respond is None else must_respond
     selected = _llm_select_responders(
@@ -879,6 +1122,7 @@ def _llm_select_responder(
         min_select=1 if required else 0,
         max_select=1,
         selector_guidance=selector_guidance,
+        triggering_user_id=triggering_user_id,
     )
     return selected[0] if selected else None
 
@@ -918,39 +1162,62 @@ def _select_responder(
     candidates: list[Agent],
     blocked_agent_ids: set[str],
     must_respond: bool | None = None,
-    selector_guidance: str = "",
-) -> Agent | None:
+    chain_step: int = 0,
+    chain_responded_ids: list[str] | None = None,
+    triggering_user_id: str | None = None,
+) -> tuple[Agent, str | None, float] | None:
     if not candidates:
         return None
 
+    # Direct conversations with a single candidate skip probing entirely.
+    eligible = [a for a in candidates if a.id not in blocked_agent_ids]
+    if conversation.kind == "direct" and len(eligible) == 1:
+        return (eligible[0], None, 0.0)
+
     try:
-        selected = _llm_select_responder(
+        intents = _gather_agent_intents(
             session=session,
             conversation=conversation,
             trigger=trigger,
             candidates=candidates,
             blocked_agent_ids=blocked_agent_ids,
-            must_respond=must_respond,
-            selector_guidance=selector_guidance,
+            chain_step=chain_step,
+            chain_responded_ids=chain_responded_ids,
+            triggering_user_id=triggering_user_id,
         )
-        if selected:
-            return selected
+
+        # Filter to agents with declared intent above their response_threshold.
+        above_threshold = [
+            (agent, intent, urgency)
+            for agent, intent, urgency in intents
+            if intent is not None and urgency >= agent.response_threshold
+        ]
+
+        if above_threshold:
+            best_agent, best_intent, best_urgency = above_threshold[0]  # already sorted by urgency desc
+            return (best_agent, best_intent, best_urgency)
+
+        # Human triggered: force best candidate (must_respond behavior).
+        required = _is_human_post(trigger) if must_respond is None else must_respond
+        if required and intents:
+            best_agent = intents[0][0]
+            best_intent = intents[0][1]
+            return (best_agent, best_intent, intents[0][2])
+
+        # Agent triggered and no one above threshold → natural pause.
+        return None
+
     except Exception as exc:
-        logger.warning("LLM responder selection failed: %s", exc)
+        logger.warning("Intent-probe selection failed, falling back to heuristic: %s", exc)
 
-    from teaparty_app.services.agent_learning import is_learning_eligible
-
-    for agent in candidates:
-        if is_learning_eligible(conversation):
-            apply_learning_signal(session, agent, trigger)
-
-    return _heuristic_select_responder(
+    fallback = _heuristic_select_responder(
         conversation=conversation,
         trigger=trigger,
         candidates=candidates,
         blocked_agent_ids=blocked_agent_ids,
         must_respond=must_respond,
     )
+    return (fallback, None, 0.0) if fallback else None
 
 
 def _relevance_tokens(text: str) -> set[str]:
@@ -1173,50 +1440,8 @@ def _normalize_agent_reply_text(agent: Agent, content: str) -> str:
         text = re.sub(r"^```(?:[a-zA-Z0-9_-]+)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
 
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return ""
-
-    flattened: list[str] = []
-    found_markdown_structure = False
-    for line in lines:
-        normalized = MARKDOWN_HEADING_RE.sub("", line)
-        if normalized != line:
-            found_markdown_structure = True
-        line = normalized
-
-        normalized = MARKDOWN_CHECKBOX_RE.sub("", line)
-        if normalized != line:
-            found_markdown_structure = True
-        line = normalized
-
-        normalized = MARKDOWN_BULLET_RE.sub("", line)
-        if normalized != line:
-            found_markdown_structure = True
-        line = normalized
-
-        line = line.strip()
-        if line:
-            flattened.append(line)
-
-    if found_markdown_structure:
-        text = " ".join(flattened)
-    elif len(lines) > 1 and all(len(line) <= 120 for line in lines):
-        text = " ".join(lines)
-    else:
-        text = "\n".join(lines)
-
     text = re.sub(rf"^\s*{re.escape(agent.name)}\s*:\s*", "", text, flags=re.IGNORECASE)
-    text = re.sub(r"\s{2,}", " ", text).strip()
-    verbosity = _effective_verbosity(agent)
-    if verbosity <= 0.2:
-        text = _trim_to_sentences(text, 2)
-        text = _trim_to_words(text, 55)
-    elif verbosity <= 0.4:
-        text = _trim_to_sentences(text, 4)
-        text = _trim_to_words(text, 90)
-    elif verbosity <= 0.65:
-        text = _trim_to_words(text, 140)
+    text = text.strip()
     return text
 
 
@@ -1333,6 +1558,220 @@ def _load_task_context(session: Session, conversation: Conversation) -> str:
     )
 
 
+def _build_engagement_context(session: Session, conversation: Conversation) -> str:
+    from teaparty_app.models import Engagement
+
+    topic = (conversation.topic or "").strip()
+    if not topic.startswith("engagement:"):
+        return ""
+    engagement_id = topic[len("engagement:"):]
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        return ""
+    source_wg = session.get(Workgroup, engagement.source_workgroup_id)
+    target_wg = session.get(Workgroup, engagement.target_workgroup_id)
+    source_name = source_wg.name if source_wg else engagement.source_workgroup_id
+    target_name = target_wg.name if target_wg else engagement.target_workgroup_id
+    is_source_side = conversation.workgroup_id == engagement.source_workgroup_id
+    role = "requester (source)" if is_source_side else "provider (target)"
+    return (
+        f"This conversation is an engagement between workgroups.\n"
+        f"Your workgroup's role: {role}\n"
+        f"Source workgroup: {source_name}\n"
+        f"Target workgroup: {target_name}\n"
+        f"Engagement title: {engagement.title}\n"
+        f"Scope: {engagement.scope or '(none)'}\n"
+        f"Requirements: {engagement.requirements or '(none)'}\n"
+        f"Terms: {engagement.terms or '(none)'}\n"
+        f"Engagement status: {engagement.status}\n"
+        f"Messages from the other side appear with [synced from ...] attribution.\n"
+    )
+
+
+def _build_cross_topic_activity_context(
+    session: Session, agent: Agent, conversation: Conversation
+) -> str:
+    """Summarize agent's recent messages across topic/engagement convos for DM awareness."""
+    if conversation.kind != "direct":
+        return ""
+
+    # Fetch the agent's messages from non-archived topic/engagement convos in this workgroup
+    rows = session.exec(
+        select(Message, Conversation)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .where(
+            Message.sender_agent_id == agent.id,
+            Conversation.workgroup_id == conversation.workgroup_id,
+            Conversation.kind.in_(["topic", "engagement"]),
+            Conversation.is_archived == False,
+        )
+        .order_by(Message.created_at.desc())
+    ).all()
+
+    if not rows:
+        return ""
+
+    # Group by conversation, keeping insertion order (most recent first)
+    from collections import OrderedDict
+
+    by_convo: OrderedDict[str, list[tuple]] = OrderedDict()
+    for msg, convo in rows:
+        by_convo.setdefault(convo.id, []).append((msg, convo))
+
+    lines: list[str] = []
+    total_chars = 0
+    max_chars = 2500
+    max_topics = 8
+    max_per_topic = 3
+
+    for _convo_id, entries in list(by_convo.items())[:max_topics]:
+        convo_obj = entries[0][1]
+        label = convo_obj.name or convo_obj.topic or convo_obj.id
+        lines.append(f"- Topic '{label}':")
+        for msg, _ in entries[:max_per_topic]:
+            snippet = msg.content[:300].replace("\n", " ").strip()
+            if len(msg.content) > 300:
+                snippet += "..."
+            line = f"  - {snippet}"
+            total_chars += len(line)
+            if total_chars > max_chars:
+                break
+            lines.append(line)
+        if total_chars > max_chars:
+            break
+
+    if not lines:
+        return ""
+
+    header = (
+        "Your recent activity across topic conversations in this workgroup\n"
+        "(use this to answer questions about what you've been working on):\n"
+    )
+    return header + "\n".join(lines)
+
+
+def _build_workflow_context(workgroup: Workgroup, conversation: Conversation) -> str:
+    """Build workflow context string for agent prompts.
+
+    Returns formatted string with workflow list + active state, or "" if no workflows.
+    """
+    from teaparty_app.services.tools import _files_for_conversation
+
+    files = _files_for_conversation(workgroup, conversation)
+
+    # Find workflow files
+    workflows = [
+        f for f in files
+        if f["path"].startswith("workflows/")
+        and f["path"].endswith(".md")
+        and f["path"] != "workflows/README.md"
+    ]
+    if not workflows:
+        return ""
+
+    # Extract titles and triggers
+    wf_summaries = []
+    for wf in sorted(workflows, key=lambda f: f["path"]):
+        content = wf.get("content") or ""
+        title = wf["path"]
+        trigger = ""
+        for line in content.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("# ") and title == wf["path"]:
+                title = stripped[2:].strip()
+            if stripped.startswith("## Trigger"):
+                idx = content.index(stripped) + len(stripped)
+                rest = content[idx:].strip()
+                trigger_lines = []
+                for tl in rest.splitlines():
+                    if tl.strip().startswith("## "):
+                        break
+                    if tl.strip():
+                        trigger_lines.append(tl.strip())
+                trigger = " ".join(trigger_lines)[:200]
+                break
+        entry = f"- {title} ({wf['path']})"
+        if trigger:
+            entry += f" — {trigger}"
+        wf_summaries.append(entry)
+
+    parts = ["Available workflows:\n" + "\n".join(wf_summaries)]
+
+    # Find active workflow state
+    for f in files:
+        if f["path"] == "_workflow_state.md":
+            state_content = (f.get("content") or "").strip()
+            if state_content:
+                if len(state_content) > 2000:
+                    state_content = state_content[:2000] + "\n... (truncated)"
+                parts.append(f"Active workflow state:\n{state_content}")
+            break
+
+    parts.append(
+        "Workflow instructions: If a workflow is active, follow the current step. "
+        "Use advance_workflow to update state after completing a step. "
+        "Cap loops at 5 iterations. Cap sub-workflow depth at 3."
+    )
+
+    return "\n\n".join(parts)
+
+
+def _build_workflow_hint(workgroup: Workgroup, conversation: Conversation) -> str:
+    """Lightweight workflow hint for intent probes — just current step and status."""
+    from teaparty_app.services.tools import _files_for_conversation
+
+    if conversation.kind != "topic":
+        return ""
+
+    files = _files_for_conversation(workgroup, conversation)
+    for f in files:
+        if f["path"] == "_workflow_state.md":
+            content = f.get("content") or ""
+            current_step = ""
+            status = ""
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("- **Current Step**:"):
+                    current_step = stripped
+                elif stripped.startswith("- **Status**:"):
+                    status = stripped
+            if current_step or status:
+                parts = [p for p in [current_step, status] if p]
+                return "Active workflow: " + "; ".join(parts)
+            break
+    return ""
+
+
+def _build_todo_context(session: Session, agent: Agent) -> str:
+    """Build a summary of the agent's pending/in-progress todos for system prompt injection."""
+    from teaparty_app.models import AgentTodoItem
+
+    todos = session.exec(
+        select(AgentTodoItem).where(
+            AgentTodoItem.agent_id == agent.id,
+            AgentTodoItem.status.in_(["pending", "in_progress"]),
+        ).order_by(AgentTodoItem.created_at.asc())
+    ).all()
+
+    if not todos:
+        return ""
+
+    pending = [t for t in todos if t.status == "pending"]
+    in_progress = [t for t in todos if t.status == "in_progress"]
+
+    lines = [f"Your active todos ({len(pending)} pending, {len(in_progress)} in progress):"]
+    for t in todos:
+        trigger_desc = ""
+        if t.trigger_type != "manual":
+            trigger_desc = f" [{t.trigger_type}]"
+        lines.append(f"- [{t.priority.upper()}] ({t.status}) {t.title}{trigger_desc}")
+
+    result = "\n".join(lines)
+    if len(result) > 1500:
+        result = result[:1500] + "\n... (truncated)"
+    return result
+
+
 def _runtime_reply_system_instructions(
     agent: Agent,
     conversation: Conversation,
@@ -1364,7 +1803,6 @@ def _runtime_reply_system_instructions(
         "Contribute something useful and specific, but stay conversational. "
         "You are an independent participant with your own judgments and priorities. "
         "Assume everyone can read the thread; avoid repeating what others just said unless needed for clarity. "
-        "Prefer conversational prose over Markdown formatting and bullet lists. "
         "Use your long-term memories to inform your responses but do not explicitly reference having memories. "
         "Do not prefix your output with your name."
     )
@@ -1380,15 +1818,26 @@ def _extract_web_search_reply(response: anthropic.types.Message) -> str:
                 for cite in block.citations:
                     if hasattr(cite, "url") and hasattr(cite, "title"):
                         sources.append((cite.title, cite.url))
+        # Also collect URLs from web_search_tool_result blocks as fallback
+        if getattr(block, "type", None) == "web_search_tool_result":
+            result_content = getattr(block, "content", None)
+            if isinstance(result_content, list):
+                for result in result_content:
+                    url = getattr(result, "url", None)
+                    title = getattr(result, "title", None)
+                    if url and title:
+                        sources.append((title, url))
     combined = " ".join(text_parts).strip()
+    # Strip any model-generated Sources section to avoid duplication
+    combined = re.split(r"\n\s*\*?\*?Sources\*?\*?\s*:?\s*\n", combined, maxsplit=1)[0].rstrip()
     if sources:
         seen: set[str] = set()
         unique: list[str] = []
         for title, url in sources:
             if url not in seen:
                 seen.add(url)
-                unique.append(f"{title}: {url}")
-        combined += "\n\nSources: " + " | ".join(unique)
+                unique.append(f"- {title}: {url}")
+        combined += "\n\nSources:\n" + "\n".join(unique)
     return combined
 
 
@@ -1403,6 +1852,8 @@ def _build_agent_reply_with_llm(
     effective_verbosity: float,
     tool_name: str | None,
     tool_output: str | None,
+    triggering_user_id: str | None = None,
+    intent: str | None = None,
 ) -> str | None:
     if not _runtime_agent_llm_enabled():
         return None
@@ -1453,11 +1904,20 @@ def _build_agent_reply_with_llm(
     task_context = _load_task_context(session, conversation)
     if task_context:
         system_instructions += f"\n\nCross-group task context:\n{task_context}"
+    engagement_context = _build_engagement_context(session, conversation)
+    if engagement_context:
+        system_instructions += f"\n\nEngagement context:\n{engagement_context}"
+
+    cross_topic_context = _build_cross_topic_activity_context(session, agent, conversation)
 
     history = _conversation_history_context(session, conversation.id, agent.id, rows=history_rows)
     tool_context = ""
     if tool_name and tool_output:
         tool_context = f"\nTool hint ({tool_name}):\n{tool_output}\n"
+
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    workflow_context = _build_workflow_context(workgroup, conversation) if workgroup else ""
+    todo_context = _build_todo_context(session, agent)
 
     input_text = (
         f"Conversation kind: {conversation.kind}\n"
@@ -1488,24 +1948,20 @@ def _build_agent_reply_with_llm(
         "Your personal experience context:\n"
         f"{experience}\n\n"
         + (f"Your long-term memories from past conversations:\n{memory_context}\n\n" if memory_context else "")
+        + (f"{cross_topic_context}\n\n" if cross_topic_context else "")
+        + (f"Workflow context:\n{workflow_context}\n\n" if workflow_context else "")
+        + (f"{todo_context}\n\n" if todo_context else "")
         + "Primary user anchor message (treat this as the main question/request):\n"
         f"{user_anchor_content}\n\n"
         "Latest trigger message:\n"
         f"{trigger.content}\n\n"
-        "Output rules:\n"
-        "- Reply in plain text only.\n"
-        "- Use conversational prose; no Markdown bullets, numbered lists, headings, or code fences.\n"
-        "- Prefer a short paragraph unless the human explicitly asks for a list/table.\n"
+        + (f"Your intended contribution (follow through on this point):\n{intent}\n\n" if intent else "")
+        + "Output rules:\n"
         "- Speak in first person as this specific agent with a distinct point of view.\n"
         "- Keep wording and argumentative style aligned with the persona guardrails.\n"
-        "- Follow the response length rule strictly unless accuracy requires one extra clarifying sentence.\n"
         "- Sound like a human teammate in a live discussion, not a profile card.\n"
         "- Avoid generic positivity or encouragement unless the user explicitly asks for it.\n"
-        "- Avoid long recaps; if you reference prior context, keep it brief and move to your own point.\n"
         "- Address the primary user anchor message unless a newer user message supersedes it.\n"
-        "- Ground your argument in concrete facts from conversation history or your prior statements.\n"
-        "- In topic discussions, advance the argument with a concrete claim and reasoning.\n"
-        "- If you disagree with another agent, do it directly but in natural conversational language.\n"
         "- Do not default to asking the human moderator a follow-up question; only ask when a missing fact blocks progress.\n"
         + (
             "- This is an introduction turn: keep it to 1-2 natural sentences, use plain language, "
@@ -1513,42 +1969,61 @@ def _build_agent_reply_with_llm(
             if intro_turn
             else ""
         )
-        + (
-            "- You have web search available. Use it when the question requires current or factual information.\n"
-            "- When you use web search, cite your sources naturally in your response.\n"
-            if "web_search" in (agent.tool_names or [])
-            else ""
-        )
     )
 
-    has_web_search = "web_search" in (agent.tool_names or [])
-    api_tools = None
-    if has_web_search:
-        api_tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
-
-    client = _get_anthropic_client()
     model_candidates = _runtime_model_candidates(model_name)
     if not model_candidates:
         logger.warning("No LLM model candidates for agent %s (primary model: %s)", agent.id, model_name)
         return None
+
     for runtime_model in model_candidates:
         try:
+            resolved = llm_client.resolve_model("reply", runtime_model)
+            # web_search is Anthropic-only — only include for Claude models
+            has_web_search = "web_search" in (agent.tool_names or []) and llm_client.is_anthropic_model(resolved)
+
+            # Build system as a list of content blocks so tool instructions stand out
+            system_blocks: list[dict] = [{"type": "text", "text": system_instructions}]
+            if has_web_search:
+                system_blocks.append({
+                    "type": "text",
+                    "text": (
+                        "You have a web_search tool. When a claim needs verification or you need current data, "
+                        "call the tool — do not generate search results or citations from memory."
+                    ),
+                })
+
+            api_tools = None
+            if has_web_search:
+                api_tools = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}]
+
             t0 = time.monotonic()
-            response = client.messages.create(
-                model=runtime_model,
-                max_tokens=1024,
+            api_kwargs: dict = {}
+            if api_tools:
+                api_kwargs["tools"] = api_tools
+                api_kwargs["tool_choice"] = {"type": "any"}
+            response = llm_client.create_message(
+                model=resolved,
+                max_tokens=16384,
                 temperature=temperature,
-                system=system_instructions,
+                system=system_blocks,
                 messages=[{"role": "user", "content": input_text}],
-                **({"tools": api_tools} if api_tools else {}),
+                **api_kwargs,
             )
             duration_ms = int((time.monotonic() - t0) * 1000)
             record_llm_usage(
-                session, conversation.id, agent.id, runtime_model,
+                session, conversation.id, agent.id, resolved,
                 response.usage.input_tokens, response.usage.output_tokens,
                 "reply", duration_ms,
+                triggering_user_id=triggering_user_id,
             )
             if has_web_search:
+                block_types = [getattr(b, "type", "unknown") for b in response.content]
+                used_search = any(t == "web_search_tool_result" for t in block_types)
+                logger.info(
+                    "web_search agent %s: stop_reason=%s, blocks=%s, used_search=%s",
+                    agent.id, response.stop_reason, block_types, used_search,
+                )
                 raw_text = _extract_web_search_reply(response)
             else:
                 raw_text = response.content[0].text if response.content else ""
@@ -1557,7 +2032,7 @@ def _build_agent_reply_with_llm(
                 return output
             logger.warning(
                 "LLM reply for agent %s normalized to empty (model=%s, raw_len=%d, raw_preview=%.120s)",
-                agent.id, runtime_model, len(raw_text), raw_text[:120],
+                agent.id, resolved, len(raw_text), raw_text[:120],
             )
         except Exception as exc:
             logger.warning("LLM runtime reply failed for agent %s with model %s: %s", agent.id, runtime_model, exc)
@@ -1623,10 +2098,272 @@ def _fallback_agent_reply(agent: Agent, conversation: Conversation, trigger: Mes
     return "I hear you. Let me think about that and get back to you."
 
 
-def build_agent_reply(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+def _should_use_sdk(agent: Agent) -> bool:
+    """Return True if agent should use the multi-turn SDK tool loop."""
+    if is_admin_agent(agent):
+        return False
+    allowed = set(agent.tool_names or []) - SERVER_SIDE_TOOLS
+    # Exclude claude_code — it has its own dedicated loop
+    allowed.discard("claude_code")
+    return bool(allowed)
+
+
+def _build_agent_reply_with_sdk(
+    session: Session,
+    agent: Agent,
+    conversation: Conversation,
+    trigger: Message,
+    triggering_user_id: str | None = None,
+    intent: str | None = None,
+) -> str | None:
+    """Multi-turn tool loop: LLM autonomously decides which tools to call."""
+    if not _runtime_agent_llm_enabled():
+        return None
+
+    from teaparty_app.services.agent_tools import build_tool_schemas, dispatch_agent_tool
+
+    tool_schemas = build_tool_schemas(session, agent)
+    if not tool_schemas:
+        return None
+
+    # --- Assemble system prompt ---
+    role = _agent_role(agent) or agent.name
+    personality_text = _clean_agent_personality_text(agent)
+    backstory = _agent_backstory(agent)
+    profile_description = _agent_profile_description(agent)
+    system_instructions = _runtime_reply_system_instructions(
+        agent=agent,
+        conversation=conversation,
+        role=role,
+        personality_text=personality_text,
+        backstory=backstory,
+        profile_description=profile_description,
+    )
+
+    task_context = _load_task_context(session, conversation)
+    if task_context:
+        system_instructions += f"\n\nCross-group task context:\n{task_context}"
+    engagement_context = _build_engagement_context(session, conversation)
+    if engagement_context:
+        system_instructions += f"\n\nEngagement context:\n{engagement_context}"
+
+    cross_topic_context = _build_cross_topic_activity_context(session, agent, conversation)
+
+    # Build system as a list of content blocks so tool instructions stand out.
+    system_blocks: list[dict] = [{"type": "text", "text": system_instructions}]
+    system_blocks.append({
+        "type": "text",
+        "text": (
+            "You have access to tools. Use them when appropriate to fulfill the user's request. "
+            "You may call multiple tools in sequence. Always read a file before editing it. "
+            "When you have enough information, respond directly without using tools."
+        ),
+    })
+
+    # Add web_search as a server-side tool if the agent has it (Anthropic-only, resolved below)
+    _agent_wants_web_search = "web_search" in (agent.tool_names or [])
+    api_tools: list[dict] = list(tool_schemas)
+    if _agent_wants_web_search:
+        api_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+        system_blocks.append({
+            "type": "text",
+            "text": (
+                "You have a web_search tool. When a claim needs verification or you need current data, "
+                "call the tool — do not generate search results or citations from memory. "
+                "Never fabricate URLs or sources. Only include URLs that appear in actual search results."
+            ),
+        })
+
+    # --- Assemble user prompt ---
+    configured_verbosity = _agent_verbosity(agent)
+    effective_verbosity = _effective_verbosity(agent)
+    style, length_rule = _verbosity_style_profile(effective_verbosity)
+    disposition = _current_disposition(agent)
+    sentiment = _agent_sentiment_state(agent)
+    voice_hint = _disposition_voice_hint(disposition)
+    guardrails = _persona_guardrails(agent)
+
+    history_rows = session.exec(
+        select(Message)
+        .where(Message.conversation_id == conversation.id)
+        .order_by(Message.created_at.asc())
+    ).all()
+    user_names, agent_names = _load_sender_name_maps(session, history_rows)
+    trigger_label = _message_sender_label(trigger, agent.id, user_names, agent_names)
+    trigger_kind = "human" if _is_human_post(trigger) else "agent"
+    user_anchor = _latest_user_message(history_rows, before_message_id=trigger.id)
+    user_anchor_content = user_anchor.content if user_anchor is not None else "(none)"
+    history = _conversation_history_context(session, conversation.id, agent.id, rows=history_rows)
+    experience = _agent_experience_context(session, agent, conversation.id)
+    try:
+        from teaparty_app.services.agent_learning import get_agent_memory_context
+        memory_context = get_agent_memory_context(session, agent)
+    except Exception:
+        memory_context = ""
+
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    workflow_context = _build_workflow_context(workgroup, conversation) if workgroup else ""
+    todo_context = _build_todo_context(session, agent)
+
+    user_prompt = (
+        f"Conversation kind: {conversation.kind}\n"
+        f"Conversation topic: {conversation.topic}\n"
+        f"Your identity: {agent.name}\n"
+        f"Your role: {role}\n"
+        f"Your personality: {personality_text or '(none provided)'}\n"
+        f"Preferred response style: {style}\n"
+        f"Response length rule: {length_rule}\n"
+        f"Disposition: {voice_hint}\n"
+        f"Latest trigger type: {trigger_kind}\n"
+        f"Latest trigger sender: {trigger_label}\n"
+        "Persona guardrails (treat as hard constraints):\n"
+        + "\n".join(f"- {rule}" for rule in guardrails)
+        + "\n\n"
+        "Recent conversation history (oldest to newest):\n"
+        f"{history or '- user: (no prior messages)'}\n\n"
+        f"Your personal experience context:\n{experience}\n\n"
+        + (f"Your long-term memories from past conversations:\n{memory_context}\n\n" if memory_context else "")
+        + (f"{cross_topic_context}\n\n" if cross_topic_context else "")
+        + (f"Workflow context:\n{workflow_context}\n\n" if workflow_context else "")
+        + (f"{todo_context}\n\n" if todo_context else "")
+        + (f"Your intended contribution (follow through on this point):\n{intent}\n\n" if intent else "")
+        + f"Primary user anchor message:\n{user_anchor_content}\n\n"
+        f"Latest trigger message:\n{trigger.content}\n"
+    )
+
+    # --- Multi-turn loop ---
+    model_name = _agent_model(agent)
+    temperature = _agent_temperature(agent)
+    resolved_model = llm_client.resolve_model("reply", model_name)
+    # web_search is Anthropic-only — strip it for non-Claude models
+    has_web_search = _agent_wants_web_search and llm_client.is_anthropic_model(resolved_model)
+    if not has_web_search and _agent_wants_web_search:
+        # Remove web_search tool from api_tools for non-Anthropic providers
+        api_tools = [t for t in api_tools if not t.get("type", "").startswith("web_search")]
+
+    messages: list[dict] = [{"role": "user", "content": user_prompt}]
+    max_turns = settings.agent_sdk_max_turns
+    last_response = None
+
+    for _turn in range(max_turns):
+        _set_activity(conversation.id, agent.id, agent.name, "thinking")
+
+        response = None
+        try:
+            t0 = time.monotonic()
+            # On first turn for web_search agents, pass ONLY
+            # web_search so tool_choice forces actual search.
+            turn_tools = api_tools
+            extra_kwargs: dict = {}
+            if _turn == 0 and has_web_search:
+                turn_tools = [t for t in api_tools if t.get("type", "").startswith("web_search")]
+                extra_kwargs["tool_choice"] = {"type": "any"}
+            response = llm_client.create_message(
+                model=resolved_model,
+                max_tokens=16384,
+                temperature=temperature,
+                system=system_blocks,
+                tools=turn_tools,
+                messages=messages,
+                **extra_kwargs,
+            )
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            record_llm_usage(
+                session, conversation.id, agent.id, resolved_model,
+                response.usage.input_tokens, response.usage.output_tokens,
+                "sdk_reply", duration_ms,
+                triggering_user_id=triggering_user_id,
+            )
+        except Exception as exc:
+            logger.warning("SDK loop LLM call failed for agent %s with model %s: %s", agent.id, resolved_model, exc)
+
+        if response is None:
+            break
+
+        last_response = response
+
+        if has_web_search:
+            block_types = [getattr(b, "type", "unknown") for b in response.content]
+            used_search = any(t == "web_search_tool_result" for t in block_types)
+            logger.info(
+                "SDK web_search agent %s turn %d: stop_reason=%s, blocks=%s, used_search=%s",
+                agent.id, _turn, response.stop_reason, block_types, used_search,
+            )
+
+        # Check for tool use blocks (client-side only; server_tool_use is handled by API)
+        tool_uses = [block for block in response.content if block.type == "tool_use"]
+
+        if not tool_uses or response.stop_reason == "end_turn":
+            # No client-side tools called or model decided to stop — extract text
+            break
+
+        # Append assistant message
+        messages.append({"role": "assistant", "content": response.content})
+
+        # Execute tools and collect results
+        tool_results = []
+        for tool_use in tool_uses:
+            _set_activity(conversation.id, agent.id, agent.name, "tool", tool_use.name)
+            result = dispatch_agent_tool(
+                session, agent, conversation, trigger,
+                tool_use.name, tool_use.input,
+            )
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_use.id,
+                "content": result,
+            })
+
+        messages.append({"role": "user", "content": tool_results})
+        # Release write lock before the next turn's LLM call.
+        try:
+            commit_with_retry(session)
+        except Exception as exc:
+            logger.warning("SDK mid-turn commit failed for agent %s: %s", agent.id, exc)
+
+    # Extract text from the final response
+    if last_response is None:
+        return None
+
+    if has_web_search:
+        return _extract_web_search_reply(last_response)
+
+    text_parts = [block.text for block in last_response.content if hasattr(block, "text")]
+    return "\n".join(text_parts).strip() if text_parts else None
+
+
+def build_agent_reply(
+    session: Session, agent: Agent, conversation: Conversation, trigger: Message,
+    triggering_user_id: str | None = None,
+    intent: str | None = None,
+) -> str:
+    configured_verbosity = _agent_verbosity(agent)
+    effective_verbosity = _effective_verbosity(agent)
+    style, length_rule = _verbosity_style_profile(effective_verbosity)
+
+    # --- SDK multi-turn tool loop (preferred for agents with tools) ---
+    if _should_use_sdk(agent):
+        try:
+            sdk_reply = _build_agent_reply_with_sdk(
+                session=session,
+                agent=agent,
+                conversation=conversation,
+                trigger=trigger,
+                triggering_user_id=triggering_user_id,
+                intent=intent,
+            )
+            if sdk_reply:
+                normalized = _normalize_agent_reply_text(agent, sdk_reply)
+                if normalized:
+                    return normalized
+        except Exception as exc:
+            logger.warning("SDK loop failed for agent %s, falling back: %s", agent.id, exc)
+
+    # --- Legacy one-shot path (fallback or agents without tools) ---
     tool_name = _select_tool(agent, trigger.content, session=session)
     tool_output = None
     if tool_name:
+        _set_activity(conversation.id, agent.id, agent.name, "tool", tool_name)
         tool_trigger = trigger
         if tool_name in FILE_RESULT_TOOL_NAMES:
             rewritten_trigger = _rewrite_file_tool_trigger(
@@ -1635,6 +2372,7 @@ def build_agent_reply(session: Session, agent: Agent, conversation: Conversation
                 conversation=conversation,
                 trigger=trigger,
                 tool_name=tool_name,
+                triggering_user_id=triggering_user_id,
             )
             if rewritten_trigger is not None:
                 tool_trigger = rewritten_trigger
@@ -1644,9 +2382,7 @@ def build_agent_reply(session: Session, agent: Agent, conversation: Conversation
         if tool_name in DIRECT_RETURN_TOOL_NAMES:
             return tool_output
 
-    configured_verbosity = _agent_verbosity(agent)
-    effective_verbosity = _effective_verbosity(agent)
-    style, length_rule = _verbosity_style_profile(effective_verbosity)
+    _set_activity(conversation.id, agent.id, agent.name, "composing")
 
     try:
         llm_reply = _build_agent_reply_with_llm(
@@ -1660,6 +2396,8 @@ def build_agent_reply(session: Session, agent: Agent, conversation: Conversation
             effective_verbosity=effective_verbosity,
             tool_name=tool_name,
             tool_output=tool_output,
+            triggering_user_id=triggering_user_id,
+            intent=intent,
         )
         if llm_reply:
             normalized = _normalize_agent_reply_text(agent, llm_reply)
@@ -1707,7 +2445,7 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
             )
         ).all()
 
-    if conversation.kind == "topic":
+    if conversation.kind in ("topic", "engagement"):
         return session.exec(
             select(Agent)
             .where(
@@ -1781,42 +2519,10 @@ def close_tasks_satisfied_by_message(session: Session, message: Message) -> None
         session.add(task)
 
 
-def _build_chain_selector_guidance(
-    chain_step: int,
-    chain_responded_ids: list[str],
-    candidates: list[Agent],
-) -> str:
-    if chain_step == 0:
-        return ""
-
-    names = {a.id: a.name for a in candidates}
-    responded = [names.get(aid, aid) for aid in chain_responded_ids]
-
-    lines = [
-        f"- CHAIN CONTEXT: Step {chain_step + 1} of discussion chain.",
-        f"- Already responded: {', '.join(responded)}.",
-        "- Only select an agent with something GENUINELY NEW: a distinct perspective, "
-        "new information, a counterargument, or a concrete next step.",
-        "- Do NOT select an agent to agree, paraphrase, or validate what was said.",
-        "- If the discussion has reached a natural stopping point, select NO agents.",
-    ]
-
-    if chain_step >= 3:
-        lines.append(
-            "- WARNING: Long chain. Apply a VERY HIGH bar — only continue "
-            "for critical disagreements or essential new information."
-        )
-
-    if len(set(chain_responded_ids)) < len(chain_responded_ids):
-        lines.append(
-            "- An agent has spoken multiple times. Avoid a third turn "
-            "for any agent unless absolutely necessary."
-        )
-
-    return "\n".join(lines)
-
-
 def run_agent_auto_responses(session: Session, conversation: Conversation, trigger: Message) -> list[Message]:
+    if conversation.is_archived:
+        return []
+
     agents = _agents_for_auto_response(session, conversation)
     if not agents:
         return []
@@ -1828,6 +2534,7 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             return []
 
         admin_agent = admin_agents[0]
+        _set_activity(conversation.id, admin_agent.id, admin_agent.name, "composing")
         content = build_admin_agent_reply(session, admin_agent, conversation, trigger)
         agent_message = Message(
             conversation_id=conversation.id,
@@ -1839,6 +2546,7 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         )
         session.add(agent_message)
         session.flush()
+        _clear_activity(conversation.id, admin_agent.id)
         queued_delete_workgroup_id = consume_queued_workgroup_deletion(session)
         if queued_delete_workgroup_id and queued_delete_workgroup_id == conversation.workgroup_id:
             delete_workgroup_data(session, queued_delete_workgroup_id)
@@ -1855,26 +2563,37 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     thread_anchor = trigger if trigger.sender_type == "user" else None
     chain_responded_ids: list[str] = []
 
+    # Derive the triggering user ID for budget accounting.
+    _triggering_user_id = (
+        thread_anchor.sender_user_id if thread_anchor and thread_anchor.sender_user_id
+        else trigger.sender_user_id
+    )
+
     for chain_step in range(max_chain):
         blocked_agent_ids: set[str] = set()
         if len(candidates) > 1 and chain_trigger.sender_type == "agent" and chain_trigger.sender_agent_id:
             blocked_agent_ids.add(chain_trigger.sender_agent_id)
 
-        guidance = _build_chain_selector_guidance(chain_step, chain_responded_ids, candidates)
-
-        selected = _select_responder(
+        result = _select_responder(
             session=session,
             conversation=conversation,
             trigger=chain_trigger,
             candidates=candidates,
             blocked_agent_ids=blocked_agent_ids,
-            selector_guidance=guidance,
+            chain_step=chain_step,
+            chain_responded_ids=chain_responded_ids,
+            triggering_user_id=_triggering_user_id,
         )
-        if not selected:
+        if not result:
             break
+        selected, intent_text, urgency = result
 
         reply_trigger = thread_anchor or chain_trigger
-        content = build_agent_reply(session, selected, conversation, reply_trigger)
+        content = build_agent_reply(
+            session, selected, conversation, reply_trigger,
+            triggering_user_id=_triggering_user_id,
+            intent=intent_text,
+        )
         agent_message = Message(
             conversation_id=conversation.id,
             sender_type="agent",
@@ -1885,6 +2604,13 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         )
         session.add(agent_message)
         session.flush()
+
+        _clear_activity(conversation.id, selected.id)
+
+        try:
+            _store_agent_thoughts(session, selected, agent_message, intent_text, urgency, None, chain_step)
+        except Exception as exc:
+            logger.warning("Failed to store agent thoughts: %s", exc)
 
         try:
             from teaparty_app.services.agent_learning import apply_short_term_learning
@@ -1898,6 +2624,14 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         created.append(agent_message)
         chain_trigger = agent_message
 
+        # Commit after each chain step so the frontend sees messages
+        # incrementally instead of all at once when the chain finishes.
+        try:
+            commit_with_retry(session)
+        except Exception as exc:
+            logger.warning("Mid-chain commit failed at step %d: %s", chain_step, exc)
+
+    _clear_activity(conversation.id)
     return created
 
 
@@ -1918,6 +2652,7 @@ def process_due_followups(
             AgentFollowUpTask.status == "pending",
             AgentFollowUpTask.due_at <= now,
             Conversation.workgroup_id.in_(allowed_workgroup_ids),
+            Conversation.is_archived == False,  # noqa: E712
         )
         .order_by(AgentFollowUpTask.due_at.asc())
         .limit(scan_limit)
@@ -1947,11 +2682,154 @@ def process_due_followups(
             response_to_message_id=task.origin_message_id,
         )
         session.add(follow_up_message)
-        session.flush()
         task.status = "completed"
         task.completed_at = now
         session.add(task)
+        commit_with_retry(session)
         created.append(follow_up_message)
         created.extend(run_agent_auto_responses(session, conversation, follow_up_message))
+
+    return created
+
+
+def process_triggered_todos(
+    session: Session,
+    allowed_workgroup_ids: set[str],
+    limit: int = 50,
+) -> list[Message]:
+    """Phase 2: evaluate poll-based triggers, then process all triggered todos."""
+    if not allowed_workgroup_ids:
+        return []
+
+    from teaparty_app.models import AgentTodoItem
+
+    now = utc_now()
+
+    # --- Evaluate poll-based triggers ---
+
+    # Time-based: due_at <= now
+    time_todos = session.exec(
+        select(AgentTodoItem).where(
+            AgentTodoItem.trigger_type == "time",
+            AgentTodoItem.status == "pending",
+            AgentTodoItem.triggered_at.is_(None),
+            AgentTodoItem.due_at <= now,
+            AgentTodoItem.workgroup_id.in_(allowed_workgroup_ids),
+        )
+    ).all()
+    for todo in time_todos:
+        todo.triggered_at = now
+        todo.updated_at = now
+        session.add(todo)
+
+    # Topic stall: last message in conversation older than stall_minutes
+    stall_todos = session.exec(
+        select(AgentTodoItem).where(
+            AgentTodoItem.trigger_type == "topic_stall",
+            AgentTodoItem.status == "pending",
+            AgentTodoItem.triggered_at.is_(None),
+            AgentTodoItem.workgroup_id.in_(allowed_workgroup_ids),
+        )
+    ).all()
+    for todo in stall_todos:
+        if not todo.conversation_id:
+            continue
+        conv = session.get(Conversation, todo.conversation_id)
+        if not conv or conv.is_archived:
+            continue
+        stall_minutes = (todo.trigger_config or {}).get("stall_minutes", 30)
+        last_msg = session.exec(
+            select(Message)
+            .where(Message.conversation_id == todo.conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        ).first()
+        if last_msg:
+            from datetime import timedelta as _td
+            threshold = last_msg.created_at + _td(minutes=stall_minutes)
+            if now >= threshold:
+                todo.triggered_at = now
+                todo.updated_at = now
+                session.add(todo)
+
+    session.flush()
+
+    # --- Process all triggered todos ---
+    triggered = session.exec(
+        select(AgentTodoItem).where(
+            AgentTodoItem.triggered_at.isnot(None),
+            AgentTodoItem.status == "pending",
+            AgentTodoItem.workgroup_id.in_(allowed_workgroup_ids),
+        ).limit(limit)
+    ).all()
+
+    created: list[Message] = []
+    for todo in triggered:
+        agent = session.get(Agent, todo.agent_id)
+        if not agent:
+            todo.status = "cancelled"
+            todo.completed_at = now
+            todo.triggered_at = None
+            session.add(todo)
+            continue
+
+        # Determine conversation
+        conversation = None
+        if todo.conversation_id:
+            conversation = session.get(Conversation, todo.conversation_id)
+            if conversation and conversation.is_archived:
+                conversation = None
+        if not conversation:
+            # Fallback: most recent non-archived topic in workgroup
+            conversation = session.exec(
+                select(Conversation).where(
+                    Conversation.workgroup_id == todo.workgroup_id,
+                    Conversation.kind == "topic",
+                    Conversation.is_archived == False,  # noqa: E712
+                ).order_by(Conversation.created_at.desc()).limit(1)
+            ).first()
+        if not conversation:
+            continue
+
+        # Build trigger description
+        trigger_desc = todo.trigger_type
+        if todo.trigger_type == "time":
+            trigger_desc = "scheduled time reached"
+        elif todo.trigger_type == "topic_stall":
+            mins = (todo.trigger_config or {}).get("stall_minutes", 30)
+            trigger_desc = f"conversation quiet for {mins}+ minutes"
+        elif todo.trigger_type == "message_match":
+            trigger_desc = "keyword match in conversation"
+        elif todo.trigger_type == "file_changed":
+            fp = (todo.trigger_config or {}).get("file_path", "")
+            trigger_desc = f"file '{fp}' changed"
+        elif todo.trigger_type == "topic_resolved":
+            trigger_desc = "topic archived"
+        elif todo.trigger_type == "todo_completed":
+            trigger_desc = "dependent todo completed"
+
+        proactive_message = Message(
+            conversation_id=conversation.id,
+            sender_type="agent",
+            sender_agent_id=agent.id,
+            content=(
+                f"{agent.name}: My task '{todo.title}' has been triggered "
+                f"({trigger_desc}). Let me follow up."
+            ),
+            requires_response=False,
+        )
+        session.add(proactive_message)
+
+        todo.status = "in_progress"
+        todo.triggered_at = None
+        todo.updated_at = now
+        session.add(todo)
+
+        from teaparty_app.services.agent_tools import _materialize_todo_file
+        _materialize_todo_file(session, agent, todo.workgroup_id)
+
+        session.commit()
+        created.append(proactive_message)
+        created.extend(run_agent_auto_responses(session, conversation, proactive_message))
 
     return created

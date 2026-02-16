@@ -1,18 +1,32 @@
 import json
+import logging
+import time
 from collections.abc import Iterator
 from uuid import uuid4
 
-from sqlalchemy import text
+from sqlalchemy import event, text
+from sqlalchemy.pool import NullPool
 from sqlmodel import Session, SQLModel, create_engine
 
 from teaparty_app.config import settings
 
 
 connect_args = {}
+_extra_kwargs = {}
 if settings.database_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+    _extra_kwargs["poolclass"] = NullPool
 
-engine = create_engine(settings.database_url, echo=False, connect_args=connect_args)
+engine = create_engine(settings.database_url, echo=False, connect_args=connect_args, **_extra_kwargs)
+
+# Set WAL mode and busy timeout on every SQLite connection
+if settings.database_url.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_conn, connection_record):
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.close()
 
 
 def init_db() -> None:
@@ -22,6 +36,15 @@ def init_db() -> None:
     _ensure_cross_group_task_tables()
     _ensure_llm_usage_table()
     _ensure_agent_memory_table()
+    _ensure_agent_todo_table()
+    _ensure_workspace_tables()
+    _run_seeds()
+
+
+def _run_seeds() -> None:
+    from teaparty_app.seeds.runner import run_seeds
+
+    run_seeds(engine)
 
 
 def _sqlite_column_names(table_name: str) -> set[str]:
@@ -82,10 +105,36 @@ def _run_lightweight_migrations() -> None:
     if not settings.database_url.startswith("sqlite"):
         return
 
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS organizations ("
+                "id TEXT PRIMARY KEY, "
+                "name TEXT NOT NULL, "
+                "description TEXT DEFAULT '' NOT NULL, "
+                "owner_id TEXT NOT NULL REFERENCES users(id), "
+                "created_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_organizations_name "
+                "ON organizations(name)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_organizations_owner_id "
+                "ON organizations(owner_id)"
+            )
+        )
+
     user_columns = _sqlite_column_names("users")
     workgroup_columns = _sqlite_column_names("workgroups")
     conversation_columns = _sqlite_column_names("conversations")
     agent_columns = _sqlite_column_names("agents")
+    membership_columns = _sqlite_column_names("memberships")
     with engine.begin() as conn:
         if "preferences" not in user_columns:
             conn.execute(text("ALTER TABLE users ADD COLUMN preferences JSON DEFAULT '{}' NOT NULL"))
@@ -94,6 +143,9 @@ def _run_lightweight_migrations() -> None:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN is_discoverable BOOLEAN DEFAULT 0 NOT NULL"))
         if "service_description" not in workgroup_columns:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN service_description TEXT DEFAULT '' NOT NULL"))
+        if "organization_id" not in workgroup_columns:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN organization_id TEXT REFERENCES organizations(id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_workgroups_organization_id ON workgroups(organization_id)"))
 
         if "files" not in workgroup_columns:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN files JSON DEFAULT '[]' NOT NULL"))
@@ -196,6 +248,38 @@ def _run_lightweight_migrations() -> None:
                 "WHERE verbosity IS NULL OR verbosity < 0 OR verbosity > 1"
             )
         )
+
+        if "workspace_enabled" not in workgroup_columns:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN workspace_enabled BOOLEAN DEFAULT 0 NOT NULL"))
+
+        if "budget_limit_usd" not in membership_columns:
+            conn.execute(text("ALTER TABLE memberships ADD COLUMN budget_limit_usd REAL"))
+        if "budget_used_usd" not in membership_columns:
+            conn.execute(text("ALTER TABLE memberships ADD COLUMN budget_used_usd REAL DEFAULT 0.0 NOT NULL"))
+        if "budget_refreshed_at" not in membership_columns:
+            conn.execute(text("ALTER TABLE memberships ADD COLUMN budget_refreshed_at DATETIME"))
+
+        if "is_system_admin" not in user_columns:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_system_admin BOOLEAN DEFAULT 0 NOT NULL"))
+            conn.execute(text("UPDATE users SET is_system_admin = 1 WHERE email = 'dlewissandy@gmail.com'"))
+
+        # Create "Acme" organization for ungrouped workgroups
+        acme_check = conn.execute(text("SELECT id FROM organizations WHERE name = 'Acme' LIMIT 1")).first()
+        if not acme_check:
+            import uuid
+            acme_id = str(uuid.uuid4())
+            admin_user = conn.execute(text(
+                "SELECT id FROM users WHERE is_system_admin = 1 LIMIT 1"
+            )).first()
+            if admin_user:
+                conn.execute(text(
+                    "INSERT INTO organizations (id, name, description, owner_id, created_at) "
+                    "VALUES (:id, 'Acme', '', :owner_id, datetime('now'))"
+                ), {"id": acme_id, "owner_id": admin_user[0]})
+                conn.execute(text(
+                    "UPDATE workgroups SET organization_id = :org_id "
+                    "WHERE organization_id IS NULL AND name != 'Administration'"
+                ), {"org_id": acme_id})
 
 
 def _ensure_custom_tool_tables() -> None:
@@ -340,6 +424,132 @@ def _ensure_agent_memory_table() -> None:
         )
 
 
+def _ensure_agent_todo_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS agent_todo_items ("
+                "id TEXT PRIMARY KEY, "
+                "agent_id TEXT NOT NULL REFERENCES agents(id), "
+                "workgroup_id TEXT NOT NULL REFERENCES workgroups(id), "
+                "conversation_id TEXT REFERENCES conversations(id), "
+                "title TEXT NOT NULL, "
+                "description TEXT DEFAULT '' NOT NULL, "
+                "status TEXT DEFAULT 'pending' NOT NULL, "
+                "priority TEXT DEFAULT 'medium' NOT NULL, "
+                "trigger_type TEXT DEFAULT 'manual' NOT NULL, "
+                "trigger_config JSON DEFAULT '{}' NOT NULL, "
+                "triggered_at DATETIME, "
+                "due_at DATETIME, "
+                "created_at DATETIME NOT NULL, "
+                "updated_at DATETIME NOT NULL, "
+                "completed_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_todo_items_agent "
+                "ON agent_todo_items(agent_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_todo_items_workgroup "
+                "ON agent_todo_items(workgroup_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_todo_items_status "
+                "ON agent_todo_items(status)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_agent_todo_items_due_at "
+                "ON agent_todo_items(due_at)"
+            )
+        )
+
+
+def _ensure_workspace_tables() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS workspaces ("
+                "id TEXT PRIMARY KEY, "
+                "workgroup_id TEXT NOT NULL UNIQUE REFERENCES workgroups(id), "
+                "repo_path TEXT NOT NULL, "
+                "main_worktree_path TEXT NOT NULL, "
+                "status TEXT DEFAULT 'active' NOT NULL, "
+                "error_message TEXT DEFAULT '' NOT NULL, "
+                "last_synced_at DATETIME, "
+                "created_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_workspaces_workgroup "
+                "ON workspaces(workgroup_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS workspace_worktrees ("
+                "id TEXT PRIMARY KEY, "
+                "workspace_id TEXT NOT NULL REFERENCES workspaces(id), "
+                "conversation_id TEXT NOT NULL REFERENCES conversations(id), "
+                "branch_name TEXT NOT NULL, "
+                "worktree_path TEXT NOT NULL, "
+                "status TEXT DEFAULT 'active' NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "merged_at DATETIME, "
+                "removed_at DATETIME, "
+                "UNIQUE(workspace_id, conversation_id)"
+                ")"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_workspace_worktrees_workspace "
+                "ON workspace_worktrees(workspace_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_workspace_worktrees_conversation "
+                "ON workspace_worktrees(conversation_id)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_workspace_worktrees_branch "
+                "ON workspace_worktrees(branch_name)"
+            )
+        )
+
+
 def get_session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session
+
+
+def commit_with_retry(session: Session, max_retries: int = 3, base_delay: float = 0.1) -> None:
+    """Commit with retry on SQLite 'database is locked' errors."""
+    for attempt in range(max_retries):
+        try:
+            session.commit()
+            return
+        except Exception as exc:
+            if "database is locked" in str(exc) and attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                logging.getLogger(__name__).warning(
+                    "SQLite locked on commit (attempt %d/%d), retrying in %.1fs",
+                    attempt + 1, max_retries, delay,
+                )
+                session.rollback()
+                time.sleep(delay)
+            else:
+                raise

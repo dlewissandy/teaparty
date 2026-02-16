@@ -12,8 +12,14 @@ class Settings(BaseSettings):
     follow_up_scan_limit: int = 100
     admin_agent_use_sdk: bool = True
     admin_agent_model: str = "claude-sonnet-4-5"
+    intent_probe_model: str = "claude-haiku-4-5"
     agent_chain_max: int = 8
+    agent_sdk_max_turns: int = 6
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")
+    llm_default_model: str = "ollama/mistral"
+    llm_cheap_model: str = "ollama/mistral"
+    ollama_base_url: str = "http://localhost:11434"
+    workspace_root: str = ""
 
     model_config = SettingsConfigDict(
         env_prefix="TEAPARTY_",
