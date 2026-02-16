@@ -31,6 +31,7 @@ class ClaudeResult:
     num_turns: int = 0
     is_error: bool = False
     error: str | None = None
+    events: list[dict] = field(default_factory=list)
 
 
 async def run_claude(
@@ -84,8 +85,9 @@ async def run_claude(
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
     elif disallowed_tools:
         cmd.extend(["--disallowedTools", ",".join(disallowed_tools)])
-    else:
-        # Default: no tools (pure conversation)
+    elif not agent_name:
+        # Default for non-agent mode: no tools (pure conversation).
+        # Agent mode needs the Task tool for delegation, so skip this.
         cmd.extend(["--allowedTools", ""])
 
     # Build a clean environment: inherit the parent env but remove
@@ -154,8 +156,11 @@ def _parse_json_output(raw: str, elapsed_ms: int) -> ClaudeResult:
         logger.warning("Failed to parse claude JSON output; treating as plain text")
         return ClaudeResult(text=raw.strip(), duration_ms=elapsed_ms)
 
-    # --verbose produces a JSON array: extract the "result" entry.
+    # --verbose produces a JSON array: extract the "result" entry and
+    # preserve the full event list for callers (e.g. team output parser).
+    events: list[dict] = []
     if isinstance(data, list):
+        events = data
         result_entry = next((e for e in data if isinstance(e, dict) and e.get("type") == "result"), None)
         data = result_entry or {}
 
@@ -171,4 +176,5 @@ def _parse_json_output(raw: str, elapsed_ms: int) -> ClaudeResult:
         num_turns=data.get("num_turns", 0),
         is_error=bool(data.get("is_error")),
         error=data.get("result") if data.get("is_error") else None,
+        events=events,
     )

@@ -351,11 +351,11 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if not candidates:
         return []
 
-    # Multi-agent conversations with 2+ candidates use team sessions.
-    if len(candidates) >= 2:
-        return _run_team_response(session, conversation, trigger, candidates)
+    # Job conversations use Claude's multi-agent team feature (any agent count).
+    if conversation.kind == "job":
+        return _run_job_team_response(session, conversation, trigger, candidates)
 
-    # Single-agent path: use single-shot claude -p.
+    # Direct and engagement conversations: single-agent path.
     return _run_single_agent_responses(session, conversation, trigger, candidates)
 
 
@@ -464,6 +464,144 @@ def _run_single_agent_responses(
                 commit_with_retry(session)
             except Exception as exc:
                 logger.warning("Failed to advance workflow state: %s", exc)
+
+    _clear_activity(conversation.id)
+    return created
+
+
+def _run_job_team_response(
+    session: Session,
+    conversation: Conversation,
+    trigger: Message,
+    candidates: list[Agent],
+) -> list[Message]:
+    """Route job conversations through Claude's multi-agent team feature.
+
+    All candidate agents are passed via ``--agents``.  The first agent is
+    designated as the lead (``--agent``).  The verbose JSON output is parsed
+    to extract per-agent contributions, each stored as a separate Message.
+    """
+    from teaparty_app.services.team_output_parser import parse_team_output, unpack_agent_text
+
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    files_context = build_workgroup_files_context(workgroup, conversation) if workgroup else ""
+
+    lead = candidates[0]
+    others = candidates[1:]
+
+    # Set activity for all candidates.
+    for agent in candidates:
+        _set_activity(conversation.id, agent.id, agent.name, "composing", "team")
+
+    try:
+        user_msg = build_user_message(session, conversation, trigger)
+
+        # Build agent definitions.  The lead gets a teammates roster.
+        slug_to_id: dict[str, str] = {}
+        agents_dict: dict[str, dict] = {}
+
+        lead_slug = slugify(lead.name)
+        slug_to_id[lead_slug] = lead.id
+        agents_dict[lead_slug] = build_agent_json(
+            lead, conversation, workgroup,
+            files_context=files_context,
+            teammates=others if others else None,
+        )
+
+        for agent in others:
+            slug = slugify(agent.name)
+            # Handle duplicate slugs by appending a suffix.
+            if slug in agents_dict:
+                slug = f"{slug}-{agent.id[:6]}"
+            slug_to_id[slug] = agent.id
+            agents_dict[slug] = build_agent_json(
+                agent, conversation, workgroup,
+                files_context=files_context,
+            )
+
+        agents_json = json.dumps(agents_dict)
+        agent_names = [a.name for a in candidates]
+        name_to_id = {a.name: a.id for a in candidates}
+
+        # Determine max turns: lead needs turns for delegation.
+        max_turns = max(3, 2 * len(candidates))
+
+        result = asyncio.run(run_claude(
+            user_message=user_msg,
+            agent_name=lead_slug,
+            agents_json=agents_json,
+            max_turns=max_turns,
+            timeout_seconds=max(120, 60 * len(candidates)),
+        ))
+
+        # Record usage against the lead agent.
+        record_llm_usage(
+            session, conversation.id, lead.id, result.model or lead.model,
+            result.input_tokens, result.output_tokens,
+            "reply", result.duration_ms,
+        )
+
+        if result.is_error:
+            logger.warning("Job team claude CLI failed: %s", result.error)
+            error_msg = Message(
+                conversation_id=conversation.id,
+                sender_type="agent",
+                sender_agent_id=lead.id,
+                content=f"(Agent error: {result.error})",
+                requires_response=False,
+                response_to_message_id=trigger.id,
+            )
+            session.add(error_msg)
+            session.flush()
+            _clear_activity(conversation.id)
+            return [error_msg]
+
+        # Strategy 1: Parse verbose events for agent attribution.
+        contributions = parse_team_output(result.events, slug_to_id, agent_names)
+
+        # Strategy 2: Fall back to text-based unpacking.
+        if not contributions and result.text:
+            text_sections = unpack_agent_text(result.text, agent_names)
+            contributions = [
+                (name_to_id.get(name), content)
+                for name, content in text_sections
+            ]
+
+        # Strategy 3: Attribute everything to the lead.
+        if not contributions and result.text:
+            contributions = [(lead.id, result.text)]
+
+        # Store each contribution as a separate Message.
+        created: list[Message] = []
+        for agent_id, content in contributions:
+            if not content.strip():
+                continue
+            msg = Message(
+                conversation_id=conversation.id,
+                sender_type="agent",
+                sender_agent_id=agent_id or lead.id,
+                content=content,
+                requires_response=infer_requires_response(content),
+                response_to_message_id=trigger.id,
+            )
+            session.add(msg)
+            session.flush()
+
+            # Schedule follow-ups for attributed agents.
+            resolved_agent = next((a for a in candidates if a.id == msg.sender_agent_id), lead)
+            schedule_follow_up_if_needed(session, conversation, resolved_agent, msg)
+            created.append(msg)
+
+            try:
+                commit_with_retry(session)
+            except Exception as exc:
+                logger.warning("Mid-chain commit failed: %s", exc)
+
+    except Exception:
+        logger.exception("Job team response failed for conversation %s", conversation.id)
+        # Fall back to single-agent sequential responses.
+        _clear_activity(conversation.id)
+        return _run_single_agent_responses(session, conversation, trigger, candidates)
 
     _clear_activity(conversation.id)
     return created

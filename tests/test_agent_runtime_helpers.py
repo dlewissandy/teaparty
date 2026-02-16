@@ -1,11 +1,12 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 from teaparty_app.config import settings
-from teaparty_app.models import Agent, AgentLearningEvent, Conversation, Message
+from teaparty_app.models import Agent, AgentLearningEvent, Conversation, Message, Workgroup
 from teaparty_app.services.agent_runtime import (
     _extract_json_object,
     infer_requires_response,
+    run_agent_auto_responses,
 )
 
 
@@ -65,4 +66,62 @@ class AgentRuntimeHelperTests(unittest.TestCase):
         self.assertEqual(_extract_json_object("```json\n{\"a\":1}\n```"), {"a": 1})
         self.assertEqual(_extract_json_object("prefix {\"b\":2} suffix"), {"b": 2})
         self.assertIsNone(_extract_json_object("not json"))
+
+
+class JobRoutingTests(unittest.TestCase):
+    """Test that job conversations route through _run_job_team_response."""
+
+    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
+    @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
+    def test_job_conversation_routes_to_team(self, mock_agents, mock_single, mock_team) -> None:
+        mock_agents.return_value = [_make_agent(agent_id="a1", name="Alice")]
+        mock_team.return_value = []
+
+        session = MagicMock()
+        conv = _make_conversation(kind="job")
+        conv.is_archived = False
+        trigger = _make_message()
+
+        run_agent_auto_responses(session, conv, trigger)
+
+        mock_team.assert_called_once()
+        mock_single.assert_not_called()
+
+    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
+    @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
+    def test_direct_conversation_routes_to_single(self, mock_agents, mock_single, mock_team) -> None:
+        mock_agents.return_value = [_make_agent(agent_id="a1", name="Alice")]
+        mock_single.return_value = []
+
+        session = MagicMock()
+        conv = _make_conversation(kind="direct")
+        conv.is_archived = False
+        trigger = _make_message()
+
+        run_agent_auto_responses(session, conv, trigger)
+
+        mock_single.assert_called_once()
+        mock_team.assert_not_called()
+
+    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
+    @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
+    def test_multi_agent_job_routes_to_team(self, mock_agents, mock_single, mock_team) -> None:
+        mock_agents.return_value = [
+            _make_agent(agent_id="a1", name="Alice"),
+            _make_agent(agent_id="a2", name="Bob"),
+        ]
+        mock_team.return_value = []
+
+        session = MagicMock()
+        conv = _make_conversation(kind="job")
+        conv.is_archived = False
+        trigger = _make_message()
+
+        run_agent_auto_responses(session, conv, trigger)
+
+        mock_team.assert_called_once()
+        mock_single.assert_not_called()
 

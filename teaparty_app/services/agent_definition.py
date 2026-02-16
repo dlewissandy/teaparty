@@ -20,6 +20,7 @@ def build_agent_json(
     workgroup: Workgroup | None = None,
     workflow_context: str = "",
     files_context: str = "",
+    teammates: list[Agent] | None = None,
 ) -> dict:
     """Convert an Agent record to a dict suitable for ``--agents`` JSON.
 
@@ -31,11 +32,15 @@ def build_agent_json(
             "model": "sonnet",
             "maxTurns": 3,
         }
+
+    When *teammates* is provided (for the lead agent in a multi-agent job),
+    a team roster is appended to the prompt so the lead knows who's available.
     """
     return {
         "description": agent.description or agent.role or agent.name,
         "prompt": _build_prompt_body(
             agent, conversation, workgroup, workflow_context, files_context,
+            teammates=teammates,
         ),
         "model": _resolve_model_alias(agent.model),
         "maxTurns": getattr(agent, "max_turns", 3) or 3,
@@ -95,6 +100,7 @@ def _build_prompt_body(
     workgroup: Workgroup | None = None,
     workflow_context: str = "",
     files_context: str = "",
+    teammates: list[Agent] | None = None,
 ) -> str:
     """Build the agent's prompt body — same content as build_system_prompt()."""
     parts: list[str] = []
@@ -120,6 +126,14 @@ def _build_prompt_body(
         parts.append(f"Job: {conversation.name}")
     if conversation.description:
         parts.append(f"Description: {conversation.description}")
+
+    # Team roster (for lead agent in multi-agent jobs)
+    if teammates:
+        parts.append("")
+        parts.append("Team:")
+        for t in teammates:
+            desc = t.role or t.description or t.personality or ""
+            parts.append(f"- {t.name}" + (f" ({desc})" if desc else ""))
 
     # Workflow / skills context
     if workflow_context:

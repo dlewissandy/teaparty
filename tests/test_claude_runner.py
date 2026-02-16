@@ -70,7 +70,7 @@ class ParseJsonOutputTests(unittest.TestCase):
 
     def test_parse_verbose_json_array(self) -> None:
         """--verbose produces a JSON array; we extract the result entry."""
-        raw = json.dumps([
+        events_data = [
             {"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-sonnet-4-5"},
             {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}},
             {
@@ -83,7 +83,8 @@ class ParseJsonOutputTests(unittest.TestCase):
                 "model": "claude-sonnet-4-5",
                 "usage": {"input_tokens": 40, "output_tokens": 10},
             },
-        ])
+        ]
+        raw = json.dumps(events_data)
         result = _parse_json_output(raw, elapsed_ms=900)
 
         self.assertEqual(result.text, "Hi there!")
@@ -93,6 +94,23 @@ class ParseJsonOutputTests(unittest.TestCase):
         self.assertEqual(result.session_id, "s1")
         self.assertEqual(result.num_turns, 1)
         self.assertFalse(result.is_error)
+
+    def test_verbose_array_preserves_events(self) -> None:
+        """events field should contain the full verbose array."""
+        events_data = [
+            {"type": "system", "subtype": "init"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}},
+            {"type": "result", "result": "Done", "usage": {}},
+        ]
+        raw = json.dumps(events_data)
+        result = _parse_json_output(raw, elapsed_ms=100)
+        self.assertEqual(result.events, events_data)
+
+    def test_non_verbose_output_has_empty_events(self) -> None:
+        """Non-array JSON output should have empty events list."""
+        raw = '{"result": "Hello", "usage": {}}'
+        result = _parse_json_output(raw, elapsed_ms=100)
+        self.assertEqual(result.events, [])
 
     def test_parse_verbose_array_without_result_entry(self) -> None:
         """Verbose array with no result entry returns empty ClaudeResult."""
@@ -255,7 +273,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cmd[idx + 1], "Bash")
 
     async def test_command_construction_default_no_tools(self) -> None:
-        """Test that without allowed or disallowed tools, we default to no tools."""
+        """Test that without allowed or disallowed tools, non-agent mode defaults to no tools."""
         mock_process = MagicMock()
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
@@ -272,6 +290,25 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("--allowedTools", cmd)
             idx = cmd.index("--allowedTools")
             self.assertEqual(cmd[idx + 1], "")
+
+    async def test_agent_mode_does_not_restrict_tools_by_default(self) -> None:
+        """Agent mode should NOT add --allowedTools '' (needs Task tool for delegation)."""
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_process
+
+            await run_claude(
+                user_message="Test",
+                agent_name="lead",
+                agents_json='{"lead": {"prompt": "test"}}',
+            )
+
+            cmd = mock_exec.call_args[0]
+            self.assertNotIn("--allowedTools", cmd)
+            self.assertNotIn("--disallowedTools", cmd)
 
     async def test_env_strips_nested_session_vars(self) -> None:
         """Test that CLAUDECODE and CLAUDE_CODE_ENTRYPOINT are stripped from env."""

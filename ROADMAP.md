@@ -93,9 +93,14 @@ Goal: support repeatable multidisciplinary workflows, not only ad hoc replies.
 
 Deliverables:
 1. Add reusable role templates (researcher, critic, editor, implementer, etc.).
-2. Add workflow graph/state model (planner -> contributors -> reviewer -> publisher).
+2. ~~Add workflow graph/state model (planner -> contributors -> reviewer -> publisher).~~ Multi-agent team support is now available via Claude's native `--agents` feature. Job conversations use a single `claude -p` invocation with all agents passed as `--agents`, and the verbose output is parsed to attribute contributions to individual agents.
 3. Add task objects linked to conversation threads and file revisions.
 4. Separate short-term thread context from long-term workgroup knowledge.
+
+Remaining work:
+- Workflow state integration with multi-agent teams
+- Provenance tracking for agent contributions across file revisions
+- Cross-job learning and context sharing
 
 Exit criteria:
 1. Users can run a defined multi-agent workflow to create or revise a file artifact.
