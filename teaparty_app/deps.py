@@ -24,5 +24,11 @@ def get_current_user(
     return user
 
 
+def require_system_admin(user: User = Depends(get_current_user)) -> User:
+    if not user.is_system_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="System admin access required")
+    return user
+
+
 def get_user_by_email(session: Session, email: str) -> User | None:
     return session.exec(select(User).where(User.email == email)).first()

@@ -16,6 +16,7 @@ class UserRead(ORMBaseModel):
     name: str
     picture: str
     preferences: dict[str, Any] = {}
+    is_system_admin: bool = False
 
 
 class UserPreferencesUpdate(BaseModel):
@@ -70,6 +71,7 @@ class WorkgroupCreateRequest(BaseModel):
     template_key: str | None = Field(default=None, min_length=1, max_length=80)
     files: list[WorkgroupFileWrite | str] | None = None
     agents: list[WorkgroupTemplateAgentWrite] | None = None
+    organization_id: str = Field(min_length=1)
 
 
 class WorkgroupUpdateRequest(BaseModel):
@@ -77,6 +79,8 @@ class WorkgroupUpdateRequest(BaseModel):
     files: list[WorkgroupFileWrite | str] | None = None
     is_discoverable: bool | None = None
     service_description: str | None = None
+    workspace_enabled: bool | None = None
+    organization_id: str | None = None  # None means don't change; must be a valid org ID if set
 
 
 class WorkgroupRead(ORMBaseModel):
@@ -84,9 +88,30 @@ class WorkgroupRead(ORMBaseModel):
     name: str
     files: list[WorkgroupFileRead]
     owner_id: str
+    organization_id: str | None = None
+    organization_name: str = ""
     is_discoverable: bool = False
     service_description: str = ""
+    workspace_enabled: bool = False
     created_at: datetime
+
+
+class OrganizationRead(ORMBaseModel):
+    id: str
+    name: str
+    description: str
+    owner_id: str
+    created_at: datetime
+
+
+class OrganizationCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    description: str = ""
+
+
+class OrganizationUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
 
 
 class WorkgroupTemplateFileRead(BaseModel):
@@ -238,6 +263,7 @@ class ConversationRead(ORMBaseModel):
     archived_at: datetime | None = None
     created_by_user_id: str
     created_at: datetime
+    latest_message_at: datetime | None = None
 
 
 class ConversationHistoryClearResponse(BaseModel):
@@ -409,6 +435,63 @@ class CrossGroupTaskDetailRead(CrossGroupTaskRead):
     target_workgroup_name: str = ""
 
 
+# --- Engagement schemas ---
+
+
+class EngagementCreateRequest(BaseModel):
+    target_workgroup_id: str
+    source_workgroup_id: str | None = None
+    title: str = Field(min_length=1, max_length=200)
+    scope: str = ""
+    requirements: str = ""
+
+
+class EngagementRespondRequest(BaseModel):
+    action: Literal["accept", "decline"]
+    terms: str = ""
+
+
+class EngagementCompleteRequest(BaseModel):
+    summary: str = ""
+
+
+class EngagementReviewRequest(BaseModel):
+    rating: Literal["satisfied", "dissatisfied"]
+    feedback: str = ""
+
+
+class EngagementCancelRequest(BaseModel):
+    reason: str = ""
+
+
+class EngagementRead(ORMBaseModel):
+    id: str
+    source_workgroup_id: str
+    target_workgroup_id: str
+    proposed_by_user_id: str
+    status: str
+    title: str
+    scope: str
+    requirements: str
+    terms: str
+    deliverables: str
+    source_conversation_id: str | None = None
+    target_conversation_id: str | None = None
+    created_at: datetime
+    accepted_at: datetime | None = None
+    declined_at: datetime | None = None
+    completed_at: datetime | None = None
+    reviewed_at: datetime | None = None
+    cancelled_at: datetime | None = None
+    review_rating: str | None = None
+    review_feedback: str = ""
+
+
+class EngagementDetailRead(EngagementRead):
+    source_workgroup_name: str = ""
+    target_workgroup_name: str = ""
+
+
 class AgentMemoryRead(ORMBaseModel):
     id: str
     agent_id: str
@@ -473,3 +556,107 @@ class WorkgroupUsageRead(BaseModel):
     estimated_cost_usd: float
     api_calls: int
     by_model: dict[str, Any] = {}
+
+
+# --- Workspace schemas ---
+
+
+class WorkspaceRead(ORMBaseModel):
+    id: str
+    workgroup_id: str
+    repo_path: str
+    main_worktree_path: str
+    status: str
+    error_message: str = ""
+    last_synced_at: datetime | None = None
+    created_at: datetime
+
+
+class WorkspaceWorktreeRead(ORMBaseModel):
+    id: str
+    workspace_id: str
+    conversation_id: str
+    branch_name: str
+    worktree_path: str
+    status: str
+    created_at: datetime
+    merged_at: datetime | None = None
+    removed_at: datetime | None = None
+
+
+class WorkspaceStatusRead(BaseModel):
+    workspace: WorkspaceRead
+    worktrees: list[WorkspaceWorktreeRead] = Field(default_factory=list)
+
+
+class WorkspaceSyncRequest(BaseModel):
+    direction: Literal["db_to_fs", "fs_to_db"] = "db_to_fs"
+    conversation_id: str | None = None
+
+
+class WorkspaceSyncResult(BaseModel):
+    direction: str
+    files_written: int = 0
+    files_read: int = 0
+    committed: bool = False
+
+
+class WorkspaceMergeRequest(BaseModel):
+    conversation_id: str
+
+
+class WorkspaceMergeResult(BaseModel):
+    merged: bool
+    branch_name: str = ""
+    conflicts: list[str] = Field(default_factory=list)
+
+
+class WorkspaceGitLogEntry(BaseModel):
+    commit_hash: str
+    author: str
+    date: str
+    message: str
+
+
+class WorkspaceGitLogRead(BaseModel):
+    branch: str = "main"
+    entries: list[WorkspaceGitLogEntry] = Field(default_factory=list)
+
+
+# --- System settings schemas ---
+
+
+class SystemSettingsRead(BaseModel):
+    # LLM Configuration
+    llm_default_model: str
+    llm_cheap_model: str
+    admin_agent_model: str
+    intent_probe_model: str
+    anthropic_api_key_set: bool
+    ollama_base_url: str
+    # Agent Behavior
+    agent_chain_max: int
+    agent_sdk_max_turns: int
+    follow_up_scan_limit: int
+    # Application
+    app_name: str
+    workspace_root: str
+    admin_agent_use_sdk: bool
+
+
+class SystemSettingsUpdate(BaseModel):
+    # LLM Configuration
+    llm_default_model: str | None = None
+    llm_cheap_model: str | None = None
+    admin_agent_model: str | None = None
+    intent_probe_model: str | None = None
+    anthropic_api_key: str | None = None
+    ollama_base_url: str | None = None
+    # Agent Behavior
+    agent_chain_max: int | None = Field(default=None, ge=1, le=50)
+    agent_sdk_max_turns: int | None = Field(default=None, ge=1, le=50)
+    follow_up_scan_limit: int | None = Field(default=None, ge=10, le=1000)
+    # Application
+    app_name: str | None = None
+    workspace_root: str | None = None
+    admin_agent_use_sdk: bool | None = None

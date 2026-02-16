@@ -2,6 +2,7 @@ const state = {
   token: sessionStorage.getItem("teaparty_token") || localStorage.getItem("teaparty_token") || "",
   user: null,
   config: null,
+  organizations: [],
   workgroups: [],
   treeData: {},
   workgroupTemplates: [],
@@ -9,6 +10,7 @@ const state = {
   workgroupCreateFiles: [],
   workgroupCreateAgents: [],
   selectedWorkgroupId: "",
+  bladeOrgId: "",
   bladeWorkgroupId: "",
   activeConversationId: "",
   activeNodeKey: "",
@@ -29,6 +31,7 @@ const state = {
   fileOverlayMemberContext: null,
   crossGroupTasks: [],
   activeTaskId: "",
+  activeEngagementId: "",
   workgroupDirectory: [],
   conversationUsage: null,
   usagePollCounter: 0,
@@ -38,6 +41,11 @@ const state = {
   fileBrowserWorkgroupId: "",
   fileBrowserPath: [],
   fileBrowserFileId: "",
+  fileBrowserScope: "",
+  fileBrowserOrgId: "",
+  fileBrowserCompositeFiles: [],
+  thoughtsByMessageId: {},
+  lastLiveActivity: null,
 };
 
 const qs = (id) => document.getElementById(id);
@@ -80,6 +88,13 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function linkifyUrls(escaped) {
+  return escaped.replace(
+    /\bhttps?:\/\/[^\s<>&"')\]]+/g,
+    (url) => `<a href="${url.replace(/&amp;/g, '&')}" target="_blank" rel="noopener noreferrer">${url}</a>`,
+  );
 }
 
 function parseFileContext(text) {
@@ -624,13 +639,53 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
   const container = qs("file-overlay-form");
   container.innerHTML = "";
 
-  // Decorative header
-  const header = document.createElement("div");
-  header.className = "cfg-wg-header";
-  header.innerHTML = `<h3>${escapeHtml(data.name || "Workgroup")}</h3><div class="meta">Workgroup Configuration</div>`;
-  container.appendChild(header);
+  const wgName = data.name || "Workgroup";
 
-  // Root section
+  // Hero header with colored initial circle
+  const hero = document.createElement("div");
+  hero.className = "cfg-wg-hero";
+
+  const icon = document.createElement("div");
+  icon.className = "cfg-wg-icon";
+  let hash = 0;
+  for (let i = 0; i < wgName.length; i++) hash = wgName.charCodeAt(i) + ((hash << 5) - hash);
+  icon.style.background = `hsl(${((hash % 360) + 360) % 360}, 55%, 48%)`;
+  icon.textContent = wgName.charAt(0).toUpperCase();
+
+  const heroText = document.createElement("div");
+  heroText.className = "cfg-wg-hero-text";
+  heroText.innerHTML = `<h3>${escapeHtml(wgName)}</h3>` +
+    (data.service_description ? `<div class="meta">${escapeHtml(data.service_description)}</div>` : "");
+
+  hero.appendChild(icon);
+  hero.appendChild(heroText);
+  container.appendChild(hero);
+
+  // Stats strip
+  const wgData = state.treeData[state.fileOverlayWorkgroupId];
+  if (wgData) {
+    const memberCount = (wgData.members || []).length;
+    const agentCount = (wgData.agents || []).filter((a) => a.description !== "__system_admin_agent__").length;
+    const fileCount = normalizeWorkgroupFiles(wgData.workgroup?.files).length;
+    const topicCount = (wgData.topics || []).filter((t) => t.kind === "topic").length;
+
+    const stats = document.createElement("div");
+    stats.className = "cfg-wg-stats";
+    [
+      [memberCount, "Members"],
+      [agentCount, "Agents"],
+      [fileCount, "Files"],
+      [topicCount, "Topics"],
+    ].forEach(([val, label]) => {
+      const pill = document.createElement("div");
+      pill.className = "cfg-wg-stat";
+      pill.innerHTML = `<span class="cfg-wg-stat-value">${val}</span><span class="cfg-wg-stat-label">${label}</span>`;
+      stats.appendChild(pill);
+    });
+    container.appendChild(stats);
+  }
+
+  // Root section (json-root for collectJsonFromForm compatibility)
   const details = document.createElement("details");
   details.className = "json-section json-root";
   details.open = true;
@@ -653,29 +708,50 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
     const ro = readonly || forceReadonly || (lockedKeys && lockedKeys.has(key));
     emit(renderJsonFormField(key, data[key], ro, [key]));
   };
-  const textareaField = (key, label, forceReadonly) => {
-    knownKeys.add(key);
-    if (!(key in data)) return;
-    const ro = readonly || forceReadonly || (lockedKeys && lockedKeys.has(key));
-    emit(buildTextareaField(key, data[key], ro, label));
-  };
 
-  // General
-  emit(buildSectionDivider("General"));
+  // Identity section
+  emit(buildSectionDivider("Identity"));
   field("name");
-  textareaField("service_description", "service_description");
-  if ("is_discoverable" in data) {
-    knownKeys.add("is_discoverable");
-    emit(buildBooleanField("is_discoverable", data.is_discoverable, readonly, ["is_discoverable"]));
+  knownKeys.add("service_description");
+  if ("service_description" in data) {
+    const ro = readonly || (lockedKeys && lockedKeys.has("service_description"));
+    emit(buildTextareaField("service_description", data.service_description, ro, "service_description"));
   }
 
-  // System (locked)
-  const sysDiv = buildSectionDivider("System");
-  sysDiv.classList.add("cfg-section-locked");
-  emit(sysDiv);
-  field("id", true);
-  field("owner_id", true);
-  field("created_at", true);
+  // Visibility section
+  if ("is_discoverable" in data) {
+    emit(buildSectionDivider("Visibility"));
+    knownKeys.add("is_discoverable");
+    emit(buildBooleanField("is_discoverable", data.is_discoverable, readonly, ["is_discoverable"]));
+    const help = document.createElement("div");
+    help.className = "cfg-wg-toggle-help";
+    help.textContent = "Make this workgroup visible to other users for cross-group collaboration";
+    emit(help);
+  }
+
+  // System section (collapsed details)
+  knownKeys.add("id");
+  knownKeys.add("owner_id");
+  knownKeys.add("created_at");
+  const sysDetails = document.createElement("details");
+  sysDetails.className = "cfg-wg-system";
+  const sysSummary = document.createElement("summary");
+  sysSummary.className = "cfg-section-header";
+  sysSummary.textContent = "System";
+  sysDetails.appendChild(sysSummary);
+
+  const sysBody = document.createElement("div");
+  [["id", data.id], ["owner_id", data.owner_id], ["created_at", data.created_at]].forEach(([key, val]) => {
+    if (val == null) return;
+    const row = document.createElement("div");
+    row.className = "cfg-wg-system-row";
+    row.innerHTML = `<span class="cfg-wg-system-label">${escapeHtml(key)}</span><span>${escapeHtml(String(val))}</span>`;
+    sysBody.appendChild(row);
+    // Hidden input preserves value for save round-trip
+    sysBody.appendChild(buildHiddenField(key, String(val)));
+  });
+  sysDetails.appendChild(sysBody);
+  emit(sysDetails);
 
   // Fallback: unknown keys
   for (const [k, v] of Object.entries(data)) {
@@ -960,6 +1036,100 @@ function savePreferences(patch) {
   }, 400);
 }
 
+function isShowAgentThoughts() {
+  return Boolean((state.user?.preferences || {}).showAgentThoughts);
+}
+
+async function loadThoughtsForMessages(messageIds) {
+  if (!state.activeConversationId) return;
+  const ids = messageIds || [];
+  const idsParam = ids.length ? `?message_ids=${ids.join(",")}` : "";
+  try {
+    const data = await api(`/api/conversations/${state.activeConversationId}/thoughts${idsParam}`, { retries: 0, timeout: 8000 });
+    Object.assign(state.thoughtsByMessageId, data);
+  } catch (e) {
+    console.error("Failed to load thoughts", e);
+  }
+}
+
+function renderThoughtsSection(thoughts) {
+  const lines = [];
+  if (thoughts.intent) {
+    lines.push(`<span><span class="thought-label">Intent:</span>${escapeHtml(thoughts.intent)}</span>`);
+  }
+  if (thoughts.urgency != null) {
+    lines.push(`<span><span class="thought-label">Urgency:</span>${Math.round(thoughts.urgency * 100)}%</span>`);
+  }
+  if (thoughts.chain_step) {
+    lines.push(`<span><span class="thought-label">Chain step:</span>${thoughts.chain_step}</span>`);
+  }
+  if (!lines.length) return "";
+  return `<div class="agent-thoughts" onclick="this.classList.toggle('expanded')"><span class="agent-thoughts-toggle">agent reasoning</span><div class="agent-thoughts-content">${lines.join("")}</div></div>`;
+}
+
+function parseAsUTC(str) {
+  if (!str) return new Date(NaN);
+  // Server datetimes may lack timezone suffix; treat as UTC
+  if (!/Z|[+-]\d{2}:\d{2}$/.test(str)) return new Date(str + "Z");
+  return new Date(str);
+}
+
+function isConversationUnread(conversation) {
+  if (!conversation.latest_message_at) {
+    console.log(`[unread] ${conversation.topic}: no latest_message_at`);
+    return false;
+  }
+  const prefs = (state.user && state.user.preferences) || {};
+  const lastRead = prefs.conversationLastRead && prefs.conversationLastRead[conversation.id];
+  if (!lastRead) {
+    console.log(`[unread] ${conversation.topic}: never read → UNREAD`);
+    return true;
+  }
+  const latest = parseAsUTC(conversation.latest_message_at);
+  const read = parseAsUTC(lastRead);
+  const isUnread = latest > read;
+  console.log(`[unread] ${conversation.topic}: latest=${conversation.latest_message_at} lastRead=${lastRead} → ${isUnread ? "UNREAD" : "read"}`);
+  return isUnread;
+}
+
+function workgroupHasUnread(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return false;
+  console.log("[unread] checking workgroup", workgroupId, "directs:", data.directs.length, "topics:", data.topics.length);
+  if (data.topics.some((c) => !c.is_archived && isConversationUnread(c))) return true;
+  const userId = state.user?.id;
+  for (const member of data.members) {
+    if (member.user_id === userId) continue;
+    const dm = directConversationForMember(workgroupId, member.user_id);
+    if (dm && isConversationUnread(dm)) return true;
+  }
+  for (const agent of (data.agents || [])) {
+    if (agent.description === "__system_admin_agent__") continue;
+    const dm = directConversationForAgent(workgroupId, agent.id);
+    if (dm && isConversationUnread(dm)) return true;
+  }
+  return false;
+}
+
+function directConversationForMember(workgroupId, memberUserId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return null;
+  const result = data.directs.find((c) => {
+    const parts = c.topic.split(":");
+    return parts[0] === "dm" && parts.includes(memberUserId);
+  }) || null;
+  console.log("[unread] looking for DM with member", memberUserId, "found:", result?.topic);
+  return result;
+}
+
+function directConversationForAgent(workgroupId, agentId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return null;
+  const userId = state.user?.id;
+  if (!userId) return null;
+  return data.directs.find((c) => c.topic === `dma:${userId}:${agentId}`) || null;
+}
+
 function applyTheme(theme, persist = true) {
   const normalized = theme === "dark" ? "dark" : "light";
   document.body.setAttribute("data-theme", normalized);
@@ -988,6 +1158,10 @@ function flash(message, tone = "info") {
 }
 
 async function api(path, options = {}) {
+  const maxRetries = options.retries ?? 2;
+  const timeoutMs = options.timeout ?? 30000;
+  const retryDelays = [200, 600, 1500];
+
   const headers = { ...(options.headers || {}) };
   if (state.token) {
     headers.Authorization = `Bearer ${state.token}`;
@@ -999,24 +1173,56 @@ async function api(path, options = {}) {
     body = JSON.stringify(body);
   }
 
-  const response = await fetch(path, { ...options, headers, body });
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    const error = new Error(payload.detail || `Request failed: ${response.status}`);
-    error.status = response.status;
-
-    if (response.status === 401 && state.token) {
-      signOut();
-      flash("Session expired. Sign in again.", "info");
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, retryDelays[attempt - 1] || 1500));
     }
 
-    throw error;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(path, { ...options, headers, body, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        const error = new Error(payload.detail || `Request failed: ${response.status}`);
+        error.status = response.status;
+
+        if (response.status === 401 && state.token) {
+          signOut();
+          flash("Session expired. Sign in again.", "info");
+        }
+
+        // Don't retry client errors (4xx)
+        if (response.status >= 400 && response.status < 500) {
+          throw error;
+        }
+
+        lastError = error;
+        continue;
+      }
+
+      if (response.status === 204) {
+        return null;
+      }
+      return response.json();
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === "AbortError") {
+        lastError = new Error("Request timed out");
+        lastError.status = 0;
+      } else if (err.status >= 400 && err.status < 500) {
+        throw err;
+      } else {
+        lastError = err;
+      }
+    }
   }
 
-  if (response.status === 204) {
-    return null;
-  }
-  return response.json();
+  throw lastError;
 }
 
 function updateAuthUI() {
@@ -1202,6 +1408,15 @@ function renderAvatarHtml(name, pictureUrl, cssClass) {
   return `<span class="${cssClass} avatar-initials">${escapeHtml(initials)}</span>`;
 }
 
+function isActiveConversationArchived() {
+  if (!state.selectedWorkgroupId || !state.activeConversationId) return false;
+  const data = state.treeData[state.selectedWorkgroupId];
+  if (!data) return false;
+  const conv = data.topics.find((c) => c.id === state.activeConversationId)
+    || data.directs.find((c) => c.id === state.activeConversationId);
+  return conv?.is_archived === true;
+}
+
 function topicDisplayName(conversation) {
   const explicit = (conversation?.name || "").trim();
   if (explicit) {
@@ -1261,7 +1476,7 @@ function filesForConversationContext(files, workgroupId) {
   const conversation = conversationById(workgroupId, conversationId);
   if (!conversation || conversation.kind === "admin") return files;
   if (conversation.kind === "topic") {
-    return files.filter(f => !f.topic_id || f.topic_id === conversationId);
+    return files.filter(f => f.topic_id === conversationId);
   }
   // direct and everything else: shared files only
   return files.filter(f => !f.topic_id);
@@ -1643,6 +1858,9 @@ function closeFileOverlay() {
   state.fileBrowserWorkgroupId = "";
   state.fileBrowserPath = [];
   state.fileBrowserFileId = "";
+  state.fileBrowserScope = "";
+  state.fileBrowserOrgId = "";
+  state.fileBrowserCompositeFiles = [];
 
   const rendered = qs("file-overlay-rendered");
   rendered.innerHTML = "";
@@ -1674,7 +1892,149 @@ function closeFileOverlay() {
   qs("composer-file-context").classList.add("hidden");
 }
 
-function openFileBrowser(workgroupId, pathSegments = []) {
+function fileBrowserSlug(name) {
+  return String(name || "").replace(/[/\\]/g, "_").replace(/\.\./g, "_");
+}
+
+function _buildCompositeWorkgroupFiles(wg, wgPrefix) {
+  const files = [];
+  files.push({
+    id: `virtual-wg:${wg.id}`,
+    path: `${wgPrefix}/workgroup.json`,
+    content: JSON.stringify({ id: wg.id, name: wg.name, organization_id: wg.organization_id || "" }, null, 2),
+    _source: "virtual-wg",
+    _sourceWorkgroupId: wg.id,
+  });
+
+  const data = state.treeData[wg.id];
+  if (data?.agents) {
+    for (const agent of data.agents) {
+      const agentSlug = fileBrowserSlug(agent.name).replace(/\s+/g, "_").toLowerCase();
+      files.push({
+        id: `virtual-agent:${agent.id}`,
+        path: `${wgPrefix}/agents/${agentSlug}.json`,
+        content: JSON.stringify({ id: agent.id, name: agent.name, role: agent.role || "" }, null, 2),
+        _source: "virtual-agent",
+        _sourceWorkgroupId: wg.id,
+        _agentId: agent.id,
+      });
+    }
+  }
+
+  const wgFiles = normalizeWorkgroupFiles(data?.workgroup?.files);
+  for (const f of wgFiles) {
+    if (f.path.startsWith(".templates/")) continue;
+    if (f.path === "workgroup.json") continue;
+    if (f.path.startsWith("agents/") && f.path.endsWith(".json")) continue;
+    if (f.path === "tools.json") continue;
+    files.push({
+      ...f,
+      path: `${wgPrefix}/files/${f.path}`,
+      _source: "workgroup-file",
+      _sourceWorkgroupId: wg.id,
+      _originalPath: f.path,
+    });
+  }
+  return files;
+}
+
+function buildCompositeFilesForRoot() {
+  const files = [];
+  const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
+
+  // Admin workgroup's .templates/ files
+  if (adminWg) {
+    const data = state.treeData[adminWg.id];
+    const wgFiles = normalizeWorkgroupFiles(data?.workgroup?.files);
+    for (const f of wgFiles) {
+      if (f.path.startsWith(".templates/")) {
+        files.push({ ...f, _source: "admin", _sourceWorkgroupId: adminWg.id });
+      }
+    }
+  }
+
+  // Organization data
+  for (const org of state.organizations) {
+    const orgSlug = fileBrowserSlug(org.name);
+    const orgPrefix = `organizations/${orgSlug}`;
+
+    files.push({
+      id: `virtual-org:${org.id}`,
+      path: `${orgPrefix}/organization.json`,
+      content: JSON.stringify({ id: org.id, name: org.name, description: org.description || "" }, null, 2),
+      _source: "virtual-org",
+      _orgId: org.id,
+    });
+
+    const orgWorkgroups = state.workgroups.filter(w => w.organization_id === org.id && w.name !== "Administration");
+    for (const wg of orgWorkgroups) {
+      const wgPrefix = `${orgPrefix}/workgroups/${fileBrowserSlug(wg.name)}`;
+      files.push(..._buildCompositeWorkgroupFiles(wg, wgPrefix));
+    }
+  }
+
+  // Ungrouped workgroups
+  const ungrouped = state.workgroups.filter(w => !w.organization_id && w.name !== "Administration");
+  for (const wg of ungrouped) {
+    const wgPrefix = `workgroups/${fileBrowserSlug(wg.name)}`;
+    files.push(..._buildCompositeWorkgroupFiles(wg, wgPrefix));
+  }
+
+  return files;
+}
+
+function buildCompositeFilesForOrg(orgId) {
+  const org = state.organizations.find(o => o.id === orgId);
+  if (!org) return [];
+
+  const files = [];
+
+  files.push({
+    id: `virtual-org:${org.id}`,
+    path: "organization.json",
+    content: JSON.stringify({ id: org.id, name: org.name, description: org.description || "" }, null, 2),
+    _source: "virtual-org",
+    _orgId: org.id,
+  });
+
+  const orgWorkgroups = state.workgroups.filter(w => w.organization_id === org.id && w.name !== "Administration");
+  for (const wg of orgWorkgroups) {
+    const wgPrefix = `workgroups/${fileBrowserSlug(wg.name)}`;
+    files.push(..._buildCompositeWorkgroupFiles(wg, wgPrefix));
+  }
+
+  return files;
+}
+
+function openFileBrowser(workgroupId, pathSegments = [], scope = "", orgId = "") {
+  if (scope === "root") {
+    state.fileBrowserOpen = true;
+    state.fileBrowserWorkgroupId = "";
+    state.fileBrowserPath = pathSegments;
+    state.fileBrowserFileId = "";
+    state.fileBrowserScope = "root";
+    state.fileBrowserOrgId = "";
+    state.fileBrowserCompositeFiles = buildCompositeFilesForRoot();
+    state.fileOverlayOpen = false;
+    state.fileOverlayParsedJson = null;
+    renderFileBrowser();
+    return;
+  }
+
+  if (scope === "org" && orgId) {
+    state.fileBrowserOpen = true;
+    state.fileBrowserWorkgroupId = "";
+    state.fileBrowserPath = pathSegments;
+    state.fileBrowserFileId = "";
+    state.fileBrowserScope = "org";
+    state.fileBrowserOrgId = orgId;
+    state.fileBrowserCompositeFiles = buildCompositeFilesForOrg(orgId);
+    state.fileOverlayOpen = false;
+    state.fileOverlayParsedJson = null;
+    renderFileBrowser();
+    return;
+  }
+
   const data = state.treeData[workgroupId];
   if (!data) return;
 
@@ -1682,6 +2042,9 @@ function openFileBrowser(workgroupId, pathSegments = []) {
   state.fileBrowserWorkgroupId = workgroupId;
   state.fileBrowserPath = pathSegments;
   state.fileBrowserFileId = "";
+  state.fileBrowserScope = "";
+  state.fileBrowserOrgId = "";
+  state.fileBrowserCompositeFiles = [];
 
   state.fileOverlayOpen = false;
   state.fileOverlayParsedJson = null;
@@ -1690,15 +2053,23 @@ function openFileBrowser(workgroupId, pathSegments = []) {
 }
 
 function renderFileBrowserBreadcrumbs() {
-  const data = state.treeData[state.fileBrowserWorkgroupId];
-  const wgName = data?.workgroup?.name || "Files";
+  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
+  let rootLabel = "Files";
+  if (state.fileBrowserScope === "org") {
+    const org = state.organizations.find(o => o.id === state.fileBrowserOrgId);
+    rootLabel = org?.name || "Organization";
+  } else if (!isComposite) {
+    const data = state.treeData[state.fileBrowserWorkgroupId];
+    rootLabel = data?.workgroup?.name || "Files";
+  }
+
   const parts = [];
 
-  // Root crumb (workgroup name)
+  // Root crumb
   if (state.fileBrowserPath.length > 0 || state.fileBrowserFileId) {
-    parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="0">${escapeHtml(wgName)}</button>`);
+    parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="0">${escapeHtml(rootLabel)}</button>`);
   } else {
-    parts.push(`<span class="file-browser-crumb-current">${escapeHtml(wgName)}</span>`);
+    parts.push(`<span class="file-browser-crumb-current">${escapeHtml(rootLabel)}</span>`);
   }
 
   // Path segments
@@ -1714,8 +2085,10 @@ function renderFileBrowserBreadcrumbs() {
 
   // File name breadcrumb
   if (state.fileBrowserFileId) {
-    const files = filesForConversationContext(normalizeWorkgroupFiles(data?.workgroup?.files), state.fileBrowserWorkgroupId);
-    const file = files.find((f) => f.id === state.fileBrowserFileId);
+    const allFiles = isComposite
+      ? state.fileBrowserCompositeFiles
+      : filesForConversationContext(normalizeWorkgroupFiles(state.treeData[state.fileBrowserWorkgroupId]?.workgroup?.files), state.fileBrowserWorkgroupId);
+    const file = allFiles.find((f) => f.id === state.fileBrowserFileId);
     if (file) {
       const fileName = file.path.split("/").pop() || file.path;
       parts.push(`<span class="file-browser-sep">\u203A</span>`);
@@ -1726,44 +2099,81 @@ function renderFileBrowserBreadcrumbs() {
   return `<div class="file-browser-breadcrumbs">${parts.join("")}</div>`;
 }
 
-function renderFileBrowserListing(node) {
+function renderFileBrowserListing(node, isOwner) {
+  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
   const folders = Array.from(node.folders.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
   const files = [...node.files]
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
-  if (!folders.length && !files.length) {
-    return `<div class="finder-empty">Empty folder</div>`;
+  let html = "";
+
+  // In composite mode, only show toolbar inside .templates/ paths targeting admin wg
+  if (isOwner && !isComposite) {
+    html += `<div class="file-browser-toolbar">
+      <button type="button" class="file-browser-toolbar-btn" data-action="browser-add-file">+ File</button>
+      <button type="button" class="file-browser-toolbar-btn" data-action="browser-new-folder">+ Folder</button>
+    </div>`;
+  } else if (isOwner && isComposite) {
+    const currentPath = state.fileBrowserPath.join("/");
+    if (currentPath.startsWith(".templates")) {
+      html += `<div class="file-browser-toolbar">
+        <button type="button" class="file-browser-toolbar-btn" data-action="browser-add-file">+ File</button>
+        <button type="button" class="file-browser-toolbar-btn" data-action="browser-new-folder">+ Folder</button>
+      </div>`;
+    }
   }
 
-  let html = "";
+  if (!folders.length && !files.length) {
+    return html + `<div class="finder-empty">Empty folder</div>`;
+  }
 
   for (const [folderName, folderNode] of folders) {
     const childCount = folderNode.folders.size + folderNode.files.length;
     const itemLabel = childCount + " item" + (childCount !== 1 ? "s" : "");
-    html += `<button class="file-browser-item" data-action="browser-drill" data-folder="${escapeHtml(folderName)}">
-      <span class="finder-icon folder">${FINDER_FOLDER_ICON_SVG}</span>
-      <span class="file-browser-name">${escapeHtml(folderName)}</span>
-      <span class="file-browser-meta">${itemLabel}</span>
-    </button>`;
+    const fullPath = [...state.fileBrowserPath, folderName].join("/");
+    const actions = (isOwner && !isComposite) ? `<span class="file-browser-actions">
+      <button type="button" data-action="browser-rename-folder" data-folder-path="${escapeHtml(fullPath)}">Rename</button>
+      <button type="button" data-action="browser-copy-folder" data-folder-path="${escapeHtml(fullPath)}">Copy</button>
+      <button type="button" data-action="browser-delete-folder" data-folder-path="${escapeHtml(fullPath)}">Delete</button>
+    </span>` : "";
+    html += `<div class="file-browser-row">
+      <button class="file-browser-item" data-action="browser-drill" data-folder="${escapeHtml(folderName)}">
+        <span class="finder-icon folder">${FINDER_FOLDER_ICON_SVG}</span>
+        <span class="file-browser-name">${escapeHtml(folderName)}</span>
+        <span class="file-browser-meta">${itemLabel}</span>
+      </button>
+      ${actions}
+    </div>`;
   }
 
   for (const file of files) {
     const iconClass = file.isLink ? "link" : "file";
     const iconSvg = file.isLink ? FINDER_LINK_ICON_SVG : FINDER_FILE_ICON_SVG;
-    html += `<button class="file-browser-item" data-action="browser-open-file" data-file-id="${escapeHtml(file.id)}" data-workgroup="${escapeHtml(state.fileBrowserWorkgroupId)}">
-      <span class="finder-icon ${iconClass}">${iconSvg}</span>
-      <span class="file-browser-name">${escapeHtml(file.name)}</span>
-      <span class="file-browser-meta">File</span>
-    </button>`;
+    const isVirtual = file._source && file._source.startsWith("virtual-");
+    const actions = (isOwner && !isVirtual && !isComposite) ? `<span class="file-browser-actions">
+      <button type="button" data-action="browser-rename-file" data-file-id="${escapeHtml(file.id)}">Rename</button>
+      <button type="button" data-action="browser-copy-file" data-file-id="${escapeHtml(file.id)}">Copy</button>
+      <button type="button" data-action="browser-delete-file" data-file-id="${escapeHtml(file.id)}">Delete</button>
+    </span>` : "";
+    const wgAttr = state.fileBrowserWorkgroupId || (file._sourceWorkgroupId || "");
+    html += `<div class="file-browser-row">
+      <button class="file-browser-item" data-action="browser-open-file" data-file-id="${escapeHtml(file.id)}" data-workgroup="${escapeHtml(wgAttr)}">
+        <span class="finder-icon ${iconClass}">${iconSvg}</span>
+        <span class="file-browser-name">${escapeHtml(file.name)}</span>
+        <span class="file-browser-meta">File</span>
+      </button>
+      ${actions}
+    </div>`;
   }
 
   return html;
 }
 
 function renderFileBrowser() {
+  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
   const data = state.treeData[state.fileBrowserWorkgroupId];
-  if (!data) return;
+  if (!isComposite && !data) return;
 
   const overlay = qs("file-overlay");
   const listing = qs("file-browser-listing");
@@ -1783,44 +2193,78 @@ function renderFileBrowser() {
     listing.innerHTML = "";
     listing.classList.add("hidden");
 
-    // Set file overlay state so edit/delete handlers work
-    state.fileOverlayOpen = true;
-    state.fileOverlayWorkgroupId = state.fileBrowserWorkgroupId;
-    state.fileOverlayFileId = state.fileBrowserFileId;
-
-    const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
-    const file = files.find((f) => f.id === state.fileBrowserFileId);
+    // Resolve the file from composite or workgroup files
+    let file = null;
+    if (isComposite) {
+      file = state.fileBrowserCompositeFiles.find((f) => f.id === state.fileBrowserFileId);
+    } else {
+      const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
+      file = files.find((f) => f.id === state.fileBrowserFileId);
+    }
     if (!file) return;
 
-    const isOwner = isWorkgroupOwner(state.fileBrowserWorkgroupId);
+    // For composite virtual files, route to appropriate UI
+    if (isComposite && file._source) {
+      if (file._source === "virtual-org" && file._orgId) {
+        openOrgSettingsModal(file._orgId);
+        state.fileBrowserFileId = "";
+        renderFileBrowser();
+        return;
+      }
+      if (file._source === "virtual-wg" && file._sourceWorkgroupId) {
+        const wgData = state.treeData[file._sourceWorkgroupId];
+        if (wgData) {
+          state.fileBrowserFileId = "";
+          // Navigate to workgroup-scoped browser
+          openFileBrowser(file._sourceWorkgroupId);
+          return;
+        }
+      }
+      if (file._source === "virtual-agent" && file._sourceWorkgroupId && file._agentId) {
+        openAgentSettings(file._sourceWorkgroupId, file._agentId);
+        state.fileBrowserFileId = "";
+        renderFileBrowser();
+        return;
+      }
+    }
+
+    // Set file overlay state so edit/delete handlers work
+    state.fileOverlayOpen = true;
+    const effectiveWgId = file._sourceWorkgroupId || state.fileBrowserWorkgroupId;
+    state.fileOverlayWorkgroupId = effectiveWgId;
+    state.fileOverlayFileId = state.fileBrowserFileId;
+
+    const isOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(state.fileBrowserWorkgroupId);
+    const isVirtual = file._source && file._source.startsWith("virtual-");
 
     // Reuse existing file rendering logic
+    const displayPath = file._originalPath || file.path;
     pre.textContent = file.content;
     state.fileOverlayShowRaw = false;
     state.fileOverlayLastContent = file.content;
 
     const rawToggle = qs("file-overlay-raw-toggle");
 
-    if (isJsonFile(file.path)) {
+    if (isJsonFile(displayPath)) {
       const parsed = tryParseJson(file.content);
       state.fileOverlayParsedJson = parsed.ok ? parsed.data : null;
 
       if (parsed.ok) {
         rendered.innerHTML = "";
         rendered.classList.add("hidden");
-        if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
-          renderAgentConfigForm(parsed.data, !isOwner);
-        } else if (isWorkgroupConfigPath(file.path)) {
-          renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
+        if (isAgentConfigPath(displayPath) && isAgentConfigShape(parsed.data)) {
+          renderAgentConfigForm(parsed.data, !isOwner || isVirtual);
+        } else if (isWorkgroupConfigPath(displayPath)) {
+          renderWorkgroupConfigForm(parsed.data, !isOwner || isVirtual, new Set(["id", "owner_id", "created_at"]));
         } else {
-          const lockedKeys = file.path.endsWith("workgroup.json")
+          const lockedKeys = displayPath.endsWith("workgroup.json")
             ? new Set(["id", "owner_id", "created_at"])
             : null;
-          renderJsonForm(parsed.data, !isOwner, lockedKeys);
+          renderJsonForm(parsed.data, !isOwner || isVirtual, lockedKeys);
         }
         rawToggle.classList.remove("hidden");
         setFileOverlayViewMode("form");
-        updateFileOverlayEditButton(isOwner, true, true);
+        updateFileOverlayEditButton(isOwner && !isVirtual, true, true);
       } else {
         form.innerHTML = "";
         form.classList.add("hidden");
@@ -1832,9 +2276,9 @@ function renderFileBrowser() {
         state.fileOverlayParsedJson = null;
         const editBtn = qs("file-overlay-edit");
         editBtn.textContent = "Edit";
-        editBtn.classList.toggle("hidden", !isOwner);
+        editBtn.classList.toggle("hidden", !isOwner || isVirtual);
       }
-    } else if (isMarkdownFile(file.path)) {
+    } else if (isMarkdownFile(displayPath)) {
       form.innerHTML = "";
       form.classList.add("hidden");
       state.fileOverlayParsedJson = null;
@@ -1846,15 +2290,15 @@ function renderFileBrowser() {
       rawToggle.classList.remove("hidden");
       const editBtn = qs("file-overlay-edit");
       editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner);
-    } else if (isImageFile(file.path) || isDataUrl(file.content)) {
+      editBtn.classList.toggle("hidden", !isOwner || isVirtual);
+    } else if (isImageFile(displayPath) || isDataUrl(file.content)) {
       form.innerHTML = "";
       form.classList.add("hidden");
       state.fileOverlayParsedJson = null;
       state.fileOverlayViewMode = "raw";
       pre.classList.add("hidden");
       const src = escapeHtml(file.content);
-      rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
+      rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(displayPath)}" class="file-overlay-image" />`;
       rendered.classList.remove("hidden");
       rawToggle.classList.add("hidden");
       qs("file-overlay-edit").classList.add("hidden");
@@ -1869,14 +2313,14 @@ function renderFileBrowser() {
       rawToggle.classList.add("hidden");
       const editBtn = qs("file-overlay-edit");
       editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner);
+      editBtn.classList.toggle("hidden", !isOwner || isVirtual);
     }
 
-    qs("file-overlay-delete").classList.toggle("hidden", !isOwner);
+    qs("file-overlay-delete").classList.toggle("hidden", !isOwner || isVirtual);
 
     // Show composer file context
     const ctxBar = qs("composer-file-context");
-    ctxBar.innerHTML = `<span>Attached: <strong>${escapeHtml(file.path)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
+    ctxBar.innerHTML = `<span>Attached: <strong>${escapeHtml(displayPath)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
     ctxBar.classList.remove("hidden");
   } else {
     // Browsing directory listing
@@ -1894,7 +2338,12 @@ function renderFileBrowser() {
     qs("composer-file-context").classList.add("hidden");
 
     // Navigate to the current path in the file tree
-    const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
+    let files;
+    if (isComposite) {
+      files = state.fileBrowserCompositeFiles;
+    } else {
+      files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
+    }
     const tree = buildWorkgroupFileTree(files);
     let node = tree;
     for (const segment of state.fileBrowserPath) {
@@ -1908,7 +2357,8 @@ function renderFileBrowser() {
       }
     }
 
-    listing.innerHTML = renderFileBrowserListing(node);
+    const isOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(state.fileBrowserWorkgroupId);
+    listing.innerHTML = renderFileBrowserListing(node, isOwner);
     listing.classList.remove("hidden");
   }
 
@@ -2488,6 +2938,8 @@ function clearActiveConversationUI() {
   if (usageEl) usageEl.classList.add("hidden");
   const toolBar = qs("chat-tool-buttons");
   if (toolBar) { toolBar.innerHTML = ""; toolBar.classList.add("hidden"); }
+  const composerForm = qs("message-form");
+  if (composerForm) composerForm.classList.remove("hidden");
 }
 
 function isDestructiveAdminCommand(content) {
@@ -2524,6 +2976,16 @@ function conversationLabel(workgroupId, conversationId) {
   const topic = data.topics.find((item) => item.id === conversationId);
   if (topic) {
     if (topic.kind === "admin") {
+      if (data.workgroup.name === "Administration" && !data.workgroup.organization_id) {
+        return "System Administration";
+      }
+      if (data.workgroup.name === "Administration" && data.workgroup.organization_name) {
+        return `Organization Administration · ${data.workgroup.organization_name}`;
+      }
+      const orgName = data.workgroup.organization_name;
+      if (orgName) {
+        return `Administration · ${orgName} · ${data.workgroup.name}`;
+      }
       return `Administration · ${data.workgroup.name}`;
     }
     return `#${topicDisplayName(topic)}`;
@@ -2556,9 +3018,17 @@ function conversationById(workgroupId, conversationId) {
 
 
 function conversationContextLabel(workgroupId, conversationId) {
-  const workgroupName = state.treeData[workgroupId]?.workgroup.name || workgroupId;
-  const base = `Workgroup: ${workgroupName}`;
+  const data = state.treeData[workgroupId];
+  const workgroupName = data?.workgroup?.name || workgroupId;
   const conversation = conversationById(workgroupId, conversationId);
+  if (workgroupName === "Administration" && conversation?.kind === "admin") {
+    if (!data?.workgroup?.organization_id) {
+      return "System Administration";
+    }
+    const orgName = data.workgroup.organization_name || "Organization";
+    return `Organization Administration · ${orgName}`;
+  }
+  const base = `Workgroup: ${workgroupName}`;
   if (!conversation) {
     return base;
   }
@@ -2642,7 +3112,7 @@ function startThinkingForMessage(postedMessage) {
   let mode = "agent";
   let agentIds = defaultAgentIds;
 
-  if (conversation.kind === "topic") {
+  if (conversation.kind === "topic" || conversation.kind === "engagement") {
     const topicAgents = (data.agents || []).filter((item) => item.description !== "__system_admin_agent__");
     const mentionedAgentIds = topicAgents
       .filter((agent) => isAgentMentioned(postedMessage.content || "", agent))
@@ -2666,6 +3136,7 @@ function startThinkingForMessage(postedMessage) {
     triggerMessageId: postedMessage.id,
     triggerCreatedAtMs: new Date(postedMessage.created_at).getTime(),
     startedAtMs: Date.now(),
+    lastActivityAtMs: Date.now(),
     agentIds,
     mode,
   };
@@ -2683,11 +3154,23 @@ function syncThinkingState(messages) {
     return;
   }
 
-  if (Date.now() - pending.startedAtMs > 60000) {
+  // Time out after 60s of inactivity (no live activity from server).
+  // lastActivityAtMs is reset whenever the server reports live activity.
+  const inactiveMs = Date.now() - (pending.lastActivityAtMs || pending.startedAtMs);
+  if (inactiveMs > 60000) {
     delete state.thinkingByConversation[conversationId];
     return;
   }
 
+  // Hard cap at 5 minutes regardless of activity.
+  if (Date.now() - pending.startedAtMs > 300000) {
+    delete state.thinkingByConversation[conversationId];
+    return;
+  }
+
+  // Only clear thinking when agent replies arrive AND no recent server
+  // activity.  Between chain steps there's a brief gap where liveActivity
+  // is empty, so we use lastActivityAtMs with a grace period instead.
   const hasAgentReply = messages.some((message) => {
     if (message.sender_type !== "agent") {
       return false;
@@ -2700,12 +3183,51 @@ function syncThinkingState(messages) {
   });
 
   if (hasAgentReply) {
-    delete state.thinkingByConversation[conversationId];
+    const recentActivityMs = pending.lastActivityAtMs
+      ? Date.now() - pending.lastActivityAtMs
+      : Infinity;
+    // If the server reported agent activity within the last 15s, the chain
+    // is likely still running — keep the thinking state alive.
+    if (recentActivityMs > 15000) {
+      delete state.thinkingByConversation[conversationId];
+    }
   }
 }
 
 
+function _phaseStatusText(phase, detail) {
+  if (phase === "probing") return "evaluating...";
+  if (phase === "tool" && detail) return `running ${detail}...`;
+  if (phase === "composing") return "composing reply...";
+  return "thinking...";
+}
+
 function renderThinkingRows(workgroupId, pending) {
+  // Use live activity data when available.
+  const liveActivity = pending.liveActivity;
+  if (liveActivity && liveActivity.length) {
+    return liveActivity.map((entry) => {
+      const name = entry.agent_name || agentName(workgroupId, entry.agent_id);
+      const wgData = state.treeData[workgroupId];
+      const thinkingAgent = wgData?.agents?.find((a) => a.id === entry.agent_id);
+      const avatarContent = thinkingAgent?.icon
+        ? `<img src="${escapeHtml(thinkingAgent.icon)}" alt="" />`
+        : generateBotSvg(name);
+      const statusText = _phaseStatusText(entry.phase, entry.detail);
+      return `
+        <article class="message-row agent thinking">
+          <div class="avatar">${avatarContent}</div>
+          <div>
+            <div class="message-meta">
+              <span class="sender">${escapeHtml(name)}</span>
+              <span class="thinking-status"><span class="thinking-dot" aria-hidden="true"></span>${escapeHtml(statusText)}</span>
+            </div>
+          </div>
+        </article>
+      `;
+    }).join("");
+  }
+
   if (pending.mode === "selecting" || !pending.agentIds.length) {
     return `
       <article class="message-row agent thinking">
@@ -2894,8 +3416,55 @@ function refreshActiveConversationHeader() {
   setTextIfPresent("active-conversation", conversationLabel(state.selectedWorkgroupId, state.activeConversationId));
   setTextIfPresent("active-context", conversationContextLabel(state.selectedWorkgroupId, state.activeConversationId));
 
+  // Hide composer for archived conversations
+  const composerForm = qs("message-form");
+  if (composerForm) {
+    if (isActiveConversationArchived()) {
+      composerForm.classList.add("hidden");
+    } else {
+      composerForm.classList.remove("hidden");
+    }
+  }
+
   const toolBar = qs("chat-tool-buttons");
   if (!toolBar) return;
+
+  // Check for engagement actions first
+  const activeEngagement = getActiveEngagement();
+  if (activeEngagement) {
+    const isTargetOwner = isWorkgroupOwner(activeEngagement.target_workgroup_id) && activeEngagement.target_workgroup_id === state.selectedWorkgroupId;
+    const isTargetMember = state.treeData[state.selectedWorkgroupId]?.engagements?.some(
+      (e) => e.id === activeEngagement.id && e.target_workgroup_id === state.selectedWorkgroupId
+    );
+    const isSourceMember = state.treeData[state.selectedWorkgroupId]?.engagements?.some(
+      (e) => e.id === activeEngagement.id && e.source_workgroup_id === state.selectedWorkgroupId
+    );
+
+    let buttons = "";
+    if (isTargetOwner && (activeEngagement.status === "proposed" || activeEngagement.status === "negotiating")) {
+      buttons += `<button type="button" class="chat-tool-btn accept" onclick="engagementRespond('${escapeHtml(activeEngagement.id)}', 'accept')">Accept</button>`;
+      buttons += `<button type="button" class="chat-tool-btn decline" onclick="engagementRespond('${escapeHtml(activeEngagement.id)}', 'decline')">Decline</button>`;
+    }
+    if (isTargetMember && activeEngagement.status === "in_progress") {
+      buttons += `<button type="button" class="chat-tool-btn" onclick="engagementComplete('${escapeHtml(activeEngagement.id)}')">Complete</button>`;
+    }
+    if (isSourceMember && activeEngagement.status === "completed") {
+      buttons += `<button type="button" class="chat-tool-btn" onclick="engagementReview('${escapeHtml(activeEngagement.id)}', 'satisfied')">Satisfied</button>`;
+      buttons += `<button type="button" class="chat-tool-btn" onclick="engagementReview('${escapeHtml(activeEngagement.id)}', 'dissatisfied')">Dissatisfied</button>`;
+    }
+    if (activeEngagement.status !== "cancelled" && activeEngagement.status !== "declined" && activeEngagement.status !== "reviewed") {
+      buttons += `<button type="button" class="chat-tool-btn danger" onclick="engagementCancel('${escapeHtml(activeEngagement.id)}')">Cancel</button>`;
+    }
+
+    if (buttons) {
+      toolBar.innerHTML = `<span class="task-badge ${escapeHtml(activeEngagement.status)}">${escapeHtml(activeEngagement.status)}</span> ` + buttons;
+      toolBar.classList.remove("hidden");
+    } else {
+      toolBar.innerHTML = `<span class="task-badge ${escapeHtml(activeEngagement.status)}">${escapeHtml(activeEngagement.status)}</span>`;
+      toolBar.classList.remove("hidden");
+    }
+    return;
+  }
 
   const agent = getConversationAgent(state.selectedWorkgroupId, state.activeConversationId);
   if (agent && agent.tool_names && agent.tool_names.length) {
@@ -2942,6 +3511,271 @@ function applyAgentUpdateInState(workgroupId, updatedAgent) {
   }
 }
 
+// ── Organization API helpers ──
+
+async function loadOrganizations() {
+  try {
+    state.organizations = await api("/api/organizations");
+  } catch {
+    state.organizations = [];
+  }
+}
+
+async function createOrganization(name, description = "") {
+  const org = await api("/api/organizations", {
+    method: "POST",
+    body: { name, description },
+  });
+  state.organizations = [...state.organizations, org];
+  return org;
+}
+
+async function updateOrganization(orgId, updates) {
+  const org = await api(`/api/organizations/${orgId}`, {
+    method: "PATCH",
+    body: updates,
+  });
+  state.organizations = state.organizations.map((o) => (o.id === org.id ? org : o));
+  return org;
+}
+
+async function deleteOrganization(orgId) {
+  await api(`/api/organizations/${orgId}`, { method: "DELETE" });
+  state.organizations = state.organizations.filter((o) => o.id !== orgId);
+  // Ungroup workgroups in local state
+  for (const wg of state.workgroups) {
+    if (wg.organization_id === orgId) {
+      wg.organization_id = null;
+      wg.organization_name = "";
+    }
+  }
+  for (const data of Object.values(state.treeData)) {
+    if (data.workgroup && data.workgroup.organization_id === orgId) {
+      data.workgroup.organization_id = null;
+      data.workgroup.organization_name = "";
+    }
+  }
+  if (state.bladeOrgId === orgId) {
+    state.bladeOrgId = "";
+  }
+}
+
+function openOrgCreateModal() {
+  openSettingsModal({
+    title: "New Organization",
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">Name</span>
+        <input name="name" type="text" maxlength="120" required placeholder="Organization name" />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Description</span>
+        <textarea name="description" rows="2" placeholder="Optional description"></textarea>
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Create</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const name = String(formData.get("name") || "").trim();
+      if (!name) throw new Error("Organization name cannot be empty");
+      const description = String(formData.get("description") || "").trim();
+      await createOrganization(name, description);
+      await loadWorkgroups();
+      renderTree();
+      flash("Organization created", "success");
+    },
+  });
+}
+
+function openOrgSettingsModal(orgId) {
+  const org = state.organizations.find((o) => o.id === orgId);
+  if (!org) {
+    flash("Organization not found", "error");
+    return;
+  }
+  const isOwner = state.user && org.owner_id === state.user.id;
+  const disabledAttr = isOwner ? "" : "disabled";
+
+  openSettingsModal({
+    title: "Organization settings",
+    subtitle: org.name,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">Name</span>
+        <input name="name" type="text" maxlength="120" required value="${escapeHtml(org.name)}" ${disabledAttr} />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Description</span>
+        <textarea name="description" rows="2" ${disabledAttr}>${escapeHtml(org.description || "")}</textarea>
+      </label>
+      ${isOwner ? `<div class="settings-danger-zone">
+        <button type="button" class="danger" id="delete-org-btn">Delete Organization</button>
+        <span class="settings-hint">Workgroups will be ungrouped, not deleted.</span>
+      </div>` : ""}
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit" ${disabledAttr}>Save</button>
+      </div>
+    `,
+    onRender: () => {
+      const deleteBtn = document.getElementById("delete-org-btn");
+      if (deleteBtn) {
+        deleteBtn.addEventListener("click", async () => {
+          if (!confirm(`Delete organization "${org.name}"? Workgroups will be ungrouped, not deleted.`)) return;
+          try {
+            await deleteOrganization(orgId);
+            closeSettingsModal();
+            await loadWorkgroups();
+            renderTree();
+            flash("Organization deleted", "success");
+          } catch (error) {
+            flash(error.message, "error");
+          }
+        });
+      }
+    },
+    onSubmit: async (formData) => {
+      if (!isOwner) return;
+      const name = String(formData.get("name") || "").trim();
+      if (!name) throw new Error("Organization name cannot be empty");
+      const description = String(formData.get("description") || "").trim();
+      const updated = await updateOrganization(orgId, { name, description });
+      // Update org name on workgroups in local state
+      for (const wg of state.workgroups) {
+        if (wg.organization_id === orgId) wg.organization_name = updated.name;
+      }
+      for (const data of Object.values(state.treeData)) {
+        if (data.workgroup && data.workgroup.organization_id === orgId) {
+          data.workgroup.organization_name = updated.name;
+        }
+      }
+      renderTree();
+      flash("Organization settings saved", "success");
+    },
+  });
+}
+
+async function openSystemSettingsModal() {
+  let config;
+  try {
+    config = await api("/api/system/settings");
+  } catch (error) {
+    flash(error.message, "error");
+    return;
+  }
+
+  const keyPlaceholder = config.anthropic_api_key_set ? "(key is set)" : "Not set";
+
+  openSettingsModal({
+    title: "System settings",
+    subtitle: config.app_name,
+    formHtml: `
+      <p class="meta settings-note">Changes apply for this server session. Restart to restore defaults from environment.</p>
+
+      <div class="settings-section-header">LLM Configuration</div>
+      <label class="settings-field">
+        <span class="settings-label">Default model</span>
+        <input name="llm_default_model" type="text" value="${escapeHtml(config.llm_default_model)}" />
+        <span class="settings-hint">Model used for agent replies</span>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Cheap model</span>
+        <input name="llm_cheap_model" type="text" value="${escapeHtml(config.llm_cheap_model)}" />
+        <span class="settings-hint">Model used for intent probes and summaries</span>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Admin agent model</span>
+        <input name="admin_agent_model" type="text" value="${escapeHtml(config.admin_agent_model)}" />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Intent probe model</span>
+        <input name="intent_probe_model" type="text" value="${escapeHtml(config.intent_probe_model)}" />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Anthropic API key</span>
+        <input name="anthropic_api_key" type="password" placeholder="${escapeHtml(keyPlaceholder)}" />
+        <span class="settings-hint">Leave empty to keep current value</span>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Ollama base URL</span>
+        <input name="ollama_base_url" type="text" value="${escapeHtml(config.ollama_base_url)}" />
+      </label>
+
+      <div class="settings-section-header">Agent Behavior</div>
+      <label class="settings-field">
+        <span class="settings-label">Agent chain max</span>
+        <input name="agent_chain_max" type="number" min="1" max="50" value="${config.agent_chain_max}" />
+        <span class="settings-hint">Max agents that can reply in a chain (1–50)</span>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">SDK max turns</span>
+        <input name="agent_sdk_max_turns" type="number" min="1" max="50" value="${config.agent_sdk_max_turns}" />
+        <span class="settings-hint">Max tool-use turns per agent reply (1–50)</span>
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Follow-up scan limit</span>
+        <input name="follow_up_scan_limit" type="number" min="10" max="1000" value="${config.follow_up_scan_limit}" />
+        <span class="settings-hint">Messages scanned for follow-up triggers (10–1000)</span>
+      </label>
+
+      <div class="settings-section-header">Application</div>
+      <label class="settings-field">
+        <span class="settings-label">App name</span>
+        <input name="app_name" type="text" value="${escapeHtml(config.app_name)}" />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Workspace root</span>
+        <input name="workspace_root" type="text" value="${escapeHtml(config.workspace_root)}" />
+        <span class="settings-hint">Base path for workspace file operations</span>
+      </label>
+      <div class="switch-row">
+        <span class="settings-label">Admin agent uses SDK</span>
+        <input name="admin_agent_use_sdk" type="checkbox" ${config.admin_agent_use_sdk ? "checked" : ""} />
+      </div>
+
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Save</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const patch = {};
+      const str = (name) => String(formData.get(name) || "").trim();
+
+      if (str("llm_default_model") !== config.llm_default_model) patch.llm_default_model = str("llm_default_model");
+      if (str("llm_cheap_model") !== config.llm_cheap_model) patch.llm_cheap_model = str("llm_cheap_model");
+      if (str("admin_agent_model") !== config.admin_agent_model) patch.admin_agent_model = str("admin_agent_model");
+      if (str("intent_probe_model") !== config.intent_probe_model) patch.intent_probe_model = str("intent_probe_model");
+      if (str("ollama_base_url") !== config.ollama_base_url) patch.ollama_base_url = str("ollama_base_url");
+      if (str("app_name") !== config.app_name) patch.app_name = str("app_name");
+      if (str("workspace_root") !== config.workspace_root) patch.workspace_root = str("workspace_root");
+
+      const apiKey = str("anthropic_api_key");
+      if (apiKey) patch.anthropic_api_key = apiKey;
+
+      const chainMax = parseInt(str("agent_chain_max"), 10);
+      if (!isNaN(chainMax) && chainMax !== config.agent_chain_max) patch.agent_chain_max = chainMax;
+      const sdkMax = parseInt(str("agent_sdk_max_turns"), 10);
+      if (!isNaN(sdkMax) && sdkMax !== config.agent_sdk_max_turns) patch.agent_sdk_max_turns = sdkMax;
+      const scanLimit = parseInt(str("follow_up_scan_limit"), 10);
+      if (!isNaN(scanLimit) && scanLimit !== config.follow_up_scan_limit) patch.follow_up_scan_limit = scanLimit;
+
+      const useSdk = formData.has("admin_agent_use_sdk");
+      if (useSdk !== config.admin_agent_use_sdk) patch.admin_agent_use_sdk = useSdk;
+
+      if (Object.keys(patch).length === 0) {
+        flash("No changes to save", "info");
+        return;
+      }
+
+      await api("/api/system/settings", { method: "PATCH", body: patch });
+      flash("System settings saved", "success");
+    },
+  });
+}
+
 function openWorkgroupSettings(workgroupId) {
   const data = state.treeData[workgroupId];
   if (!data) {
@@ -2956,6 +3790,20 @@ function openWorkgroupSettings(workgroupId) {
     ? ""
     : "<p class='meta settings-note'>Only workgroup owners can edit these settings.</p>";
 
+  const orgOptions = state.organizations.map((o) => {
+    const selected = workgroup.organization_id === o.id ? "selected" : "";
+    return `<option value="${escapeHtml(o.id)}" ${selected}>${escapeHtml(o.name)}</option>`;
+  }).join("");
+  const orgSelectHtml = `
+    <label class="settings-field">
+      <span class="settings-label">Organization</span>
+      <select name="organization_id" ${disabledAttr}>
+        <option value=""${!workgroup.organization_id ? " selected" : ""}>No organization (ungrouped)</option>
+        ${orgOptions}
+      </select>
+    </label>
+  `;
+
   openSettingsModal({
     title: "Workgroup settings",
     subtitle: `${workgroup.name} (${workgroup.id.slice(0, 8)})`,
@@ -2968,6 +3816,7 @@ function openWorkgroupSettings(workgroupId) {
         <span class="settings-label">Name</span>
         <input name="name" type="text" maxlength="120" required value="${escapeHtml(workgroup.name)}" ${disabledAttr} />
       </label>
+      ${orgSelectHtml}
       <label class="settings-field">
         <span class="settings-label">Discoverable</span>
         <input name="is_discoverable" type="checkbox" ${workgroup.is_discoverable ? "checked" : ""} ${disabledAttr} />
@@ -3008,9 +3857,15 @@ function openWorkgroupSettings(workgroupId) {
       }
       const isDiscoverable = Boolean(formData.get("is_discoverable"));
       const serviceDescription = String(formData.get("service_description") || "").trim();
+      const body = { name, is_discoverable: isDiscoverable, service_description: serviceDescription };
+      const selectedOrgId = String(formData.get("organization_id") || "");
+      const currentOrgId = workgroup.organization_id || "";
+      if (selectedOrgId !== currentOrgId) {
+        body.organization_id = selectedOrgId;  // "" to ungroup, org ID to assign
+      }
       const updated = await api(`/api/workgroups/${workgroupId}`, {
         method: "PATCH",
-        body: { name, is_discoverable: isDiscoverable, service_description: serviceDescription },
+        body,
       });
       applyWorkgroupUpdateInState(updated);
       flash("Workgroup settings saved", "success");
@@ -3223,12 +4078,256 @@ function deleteWorkgroupFolder(workgroupId, folderPath) {
       if (selectedFileId && matchingIds.has(selectedFileId)) {
         delete state.selectedWorkgroupFileIdByWorkgroup[workgroupId];
       }
+      if (state.fileBrowserOpen) renderFileBrowser();
       renderTree();
       flash(`Folder "${folderPath}" deleted (${matchingFiles.length} file${matchingFiles.length === 1 ? "" : "s"})`, "success");
     })
     .catch((error) => {
       flash(error.message || "Failed to delete folder", "error");
     });
+}
+
+// ── File browser CRUD operations ──
+
+function browserAddFile(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) { flash("Workgroup not loaded", "error"); return; }
+  const pathPrefix = state.fileBrowserPath.length ? state.fileBrowserPath.join("/") + "/" : "";
+  openWorkgroupFileEditor({
+    title: "New file",
+    subtitle: data.workgroup.name,
+    pathValue: pathPrefix,
+    onSubmit: async ({ path, content }) => {
+      const files = normalizeWorkgroupFiles(data.workgroup.files);
+      if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
+      const conversation = conversationById(workgroupId, state.activeConversationId);
+      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
+      await saveWorkgroupFiles(workgroupId, [...files, newFile]);
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("File added", "success");
+    },
+  });
+}
+
+function browserNewFolder(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const name = window.prompt("Folder name:");
+  if (!name || !name.trim()) return;
+  const folderName = normalizePathEntry(name.trim());
+  if (!folderName) { flash("Invalid folder name", "error"); return; }
+  const currentPath = state.fileBrowserPath.join("/");
+  const prefix = currentPath ? currentPath + "/" + folderName + "/" : folderName + "/";
+  openWorkgroupFileEditor({
+    title: "New file in " + folderName,
+    subtitle: data.workgroup.name,
+    pathValue: prefix,
+    onSubmit: async ({ path, content }) => {
+      const files = normalizeWorkgroupFiles(data.workgroup.files);
+      if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
+      const conversation = conversationById(workgroupId, state.activeConversationId);
+      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
+      await saveWorkgroupFiles(workgroupId, [...files, newFile]);
+      state.fileBrowserFileId = "";
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("Folder and file created", "success");
+    },
+  });
+}
+
+function browserRenameFile(workgroupId, fileId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const files = normalizeWorkgroupFiles(data.workgroup.files);
+  const file = files.find(f => f.id === fileId);
+  if (!file) return;
+
+  openSettingsModal({
+    title: "Rename file",
+    subtitle: file.path,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">New path</span>
+        <input name="path" type="text" required maxlength="512" value="${escapeHtml(file.path)}" />
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Rename</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const newPath = normalizePathEntry(String(formData.get("path") || "").trim());
+      if (!newPath) throw new Error("File path cannot be empty");
+      if (files.some(f => f.id !== fileId && f.path === newPath)) {
+        throw new Error("A file with that path already exists");
+      }
+      const updated = files.map(f => f.id === fileId ? { ...f, path: newPath } : f);
+      await saveWorkgroupFiles(workgroupId, updated);
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("File renamed", "success");
+    },
+  });
+}
+
+function browserCopyFile(workgroupId, fileId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const files = normalizeWorkgroupFiles(data.workgroup.files);
+  const file = files.find(f => f.id === fileId);
+  if (!file) return;
+
+  const existingPaths = new Set(files.map(f => f.path));
+  const dot = file.path.lastIndexOf(".");
+  const base = dot > 0 ? file.path.slice(0, dot) : file.path;
+  const ext = dot > 0 ? file.path.slice(dot) : "";
+  let copyPath = base + " (copy)" + ext;
+  let n = 2;
+  while (existingPaths.has(copyPath)) {
+    copyPath = base + " (copy " + n + ")" + ext;
+    n++;
+  }
+
+  const newFile = { id: newWorkgroupFileId(), path: copyPath, content: file.content, topic_id: file.topic_id };
+  saveWorkgroupFiles(workgroupId, [...files, newFile])
+    .then(() => {
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("File copied", "success");
+    })
+    .catch(error => flash(error.message || "Failed to copy file", "error"));
+}
+
+function browserDeleteFile(workgroupId, fileId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const files = normalizeWorkgroupFiles(data.workgroup.files);
+  const file = files.find(f => f.id === fileId);
+  if (!file) return;
+
+  if (!window.confirm(`Delete "${file.path}"?`)) return;
+
+  const remaining = files.filter(f => f.id !== fileId);
+  saveWorkgroupFiles(workgroupId, remaining)
+    .then(() => {
+      if (state.fileBrowserFileId === fileId) state.fileBrowserFileId = "";
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("File deleted", "success");
+    })
+    .catch(error => flash(error.message || "Failed to delete file", "error"));
+}
+
+function browserRenameFolder(workgroupId, folderPath) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  const parts = folderPath.split("/");
+  const oldName = parts[parts.length - 1];
+
+  openSettingsModal({
+    title: "Rename folder",
+    subtitle: folderPath,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">New name</span>
+        <input name="name" type="text" required maxlength="256" value="${escapeHtml(oldName)}" />
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Rename</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const newName = normalizePathEntry(String(formData.get("name") || "").trim());
+      if (!newName) throw new Error("Folder name cannot be empty");
+      const parentPath = parts.slice(0, -1).join("/");
+      const newFolderPath = parentPath ? parentPath + "/" + newName : newName;
+      if (newFolderPath === folderPath) return;
+
+      const files = normalizeWorkgroupFiles(data.workgroup.files);
+      const prefix = folderPath + "/";
+      const newPrefix = newFolderPath + "/";
+
+      if (files.some(f => !f.path.startsWith(prefix) && f.path.startsWith(newPrefix))) {
+        throw new Error("A folder with that name already exists");
+      }
+
+      const updated = files.map(f => {
+        if (f.path === folderPath || f.path.startsWith(prefix)) {
+          return { ...f, path: newFolderPath + f.path.slice(folderPath.length) };
+        }
+        return f;
+      });
+      await saveWorkgroupFiles(workgroupId, updated);
+      // Update browser path if we're inside the renamed folder
+      const browserPrefix = folderPath.split("/");
+      const currentPath = state.fileBrowserPath.join("/");
+      if (currentPath === folderPath || currentPath.startsWith(folderPath + "/")) {
+        state.fileBrowserPath = newFolderPath.split("/").concat(
+          state.fileBrowserPath.slice(browserPrefix.length)
+        );
+      }
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash("Folder renamed", "success");
+    },
+  });
+}
+
+function browserCopyFolder(workgroupId, folderPath) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+
+  const parts = folderPath.split("/");
+  const oldName = parts[parts.length - 1];
+
+  openSettingsModal({
+    title: "Copy folder",
+    subtitle: folderPath,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">New folder name</span>
+        <input name="name" type="text" required maxlength="256" value="${escapeHtml(oldName + " (copy)")}" />
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Copy</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const newName = normalizePathEntry(String(formData.get("name") || "").trim());
+      if (!newName) throw new Error("Folder name cannot be empty");
+      const parentPath = parts.slice(0, -1).join("/");
+      const newFolderPath = parentPath ? parentPath + "/" + newName : newName;
+
+      const files = normalizeWorkgroupFiles(data.workgroup.files);
+      const prefix = folderPath + "/";
+      const matching = files.filter(f => f.path === folderPath || f.path.startsWith(prefix));
+      if (!matching.length) { flash("No files to copy", "info"); return; }
+
+      const copies = matching.map(f => ({
+        id: newWorkgroupFileId(),
+        path: newFolderPath + f.path.slice(folderPath.length),
+        content: f.content,
+        topic_id: f.topic_id,
+      }));
+
+      const existingPaths = new Set(files.map(f => f.path));
+      for (const c of copies) {
+        if (existingPaths.has(c.path)) throw new Error(`File "${c.path}" already exists`);
+      }
+
+      await saveWorkgroupFiles(workgroupId, [...files, ...copies]);
+      if (state.fileBrowserOpen) renderFileBrowser();
+      renderTree();
+      flash(`Folder copied (${copies.length} file${copies.length !== 1 ? "s" : ""})`, "success");
+    },
+  });
 }
 
 async function ensureAgentLearningsFile(workgroupId, agent) {
@@ -3881,16 +4980,21 @@ function openMemberContactCard(workgroupId, memberId) {
 
 async function refreshWorkgroupTree(workgroup) {
   const isOwner = workgroup.owner_id === state.user?.id;
-  const [conversations, members, agents, crossGroupTasks, invites] = await Promise.all([
-    api(`/api/workgroups/${workgroup.id}/conversations`),
+  const [conversations, members, agents, crossGroupTasks, engagements, invites] = await Promise.all([
+    api(`/api/workgroups/${workgroup.id}/conversations?include_archived=true`),
     api(`/api/workgroups/${workgroup.id}/members`),
-    api(`/api/workgroups/${workgroup.id}/agents?include_hidden=true`),
+    api(`/api/workgroups/${workgroup.id}/agents${isOwner ? "?include_hidden=true" : ""}`),
     api(`/api/workgroups/${workgroup.id}/cross-group-tasks`).catch(() => []),
+    api(`/api/workgroups/${workgroup.id}/engagements`).catch(() => []),
     isOwner ? api(`/api/workgroups/${workgroup.id}/invites`).catch(() => []) : Promise.resolve([]),
   ]);
 
-  const topics = conversations.filter((item) => item.kind === "topic" || item.kind === "admin");
+  const engagementConversationIds = new Set(
+    (engagements || []).flatMap((e) => [e.source_conversation_id, e.target_conversation_id].filter(Boolean))
+  );
+  const topics = conversations.filter((item) => (item.kind === "topic" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id));
   const directs = conversations.filter((item) => item.kind === "direct");
+  const engagementConversations = conversations.filter((item) => item.kind === "engagement" || engagementConversationIds.has(item.id));
 
   const pendingInvites = (invites || []).filter((inv) => inv.status === "pending");
 
@@ -3901,6 +5005,8 @@ async function refreshWorkgroupTree(workgroup) {
     members,
     agents,
     crossGroupTasks: crossGroupTasks || [],
+    engagements: engagements || [],
+    engagementConversations,
     invites: pendingInvites,
   };
 
@@ -3921,22 +5027,40 @@ function renderTree() {
   const addBtn = document.getElementById("new-workgroup-toggle");
 
   if (!state.workgroups.length) {
-    if (breadcrumb) breadcrumb.innerHTML = "<span>Workgroups</span>";
-    if (createWrap) createWrap.classList.remove("hidden-by-blade");
-    if (addBtn) addBtn.classList.remove("hidden");
-    node.innerHTML = "<p class='tree-caption'>No workgroups yet.</p>";
+    if (breadcrumb) breadcrumb.innerHTML = "<span>Organizations</span>";
+    if (createWrap) createWrap.classList.add("hidden-by-blade");
+    if (addBtn) addBtn.classList.add("hidden");
+    node.innerHTML = "<p class='tree-caption'>Create an organization to get started.</p>";
     updateMetrics();
     return;
   }
 
+  // Partition workgroups by organization (used at multiple levels)
+  const orgGroups = new Map();
+  for (const wg of state.workgroups) {
+    if (wg.organization_id && wg.organization_name) {
+      if (!orgGroups.has(wg.organization_id)) {
+        orgGroups.set(wg.organization_id, { name: wg.organization_name, workgroups: [] });
+      }
+      orgGroups.get(wg.organization_id).workgroups.push(wg);
+    }
+  }
+
+  const renderWgButton = (workgroup) => {
+    const activeClass = workgroup.id === state.selectedWorkgroupId ? "active" : "";
+    const unreadDot = workgroupHasUnread(workgroup.id) ? `<span class="unread-dot"></span>` : "";
+    return `<div class="blade-workgroup-row"><button class="blade-workgroup-item ${activeClass}" data-action="drill-workgroup" data-workgroup="${escapeHtml(workgroup.id)}">${escapeHtml(workgroup.name)}</button>${unreadDot}</div>`;
+  };
+
   const drillId = state.bladeWorkgroupId;
 
-  if (!drillId) {
-    // ── List View ──
-    if (breadcrumb) breadcrumb.innerHTML = "<span>Workgroups</span>";
-    if (createWrap) createWrap.classList.remove("hidden-by-blade");
-    if (addBtn) addBtn.classList.remove("hidden");
+  if (!drillId && !state.bladeOrgId) {
+    // ── Root: Organizations level (sectioned layout) ──
+    if (breadcrumb) breadcrumb.innerHTML = "<span>Organizations</span>";
+    if (createWrap) createWrap.classList.add("hidden-by-blade");
+    if (addBtn) addBtn.classList.add("hidden");
 
+    // Invites section
     let invitesHtml = "";
     if (state.myInvites.length > 0) {
       const cards = state.myInvites.map((inv) => {
@@ -3958,19 +5082,183 @@ function renderTree() {
       </div>`;
     }
 
-    const wgHtml = state.workgroups
-      .map((workgroup) => {
-        const activeClass = workgroup.id === state.selectedWorkgroupId ? "active" : "";
-        return `<button class="blade-workgroup-item ${activeClass}" data-action="drill-workgroup" data-workgroup="${escapeHtml(workgroup.id)}">${escapeHtml(workgroup.name)}</button>`;
-      })
-      .join("");
+    // Organizations section
+    const sortedOrgs = [...orgGroups.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
+    const orgItems = sortedOrgs.map(([orgId, group]) => {
+      const hasUnread = group.workgroups.some((w) => workgroupHasUnread(w.id));
+      const unreadDot = hasUnread ? `<span class="unread-dot"></span>` : "";
+      return `<div class="tree-item-row">
+        <button class="tree-button" data-action="drill-org" data-org="${escapeHtml(orgId)}">${escapeHtml(group.name)}<span class="org-group-count">${group.workgroups.length}</span></button>
+        ${unreadDot}
+        <button type="button" class="tree-gear" data-action="settings-org" data-org="${escapeHtml(orgId)}" aria-label="Organization settings for ${escapeHtml(group.name)}">${GEAR_ICON_SVG}</button>
+      </div>`;
+    }).join("");
 
-    node.innerHTML = `${invitesHtml}<div class="tree-list">${wgHtml}</div>`;
+    const orgsContent = orgItems || "<div class='tree-caption'>No organizations</div>";
+
+    // Administration button — opens the Administration workgroup's admin conversation
+    const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
+    const adminButton = (state.user?.is_system_admin && adminWg)
+      ? `<div class="tree-item-row">
+          <button class="tree-button admin" data-action="open-sysadmin" data-workgroup="${escapeHtml(adminWg.id)}">System Administration</button>
+          <button type="button" class="tree-gear" data-action="settings-system" aria-label="System settings">${GEAR_ICON_SVG}</button>
+        </div>`
+      : "";
+
+    const filesSection = "";
+
+    // Engagements section (placeholder)
+    const engagementsSection = `<div class="tree-section">
+      <div class="tree-section-title"><span>Engagements</span></div>
+      <div class="tree-list"><div class="tree-caption">No engagements</div></div>
+    </div>`;
+
+    node.innerHTML = `
+      ${adminButton}
+      ${invitesHtml}
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Organizations</span><button type="button" class="tree-tool" data-action="new-org">+</button></div>
+        <div class="tree-list">${orgsContent}</div>
+      </div>
+      ${engagementsSection}
+      ${filesSection}
+    `;
     updateMetrics();
     return;
   }
 
-  // ── Detail View ──
+  if (state.bladeOrgId && !drillId) {
+    // ── Org View: workgroups in this organization (sectioned layout) ──
+    const orgData = orgGroups.get(state.bladeOrgId);
+    if (!orgData) {
+      state.bladeOrgId = "";
+      renderTree();
+      return;
+    }
+
+    if (breadcrumb) {
+      breadcrumb.innerHTML = `<button data-action="blade-back" class="blade-crumb-link">Organizations</button><span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(orgData.name)}</span>`;
+    }
+    if (createWrap) createWrap.classList.add("hidden-by-blade");
+    if (addBtn) addBtn.classList.add("hidden");
+
+    // Administration button — opens org admin chat
+    const orgAdminButton = `<div class="tree-item-row">
+      <button class="tree-button admin" data-action="open-org-admin" data-org="${escapeHtml(state.bladeOrgId)}">Organization Administration</button>
+    </div>`;
+
+    // Workgroups section (exclude org-level Administration workgroup)
+    const visibleOrgWorkgroups = orgData.workgroups.filter(wg => wg.name !== "Administration");
+    const wgItems = visibleOrgWorkgroups.map((wg) => {
+      const unreadDot = workgroupHasUnread(wg.id) ? `<span class="unread-dot"></span>` : "";
+      return `<div class="tree-item-row">
+        <button class="tree-button" data-action="drill-workgroup" data-workgroup="${escapeHtml(wg.id)}">${escapeHtml(wg.name)}</button>
+        ${unreadDot}
+        <button type="button" class="tree-gear" data-action="settings-workgroup" data-workgroup="${escapeHtml(wg.id)}" aria-label="Workgroup settings for ${escapeHtml(wg.name)}">${GEAR_ICON_SVG}</button>
+      </div>`;
+    }).join("");
+    const wgContent = wgItems || "<div class='tree-caption'>No workgroups</div>";
+
+    // Members section — humans (deduplicated) then agents, matching workgroup layout
+    const seenUserIds = new Set();
+    const orgHumans = [];
+    for (const wg of visibleOrgWorkgroups) {
+      const wgData = state.treeData[wg.id];
+      if (!wgData?.members) continue;
+      for (const member of wgData.members) {
+        if (seenUserIds.has(member.user_id)) continue;
+        seenUserIds.add(member.user_id);
+        orgHumans.push({ member, workgroup: wg });
+      }
+    }
+    // Owner first, then alphabetical
+    const orgRecord = state.organizations.find(o => o.id === state.bladeOrgId);
+    const orgOwner = orgRecord?.owner_id || "";
+    orgHumans.sort((a, b) => {
+      if (a.member.user_id === orgOwner && b.member.user_id !== orgOwner) return -1;
+      if (b.member.user_id === orgOwner && a.member.user_id !== orgOwner) return 1;
+      return (a.member.name || a.member.email).localeCompare(b.member.name || b.member.email);
+    });
+
+    const orgAgents = [];
+    for (const wg of visibleOrgWorkgroups) {
+      const wgData = state.treeData[wg.id];
+      if (!wgData?.agents) continue;
+      for (const agent of wgData.agents) {
+        if (agent.description === "__system_admin_agent__") continue;
+        orgAgents.push({ agent, workgroup: wg });
+      }
+    }
+    orgAgents.sort((a, b) => a.agent.name.localeCompare(b.agent.name));
+
+    const orgMemberNodes = [
+      ...orgHumans.map(({ member, workgroup: wg }) => {
+        const name = member.name || member.email;
+        const isOrgOwner = member.user_id === orgOwner;
+        const roleSuffix = isOrgOwner ? " (owner)" : "";
+        const selfSuffix = member.user_id === state.user?.id ? " (you)" : "";
+        const label = `${escapeHtml(name)}${selfSuffix}${roleSuffix}`;
+        const memberAvatar = member.picture
+          ? `<span class="tree-avatar human"><img src="${escapeHtml(member.picture)}" alt="" /></span>`
+          : `<span class="tree-avatar human">${generateHumanSvg(name)}</span>`;
+        const isSelf = member.user_id === state.user?.id;
+        const clickableClass = isSelf ? "no-click" : "";
+        const action = isSelf ? "" : `data-action="open-member"`;
+        const memberDm = !isSelf ? directConversationForMember(wg.id, member.user_id) : null;
+        const memberUnreadDot = memberDm && isConversationUnread(memberDm) ? `<span class="unread-dot"></span>` : "";
+        return `
+          <div class="tree-item-row">
+            <button class="tree-button member ${clickableClass}" ${action} data-workgroup="${escapeHtml(wg.id)}" data-member="${escapeHtml(member.user_id)}">
+              ${memberAvatar}
+              <span>${label}</span>
+            </button>
+            ${memberUnreadDot}
+            <button type="button" class="tree-gear" data-action="settings-member" data-workgroup="${escapeHtml(wg.id)}" data-member="${escapeHtml(member.user_id)}" aria-label="Contact card for ${escapeHtml(name)}">${GEAR_ICON_SVG}</button>
+          </div>
+        `;
+      }),
+      ...orgAgents.map(({ agent, workgroup: wg }) => {
+        const agentAvatar = agent.icon
+          ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
+          : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
+        const agentDm = directConversationForAgent(wg.id, agent.id);
+        const agentUnreadDot = agentDm && isConversationUnread(agentDm) ? `<span class="unread-dot"></span>` : "";
+        return `
+          <div class="tree-item-row">
+            <button class="tree-button member" data-action="open-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}">
+              ${agentAvatar}
+              <span>${escapeHtml(agent.name)}</span>
+              <span class="finder-kind">${escapeHtml(wg.name)}</span>
+            </button>
+            ${agentUnreadDot}
+            <button type="button" class="tree-gear" data-action="settings-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}" aria-label="Agent settings for ${escapeHtml(agent.name)}">${GEAR_ICON_SVG}</button>
+          </div>
+        `;
+      }),
+    ].join("");
+
+    const orgMemberContent = orgMemberNodes || "<div class='tree-caption'>No members</div>";
+
+    node.innerHTML = `
+      ${orgAdminButton}
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Workgroups</span><button type="button" class="tree-tool" data-action="create-workgroup-in-org" data-org="${escapeHtml(state.bladeOrgId)}">+</button></div>
+        <div class="tree-list">${wgContent}</div>
+      </div>
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Members</span></div>
+        <div class="tree-list">${orgMemberContent}</div>
+      </div>
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Engagements</span></div>
+        <div class="tree-list"><div class="tree-caption">No engagements</div></div>
+      </div>
+    `;
+    updateMetrics();
+    return;
+  }
+
+  // ── Workgroup Detail View ──
   const workgroup = state.workgroups.find((w) => w.id === drillId);
   if (!workgroup) {
     state.bladeWorkgroupId = "";
@@ -3985,28 +5273,55 @@ function renderTree() {
     return;
   }
 
-  // Update breadcrumb
+  // Update breadcrumb — Orgs › OrgName › WorkgroupName  or  Orgs › WorkgroupName
   if (breadcrumb) {
-    breadcrumb.innerHTML = `<button data-action="blade-back" class="blade-crumb-link">Workgroups</button><span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(workgroup.name)}</span><button class="tree-gear summary" data-action="settings-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}">${GEAR_ICON_SVG}</button><button class="tree-gear summary" data-action="settings-tools" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Tools manifest for ${escapeHtml(workgroup.name)}" title="Tools"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+    let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link">Organizations</button>`;
+    if (workgroup.organization_id && workgroup.organization_name) {
+      crumbs += `<span class="blade-crumb-sep">\u203A</span><button data-action="blade-back" class="blade-crumb-link">${escapeHtml(workgroup.organization_name)}</button>`;
+    }
+    crumbs += `<span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(workgroup.name)}</span>`;
+    crumbs += `<button class="tree-gear summary" data-action="settings-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}">${GEAR_ICON_SVG}</button><button class="tree-gear summary" data-action="settings-tools" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Tools manifest for ${escapeHtml(workgroup.name)}" title="Tools"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+    breadcrumb.innerHTML = crumbs;
   }
 
   // Hide create form and + button in detail view
   if (createWrap) createWrap.classList.add("hidden-by-blade");
   if (addBtn) addBtn.classList.add("hidden");
 
-  // Topics
-  const topicNodes = data.topics.length
-    ? data.topics
+  // Split admin conversation from regular topics
+  const allWorkgroupFiles = normalizeWorkgroupFiles(data.workgroup?.files);
+  const adminConversation = data.topics.find(c => c.kind === "admin");
+  const regularTopics = data.topics.filter(c => c.kind !== "admin");
+
+  // Administration button — standalone at top of blade
+  let wgAdminButton = "";
+  if (adminConversation) {
+    const adminKey = `topic:${workgroup.id}:${adminConversation.id}`;
+    const adminActiveClass = state.activeNodeKey === adminKey ? "active" : "";
+    wgAdminButton = `<div class="tree-item-row">
+      <button class="tree-button admin ${adminActiveClass}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(adminConversation.id)}">Workgroup Administration</button>
+    </div>`;
+  }
+
+  // Topics (excluding admin)
+  const topicNodes = regularTopics.length
+    ? regularTopics
         .map((conversation) => {
           const key = `topic:${workgroup.id}:${conversation.id}`;
           const activeClass = state.activeNodeKey === key ? "active" : "";
-          const isAdmin = conversation.kind === "admin";
-          const classes = `tree-button ${isAdmin ? "admin " : ""}${activeClass}`.trim();
           const displayName = topicDisplayName(conversation);
-          const label = isAdmin ? escapeHtml(displayName) : `# ${escapeHtml(displayName)}`;
+          const archived = conversation.is_archived;
+          const archivedClass = archived ? " archived" : "";
+          const archiveIcon = archived ? `<span class="archive-icon" title="Archived">&#x1f512;</span>` : "";
+          const label = `# ${escapeHtml(displayName)}`;
+          const unreadDot = !archived && isConversationUnread(conversation) ? `<span class="unread-dot"></span>` : "";
+          const topicFileCount = allWorkgroupFiles.filter(f => f.topic_id === conversation.id).length;
+          const fileBadge = topicFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-topic-files" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${topicFileCount} file${topicFileCount !== 1 ? "s" : ""}</button>` : "";
           return `
-            <div class="tree-item-row">
-              <button class="${classes}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${label}</button>
+            <div class="tree-item-row${archivedClass}">
+              <button class="tree-button ${activeClass}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${archiveIcon}${label}</button>
+              ${unreadDot}
+              ${fileBadge}
               <button
                 type="button"
                 class="tree-gear"
@@ -4047,9 +5362,12 @@ function renderTree() {
       const activeClass = !isSelf && state.activeNodeKey === key ? "active" : "";
       const action = isSelf ? "" : `data-action="open-member"`;
       const clickableClass = isSelf ? "no-click" : "";
+      const memberDm = !isSelf ? directConversationForMember(workgroup.id, member.user_id) : null;
+      const memberUnreadDot = memberDm && isConversationUnread(memberDm) ? `<span class="unread-dot"></span>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member ${clickableClass} ${activeClass}" ${action} data-workgroup="${escapeHtml(workgroup.id)}" data-member="${escapeHtml(member.user_id)}">${memberAvatar}<span>${label}</span></button>
+          ${memberUnreadDot}
           <button
             type="button"
             class="tree-gear"
@@ -4067,12 +5385,15 @@ function renderTree() {
       const agentAvatar = agent.icon
         ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
         : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
+      const agentDm = directConversationForAgent(workgroup.id, agent.id);
+      const agentUnreadDot = agentDm && isConversationUnread(agentDm) ? `<span class="unread-dot"></span>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member ${activeClass}" data-action="open-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
             ${agentAvatar}
             <span>${escapeHtml(agent.name)}</span>
           </button>
+          ${agentUnreadDot}
           <button
             type="button"
             class="tree-gear"
@@ -4106,20 +5427,13 @@ function renderTree() {
     }),
   ].join("");
 
-  const fileCount = normalizeWorkgroupFiles(data.workgroup?.files).length;
-  const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
-
-  const html = `
-    <div class="tree-section">
-      <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
-      <div class="tree-list">${topicNodes}</div>
-    </div>
-
-    <div class="tree-section">
-      <div class="tree-section-title"><span>Members</span>${isWorkgroupOwner(workgroup.id) ? `<button type="button" class="tree-tool" data-action="invite-member" data-workgroup="${escapeHtml(workgroup.id)}">+</button>` : ""}</div>
-      <div class="tree-list">${memberNodes || "<div class='tree-caption'>No members</div>"}</div>
-    </div>
-
+  const hasChatSelected = state.activeConversationId && state.selectedWorkgroupId === workgroup.id;
+  let filesSection = "";
+  if (hasChatSelected) {
+    const scopedFiles = filesForConversationContext(allWorkgroupFiles, workgroup.id);
+    const fileCount = scopedFiles.length;
+    const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
+    filesSection = `
     <div class="tree-section">
       <div class="tree-section-title">Files</div>
       <div class="tree-list">
@@ -4129,7 +5443,45 @@ function renderTree() {
           <span class="finder-kind">${filesLabel}</span>
         </button>
       </div>
+    </div>`;
+  }
+
+  // Engagements section
+  const engagementItems = (data.engagements || []);
+  const engagementNodes = engagementItems.length
+    ? engagementItems.map((eng) => {
+        // Find the conversation for this engagement in this workgroup
+        const convId = eng.source_workgroup_id === workgroup.id ? eng.source_conversation_id : eng.target_conversation_id;
+        const key = `engagement:${workgroup.id}:${eng.id}`;
+        const activeClass = state.activeNodeKey === key ? "active" : "";
+        const statusClass = eng.status || "proposed";
+        return `
+          <div class="tree-item-row">
+            <button class="tree-button ${activeClass}" data-action="open-engagement" data-workgroup="${escapeHtml(workgroup.id)}" data-engagement="${escapeHtml(eng.id)}" data-conversation="${escapeHtml(convId || "")}">${escapeHtml(eng.title)}<span class="task-badge ${escapeHtml(statusClass)}">${escapeHtml(eng.status)}</span></button>
+          </div>
+        `;
+      }).join("")
+    : "<div class='tree-caption'>No engagements</div>";
+
+  const html = `
+    ${wgAdminButton}
+
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
+      <div class="tree-list">${topicNodes}</div>
     </div>
+
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Engagements</span><button type="button" class="tree-tool" data-action="propose-engagement" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
+      <div class="tree-list">${engagementNodes}</div>
+    </div>
+
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Members</span>${isWorkgroupOwner(workgroup.id) ? `<button type="button" class="tree-tool" data-action="invite-member" data-workgroup="${escapeHtml(workgroup.id)}">+</button>` : ""}</div>
+      <div class="tree-list">${memberNodes || "<div class='tree-caption'>No members</div>"}</div>
+    </div>
+
+    ${filesSection}
   `;
 
   node.innerHTML = html;
@@ -4146,6 +5498,7 @@ async function loadMyInvites() {
 
 async function loadWorkgroups() {
   state.workgroups = await api("/api/workgroups");
+  await loadOrganizations();
   state.treeData = {};
   const workgroupIds = new Set(state.workgroups.map((workgroup) => workgroup.id));
   state.expandedWorkgroupIds = Object.fromEntries(
@@ -4153,6 +5506,10 @@ async function loadWorkgroups() {
   );
   if (state.bladeWorkgroupId && !workgroupIds.has(state.bladeWorkgroupId)) {
     state.bladeWorkgroupId = "";
+  }
+  if (state.bladeOrgId) {
+    const orgStillExists = state.workgroups.some((w) => w.organization_id === state.bladeOrgId);
+    if (!orgStillExists) state.bladeOrgId = "";
   }
 
   await Promise.all(state.workgroups.map((workgroup) => refreshWorkgroupTree(workgroup)));
@@ -4164,37 +5521,33 @@ async function loadWorkgroups() {
     return;
   }
 
-  let targetWorkgroupId = state.selectedWorkgroupId;
-  if (!targetWorkgroupId || !state.treeData[targetWorkgroupId]) {
-    targetWorkgroupId = state.workgroups[0].id;
+  // If user had no active conversation, don't force-select one
+  if (!state.activeConversationId) {
+    renderTree();
+    return;
   }
 
-  const existingConversation =
-    targetWorkgroupId === state.selectedWorkgroupId
-      ? conversationById(targetWorkgroupId, state.activeConversationId)
-      : null;
-  const targetConversation = existingConversation || fallbackConversation(targetWorkgroupId);
-
-  if (!targetConversation) {
-    state.selectedWorkgroupId = targetWorkgroupId;
+  let targetWorkgroupId = state.selectedWorkgroupId;
+  if (!targetWorkgroupId || !state.treeData[targetWorkgroupId]) {
+    // The workgroup the user was viewing no longer exists — clear selection
     clearActiveConversationUI();
     renderTree();
     return;
   }
 
-  const targetNodeKey = nodeKeyForConversation(targetWorkgroupId, targetConversation);
-  const selectionChanged =
-    state.selectedWorkgroupId !== targetWorkgroupId || state.activeConversationId !== targetConversation.id;
-  if (selectionChanged) {
-    await selectConversation(targetWorkgroupId, targetConversation.id, targetNodeKey);
+  const existingConversation = conversationById(targetWorkgroupId, state.activeConversationId);
+  if (!existingConversation) {
+    // The conversation the user was viewing no longer exists — clear selection
+    clearActiveConversationUI();
+    renderTree();
     return;
   }
 
-  state.selectedWorkgroupId = targetWorkgroupId;
+  const targetNodeKey = nodeKeyForConversation(targetWorkgroupId, existingConversation);
   state.activeNodeKey = targetNodeKey || state.activeNodeKey;
   refreshActiveConversationHeader();
   renderTree();
-  if (state.activeConversationId && state.activeMessages.length) {
+  if (state.activeMessages.length) {
     renderMessages(state.activeMessages);
   }
 }
@@ -4203,10 +5556,14 @@ async function selectConversation(workgroupId, conversationId, nodeKey = "") {
   closeFileOverlay();
 
   state.selectedWorkgroupId = workgroupId;
-  state.bladeWorkgroupId = workgroupId;
   state.activeConversationId = conversationId;
   state.activeNodeKey = nodeKey;
   state.usagePollCounter = 0;
+
+  // Mark conversation as read
+  const prefs = (state.user && state.user.preferences) || {};
+  const lastRead = { ...(prefs.conversationLastRead || {}), [conversationId]: new Date().toISOString() };
+  savePreferences({ conversationLastRead: lastRead });
 
   refreshActiveConversationHeader();
 
@@ -4282,7 +5639,7 @@ function renderMessages(messages) {
           <div class="avatar">${avatarContent}</div>
           <div>
             <div class="message-meta"><span class="sender">${escapeHtml(senderLabel(wgId, message))}</span>${escapeHtml(new Date(message.created_at).toLocaleString())}</div>
-            <div class="message-text">${message.sender_type === "system" ? '<span class="synced-badge">[synced]</span> ' : ''}${(() => { const fc = parseFileContext(message.content); if (fc) return `<div class="message-file-context" onclick="this.classList.toggle('expanded')"><span class="message-file-context-toggle">\u{1F4CE} ${escapeHtml(fc.path)}</span><pre class="message-file-context-content">${escapeHtml(fc.fileContent)}</pre></div>${escapeHtml(fc.message)}`; return escapeHtml(message.content); })()}</div>
+            <div class="message-text">${message.sender_type === "system" ? '<span class="synced-badge">[synced]</span> ' : ''}${(() => { const fc = parseFileContext(message.content); if (fc) return `<div class="message-file-context" onclick="this.classList.toggle('expanded')"><span class="message-file-context-toggle">\u{1F4CE} ${escapeHtml(fc.path)}</span><pre class="message-file-context-content">${escapeHtml(fc.fileContent)}</pre></div>${linkifyUrls(escapeHtml(fc.message))}`; return linkifyUrls(escapeHtml(message.content)); })()}</div>${message.sender_type === "agent" && isShowAgentThoughts() && state.thoughtsByMessageId[message.id] ? renderThoughtsSection(state.thoughtsByMessageId[message.id]) : ""}
           </div>
         </article>
       `;
@@ -4325,8 +5682,35 @@ async function loadMessages() {
   }
 
   const messages = await api(`/api/conversations/${state.activeConversationId}/messages`);
+  if (isShowAgentThoughts()) {
+    const agentMsgIds = messages.filter((m) => m.sender_type === "agent").map((m) => m.id);
+    if (agentMsgIds.length) await loadThoughtsForMessages(agentMsgIds);
+  }
   renderMessages(messages);
   return messages;
+}
+
+async function pollMessages() {
+  if (!state.activeConversationId) {
+    return state.activeMessages;
+  }
+
+  const existing = state.activeMessages.filter((m) => !m.id.startsWith("local-"));
+  const sinceId = existing.length ? existing[existing.length - 1].id : "";
+  const url = sinceId
+    ? `/api/conversations/${state.activeConversationId}/messages?since_id=${encodeURIComponent(sinceId)}`
+    : `/api/conversations/${state.activeConversationId}/messages`;
+
+  const newMessages = await api(url, { retries: 0, timeout: 10000 });
+  if (!newMessages.length) {
+    return state.activeMessages;
+  }
+
+  const existingIds = new Set(state.activeMessages.map((m) => m.id));
+  const optimistic = state.activeMessages.filter((m) => m.id.startsWith("local-"));
+  const merged = [...existing, ...newMessages.filter((m) => !existingIds.has(m.id)), ...optimistic];
+  renderMessages(merged);
+  return merged;
 }
 
 function formatTokenCount(count) {
@@ -4374,13 +5758,18 @@ async function loadConversationUsage(conversationId) {
   }
 }
 
+const POLL_BASE_INTERVAL = 4000;
+const POLL_MAX_INTERVAL = 60000;
+
 function startPolling() {
   if (state.pollTimer) {
-    clearInterval(state.pollTimer);
+    clearTimeout(state.pollTimer);
   }
+  state.pollConsecutiveErrors = 0;
 
-  state.pollTimer = setInterval(async () => {
+  async function pollOnce() {
     if (!state.token) {
+      state.pollTimer = setTimeout(pollOnce, POLL_BASE_INTERVAL);
       return;
     }
 
@@ -4391,14 +5780,46 @@ function startPolling() {
         Boolean(state.activeConversationId) &&
         isAdminConversation(state.selectedWorkgroupId, state.activeConversationId);
 
-      await api("/api/agents/tick", { method: "POST" });
+      await api("/api/agents/tick", { method: "POST", retries: 0, timeout: 10000 });
       let polledMessages = [];
       if (state.activeConversationId) {
-        polledMessages = await loadMessages();
+        polledMessages = await pollMessages();
         state.usagePollCounter = (state.usagePollCounter || 0) + 1;
         if (state.usagePollCounter >= 8) {
           state.usagePollCounter = 0;
           loadConversationUsage(state.activeConversationId);
+        }
+
+        // Poll live activity when agents are thinking.
+        const pending = state.thinkingByConversation[state.activeConversationId];
+        if (pending) {
+          try {
+            const activity = await api(`/api/conversations/${state.activeConversationId}/activity`, { retries: 0, timeout: 5000 });
+            const prev = JSON.stringify(state.lastLiveActivity);
+            const next = JSON.stringify(activity);
+            if (prev !== next) {
+              state.lastLiveActivity = activity;
+              pending.liveActivity = activity.length ? activity : null;
+              // Reset the inactivity timer when agents are actively working.
+              if (activity.length) {
+                pending.lastActivityAtMs = Date.now();
+              }
+              renderMessages(state.activeMessages);
+            }
+          } catch (_) { /* skip on error */ }
+        } else {
+          state.lastLiveActivity = null;
+        }
+
+        // Load thoughts for new agent messages when preference is on.
+        if (isShowAgentThoughts() && polledMessages.length) {
+          const agentMsgIds = polledMessages
+            .filter((m) => m.sender_type === "agent" && !state.thoughtsByMessageId[m.id])
+            .map((m) => m.id);
+          if (agentMsgIds.length) {
+            await loadThoughtsForMessages(agentMsgIds);
+            renderMessages(state.activeMessages);
+          }
         }
       }
 
@@ -4423,25 +5844,103 @@ function startPolling() {
         renderTree();
       }
 
+      // Keep lastRead current for the conversation the user is actively viewing
+      if (state.activeConversationId && polledMessages.length) {
+        const prefs = (state.user && state.user.preferences) || {};
+        const curRead = prefs.conversationLastRead && prefs.conversationLastRead[state.activeConversationId];
+        const latestMsg = polledMessages[polledMessages.length - 1];
+        if (latestMsg && latestMsg.sender_user_id !== state.user?.id) {
+          const msgTime = parseAsUTC(latestMsg.created_at);
+          if (!curRead || msgTime > parseAsUTC(curRead)) {
+            const lastRead = { ...(prefs.conversationLastRead || {}), [state.activeConversationId]: new Date().toISOString() };
+            savePreferences({ conversationLastRead: lastRead });
+          }
+        }
+      }
+
+      // Refresh unread indicators — conversations only (lightweight)
+      state.treePollCounter = (state.treePollCounter || 0) + 1;
+      const drillWg = state.bladeWorkgroupId && state.treeData[state.bladeWorkgroupId];
+      if (drillWg) {
+        // Drilled into a workgroup: refresh conversations every cycle (~4s)
+        try {
+          const convs = await api(`/api/workgroups/${state.bladeWorkgroupId}/conversations?include_archived=true`);
+          const data = state.treeData[state.bladeWorkgroupId];
+          if (data) {
+            data.topics = convs.filter((c) => c.kind === "topic" || c.kind === "admin");
+            data.directs = convs.filter((c) => c.kind === "direct");
+          }
+          renderTree();
+        } catch (_) { /* skip on error */ }
+      } else if (!state.bladeWorkgroupId && state.treePollCounter >= 4) {
+        // List view: refresh all workgroups every ~16s
+        state.treePollCounter = 0;
+        try {
+          await Promise.all(state.workgroups.map(async (wg) => {
+            const convs = await api(`/api/workgroups/${wg.id}/conversations?include_archived=true`);
+            const data = state.treeData[wg.id];
+            if (data) {
+              data.topics = convs.filter((c) => c.kind === "topic" || c.kind === "admin");
+              data.directs = convs.filter((c) => c.kind === "direct");
+            }
+          }));
+          renderTree();
+        } catch (_) { /* skip on error */ }
+      }
+
       if (shouldWatchTree) {
         const afterLatestId = polledMessages.length ? polledMessages[polledMessages.length - 1].id : "";
         if (afterLatestId && afterLatestId !== beforeLatestId) {
           await loadWorkgroups();
         }
       }
+
+      state.pollConsecutiveErrors = 0;
+      state.pollTimer = setTimeout(pollOnce, POLL_BASE_INTERVAL);
     } catch (error) {
       console.error(error);
       if (error && error.status === 401) {
         return;
       }
+      state.pollConsecutiveErrors = (state.pollConsecutiveErrors || 0) + 1;
       try {
         await loadWorkgroups();
       } catch (reloadError) {
         console.error(reloadError);
       }
+      const backoff = Math.min(POLL_MAX_INTERVAL, POLL_BASE_INTERVAL * Math.pow(2, state.pollConsecutiveErrors));
+      state.pollTimer = setTimeout(pollOnce, backoff);
     }
-  }, 4000);
+  }
+
+  state.pollTimer = setTimeout(pollOnce, POLL_BASE_INTERVAL);
 }
+
+function stopPolling() {
+  if (state.pollTimer) {
+    clearTimeout(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!state.token) return;
+  if (document.hidden) {
+    stopPolling();
+  } else {
+    startPolling();
+  }
+});
+
+window.addEventListener("offline", () => {
+  stopPolling();
+});
+
+window.addEventListener("online", () => {
+  if (state.token) {
+    startPolling();
+  }
+});
 
 async function loginWithGoogleCredential(credential) {
   const auth = await api("/api/auth/google", {
@@ -4476,6 +5975,10 @@ async function setSignedIn(user, token) {
       "--overlay-height", prefs.overlayHeight + "px"
     );
   }
+  if (prefs.showAgentThoughts) {
+    const el = qs("thoughts-toggle");
+    if (el) el.checked = true;
+  }
 
   updateAuthUI();
   closeUserMenu();
@@ -4489,16 +5992,18 @@ async function setSignedIn(user, token) {
     state.workgroupCreateAgents = [];
     renderWorkgroupCreateEditor();
   }
+  // Reset blade navigation so every sign-in starts at Organizations root
+  state.bladeOrgId = "";
+  state.bladeWorkgroupId = "";
+
   await loadMyInvites();
+  await loadOrganizations();
   await loadWorkgroups();
   startPolling();
 }
 
 function signOut() {
-  if (state.pollTimer) {
-    clearInterval(state.pollTimer);
-    state.pollTimer = null;
-  }
+  stopPolling();
 
   state.user = null;
   state.token = "";
@@ -4509,11 +6014,15 @@ function signOut() {
   state.workgroupCreateFiles = [];
   state.workgroupCreateAgents = [];
   state.selectedWorkgroupId = "";
+  state.bladeOrgId = "";
+  state.bladeWorkgroupId = "";
   state.activeConversationId = "";
   state.activeNodeKey = "";
   state.selectedWorkgroupFileIdByWorkgroup = {};
   state.activeMessages = [];
   state.thinkingByConversation = {};
+  state.thoughtsByMessageId = {};
+  state.lastLiveActivity = null;
   state.fileOverlayOpen = false;
   state.fileOverlayWorkgroupId = "";
   state.fileOverlayFileId = "";
@@ -4733,6 +6242,161 @@ async function sendTaskNegotiationMessage(taskId) {
     }
 }
 
+async function proposeEngagement(workgroupId) {
+    try {
+        const directory = await api("/api/workgroup-directory");
+        if (!directory.length) {
+            flash("No discoverable workgroups found", "info");
+            return;
+        }
+
+        const listHtml = directory.map((entry) => `
+            <div class="directory-entry">
+                <strong>${escapeHtml(entry.name)}</strong>
+                <p class="meta">${escapeHtml(entry.service_description || "(no description)")}</p>
+                <button type="button" class="tree-tool" onclick="openEngagementCreationForm('${escapeHtml(workgroupId)}', '${escapeHtml(entry.id)}', '${escapeHtml(entry.name)}')">Propose Engagement</button>
+            </div>
+        `).join("");
+
+        openSettingsModal({
+            title: "Service Directory",
+            subtitle: "Choose a workgroup to engage with",
+            formHtml: `
+                <div class="directory-list">${listHtml}</div>
+                <div class="settings-actions">
+                    <button type="button" class="secondary" data-action="settings-cancel">Close</button>
+                </div>
+            `,
+            onSubmit: async () => {},
+        });
+    } catch (error) {
+        flash(error.message, "error");
+    }
+}
+
+function openEngagementCreationForm(sourceWorkgroupId, targetWorkgroupId, targetName) {
+    closeSettingsModal();
+    openSettingsModal({
+        title: "Propose Engagement",
+        subtitle: `To: ${targetName}`,
+        formHtml: `
+            <label class="settings-field">
+                <span class="settings-label">Title</span>
+                <input name="title" type="text" maxlength="200" required placeholder="Engagement title" />
+            </label>
+            <label class="settings-field">
+                <span class="settings-label">Scope</span>
+                <textarea name="scope" rows="3" placeholder="What are you requesting?"></textarea>
+            </label>
+            <label class="settings-field">
+                <span class="settings-label">Requirements</span>
+                <textarea name="requirements" rows="3" placeholder="Detailed requirements"></textarea>
+            </label>
+            <div class="settings-actions">
+                <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+                <button type="submit">Propose</button>
+            </div>
+        `,
+        onSubmit: async (formData) => {
+            const title = String(formData.get("title") || "").trim();
+            const scope = String(formData.get("scope") || "").trim();
+            const requirements = String(formData.get("requirements") || "").trim();
+            if (!title) throw new Error("Title is required");
+            await api("/api/engagements", {
+                method: "POST",
+                body: { target_workgroup_id: targetWorkgroupId, source_workgroup_id: sourceWorkgroupId, title, scope, requirements },
+            });
+            flash("Engagement proposed", "success");
+            if (state.selectedWorkgroupId && state.treeData[state.selectedWorkgroupId]) {
+                await refreshWorkgroupTree(state.treeData[state.selectedWorkgroupId].workgroup);
+                renderTree();
+            }
+        },
+    });
+}
+
+function getActiveEngagement() {
+    if (!state.selectedWorkgroupId || !state.activeConversationId) return null;
+    const data = state.treeData[state.selectedWorkgroupId];
+    if (!data || !data.engagements) return null;
+    return data.engagements.find(
+        (e) => e.source_conversation_id === state.activeConversationId || e.target_conversation_id === state.activeConversationId
+    ) || null;
+}
+
+async function engagementRespond(engagementId, action) {
+    try {
+        const terms = action === "accept" ? prompt("Enter terms (optional):") || "" : "";
+        await api(`/api/engagements/${engagementId}/respond`, {
+            method: "POST",
+            body: { action, terms },
+        });
+        flash(`Engagement ${action === "accept" ? "accepted" : "declined"}`, "success");
+        if (state.selectedWorkgroupId && state.treeData[state.selectedWorkgroupId]) {
+            await refreshWorkgroupTree(state.treeData[state.selectedWorkgroupId].workgroup);
+            renderTree();
+            refreshActiveConversationHeader();
+        }
+    } catch (error) {
+        flash(error.message, "error");
+    }
+}
+
+async function engagementComplete(engagementId) {
+    try {
+        const summary = prompt("Completion summary (optional):") || "";
+        await api(`/api/engagements/${engagementId}/complete`, {
+            method: "POST",
+            body: { summary },
+        });
+        flash("Engagement completed", "success");
+        if (state.selectedWorkgroupId && state.treeData[state.selectedWorkgroupId]) {
+            await refreshWorkgroupTree(state.treeData[state.selectedWorkgroupId].workgroup);
+            renderTree();
+            refreshActiveConversationHeader();
+        }
+    } catch (error) {
+        flash(error.message, "error");
+    }
+}
+
+async function engagementReview(engagementId, rating) {
+    try {
+        const feedback = prompt("Feedback (optional):") || "";
+        await api(`/api/engagements/${engagementId}/review`, {
+            method: "POST",
+            body: { rating, feedback },
+        });
+        flash(`Engagement reviewed (${rating})`, "success");
+        if (state.selectedWorkgroupId && state.treeData[state.selectedWorkgroupId]) {
+            await refreshWorkgroupTree(state.treeData[state.selectedWorkgroupId].workgroup);
+            renderTree();
+            refreshActiveConversationHeader();
+        }
+    } catch (error) {
+        flash(error.message, "error");
+    }
+}
+
+async function engagementCancel(engagementId) {
+    try {
+        if (!confirm("Cancel this engagement?")) return;
+        const reason = prompt("Reason (optional):") || "";
+        await api(`/api/engagements/${engagementId}/cancel`, {
+            method: "POST",
+            body: { reason },
+        });
+        flash("Engagement cancelled", "success");
+        if (state.selectedWorkgroupId && state.treeData[state.selectedWorkgroupId]) {
+            await refreshWorkgroupTree(state.treeData[state.selectedWorkgroupId].workgroup);
+            renderTree();
+            refreshActiveConversationHeader();
+        }
+    } catch (error) {
+        flash(error.message, "error");
+    }
+}
+
 async function browseServices(workgroupId) {
     try {
         const directory = await api("/api/workgroup-directory");
@@ -4820,11 +6484,96 @@ function bindTreeEvents() {
 
     const action = button.dataset.action;
 
+    if (action === "new-org") {
+      openOrgCreateModal();
+      return;
+    }
+
+    if (action === "settings-org") {
+      const orgId = button.dataset.org || "";
+      if (orgId) openOrgSettingsModal(orgId);
+      return;
+    }
+
+    if (action === "settings-system") {
+      openSystemSettingsModal();
+      return;
+    }
+
+    if (action === "open-sysadmin") {
+      const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
+      if (adminWg) {
+        await refreshWorkgroupTree(adminWg);
+        const data = state.treeData[adminWg.id];
+        const adminConv = data?.topics?.find(t => t.kind === "admin");
+        if (adminConv) {
+          await selectConversation(adminWg.id, adminConv.id, `topic:${adminWg.id}:${adminConv.id}`);
+        }
+        renderTree();
+      }
+      return;
+    }
+
+
+    if (action === "open-org-admin") {
+      const orgId = button.dataset.org || "";
+      if (orgId) {
+        try {
+          // Ensure org admin workgroup + conversation exist (creates if needed)
+          const result = await api(`/api/organizations/${orgId}/admin-conversation`, { method: "POST" });
+          // Reload workgroups so the admin workgroup appears in state
+          await loadWorkgroups();
+          const adminWg = state.workgroups.find(w => w.id === result.workgroup_id);
+          if (adminWg) {
+            await selectConversation(result.workgroup_id, result.conversation_id, `topic:${result.workgroup_id}:${result.conversation_id}`);
+          }
+          renderTree();
+        } catch (err) {
+          flash(err.message || "Failed to open organization administration", "error");
+        }
+      }
+      return;
+    }
+
+
+    if (action === "create-workgroup-in-org") {
+      const wrapper = document.getElementById("workgroup-create-wrap");
+      if (wrapper) {
+        wrapper.classList.remove("hidden-by-blade");
+        wrapper.classList.remove("hidden");
+        renderWorkgroupCreateEditor();
+      }
+      return;
+    }
+
+    if (action === "drill-org") {
+      const orgId = button.dataset.org || "";
+      if (orgId) {
+        closeFileOverlay();
+        closeSettingsModal();
+        clearActiveConversationUI();
+        state.bladeOrgId = orgId;
+        state.bladeWorkgroupId = "";
+        renderTree();
+      }
+      return;
+    }
+
     if (action === "drill-workgroup") {
       const workgroupId = button.dataset.workgroup || "";
       if (workgroupId) {
         closeFileOverlay();
+        closeSettingsModal();
+        clearActiveConversationUI();
+        const wg = state.workgroups.find((w) => w.id === workgroupId);
+        if (wg && wg.organization_id) {
+          state.bladeOrgId = wg.organization_id;
+        }
         state.bladeWorkgroupId = workgroupId;
+        const wgData = state.treeData[workgroupId];
+        if (wgData) {
+          refreshWorkgroupTree(wgData.workgroup).then(() => renderTree());
+        }
         renderTree();
       }
       return;
@@ -4835,7 +6584,7 @@ function bindTreeEvents() {
       return;
     }
 
-    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "create-topic" || action === "invite-member" || action === "open-file-browser" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
+    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-topic" || action === "invite-member" || action === "open-file-browser" || action === "open-topic-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -4939,12 +6688,34 @@ function bindTreeEvents() {
         }
       }
 
+      if (action === "open-engagement") {
+        const conversationId = button.dataset.conversation || "";
+        const engagementId = button.dataset.engagement || "";
+        if (conversationId) {
+          state.activeEngagementId = engagementId;
+          await selectConversation(workgroupId, conversationId, `engagement:${workgroupId}:${engagementId}`);
+        }
+      }
+
+      if (action === "propose-engagement") {
+        proposeEngagement(workgroupId);
+      }
+
       if (action === "browse-services") {
         browseServices(workgroupId);
       }
 
       if (action === "open-file-browser") {
         openFileBrowser(workgroupId);
+      }
+
+      if (action === "open-topic-files") {
+        const conversationId = button.dataset.conversation || "";
+        if (conversationId) {
+          const nodeKey = `topic:${workgroupId}:${conversationId}`;
+          await selectConversation(workgroupId, conversationId, nodeKey);
+          openFileBrowser(workgroupId);
+        }
       }
 
       if (action === "create-topic") {
@@ -5018,11 +6789,34 @@ function bindTreeEvents() {
       const button = target.closest("button[data-action]");
       if (!button) return;
       const action = button.dataset.action;
-      if (action === "blade-back") {
+      if (action === "blade-back-root") {
         closeFileOverlay();
+        closeSettingsModal();
         clearActiveConversationUI();
+        state.bladeOrgId = "";
         state.bladeWorkgroupId = "";
         renderTree();
+      } else if (action === "blade-back") {
+        closeFileOverlay();
+        closeSettingsModal();
+        clearActiveConversationUI();
+        if (state.bladeWorkgroupId) {
+          const wg = state.workgroups.find((w) => w.id === state.bladeWorkgroupId);
+          state.bladeWorkgroupId = "";
+          if (wg && wg.organization_id) {
+            state.bladeOrgId = wg.organization_id;
+          } else {
+            state.bladeOrgId = "";
+          }
+        } else {
+          state.bladeOrgId = "";
+        }
+        renderTree();
+      } else if (action === "settings-org") {
+        const orgId = button.dataset.org || "";
+        if (orgId) openOrgSettingsModal(orgId);
+      } else if (action === "settings-system") {
+        openSystemSettingsModal();
       } else if (action === "settings-workgroup") {
         const workgroupId = button.dataset.workgroup || "";
         if (!workgroupId) return;
@@ -5048,6 +6842,13 @@ function bindEvents() {
   const themeToggle = qs("theme-toggle");
   themeToggle.addEventListener("change", () => {
     applyTheme(themeToggle.checked ? "dark" : "light");
+  });
+
+  const thoughtsToggle = qs("thoughts-toggle");
+  thoughtsToggle.addEventListener("change", () => {
+    savePreferences({ showAgentThoughts: thoughtsToggle.checked });
+    if (thoughtsToggle.checked) loadThoughtsForMessages();
+    renderMessages(state.activeMessages);
   });
 
   qs("settings-close").addEventListener("click", () => {
@@ -5091,6 +6892,49 @@ function bindEvents() {
         state.fileBrowserFileId = fileId;
         renderFileBrowser();
       }
+    }
+
+    // For composite mode, resolve effective workgroup from .templates/ → admin wg
+    const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
+    let wgId = state.fileBrowserWorkgroupId;
+    if (isComposite && !wgId) {
+      const currentPath = state.fileBrowserPath.join("/");
+      if (currentPath.startsWith(".templates")) {
+        const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
+        if (adminWg) wgId = adminWg.id;
+      }
+    }
+    if (!wgId) return;
+
+    if (action === "browser-add-file") {
+      browserAddFile(wgId);
+    }
+    if (action === "browser-new-folder") {
+      browserNewFolder(wgId);
+    }
+    if (action === "browser-rename-file") {
+      const fileId = button.dataset.fileId;
+      if (fileId) browserRenameFile(wgId, fileId);
+    }
+    if (action === "browser-copy-file") {
+      const fileId = button.dataset.fileId;
+      if (fileId) browserCopyFile(wgId, fileId);
+    }
+    if (action === "browser-delete-file") {
+      const fileId = button.dataset.fileId;
+      if (fileId) browserDeleteFile(wgId, fileId);
+    }
+    if (action === "browser-rename-folder") {
+      const folderPath = button.dataset.folderPath;
+      if (folderPath) browserRenameFolder(wgId, folderPath);
+    }
+    if (action === "browser-copy-folder") {
+      const folderPath = button.dataset.folderPath;
+      if (folderPath) browserCopyFolder(wgId, folderPath);
+    }
+    if (action === "browser-delete-folder") {
+      const folderPath = button.dataset.folderPath;
+      if (folderPath) deleteWorkgroupFolder(wgId, folderPath);
     }
   });
 
@@ -5259,6 +7103,11 @@ function bindEvents() {
       if (state.workgroupCreateTemplateKey) {
         createPayload.template_key = state.workgroupCreateTemplateKey;
       }
+      if (!state.bladeOrgId) {
+        flash("Select an organization first", "error");
+        return;
+      }
+      createPayload.organization_id = state.bladeOrgId;
 
       const group = await api("/api/workgroups", {
         method: "POST",
@@ -5274,6 +7123,8 @@ function bindEvents() {
       await refreshWorkgroupTree(workgroup);
       renderTree();
 
+      state.bladeOrgId = group.organization_id;
+      state.bladeWorkgroupId = group.id;
       const adminId = adminConversationId(group.id);
       if (adminId) {
         await selectConversation(group.id, adminId, `topic:${group.id}:${adminId}`);
@@ -5328,6 +7179,7 @@ function bindEvents() {
     };
     state.activeMessages = [...state.activeMessages, optimisticMessage];
     renderMessages(state.activeMessages);
+    sessionStorage.setItem("draft-message", content);
     qs("message-content").value = "";
 
     let posted = null;
@@ -5335,9 +7187,11 @@ function bindEvents() {
       const envelope = await api(`/api/conversations/${state.activeConversationId}/messages`, {
         method: "POST",
         body: { content: fullContent },
+        headers: { "X-Idempotency-Key": crypto.randomUUID() },
       });
 
       posted = envelope?.posted;
+      sessionStorage.removeItem("draft-message");
       const withoutOptimistic = state.activeMessages.filter((message) => message.id !== optimisticId);
       if (posted && posted.conversation_id === state.activeConversationId) {
         const alreadyExists = withoutOptimistic.some((message) => message.id === posted.id);
@@ -5355,6 +7209,8 @@ function bindEvents() {
     } catch (error) {
       const withoutOptimistic = state.activeMessages.filter((message) => message.id !== optimisticId);
       renderMessages(withoutOptimistic);
+      qs("message-content").value = sessionStorage.getItem("draft-message") || "";
+      sessionStorage.removeItem("draft-message");
       flash(error.message, "error");
       return;
     }
