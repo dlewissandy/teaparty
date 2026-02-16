@@ -3713,3 +3713,77 @@ body[data-theme="dark"] .cfg-category-badge {
   font-size: 0.75rem;
   opacity: 0.7;
 }
+
+/* Team session messages */
+.message-row.team-tool-use {
+  background: var(--bg-tertiary, #f0f0f5);
+  border-left: 3px solid var(--accent-dim, #8888cc);
+  font-size: 0.85em;
+  padding: 6px 12px;
+  margin: 2px 0;
+  opacity: 0.8;
+}
+
+.message-row.team-tool-use .message-text {
+  font-family: var(--font-mono, monospace);
+}
+
+.message-row.team-system {
+  font-size: 0.85em;
+  opacity: 0.7;
+  padding: 4px 12px;
+}
+
+/* Team status indicator in conversation header */
+.team-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8em;
+  color: var(--text-secondary, #666);
+  margin-left: 12px;
+}
+
+.team-status .status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success, #4caf50);
+  animation: pulse 2s infinite;
+}
+
+.team-status .status-dot.inactive {
+  background: var(--text-tertiary, #999);
+  animation: none;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Job progress indicators */
+.job-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.75em;
+  font-weight: 500;
+}
+
+.job-badge.pending {
+  background: var(--warning-bg, #fff3cd);
+  color: var(--warning, #856404);
+}
+
+.job-badge.in-progress {
+  background: var(--info-bg, #cce5ff);
+  color: var(--info, #004085);
+}
+
+.job-badge.completed {
+  background: var(--success-bg, #d4edda);
+  color: var(--success, #155724);
+}

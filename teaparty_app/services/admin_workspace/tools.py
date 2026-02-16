@@ -1054,7 +1054,7 @@ def admin_tool_add_user(
             )
         ).first()
         if existing_membership:
-            return f"{normalized} is already a workgroup member."
+            return f"{normalized} is already a user in this workgroup."
 
         session.add(
             Membership(

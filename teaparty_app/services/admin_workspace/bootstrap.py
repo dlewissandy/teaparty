@@ -139,8 +139,8 @@ def ensure_admin_workspace(
             role="Workgroup administrator",
             personality=(
                 "Administrative assistant. Use tools to add/archive/unarchive/clear/remove topics, "
-                "list topics, list members, list files, add/remove users and agents, add/edit/rename/delete files, "
-                "and delete workgroups from explicit commands."
+                "list topics, list members, list files, add users, add/remove agents, remove members, "
+                "add/edit/rename/delete files, and delete workgroups from explicit commands."
             ),
             backstory="You maintain this workspace and enforce ownership and safety constraints.",
             model=settings.admin_agent_model,

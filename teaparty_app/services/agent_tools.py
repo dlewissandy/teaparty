@@ -254,7 +254,7 @@ AGENT_TOOL_SCHEMAS: list[dict] = [
             "properties": {
                 "recipient_name": {
                     "type": "string",
-                    "description": "The name of the workgroup member to message.",
+                    "description": "The name of the human user to message.",
                 },
                 "message": {
                     "type": "string",
@@ -430,6 +430,24 @@ AGENT_TOOL_SCHEMAS: list[dict] = [
             "required": ["engagement_id", "summary"],
         },
     },
+    {
+        "name": "complete_job",
+        "description": "Mark a job as completed, stop its team session, and post a summary.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "The ID of the job to complete.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Summary of what was accomplished.",
+                },
+            },
+            "required": ["job_id"],
+        },
+    },
 ]
 
 _SCHEMA_BY_NAME: dict[str, dict] = {s["name"]: s for s in AGENT_TOOL_SCHEMAS}
@@ -594,6 +612,9 @@ def dispatch_agent_tool(
 
     if tool_name == "post_to_job":
         return _tool_post_to_job(session, agent, conversation, tool_input)
+
+    if tool_name == "complete_job":
+        return _tool_complete_job(session, agent, conversation, tool_input)
 
     if tool_name == "complete_engagement":
         return _tool_complete_engagement(session, agent, conversation, tool_input)
@@ -1887,22 +1908,33 @@ def _tool_sandbox_exec(
 ) -> str:
     """Delegate a coding task to claude running in the worktree."""
     import asyncio
+    from teaparty_app.services.agent_definition import (
+        build_agent_json, build_worktree_settings_json, slugify,
+    )
     from teaparty_app.services.claude_runner import run_claude
-    from teaparty_app.services.agent_runtime import _resolve_model_alias
     from teaparty_app.services.llm_usage import record_llm_usage
 
-    system_prompt = (
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    agent_def = build_agent_json(agent, conversation, workgroup)
+    # Override prompt for sandbox context
+    agent_def["prompt"] = (
         f"You are {agent.name}, working in a git repository. "
         f"Complete the following task. You have full access to read, edit, and create files."
     )
+    agent_def["maxTurns"] = getattr(agent, "max_turns", 10) or 10
+    slug = slugify(agent.name)
+
+    # Build file-safety hooks for the worktree
+    settings_json = build_worktree_settings_json(worktree_path)
 
     result = asyncio.run(run_claude(
-        system_prompt=system_prompt,
         user_message=task,
-        model=_resolve_model_alias(agent.model),
+        agent_name=slug,
+        agents_json=json.dumps({slug: agent_def}),
+        settings_json=settings_json,
         cwd=worktree_path,
         allowed_tools=["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
-        max_turns=10,
+        max_turns=agent_def["maxTurns"],
         timeout_seconds=300,
     ))
 
@@ -2134,6 +2166,10 @@ def _tool_read_job_status(
     if not job_wg or job_wg.organization_id != org.id:
         return "Error: job is not in your organization."
 
+    # Check for active team session
+    from teaparty_app.services.team_registry import get_session as get_team_session
+    team = get_team_session(job.conversation_id) if job.conversation_id else None
+
     lines = [
         f"**Job: {job.title}**",
         f"- ID: {job.id}",
@@ -2141,6 +2177,7 @@ def _tool_read_job_status(
         f"- Team: {job_wg.name}",
         f"- Scope: {job.scope or '(none)'}",
         f"- Created: {job.created_at.strftime('%Y-%m-%d %H:%M UTC')}",
+        f"- Team session: {'active' if team else 'inactive'}",
     ]
     if job.completed_at:
         lines.append(f"- Completed: {job.completed_at.strftime('%Y-%m-%d %H:%M UTC')}")
@@ -2151,7 +2188,7 @@ def _tool_read_job_status(
             select(Message)
             .where(Message.conversation_id == job.conversation_id)
             .order_by(Message.created_at.desc())
-            .limit(5)
+            .limit(10)
         ).all()
         if recent:
             lines.append("\n**Recent messages:**")
@@ -2206,11 +2243,74 @@ def _tool_post_to_job(
     session.add(msg)
     session.flush()
 
-    # Trigger auto-responses in background
-    from teaparty_app.services.agent_runtime import _process_auto_responses_in_background
-    _process_auto_responses_in_background(job.conversation_id, msg.id)
+    # If team session is active, send via stdin; otherwise trigger auto-responses
+    from teaparty_app.services.team_registry import get_session as get_team_session
+    team = get_team_session(job.conversation_id)
+    if team:
+        import asyncio
+        try:
+            asyncio.run(team.send_message(f"[Coordinator] {message_text}"))
+        except Exception as exc:
+            logger.warning("Failed to send to team session: %s", exc)
+    else:
+        from teaparty_app.services.agent_runtime import _process_auto_responses_in_background
+        _process_auto_responses_in_background(job.conversation_id, msg.id)
 
     return f"Posted message to job '{job.title}' conversation."
+
+
+def _tool_complete_job(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    job_id = (tool_input.get("job_id") or "").strip()
+    summary = (tool_input.get("summary") or "").strip()
+
+    if not job_id:
+        return "Error: job_id is required."
+
+    job = session.get(Job, job_id)
+    if not job:
+        return f"Error: job '{job_id}' not found."
+
+    job_wg = session.get(Workgroup, job.workgroup_id)
+    if not job_wg or job_wg.organization_id != org.id:
+        return "Error: job is not in your organization."
+
+    if job.status == "completed":
+        return f"Job '{job.title}' is already completed."
+
+    # Stop team session if active
+    if job.conversation_id:
+        from teaparty_app.services.team_registry import get_session as get_team_session, stop_session
+        team = get_team_session(job.conversation_id)
+        if team:
+            import asyncio
+            try:
+                asyncio.run(stop_session(job.conversation_id))
+            except Exception as exc:
+                logger.warning("Failed to stop team session for job %s: %s", job.id, exc)
+
+    # Update job status
+    job.status = "completed"
+    job.completed_at = utc_now()
+    if summary:
+        job.deliverables = summary
+    session.add(job)
+
+    # Post summary to job conversation
+    if job.conversation_id and summary:
+        session.add(Message(
+            conversation_id=job.conversation_id,
+            sender_type="system",
+            content=f"[Job completed] {summary}",
+            requires_response=False,
+        ))
+
+    return f"Job '{job.title}' marked as completed."
 
 
 def _tool_complete_engagement(

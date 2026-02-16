@@ -673,7 +673,7 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
     const stats = document.createElement("div");
     stats.className = "cfg-wg-stats";
     [
-      [memberCount, "Members"],
+      [memberCount, "Users"],
       [agentCount, "Agents"],
       [fileCount, "Files"],
       [topicCount, "Topics"],
@@ -5682,7 +5682,17 @@ function renderMessages(messages) {
 
   const messageHtml = messages
     .map((message) => {
-      const rowClass = message.sender_type === "system" ? "system" : message.sender_type === "agent" ? "agent" : "user";
+      let rowClass = message.sender_type === "system" ? "system" : message.sender_type === "agent" ? "agent" : "user";
+
+      // Team message styling
+      if (message.sender_type === "system") {
+        if (message.content.startsWith("[Tool]")) {
+          rowClass += " team-tool-use";
+        } else if (message.content.startsWith("[System]") || message.content.startsWith("[Job")) {
+          rowClass += " team-system";
+        }
+      }
+
       const wgId = state.selectedWorkgroupId;
       const wgData = state.treeData[wgId];
       let avatarContent;
@@ -6952,7 +6962,9 @@ function bindEvents() {
 
   // --- Chat header action buttons ---
   qs("toggle-files-btn").addEventListener("click", () => {
-    if (state.selectedWorkgroupId) {
+    if (state.fileBrowserOpen) {
+      closeFileOverlay();
+    } else if (state.selectedWorkgroupId) {
       openFileBrowser(state.selectedWorkgroupId);
     }
   });

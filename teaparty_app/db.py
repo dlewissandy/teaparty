@@ -40,6 +40,7 @@ def init_db() -> None:
     _ensure_workspace_tables()
     _ensure_job_table()
     _ensure_org_operations_field()
+    _ensure_agent_max_turns()
     _run_seeds()
 
 
@@ -564,6 +565,15 @@ def _ensure_job_table() -> None:
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_jobs_conversation ON jobs(conversation_id)")
         )
+
+
+def _ensure_agent_max_turns() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    agent_columns = _sqlite_column_names("agents")
+    if "max_turns" not in agent_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN max_turns INTEGER DEFAULT 3 NOT NULL"))
 
 
 def _ensure_org_operations_field() -> None:

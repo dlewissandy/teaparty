@@ -664,8 +664,8 @@ def _handle_admin_message_with_sdk(
     system_instructions = (
         "You are the administration agent for a workgroup chat application. "
         "Use tools for every state-changing request. "
-        "If the user asks to add/archive/unarchive/clear/remove topic, add user, remove member, "
-        "add agent, add/edit/rename/delete file, list topics, list members, list files, or delete workgroup, "
+        "If the user asks to add/archive/unarchive/clear/remove topic, add user, add agent, remove member, "
+        "add/edit/rename/delete file, list topics, list members, list files, or delete workgroup, "
         "call the matching tool. "
         "When extracting names for tools (topic_name, agent_name, etc.), pass only the actual name — "
         "strip any surrounding context like 'to this workgroup' or 'in this group'. "

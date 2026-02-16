@@ -35,9 +35,13 @@ class ClaudeResult:
 
 async def run_claude(
     *,
-    system_prompt: str,
+    system_prompt: str = "",
     user_message: str,
     model: str = "sonnet",
+    agent_name: str | None = None,
+    agents_json: str | None = None,
+    permission_mode: str = "bypassPermissions",
+    settings_json: str | None = None,
     cwd: str | None = None,
     allowed_tools: list[str] | None = None,
     disallowed_tools: list[str] | None = None,
@@ -47,19 +51,34 @@ async def run_claude(
     """Run ``claude -p`` as a subprocess and return the parsed result.
 
     *user_message* is piped via **stdin** to avoid shell-escaping issues.
+
+    When *agent_name* + *agents_json* are provided, the command uses
+    ``--agent <name> --agents '<json>'`` instead of ``--system-prompt``
+    and ``--model`` (the agent definition carries the model).
     """
 
     cmd: list[str] = [
         "claude",
         "-p",
         "--output-format", "json",
-        "--model", model,
         "--max-turns", str(max_turns),
         "--verbose",
     ]
 
-    if system_prompt:
-        cmd.extend(["--system-prompt", system_prompt])
+    if agent_name and agents_json:
+        # Agent-based invocation: --agent + --agents (no --system-prompt, no --model)
+        cmd.extend(["--agent", agent_name])
+        cmd.extend(["--agents", agents_json])
+    else:
+        # Legacy invocation: --system-prompt + --model
+        cmd.extend(["--model", model])
+        if system_prompt:
+            cmd.extend(["--system-prompt", system_prompt])
+
+    cmd.extend(["--permission-mode", permission_mode])
+
+    if settings_json:
+        cmd.extend(["--settings", settings_json])
 
     if allowed_tools:
         cmd.extend(["--allowedTools", ",".join(allowed_tools)])
@@ -70,9 +89,10 @@ async def run_claude(
         cmd.extend(["--allowedTools", ""])
 
     # Build a clean environment: inherit the parent env but remove
-    # CLAUDE_CODE_ENTRYPOINT (prevents nested-session errors).
+    # vars that trigger nested-session detection in Claude Code.
     env = {**os.environ}
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+    env.pop("CLAUDECODE", None)
 
     t0 = time.monotonic()
     try:
@@ -122,13 +142,22 @@ async def run_claude(
 
 
 def _parse_json_output(raw: str, elapsed_ms: int) -> ClaudeResult:
-    """Parse the JSON emitted by ``claude -p --output-format json``."""
+    """Parse the JSON emitted by ``claude -p --output-format json``.
+
+    With ``--verbose`` the output is a JSON array of typed events;
+    without it the output is a single result object.  We handle both.
+    """
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
         # Fall back to treating stdout as plain text.
         logger.warning("Failed to parse claude JSON output; treating as plain text")
         return ClaudeResult(text=raw.strip(), duration_ms=elapsed_ms)
+
+    # --verbose produces a JSON array: extract the "result" entry.
+    if isinstance(data, list):
+        result_entry = next((e for e in data if isinstance(e, dict) and e.get("type") == "result"), None)
+        data = result_entry or {}
 
     usage = data.get("usage") or {}
     return ClaudeResult(

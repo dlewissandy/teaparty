@@ -132,6 +132,7 @@ class Agent(SQLModel, table=True):
     learning_state: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     sentiment_state: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     learned_preferences: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
+    max_turns: int = Field(default=3)
     icon: str = Field(default="")
     created_at: datetime = Field(default_factory=utc_now)
 

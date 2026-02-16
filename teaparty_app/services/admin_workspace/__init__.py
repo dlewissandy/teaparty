@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlmodel import Session
+
+logger = logging.getLogger(__name__)
 
 from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_AGENT_NAME,
@@ -315,7 +319,7 @@ def handle_admin_message(
                 conversation_id=conversation_id,
             )
         except Exception:
-            pass
+            logger.exception("Admin SDK handler failed, falling back to deterministic parsing")
 
     # Fallback: deterministic regex dispatch (no API key needed).
     deterministic = _handle_admin_message_deterministic(

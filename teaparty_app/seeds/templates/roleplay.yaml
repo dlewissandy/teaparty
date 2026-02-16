@@ -92,6 +92,7 @@ agents:
     backstory: ""
     model: claude-sonnet-4-5
     temperature: 0.9
+    max_turns: 1
     verbosity: 0.6
     tool_names:
       - suggest_next_step
@@ -113,6 +114,7 @@ agents:
     backstory: ""
     model: claude-sonnet-4-5
     temperature: 0.85
+    max_turns: 1
     verbosity: 0.65
     tool_names:
       - summarize_topic

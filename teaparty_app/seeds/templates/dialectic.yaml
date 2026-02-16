@@ -132,6 +132,7 @@ agents:
       Acknowledge good counterpoints from the Opponent openly.
     model: claude-sonnet-4-5
     temperature: 0.5
+    max_turns: 3
     verbosity: 0.5
     tool_names:
       - summarize_topic
@@ -160,6 +161,7 @@ agents:
       If you cannot find a flaw, say so honestly.
     model: claude-sonnet-4-5
     temperature: 0.45
+    max_turns: 3
     verbosity: 0.5
     tool_names:
       - summarize_topic
@@ -188,6 +190,7 @@ agents:
       the evidence actually points. Flag when the discussion is looping.
     model: claude-sonnet-4-5
     temperature: 0.35
+    max_turns: 3
     verbosity: 0.55
     tool_names:
       - summarize_topic
@@ -218,6 +221,7 @@ agents:
       Never pretend to know less than you do — genuinely probe for clarity.
     model: claude-sonnet-4-5
     temperature: 0.6
+    max_turns: 3
     verbosity: 0.4
     tool_names:
       - summarize_topic

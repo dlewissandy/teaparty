@@ -1,4 +1,5 @@
 import asyncio
+import json
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -65,6 +66,41 @@ class ParseJsonOutputTests(unittest.TestCase):
         self.assertEqual(result.cost_usd, 0.0)
         self.assertEqual(result.input_tokens, 0)
         self.assertEqual(result.output_tokens, 0)
+        self.assertFalse(result.is_error)
+
+    def test_parse_verbose_json_array(self) -> None:
+        """--verbose produces a JSON array; we extract the result entry."""
+        raw = json.dumps([
+            {"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-sonnet-4-5"},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}},
+            {
+                "type": "result", "subtype": "success",
+                "result": "Hi there!",
+                "is_error": False,
+                "total_cost_usd": 0.02,
+                "num_turns": 1,
+                "session_id": "s1",
+                "model": "claude-sonnet-4-5",
+                "usage": {"input_tokens": 40, "output_tokens": 10},
+            },
+        ])
+        result = _parse_json_output(raw, elapsed_ms=900)
+
+        self.assertEqual(result.text, "Hi there!")
+        self.assertEqual(result.cost_usd, 0.02)
+        self.assertEqual(result.input_tokens, 40)
+        self.assertEqual(result.output_tokens, 10)
+        self.assertEqual(result.session_id, "s1")
+        self.assertEqual(result.num_turns, 1)
+        self.assertFalse(result.is_error)
+
+    def test_parse_verbose_array_without_result_entry(self) -> None:
+        """Verbose array with no result entry returns empty ClaudeResult."""
+        raw = json.dumps([
+            {"type": "system", "subtype": "init"},
+        ])
+        result = _parse_json_output(raw, elapsed_ms=100)
+        self.assertEqual(result.text, "")
         self.assertFalse(result.is_error)
 
     def test_parse_json_with_missing_fields(self) -> None:
@@ -236,6 +272,26 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("--allowedTools", cmd)
             idx = cmd.index("--allowedTools")
             self.assertEqual(cmd[idx + 1], "")
+
+    async def test_env_strips_nested_session_vars(self) -> None:
+        """Test that CLAUDECODE and CLAUDE_CODE_ENTRYPOINT are stripped from env."""
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
+             patch.dict("os.environ", {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}):
+            mock_exec.return_value = mock_process
+
+            await run_claude(
+                system_prompt="Test",
+                user_message="Test",
+            )
+
+            call_kwargs = mock_exec.call_args[1]
+            env = call_kwargs["env"]
+            self.assertNotIn("CLAUDECODE", env)
+            self.assertNotIn("CLAUDE_CODE_ENTRYPOINT", env)
 
     async def test_user_message_passed_via_stdin(self) -> None:
         """Test that user_message is passed via stdin."""

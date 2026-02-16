@@ -25,7 +25,7 @@ ADD_AGENT_RE = re.compile(
     re.IGNORECASE,
 )
 ADD_USER_RE = re.compile(
-    r"^(?:add|invite)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:user|member)\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\s*$",
+    r"^(?:add|invite)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?user\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\s*$",
     re.IGNORECASE,
 )
 LIST_TOPICS_RE = re.compile(

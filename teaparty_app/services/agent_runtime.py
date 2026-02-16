@@ -38,9 +38,9 @@ from teaparty_app.services.admin_workspace import (
     ADMIN_AGENT_SENTINEL,
     consume_queued_workgroup_deletion,
     delete_workgroup_data,
-    handle_admin_message,
     is_admin_agent,
 )
+from teaparty_app.services.agent_definition import build_agent_json, slugify
 from teaparty_app.services.claude_runner import run_claude
 from teaparty_app.services.llm_usage import record_llm_usage
 from teaparty_app.services.prompt_builder import (
@@ -241,13 +241,48 @@ def close_tasks_satisfied_by_message(session: Session, message: Message) -> None
 def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
     if trigger.sender_type != "user" or not trigger.sender_user_id:
         return "I only process admin commands from user messages."
-    return handle_admin_message(
+
+    # Fast path: deterministic regex for structured commands (no LLM needed).
+    from teaparty_app.services.admin_workspace import _handle_admin_message_deterministic
+    deterministic = _handle_admin_message_deterministic(
         session=session,
         workgroup_id=conversation.workgroup_id,
         requester_user_id=trigger.sender_user_id,
         content=trigger.content,
-        conversation_id=conversation.id,
     )
+    if deterministic is not None:
+        return deterministic
+
+    # Conversational path: use claude CLI like every other agent.
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    files_context = build_workgroup_files_context(workgroup, conversation) if workgroup else ""
+
+    user_msg = build_user_message(session, conversation, trigger)
+
+    agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context)
+    slug = slugify(agent.name)
+    agents_json_str = json.dumps({slug: agent_def})
+
+    result = asyncio.run(run_claude(
+        user_message=user_msg,
+        agent_name=slug,
+        agents_json=agents_json_str,
+        max_turns=1,
+    ))
+
+    if result.is_error:
+        logger.warning("Admin agent claude CLI failed: %s", result.error)
+        from teaparty_app.services.admin_workspace.parsing import _help_text
+        return f"I wasn't able to process that. {_help_text()}"
+
+    # Record usage.
+    record_llm_usage(
+        session, conversation.id, agent.id, result.model or agent.model,
+        result.input_tokens, result.output_tokens,
+        "admin", result.duration_ms,
+    )
+
+    return result.text
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +323,14 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
 
         admin_agent = admin_agents[0]
         _set_activity(conversation.id, admin_agent.id, admin_agent.name, "composing")
-        content = build_admin_agent_reply(session, admin_agent, conversation, trigger)
+        try:
+            content = build_admin_agent_reply(session, admin_agent, conversation, trigger)
+        except Exception:
+            logger.exception("Admin agent reply failed for conversation %s", conversation.id)
+            from teaparty_app.services.admin_workspace.parsing import _help_text
+            content = f"I wasn't able to process that. {_help_text()}"
+        finally:
+            _clear_activity(conversation.id, admin_agent.id)
         agent_message = Message(
             conversation_id=conversation.id,
             sender_type="agent",
@@ -299,7 +341,6 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         )
         session.add(agent_message)
         session.flush()
-        _clear_activity(conversation.id, admin_agent.id)
         queued_delete_workgroup_id = consume_queued_workgroup_deletion(session)
         if queued_delete_workgroup_id and queued_delete_workgroup_id == conversation.workgroup_id:
             delete_workgroup_data(session, queued_delete_workgroup_id)
@@ -309,6 +350,22 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     candidates = [agent for agent in agents if not is_admin_agent(agent)]
     if not candidates:
         return []
+
+    # Multi-agent conversations with 2+ candidates use team sessions.
+    if len(candidates) >= 2:
+        return _run_team_response(session, conversation, trigger, candidates)
+
+    # Single-agent path: use single-shot claude -p.
+    return _run_single_agent_responses(session, conversation, trigger, candidates)
+
+
+def _run_single_agent_responses(
+    session: Session,
+    conversation: Conversation,
+    trigger: Message,
+    candidates: list[Agent],
+) -> list[Message]:
+    """Single-shot claude -p invocation for each selected agent."""
 
     # Resolve workgroup and workflow state.
     workgroup = session.get(Workgroup, conversation.workgroup_id)
@@ -343,29 +400,39 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         step_label = directive.workflow_step_label or "thinking"
         _set_activity(conversation.id, agent.id, agent.name, "composing", step_label)
 
-        system_prompt = build_system_prompt(
-            agent, conversation,
-            workflow_context=workflow_context,
-            workgroup_files_context=files_context,
-        )
-        user_msg = build_user_message(session, conversation, trigger)
+        try:
+            user_msg = build_user_message(session, conversation, trigger)
 
-        result = asyncio.run(run_claude(
-            system_prompt=system_prompt,
-            user_message=user_msg,
-            model=_resolve_model_alias(agent.model),
-            max_turns=1,
-        ))
+            # Build agent definition and invoke via --agent/--agents
+            agent_def = build_agent_json(
+                agent, conversation, workgroup,
+                workflow_context=workflow_context,
+                files_context=files_context,
+            )
+            slug = slugify(agent.name)
+            agents_json = json.dumps({slug: agent_def})
 
-        # Record usage.
-        record_llm_usage(
-            session, conversation.id, agent.id, result.model or agent.model,
-            result.input_tokens, result.output_tokens,
-            "reply", result.duration_ms,
-        )
+            result = asyncio.run(run_claude(
+                user_message=user_msg,
+                agent_name=slug,
+                agents_json=agents_json,
+                max_turns=agent_def.get("maxTurns", 3),
+            ))
 
-        # Store the agent's reply.
-        content = result.text if not result.is_error else f"(Agent error: {result.error})"
+            # Record usage.
+            record_llm_usage(
+                session, conversation.id, agent.id, result.model or agent.model,
+                result.input_tokens, result.output_tokens,
+                "reply", result.duration_ms,
+            )
+
+            content = result.text if not result.is_error else f"(Agent error: {result.error})"
+        except Exception:
+            logger.exception("Agent %s reply failed for conversation %s", agent.name, conversation.id)
+            content = "(Agent encountered an error while composing a reply.)"
+        finally:
+            _clear_activity(conversation.id, agent.id)
+
         agent_message = Message(
             conversation_id=conversation.id,
             sender_type="agent",
@@ -376,8 +443,6 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         )
         session.add(agent_message)
         session.flush()
-
-        _clear_activity(conversation.id, agent.id)
         schedule_follow_up_if_needed(session, conversation, agent, agent_message)
         created.append(agent_message)
 
@@ -388,6 +453,8 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             logger.warning("Mid-chain commit failed: %s", exc)
 
     # Advance workflow state if applicable.
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    workflow_state = parse_workflow_state(workgroup, conversation) if workgroup else None
     if workflow_state and workgroup and workflow_state.get("status") == "active":
         new_state_md = advance_workflow_state(workgroup, conversation, workflow_state)
         if new_state_md:
@@ -397,6 +464,63 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
                 commit_with_retry(session)
             except Exception as exc:
                 logger.warning("Failed to advance workflow state: %s", exc)
+
+    _clear_activity(conversation.id)
+    return created
+
+
+def _run_team_response(
+    session: Session,
+    conversation: Conversation,
+    trigger: Message,
+    candidates: list[Agent],
+) -> list[Message]:
+    """Route multi-agent conversations through a persistent team session.
+
+    The team session runs a long-lived ``claude`` process.  Messages are
+    forwarded via stdin and agent responses are captured from stdout by
+    the team bridge (Phase 3).
+    """
+    from teaparty_app.services.team_bridge import process_team_events_sync
+    from teaparty_app.services.team_registry import get_or_create_session
+
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+
+    # Resolve worktree path for workspace-enabled workgroups.
+    worktree_path: str | None = None
+    if workgroup and workgroup.workspace_enabled:
+        from teaparty_app.services.agent_tools import _resolve_worktree
+        wt, _ = _resolve_worktree(session, conversation)
+        worktree_path = wt
+
+    # Set activity for all candidates.
+    for agent in candidates:
+        _set_activity(conversation.id, agent.id, agent.name, "composing", "team session")
+
+    try:
+        # Start or reuse the team session.
+        team = asyncio.run(get_or_create_session(
+            conversation_id=conversation.id,
+            agents=candidates,
+            workgroup=workgroup,
+            worktree_path=worktree_path,
+            conversation_name=conversation.name or "",
+            conversation_description=conversation.description or "",
+        ))
+
+        # Build user message from conversation history + trigger.
+        user_msg = build_user_message(session, conversation, trigger)
+
+        # Send the message to the team session.
+        asyncio.run(team.send_message(user_msg))
+
+        # Process events from the team session and convert to Messages.
+        created = process_team_events_sync(session, team, conversation, trigger)
+
+    except Exception:
+        logger.exception("Team session failed for conversation %s", conversation.id)
+        # Fall back to single-agent sequential responses.
+        created = _run_single_agent_responses(session, conversation, trigger, candidates)
 
     _clear_activity(conversation.id)
     return created

@@ -381,6 +381,121 @@ def _write_files_to_worktree(path: str | Path, files: list[dict]) -> int:
     return written
 
 
+def sync_worktree_to_files(
+    session: Session,
+    workgroup_id: str,
+    conversation: Conversation,
+    worktree_path: str,
+) -> list[str]:
+    """Walk worktree, update workgroup.files for changed/new/deleted files.
+
+    Returns a list of changed file paths (for message generation).
+    """
+    from teaparty_app.models import Workgroup
+    from teaparty_app.services.tools import _normalize_workgroup_files
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if not workgroup:
+        return []
+
+    # Read current files from worktree
+    worktree_files = _read_files_from_worktree(worktree_path)
+    worktree_by_path = {f["path"]: f["content"] for f in worktree_files}
+
+    # Get current workgroup files
+    all_files = _normalize_workgroup_files(workgroup)
+
+    # Track changes
+    changed: list[str] = []
+    existing_paths = set()
+
+    for entry in all_files:
+        path = entry.get("path", "")
+        existing_paths.add(path)
+
+        if path in worktree_by_path:
+            new_content = worktree_by_path[path]
+            if entry.get("content", "") != new_content:
+                entry["content"] = new_content
+                changed.append(path)
+        else:
+            # File deleted in worktree — mark for removal
+            entry["_deleted"] = True
+            changed.append(path)
+
+    # Add new files from worktree
+    from uuid import uuid4
+    for path, content in worktree_by_path.items():
+        if path not in existing_paths:
+            all_files.append({
+                "id": str(uuid4()),
+                "path": path,
+                "content": content,
+            })
+            changed.append(path)
+
+    # Remove deleted entries
+    all_files = [f for f in all_files if not f.get("_deleted")]
+
+    if changed:
+        workgroup.files = all_files
+        session.add(workgroup)
+
+    return changed
+
+
+def materialize_files_to_worktree(
+    workgroup_id: str,
+    conversation: Conversation,
+    worktree_path: str,
+    session: Session | None = None,
+) -> int:
+    """Write workgroup virtual files to the worktree filesystem.
+
+    Called when a team session starts to give agents access to existing files.
+    Returns count of files written.
+    """
+    from teaparty_app.models import Workgroup
+
+    if session:
+        workgroup = session.get(Workgroup, workgroup_id)
+    else:
+        from teaparty_app.db import engine
+        with Session(engine) as s:
+            workgroup = s.get(Workgroup, workgroup_id)
+
+    if not workgroup:
+        return 0
+
+    files = list(workgroup.files or [])
+    # Filter to relevant files (shared + conversation-scoped)
+    topic_id = conversation.id if conversation.kind == "topic" else ""
+    relevant = [
+        f for f in files
+        if not f.get("topic_id") or f.get("topic_id") == topic_id
+    ]
+
+    return _write_files_to_worktree(worktree_path, relevant)
+
+
+def post_file_change_messages(
+    session: Session,
+    conversation_id: str,
+    changed_paths: list[str],
+    agent_name: str = "Agent",
+) -> None:
+    """Post system messages about file changes to the conversation."""
+    from teaparty_app.models import Message as MsgModel
+
+    for path in changed_paths[:10]:  # Cap at 10 messages
+        session.add(MsgModel(
+            conversation_id=conversation_id,
+            sender_type="system",
+            content=f"[System] {agent_name} modified {path}",
+            requires_response=False,
+        ))
+
+
 def _read_files_from_worktree(path: str | Path) -> list[dict]:
     """Read tracked files from a worktree. Enforces limits, skips binary."""
     base = Path(path).resolve()
