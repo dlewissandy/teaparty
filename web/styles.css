@@ -3682,3 +3682,34 @@ body[data-theme="dark"] .cfg-category-badge {
   background: #334155;
   color: #94a3b8;
 }
+
+/* Job status badges */
+.task-badge.pending { background: #f59e0b; color: #fff; }
+
+/* Engagement jobs section in conversation header */
+.engagement-jobs-section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+.engagement-jobs-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.7;
+  margin-bottom: 4px;
+}
+.engagement-job-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.engagement-job-item:hover {
+  opacity: 0.8;
+}
+.job-engagement-link {
+  font-size: 0.75rem;
+  opacity: 0.7;
+}

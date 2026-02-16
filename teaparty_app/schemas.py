@@ -101,6 +101,7 @@ class OrganizationRead(ORMBaseModel):
     name: str
     description: str
     owner_id: str
+    operations_workgroup_id: str | None = None
     created_at: datetime
 
 
@@ -491,6 +492,28 @@ class EngagementRead(ORMBaseModel):
 class EngagementDetailRead(EngagementRead):
     source_workgroup_name: str = ""
     target_workgroup_name: str = ""
+
+
+# --- Job schemas ---
+
+
+class JobRead(ORMBaseModel):
+    id: str
+    title: str
+    scope: str
+    status: str
+    engagement_id: str | None = None
+    workgroup_id: str
+    conversation_id: str | None = None
+    created_by_agent_id: str | None = None
+    deliverables: str = ""
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class JobDetailRead(JobRead):
+    workgroup_name: str = ""
+    engagement_title: str = ""
 
 
 class AgentMemoryRead(ORMBaseModel):

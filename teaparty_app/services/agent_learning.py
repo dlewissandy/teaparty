@@ -65,19 +65,12 @@ def apply_short_term_learning(
 ) -> None:
     """Record short-term learning signals after an agent reply.
 
-    Three signal types:
-    1. Style signals — delegates to existing apply_learning_signal
-    2. Topic expertise — domain tokens from conversation + messages
-    3. Collaboration quality — when trigger is from another agent
+    Two signal types:
+    1. Topic expertise — domain tokens from conversation + messages
+    2. Collaboration quality — when trigger is from another agent
     """
     if not is_learning_eligible(conversation):
         return
-
-    # 1. Style signals for user triggers
-    if trigger.sender_type == "user":
-        from teaparty_app.services.agent_runtime import apply_learning_signal
-
-        apply_learning_signal(session, agent, trigger)
 
     # 2. Topic expertise
     topic_tokens = _extract_tokens(conversation.topic or "")

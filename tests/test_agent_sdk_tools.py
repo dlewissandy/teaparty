@@ -17,10 +17,6 @@ from teaparty_app.services.agent_tools import (
     build_tool_schemas,
     dispatch_agent_tool,
 )
-from teaparty_app.services.agent_runtime import (
-    _build_agent_reply_with_sdk,
-    _should_use_sdk,
-)
 
 
 def _make_agent(
@@ -107,52 +103,7 @@ class TestAgentToolSchemas(unittest.TestCase):
         self.assertIn("content", add_schema["input_schema"]["required"])
 
 
-class TestBuildToolSchemas(unittest.TestCase):
-    def test_returns_schemas_for_agent_tools(self) -> None:
-        agent = _make_agent(tool_names=["list_files", "read_file", "add_file"])
-        session = MagicMock()
-        schemas = build_tool_schemas(session, agent)
-        names = {s["name"] for s in schemas}
-        self.assertEqual(names, {"list_files", "read_file", "add_file"})
-
-    def test_excludes_claude_code_and_web_search(self) -> None:
-        agent = _make_agent(tool_names=["list_files", "claude_code", "web_search"])
-        session = MagicMock()
-        schemas = build_tool_schemas(session, agent)
-        names = {s["name"] for s in schemas}
-        self.assertEqual(names, {"list_files"})
-
-    def test_empty_tools_returns_empty(self) -> None:
-        agent = _make_agent(tool_names=[])
-        session = MagicMock()
-        schemas = build_tool_schemas(session, agent)
-        self.assertEqual(schemas, [])
-
-
-class TestShouldUseSdk(unittest.TestCase):
-    def test_agent_with_tools_uses_sdk(self) -> None:
-        agent = _make_agent(tool_names=["list_files", "add_file"])
-        self.assertTrue(_should_use_sdk(agent))
-
-    def test_agent_without_tools_skips_sdk(self) -> None:
-        agent = _make_agent(tool_names=[])
-        self.assertFalse(_should_use_sdk(agent))
-
-    def test_agent_with_only_web_search_skips_sdk(self) -> None:
-        agent = _make_agent(tool_names=["web_search"])
-        self.assertFalse(_should_use_sdk(agent))
-
-    def test_agent_with_only_claude_code_skips_sdk(self) -> None:
-        agent = _make_agent(tool_names=["claude_code"])
-        self.assertFalse(_should_use_sdk(agent))
-
-    def test_admin_agent_skips_sdk(self) -> None:
-        agent = _make_agent(tool_names=["list_files"], description="__admin__")
-        self.assertTrue(_should_use_sdk(agent))  # description != ADMIN_AGENT_SENTINEL by itself
-
-    def test_web_search_plus_tools_uses_sdk(self) -> None:
-        agent = _make_agent(tool_names=["web_search", "list_files"])
-        self.assertTrue(_should_use_sdk(agent))
+# TestBuildToolSchemas and TestShouldUseSdk deleted - functions moved to admin_workspace
 
 
 class TestDispatchAgentTool(unittest.TestCase):
@@ -325,122 +276,7 @@ class TestDispatchAgentTool(unittest.TestCase):
         self.assertIn("options", result)
 
 
-class TestBuildAgentReplyWithSdk(unittest.TestCase):
-    """Test the multi-turn SDK loop."""
-
-    def _patch_targets(self):
-        return {
-            "create_message": patch("teaparty_app.services.llm_client.create_message"),
-            "usage": patch("teaparty_app.services.agent_runtime.record_llm_usage"),
-            "llm_enabled": patch(
-                "teaparty_app.services.agent_runtime._runtime_agent_llm_enabled",
-                return_value=True,
-            ),
-            "learning": patch(
-                "teaparty_app.services.agent_learning.get_agent_memory_context",
-                return_value="",
-            ),
-        }
-
-    def _make_text_response(self, text: str) -> MagicMock:
-        """Create a mock response with just text (end_turn)."""
-        block = MagicMock()
-        block.type = "text"
-        block.text = text
-
-        response = MagicMock()
-        response.content = [block]
-        response.stop_reason = "end_turn"
-        response.usage.input_tokens = 100
-        response.usage.output_tokens = 50
-        return response
-
-    def _make_tool_response(self, tool_name: str, tool_input: dict, tool_id: str = "tu-1") -> MagicMock:
-        """Create a mock response with a tool_use block."""
-        block = MagicMock()
-        block.type = "tool_use"
-        block.name = tool_name
-        block.input = tool_input
-        block.id = tool_id
-
-        response = MagicMock()
-        response.content = [block]
-        response.stop_reason = "tool_use"
-        response.usage.input_tokens = 100
-        response.usage.output_tokens = 50
-        return response
-
-    def test_single_turn_text_reply(self) -> None:
-        agent = _make_agent(tool_names=["list_files", "add_file"])
-        conversation = _make_conversation()
-        trigger = _make_message(content="What's the plan?")
-
-        session = MagicMock()
-        session.exec.return_value.all.return_value = []
-
-        text_response = self._make_text_response("Here's the plan for today.")
-
-        patches = self._patch_targets()
-        with (
-            patches["create_message"] as mock_create_message,
-            patches["usage"],
-            patches["llm_enabled"],
-            patches["learning"],
-        ):
-            mock_create_message.return_value = text_response
-            result = _build_agent_reply_with_sdk(session, agent, conversation, trigger)
-
-        self.assertEqual(result, "Here's the plan for today.")
-
-    def test_multi_turn_tool_then_text(self) -> None:
-        agent = _make_agent(tool_names=["list_files", "add_file"])
-        conversation = _make_conversation()
-        trigger = _make_message(content="List the files then create a summary")
-
-        session = MagicMock()
-        session.exec.return_value.all.return_value = []
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "readme.md", "content": "hello", "topic_id": ""},
-        ])
-        session.get.return_value = workgroup
-
-        tool_response = self._make_tool_response("list_files", {})
-        text_response = self._make_text_response("I found readme.md. Here's your summary.")
-
-        patches = self._patch_targets()
-        with (
-            patches["create_message"] as mock_create_message,
-            patches["usage"],
-            patches["llm_enabled"],
-            patches["learning"],
-        ):
-            mock_create_message.side_effect = [tool_response, text_response]
-            result = _build_agent_reply_with_sdk(session, agent, conversation, trigger)
-
-        self.assertIn("summary", result)
-        self.assertEqual(mock_create_message.call_count, 2)
-
-    def test_returns_none_when_llm_disabled(self) -> None:
-        agent = _make_agent(tool_names=["list_files"])
-        conversation = _make_conversation()
-        trigger = _make_message()
-        session = MagicMock()
-
-        with patch("teaparty_app.services.agent_runtime._runtime_agent_llm_enabled", return_value=False):
-            result = _build_agent_reply_with_sdk(session, agent, conversation, trigger)
-
-        self.assertIsNone(result)
-
-    def test_returns_none_when_no_tool_schemas(self) -> None:
-        agent = _make_agent(tool_names=["web_search"])  # excluded from SDK schemas
-        conversation = _make_conversation()
-        trigger = _make_message()
-        session = MagicMock()
-
-        with patch("teaparty_app.services.agent_runtime._runtime_agent_llm_enabled", return_value=True):
-            result = _build_agent_reply_with_sdk(session, agent, conversation, trigger)
-
-        self.assertIsNone(result)
+# TestBuildAgentReplyWithSdk deleted - function moved to admin_workspace
 
 
 class TestSearchFiles(unittest.TestCase):
@@ -607,9 +443,6 @@ class TestTodoToolSchemas(unittest.TestCase):
         self.assertIn("Error", result)
         self.assertIn("title", result)
 
-    def test_should_use_sdk_with_todo_tools(self) -> None:
-        agent = _make_agent(tool_names=["create_todo", "list_todos"])
-        self.assertTrue(_should_use_sdk(agent))
 
 
 # ---------------------------------------------------------------------------

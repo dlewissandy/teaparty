@@ -162,7 +162,7 @@ class SeedDefaultWorkgroupsTests(unittest.TestCase):
             memberships = session.exec(
                 select(Membership).where(Membership.user_id == uid)
             ).all()
-            self.assertEqual(len(memberships), 3)
+            self.assertEqual(len(memberships), 4)
             self.assertTrue(all(m.role == "owner" for m in memberships))
 
     def test_idempotent(self) -> None:
@@ -199,7 +199,7 @@ class RunSeedsIntegrationTests(unittest.TestCase):
             self.assertIsNotNone(user)
 
             workgroups = session.exec(select(Workgroup)).all()
-            self.assertEqual(len(workgroups), 3)
+            self.assertEqual(len(workgroups), 4)
             for wg in workgroups:
                 self.assertIsNotNone(wg.organization_id)
 
@@ -207,7 +207,7 @@ class RunSeedsIntegrationTests(unittest.TestCase):
             self.assertEqual(len(orgs), 1)
 
             records = session.exec(select(SeedRecord)).all()
-            self.assertEqual(len(records), 5)  # system-user + seed-organization + 3 workgroups
+            self.assertEqual(len(records), 6)  # system-user + seed-organization + 4 workgroups
 
     def test_run_seeds_idempotent(self) -> None:
         run_seeds(self.engine)
@@ -215,7 +215,7 @@ class RunSeedsIntegrationTests(unittest.TestCase):
 
         with Session(self.engine) as session:
             workgroups = session.exec(select(Workgroup)).all()
-            self.assertEqual(len(workgroups), 3)
+            self.assertEqual(len(workgroups), 4)
 
             orgs = session.exec(select(Organization)).all()
             self.assertEqual(len(orgs), 1)

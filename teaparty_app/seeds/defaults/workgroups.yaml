@@ -1,5 +1,8 @@
 version: 1
 workgroups:
+  - seed_key: default-operations
+    template: operations
+    name: Operations
   - seed_key: default-coding
     template: coding
     name: Coding

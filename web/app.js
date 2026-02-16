@@ -3466,16 +3466,60 @@ function refreshActiveConversationHeader() {
       toolBar.innerHTML = `<span class="task-badge ${escapeHtml(activeEngagement.status)}">${escapeHtml(activeEngagement.status)}</span>`;
       toolBar.classList.remove("hidden");
     }
+
+    // Show jobs for this engagement
+    const engagementJobs = [];
+    for (const wgId of Object.keys(state.treeData)) {
+      const wgData = state.treeData[wgId];
+      if (wgData?.jobs) {
+        for (const job of wgData.jobs) {
+          if (job.engagement_id === activeEngagement.id) {
+            engagementJobs.push({ ...job, workgroup_name: wgData.workgroup?.name || '?' });
+          }
+        }
+      }
+    }
+    if (engagementJobs.length > 0) {
+      const jobList = engagementJobs.map(j =>
+        `<div class="engagement-job-item" data-action="open-job" data-workgroup="${escapeHtml(j.workgroup_id)}" data-job="${escapeHtml(j.id)}" data-conversation="${escapeHtml(j.conversation_id || "")}">
+          <span class="task-badge ${escapeHtml(j.status)}">${escapeHtml(j.status)}</span>
+          <span>${escapeHtml(j.title)}</span>
+          <span class="finder-kind">${escapeHtml(j.workgroup_name)}</span>
+        </div>`
+      ).join("");
+      toolBar.innerHTML += `<div class="engagement-jobs-section"><div class="engagement-jobs-title">Jobs</div>${jobList}</div>`;
+    }
+
     return;
+  }
+
+  // Check for job context
+  const activeJob = getActiveJob();
+  let jobInfoHtml = "";
+  if (activeJob) {
+    jobInfoHtml = `<span class="task-badge ${escapeHtml(activeJob.status)}">${escapeHtml(activeJob.status)}</span>`;
+    if (activeJob.engagement_id) {
+      jobInfoHtml += ` <span class="job-engagement-link">Engagement: ${escapeHtml(activeJob.engagement_id.substring(0, 8))}...</span>`;
+    }
   }
 
   const agent = getConversationAgent(state.selectedWorkgroupId, state.activeConversationId);
   const hasTools = agent && agent.tool_names && agent.tool_names.length;
-  if (hasTools) {
-    toolBar.innerHTML = agent.tool_names
-      .map((name) => `<button type="button" class="chat-tool-btn" data-tool-name="${escapeHtml(name)}">${escapeHtml(toolDisplayLabel(name))}</button>`)
-      .join("");
-    toolBar.classList.toggle("hidden", !state.toolbarVisible);
+
+  if (activeJob || hasTools) {
+    let content = jobInfoHtml;
+    if (hasTools) {
+      const toolButtons = agent.tool_names
+        .map((name) => `<button type="button" class="chat-tool-btn" data-tool-name="${escapeHtml(name)}">${escapeHtml(toolDisplayLabel(name))}</button>`)
+        .join("");
+      content += (content ? " " : "") + toolButtons;
+    }
+    toolBar.innerHTML = content;
+    if (activeJob) {
+      toolBar.classList.remove("hidden");
+    } else {
+      toolBar.classList.toggle("hidden", !state.toolbarVisible);
+    }
   } else {
     toolBar.innerHTML = "";
     toolBar.classList.add("hidden");
@@ -4990,13 +5034,14 @@ function openMemberContactCard(workgroupId, memberId) {
 
 async function refreshWorkgroupTree(workgroup) {
   const isOwner = workgroup.owner_id === state.user?.id;
-  const [conversations, members, agents, crossGroupTasks, engagements, invites] = await Promise.all([
+  const [conversations, members, agents, crossGroupTasks, engagements, invites, jobs] = await Promise.all([
     api(`/api/workgroups/${workgroup.id}/conversations?include_archived=true`),
     api(`/api/workgroups/${workgroup.id}/members`),
     api(`/api/workgroups/${workgroup.id}/agents${isOwner ? "?include_hidden=true" : ""}`),
     api(`/api/workgroups/${workgroup.id}/cross-group-tasks`).catch(() => []),
     api(`/api/workgroups/${workgroup.id}/engagements`).catch(() => []),
     isOwner ? api(`/api/workgroups/${workgroup.id}/invites`).catch(() => []) : Promise.resolve([]),
+    api(`/api/workgroups/${workgroup.id}/jobs`).catch(() => []),
   ]);
 
   const engagementConversationIds = new Set(
@@ -5018,6 +5063,7 @@ async function refreshWorkgroupTree(workgroup) {
     engagements: engagements || [],
     engagementConversations,
     invites: pendingInvites,
+    jobs: jobs || [],
   };
 
   const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id];
@@ -5456,6 +5502,20 @@ function renderTree() {
     </div>`;
   }
 
+  // Jobs section
+  const jobNodes = (data.jobs || []).length
+    ? (data.jobs || []).filter(j => j.status !== "cancelled").map((job) => {
+        const convId = job.conversation_id;
+        const key = `job:${workgroup.id}:${job.id}`;
+        const activeClass = state.activeNodeKey === key ? "active" : "";
+        return `
+          <div class="tree-item-row">
+            <button class="tree-button ${activeClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-job="${escapeHtml(job.id)}" data-conversation="${escapeHtml(convId || "")}">${escapeHtml(job.title)}<span class="task-badge ${escapeHtml(job.status)}">${escapeHtml(job.status)}</span></button>
+          </div>
+        `;
+      }).join("")
+    : "<div class='tree-caption'>No jobs</div>";
+
   // Engagements section
   const engagementItems = (data.engagements || []);
   const engagementNodes = engagementItems.length
@@ -5479,6 +5539,11 @@ function renderTree() {
     <div class="tree-section">
       <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
       <div class="tree-list">${topicNodes}</div>
+    </div>
+
+    <div class="tree-section">
+      <div class="tree-section-title"><span>Jobs</span></div>
+      <div class="tree-list">${jobNodes}</div>
     </div>
 
     <div class="tree-section">
@@ -6334,6 +6399,13 @@ function getActiveEngagement() {
     ) || null;
 }
 
+function getActiveJob() {
+  if (!state.selectedWorkgroupId || !state.activeConversationId) return null;
+  const data = state.treeData[state.selectedWorkgroupId];
+  if (!data?.jobs) return null;
+  return data.jobs.find(j => j.conversation_id === state.activeConversationId) || null;
+}
+
 async function engagementRespond(engagementId, action) {
     try {
         const terms = action === "accept" ? prompt("Enter terms (optional):") || "" : "";
@@ -6705,6 +6777,17 @@ function bindTreeEvents() {
           state.activeEngagementId = engagementId;
           await selectConversation(workgroupId, conversationId, `engagement:${workgroupId}:${engagementId}`);
         }
+      }
+
+      if (action === "open-job") {
+        const jobId = button.dataset.job;
+        const conversationId = button.dataset.conversation;
+        if (conversationId) {
+          state.activeNodeKey = `job:${workgroupId}:${jobId}`;
+          selectWorkgroup(workgroupId);
+          await openConversation(workgroupId, conversationId);
+        }
+        return;
       }
 
       if (action === "propose-engagement") {

@@ -166,6 +166,11 @@ agents:
       - list_workflows
       - get_workflow_state
       - advance_workflow
+      - sandbox_exec
+      - git_status
+      - git_diff
+      - git_commit
+      - git_log
     response_threshold: 0.5
     follow_up_minutes: 45
 
@@ -187,5 +192,9 @@ agents:
       - list_workflows
       - get_workflow_state
       - advance_workflow
+      - sandbox_exec
+      - git_status
+      - git_diff
+      - git_log
     response_threshold: 0.58
     follow_up_minutes: 60

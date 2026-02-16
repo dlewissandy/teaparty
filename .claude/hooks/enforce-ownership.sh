@@ -68,6 +68,30 @@ case "$CLAUDE_AGENT_NAME" in
     echo "BLOCKED: doc-writer can only edit docs/, README.md, ROADMAP.md, TASKLIST.md, TOOL_GAPS.md. You tried to edit: $REL_PATH"
     exit 2
     ;;
+  social-architect)
+    # Owns docs/SocialArchitecture.md and docs/ for related analysis
+    if [[ "$REL_PATH" == docs/* ]]; then
+      exit 0
+    fi
+    echo "BLOCKED: social-architect can only edit files under docs/. You tried to edit: $REL_PATH"
+    exit 2
+    ;;
+  cognitive-architect)
+    # Owns docs/CognitiveArchitecture.md and docs/ for related analysis
+    if [[ "$REL_PATH" == docs/* ]]; then
+      exit 0
+    fi
+    echo "BLOCKED: cognitive-architect can only edit files under docs/. You tried to edit: $REL_PATH"
+    exit 2
+    ;;
+  researcher)
+    # Owns docs/research/ for the research library
+    if [[ "$REL_PATH" == docs/research/* ]]; then
+      exit 0
+    fi
+    echo "BLOCKED: researcher can only edit files under docs/research/. You tried to edit: $REL_PATH"
+    exit 2
+    ;;
   code-reviewer|architect)
     # These agents should have no Edit/Write tools, but block as a safety net
     echo "BLOCKED: $CLAUDE_AGENT_NAME is read-only and cannot edit files."

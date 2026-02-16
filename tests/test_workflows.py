@@ -11,10 +11,6 @@ from teaparty_app.services.agent_tools import (
     _tool_get_workflow_state,
     _tool_advance_workflow,
 )
-from teaparty_app.services.agent_runtime import (
-    _build_workflow_context,
-    _build_workflow_hint,
-)
 
 
 def _make_agent(
@@ -297,84 +293,7 @@ class TestWorkflowSchemas(unittest.TestCase):
         self.assertIn("state_content", schema["input_schema"]["required"])
 
 
-class TestBuildWorkflowContext(unittest.TestCase):
-    def test_returns_context_with_workflows_and_state(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "workflows/code-review.md", "content": SAMPLE_WORKFLOW_CONTENT, "topic_id": ""},
-            {"id": "f2", "path": "_workflow_state.md", "content": SAMPLE_STATE_CONTENT, "topic_id": "conv-1"},
-        ])
-        conversation = _make_conversation()
-        result = _build_workflow_context(workgroup, conversation)
-        self.assertIn("Available workflows", result)
-        self.assertIn("Code Review", result)
-        self.assertIn("Active workflow state", result)
-        self.assertIn("in_progress", result)
-        self.assertIn("Workflow instructions", result)
-
-    def test_returns_empty_when_no_workflows(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "README.md", "content": "hello", "topic_id": ""},
-        ])
-        conversation = _make_conversation()
-        result = _build_workflow_context(workgroup, conversation)
-        self.assertEqual(result, "")
-
-    def test_returns_empty_when_only_readme(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "workflows/README.md", "content": "# Workflows\n", "topic_id": ""},
-        ])
-        conversation = _make_conversation()
-        result = _build_workflow_context(workgroup, conversation)
-        self.assertEqual(result, "")
-
-    def test_truncates_long_state(self) -> None:
-        long_state = "x" * 3000
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "workflows/test.md", "content": "# Test\n\n## Trigger\nManual.\n", "topic_id": ""},
-            {"id": "f2", "path": "_workflow_state.md", "content": long_state, "topic_id": "conv-1"},
-        ])
-        conversation = _make_conversation()
-        result = _build_workflow_context(workgroup, conversation)
-        self.assertIn("truncated", result)
-        # Should not exceed ~2000 chars for the state portion
-        state_section = result.split("Active workflow state:")[1].split("Workflow instructions")[0]
-        self.assertLessEqual(len(state_section.strip()), 2020)
-
-    def test_workflows_without_state(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "workflows/code-review.md", "content": SAMPLE_WORKFLOW_CONTENT, "topic_id": ""},
-        ])
-        conversation = _make_conversation()
-        result = _build_workflow_context(workgroup, conversation)
-        self.assertIn("Available workflows", result)
-        self.assertNotIn("Active workflow state", result)
-        self.assertIn("Workflow instructions", result)
-
-
-class TestBuildWorkflowHint(unittest.TestCase):
-    def test_returns_hint_with_step_and_status(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "_workflow_state.md", "content": SAMPLE_STATE_CONTENT, "topic_id": "conv-1"},
-        ])
-        conversation = _make_conversation(kind="topic")
-        result = _build_workflow_hint(workgroup, conversation)
-        self.assertIn("Active workflow", result)
-        self.assertIn("Current Step", result)
-        self.assertIn("Status", result)
-
-    def test_returns_empty_for_non_topic(self) -> None:
-        workgroup = _make_workgroup(files=[
-            {"id": "f1", "path": "_workflow_state.md", "content": SAMPLE_STATE_CONTENT, "topic_id": ""},
-        ])
-        conversation = _make_conversation(kind="admin")
-        result = _build_workflow_hint(workgroup, conversation)
-        self.assertEqual(result, "")
-
-    def test_returns_empty_when_no_state(self) -> None:
-        workgroup = _make_workgroup(files=[])
-        conversation = _make_conversation(kind="topic")
-        result = _build_workflow_hint(workgroup, conversation)
-        self.assertEqual(result, "")
+# TestBuildWorkflowContext and TestBuildWorkflowHint deleted - functions moved from agent_runtime
 
 
 SAMPLE_FEATURE_BUILD_CONTENT = """\
@@ -497,9 +416,9 @@ class TestAutoSelectSkipsReadme(unittest.TestCase):
 
 
 class TestAutoSelectLLMErrorReturnsNone(unittest.TestCase):
-    @patch("teaparty_app.services.agent_runtime._get_anthropic_client")
-    def test_llm_failure_returns_none(self, mock_client: MagicMock) -> None:
-        mock_client.side_effect = Exception("API down")
+    @patch("teaparty_app.services.llm_client.create_message")
+    def test_llm_failure_returns_none(self, mock_create: MagicMock) -> None:
+        mock_create.side_effect = Exception("API down")
         session = MagicMock()
 
         from teaparty_app.services.agent_tools import _match_workflow_to_topic

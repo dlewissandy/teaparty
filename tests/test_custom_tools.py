@@ -22,7 +22,6 @@ from teaparty_app.services.tools import (
     resolve_custom_tool,
     run_tool,
 )
-from teaparty_app.services.agent_runtime import _match_custom_tool, _select_tool
 
 
 def _make_session() -> Session:
@@ -184,22 +183,7 @@ class TestRunTool(unittest.TestCase):
         self.assertEqual(result, "granted result")
 
 
-class TestMatchCustomTool(unittest.TestCase):
-    def test_keyword_matching_returns_best(self) -> None:
-        session = _make_session()
-        wg, user, _agent = _seed_workgroup(session)
-        td1 = _make_tool_def(session, wg.id, user.id, name="weather checker", description="check the weather forecast")
-        td2 = _make_tool_def(session, wg.id, user.id, name="code review", description="review code changes")
-
-        result = _match_custom_tool(session, [f"custom:{td1.id}", f"custom:{td2.id}"], "what is the weather forecast today")
-        self.assertEqual(result, f"custom:{td1.id}")
-
-    def test_returns_none_for_no_overlap(self) -> None:
-        session = _make_session()
-        wg, user, _agent = _seed_workgroup(session)
-        td = _make_tool_def(session, wg.id, user.id, name="specific tool", description="does something specific")
-        result = _match_custom_tool(session, [f"custom:{td.id}"], "completely unrelated xyz 123")
-        self.assertIsNone(result)
+# TestMatchCustomTool deleted - _match_custom_tool was removed from agent_runtime
 
 
 class TestAvailableToolsForWorkgroup(unittest.TestCase):
@@ -298,25 +282,7 @@ class TestToolNameCollision(unittest.TestCase):
             self.assertIn(builtin_name, available_tools())
 
 
-class TestSelectToolWithCustom(unittest.TestCase):
-    def test_select_tool_without_session_skips_custom(self) -> None:
-        agent = Agent(
-            id="a1", workgroup_id="wg1", created_by_user_id="u1",
-            name="Agent", tool_names=["custom:td1"],
-            learning_state={}, sentiment_state={}, learned_preferences={},
-        )
-        result = _select_tool(agent, "weather forecast", session=None)
-        self.assertIsNone(result)
-
-    def test_select_tool_with_session_matches_custom(self) -> None:
-        session = _make_session()
-        wg, user, agent = _seed_workgroup(session)
-        td = _make_tool_def(session, wg.id, user.id, name="weather", description="check weather forecast")
-        agent.tool_names = [f"custom:{td.id}"]
-        session.add(agent)
-        session.flush()
-        result = _select_tool(agent, "what is the weather forecast", session=session)
-        self.assertEqual(result, f"custom:{td.id}")
+# TestSelectToolWithCustom deleted - _select_tool was removed from agent_runtime
 
 
 class TestToolDeletionCascade(unittest.TestCase):

@@ -558,25 +558,4 @@ class TestDispatchTodoTools(unittest.TestCase):
         self.assertIn("Error", result)
 
 
-class TestBuildTodoContext(unittest.TestCase):
-    def test_empty_when_no_todos(self) -> None:
-        from teaparty_app.services.agent_runtime import _build_todo_context
-
-        session = MagicMock()
-        session.exec.return_value.all.return_value = []
-
-        result = _build_todo_context(session, _make_agent())
-        self.assertEqual(result, "")
-
-    def test_shows_pending_todos(self) -> None:
-        from teaparty_app.services.agent_runtime import _build_todo_context
-
-        todo = _make_todo(title="Review PR", priority="high")
-
-        session = MagicMock()
-        session.exec.return_value.all.return_value = [todo]
-
-        result = _build_todo_context(session, _make_agent())
-        self.assertIn("Review PR", result)
-        self.assertIn("[HIGH]", result)
-        self.assertIn("1 pending", result)
+# TestBuildTodoContext deleted - _build_todo_context was removed from agent_runtime

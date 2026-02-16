@@ -12,7 +12,6 @@ from teaparty_app.services.claude_code import (
     claude_code,
 )
 from teaparty_app.services.tools import available_tools, run_tool
-from teaparty_app.services.agent_runtime import DIRECT_RETURN_TOOL_NAMES, TOOL_PATTERNS
 
 
 def _admin_conv() -> Conversation:
@@ -195,27 +194,6 @@ class ClaudeCodeRegistrationTests(unittest.TestCase):
     def test_available_tools_includes_claude_code(self) -> None:
         tools = available_tools()
         self.assertIn("claude_code", tools)
-
-    def test_tool_patterns_match_coding_requests(self) -> None:
-        test_phrases = [
-            "write some code",
-            "generate a function",
-            "create a script",
-            "review the code",
-            "debug this implementation",
-            "claude_code",
-            "claude code",
-        ]
-        for phrase in test_phrases:
-            matched = False
-            for pattern, tool_name in TOOL_PATTERNS:
-                if tool_name == "claude_code" and pattern.search(phrase):
-                    matched = True
-                    break
-            self.assertTrue(matched, f"Pattern did not match: {phrase!r}")
-
-    def test_direct_return_tool_names_contains_claude_code(self) -> None:
-        self.assertIn("claude_code", DIRECT_RETURN_TOOL_NAMES)
 
 
 class _FakeSession:

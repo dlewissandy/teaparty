@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import (
     Agent, AgentTodoItem, Conversation, ConversationParticipant,
-    Membership, Message, User, Workgroup, utc_now, new_id,
+    Job, Membership, Message, Organization, User, Workgroup, utc_now, new_id,
 )
 from teaparty_app.services.activity import post_file_change_activity
 from teaparty_app.services.tools import (
@@ -264,6 +264,172 @@ AGENT_TOOL_SCHEMAS: list[dict] = [
             "required": ["recipient_name", "message"],
         },
     },
+    # --- Sandbox tools (coding agents with workspace) ---
+    {
+        "name": "sandbox_exec",
+        "description": (
+            "Delegate a coding task to Claude Code running in the workspace. "
+            "Claude will have full file access to read, edit, create files and run commands. "
+            "Use this for implementation work that requires multiple file operations."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "task": {
+                    "type": "string",
+                    "description": "Detailed description of the coding task to perform.",
+                },
+            },
+            "required": ["task"],
+        },
+    },
+    {
+        "name": "git_status",
+        "description": "Show the current git status (modified, staged, untracked files) in the workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "git_diff",
+        "description": "Show the current git diff of unstaged changes in the workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "staged": {
+                    "type": "boolean",
+                    "description": "If true, show staged changes instead of unstaged.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "git_commit",
+        "description": "Stage all changes and create a git commit in the workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message": {
+                    "type": "string",
+                    "description": "The commit message.",
+                },
+            },
+            "required": ["message"],
+        },
+    },
+    {
+        "name": "git_log",
+        "description": "Show recent git commit history in the workspace.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum number of commits to show. Default: 10.",
+                },
+            },
+            "required": [],
+        },
+    },
+    # --- Orchestration tools (coordinator agents) ---
+    {
+        "name": "create_job",
+        "description": (
+            "Create a new job and dispatch it to a team within your organization. "
+            "This creates a conversation for the team to work in, selects their workflow, "
+            "and triggers the team's agents to begin work."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team_name": {
+                    "type": "string",
+                    "description": "Name of the target workgroup/team to assign the job to.",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Short title for the job (max 200 chars).",
+                },
+                "scope": {
+                    "type": "string",
+                    "description": "Detailed scope and requirements for the job.",
+                },
+            },
+            "required": ["team_name", "title", "scope"],
+        },
+    },
+    {
+        "name": "list_team_jobs",
+        "description": "List jobs dispatched to teams in your organization, optionally filtered by team or status.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "team_name": {
+                    "type": "string",
+                    "description": "Filter by team name. Omit to see all jobs.",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "in_progress", "completed", "cancelled", "all"],
+                    "description": "Filter by status. Default: shows pending + in_progress.",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "read_job_status",
+        "description": "Read the current status and recent messages from a job's conversation.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "The ID of the job to check.",
+                },
+            },
+            "required": ["job_id"],
+        },
+    },
+    {
+        "name": "post_to_job",
+        "description": "Post a message to a job's conversation as the coordinator, providing guidance or additional requirements.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "job_id": {
+                    "type": "string",
+                    "description": "The ID of the job to post to.",
+                },
+                "message": {
+                    "type": "string",
+                    "description": "The message to post in the job's conversation.",
+                },
+            },
+            "required": ["job_id", "message"],
+        },
+    },
+    {
+        "name": "complete_engagement",
+        "description": "Mark an engagement as completed and post a summary to both conversations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "engagement_id": {
+                    "type": "string",
+                    "description": "The ID of the engagement to complete.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Summary of what was accomplished.",
+                },
+            },
+            "required": ["engagement_id", "summary"],
+        },
+    },
 ]
 
 _SCHEMA_BY_NAME: dict[str, dict] = {s["name"]: s for s in AGENT_TOOL_SCHEMAS}
@@ -411,6 +577,26 @@ def dispatch_agent_tool(
             tool_input.get("recipient_name", ""),
             tool_input.get("message", ""),
         )
+
+    # Sandbox tools
+    if tool_name in ("sandbox_exec", "git_status", "git_diff", "git_commit", "git_log"):
+        return _dispatch_sandbox_tool(session, agent, conversation, tool_name, tool_input)
+
+    # Orchestration tools
+    if tool_name == "create_job":
+        return _tool_create_job(session, agent, conversation, tool_input)
+
+    if tool_name == "list_team_jobs":
+        return _tool_list_team_jobs(session, agent, conversation, tool_input)
+
+    if tool_name == "read_job_status":
+        return _tool_read_job_status(session, agent, conversation, tool_input)
+
+    if tool_name == "post_to_job":
+        return _tool_post_to_job(session, agent, conversation, tool_input)
+
+    if tool_name == "complete_engagement":
+        return _tool_complete_engagement(session, agent, conversation, tool_input)
 
     # Custom tools (name mangled: "custom_<id>")
     if tool_name.startswith("custom_"):
@@ -1580,6 +1766,504 @@ def _tool_send_direct_message(
     session.add(dm_message)
 
     return f"Sent DM to {user.name or user.email}."
+
+
+# ---------------------------------------------------------------------------
+# Sandbox tool implementations
+# ---------------------------------------------------------------------------
+
+
+def _resolve_worktree(
+    session: Session, conversation: Conversation,
+) -> tuple[str | None, str | None]:
+    """Return (worktree_path, None) or (None, error_message)."""
+    from teaparty_app.models import Workspace, WorkspaceWorktree
+
+    workspace = session.exec(
+        select(Workspace).where(
+            Workspace.workgroup_id == conversation.workgroup_id,
+            Workspace.status == "active",
+        )
+    ).first()
+    if not workspace:
+        return None, "No workspace configured for this workgroup."
+
+    worktree = session.exec(
+        select(WorkspaceWorktree).where(
+            WorkspaceWorktree.workspace_id == workspace.id,
+            WorkspaceWorktree.conversation_id == conversation.id,
+            WorkspaceWorktree.status == "active",
+        )
+    ).first()
+    if not worktree:
+        return None, "No worktree for this conversation. A workspace admin needs to create one."
+
+    return worktree.worktree_path, None
+
+
+def _run_git_in_worktree(worktree_path: str, args: list[str], timeout: int = 30) -> str:
+    """Run a git command in the worktree and return stdout."""
+    import os
+    import subprocess
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    try:
+        result = subprocess.run(
+            ["git"] + args,
+            cwd=worktree_path,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            env=env,
+        )
+        output = result.stdout.strip()
+        if result.returncode != 0:
+            err = result.stderr.strip()
+            return f"(git error: {err})" if err else f"(git exited with code {result.returncode})"
+        return output or "(no output)"
+    except subprocess.TimeoutExpired:
+        return f"(git timed out after {timeout}s)"
+    except FileNotFoundError:
+        return "(git not found)"
+
+
+def _dispatch_sandbox_tool(
+    session: Session,
+    agent: Agent,
+    conversation: Conversation,
+    tool_name: str,
+    tool_input: dict,
+) -> str:
+    worktree_path, error = _resolve_worktree(session, conversation)
+    if error:
+        return f"Error: {error}"
+
+    if tool_name == "git_status":
+        return _run_git_in_worktree(worktree_path, ["status", "--short"])
+
+    if tool_name == "git_diff":
+        args = ["diff"]
+        if tool_input.get("staged"):
+            args.append("--staged")
+        output = _run_git_in_worktree(worktree_path, args)
+        if len(output) > 50_000:
+            output = output[:50_000] + "\n... (truncated)"
+        return output
+
+    if tool_name == "git_commit":
+        message = (tool_input.get("message") or "").strip()
+        if not message:
+            return "Error: message is required."
+        # Stage all changes first
+        stage_result = _run_git_in_worktree(worktree_path, ["add", "-A"])
+        if "(git error" in stage_result:
+            return f"Error staging: {stage_result}"
+        return _run_git_in_worktree(
+            worktree_path,
+            ["commit", "-m", message, "--author", f"{agent.name} <agent@teaparty.local>"],
+        )
+
+    if tool_name == "git_log":
+        limit = min(tool_input.get("limit", 10), 50)
+        return _run_git_in_worktree(
+            worktree_path,
+            ["log", f"--max-count={limit}", "--oneline", "--decorate"],
+        )
+
+    if tool_name == "sandbox_exec":
+        task = (tool_input.get("task") or "").strip()
+        if not task:
+            return "Error: task is required."
+        return _tool_sandbox_exec(session, agent, conversation, worktree_path, task)
+
+    return f"Error: unknown sandbox tool '{tool_name}'."
+
+
+def _tool_sandbox_exec(
+    session: Session,
+    agent: Agent,
+    conversation: Conversation,
+    worktree_path: str,
+    task: str,
+) -> str:
+    """Delegate a coding task to claude running in the worktree."""
+    import asyncio
+    from teaparty_app.services.claude_runner import run_claude
+    from teaparty_app.services.agent_runtime import _resolve_model_alias
+    from teaparty_app.services.llm_usage import record_llm_usage
+
+    system_prompt = (
+        f"You are {agent.name}, working in a git repository. "
+        f"Complete the following task. You have full access to read, edit, and create files."
+    )
+
+    result = asyncio.run(run_claude(
+        system_prompt=system_prompt,
+        user_message=task,
+        model=_resolve_model_alias(agent.model),
+        cwd=worktree_path,
+        allowed_tools=["Read", "Edit", "Write", "Bash", "Glob", "Grep"],
+        max_turns=10,
+        timeout_seconds=300,
+    ))
+
+    record_llm_usage(
+        session, conversation.id, agent.id, result.model or agent.model,
+        result.input_tokens, result.output_tokens,
+        "sandbox_exec", result.duration_ms,
+    )
+
+    if result.is_error:
+        return f"Sandbox error: {result.error}"
+
+    return result.text or "(no output)"
+
+
+# ---------------------------------------------------------------------------
+# Orchestration tool implementations
+# ---------------------------------------------------------------------------
+
+
+def _verify_orchestration_access(
+    session: Session, agent: Agent,
+) -> tuple[Organization | None, str | None]:
+    """Return (org, None) if agent is in the org's operations workgroup, else (None, error)."""
+    workgroup = session.get(Workgroup, agent.workgroup_id)
+    if not workgroup or not workgroup.organization_id:
+        return None, "Agent is not in an organization."
+
+    org = session.get(Organization, workgroup.organization_id)
+    if not org:
+        return None, "Organization not found."
+
+    if org.operations_workgroup_id != agent.workgroup_id:
+        return None, "Agent is not in the organization's operations workgroup."
+
+    return org, None
+
+
+def _tool_create_job(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    team_name = (tool_input.get("team_name") or "").strip()
+    title = (tool_input.get("title") or "").strip()
+    scope = (tool_input.get("scope") or "").strip()
+
+    if not team_name:
+        return "Error: team_name is required."
+    if not title:
+        return "Error: title is required."
+    if len(title) > 200:
+        return "Error: title must be 200 characters or fewer."
+
+    # Find engagement_id from the current conversation topic
+    engagement_id = None
+    if conversation.topic and conversation.topic.startswith("engagement:"):
+        engagement_id = conversation.topic.split(":", 1)[1]
+
+    # Resolve target workgroup by name within the same org
+    target_wg = session.exec(
+        select(Workgroup).where(
+            Workgroup.organization_id == org.id,
+            Workgroup.name == team_name,
+        )
+    ).first()
+    if not target_wg:
+        # List available teams for a helpful error
+        teams = session.exec(
+            select(Workgroup).where(
+                Workgroup.organization_id == org.id,
+                Workgroup.id != agent.workgroup_id,
+            )
+        ).all()
+        team_names = [t.name for t in teams]
+        return f"Error: team '{team_name}' not found in this organization. Available teams: {', '.join(team_names) or '(none)'}."
+
+    # Find the system user to use as conversation creator
+    system_user = session.exec(
+        select(User).where(User.email == "system@teaparty.local")
+    ).first()
+    creator_id = system_user.id if system_user else org.owner_id
+
+    # Create conversation for the job
+    job_conversation = Conversation(
+        workgroup_id=target_wg.id,
+        created_by_user_id=creator_id,
+        kind="topic",
+        topic=title,
+        name=title,
+        description=scope[:500] if scope else "",
+    )
+    session.add(job_conversation)
+    session.flush()
+
+    # Create the Job record
+    job = Job(
+        title=title,
+        scope=scope,
+        status="pending",
+        engagement_id=engagement_id,
+        workgroup_id=target_wg.id,
+        conversation_id=job_conversation.id,
+        created_by_agent_id=agent.id,
+    )
+    session.add(job)
+    session.flush()
+
+    # Auto-select workflow for the new conversation
+    from teaparty_app.services.agent_tools import auto_select_workflow
+    selected_workflow = auto_select_workflow(session, target_wg, job_conversation)
+
+    # Post system message with job scope
+    scope_msg = (
+        f"[Job created by Coordinator] {title}\n\n"
+        f"Scope: {scope or '(none)'}\n\n"
+        f"Job ID: {job.id}"
+    )
+    if engagement_id:
+        scope_msg += f"\nEngagement ID: {engagement_id}"
+    if selected_workflow:
+        scope_msg += f"\nWorkflow: {selected_workflow}"
+
+    system_message = Message(
+        conversation_id=job_conversation.id,
+        sender_type="system",
+        content=scope_msg,
+        requires_response=True,
+    )
+    session.add(system_message)
+    session.flush()
+
+    # Auto-create worktree if workspace-enabled
+    if target_wg.workspace_enabled:
+        try:
+            from teaparty_app.services.workspace_manager import init_workspace, create_worktree_for_topic
+            workspace = init_workspace(session, target_wg.id)
+            create_worktree_for_topic(session, workspace, job_conversation)
+        except Exception as exc:
+            logger.warning("Failed to create worktree for job %s: %s", job.id, exc)
+
+    # Trigger auto-responses in background
+    from teaparty_app.services.agent_runtime import _process_auto_responses_in_background
+    _process_auto_responses_in_background(job_conversation.id, system_message.id)
+
+    return (
+        f"Created job '{title}' (id={job.id}) and dispatched to team '{team_name}'. "
+        f"Conversation: {job_conversation.id}"
+    )
+
+
+def _tool_list_team_jobs(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    team_name = (tool_input.get("team_name") or "").strip()
+    status_filter = (tool_input.get("status") or "").strip().lower()
+
+    # Build query for jobs in org's workgroups
+    org_wg_ids = [
+        wg.id for wg in session.exec(
+            select(Workgroup).where(Workgroup.organization_id == org.id)
+        ).all()
+    ]
+
+    query = select(Job).where(Job.workgroup_id.in_(org_wg_ids))
+
+    if team_name:
+        target_wg = session.exec(
+            select(Workgroup).where(
+                Workgroup.organization_id == org.id,
+                Workgroup.name == team_name,
+            )
+        ).first()
+        if not target_wg:
+            return f"Error: team '{team_name}' not found."
+        query = select(Job).where(Job.workgroup_id == target_wg.id)
+
+    if status_filter and status_filter != "all":
+        valid = {"pending", "in_progress", "completed", "cancelled"}
+        if status_filter not in valid:
+            return f"Error: status must be one of {sorted(valid)} or 'all'."
+        query = query.where(Job.status == status_filter)
+    elif not status_filter:
+        query = query.where(Job.status.in_(["pending", "in_progress"]))
+
+    query = query.order_by(Job.created_at.desc())
+    jobs = session.exec(query).all()
+
+    if not jobs:
+        return "No jobs found."
+
+    # Build workgroup name lookup
+    wg_names = {}
+    for wg_id in set(j.workgroup_id for j in jobs):
+        wg = session.get(Workgroup, wg_id)
+        wg_names[wg_id] = wg.name if wg else "?"
+
+    lines = []
+    for job in jobs:
+        line = f"- [{job.status.upper()}] {job.title} (id={job.id}, team={wg_names.get(job.workgroup_id, '?')})"
+        lines.append(line)
+
+    return f"Jobs ({len(jobs)}):\n" + "\n".join(lines)
+
+
+def _tool_read_job_status(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    job_id = (tool_input.get("job_id") or "").strip()
+    if not job_id:
+        return "Error: job_id is required."
+
+    job = session.get(Job, job_id)
+    if not job:
+        return f"Error: job '{job_id}' not found."
+
+    # Verify job is in the same org
+    job_wg = session.get(Workgroup, job.workgroup_id)
+    if not job_wg or job_wg.organization_id != org.id:
+        return "Error: job is not in your organization."
+
+    lines = [
+        f"**Job: {job.title}**",
+        f"- ID: {job.id}",
+        f"- Status: {job.status}",
+        f"- Team: {job_wg.name}",
+        f"- Scope: {job.scope or '(none)'}",
+        f"- Created: {job.created_at.strftime('%Y-%m-%d %H:%M UTC')}",
+    ]
+    if job.completed_at:
+        lines.append(f"- Completed: {job.completed_at.strftime('%Y-%m-%d %H:%M UTC')}")
+
+    # Show recent messages from the job conversation
+    if job.conversation_id:
+        recent = session.exec(
+            select(Message)
+            .where(Message.conversation_id == job.conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(5)
+        ).all()
+        if recent:
+            lines.append("\n**Recent messages:**")
+            for msg in reversed(recent):
+                sender = msg.sender_type
+                if msg.sender_agent_id:
+                    agent_obj = session.get(Agent, msg.sender_agent_id)
+                    sender = agent_obj.name if agent_obj else "agent"
+                preview = msg.content[:300]
+                lines.append(f"- [{sender}] {preview}")
+
+    return "\n".join(lines)
+
+
+def _tool_post_to_job(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    job_id = (tool_input.get("job_id") or "").strip()
+    message_text = (tool_input.get("message") or "").strip()
+
+    if not job_id:
+        return "Error: job_id is required."
+    if not message_text:
+        return "Error: message is required."
+    if len(message_text) > 10_000:
+        return "Error: message must be 10000 characters or fewer."
+
+    job = session.get(Job, job_id)
+    if not job:
+        return f"Error: job '{job_id}' not found."
+
+    # Verify same org
+    job_wg = session.get(Workgroup, job.workgroup_id)
+    if not job_wg or job_wg.organization_id != org.id:
+        return "Error: job is not in your organization."
+
+    if not job.conversation_id:
+        return "Error: job has no conversation."
+
+    # Post message as the coordinator agent
+    msg = Message(
+        conversation_id=job.conversation_id,
+        sender_type="agent",
+        sender_agent_id=agent.id,
+        content=f"[Coordinator] {message_text}",
+        requires_response=True,
+    )
+    session.add(msg)
+    session.flush()
+
+    # Trigger auto-responses in background
+    from teaparty_app.services.agent_runtime import _process_auto_responses_in_background
+    _process_auto_responses_in_background(job.conversation_id, msg.id)
+
+    return f"Posted message to job '{job.title}' conversation."
+
+
+def _tool_complete_engagement(
+    session: Session, agent: Agent, conversation: Conversation, tool_input: dict,
+) -> str:
+    org, error = _verify_orchestration_access(session, agent)
+    if error:
+        return f"Error: {error}"
+
+    engagement_id = (tool_input.get("engagement_id") or "").strip()
+    summary = (tool_input.get("summary") or "").strip()
+
+    if not engagement_id:
+        return "Error: engagement_id is required."
+    if not summary:
+        return "Error: summary is required."
+
+    from teaparty_app.models import Engagement
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        return f"Error: engagement '{engagement_id}' not found."
+
+    if engagement.status != "in_progress":
+        return f"Error: cannot complete engagement in status '{engagement.status}'."
+
+    # Verify the target workgroup is in our org
+    target_wg = session.get(Workgroup, engagement.target_workgroup_id)
+    if not target_wg or target_wg.organization_id != org.id:
+        return "Error: engagement target is not in your organization."
+
+    engagement.status = "completed"
+    engagement.completed_at = utc_now()
+    engagement.deliverables = summary
+    session.add(engagement)
+
+    # Post system messages to both conversations
+    complete_msg = f"[Engagement completed by Coordinator] {summary}"
+    if engagement.source_conversation_id:
+        session.add(Message(
+            conversation_id=engagement.source_conversation_id,
+            sender_type="system",
+            content=complete_msg,
+            requires_response=False,
+        ))
+    if engagement.target_conversation_id:
+        session.add(Message(
+            conversation_id=engagement.target_conversation_id,
+            sender_type="system",
+            content=complete_msg,
+            requires_response=False,
+        ))
+
+    return f"Engagement '{engagement.title}' marked as completed."
 
 
 # ---------------------------------------------------------------------------

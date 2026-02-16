@@ -26,7 +26,7 @@ class WorkgroupTemplateTests(unittest.TestCase):
     def test_list_templates_contains_expected_keys(self) -> None:
         templates = list_workgroup_templates()
         keys = {template["key"] for template in templates}
-        self.assertEqual(keys, {"coding", "dialectic", "roleplay"})
+        self.assertEqual(keys, {"coding", "dialectic", "operations", "roleplay"})
         self.assertTrue(all(template["agents"] for template in templates))
 
     def test_get_template_returns_copy(self) -> None:
@@ -113,14 +113,14 @@ class WorkgroupTemplateTests(unittest.TestCase):
         parsed = templates_from_storage_files(storage_files)
         self.assertEqual(
             {item["key"] for item in parsed},
-            {"coding", "dialectic", "roleplay"},
+            {"coding", "dialectic", "operations", "roleplay"},
         )
 
     def test_storage_files_include_required_structure(self) -> None:
         storage_files = template_storage_files()
         paths = {item["path"] for item in storage_files}
         self.assertIn(".templates/organizations/default/organization.json", paths)
-        for template_key in ("coding", "dialectic", "roleplay"):
+        for template_key in ("coding", "dialectic", "operations", "roleplay"):
             config_path = f".templates/organizations/default/workgroups/{template_key}/workgroup.json"
             self.assertIn(config_path, paths)
             self.assertTrue(any(path.startswith(f".templates/organizations/default/workgroups/{template_key}/agents/") for path in paths))
@@ -142,5 +142,5 @@ class WorkgroupTemplateTests(unittest.TestCase):
         self.assertFalse(any(path.startswith("templates/") for path in paths))
         self.assertFalse(any(path.endswith("/config.json") for path in paths))
         self.assertIn(".templates/organizations/default/organization.json", paths)
-        for template_key in ("coding", "dialectic", "roleplay"):
+        for template_key in ("coding", "dialectic", "operations", "roleplay"):
             self.assertIn(f".templates/organizations/default/workgroups/{template_key}/workgroup.json", paths)

@@ -161,6 +161,12 @@ def _seed_default_workgroups(session: Session, system_user: User, seed_org: Orga
         ).first()
         if existing_record:
             if existing_record.checksum == checksum and existing_record.seed_version == version:
+                # Still need to set operations_workgroup_id if this is the operations seed
+                if seed_key == "default-operations" and not seed_org.operations_workgroup_id:
+                    ops_wg = session.get(Workgroup, existing_record.entity_id)
+                    if ops_wg:
+                        seed_org.operations_workgroup_id = ops_wg.id
+                        session.add(seed_org)
                 continue
             logger.warning(
                 "Seed %s content changed (version %s→%s) — skipping to preserve user modifications",
@@ -178,6 +184,16 @@ def _seed_default_workgroups(session: Session, system_user: User, seed_org: Orga
         except Exception:
             logger.exception("Failed to seed workgroup %s — rolling back this workgroup only", seed_key)
             session.rollback()
+            continue
+
+        # After successfully creating the operations workgroup, link it to the org
+        if seed_key == "default-operations":
+            ops_record = session.exec(
+                select(SeedRecord).where(SeedRecord.seed_key == "default-operations")
+            ).first()
+            if ops_record:
+                seed_org.operations_workgroup_id = ops_record.entity_id
+                session.add(seed_org)
 
 
 def _create_workgroup_from_template(

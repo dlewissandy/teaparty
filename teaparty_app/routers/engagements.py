@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
@@ -239,6 +239,7 @@ def get_engagement(
 def respond_to_engagement(
     engagement_id: str,
     payload: EngagementRespondRequest,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> EngagementDetailRead:
@@ -301,8 +302,24 @@ def respond_to_engagement(
     terms_note = f"\nTerms: {engagement.terms}" if engagement.terms else ""
     _post_system_message(session, engagement.source_conversation_id,
                          f"[Engagement accepted] {engagement.title}{terms_note}")
-    _post_system_message(session, engagement.target_conversation_id,
-                         f"[Engagement accepted] {engagement.title}{terms_note}")
+
+    # Post a detailed message to the target conversation that agents will see and respond to
+    accept_detail = (
+        f"[Engagement accepted] {engagement.title}{terms_note}\n\n"
+        f"Scope: {engagement.scope or '(none)'}\n"
+        f"Requirements: {engagement.requirements or '(none)'}\n"
+        f"Engagement ID: {engagement.id}"
+    )
+    target_msg = None
+    if engagement.target_conversation_id:
+        target_msg = Message(
+            conversation_id=engagement.target_conversation_id,
+            sender_type="system",
+            content=accept_detail,
+            requires_response=True,
+        )
+        session.add(target_msg)
+        session.flush()
 
     # Create engagement files
     source_wg = session.get(Workgroup, engagement.source_workgroup_id)
@@ -317,6 +334,12 @@ def respond_to_engagement(
 
     session.commit()
     session.refresh(engagement)
+
+    # Trigger auto-responses on the target conversation so the coordinator agent picks up the engagement
+    if target_msg and engagement.target_conversation_id:
+        from teaparty_app.services.agent_runtime import _process_auto_responses_in_background
+        _process_auto_responses_in_background(engagement.target_conversation_id, target_msg.id)
+
     return _engagement_detail(session, engagement)
 
 

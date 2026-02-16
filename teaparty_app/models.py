@@ -38,6 +38,7 @@ class Organization(SQLModel, table=True):
     name: str = Field(index=True)
     description: str = Field(default="")
     owner_id: str = Field(foreign_key="users.id", index=True)
+    operations_workgroup_id: str | None = Field(default=None, foreign_key="workgroups.id")
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -370,6 +371,22 @@ class AgentTodoItem(SQLModel, table=True):
     due_at: datetime | None = Field(default=None, index=True)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = Field(default=None)
+
+
+class Job(SQLModel, table=True):
+    __tablename__ = "jobs"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    title: str = Field()
+    scope: str = Field(default="")
+    status: str = Field(default="pending", index=True)  # pending | in_progress | completed | cancelled
+    engagement_id: str | None = Field(default=None, foreign_key="engagements.id", index=True)
+    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+    created_by_agent_id: str | None = Field(default=None, foreign_key="agents.id", index=True)
+    deliverables: str = Field(default="")
+    created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)
 
 

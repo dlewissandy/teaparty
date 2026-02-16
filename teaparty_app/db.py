@@ -38,6 +38,8 @@ def init_db() -> None:
     _ensure_agent_memory_table()
     _ensure_agent_todo_table()
     _ensure_workspace_tables()
+    _ensure_job_table()
+    _ensure_org_operations_field()
     _run_seeds()
 
 
@@ -529,6 +531,50 @@ def _ensure_workspace_tables() -> None:
                 "ON workspace_worktrees(branch_name)"
             )
         )
+
+
+def _ensure_job_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS jobs ("
+                "id TEXT PRIMARY KEY, "
+                "title TEXT NOT NULL, "
+                "scope TEXT DEFAULT '' NOT NULL, "
+                "status TEXT DEFAULT 'pending' NOT NULL, "
+                "engagement_id TEXT REFERENCES engagements(id), "
+                "workgroup_id TEXT NOT NULL REFERENCES workgroups(id), "
+                "conversation_id TEXT REFERENCES conversations(id), "
+                "created_by_agent_id TEXT REFERENCES agents(id), "
+                "deliverables TEXT DEFAULT '' NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "completed_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_jobs_engagement ON jobs(engagement_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_jobs_workgroup ON jobs(workgroup_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_jobs_conversation ON jobs(conversation_id)")
+        )
+
+
+def _ensure_org_operations_field() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    org_columns = _sqlite_column_names("organizations")
+    if "operations_workgroup_id" not in org_columns:
+        with engine.begin() as conn:
+            conn.execute(
+                text("ALTER TABLE organizations ADD COLUMN operations_workgroup_id TEXT REFERENCES workgroups(id)")
+            )
 
 
 def get_session() -> Iterator[Session]:
