@@ -107,7 +107,7 @@ def _tool_create_file(
         if entry["path"] == path:
             return f"Error: file '{path}' already exists."
 
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     all_files = _normalize_workgroup_files(workgroup)
     created = {"id": str(uuid4()), "path": path, "content": content, "topic_id": topic_id}
     all_files.append(created)

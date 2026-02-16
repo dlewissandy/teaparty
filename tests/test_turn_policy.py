@@ -25,7 +25,7 @@ def _make_agent(*, agent_id: str = "a1", name: str = "TestAgent") -> Agent:
 def _make_conversation(
     *,
     conversation_id: str = "conv-1",
-    kind: str = "topic",
+    kind: str = "job",
     name: str = "Test",
 ) -> Conversation:
     return Conversation(
@@ -114,8 +114,8 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertTrue(directive.pause_after)
         self.assertEqual(directive.workflow_step_label, "")
 
-    def test_topic_conversation_without_workflow_all_agents_respond(self) -> None:
-        conversation = _make_conversation(kind="topic")
+    def test_job_conversation_without_workflow_all_agents_respond(self) -> None:
+        conversation = _make_conversation(kind="job")
         agents = [
             _make_agent(agent_id="a1", name="Alice"),
             _make_agent(agent_id="a2", name="Bob"),
@@ -130,7 +130,7 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertEqual(directive.workflow_step_label, "")
 
     def test_empty_agents_list_returns_empty_directive(self) -> None:
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         trigger = _make_message()
 
         directive = determine_next_turns(conversation, trigger, [], None)
@@ -138,8 +138,8 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertEqual(directive.agent_ids, [])
         self.assertTrue(directive.pause_after)
 
-    def test_single_agent_in_topic_conversation_returns_that_agent(self) -> None:
-        conversation = _make_conversation(kind="topic")
+    def test_single_agent_in_job_conversation_returns_that_agent(self) -> None:
+        conversation = _make_conversation(kind="job")
         agent = _make_agent(agent_id="a1", name="Solo")
         trigger = _make_message()
 
@@ -149,7 +149,7 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertTrue(directive.pause_after)
 
     def test_with_active_workflow_uses_step_driven_selection(self) -> None:
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         agents = [
             _make_agent(agent_id="a1", name="Synthesist"),
             _make_agent(agent_id="a2", name="Proponent"),
@@ -174,7 +174,7 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertEqual(directive.workflow_step_label, "Opening Argument")
 
     def test_workflow_step_with_multiple_agents(self) -> None:
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         agents = [
             _make_agent(agent_id="a1", name="Proponent"),
             _make_agent(agent_id="a2", name="Opponent"),
@@ -197,7 +197,7 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertFalse(directive.pause_after)
 
     def test_workflow_step_with_unknown_agent_name_falls_back(self) -> None:
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         agents = [
             _make_agent(agent_id="a1", name="Alice"),
             _make_agent(agent_id="a2", name="Bob"),
@@ -220,7 +220,7 @@ class DetermineNextTurnsTests(unittest.TestCase):
         self.assertEqual(directive.agent_ids, ["a1"])
 
     def test_completed_workflow_does_not_trigger_step_driven_selection(self) -> None:
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         agents = [
             _make_agent(agent_id="a1", name="Alice"),
             _make_agent(agent_id="a2", name="Bob"),
@@ -422,8 +422,8 @@ class ParseWorkflowStateTests(unittest.TestCase):
         self.assertEqual(result["status"], "completed")
         self.assertEqual(result["current_step"], {})
 
-    def test_filters_to_topic_scoped_workflow_state(self) -> None:
-        conversation = _make_conversation(conversation_id="topic-123", kind="topic")
+    def test_filters_to_job_scoped_workflow_state(self) -> None:
+        conversation = _make_conversation(conversation_id="topic-123", kind="job")
         workgroup = _make_workgroup(
             files=[
                 {

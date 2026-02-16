@@ -59,7 +59,7 @@ class ToolHelperTests(unittest.TestCase):
         tools = available_tools()
         self.assertEqual(tools, sorted(tools))
         self.assertIn("add_file", tools)
-        self.assertIn("summarize_topic", tools)
+        self.assertIn("summarize_job", tools)
 
     def test_available_tools_includes_web_search(self) -> None:
         tools = available_tools()
@@ -96,7 +96,7 @@ class ToolHelperTests(unittest.TestCase):
         self.assertEqual(normalized[1]["topic_id"], "conv-1")
         self.assertEqual(normalized[2]["topic_id"], "")
 
-    def test_files_for_topic_sees_shared_and_own(self) -> None:
+    def test_files_for_job_sees_shared_and_own(self) -> None:
         workgroup = Workgroup(
             id="wg-1",
             name="Core",
@@ -107,7 +107,7 @@ class ToolHelperTests(unittest.TestCase):
                 {"id": "3", "path": "topic-b.md", "content": "b", "topic_id": "conv-b"},
             ],
         )
-        conv = Conversation(id="conv-a", workgroup_id="wg-1", kind="topic", created_by_user_id="u1")
+        conv = Conversation(id="conv-a", workgroup_id="wg-1", kind="job", created_by_user_id="u1")
         result = _files_for_conversation(workgroup, conv)
         paths = [f["path"] for f in result]
         self.assertIn("shared.md", paths)

@@ -34,7 +34,7 @@ def _make_conversation(
     *,
     conversation_id: str = "conv-1",
     topic: str = "Test topic",
-    kind: str = "topic",
+    kind: str = "job",
 ) -> Conversation:
     return Conversation(
         id=conversation_id,
@@ -216,14 +216,14 @@ class TestAdvanceWorkflow(unittest.TestCase):
         result = _tool_advance_workflow(session, workgroup, conversation, "a1", "   \n  ")
         self.assertIn("Error", result)
 
-    def test_topic_scoped_for_topic_conversations(self) -> None:
+    def test_job_scoped_for_job_conversations(self) -> None:
         session = MagicMock()
         workgroup = _make_workgroup(files=[])
-        conversation = _make_conversation(kind="topic", conversation_id="topic-123")
+        conversation = _make_conversation(kind="job", conversation_id="topic-123")
         _tool_advance_workflow(session, workgroup, conversation, "a1", "state content")
         self.assertEqual(workgroup.files[0]["topic_id"], "topic-123")
 
-    def test_not_topic_scoped_for_admin_conversations(self) -> None:
+    def test_not_job_scoped_for_admin_conversations(self) -> None:
         session = MagicMock()
         workgroup = _make_workgroup(files=[])
         conversation = _make_conversation(kind="admin", conversation_id="admin-1")
@@ -357,7 +357,7 @@ class TestAutoSelectSingleWorkflow(unittest.TestCase):
 
 
 class TestAutoSelectMultipleWorkflowsLLMMatch(unittest.TestCase):
-    @patch("teaparty_app.services.agent_tools._match_workflow_to_topic")
+    @patch("teaparty_app.services.agent_tools._match_workflow_to_job")
     def test_returns_llm_matched_workflow(self, mock_match: MagicMock) -> None:
         mock_match.return_value = "workflows/feature-build.md"
         session = MagicMock()
@@ -375,7 +375,7 @@ class TestAutoSelectMultipleWorkflowsLLMMatch(unittest.TestCase):
 
 
 class TestAutoSelectMultipleWorkflowsNoMatch(unittest.TestCase):
-    @patch("teaparty_app.services.agent_tools._match_workflow_to_topic")
+    @patch("teaparty_app.services.agent_tools._match_workflow_to_job")
     def test_returns_none_when_no_confident_match(self, mock_match: MagicMock) -> None:
         mock_match.return_value = None
         session = MagicMock()
@@ -391,7 +391,7 @@ class TestAutoSelectMultipleWorkflowsNoMatch(unittest.TestCase):
         self.assertEqual(len(state_files), 0)
 
 
-class TestAutoSelectStateIsTopicScoped(unittest.TestCase):
+class TestAutoSelectStateIsJobScoped(unittest.TestCase):
     def test_state_has_topic_id(self) -> None:
         session = MagicMock()
         workgroup = _make_workgroup(files=[
@@ -421,9 +421,9 @@ class TestAutoSelectLLMErrorReturnsNone(unittest.TestCase):
         mock_create.side_effect = Exception("API down")
         session = MagicMock()
 
-        from teaparty_app.services.agent_tools import _match_workflow_to_topic
+        from teaparty_app.services.agent_tools import _match_workflow_to_job
 
-        result = _match_workflow_to_topic(
+        result = _match_workflow_to_job(
             session, "conv-1", "Something", "",
             [
                 {"path": "workflows/code-review.md", "title": "Code Review", "trigger": "code review"},

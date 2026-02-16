@@ -79,7 +79,7 @@ class WorkgroupTemplateTests(unittest.TestCase):
                 {
                     "name": "Custom Analyst",
                     "role": "Custom role",
-                    "tool_names": ["summarize_topic"],
+                    "tool_names": ["summarize_job"],
                 }
             ],
             organization_id="org-1",

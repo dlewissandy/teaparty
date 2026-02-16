@@ -139,7 +139,7 @@ def create_conversation(
     session.add(conversation)
     session.flush()
 
-    if payload.kind == "topic":
+    if payload.kind == "job":
         from teaparty_app.services.agent_tools import auto_select_workflow
 
         workgroup = session.get(Workgroup, workgroup_id)
@@ -148,7 +148,7 @@ def create_conversation(
 
             if getattr(workgroup, "workspace_enabled", False):
                 try:
-                    from teaparty_app.services.workspace_manager import create_worktree_for_topic, workspace_root_configured
+                    from teaparty_app.services.workspace_manager import create_worktree_for_job, workspace_root_configured
 
                     if workspace_root_configured():
                         ws = session.exec(
@@ -158,12 +158,12 @@ def create_conversation(
                             )
                         ).first()
                         if ws:
-                            create_worktree_for_topic(session, ws, conversation)
+                            create_worktree_for_job(session, ws, conversation)
                 except Exception:
                     import logging
 
                     logging.getLogger(__name__).warning(
-                        "Failed to create worktree for topic %s", conversation.id, exc_info=True
+                        "Failed to create worktree for job %s", conversation.id, exc_info=True
                     )
 
     all_user_ids = set(payload.participant_user_ids)
@@ -278,10 +278,10 @@ def update_topic_conversation(
     conversation = session.get(Conversation, conversation_id)
     if not conversation or conversation.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    if conversation.kind != "topic":
+    if conversation.kind != "job":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only topic conversations can be updated by this endpoint",
+            detail="Only job conversations can be updated by this endpoint",
         )
 
     if payload.topic is not None:
@@ -314,7 +314,7 @@ def update_topic_conversation(
     "/workgroups/{workgroup_id}/conversations/{conversation_id}/messages",
     response_model=ConversationHistoryClearResponse,
 )
-def clear_topic_conversation_history(
+def clear_job_conversation_history(
     workgroup_id: str,
     conversation_id: str,
     session: Session = Depends(get_session),
@@ -325,10 +325,10 @@ def clear_topic_conversation_history(
     conversation = session.get(Conversation, conversation_id)
     if not conversation or conversation.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    if conversation.kind != "topic":
+    if conversation.kind != "job":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only topic conversation history can be cleared by this endpoint",
+            detail="Only job conversation history can be cleared by this endpoint",
         )
 
     counts = clear_conversation_messages(session, conversation_id)

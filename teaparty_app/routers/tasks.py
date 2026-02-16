@@ -331,11 +331,11 @@ def respond_to_task(
     if payload.terms:
         task.terms = payload.terms.strip()
 
-    # Create topic in target workgroup for work
+    # Create job in target workgroup for work
     target_conversation = Conversation(
         workgroup_id=task.target_workgroup_id,
         created_by_user_id=user.id,
-        kind="topic",
+        kind="job",
         topic=f"task:{task.id}",
         name=task.title,
         description=f"Cross-group task from source workgroup. Scope: {task.scope}",
@@ -350,11 +350,11 @@ def respond_to_task(
         )
     )
 
-    # Create mirror topic in source workgroup
+    # Create mirror job in source workgroup
     source_conversation = Conversation(
         workgroup_id=task.source_workgroup_id,
         created_by_user_id=task.requested_by_user_id,
-        kind="topic",
+        kind="job",
         topic=f"task-mirror:{task.id}",
         name=f"[Task] {task.title}",
         description=f"Mirror of cross-group task progress. Scope: {task.scope}",

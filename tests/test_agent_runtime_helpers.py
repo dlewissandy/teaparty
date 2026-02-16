@@ -36,7 +36,7 @@ def _make_agent(
     )
 
 
-def _make_conversation(*, conversation_id: str = "conv-1", topic: str = "Test topic", kind: str = "topic") -> Conversation:
+def _make_conversation(*, conversation_id: str = "conv-1", topic: str = "Test topic", kind: str = "job") -> Conversation:
     return Conversation(
         id=conversation_id,
         workgroup_id="wg-1",

@@ -2000,8 +2000,8 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
-/* Topic creation / settings modal enhancements */
-.topic-preview {
+/* Job creation / settings modal enhancements */
+.job-preview {
   padding: 10px 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -2009,7 +2009,7 @@ textarea {
   margin-bottom: 4px;
 }
 
-.topic-preview h2 {
+.job-preview h2 {
   font-size: 1.15rem;
   font-weight: 800;
   color: var(--ink);
@@ -2019,19 +2019,13 @@ textarea {
   white-space: nowrap;
 }
 
-.topic-preview h2::before {
-  content: "# ";
-  color: var(--muted);
-  font-weight: 600;
-}
-
 .settings-slug-wrap {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.topic-key-prefix {
+.job-key-prefix {
   position: absolute;
   left: 10px;
   color: var(--muted);
@@ -2084,7 +2078,7 @@ textarea {
   margin: 0;
 }
 
-body[data-theme="dark"] .topic-preview {
+body[data-theme="dark"] .job-preview {
   background: #172436;
   border-color: var(--line);
 }

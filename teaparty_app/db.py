@@ -41,6 +41,7 @@ def init_db() -> None:
     _ensure_job_table()
     _ensure_org_operations_field()
     _ensure_agent_max_turns()
+    _migrate_topic_to_job()
     _run_seeds()
 
 
@@ -585,6 +586,16 @@ def _ensure_org_operations_field() -> None:
             conn.execute(
                 text("ALTER TABLE organizations ADD COLUMN operations_workgroup_id TEXT REFERENCES workgroups(id)")
             )
+
+
+def _migrate_topic_to_job() -> None:
+    """Rename conversation kind 'topic' → 'job' and trigger types for existing rows."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE conversations SET kind = 'job' WHERE kind = 'topic'"))
+        conn.execute(text("UPDATE agent_todo_items SET trigger_type = 'job_stall' WHERE trigger_type = 'topic_stall'"))
+        conn.execute(text("UPDATE agent_todo_items SET trigger_type = 'job_resolved' WHERE trigger_type = 'topic_resolved'"))
 
 
 def get_session() -> Iterator[Session]:

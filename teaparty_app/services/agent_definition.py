@@ -112,12 +112,12 @@ def _build_prompt_body(
     parts.append("")
     kind_label = {
         "direct": "a direct conversation",
-        "topic": "a topic discussion",
+        "job": "a job discussion",
         "engagement": "an engagement conversation",
     }.get(conversation.kind, f"a {conversation.kind} conversation")
     parts.append(f"You are participating in {kind_label}.")
     if conversation.name and conversation.name != "general":
-        parts.append(f"Topic: {conversation.name}")
+        parts.append(f"Job: {conversation.name}")
     if conversation.description:
         parts.append(f"Description: {conversation.description}")
 

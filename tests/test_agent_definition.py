@@ -37,7 +37,7 @@ def _make_conversation(
     conversation_id: str = "conv-1",
     name: str = "Feature Build",
     description: str = "Building the auth module",
-    kind: str = "topic",
+    kind: str = "job",
 ) -> Conversation:
     return Conversation(
         id=conversation_id,
@@ -133,11 +133,11 @@ class BuildAgentJsonTests(unittest.TestCase):
         conversation = _make_conversation(
             name="Auth Module",
             description="Implementing OAuth2",
-            kind="topic",
+            kind="job",
         )
         result = build_agent_json(agent, conversation)
-        self.assertIn("topic discussion", result["prompt"])
-        self.assertIn("Topic: Auth Module", result["prompt"])
+        self.assertIn("job discussion", result["prompt"])
+        self.assertIn("Job: Auth Module", result["prompt"])
         self.assertIn("Description: Implementing OAuth2", result["prompt"])
 
     def test_workflow_context_in_prompt(self) -> None:

@@ -75,7 +75,7 @@ class TestWorkspaceManager(unittest.TestCase):
             id=new_id(),
             workgroup_id=workgroup_id,
             created_by_user_id="user-1",
-            kind="topic",
+            kind="job",
             topic=topic,
             name=topic,
         )
@@ -110,36 +110,36 @@ class TestWorkspaceManager(unittest.TestCase):
             ws2 = init_workspace(session, wg.id)
             self.assertEqual(ws1.id, ws2.id)
 
-    def test_create_worktree_for_topic(self):
-        from teaparty_app.services.workspace_manager import create_worktree_for_topic, init_workspace
+    def test_create_worktree_for_job(self):
+        from teaparty_app.services.workspace_manager import create_worktree_for_job, init_workspace
 
         with self._session() as session:
             wg = self._create_workgroup(session)
             ws = init_workspace(session, wg.id)
             conv = self._create_conversation(session, wg.id)
-            wt = create_worktree_for_topic(session, ws, conv)
+            wt = create_worktree_for_job(session, ws, conv)
             session.commit()
 
             self.assertEqual(wt.status, "active")
             self.assertTrue(Path(wt.worktree_path).exists())
-            self.assertIn("topic/", wt.branch_name)
+            self.assertIn("job/", wt.branch_name)
 
     def test_create_worktree_idempotent(self):
-        from teaparty_app.services.workspace_manager import create_worktree_for_topic, init_workspace
+        from teaparty_app.services.workspace_manager import create_worktree_for_job, init_workspace
 
         with self._session() as session:
             wg = self._create_workgroup(session)
             ws = init_workspace(session, wg.id)
             conv = self._create_conversation(session, wg.id)
-            wt1 = create_worktree_for_topic(session, ws, conv)
+            wt1 = create_worktree_for_job(session, ws, conv)
             session.commit()
 
-            wt2 = create_worktree_for_topic(session, ws, conv)
+            wt2 = create_worktree_for_job(session, ws, conv)
             self.assertEqual(wt1.id, wt2.id)
 
     def test_remove_worktree(self):
         from teaparty_app.services.workspace_manager import (
-            create_worktree_for_topic,
+            create_worktree_for_job,
             init_workspace,
             remove_worktree,
         )
@@ -148,7 +148,7 @@ class TestWorkspaceManager(unittest.TestCase):
             wg = self._create_workgroup(session)
             ws = init_workspace(session, wg.id)
             conv = self._create_conversation(session, wg.id)
-            wt = create_worktree_for_topic(session, ws, conv)
+            wt = create_worktree_for_job(session, ws, conv)
             session.commit()
 
             wt_path = wt.worktree_path
@@ -161,21 +161,21 @@ class TestWorkspaceManager(unittest.TestCase):
 
     def test_merge_success(self):
         from teaparty_app.services.workspace_manager import (
-            create_worktree_for_topic,
+            create_worktree_for_job,
             init_workspace,
-            merge_topic_to_main,
+            merge_job_to_main,
         )
 
         with self._session() as session:
             wg = self._create_workgroup(session)
             ws = init_workspace(session, wg.id)
             conv = self._create_conversation(session, wg.id)
-            wt = create_worktree_for_topic(session, ws, conv)
+            wt = create_worktree_for_job(session, ws, conv)
             session.commit()
 
-            # Make a change on the topic branch
-            topic_file = Path(wt.worktree_path) / "feature.txt"
-            topic_file.write_text("new feature")
+            # Make a change on the job branch
+            job_file = Path(wt.worktree_path) / "feature.txt"
+            job_file.write_text("new feature")
             subprocess.run(["git", "add", "-A"], cwd=wt.worktree_path, check=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add feature"],
@@ -190,7 +190,7 @@ class TestWorkspaceManager(unittest.TestCase):
                 },
             )
 
-            result = merge_topic_to_main(session, ws, wt)
+            result = merge_job_to_main(session, ws, wt)
             session.commit()
 
             self.assertTrue(result["merged"])
@@ -203,16 +203,16 @@ class TestWorkspaceManager(unittest.TestCase):
 
     def test_merge_conflict_aborts(self):
         from teaparty_app.services.workspace_manager import (
-            create_worktree_for_topic,
+            create_worktree_for_job,
             init_workspace,
-            merge_topic_to_main,
+            merge_job_to_main,
         )
 
         with self._session() as session:
             wg = self._create_workgroup(session, files=[{"path": "conflict.txt", "content": "original"}])
             ws = init_workspace(session, wg.id)
             conv = self._create_conversation(session, wg.id)
-            wt = create_worktree_for_topic(session, ws, conv)
+            wt = create_worktree_for_job(session, ws, conv)
             session.commit()
 
             git_env = {
@@ -223,17 +223,17 @@ class TestWorkspaceManager(unittest.TestCase):
                 "GIT_COMMITTER_EMAIL": "test@test.com",
             }
 
-            # Change on topic branch
-            (Path(wt.worktree_path) / "conflict.txt").write_text("topic change")
+            # Change on job branch
+            (Path(wt.worktree_path) / "conflict.txt").write_text("job change")
             subprocess.run(["git", "add", "-A"], cwd=wt.worktree_path, check=True)
-            subprocess.run(["git", "commit", "-m", "Topic change"], cwd=wt.worktree_path, check=True, env=git_env)
+            subprocess.run(["git", "commit", "-m", "Job change"], cwd=wt.worktree_path, check=True, env=git_env)
 
             # Conflicting change on main
             (Path(ws.main_worktree_path) / "conflict.txt").write_text("main change")
             subprocess.run(["git", "add", "-A"], cwd=ws.main_worktree_path, check=True)
             subprocess.run(["git", "commit", "-m", "Main change"], cwd=ws.main_worktree_path, check=True, env=git_env)
 
-            result = merge_topic_to_main(session, ws, wt)
+            result = merge_job_to_main(session, ws, wt)
 
             self.assertFalse(result["merged"])
             self.assertIn("conflict.txt", result["conflicts"])

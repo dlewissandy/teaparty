@@ -65,7 +65,7 @@ def _run_git(args: list[str], cwd: str | Path, timeout: int = 30) -> subprocess.
 def _safe_branch_name(topic: str, conversation_id: str) -> str:
     short_id = conversation_id[:8]
     slug = re.sub(r"[^a-zA-Z0-9]+", "-", topic.lower()).strip("-")[:40]
-    return f"topic/{short_id}-{slug}" if slug else f"topic/{short_id}"
+    return f"job/{short_id}-{slug}" if slug else f"job/{short_id}"
 
 
 def workspace_root_configured() -> bool:
@@ -187,10 +187,10 @@ def destroy_workspace(session: Session, workspace: Workspace) -> None:
 # ---------------------------------------------------------------------------
 
 
-def create_worktree_for_topic(
+def create_worktree_for_job(
     session: Session, workspace: Workspace, conversation: Conversation
 ) -> WorkspaceWorktree:
-    """Idempotent: create a git worktree for a topic conversation."""
+    """Idempotent: create a git worktree for a job conversation."""
     existing = session.exec(
         select(WorkspaceWorktree).where(
             WorkspaceWorktree.workspace_id == workspace.id,
@@ -281,8 +281,8 @@ def remove_worktree(session: Session, worktree: WorkspaceWorktree, delete_branch
 # ---------------------------------------------------------------------------
 
 
-def merge_topic_to_main(session: Session, workspace: Workspace, worktree: WorkspaceWorktree) -> dict:
-    """Merge a topic branch into main. Returns {"merged": True/False, "conflicts": [...]}."""
+def merge_job_to_main(session: Session, workspace: Workspace, worktree: WorkspaceWorktree) -> dict:
+    """Merge a job branch into main. Returns {"merged": True/False, "conflicts": [...]}."""
     lock = _get_lock(workspace.workgroup_id)
     with lock:
         main_path = workspace.main_worktree_path
@@ -469,7 +469,7 @@ def materialize_files_to_worktree(
 
     files = list(workgroup.files or [])
     # Filter to relevant files (shared + conversation-scoped)
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     relevant = [
         f for f in files
         if not f.get("topic_id") or f.get("topic_id") == topic_id

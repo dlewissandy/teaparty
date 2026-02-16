@@ -11,14 +11,14 @@ logger = logging.getLogger(__name__)
 from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_AGENT_NAME,
     ADMIN_AGENT_SENTINEL,
-    ADMIN_CONVERSATION_TOPIC,
+    ADMIN_CONVERSATION_NAME,
     ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,
-    ADMIN_TOOL_ADD_TOPIC,
+    ADMIN_TOOL_ADD_JOB,
     ADMIN_TOOL_ADD_USER,
-    ADMIN_TOOL_ARCHIVE_TOPIC,
-    ADMIN_TOOL_CLEAR_TOPIC_MESSAGES,
+    ADMIN_TOOL_ARCHIVE_JOB,
+    ADMIN_TOOL_CLEAR_JOB_MESSAGES,
     ADMIN_TOOL_COMPLETE_TASK,
     ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_DELETE_FILE,
@@ -27,27 +27,27 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_TOOL_LIST_FILES,
     ADMIN_TOOL_LIST_MEMBERS,
     ADMIN_TOOL_LIST_TASKS,
-    ADMIN_TOOL_LIST_TOPICS,
+    ADMIN_TOOL_LIST_JOBS,
     ADMIN_TOOL_NAMES,
     ADMIN_TOOL_REMOVE_MEMBER,
-    ADMIN_TOOL_REMOVE_TOPIC,
+    ADMIN_TOOL_REMOVE_JOB,
     ADMIN_TOOL_RENAME_FILE,
-    ADMIN_TOOL_UNARCHIVE_TOPIC,
+    ADMIN_TOOL_UNARCHIVE_JOB,
     ADMINISTRATION_WORKGROUP_NAME,
     GLOBAL_TOOL_ADD_AGENT,
     GLOBAL_TOOL_ADD_FILE,
-    GLOBAL_TOOL_ADD_TOPIC,
+    GLOBAL_TOOL_ADD_JOB,
     GLOBAL_TOOL_CREATE_ORGANIZATION,
     GLOBAL_TOOL_CREATE_WORKGROUP,
     GLOBAL_TOOL_LIST_AGENTS,
     GLOBAL_TOOL_LIST_ORGANIZATIONS,
     GLOBAL_TOOL_LIST_TEMPLATES,
-    GLOBAL_TOOL_LIST_TOPICS,
+    GLOBAL_TOOL_LIST_JOBS,
     GLOBAL_TOOL_LIST_WORKGROUPS,
     GLOBAL_TOOL_NAMES,
     SESSION_DELETE_WORKGROUP_KEY,
-    direct_topic_key,
-    direct_topic_key_user_agent,
+    direct_conversation_key,
+    direct_conversation_key_user_agent,
     ensure_admin_workspace,
     ensure_admin_workspace_for_workgroup_id,
     ensure_direct_conversation,
@@ -61,10 +61,10 @@ from teaparty_app.services.admin_workspace.parsing import (  # noqa: F401
     ACCEPT_TASK_RE,
     ADD_AGENT_RE,
     ADD_FILE_RE,
-    ADD_TOPIC_RE,
+    ADD_JOB_RE,
     ADD_USER_RE,
-    ARCHIVE_TOPIC_RE,
-    CLEAR_TOPIC_MESSAGES_RE,
+    ARCHIVE_JOB_RE,
+    CLEAR_JOB_MESSAGES_RE,
     COMPLETE_TASK_RE,
     DECLINE_TASK_RE,
     DELETE_FILE_RE,
@@ -73,20 +73,20 @@ from teaparty_app.services.admin_workspace.parsing import (  # noqa: F401
     LIST_FILES_RE,
     LIST_MEMBERS_RE,
     LIST_TASKS_RE,
-    LIST_TOPICS_RE,
+    LIST_JOBS_RE,
     REMOVE_MEMBER_RE,
-    REMOVE_TOPIC_RE,
+    REMOVE_JOB_RE,
     RENAME_FILE_RE,
-    UNARCHIVE_TOPIC_RE,
+    UNARCHIVE_JOB_RE,
     _help_text,
     _is_confirmed_word,
     _normalize_admin_message_for_matching,
     _normalize_file_content,
-    _normalize_list_topics_status,
+    _normalize_list_jobs_status,
     _normalize_task_selector,
-    _normalize_topic_selector,
+    _normalize_job_selector,
     _parse_add_agent_payload,
-    _parse_add_topic_payload,
+    _parse_add_job_payload,
     _parse_file_payload,
     _parse_temperature,
 )
@@ -95,10 +95,10 @@ from teaparty_app.services.admin_workspace.tools import (  # noqa: F401
     admin_tool_accept_task,
     admin_tool_add_agent,
     admin_tool_add_file,
-    admin_tool_add_topic,
+    admin_tool_add_job,
     admin_tool_add_user,
-    admin_tool_archive_topic,
-    admin_tool_clear_topic_messages,
+    admin_tool_archive_job,
+    admin_tool_clear_job_messages,
     admin_tool_complete_task,
     admin_tool_decline_task,
     admin_tool_delete_file,
@@ -107,11 +107,11 @@ from teaparty_app.services.admin_workspace.tools import (  # noqa: F401
     admin_tool_list_files,
     admin_tool_list_members,
     admin_tool_list_tasks,
-    admin_tool_list_topics,
+    admin_tool_list_jobs,
     admin_tool_remove_member,
-    admin_tool_remove_topic,
+    admin_tool_remove_job,
     admin_tool_rename_file,
-    admin_tool_unarchive_topic,
+    admin_tool_unarchive_job,
     clear_conversation_messages,
     consume_queued_workgroup_deletion,
     delete_workgroup_data,
@@ -138,41 +138,41 @@ def _handle_admin_message_deterministic(
             confirmed=_is_confirmed_word(delete_workgroup_match.group(1)),
         )
 
-    unarchive_match = UNARCHIVE_TOPIC_RE.match(message)
+    unarchive_match = UNARCHIVE_JOB_RE.match(message)
     if unarchive_match:
-        return admin_tool_unarchive_topic(session, workgroup_id, requester_user_id, unarchive_match.group(1))
+        return admin_tool_unarchive_job(session, workgroup_id, requester_user_id, unarchive_match.group(1))
 
-    archive_match = ARCHIVE_TOPIC_RE.match(message)
+    archive_match = ARCHIVE_JOB_RE.match(message)
     if archive_match:
-        return admin_tool_archive_topic(session, workgroup_id, requester_user_id, archive_match.group(1))
+        return admin_tool_archive_job(session, workgroup_id, requester_user_id, archive_match.group(1))
 
-    remove_topic_match = REMOVE_TOPIC_RE.match(message)
-    if remove_topic_match:
-        return admin_tool_remove_topic(
+    remove_job_match = REMOVE_JOB_RE.match(message)
+    if remove_job_match:
+        return admin_tool_remove_job(
             session=session,
             workgroup_id=workgroup_id,
             requester_user_id=requester_user_id,
-            selector=remove_topic_match.group(1),
+            selector=remove_job_match.group(1),
         )
 
-    clear_topic_match = CLEAR_TOPIC_MESSAGES_RE.match(message)
-    if clear_topic_match:
-        return admin_tool_clear_topic_messages(
+    clear_job_match = CLEAR_JOB_MESSAGES_RE.match(message)
+    if clear_job_match:
+        return admin_tool_clear_job_messages(
             session=session,
             workgroup_id=workgroup_id,
             requester_user_id=requester_user_id,
-            selector=clear_topic_match.group(1),
+            selector=clear_job_match.group(1),
         )
 
-    add_topic_match = ADD_TOPIC_RE.match(message)
-    if add_topic_match:
-        topic_name, topic_description = _parse_add_topic_payload(add_topic_match.group(1))
-        return admin_tool_add_topic(
+    add_job_match = ADD_JOB_RE.match(message)
+    if add_job_match:
+        job_name, job_description = _parse_add_job_payload(add_job_match.group(1))
+        return admin_tool_add_job(
             session=session,
             workgroup_id=workgroup_id,
             requester_user_id=requester_user_id,
-            topic_name=topic_name,
-            description=topic_description,
+            topic_name=job_name,
+            description=job_description,
         )
 
     add_agent_match = ADD_AGENT_RE.match(message)
@@ -248,10 +248,10 @@ def _handle_admin_message_deterministic(
             member_selector=remove_member_match.group(1),
         )
 
-    list_topics_match = LIST_TOPICS_RE.match(message)
-    if list_topics_match:
-        status_selector = list_topics_match.group(1) or list_topics_match.group(2) or "open"
-        return admin_tool_list_topics(session, workgroup_id, status=status_selector)
+    list_jobs_match = LIST_JOBS_RE.match(message)
+    if list_jobs_match:
+        status_selector = list_jobs_match.group(1) or list_jobs_match.group(2) or "open"
+        return admin_tool_list_jobs(session, workgroup_id, status=status_selector)
 
     list_files_match = LIST_FILES_RE.match(message)
     if list_files_match:

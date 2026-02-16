@@ -124,7 +124,7 @@ def _files_for_conversation(workgroup: Workgroup, conversation: Conversation) ->
     all_files = _normalize_workgroup_files(workgroup)
     if conversation.kind == "admin":
         return all_files
-    if conversation.kind == "topic":
+    if conversation.kind == "job":
         return [f for f in all_files if not f.get("topic_id") or f["topic_id"] == conversation.id]
     # direct and everything else: shared files only
     return [f for f in all_files if not f.get("topic_id")]
@@ -182,7 +182,7 @@ def add_file(session: Session, agent: Agent, conversation: Conversation, trigger
         if entry["path"] == path:
             return f"File '{path}' already exists (id={entry['id']})."
 
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     created = {"id": str(uuid4()), "path": path, "content": content, "topic_id": topic_id}
     all_files.append(created)
     workgroup.files = all_files
@@ -341,7 +341,7 @@ def list_files(session: Session, agent: Agent, conversation: Conversation, trigg
     return "\n".join(lines)
 
 
-def summarize_topic(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+def summarize_job(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
     recent = session.exec(
         select(Message)
         .where(Message.conversation_id == conversation.id)
@@ -349,7 +349,7 @@ def summarize_topic(session: Session, agent: Agent, conversation: Conversation, 
         .limit(6)
     ).all()
     if not recent:
-        return "No messages yet in this topic."
+        return "No messages yet in this job."
 
     snippets = []
     for message in reversed(recent):
@@ -437,7 +437,7 @@ def update_todo(session: Session, agent: Agent, conversation: Conversation, trig
 
 
 TOOL_REGISTRY: dict[str, ToolHandler] = {
-    "summarize_topic": summarize_topic,
+    "summarize_job": summarize_job,
     "list_open_followups": list_open_followups,
     "suggest_next_step": suggest_next_step,
     "list_files": list_files,

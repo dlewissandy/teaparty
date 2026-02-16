@@ -40,7 +40,7 @@ from teaparty_app.services.activity import (
 from teaparty_app.services.admin_workspace import (
     ADMIN_AGENT_SENTINEL,
     clear_conversation_messages,
-    direct_topic_key_user_agent,
+    direct_conversation_key_user_agent,
     ensure_admin_workspace,
     ensure_admin_workspace_for_workgroup_id,
     list_members as list_workgroup_members,
@@ -1022,7 +1022,7 @@ def clear_agent_conversation(
         select(Conversation).where(
             Conversation.workgroup_id == workgroup_id,
             Conversation.kind == "direct",
-            Conversation.topic == direct_topic_key_user_agent(user.id, agent_id),
+            Conversation.topic == direct_conversation_key_user_agent(user.id, agent_id),
         )
     ).first()
 

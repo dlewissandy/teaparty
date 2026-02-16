@@ -64,7 +64,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                     "model": "gpt-5-nano",
                     "temperature": 0.4,
                     "verbosity": 0.5,
-                    "tool_names": ["summarize_topic"],
+                    "tool_names": ["summarize_job"],
                     "response_threshold": 0.5,
                     "follow_up_minutes": 45,
                 },
@@ -197,7 +197,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "a1", "name": "Bot", "description": "Helper", "role": "Assistant",
                     "personality": "Friendly", "backstory": "None", "model": "gpt-5-nano",
-                    "temperature": 0.7, "verbosity": 0.5, "tool_names": ["summarize_topic"],
+                    "temperature": 0.7, "verbosity": 0.5, "tool_names": ["summarize_job"],
                     "response_threshold": 0.55, "follow_up_minutes": 60,
                 },
             ],
@@ -208,7 +208,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
 
         self.assertEqual(payload["id"], "a1")
         self.assertEqual(payload["name"], "Bot")
-        self.assertEqual(payload["tool_names"], ["summarize_topic"])
+        self.assertEqual(payload["tool_names"], ["summarize_job"])
         self.assertNotIn("learning_state", payload)
         self.assertNotIn("sentiment_state", payload)
         self.assertNotIn("learned_preferences", payload)

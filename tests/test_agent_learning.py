@@ -26,7 +26,7 @@ from teaparty_app.services.agent_learning import (
 
 def _make_conversation(
     *,
-    kind: str = "topic",
+    kind: str = "job",
     topic: str = "general",
     workgroup_id: str = "wg-1",
 ) -> Conversation:
@@ -79,8 +79,8 @@ def _make_message(
 
 
 class TestIsLearningEligible(unittest.TestCase):
-    def test_topic_conversation_is_eligible(self) -> None:
-        conv = _make_conversation(kind="topic", topic="general")
+    def test_job_conversation_is_eligible(self) -> None:
+        conv = _make_conversation(kind="job", topic="general")
         self.assertTrue(is_learning_eligible(conv))
 
     def test_direct_conversation_is_eligible(self) -> None:
@@ -88,11 +88,11 @@ class TestIsLearningEligible(unittest.TestCase):
         self.assertTrue(is_learning_eligible(conv))
 
     def test_task_conversation_is_not_eligible(self) -> None:
-        conv = _make_conversation(kind="topic", topic="task:abc-123")
+        conv = _make_conversation(kind="job", topic="task:abc-123")
         self.assertFalse(is_learning_eligible(conv))
 
     def test_task_mirror_is_not_eligible(self) -> None:
-        conv = _make_conversation(kind="topic", topic="task-mirror:abc-123")
+        conv = _make_conversation(kind="job", topic="task-mirror:abc-123")
         self.assertFalse(is_learning_eligible(conv))
 
     def test_activity_is_not_eligible(self) -> None:
@@ -127,7 +127,7 @@ class TestApplyShortTermLearning(unittest.TestCase):
             session.add(user)
             agent = _make_agent(agent_id="agent-1")
             session.add(agent)
-            conv = _make_conversation(kind="topic", topic="task:abc-123")
+            conv = _make_conversation(kind="job", topic="task:abc-123")
             session.add(conv)
             trigger = _make_message(conversation_id=conv.id, content="Tell me about the project")
             session.add(trigger)
@@ -149,7 +149,7 @@ class TestApplyShortTermLearning(unittest.TestCase):
             ).all()
             self.assertEqual(len(events), 0)
 
-    def test_creates_topic_expertise_event(self) -> None:
+    def test_creates_job_expertise_event(self) -> None:
         with Session(self.engine) as session:
             wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
             session.add(wg)
@@ -157,7 +157,7 @@ class TestApplyShortTermLearning(unittest.TestCase):
             session.add(user)
             agent = _make_agent(agent_id="agent-1")
             session.add(agent)
-            conv = _make_conversation(kind="topic", topic="machine-learning")
+            conv = _make_conversation(kind="job", topic="machine-learning")
             session.add(conv)
             trigger = _make_message(
                 conversation_id=conv.id,
@@ -200,7 +200,7 @@ class TestApplyShortTermLearning(unittest.TestCase):
             agent_b = _make_agent(agent_id="agent-b", name="Bob")
             session.add(agent_a)
             session.add(agent_b)
-            conv = _make_conversation(kind="topic", topic="design")
+            conv = _make_conversation(kind="job", topic="design")
             session.add(conv)
             trigger = _make_message(
                 conversation_id=conv.id,
@@ -328,7 +328,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             session.add(wg)
             user = User(id="user-1", email="test@example.com")
             session.add(user)
-            conv = _make_conversation(kind="topic", topic="task:abc-123")
+            conv = _make_conversation(kind="job", topic="task:abc-123")
             session.add(conv)
             session.commit()
 
@@ -341,7 +341,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             session.add(wg)
             user = User(id="user-1", email="test@example.com")
             session.add(user)
-            conv = _make_conversation(kind="topic", topic="short-topic")
+            conv = _make_conversation(kind="job", topic="short-topic")
             session.add(conv)
             # Only 2 messages
             session.add(_make_message(conversation_id=conv.id, content="Hello"))
@@ -360,7 +360,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             session.add(user)
             agent = _make_agent(agent_id="agent-1")
             session.add(agent)
-            conv = _make_conversation(kind="topic", topic="architecture")
+            conv = _make_conversation(kind="job", topic="architecture")
             session.add(conv)
 
             for i in range(5):
@@ -415,7 +415,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             session.add(user)
             agent = _make_agent(agent_id="agent-1")
             session.add(agent)
-            conv = _make_conversation(kind="topic", topic="test-topic")
+            conv = _make_conversation(kind="job", topic="test-topic")
             session.add(conv)
             for i in range(4):
                 sender_type = "user" if i % 2 == 0 else "agent"
@@ -444,7 +444,7 @@ class TestSynthesizeLongTermMemories(unittest.TestCase):
             session.add(user)
             agent = _make_agent(agent_id="agent-1")
             session.add(agent)
-            conv = _make_conversation(kind="topic", topic="big-topic")
+            conv = _make_conversation(kind="job", topic="big-topic")
             session.add(conv)
             for i in range(5):
                 sender_type = "user" if i % 2 == 0 else "agent"

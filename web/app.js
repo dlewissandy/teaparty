@@ -668,7 +668,7 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
     const memberCount = (wgData.members || []).length;
     const agentCount = (wgData.agents || []).filter((a) => a.description !== "__system_admin_agent__").length;
     const fileCount = normalizeWorkgroupFiles(wgData.workgroup?.files).length;
-    const topicCount = (wgData.topics || []).filter((t) => t.kind === "topic").length;
+    const jobCount = (wgData.jobs || []).filter((t) => t.kind === "job").length;
 
     const stats = document.createElement("div");
     stats.className = "cfg-wg-stats";
@@ -676,7 +676,7 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
       [memberCount, "Users"],
       [agentCount, "Agents"],
       [fileCount, "Files"],
-      [topicCount, "Topics"],
+      [jobCount, "Jobs"],
     ].forEach(([val, label]) => {
       const pill = document.createElement("div");
       pill.className = "cfg-wg-stat";
@@ -1096,8 +1096,8 @@ function isConversationUnread(conversation) {
 function workgroupHasUnread(workgroupId) {
   const data = state.treeData[workgroupId];
   if (!data) return false;
-  console.log("[unread] checking workgroup", workgroupId, "directs:", data.directs.length, "topics:", data.topics.length);
-  if (data.topics.some((c) => !c.is_archived && isConversationUnread(c))) return true;
+  console.log("[unread] checking workgroup", workgroupId, "directs:", data.directs.length, "jobs:", data.jobs.length);
+  if (data.jobs.some((c) => !c.is_archived && isConversationUnread(c))) return true;
   const userId = state.user?.id;
   for (const member of data.members) {
     if (member.user_id === userId) continue;
@@ -1270,8 +1270,8 @@ function updateMetrics() {
   setTextIfPresent("metric-workgroups", String(state.workgroups.length));
 
   const selected = state.treeData[state.selectedWorkgroupId];
-  const topicCount = selected ? selected.topics.length + selected.directs.length : 0;
-  setTextIfPresent("metric-conversations", String(topicCount));
+  const conversationCount = selected ? selected.jobs.length + selected.directs.length : 0;
+  setTextIfPresent("metric-conversations", String(conversationCount));
 
   setTextIfPresent("metric-messages", String(state.activeMessages.length));
 }
@@ -1413,18 +1413,18 @@ function isActiveConversationArchived() {
   if (!state.selectedWorkgroupId || !state.activeConversationId) return false;
   const data = state.treeData[state.selectedWorkgroupId];
   if (!data) return false;
-  const conv = data.topics.find((c) => c.id === state.activeConversationId)
+  const conv = data.jobs.find((c) => c.id === state.activeConversationId)
     || data.directs.find((c) => c.id === state.activeConversationId);
   return conv?.is_archived === true;
 }
 
-function topicDisplayName(conversation) {
+function jobDisplayName(conversation) {
   const explicit = (conversation?.name || "").trim();
   if (explicit) {
     return explicit;
   }
   const fallback = (conversation?.topic || "").trim();
-  return fallback || "topic";
+  return fallback || "job";
 }
 
 function normalizeWorkgroupFiles(files) {
@@ -1476,7 +1476,7 @@ function filesForConversationContext(files, workgroupId) {
   if (!conversationId || !workgroupId) return files;
   const conversation = conversationById(workgroupId, conversationId);
   if (!conversation || conversation.kind === "admin") return files;
-  if (conversation.kind === "topic") {
+  if (conversation.kind === "job") {
     return files.filter(f => f.topic_id === conversationId);
   }
   // direct and everything else: shared files only
@@ -1836,9 +1836,9 @@ function openConfigOverlay(workgroupId, label, data) {
 async function openConfigAndAdmin(workgroupId, label, configData) {
   const wgData = state.treeData[workgroupId];
   if (wgData) {
-    const admin = wgData.topics.find((c) => c.kind === "admin");
+    const admin = wgData.jobs.find((c) => c.kind === "admin");
     if (admin) {
-      await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+      await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
     }
   }
   openConfigOverlay(workgroupId, label, configData);
@@ -2744,7 +2744,7 @@ function renderWorkgroupCreateAgentsEditor() {
           >${escapeHtml(agent.personality)}</textarea>
           <input
             type="text"
-            placeholder="tools: summarize_topic, suggest_next_step"
+            placeholder="tools: summarize_job, suggest_next_step"
             value="${escapeHtml(agent.tool_names.join(", "))}"
             data-action="create-agent-tools"
             data-agent-id="${escapeHtml(agent.id)}"
@@ -2866,7 +2866,7 @@ async function loadWorkgroupTemplates() {
   resetWorkgroupCreateDraft();
 }
 
-function directTopicKeyForCurrentUser(otherUserId) {
+function directKeyForCurrentUser(otherUserId) {
   if (!state.user) {
     return "";
   }
@@ -2876,7 +2876,7 @@ function directTopicKeyForCurrentUser(otherUserId) {
 
 function adminConversationId(workgroupId) {
   const data = state.treeData[workgroupId];
-  const admin = data?.topics.find((item) => item.kind === "admin");
+  const admin = data?.jobs.find((item) => item.kind === "admin");
   return admin?.id || "";
 }
 
@@ -2890,7 +2890,7 @@ function nodeKeyForConversation(workgroupId, conversation) {
     return "";
   }
   if (conversation.kind !== "direct") {
-    return `topic:${workgroupId}:${conversation.id}`;
+    return `job:${workgroupId}:${conversation.id}`;
   }
 
   if (conversation.topic.startsWith("dma:")) {
@@ -2910,12 +2910,12 @@ function fallbackConversation(workgroupId) {
     return null;
   }
 
-  const admin = data.topics.find((item) => item.kind === "admin");
+  const admin = data.jobs.find((item) => item.kind === "admin");
   if (admin) {
     return admin;
   }
-  if (data.topics.length) {
-    return data.topics[0];
+  if (data.jobs.length) {
+    return data.jobs[0];
   }
   if (data.directs.length) {
     return data.directs[0];
@@ -2934,7 +2934,7 @@ function clearActiveConversationUI() {
   state.conversationUsage = null;
   renderMessages([]);
   setTextIfPresent("active-conversation", "No active conversation");
-  setTextIfPresent("active-context", "Use the tree to open a topic, member DM, or administration conversation.");
+  setTextIfPresent("active-context", "Use the tree to open a job, member DM, or administration conversation.");
   const usageEl = qs("active-usage");
   if (usageEl) usageEl.classList.add("hidden");
   const toolBar = qs("chat-tool-buttons");
@@ -2947,7 +2947,7 @@ function clearActiveConversationUI() {
 
 function isDestructiveAdminCommand(content) {
   const normalized = content.trim().toLowerCase();
-  return /(?:^|\s)(remove|delete)\s+(?:the\s+)?(?:member|user|participant|agent|topic|conversation|channel|workgroup)\b/.test(normalized);
+  return /(?:^|\s)(remove|delete)\s+(?:the\s+)?(?:member|user|participant|agent|job|conversation|channel|workgroup)\b/.test(normalized);
 }
 
 function isDeleteWorkgroupCommand(content) {
@@ -2976,9 +2976,9 @@ function conversationLabel(workgroupId, conversationId) {
     return "Conversation";
   }
 
-  const topic = data.topics.find((item) => item.id === conversationId);
-  if (topic) {
-    if (topic.kind === "admin") {
+  const jobConv = data.jobs.find((item) => item.id === conversationId);
+  if (jobConv) {
+    if (jobConv.kind === "admin") {
       if (data.workgroup.name === "Administration" && !data.workgroup.organization_id) {
         return "System Administration";
       }
@@ -2991,7 +2991,7 @@ function conversationLabel(workgroupId, conversationId) {
       }
       return `Administration · ${data.workgroup.name}`;
     }
-    return `#${topicDisplayName(topic)}`;
+    return jobDisplayName(jobConv);
   }
 
   const direct = data.directs.find((item) => item.id === conversationId);
@@ -3016,7 +3016,7 @@ function conversationById(workgroupId, conversationId) {
   if (!data) {
     return null;
   }
-  return data.topics.find((item) => item.id === conversationId) || data.directs.find((item) => item.id === conversationId) || null;
+  return data.jobs.find((item) => item.id === conversationId) || data.directs.find((item) => item.id === conversationId) || null;
 }
 
 
@@ -3115,9 +3115,9 @@ function startThinkingForMessage(postedMessage) {
   let mode = "agent";
   let agentIds = defaultAgentIds;
 
-  if (conversation.kind === "topic" || conversation.kind === "engagement") {
-    const topicAgents = (data.agents || []).filter((item) => item.description !== "__system_admin_agent__");
-    const mentionedAgentIds = topicAgents
+  if (conversation.kind === "job" || conversation.kind === "engagement") {
+    const jobAgents = (data.agents || []).filter((item) => item.description !== "__system_admin_agent__");
+    const mentionedAgentIds = jobAgents
       .filter((agent) => isAgentMentioned(postedMessage.content || "", agent))
       .map((agent) => agent.id);
 
@@ -3471,8 +3471,8 @@ function refreshActiveConversationHeader() {
     const engagementJobs = [];
     for (const wgId of Object.keys(state.treeData)) {
       const wgData = state.treeData[wgId];
-      if (wgData?.jobs) {
-        for (const job of wgData.jobs) {
+      if (wgData?.jobRecords) {
+        for (const job of wgData.jobRecords) {
           if (job.engagement_id === activeEngagement.id) {
             engagementJobs.push({ ...job, workgroup_name: wgData.workgroup?.name || '?' });
           }
@@ -3542,12 +3542,12 @@ function applyWorkgroupUpdateInState(updatedWorkgroup) {
   refreshFileOverlayIfOpen();
 }
 
-function applyTopicUpdateInState(workgroupId, updatedConversation) {
+function applyJobUpdateInState(workgroupId, updatedConversation) {
   const data = state.treeData[workgroupId];
   if (!data) {
     return;
   }
-  data.topics = data.topics.map((conversation) => (conversation.id === updatedConversation.id ? updatedConversation : conversation));
+  data.jobs = data.jobs.map((conversation) => (conversation.id === updatedConversation.id ? updatedConversation : conversation));
   renderTree();
   refreshActiveConversationHeader();
 }
@@ -4007,7 +4007,7 @@ function addWorkgroupFile(workgroupId) {
         throw new Error("A file with that path already exists");
       }
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = newFile.id;
@@ -4155,7 +4155,7 @@ function browserAddFile(workgroupId) {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
       if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       if (state.fileBrowserOpen) renderFileBrowser();
@@ -4182,7 +4182,7 @@ function browserNewFolder(workgroupId) {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
       if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "topic") ? conversation.id : "";
+      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       state.fileBrowserFileId = "";
@@ -4408,9 +4408,9 @@ async function ensureAgentLearningsFile(workgroupId, agent) {
     }
   }
 
-  const admin = data.topics.find((c) => c.kind === "admin");
+  const admin = data.jobs.find((c) => c.kind === "admin");
   if (admin) {
-    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+    await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
   }
 
   state.expandedWorkgroupIds[workgroupId] = true;
@@ -4458,9 +4458,9 @@ async function ensureWorkgroupConfigFile(workgroupId) {
     }
   }
 
-  const admin = data.topics.find((c) => c.kind === "admin");
+  const admin = data.jobs.find((c) => c.kind === "admin");
   if (admin) {
-    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+    await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
   }
 
   state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
@@ -4537,9 +4537,9 @@ async function ensureToolsManifestFile(workgroupId) {
     }
   }
 
-  const admin = data.topics.find((c) => c.kind === "admin");
+  const admin = data.jobs.find((c) => c.kind === "admin");
   if (admin) {
-    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+    await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
   }
 
   state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
@@ -4593,9 +4593,9 @@ async function ensureAgentConfigFile(workgroupId, agent) {
     }
   }
 
-  const admin = data.topics.find((c) => c.kind === "admin");
+  const admin = data.jobs.find((c) => c.kind === "admin");
   if (admin) {
-    await selectConversation(workgroupId, admin.id, `topic:${workgroupId}:${admin.id}`);
+    await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
   }
 
   state.expandedWorkgroupIds[workgroupId] = true;
@@ -4625,29 +4625,28 @@ function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
-function createTopicPrompt(workgroupId) {
+function createJobPrompt(workgroupId) {
   const data = state.treeData[workgroupId];
   const workgroupName = data?.workgroup?.name || "Workgroup";
   let keyTouched = false;
 
   openSettingsModal({
-    title: "New topic",
-    subtitle: `${workgroupName} · New topic`,
+    title: "New job",
+    subtitle: `${workgroupName} · New job`,
     formHtml: `
       <label class="settings-field">
         <span class="settings-label">Display name</span>
         <input name="name" type="text" required maxlength="120" placeholder="e.g. Design Reviews" autofocus />
       </label>
       <label class="settings-field">
-        <span class="settings-label">Topic key <span class="settings-field-auto" id="topic-key-auto">auto</span></span>
+        <span class="settings-label">Job key <span class="settings-field-auto" id="job-key-auto">auto</span></span>
         <div class="settings-slug-wrap">
-          <span class="topic-key-prefix">#</span>
-          <input name="topic" type="text" required maxlength="120" class="settings-slug-input" placeholder="topic-key" />
+          <input name="topic" type="text" required maxlength="120" class="settings-slug-input" placeholder="job-key" />
         </div>
       </label>
       <label class="settings-field">
         <span class="settings-label">Description</span>
-        <textarea name="description" rows="3" placeholder="What's this topic about?"></textarea>
+        <textarea name="description" rows="3" placeholder="What's this job about?"></textarea>
       </label>
       <div class="settings-actions">
         <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
@@ -4659,12 +4658,12 @@ function createTopicPrompt(workgroupId) {
       const topic = String(formData.get("topic") || "").trim();
       const description = String(formData.get("description") || "").trim();
       if (!name) throw new Error("Display name cannot be empty");
-      if (!topic) throw new Error("Topic key cannot be empty");
+      if (!topic) throw new Error("Job key cannot be empty");
 
       const result = await api(`/api/workgroups/${workgroupId}/conversations`, {
         method: "POST",
         body: {
-          kind: "topic",
+          kind: "job",
           topic,
           name,
           description,
@@ -4678,36 +4677,36 @@ function createTopicPrompt(workgroupId) {
         renderTree();
       }
       if (result?.id) {
-        await selectConversation(workgroupId, result.id, `topic:${workgroupId}:${result.id}`);
+        await selectConversation(workgroupId, result.id, `job:${workgroupId}:${result.id}`);
       }
-      flash(`Topic "${name}" created`, "success");
+      flash(`Job "${name}" created`, "success");
     },
     onRender: (form) => {
       const nameInput = form.querySelector("input[name='name']");
-      const topicInput = form.querySelector("input[name='topic']");
-      const autoIndicator = form.querySelector("#topic-key-auto");
+      const jobKeyInput = form.querySelector("input[name='topic']");
+      const autoIndicator = form.querySelector("#job-key-auto");
 
       nameInput.addEventListener("input", () => {
         if (!keyTouched) {
-          topicInput.value = slugify(nameInput.value);
+          jobKeyInput.value = slugify(nameInput.value);
         }
       });
 
-      topicInput.addEventListener("input", () => {
-        if (topicInput.value === "") {
+      jobKeyInput.addEventListener("input", () => {
+        if (jobKeyInput.value === "") {
           keyTouched = false;
           if (autoIndicator) autoIndicator.style.display = "";
         } else {
           const expected = slugify(nameInput.value);
-          if (topicInput.value !== expected) {
+          if (jobKeyInput.value !== expected) {
             keyTouched = true;
             if (autoIndicator) autoIndicator.style.display = "none";
           }
         }
       });
 
-      topicInput.addEventListener("focus", () => {
-        if (!keyTouched && topicInput.value) {
+      jobKeyInput.addEventListener("focus", () => {
+        if (!keyTouched && jobKeyInput.value) {
           keyTouched = true;
           if (autoIndicator) autoIndicator.style.display = "none";
         }
@@ -4716,47 +4715,46 @@ function createTopicPrompt(workgroupId) {
   });
 }
 
-function openTopicSettings(workgroupId, conversationId) {
+function openJobSettings(workgroupId, conversationId) {
   const data = state.treeData[workgroupId];
-  const conversation = data?.topics.find((item) => item.id === conversationId);
+  const conversation = data?.jobs.find((item) => item.id === conversationId);
   if (!data || !conversation) {
-    flash("Topic not found", "error");
+    flash("Job not found", "error");
     return;
   }
 
-  const editable = conversation.kind === "topic";
+  const editable = conversation.kind === "job";
   const canClearHistory = editable && isWorkgroupOwner(workgroupId);
   const disabledAttr = editable ? "" : "disabled";
   const note = editable
     ? ""
-    : "<p class='meta settings-note'>Administration topic settings are managed by the system.</p>";
+    : "<p class='meta settings-note'>Administration settings are managed by the system.</p>";
   const dangerZone = editable
     ? `<div class="settings-danger-zone">
         <div class="settings-danger-zone-title">Danger zone</div>
         ${canClearHistory
-          ? `<button type="button" class="danger" data-action="clear-topic-history">Clear history</button>`
-          : `<button type="button" class="danger" data-action="clear-topic-history" disabled>Clear history</button>
-             <p class='meta settings-note'>Only workgroup owners can clear topic history.</p>`}
+          ? `<button type="button" class="danger" data-action="clear-job-history">Clear history</button>`
+          : `<button type="button" class="danger" data-action="clear-job-history" disabled>Clear history</button>
+             <p class='meta settings-note'>Only workgroup owners can clear job history.</p>`}
       </div>`
     : "";
 
   openSettingsModal({
-    title: "Topic settings",
-    subtitle: `${data.workgroup.name} · ${topicDisplayName(conversation)}`,
+    title: "Job settings",
+    subtitle: `${data.workgroup.name} · ${jobDisplayName(conversation)}`,
     formHtml: `
-      <div class="topic-preview">
-        <h2>${escapeHtml(topicDisplayName(conversation))}</h2>
+      <div class="job-preview">
+        <h2>${escapeHtml(jobDisplayName(conversation))}</h2>
       </div>
       <label class="settings-field">
-        <span class="settings-label">Topic key</span>
+        <span class="settings-label">Job key</span>
         <div class="settings-slug-wrap">
-          <span class="topic-key-prefix">#</span>
           <input name="topic" type="text" required maxlength="120" class="settings-slug-input" value="${escapeHtml(conversation.topic || "")}" ${disabledAttr} />
         </div>
       </label>
       <label class="settings-field">
         <span class="settings-label">Display name</span>
-        <input name="name" type="text" required maxlength="120" value="${escapeHtml(topicDisplayName(conversation))}" ${disabledAttr} />
+        <input name="name" type="text" required maxlength="120" value="${escapeHtml(jobDisplayName(conversation))}" ${disabledAttr} />
       </label>
       <label class="settings-field">
         <span class="settings-label">Description</span>
@@ -4778,7 +4776,7 @@ function openTopicSettings(workgroupId, conversationId) {
       const name = String(formData.get("name") || "").trim();
       const description = String(formData.get("description") || "").trim();
       if (!topic) {
-        throw new Error("Topic key cannot be empty");
+        throw new Error("Job key cannot be empty");
       }
       if (!name) {
         throw new Error("Display name cannot be empty");
@@ -4788,11 +4786,11 @@ function openTopicSettings(workgroupId, conversationId) {
         method: "PATCH",
         body: { topic, name, description },
       });
-      applyTopicUpdateInState(workgroupId, updated);
-      flash("Topic settings saved", "success");
+      applyJobUpdateInState(workgroupId, updated);
+      flash("Job settings saved", "success");
     },
     onRender: (form) => {
-      const clearButton = form.querySelector("[data-action='clear-topic-history']");
+      const clearButton = form.querySelector("[data-action='clear-job-history']");
       if (!(clearButton instanceof HTMLButtonElement)) {
         return;
       }
@@ -4803,7 +4801,7 @@ function openTopicSettings(workgroupId, conversationId) {
         }
 
         const confirmed = window.confirm(
-          `Clear all messages for "${topicDisplayName(conversation)}"? This cannot be undone.`,
+          `Clear all messages for "${jobDisplayName(conversation)}"? This cannot be undone.`,
         );
         if (!confirmed) {
           return;
@@ -4825,12 +4823,12 @@ function openTopicSettings(workgroupId, conversationId) {
           const deletedMessages = Number(result?.deleted_messages || 0);
           flash(
             deletedMessages > 0
-              ? `Cleared ${deletedMessages} message${deletedMessages === 1 ? "" : "s"} from topic history`
-              : "Topic history is already empty",
+              ? `Cleared ${deletedMessages} message${deletedMessages === 1 ? "" : "s"} from job history`
+              : "Job history is already empty",
             "success",
           );
         } catch (error) {
-          flash(error.message || "Failed to clear topic history", "error");
+          flash(error.message || "Failed to clear job history", "error");
         } finally {
           clearButton.disabled = !canClearHistory;
           clearButton.textContent = originalLabel;
@@ -5047,7 +5045,7 @@ async function refreshWorkgroupTree(workgroup) {
   const engagementConversationIds = new Set(
     (engagements || []).flatMap((e) => [e.source_conversation_id, e.target_conversation_id].filter(Boolean))
   );
-  const topics = conversations.filter((item) => (item.kind === "topic" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id));
+  const jobConversations = conversations.filter((item) => (item.kind === "job" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id));
   const directs = conversations.filter((item) => item.kind === "direct");
   const engagementConversations = conversations.filter((item) => item.kind === "engagement" || engagementConversationIds.has(item.id));
 
@@ -5055,7 +5053,7 @@ async function refreshWorkgroupTree(workgroup) {
 
   state.treeData[workgroup.id] = {
     workgroup,
-    topics,
+    jobs: jobConversations,
     directs,
     members,
     agents,
@@ -5063,7 +5061,7 @@ async function refreshWorkgroupTree(workgroup) {
     engagements: engagements || [],
     engagementConversations,
     invites: pendingInvites,
-    jobs: jobs || [],
+    jobRecords: jobs || [],
   };
 
   const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id];
@@ -5344,53 +5342,61 @@ function renderTree() {
   if (createWrap) createWrap.classList.add("hidden-by-blade");
   if (addBtn) addBtn.classList.add("hidden");
 
-  // Split admin conversation from regular topics
+  // Split admin conversation from regular jobs
   const allWorkgroupFiles = normalizeWorkgroupFiles(data.workgroup?.files);
-  const adminConversation = data.topics.find(c => c.kind === "admin");
-  const regularTopics = data.topics.filter(c => c.kind !== "admin");
+  const adminConversation = data.jobs.find(c => c.kind === "admin");
+  const regularJobs = data.jobs.filter(c => c.kind !== "admin");
 
   // Administration button — standalone at top of blade
   let wgAdminButton = "";
   if (adminConversation) {
-    const adminKey = `topic:${workgroup.id}:${adminConversation.id}`;
+    const adminKey = `job:${workgroup.id}:${adminConversation.id}`;
     const adminActiveClass = state.activeNodeKey === adminKey ? "active" : "";
     wgAdminButton = `<div class="tree-item-row">
-      <button class="tree-button admin ${adminActiveClass}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(adminConversation.id)}">Workgroup Administration</button>
+      <button class="tree-button admin ${adminActiveClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(adminConversation.id)}">Workgroup Administration</button>
     </div>`;
   }
 
-  // Topics (excluding admin)
-  const topicNodes = regularTopics.length
-    ? regularTopics
+  // Build a map of Job model records by conversation_id for status badge lookup
+  const jobRecordsByConvId = new Map();
+  for (const jr of (data.jobRecords || [])) {
+    if (jr.conversation_id) jobRecordsByConvId.set(jr.conversation_id, jr);
+  }
+
+  // Jobs (excluding admin)
+  const jobConvNodes = regularJobs.length
+    ? regularJobs
         .map((conversation) => {
-          const key = `topic:${workgroup.id}:${conversation.id}`;
+          const key = `job:${workgroup.id}:${conversation.id}`;
           const activeClass = state.activeNodeKey === key ? "active" : "";
-          const displayName = topicDisplayName(conversation);
+          const displayName = jobDisplayName(conversation);
           const archived = conversation.is_archived;
           const archivedClass = archived ? " archived" : "";
           const archiveIcon = archived ? `<span class="archive-icon" title="Archived">&#x1f512;</span>` : "";
-          const label = `# ${escapeHtml(displayName)}`;
+          const label = escapeHtml(displayName);
           const unreadDot = !archived && isConversationUnread(conversation) ? `<span class="unread-dot"></span>` : "";
-          const topicFileCount = allWorkgroupFiles.filter(f => f.topic_id === conversation.id).length;
-          const fileBadge = topicFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-topic-files" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${topicFileCount} file${topicFileCount !== 1 ? "s" : ""}</button>` : "";
+          const jobFileCount = allWorkgroupFiles.filter(f => f.topic_id === conversation.id).length;
+          const fileBadge = jobFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-job-files" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${jobFileCount} file${jobFileCount !== 1 ? "s" : ""}</button>` : "";
+          const jobRecord = jobRecordsByConvId.get(conversation.id);
+          const statusBadge = jobRecord ? `<span class="task-badge ${escapeHtml(jobRecord.status)}">${escapeHtml(jobRecord.status)}</span>` : "";
           return `
             <div class="tree-item-row${archivedClass}">
-              <button class="tree-button ${activeClass}" data-action="open-topic" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${archiveIcon}${label}</button>
+              <button class="tree-button ${activeClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${archiveIcon}${label}${statusBadge}</button>
               ${unreadDot}
               ${fileBadge}
               <button
                 type="button"
                 class="tree-gear"
-                data-action="settings-topic"
+                data-action="settings-job"
                 data-workgroup="${escapeHtml(workgroup.id)}"
                 data-conversation="${escapeHtml(conversation.id)}"
-                aria-label="Topic settings for ${escapeHtml(displayName)}"
+                aria-label="Job settings for ${escapeHtml(displayName)}"
               >${GEAR_ICON_SVG}</button>
             </div>
           `;
         })
         .join("")
-    : "<div class='tree-caption'>No topics</div>";
+    : "<div class='tree-caption'>No jobs</div>";
 
   // Members — unified list: humans first (owner at top), then agents
   const sortedHumans = [...data.members].sort((a, b) => {
@@ -5483,13 +5489,9 @@ function renderTree() {
     }),
   ].join("");
 
-  const hasChatSelected = state.activeConversationId && state.selectedWorkgroupId === workgroup.id;
-  let filesSection = "";
-  if (hasChatSelected) {
-    const scopedFiles = filesForConversationContext(allWorkgroupFiles, workgroup.id);
-    const fileCount = scopedFiles.length;
-    const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
-    filesSection = `
+  const fileCount = allWorkgroupFiles.length;
+  const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
+  const filesSection = `
     <div class="tree-section">
       <div class="tree-section-title">Files</div>
       <div class="tree-list">
@@ -5500,21 +5502,6 @@ function renderTree() {
         </button>
       </div>
     </div>`;
-  }
-
-  // Jobs section
-  const jobNodes = (data.jobs || []).length
-    ? (data.jobs || []).filter(j => j.status !== "cancelled").map((job) => {
-        const convId = job.conversation_id;
-        const key = `job:${workgroup.id}:${job.id}`;
-        const activeClass = state.activeNodeKey === key ? "active" : "";
-        return `
-          <div class="tree-item-row">
-            <button class="tree-button ${activeClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-job="${escapeHtml(job.id)}" data-conversation="${escapeHtml(convId || "")}">${escapeHtml(job.title)}<span class="task-badge ${escapeHtml(job.status)}">${escapeHtml(job.status)}</span></button>
-          </div>
-        `;
-      }).join("")
-    : "<div class='tree-caption'>No jobs</div>";
 
   // Engagements section
   const engagementItems = (data.engagements || []);
@@ -5537,13 +5524,8 @@ function renderTree() {
     ${wgAdminButton}
 
     <div class="tree-section">
-      <div class="tree-section-title"><span>Topics</span><button type="button" class="tree-tool" data-action="create-topic" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
-      <div class="tree-list">${topicNodes}</div>
-    </div>
-
-    <div class="tree-section">
-      <div class="tree-section-title"><span>Jobs</span></div>
-      <div class="tree-list">${jobNodes}</div>
+      <div class="tree-section-title"><span>Jobs</span><button type="button" class="tree-tool" data-action="create-job" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
+      <div class="tree-list">${jobConvNodes}</div>
     </div>
 
     <div class="tree-section">
@@ -5954,7 +5936,7 @@ function startPolling() {
           const convs = await api(`/api/workgroups/${state.bladeWorkgroupId}/conversations?include_archived=true`);
           const data = state.treeData[state.bladeWorkgroupId];
           if (data) {
-            data.topics = convs.filter((c) => c.kind === "topic" || c.kind === "admin");
+            data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
             data.directs = convs.filter((c) => c.kind === "direct");
           }
           renderTree();
@@ -5967,7 +5949,7 @@ function startPolling() {
             const convs = await api(`/api/workgroups/${wg.id}/conversations?include_archived=true`);
             const data = state.treeData[wg.id];
             if (data) {
-              data.topics = convs.filter((c) => c.kind === "topic" || c.kind === "admin");
+              data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
               data.directs = convs.filter((c) => c.kind === "direct");
             }
           }));
@@ -6124,7 +6106,7 @@ function signOut() {
   renderTree();
   renderMessages([]);
   setTextIfPresent("active-conversation", "No active conversation");
-  setTextIfPresent("active-context", "Use the tree to open a topic, member DM, or administration conversation.");
+  setTextIfPresent("active-context", "Use the tree to open a job, member DM, or administration conversation.");
   renderWorkgroupCreateEditor();
   updateAuthUI();
   closeUserMenu();
@@ -6414,8 +6396,8 @@ function getActiveEngagement() {
 function getActiveJob() {
   if (!state.selectedWorkgroupId || !state.activeConversationId) return null;
   const data = state.treeData[state.selectedWorkgroupId];
-  if (!data?.jobs) return null;
-  return data.jobs.find(j => j.conversation_id === state.activeConversationId) || null;
+  if (!data?.jobRecords) return null;
+  return data.jobRecords.find(j => j.conversation_id === state.activeConversationId) || null;
 }
 
 async function engagementRespond(engagementId, action) {
@@ -6599,9 +6581,9 @@ function bindTreeEvents() {
       if (adminWg) {
         await refreshWorkgroupTree(adminWg);
         const data = state.treeData[adminWg.id];
-        const adminConv = data?.topics?.find(t => t.kind === "admin");
+        const adminConv = data?.jobs?.find(t => t.kind === "admin");
         if (adminConv) {
-          await selectConversation(adminWg.id, adminConv.id, `topic:${adminWg.id}:${adminConv.id}`);
+          await selectConversation(adminWg.id, adminConv.id, `job:${adminWg.id}:${adminConv.id}`);
         }
         renderTree();
       }
@@ -6619,7 +6601,7 @@ function bindTreeEvents() {
           await loadWorkgroups();
           const adminWg = state.workgroups.find(w => w.id === result.workgroup_id);
           if (adminWg) {
-            await selectConversation(result.workgroup_id, result.conversation_id, `topic:${result.workgroup_id}:${result.conversation_id}`);
+            await selectConversation(result.workgroup_id, result.conversation_id, `job:${result.workgroup_id}:${result.conversation_id}`);
           }
           renderTree();
         } catch (err) {
@@ -6678,17 +6660,18 @@ function bindTreeEvents() {
       return;
     }
 
-    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-topic" || action === "invite-member" || action === "open-file-browser" || action === "open-topic-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
+    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-job" || action === "invite-member" || action === "open-file-browser" || action === "open-job-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
       event.preventDefault();
       event.stopPropagation();
     }
 
     try {
-      if (action === "open-topic") {
+      if (action === "open-job" && !button.dataset.job) {
         const conversationId = button.dataset.conversation || "";
         if (conversationId) {
-          await selectConversation(workgroupId, conversationId, `topic:${workgroupId}:${conversationId}`);
+          await selectConversation(workgroupId, conversationId, `job:${workgroupId}:${conversationId}`);
         }
+        return;
       }
 
       if (action === "open-member") {
@@ -6715,15 +6698,15 @@ function bindTreeEvents() {
         await ensureToolsManifestFile(workgroupId);
       }
 
-      if (action === "settings-topic") {
+      if (action === "settings-job") {
         const conversationId = button.dataset.conversation || "";
         if (!conversationId) {
           return;
         }
-        const topicData = state.treeData[workgroupId];
-        const conversation = topicData?.topics.find((c) => c.id === conversationId);
+        const jobData = state.treeData[workgroupId];
+        const conversation = jobData?.jobs.find((c) => c.id === conversationId);
         if (conversation) {
-          await openConfigAndAdmin(workgroupId, `topic: ${topicDisplayName(conversation)}`, conversation);
+          await openConfigAndAdmin(workgroupId, `job: ${jobDisplayName(conversation)}`, conversation);
         }
       }
 
@@ -6814,17 +6797,17 @@ function bindTreeEvents() {
         openFileBrowser(workgroupId);
       }
 
-      if (action === "open-topic-files") {
+      if (action === "open-job-files") {
         const conversationId = button.dataset.conversation || "";
         if (conversationId) {
-          const nodeKey = `topic:${workgroupId}:${conversationId}`;
+          const nodeKey = `job:${workgroupId}:${conversationId}`;
           await selectConversation(workgroupId, conversationId, nodeKey);
           openFileBrowser(workgroupId);
         }
       }
 
-      if (action === "create-topic") {
-        await createTopicPrompt(workgroupId);
+      if (action === "create-job") {
+        await createJobPrompt(workgroupId);
       }
 
       if (action === "invite-member") {
@@ -7316,7 +7299,7 @@ function bindEvents() {
       state.bladeWorkgroupId = group.id;
       const adminId = adminConversationId(group.id);
       if (adminId) {
-        await selectConversation(group.id, adminId, `topic:${group.id}:${adminId}`);
+        await selectConversation(group.id, adminId, `job:${group.id}:${adminId}`);
       }
 
       flash("Workgroup created", "success");
@@ -7587,7 +7570,7 @@ function bindEvents() {
             }
           });
 
-          const path = `topics/uploads/${file.name}`;
+          const path = `jobs/uploads/${file.name}`;
           const data = state.treeData[workgroupId];
           if (!data) {
             flash("Workgroup not loaded", "error");

@@ -68,7 +68,7 @@ class TeamSession:
             id=self.conversation_id,
             workgroup_id=workgroup.id if workgroup else "",
             created_by_user_id="",
-            kind="topic",
+            kind="job",
             name=conversation_name,
             description=conversation_description,
         )

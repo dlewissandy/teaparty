@@ -13,7 +13,7 @@ from teaparty_app.services.agent_tools import (
     _cascade_todo_completed,
     evaluate_message_match_todos,
     evaluate_file_changed_todos,
-    evaluate_topic_resolved_todos,
+    evaluate_job_resolved_todos,
     dispatch_agent_tool,
 )
 
@@ -37,7 +37,7 @@ def _make_conversation(
     *,
     conversation_id: str = "conv-1",
     workgroup_id: str = "wg-1",
-    kind: str = "topic",
+    kind: str = "job",
 ) -> Conversation:
     return Conversation(
         id=conversation_id,
@@ -212,11 +212,11 @@ class TestCreateTodo(unittest.TestCase):
         self.assertEqual(todos[0].trigger_type, "time")
         self.assertIsNotNone(todos[0].due_at)
 
-    def test_topic_stall_defaults_stall_minutes(self) -> None:
+    def test_job_stall_defaults_stall_minutes(self) -> None:
         session = _MockSession()
         result = _tool_create_todo(
             session, _make_agent(), _make_conversation(),
-            {"title": "Nudge", "trigger_type": "topic_stall"},
+            {"title": "Nudge", "trigger_type": "job_stall"},
         )
         self.assertIn("Created todo", result)
         todos = [o for o in session._objects if isinstance(o, AgentTodoItem)]
@@ -448,17 +448,17 @@ class TestEvaluateFileChangedTodos(unittest.TestCase):
         self.assertIsNone(todo.triggered_at)
 
 
-class TestEvaluateTopicResolvedTodos(unittest.TestCase):
+class TestEvaluateJobResolvedTodos(unittest.TestCase):
     def test_marks_triggered(self) -> None:
         todo = _make_todo(
-            trigger_type="topic_resolved",
+            trigger_type="job_resolved",
             conversation_id="conv-1",
         )
 
         session = MagicMock()
         session.exec.return_value.all.return_value = [todo]
 
-        evaluate_topic_resolved_todos(session, "conv-1")
+        evaluate_job_resolved_todos(session, "conv-1")
         self.assertIsNotNone(todo.triggered_at)
 
 

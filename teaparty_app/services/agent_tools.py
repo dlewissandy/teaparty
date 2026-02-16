@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 AGENT_TOOL_SCHEMAS: list[dict] = [
     {
-        "name": "summarize_topic",
+        "name": "summarize_job",
         "description": "Summarize the recent conversation messages.",
         "input_schema": {
             "type": "object",
@@ -157,12 +157,12 @@ AGENT_TOOL_SCHEMAS: list[dict] = [
                 },
                 "trigger_type": {
                     "type": "string",
-                    "enum": ["time", "topic_stall", "message_match", "file_changed", "topic_resolved", "todo_completed", "manual"],
+                    "enum": ["time", "job_stall", "message_match", "file_changed", "job_resolved", "todo_completed", "manual"],
                     "description": "When should this todo fire? Default: manual.",
                 },
                 "trigger_config": {
                     "type": "object",
-                    "description": "Signal-specific config. For topic_stall: {stall_minutes: N}. For message_match: {keywords: [...]}. For file_changed: {file_path: '...'}. For todo_completed: {todo_id: '...'}.",
+                    "description": "Signal-specific config. For job_stall: {stall_minutes: N}. For message_match: {keywords: [...]}. For file_changed: {file_path: '...'}. For todo_completed: {todo_id: '...'}.",
                 },
                 "conversation_id": {"type": "string", "description": "Scope to a specific conversation. Default: current conversation."},
                 "due_at": {"type": "string", "description": "ISO 8601 datetime for time-based triggers (e.g. '2025-01-15T14:00:00Z')."},
@@ -246,7 +246,7 @@ AGENT_TOOL_SCHEMAS: list[dict] = [
             "Send a private direct message to a human workgroup member. "
             "This opens (or reuses) a sidebar DM conversation between you and the recipient. "
             "Use sparingly — only for off-topic questions, capability inquiries, "
-            "private feedback, or discussions that don't belong in the shared topic. "
+            "private feedback, or discussions that don't belong in the shared job. "
             "Do NOT use this for things that should be said in the current conversation."
         ),
         "input_schema": {
@@ -517,8 +517,8 @@ def dispatch_agent_tool(
 ) -> str:
     """Execute a tool by name with structured input. Returns result text."""
     # Built-in conversation tools
-    if tool_name == "summarize_topic":
-        return _tool_summarize_topic(session, conversation)
+    if tool_name == "summarize_job":
+        return _tool_summarize_job(session, conversation)
 
     if tool_name == "list_open_followups":
         return _tool_list_open_followups(session, conversation)
@@ -631,7 +631,7 @@ def dispatch_agent_tool(
 # ---------------------------------------------------------------------------
 
 
-def _tool_summarize_topic(session: Session, conversation: Conversation) -> str:
+def _tool_summarize_job(session: Session, conversation: Conversation) -> str:
     from sqlmodel import select
     from teaparty_app.models import Message as MsgModel
 
@@ -642,7 +642,7 @@ def _tool_summarize_topic(session: Session, conversation: Conversation) -> str:
         .limit(6)
     ).all()
     if not recent:
-        return "No messages yet in this topic."
+        return "No messages yet in this job."
 
     snippets = []
     for message in reversed(recent):
@@ -881,7 +881,7 @@ def _tool_add_file(
         if entry["path"] == path:
             return f"Error: file '{path}' already exists."
 
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     all_files = _normalize_workgroup_files(workgroup)
     created = {"id": str(uuid4()), "path": path, "content": content, "topic_id": topic_id}
     all_files.append(created)
@@ -1099,7 +1099,7 @@ def _tool_advance_workflow(
         return f"Updated workflow state '{_WORKFLOW_STATE_PATH}'."
     else:
         # Create new state file (topic-scoped)
-        topic_id = conversation.id if conversation.kind == "topic" else ""
+        topic_id = conversation.id if conversation.kind == "job" else ""
         all_files = _normalize_workgroup_files(workgroup)
         created = {
             "id": str(uuid4()),
@@ -1118,7 +1118,7 @@ def _tool_advance_workflow(
 
 
 # ---------------------------------------------------------------------------
-# Auto-select workflow on topic creation
+# Auto-select workflow on job creation
 # ---------------------------------------------------------------------------
 
 
@@ -1127,11 +1127,11 @@ def auto_select_workflow(
     workgroup: Workgroup,
     conversation: Conversation,
 ) -> str | None:
-    """Match a new topic against available workflows and bootstrap state.
+    """Match a new job against available workflows and bootstrap state.
 
     Returns the selected workflow path, or None if no match.
     """
-    # Only shared (non-topic-scoped) files — no topic files exist yet
+    # Only shared (non-job-scoped) files — no job files exist yet
     all_files = _normalize_workgroup_files(workgroup)
     shared_files = [f for f in all_files if not f.get("topic_id")]
     workflows = [
@@ -1162,7 +1162,7 @@ def auto_select_workflow(
         # Multiple workflows — ask Haiku to pick the best match
         topic_text = (conversation.name or conversation.topic or "").strip()
         description = (conversation.description or "").strip()
-        selected_path = _match_workflow_to_topic(
+        selected_path = _match_workflow_to_job(
             session, conversation.id, topic_text, description, manifest,
         )
         if not selected_path:
@@ -1176,7 +1176,7 @@ def auto_select_workflow(
     topic_text = (conversation.name or conversation.topic or "").strip()
     state_content = _build_initial_workflow_state(selected_path, selected_title, topic_text)
 
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     all_files = _normalize_workgroup_files(workgroup)
     created = {
         "id": str(uuid4()),
@@ -1191,14 +1191,14 @@ def auto_select_workflow(
     return selected_path
 
 
-def _match_workflow_to_topic(
+def _match_workflow_to_job(
     session: Session,
     conversation_id: str,
     topic: str,
     description: str,
     workflows: list[dict[str, str]],
 ) -> str | None:
-    """Use a cheap model to match a topic name/description against workflow triggers."""
+    """Use a cheap model to match a job name/description against workflow triggers."""
     from teaparty_app.services import llm_client
     from teaparty_app.services.llm_usage import record_llm_usage
 
@@ -1215,14 +1215,14 @@ def _match_workflow_to_topic(
             model=model,
             max_tokens=256,
             system=(
-                "You match a conversation topic against available workflow triggers. "
+                "You match a conversation job against available workflow triggers. "
                 "Return strict JSON only: {\"path\": \"<workflow path>\", \"confidence\": <0.0-1.0>}. "
                 "If no workflow is a good match, return {\"path\": null, \"confidence\": 0.0}."
             ),
             messages=[
                 {
                     "role": "user",
-                    "content": f"Topic: {topic_text}\n\nWorkflows:\n{manifest_json}",
+                    "content": f"Job: {topic_text}\n\nWorkflows:\n{manifest_json}",
                 },
             ],
         )
@@ -1274,7 +1274,7 @@ def _build_initial_workflow_state(workflow_path: str, workflow_title: str, topic
         f"- [ ] 1. (pending)\n"
         f"\n"
         f"## Notes\n"
-        f"- Auto-selected for topic \"{topic}\"\n"
+        f"- Auto-selected for job \"{topic}\"\n"
     )
 
 
@@ -1284,7 +1284,7 @@ def _build_initial_workflow_state(workflow_path: str, workflow_title: str, topic
 
 _VALID_TODO_STATUSES = {"pending", "in_progress", "done", "cancelled"}
 _VALID_TODO_PRIORITIES = {"low", "medium", "high", "urgent"}
-_VALID_TRIGGER_TYPES = {"time", "topic_stall", "message_match", "file_changed", "topic_resolved", "todo_completed", "manual"}
+_VALID_TRIGGER_TYPES = {"time", "job_stall", "message_match", "file_changed", "job_resolved", "todo_completed", "manual"}
 
 
 def _tool_create_todo(
@@ -1334,7 +1334,7 @@ def _tool_create_todo(
     if trigger_type == "time" and not due_at:
         return "Error: due_at is required for time-based triggers."
 
-    if trigger_type == "topic_stall" and "stall_minutes" not in trigger_config:
+    if trigger_type == "job_stall" and "stall_minutes" not in trigger_config:
         trigger_config["stall_minutes"] = 30
 
     todo = AgentTodoItem(
@@ -1387,7 +1387,7 @@ def _tool_list_todos(
             trigger_desc = f" · trigger: {todo.trigger_type}"
             if todo.trigger_type == "time" and todo.due_at:
                 trigger_desc += f" (due: {todo.due_at.isoformat()})"
-            elif todo.trigger_type == "topic_stall":
+            elif todo.trigger_type == "job_stall":
                 mins = (todo.trigger_config or {}).get("stall_minutes", 30)
                 trigger_desc += f" ({mins}min)"
             elif todo.trigger_type == "message_match":
@@ -1533,7 +1533,7 @@ def _materialize_todo_file(
                     trigger_desc += f" ({', '.join(kw[:3])})"
                 elif t.trigger_type == "file_changed":
                     trigger_desc += f" ({(t.trigger_config or {}).get('file_path', '')})"
-                elif t.trigger_type == "topic_stall":
+                elif t.trigger_type == "job_stall":
                     trigger_desc += f" ({(t.trigger_config or {}).get('stall_minutes', 30)}min)"
             lines.append(
                 f"- **[{t.priority.upper()}]** {t.title}"
@@ -1640,11 +1640,11 @@ def evaluate_file_changed_todos(
             session.add(todo)
 
 
-def evaluate_topic_resolved_todos(session: Session, conversation_id: str) -> None:
-    """Check pending topic_resolved todos when a conversation is archived."""
+def evaluate_job_resolved_todos(session: Session, conversation_id: str) -> None:
+    """Check pending job_resolved todos when a conversation is archived."""
     todos = session.exec(
         select(AgentTodoItem).where(
-            AgentTodoItem.trigger_type == "topic_resolved",
+            AgentTodoItem.trigger_type == "job_resolved",
             AgentTodoItem.status == "pending",
             AgentTodoItem.triggered_at.is_(None),
             AgentTodoItem.conversation_id == conversation_id,
@@ -1715,9 +1715,9 @@ def _ensure_agent_dm(
     agent_id: str,
 ) -> Conversation:
     """Get or create a DM conversation between a user and an agent."""
-    from teaparty_app.services.admin_workspace.bootstrap import direct_topic_key_user_agent
+    from teaparty_app.services.admin_workspace.bootstrap import direct_conversation_key_user_agent
 
-    topic_key = direct_topic_key_user_agent(user_id, agent_id)
+    topic_key = direct_conversation_key_user_agent(user_id, agent_id)
     existing = session.exec(
         select(Conversation).where(
             Conversation.workgroup_id == workgroup_id,
@@ -2024,7 +2024,7 @@ def _tool_create_job(
     job_conversation = Conversation(
         workgroup_id=target_wg.id,
         created_by_user_id=creator_id,
-        kind="topic",
+        kind="job",
         topic=title,
         name=title,
         description=scope[:500] if scope else "",
@@ -2072,9 +2072,9 @@ def _tool_create_job(
     # Auto-create worktree if workspace-enabled
     if target_wg.workspace_enabled:
         try:
-            from teaparty_app.services.workspace_manager import init_workspace, create_worktree_for_topic
+            from teaparty_app.services.workspace_manager import init_workspace, create_worktree_for_job
             workspace = init_workspace(session, target_wg.id)
-            create_worktree_for_topic(session, workspace, job_conversation)
+            create_worktree_for_job(session, workspace, job_conversation)
         except Exception as exc:
             logger.warning("Failed to create worktree for job %s: %s", job.id, exc)
 

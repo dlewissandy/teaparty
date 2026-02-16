@@ -143,7 +143,7 @@ class Conversation(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     created_by_user_id: str = Field(foreign_key="users.id", index=True)
-    kind: str = Field(default="topic", index=True)
+    kind: str = Field(default="job", index=True)
     topic: str = Field(default="general")
     name: str = Field(default="general")
     description: str = Field(default="")
@@ -366,7 +366,7 @@ class AgentTodoItem(SQLModel, table=True):
     description: str = Field(default="")
     status: str = Field(default="pending", index=True)  # pending | in_progress | done | cancelled
     priority: str = Field(default="medium")  # low | medium | high | urgent
-    trigger_type: str = Field(default="manual")  # time | topic_stall | message_match | file_changed | topic_resolved | todo_completed | manual
+    trigger_type: str = Field(default="manual")  # time | job_stall | message_match | file_changed | job_resolved | todo_completed | manual
     trigger_config: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     triggered_at: datetime | None = Field(default=None)
     due_at: datetime | None = Field(default=None, index=True)

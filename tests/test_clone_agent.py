@@ -31,7 +31,7 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
         model="claude-sonnet-4-5",
         temperature=0.8,
         verbosity=0.6,
-        tool_names=["summarize_topic", "list_files"],
+        tool_names=["summarize_job", "list_files"],
         response_threshold=0.7,
         follow_up_minutes=30,
         learning_state={"topic": "python"},
@@ -92,7 +92,7 @@ class CloneAgentSameWorkgroupTests(unittest.TestCase):
         self.assertEqual(result.response_threshold, 0.7)
         self.assertEqual(result.follow_up_minutes, 30)
         self.assertEqual(result.icon, "robot")
-        self.assertIn("summarize_topic", result.tool_names)
+        self.assertIn("summarize_job", result.tool_names)
         self.assertIn("list_files", result.tool_names)
 
 

@@ -74,7 +74,7 @@ agents:
       - list_workflows
       - get_workflow_state
       - advance_workflow
-      - summarize_topic
+      - summarize_job
       - create_job
       - list_team_jobs
       - read_job_status

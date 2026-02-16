@@ -43,10 +43,10 @@ from teaparty_app.services.admin_workspace.bootstrap import (
 from teaparty_app.services.admin_workspace.parsing import (
     _normalize_file_content,
     _normalize_file_path,
-    _normalize_list_topics_status,
+    _normalize_list_jobs_status,
     _normalize_member_selector,
     _normalize_task_selector,
-    _normalize_topic_selector,
+    _normalize_job_selector,
     _normalize_workgroup_files_for_tool,
     _parse_add_agent_payload,
     _parse_temperature,
@@ -460,23 +460,23 @@ def _resolve_member_targets(session: Session, workgroup_id: str, selector: str) 
     return targets
 
 
-def _resolve_topic_conversation(
+def _resolve_job_conversation(
     session: Session,
     workgroup_id: str,
     selector: str,
 ) -> tuple[Conversation | None, str | None]:
-    normalized = _normalize_topic_selector(selector)
+    normalized = _normalize_job_selector(selector)
     if not normalized:
-        return None, "Topic selector is empty."
+        return None, "Job selector is empty."
 
     by_id = session.get(Conversation, normalized)
-    if by_id and by_id.workgroup_id == workgroup_id and by_id.kind == "topic":
+    if by_id and by_id.workgroup_id == workgroup_id and by_id.kind == "job":
         return by_id, None
 
     rows = session.exec(
         select(Conversation).where(
             Conversation.workgroup_id == workgroup_id,
-            Conversation.kind == "topic",
+            Conversation.kind == "job",
             or_(
                 func.lower(Conversation.topic) == normalized.lower(),
                 func.lower(Conversation.name) == normalized.lower(),
@@ -484,15 +484,15 @@ def _resolve_topic_conversation(
         )
     ).all()
     if not rows:
-        return None, f"Topic '{normalized}' was not found."
+        return None, f"Job '{normalized}' was not found."
     if len(rows) > 1:
         ids = ", ".join(row.id for row in rows)
-        return None, f"Multiple topics named '{normalized}'. Use topic id. Matching ids: {ids}"
+        return None, f"Multiple jobs named '{normalized}'. Use job id. Matching ids: {ids}"
 
     return rows[0], None
 
 
-def admin_tool_add_topic(
+def admin_tool_add_job(
     session: Session,
     workgroup_id: str,
     requester_user_id: str,
@@ -500,16 +500,16 @@ def admin_tool_add_topic(
     description: str = "",
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
-        return "Editor permissions required to add topics."
-    topic = _normalize_topic_selector(topic_name)
+        return "Editor permissions required to add jobs."
+    topic = _normalize_job_selector(topic_name)
     if not topic:
-        return "Usage: add topic <name> [description=<text>]"
+        return "Usage: add job <name> [description=<text>]"
     topic_description = description.strip()
 
     existing_rows = session.exec(
         select(Conversation).where(
             Conversation.workgroup_id == workgroup_id,
-            Conversation.kind == "topic",
+            Conversation.kind == "job",
             func.lower(Conversation.topic) == topic.lower(),
         )
     ).all()
@@ -531,15 +531,15 @@ def admin_tool_add_topic(
         if updated:
             session.add(existing)
         if was_archived:
-            return f"Topic '{existing.topic}' was unarchived (id={existing.id})."
+            return f"Job '{existing.topic}' was unarchived (id={existing.id})."
         if updated:
-            return f"Updated topic '{existing.topic}' (id={existing.id})."
-        return f"Topic '{existing.topic}' already exists (id={existing.id})."
+            return f"Updated job '{existing.topic}' (id={existing.id})."
+        return f"Job '{existing.topic}' already exists (id={existing.id})."
 
     conversation = Conversation(
         workgroup_id=workgroup_id,
         created_by_user_id=requester_user_id,
-        kind="topic",
+        kind="job",
         topic=topic,
         name=topic,
         description=topic_description,
@@ -556,23 +556,23 @@ def admin_tool_add_topic(
 
     session.add(ConversationParticipant(conversation_id=conversation.id, user_id=requester_user_id))
 
-    return f"Created topic '{conversation.topic}' with id={conversation.id}."
+    return f"Created job '{conversation.topic}' with id={conversation.id}."
 
 
-def admin_tool_archive_topic(
+def admin_tool_archive_job(
     session: Session,
     workgroup_id: str,
     requester_user_id: str,
     selector: str,
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
-        return "Editor permissions required to archive topics."
-    conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
+        return "Editor permissions required to archive jobs."
+    conversation, error = _resolve_job_conversation(session, workgroup_id, selector)
     if not conversation:
-        return error or "Topic not found."
+        return error or "Job not found."
 
     if conversation.is_archived:
-        return f"Topic '{conversation.topic}' is already archived."
+        return f"Job '{conversation.topic}' is already archived."
 
     conversation.is_archived = True
     conversation.archived_at = utc_now()
@@ -603,8 +603,8 @@ def admin_tool_archive_topic(
 
         logging.getLogger(__name__).warning("Failed to remove worktree on archive for %s", conversation.id, exc_info=True)
 
-    from teaparty_app.services.agent_tools import evaluate_topic_resolved_todos
-    evaluate_topic_resolved_todos(session, conversation.id)
+    from teaparty_app.services.agent_tools import evaluate_job_resolved_todos
+    evaluate_job_resolved_todos(session, conversation.id)
 
     memory_note = ""
     try:
@@ -617,42 +617,42 @@ def admin_tool_archive_topic(
     except Exception:
         pass
 
-    return f"Archived topic '{conversation.topic}' (id={conversation.id}).{memory_note}"
+    return f"Archived job '{conversation.topic}' (id={conversation.id}).{memory_note}"
 
 
-def admin_tool_unarchive_topic(
+def admin_tool_unarchive_job(
     session: Session,
     workgroup_id: str,
     requester_user_id: str,
     selector: str,
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="editor"):
-        return "Editor permissions required to unarchive topics."
-    conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
+        return "Editor permissions required to unarchive jobs."
+    conversation, error = _resolve_job_conversation(session, workgroup_id, selector)
     if not conversation:
-        return error or "Topic not found."
+        return error or "Job not found."
 
     if not conversation.is_archived:
-        return f"Topic '{conversation.topic}' is already active."
+        return f"Job '{conversation.topic}' is already active."
 
     conversation.is_archived = False
     conversation.archived_at = None
     session.add(conversation)
-    return f"Unarchived topic '{conversation.topic}' (id={conversation.id})."
+    return f"Unarchived job '{conversation.topic}' (id={conversation.id})."
 
 
-def admin_tool_remove_topic(
+def admin_tool_remove_job(
     session: Session,
     workgroup_id: str,
     requester_user_id: str,
     selector: str,
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
-        return "Owner permissions required to remove topics."
+        return "Owner permissions required to remove jobs."
 
-    conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
+    conversation, error = _resolve_job_conversation(session, workgroup_id, selector)
     if not conversation:
-        return error or "Topic not found."
+        return error or "Job not found."
 
     # Remove worktree and delete branch before deleting the conversation
     try:
@@ -681,72 +681,72 @@ def admin_tool_remove_topic(
 
     counts = _delete_conversation_tree(session, conversation.id)
     return (
-        f"Removed topic '{conversation.topic}' (id={conversation.id}). "
+        f"Removed job '{conversation.topic}' (id={conversation.id}). "
         f"Deleted conversations={counts['conversations']}, messages={counts['messages']}."
     )
 
 
-def admin_tool_clear_topic_messages(
+def admin_tool_clear_job_messages(
     session: Session,
     workgroup_id: str,
     requester_user_id: str,
     selector: str,
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
-        return "Owner permissions required to clear topic messages."
+        return "Owner permissions required to clear job messages."
 
-    conversation, error = _resolve_topic_conversation(session, workgroup_id, selector)
+    conversation, error = _resolve_job_conversation(session, workgroup_id, selector)
     if not conversation:
-        return error or "Topic not found."
+        return error or "Job not found."
 
     counts = clear_conversation_messages(session, conversation.id)
     if counts["messages"] == 0:
-        return f"Topic '{conversation.topic}' has no messages to clear."
+        return f"Job '{conversation.topic}' has no messages to clear."
 
     return (
-        f"Cleared messages for topic '{conversation.topic}' (id={conversation.id}). "
+        f"Cleared messages for job '{conversation.topic}' (id={conversation.id}). "
         f"Deleted messages={counts['messages']}."
     )
 
 
-def admin_tool_list_topics(
+def admin_tool_list_jobs(
     session: Session,
     workgroup_id: str,
     status: str = "open",
 ) -> str:
-    normalized_status, error = _normalize_list_topics_status(status)
+    normalized_status, error = _normalize_list_jobs_status(status)
     if error:
-        return f"Usage: list topics <open|archived|both>. {error}"
+        return f"Usage: list jobs <open|archived|both>. {error}"
 
     query = select(Conversation).where(
         Conversation.workgroup_id == workgroup_id,
-        Conversation.kind == "topic",
+        Conversation.kind == "job",
     )
     if normalized_status == "open":
         query = query.where(Conversation.is_archived == False)  # noqa: E712
     elif normalized_status == "archived":
         query = query.where(Conversation.is_archived == True)  # noqa: E712
 
-    topics = session.exec(
+    jobs = session.exec(
         query.order_by(
             func.lower(func.coalesce(Conversation.name, Conversation.topic)).asc(),
             Conversation.created_at.asc(),
         )
     ).all()
-    if not topics:
+    if not jobs:
         if normalized_status == "both":
-            return "No topic conversations found."
-        return f"No {normalized_status} topic conversations found."
+            return "No job conversations found."
+        return f"No {normalized_status} job conversations found."
 
-    lines = [f"Topics ({normalized_status}, count={len(topics)}):"]
-    for topic in topics:
-        topic_status = "archived" if topic.is_archived else "open"
-        title = (topic.name or topic.topic).strip() or topic.topic
-        description = (topic.description or "").strip()
+    lines = [f"Jobs ({normalized_status}, count={len(jobs)}):"]
+    for job in jobs:
+        job_status = "archived" if job.is_archived else "open"
+        title = (job.name or job.topic).strip() or job.topic
+        description = (job.description or "").strip()
         if description:
-            lines.append(f"- [{topic_status}] {title} (id={topic.id}) :: {description}")
+            lines.append(f"- [{job_status}] {title} (id={job.id}) :: {description}")
         else:
-            lines.append(f"- [{topic_status}] {title} (id={topic.id})")
+            lines.append(f"- [{job_status}] {title} (id={job.id})")
     return "\n".join(lines)
 
 
@@ -1364,7 +1364,7 @@ def admin_tool_accept_task(
     target_conversation = Conversation(
         workgroup_id=task.target_workgroup_id,
         created_by_user_id=requester_user_id,
-        kind="topic",
+        kind="job",
         topic=f"task:{task.id}",
         name=task.title,
         description=f"Cross-group task. Scope: {task.scope}",
@@ -1382,7 +1382,7 @@ def admin_tool_accept_task(
     source_conversation = Conversation(
         workgroup_id=task.source_workgroup_id,
         created_by_user_id=task.requested_by_user_id,
-        kind="topic",
+        kind="job",
         topic=f"task-mirror:{task.id}",
         name=f"[Task] {task.title}",
         description=f"Mirror of cross-group task progress. Scope: {task.scope}",
@@ -1425,7 +1425,7 @@ def admin_tool_accept_task(
 
     task.status = "in_progress"
     session.add(task)
-    return f"Accepted task '{task.title}' (id={task.id}). Work topic and mirror topic created."
+    return f"Accepted task '{task.title}' (id={task.id}). Work job and mirror job created."
 
 
 def admin_tool_decline_task(

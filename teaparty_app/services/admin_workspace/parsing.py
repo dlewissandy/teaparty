@@ -8,16 +8,16 @@ from __future__ import annotations
 import re
 from uuid import uuid4
 
-ADD_TOPIC_RE = re.compile(
-    r"^(?:add|create)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:\w+\s+)?(?:topic|conversation|channel)\s+(?:(?:on|about|for|called|named|titled)\s+)?(.+?)\s*$",
+ADD_JOB_RE = re.compile(
+    r"^(?:add|create)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?(?:\w+\s+)?(?:job|topic|conversation|channel)\s+(?:(?:on|about|for|called|named|titled)\s+)?(.+?)\s*$",
     re.IGNORECASE,
 )
-ARCHIVE_TOPIC_RE = re.compile(
-    r"^archive\s+(?:the\s+)?(?:topic|conversation|channel)\s+(.+?)\s*$",
+ARCHIVE_JOB_RE = re.compile(
+    r"^archive\s+(?:the\s+)?(?:job|topic|conversation|channel)\s+(.+?)\s*$",
     re.IGNORECASE,
 )
-UNARCHIVE_TOPIC_RE = re.compile(
-    r"^unarchive\s+(?:the\s+)?(?:topic|conversation|channel)\s+(.+?)\s*$",
+UNARCHIVE_JOB_RE = re.compile(
+    r"^unarchive\s+(?:the\s+)?(?:job|topic|conversation|channel)\s+(.+?)\s*$",
     re.IGNORECASE,
 )
 ADD_AGENT_RE = re.compile(
@@ -28,18 +28,18 @@ ADD_USER_RE = re.compile(
     r"^(?:add|invite)\s+(?:a\s+|an\s+|the\s+)?(?:new\s+)?user\s+([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})\s*$",
     re.IGNORECASE,
 )
-LIST_TOPICS_RE = re.compile(
-    r"^list\s+(?:(open|archived|both|all)\s+)?(?:topics?|conversations?|channels?)(?:\s+(open|archived|both|all))?\s*$",
+LIST_JOBS_RE = re.compile(
+    r"^list\s+(?:(open|archived|both|all)\s+)?(?:jobs?|topics?|conversations?|channels?)(?:\s+(open|archived|both|all))?\s*$",
     re.IGNORECASE,
 )
 LIST_MEMBERS_RE = re.compile(r"^list\s+(?:members?|users?|participants?)\s*$", re.IGNORECASE)
 LIST_FILES_RE = re.compile(r"^(?:list|show)\s+(?:workgroup\s+)?files?\s*$", re.IGNORECASE)
-REMOVE_TOPIC_RE = re.compile(
-    r"^(?:remove|delete)\s+(?:the\s+)?(?:topic|conversation|channel)\s+(.+?)\s*$",
+REMOVE_JOB_RE = re.compile(
+    r"^(?:remove|delete)\s+(?:the\s+)?(?:job|topic|conversation|channel)\s+(.+?)\s*$",
     re.IGNORECASE,
 )
-CLEAR_TOPIC_MESSAGES_RE = re.compile(
-    r"^(?:clear|wipe|purge)\s+(?:the\s+)?(?:messages?\s+(?:in|for)\s+)?(?:topic|conversation|channel)\s+(.+?)\s*$",
+CLEAR_JOB_MESSAGES_RE = re.compile(
+    r"^(?:clear|wipe|purge)\s+(?:the\s+)?(?:messages?\s+(?:in|for)\s+)?(?:job|topic|conversation|channel)\s+(.+?)\s*$",
     re.IGNORECASE,
 )
 REMOVE_MEMBER_RE = re.compile(
@@ -97,7 +97,7 @@ AGENT_TEMPERATURE_HINT_RE = re.compile(
     r"(?:^|[\s,.;])(?:at\s+)?temperature\s*(?:=|:|\s+)([0-2](?:\.\d+)?)",
     re.IGNORECASE,
 )
-TOPIC_DESCRIPTION_RE = re.compile(
+JOB_DESCRIPTION_RE = re.compile(
     r"\s+description\s*(?:=|:)\s*(\"[^\"]*\"|'[^']*'|.+)$",
     re.IGNORECASE,
 )
@@ -113,20 +113,20 @@ def _is_confirmed_word(raw_value: str | None) -> bool:
 
 def _help_text() -> str:
     return (
-        "Available admin tools: `add topic <name> [description=<text>]`, `archive topic <name|id>`, "
-        "`unarchive topic <name|id>`, `clear topic <name|id>`, `remove topic <name|id>`, "
+        "Available admin tools: `add job <name> [description=<text>]`, `archive job <name|id>`, "
+        "`unarchive job <name|id>`, `clear job <name|id>`, `remove job <name|id>`, "
         "`add agent <name> [role=<text>] [personality=<text>] [backstory=<text>] [model=<name>] [temperature=<0..2>]`, "
         "`add user <email>`, "
         "`add file <path> [content=<text>]`, `edit file <path> content=<text>`, "
         "`rename file <path> to <new-path>`, `delete file <path>`, "
-        "`remove member <id|email|name>`, `list topics [open|archived|both]`, "
+        "`remove member <id|email|name>`, `list jobs [open|archived|both]`, "
         "`list members`, `list files`, `delete workgroup confirm`, "
         "`list tasks [incoming|outgoing|all]`, `accept task <id|title>`, "
         "`decline task <id|title>`, `complete task <id|title>`."
     )
 
 
-def _normalize_list_topics_status(raw_status: str | None) -> tuple[str | None, str | None]:
+def _normalize_list_jobs_status(raw_status: str | None) -> tuple[str | None, str | None]:
     status_value = (raw_status or "open").strip().lower()
     if status_value == "all":
         status_value = "both"
@@ -287,10 +287,10 @@ def _parse_temperature(raw: str | float | None, default: float = 0.7) -> tuple[f
     return round(temperature, 3), None
 
 
-def _parse_add_topic_payload(raw_payload: str) -> tuple[str, str]:
+def _parse_add_job_payload(raw_payload: str) -> tuple[str, str]:
     payload = _unquote(raw_payload.strip())
     description = ""
-    match = TOPIC_DESCRIPTION_RE.search(payload)
+    match = JOB_DESCRIPTION_RE.search(payload)
     if match:
         description = _unquote(match.group(1)).strip()
         payload = payload[: match.start()].strip()
@@ -356,7 +356,7 @@ def _normalize_workgroup_files_for_tool(workgroup) -> list[dict[str, str]]:
     return normalized
 
 
-def _normalize_topic_selector(raw_selector: str) -> str:
+def _normalize_job_selector(raw_selector: str) -> str:
     selector = _unquote(raw_selector.strip())
     if selector.startswith("#"):
         selector = selector[1:].strip()

@@ -158,7 +158,7 @@ agents:
     verbosity: 0.45
     tool_names:
       - suggest_next_step
-      - summarize_topic
+      - summarize_job
       - list_open_followups
       - list_files
       - read_file
@@ -185,7 +185,7 @@ agents:
     max_turns: 15
     verbosity: 0.4
     tool_names:
-      - summarize_topic
+      - summarize_job
       - list_open_followups
       - list_files
       - read_file

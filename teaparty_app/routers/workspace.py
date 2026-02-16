@@ -143,9 +143,9 @@ def merge_workspace(
     if not worktree:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Worktree not found for this conversation")
 
-    from teaparty_app.services.workspace_manager import merge_topic_to_main
+    from teaparty_app.services.workspace_manager import merge_job_to_main
 
-    result = merge_topic_to_main(session, workspace, worktree)
+    result = merge_job_to_main(session, workspace, worktree)
     session.commit()
     return WorkspaceMergeResult(
         merged=result["merged"],

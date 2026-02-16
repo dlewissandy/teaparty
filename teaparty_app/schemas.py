@@ -239,7 +239,7 @@ class AgentConversationClearRead(BaseModel):
 
 
 class ConversationCreateRequest(BaseModel):
-    kind: Literal["direct", "topic"]
+    kind: Literal["direct", "job"]
     topic: str = "general"
     name: str = ""
     description: str = ""

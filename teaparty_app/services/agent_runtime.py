@@ -155,7 +155,7 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
             )
         ).all()
 
-    if conversation.kind in ("topic", "engagement"):
+    if conversation.kind in ("job", "engagement"):
         return session.exec(
             select(Agent)
             .where(
@@ -528,7 +528,7 @@ def _run_team_response(
 
 def _update_workflow_state_file(workgroup: Workgroup, conversation: Conversation, content: str) -> None:
     """Write the new workflow state markdown into the workgroup files."""
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
     files: list[dict] = list(workgroup.files or [])
     for f in files:
         if f.get("path") == "_workflow_state.md" and f.get("topic_id", "") == topic_id:
@@ -655,10 +655,10 @@ def process_triggered_todos(
         todo.updated_at = now
         session.add(todo)
 
-    # Topic stall: last message older than stall_minutes
+    # Job stall: last message older than stall_minutes
     stall_todos = session.exec(
         select(AgentTodoItem).where(
-            AgentTodoItem.trigger_type == "topic_stall",
+            AgentTodoItem.trigger_type == "job_stall",
             AgentTodoItem.status == "pending",
             AgentTodoItem.triggered_at.is_(None),
             AgentTodoItem.workgroup_id.in_(allowed_workgroup_ids),
@@ -715,7 +715,7 @@ def process_triggered_todos(
             conversation = session.exec(
                 select(Conversation).where(
                     Conversation.workgroup_id == todo.workgroup_id,
-                    Conversation.kind == "topic",
+                    Conversation.kind == "job",
                     Conversation.is_archived == False,  # noqa: E712
                 ).order_by(Conversation.created_at.desc()).limit(1)
             ).first()
@@ -724,10 +724,10 @@ def process_triggered_todos(
 
         trigger_desc = {
             "time": "scheduled time reached",
-            "topic_stall": f"conversation quiet for {(todo.trigger_config or {}).get('stall_minutes', 30)}+ minutes",
+            "job_stall": f"conversation quiet for {(todo.trigger_config or {}).get('stall_minutes', 30)}+ minutes",
             "message_match": "keyword match in conversation",
             "file_changed": f"file '{(todo.trigger_config or {}).get('file_path', '')}' changed",
-            "topic_resolved": "topic archived",
+            "job_resolved": "job archived",
             "todo_completed": "dependent todo completed",
         }.get(todo.trigger_type, todo.trigger_type)
 

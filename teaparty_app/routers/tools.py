@@ -182,9 +182,9 @@ TOOL_CATALOG_CATEGORIES = [
         ("list_files", "builtin"), ("add_file", "builtin"), ("edit_file", "builtin"),
         ("rename_file", "builtin"), ("delete_file", "builtin"),
     ]),
-    ("topic_management", "Topic Management", [
-        ("add_topic", "admin"), ("archive_topic", "admin"), ("unarchive_topic", "admin"),
-        ("remove_topic", "admin"), ("clear_topic_messages", "admin"), ("list_topics", "admin"),
+    ("job_management", "Job Management", [
+        ("add_job", "admin"), ("archive_job", "admin"), ("unarchive_job", "admin"),
+        ("remove_job", "admin"), ("clear_job_messages", "admin"), ("list_jobs", "admin"),
     ]),
     ("member_management", "Agent & Member Management", [
         ("add_agent", "admin"), ("add_user", "admin"),
@@ -198,7 +198,7 @@ TOOL_CATALOG_CATEGORIES = [
         ("web_search", "server_side"), ("claude_code", "special"),
     ]),
     ("utility", "Utility", [
-        ("summarize_topic", "builtin"), ("list_open_followups", "builtin"),
+        ("summarize_job", "builtin"), ("list_open_followups", "builtin"),
         ("suggest_next_step", "builtin"),
     ]),
 ]
@@ -210,13 +210,13 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "edit_file": "Edit an existing file's content.",
     "rename_file": "Rename or move a file.",
     "delete_file": "Delete a file from the workgroup.",
-    # Topic Management
-    "add_topic": "Create a new conversation topic.",
-    "archive_topic": "Archive a topic to hide it from active view.",
-    "unarchive_topic": "Restore an archived topic.",
-    "remove_topic": "Permanently remove a topic and its messages.",
-    "clear_topic_messages": "Delete all messages in a topic.",
-    "list_topics": "List all topics in the workgroup.",
+    # Job Management
+    "add_job": "Create a new job conversation.",
+    "archive_job": "Archive a job to hide it from active view.",
+    "unarchive_job": "Restore an archived job.",
+    "remove_job": "Permanently remove a job and its messages.",
+    "clear_job_messages": "Delete all messages in a job.",
+    "list_jobs": "List all jobs in the workgroup.",
     # Agent & Member Management
     "add_agent": "Add a new AI agent to the workgroup.",
     "add_user": "Invite a user to the workgroup.",
@@ -231,7 +231,7 @@ TOOL_DESCRIPTIONS: dict[str, str] = {
     "web_search": "Search the web for information.",
     "claude_code": "Run Claude Code for advanced coding tasks.",
     # Utility
-    "summarize_topic": "Summarize recent messages in a topic.",
+    "summarize_job": "Summarize recent messages in a job.",
     "list_open_followups": "List pending follow-up tasks.",
     "suggest_next_step": "Suggest the next action for the conversation.",
 }

@@ -44,7 +44,7 @@ def _make_conversation(
     *,
     conversation_id: str = "conv-1",
     topic: str = "Test topic",
-    kind: str = "topic",
+    kind: str = "job",
 ) -> Conversation:
     return Conversation(
         id=conversation_id,
@@ -505,7 +505,7 @@ class TestSendDirectMessage(unittest.TestCase):
             # Topic conversation
             self.conversation = Conversation(
                 id="conv-topic", workgroup_id="wg-1", created_by_user_id="user-alice",
-                kind="topic", topic="general", name="General",
+                kind="job", topic="general", name="General",
             )
             session.add(self.conversation)
             session.commit()

@@ -36,7 +36,7 @@ def _make_conversation(
     conversation_id: str = "conv-1",
     name: str = "general",
     description: str = "",
-    kind: str = "topic",
+    kind: str = "job",
 ) -> Conversation:
     return Conversation(
         id=conversation_id,
@@ -67,7 +67,7 @@ class BuildSystemPromptTests(unittest.TestCase):
             personality="Detail-oriented and thorough",
             backstory="Senior engineer with 10 years experience",
         )
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
 
         prompt = build_system_prompt(agent, conversation)
 
@@ -79,15 +79,15 @@ class BuildSystemPromptTests(unittest.TestCase):
     def test_includes_conversation_context(self) -> None:
         agent = _make_agent(name="Bob")
         conversation = _make_conversation(
-            kind="topic",
+            kind="job",
             name="API Design",
             description="Discussing REST API patterns",
         )
 
         prompt = build_system_prompt(agent, conversation)
 
-        self.assertIn("topic discussion", prompt)
-        self.assertIn("Topic: API Design", prompt)
+        self.assertIn("job discussion", prompt)
+        self.assertIn("Job: API Design", prompt)
         self.assertIn("Description: Discussing REST API patterns", prompt)
 
     def test_direct_conversation_label(self) -> None:
@@ -97,7 +97,7 @@ class BuildSystemPromptTests(unittest.TestCase):
         prompt = build_system_prompt(agent, conversation)
 
         self.assertIn("direct conversation", prompt)
-        self.assertNotIn("Topic: general", prompt)
+        self.assertNotIn("Job: general", prompt)
 
     def test_engagement_conversation_label(self) -> None:
         agent = _make_agent(name="Dave")
@@ -109,7 +109,7 @@ class BuildSystemPromptTests(unittest.TestCase):
 
     def test_includes_workflow_context(self) -> None:
         agent = _make_agent(name="Eve")
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         workflow_context = "**Current Step**: 2. Opening Argument\n- Present your initial position"
 
         prompt = build_system_prompt(agent, conversation, workflow_context=workflow_context)
@@ -119,7 +119,7 @@ class BuildSystemPromptTests(unittest.TestCase):
 
     def test_includes_workgroup_files_context(self) -> None:
         agent = _make_agent(name="Frank")
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
         files_context = "Reference files:\n\n--- README.md ---\nProject overview"
 
         prompt = build_system_prompt(agent, conversation, workgroup_files_context=files_context)
@@ -129,7 +129,7 @@ class BuildSystemPromptTests(unittest.TestCase):
 
     def test_includes_guidelines(self) -> None:
         agent = _make_agent(name="Grace")
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
 
         prompt = build_system_prompt(agent, conversation)
 
@@ -139,7 +139,7 @@ class BuildSystemPromptTests(unittest.TestCase):
 
     def test_minimal_agent_without_optional_fields(self) -> None:
         agent = _make_agent(name="Henry", role="", personality="", backstory="")
-        conversation = _make_conversation(kind="topic")
+        conversation = _make_conversation(kind="job")
 
         prompt = build_system_prompt(agent, conversation)
 
@@ -167,7 +167,7 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Test",
-            kind="topic",
+            kind="job",
         )
         self.session.add(conversation)
 
@@ -227,7 +227,7 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Test",
-            kind="topic",
+            kind="job",
         )
         self.session.add(conversation)
 
@@ -274,7 +274,7 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Test",
-            kind="topic",
+            kind="job",
         )
         self.session.add(conversation)
 
@@ -318,7 +318,7 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Test",
-            kind="topic",
+            kind="job",
         )
         self.session.add(conversation)
 
@@ -351,7 +351,7 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Test",
-            kind="topic",
+            kind="job",
         )
         self.session.add(conversation)
 
@@ -401,8 +401,8 @@ class BuildWorkgroupFilesContextTests(unittest.TestCase):
         self.assertIn("--- SETUP.md ---", context)
         self.assertIn("Setup instructions", context)
 
-    def test_filters_to_topic_scoped_files(self) -> None:
-        conversation = _make_conversation(conversation_id="topic-123", kind="topic")
+    def test_filters_to_job_scoped_files(self) -> None:
+        conversation = _make_conversation(conversation_id="topic-123", kind="job")
         workgroup = _make_workgroup(
             files=[
                 {
@@ -470,7 +470,7 @@ class BuildWorkgroupFilesContextTests(unittest.TestCase):
 
         self.assertIn("shared.md", context)
         self.assertIn("Shared", context)
-        # Topic-scoped files should be included since conversation isn't a topic
+        # Job-scoped files should not be included since conversation isn't a job
         self.assertNotIn("topic.md", context)
 
 

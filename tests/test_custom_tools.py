@@ -83,7 +83,7 @@ def _make_tool_def(
 class TestResolveCustomTool(unittest.TestCase):
     def test_returns_none_for_builtin_name(self) -> None:
         session = _make_session()
-        result = resolve_custom_tool(session, "summarize_topic")
+        result = resolve_custom_tool(session, "summarize_job")
         self.assertIsNone(result)
 
     def test_returns_none_for_nonexistent_id(self) -> None:
@@ -106,7 +106,7 @@ class TestRunTool(unittest.TestCase):
         session = _make_session()
         wg, user, agent = _seed_workgroup(session)
         conv = Conversation(
-            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="topic", topic="general"
+            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="job", topic="general"
         )
         session.add(conv)
         session.flush()
@@ -121,7 +121,7 @@ class TestRunTool(unittest.TestCase):
         wg, user, agent = _seed_workgroup(session)
         td = _make_tool_def(session, wg.id, user.id)
         conv = Conversation(
-            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="topic", topic="general"
+            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="job", topic="general"
         )
         session.add(conv)
         session.flush()
@@ -144,7 +144,7 @@ class TestRunTool(unittest.TestCase):
         td = _make_tool_def(session, wg2.id, user.id, name="other_tool")
 
         conv = Conversation(
-            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="topic", topic="general"
+            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="job", topic="general"
         )
         session.add(conv)
         session.flush()
@@ -170,7 +170,7 @@ class TestRunTool(unittest.TestCase):
         session.flush()
 
         conv = Conversation(
-            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="topic", topic="general"
+            id="c1", workgroup_id=wg.id, created_by_user_id=user.id, kind="job", topic="general"
         )
         session.add(conv)
         session.flush()
@@ -256,7 +256,7 @@ class TestWebhookTimeoutEnforcement(unittest.TestCase):
             id="a1", workgroup_id="wg1", created_by_user_id="u1",
             name="Agent", tool_names=[], learning_state={}, sentiment_state={}, learned_preferences={},
         )
-        conv = Conversation(id="c1", workgroup_id="wg1", created_by_user_id="u1", kind="topic", topic="general")
+        conv = Conversation(id="c1", workgroup_id="wg1", created_by_user_id="u1", kind="job", topic="general")
         trigger = Message(id="m1", conversation_id="c1", sender_type="user", sender_user_id="u1", content="test")
 
         import httpx

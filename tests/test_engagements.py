@@ -290,14 +290,14 @@ class EngagementLearningEligibilityTest(unittest.TestCase):
         )
         self.assertFalse(is_learning_eligible(conv))
 
-    def test_topic_conversation_eligible(self) -> None:
+    def test_job_conversation_eligible(self) -> None:
         from teaparty_app.services.agent_learning import is_learning_eligible
         from teaparty_app.models import Conversation
 
         conv = Conversation(
             workgroup_id="wg-1",
             created_by_user_id="u-1",
-            kind="topic",
+            kind="job",
             topic="general",
         )
         self.assertTrue(is_learning_eligible(conv))

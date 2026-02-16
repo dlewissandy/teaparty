@@ -40,7 +40,7 @@ def determine_next_turns(
     """Return an ordered list of agent IDs that should respond to *trigger*.
 
     If there is an active workflow, the step definition drives the choice.
-    Otherwise fall back to simple heuristics (all agents for topic, single
+    Otherwise fall back to simple heuristics (all agents for job, single
     agent for direct).
     """
 
@@ -59,7 +59,7 @@ def determine_next_turns(
     if workflow_state and workflow_state.get("status") == "active":
         return _step_driven_turns(agents, workflow_state)
 
-    # Fallback for topic/engagement conversations without a workflow:
+    # Fallback for job/engagement conversations without a workflow:
     # all agents respond in creation order, then pause for user.
     return TurnDirective(
         agent_ids=[a.id for a in agents],
@@ -119,7 +119,7 @@ def parse_workflow_state(workgroup: Workgroup, conversation: Conversation) -> di
     """
 
     files: list[dict] = workgroup.files or []
-    topic_id = conversation.id if conversation.kind == "topic" else ""
+    topic_id = conversation.id if conversation.kind == "job" else ""
 
     # Find the workflow state file
     state_content: str | None = None
