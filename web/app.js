@@ -5865,7 +5865,9 @@ function startPolling() {
         Boolean(state.activeConversationId) &&
         isAdminConversation(state.selectedWorkgroupId, state.activeConversationId);
 
-      await api("/api/agents/tick", { method: "POST", retries: 0, timeout: 10000 });
+      try {
+        await api("/api/agents/tick", { method: "POST", retries: 0, timeout: 10000 });
+      } catch (_) { /* tick failure must not block message/activity polling */ }
       let polledMessages = [];
       if (state.activeConversationId) {
         polledMessages = await pollMessages();
