@@ -125,3 +125,21 @@ class JobRoutingTests(unittest.TestCase):
         mock_team.assert_called_once()
         mock_single.assert_not_called()
 
+    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
+    @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
+    def test_job_agent_trigger_does_not_re_invoke_team(self, mock_agents, mock_single, mock_team) -> None:
+        """Agent messages in job conversations should not re-trigger the team."""
+        mock_agents.return_value = [_make_agent(agent_id="a1", name="Alice")]
+
+        session = MagicMock()
+        conv = _make_conversation(kind="job")
+        conv.is_archived = False
+        trigger = _make_message(sender_type="agent", sender_agent_id="a1")
+
+        result = run_agent_auto_responses(session, conv, trigger)
+
+        self.assertEqual(result, [])
+        mock_team.assert_not_called()
+        mock_single.assert_not_called()
+

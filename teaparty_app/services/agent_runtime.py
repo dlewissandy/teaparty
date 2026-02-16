@@ -352,7 +352,10 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         return []
 
     # Job conversations use Claude's multi-agent team feature (any agent count).
+    # The team is invoked once per user message — agent messages don't re-trigger.
     if conversation.kind == "job":
+        if trigger.sender_type != "user":
+            return []
         return _run_job_team_response(session, conversation, trigger, candidates)
 
     # Direct and engagement conversations: single-agent path.
