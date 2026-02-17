@@ -1471,15 +1471,33 @@ function normalizeWorkgroupFiles(files) {
   return normalized;
 }
 
+function topicIdForConversation(conversation) {
+  if (!conversation) return "";
+  if (conversation.kind === "job") return conversation.id;
+  if (conversation.kind === "direct" && conversation.topic) {
+    if (conversation.topic.startsWith("dma:")) {
+      const parts = conversation.topic.split(":");
+      if (parts.length >= 3) return `agent:${parts[2]}`;
+    }
+    if (conversation.topic.startsWith("dm:")) {
+      return conversation.topic;
+    }
+  }
+  return "";
+}
+
 function filesForConversationContext(files, workgroupId) {
   const conversationId = state.activeConversationId;
   if (!conversationId || !workgroupId) return files;
   const conversation = conversationById(workgroupId, conversationId);
   if (!conversation || conversation.kind === "admin") return files;
-  if (conversation.kind === "job") {
-    return files.filter(f => !f.topic_id || f.topic_id === conversationId);
+  const scopeId = topicIdForConversation(conversation);
+  if (conversation.kind === "direct" && scopeId) {
+    return files.filter(f => f.topic_id === scopeId);
   }
-  // direct and everything else: shared files only
+  if (scopeId) {
+    return files.filter(f => !f.topic_id || f.topic_id === scopeId);
+  }
   return files.filter(f => !f.topic_id);
 }
 
@@ -2060,8 +2078,7 @@ function renderFileBrowserBreadcrumbs() {
     const org = state.organizations.find(o => o.id === state.fileBrowserOrgId);
     rootLabel = org?.name || "Organization";
   } else if (!isComposite) {
-    const data = state.treeData[state.fileBrowserWorkgroupId];
-    rootLabel = data?.workgroup?.name || "Files";
+    rootLabel = fileBrowserContextLabel(state.fileBrowserWorkgroupId);
   }
 
   const parts = [];
@@ -3019,6 +3036,15 @@ function conversationById(workgroupId, conversationId) {
   return data.jobs.find((item) => item.id === conversationId) || data.directs.find((item) => item.id === conversationId) || null;
 }
 
+
+function fileBrowserContextLabel(workgroupId) {
+  const conv = conversationById(workgroupId, state.activeConversationId);
+  if (conv?.kind === "direct") {
+    return conversationLabel(workgroupId, state.activeConversationId);
+  }
+  const data = state.treeData[workgroupId];
+  return data?.workgroup?.name || "Files";
+}
 
 function conversationContextLabel(workgroupId, conversationId) {
   const data = state.treeData[workgroupId];
@@ -3998,7 +4024,7 @@ function addWorkgroupFile(workgroupId) {
 
   openWorkgroupFileEditor({
     title: "Add file",
-    subtitle: data.workgroup.name,
+    subtitle: fileBrowserContextLabel(workgroupId),
     onSubmit: async ({ path, content }) => {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
       const scopedFiles = filesForConversationContext(files, workgroupId);
@@ -4007,7 +4033,7 @@ function addWorkgroupFile(workgroupId) {
         throw new Error("A file with that path already exists");
       }
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
+      const topic_id = topicIdForConversation(conversation);
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = newFile.id;
@@ -4027,7 +4053,7 @@ function editWorkgroupFile(workgroupId) {
 
   openWorkgroupFileEditor({
     title: "Edit file",
-    subtitle: `${data.workgroup.name} · ${selected.path}`,
+    subtitle: `${fileBrowserContextLabel(workgroupId)} · ${selected.path}`,
     pathValue: selected.path,
     contentValue: selected.content,
     pathReadonly: true,
@@ -4051,7 +4077,7 @@ function renameWorkgroupFile(workgroupId) {
 
   openSettingsModal({
     title: "Rename file",
-    subtitle: `${data.workgroup.name} · ${selected.path}`,
+    subtitle: `${fileBrowserContextLabel(workgroupId)} · ${selected.path}`,
     formHtml: `
       <label class="settings-field">
         <span class="settings-label">New path</span>
@@ -4149,13 +4175,13 @@ function browserAddFile(workgroupId) {
   const pathPrefix = state.fileBrowserPath.length ? state.fileBrowserPath.join("/") + "/" : "";
   openWorkgroupFileEditor({
     title: "New file",
-    subtitle: data.workgroup.name,
+    subtitle: fileBrowserContextLabel(workgroupId),
     pathValue: pathPrefix,
     onSubmit: async ({ path, content }) => {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
       if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
+      const topic_id = topicIdForConversation(conversation);
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       if (state.fileBrowserOpen) renderFileBrowser();
@@ -4176,13 +4202,13 @@ function browserNewFolder(workgroupId) {
   const prefix = currentPath ? currentPath + "/" + folderName + "/" : folderName + "/";
   openWorkgroupFileEditor({
     title: "New file in " + folderName,
-    subtitle: data.workgroup.name,
+    subtitle: fileBrowserContextLabel(workgroupId),
     pathValue: prefix,
     onSubmit: async ({ path, content }) => {
       const files = normalizeWorkgroupFiles(data.workgroup.files);
       if (files.some(f => f.path === path)) throw new Error("A file with that path already exists");
       const conversation = conversationById(workgroupId, state.activeConversationId);
-      const topic_id = (conversation && conversation.kind === "job") ? conversation.id : "";
+      const topic_id = topicIdForConversation(conversation);
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
       state.fileBrowserFileId = "";
@@ -5426,10 +5452,14 @@ function renderTree() {
       const clickableClass = isSelf ? "no-click" : "";
       const memberDm = !isSelf ? directConversationForMember(workgroup.id, member.user_id) : null;
       const memberUnreadDot = memberDm && isConversationUnread(memberDm) ? `<span class="unread-dot"></span>` : "";
+      const memberTopicId = memberDm ? topicIdForConversation(memberDm) : "";
+      const memberFileCount = memberTopicId ? allWorkgroupFiles.filter(f => f.topic_id === memberTopicId).length : 0;
+      const memberFileBadge = memberFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-dm-files" data-workgroup="${escapeHtml(workgroup.id)}" data-member="${escapeHtml(member.user_id)}">${memberFileCount} file${memberFileCount !== 1 ? "s" : ""}</button>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member ${clickableClass} ${activeClass}" ${action} data-workgroup="${escapeHtml(workgroup.id)}" data-member="${escapeHtml(member.user_id)}">${memberAvatar}<span>${label}</span></button>
           ${memberUnreadDot}
+          ${memberFileBadge}
           <button
             type="button"
             class="tree-gear"
@@ -5449,6 +5479,9 @@ function renderTree() {
         : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
       const agentDm = directConversationForAgent(workgroup.id, agent.id);
       const agentUnreadDot = agentDm && isConversationUnread(agentDm) ? `<span class="unread-dot"></span>` : "";
+      const agentTopicId = agentDm ? topicIdForConversation(agentDm) : "";
+      const agentFileCount = agentTopicId ? allWorkgroupFiles.filter(f => f.topic_id === agentTopicId).length : 0;
+      const agentFileBadge = agentFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-dm-files" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">${agentFileCount} file${agentFileCount !== 1 ? "s" : ""}</button>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member ${activeClass}" data-action="open-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
@@ -5456,6 +5489,7 @@ function renderTree() {
             <span>${escapeHtml(agent.name)}</span>
           </button>
           ${agentUnreadDot}
+          ${agentFileBadge}
           <button
             type="button"
             class="tree-gear"
@@ -5489,7 +5523,7 @@ function renderTree() {
     }),
   ].join("");
 
-  const fileCount = allWorkgroupFiles.length;
+  const fileCount = allWorkgroupFiles.filter(f => !f.topic_id).length;
   const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
   const filesSection = `
     <div class="tree-section">
@@ -5654,7 +5688,9 @@ function renderMessages(messages) {
   syncThinkingState(messages);
   const pending = state.thinkingByConversation[state.activeConversationId];
 
-  qs("chat-header-actions").classList.toggle("hidden", !messages.length);
+  const activeConv = conversationById(state.selectedWorkgroupId, state.activeConversationId);
+  const isDm = activeConv?.kind === "direct";
+  qs("chat-header-actions").classList.toggle("hidden", !messages.length && !isDm);
 
   if (!messages.length && !pending) {
     node.innerHTML = "<p class='meta'>No messages yet.</p>";
@@ -6675,7 +6711,7 @@ function bindTreeEvents() {
       return;
     }
 
-    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-job" || action === "invite-member" || action === "open-file-browser" || action === "open-job-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
+    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-job" || action === "invite-member" || action === "open-file-browser" || action === "open-job-files" || action === "open-dm-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -6819,6 +6855,17 @@ function bindTreeEvents() {
           await selectConversation(workgroupId, conversationId, nodeKey);
           openFileBrowser(workgroupId);
         }
+      }
+
+      if (action === "open-dm-files") {
+        const agentId = button.dataset.agent || "";
+        const memberId = button.dataset.member || "";
+        if (agentId) {
+          await openAgentConversation(workgroupId, agentId);
+        } else if (memberId) {
+          await openMemberConversation(workgroupId, memberId);
+        }
+        openFileBrowser(workgroupId);
       }
 
       if (action === "create-job") {
