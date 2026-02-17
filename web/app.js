@@ -12,6 +12,7 @@ const state = {
   selectedWorkgroupId: "",
   bladeOrgId: "",
   bladeWorkgroupId: "",
+  bladeAgentId: "",
   activeConversationId: "",
   activeNodeKey: "",
   selectedWorkgroupFileIdByWorkgroup: {},
@@ -122,14 +123,9 @@ function isDataUrl(content) {
 
 function isAgentConfigPath(p) { return /^agents\/[^/]+\.json$/i.test(p); }
 function isWorkgroupConfigPath(p) { return p === "workgroup.json"; }
-function isToolsManifestPath(p) { return p === "tools.json"; }
 function isAgentConfigShape(d) {
   return d && typeof d === "object" && !Array.isArray(d)
     && "name" in d && "model" in d && "temperature" in d;
-}
-function isToolsManifestShape(d) {
-  return d && typeof d === "object" && !Array.isArray(d)
-    && "categories" in d && Array.isArray(d.categories);
 }
 
 function tryParseJson(content) {
@@ -203,43 +199,6 @@ function renderJsonFormField(key, value, readonly, path, lockedKeys) {
   }
 }
 
-function showToolPicker(choices, onSelect) {
-  // Remove any existing picker
-  document.querySelector(".cfg-tool-picker-backdrop")?.remove();
-
-  const backdrop = document.createElement("div");
-  backdrop.className = "cfg-tool-picker-backdrop";
-
-  const panel = document.createElement("div");
-  panel.className = "cfg-tool-picker";
-
-  const header = document.createElement("div");
-  header.className = "cfg-tool-picker-header";
-  header.textContent = "Add Tool";
-  panel.appendChild(header);
-
-  const list = document.createElement("div");
-  list.className = "cfg-tool-picker-list";
-
-  for (const tool of choices) {
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "cfg-tool-picker-item";
-    row.textContent = tool.display_name || tool.name;
-    row.addEventListener("click", () => {
-      onSelect(tool.name);
-      backdrop.remove();
-    });
-    list.appendChild(row);
-  }
-
-  panel.appendChild(list);
-  backdrop.appendChild(panel);
-  backdrop.addEventListener("click", (e) => {
-    if (e.target === backdrop) backdrop.remove();
-  });
-  document.body.appendChild(backdrop);
-}
 
 function renderAgentConfigForm(data, readonly) {
   const container = qs("file-overlay-form");
@@ -340,33 +299,6 @@ function renderAgentConfigForm(data, readonly) {
     toolBody.className = "json-section-body cfg-tools-grid";
 
     const currentTools = [...data.tool_names];
-    let addBtn = null;
-
-    if (!readonly) {
-      addBtn = document.createElement("button");
-      addBtn.type = "button";
-      addBtn.className = "cfg-tool-add";
-      addBtn.textContent = "+";
-      addBtn.addEventListener("click", async () => {
-        const workgroupId = state.fileOverlayWorkgroupId;
-        if (!workgroupId) return;
-        try {
-          const available = await api(`/api/workgroups/${workgroupId}/tools`);
-          const used = new Set(currentTools);
-          const choices = available.filter((t) => !used.has(t.name));
-          if (!choices.length) {
-            flash("No more tools available to add", "info");
-            return;
-          }
-          showToolPicker(choices, (toolName) => {
-            currentTools.push(toolName);
-            rebuildToolPills();
-          });
-        } catch (err) {
-          flash(err.message || "Failed to load tools", "error");
-        }
-      });
-    }
 
     function rebuildToolPills() {
       toolBody.innerHTML = "";
@@ -400,7 +332,33 @@ function renderAgentConfigForm(data, readonly) {
 
         toolBody.appendChild(pill);
       });
-      if (addBtn) toolBody.appendChild(addBtn);
+
+      if (!readonly) {
+        const addRow = document.createElement("div");
+        addRow.className = "cfg-tool-add-row";
+        const addInput = document.createElement("input");
+        addInput.type = "text";
+        addInput.className = "cfg-tool-add-input";
+        addInput.placeholder = "Add tool (e.g. Bash)";
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.className = "cfg-tool-add";
+        addBtn.textContent = "+";
+        addBtn.addEventListener("click", () => {
+          const name = addInput.value.trim();
+          if (!name || currentTools.includes(name)) { addInput.value = ""; return; }
+          currentTools.push(name);
+          addInput.value = "";
+          rebuildToolPills();
+        });
+        addInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") { e.preventDefault(); addBtn.click(); }
+        });
+        addRow.appendChild(addInput);
+        addRow.appendChild(addBtn);
+        toolBody.appendChild(addRow);
+      }
+
       toolSummary.textContent = `tool_names (${currentTools.length} items)`;
     }
 
@@ -424,217 +382,6 @@ function renderAgentConfigForm(data, readonly) {
   container.appendChild(details);
 }
 
-function renderToolsManifestForm(data, readonly) {
-  const container = qs("file-overlay-form");
-  container.innerHTML = "";
-
-  // Header
-  const header = document.createElement("div");
-  header.className = "cfg-wg-header";
-  header.innerHTML = `<h3>Tools Manifest</h3><div class="meta">Workgroup Tool Configuration</div>`;
-  container.appendChild(header);
-
-  // Root section
-  const details = document.createElement("details");
-  details.className = "json-section json-root";
-  details.open = true;
-  details.dataset.key = "root";
-  details.dataset.type = "object";
-
-  const summary = document.createElement("summary");
-  summary.className = "json-section-summary";
-  summary.textContent = "root";
-  details.appendChild(summary);
-
-  const body = document.createElement("div");
-  body.className = "json-section-body";
-
-  // Hidden version field
-  const versionWrap = document.createElement("div");
-  versionWrap.dataset.key = "version";
-  const versionInput = document.createElement("input");
-  versionInput.type = "hidden";
-  versionInput.dataset.type = "number";
-  versionInput.dataset.key = "version";
-  versionInput.value = data.version || 1;
-  versionWrap.appendChild(versionInput);
-  body.appendChild(versionWrap);
-
-  // Categories array section
-  const catArraySection = document.createElement("details");
-  catArraySection.className = "json-section";
-  catArraySection.open = true;
-  catArraySection.dataset.key = "categories";
-  catArraySection.dataset.type = "array";
-
-  const catArraySummary = document.createElement("summary");
-  catArraySummary.className = "json-section-summary";
-  catArraySummary.textContent = `categories (${(data.categories || []).length} items)`;
-  catArraySection.appendChild(catArraySummary);
-
-  const catArrayBody = document.createElement("div");
-  catArrayBody.className = "json-section-body";
-
-  (data.categories || []).forEach((cat, catIdx) => {
-    const enabledCount = (cat.tools || []).filter((t) => t.enabled !== false).length;
-    const totalCount = (cat.tools || []).length;
-
-    const catSection = document.createElement("details");
-    catSection.className = "json-section";
-    catSection.open = true;
-    catSection.dataset.key = String(catIdx);
-    catSection.dataset.type = "object";
-
-    const catSummary = document.createElement("summary");
-    catSummary.className = "json-section-summary";
-    catSummary.innerHTML = `${escapeHtml(cat.label || cat.key)} <span class="cfg-category-badge">${enabledCount}/${totalCount}</span>`;
-    catSection.appendChild(catSummary);
-
-    const catBody = document.createElement("div");
-    catBody.className = "json-section-body";
-
-    // Hidden key field
-    const keyWrap = document.createElement("div");
-    keyWrap.dataset.key = "key";
-    const keyInput = document.createElement("input");
-    keyInput.type = "hidden";
-    keyInput.dataset.type = "string";
-    keyInput.dataset.key = "key";
-    keyInput.value = cat.key || "";
-    keyWrap.appendChild(keyInput);
-    catBody.appendChild(keyWrap);
-
-    // Hidden label field
-    const labelWrap = document.createElement("div");
-    labelWrap.dataset.key = "label";
-    const labelInput = document.createElement("input");
-    labelInput.type = "hidden";
-    labelInput.dataset.type = "string";
-    labelInput.dataset.key = "label";
-    labelInput.value = cat.label || "";
-    labelWrap.appendChild(labelInput);
-    catBody.appendChild(labelWrap);
-
-    // Tools array section
-    const toolsArraySection = document.createElement("details");
-    toolsArraySection.className = "json-section";
-    toolsArraySection.open = true;
-    toolsArraySection.dataset.key = "tools";
-    toolsArraySection.dataset.type = "array";
-
-    const toolsArraySummary = document.createElement("summary");
-    toolsArraySummary.className = "json-section-summary hidden";
-    toolsArraySummary.textContent = `tools`;
-    toolsArraySection.appendChild(toolsArraySummary);
-
-    const toolsArrayBody = document.createElement("div");
-    toolsArrayBody.className = "json-section-body";
-
-    (cat.tools || []).forEach((tool, toolIdx) => {
-      // Each tool is an object section
-      const toolSection = document.createElement("div");
-      toolSection.className = "json-section cfg-tool-manifest-row";
-      toolSection.dataset.key = String(toolIdx);
-      toolSection.dataset.type = "object";
-
-      const toolBody = document.createElement("div");
-      toolBody.className = "json-section-body";
-
-      // Hidden: name
-      const nameInput = document.createElement("input");
-      nameInput.type = "hidden";
-      nameInput.dataset.type = "string";
-      nameInput.dataset.key = "name";
-      nameInput.value = tool.name || "";
-      toolBody.appendChild(nameInput);
-
-      // Hidden: display_name
-      const dnInput = document.createElement("input");
-      dnInput.type = "hidden";
-      dnInput.dataset.type = "string";
-      dnInput.dataset.key = "display_name";
-      dnInput.value = tool.display_name || "";
-      toolBody.appendChild(dnInput);
-
-      // Hidden: description
-      const descInput = document.createElement("input");
-      descInput.type = "hidden";
-      descInput.dataset.type = "string";
-      descInput.dataset.key = "description";
-      descInput.value = tool.description || "";
-      toolBody.appendChild(descInput);
-
-      // Hidden: source
-      const srcInput = document.createElement("input");
-      srcInput.type = "hidden";
-      srcInput.dataset.type = "string";
-      srcInput.dataset.key = "source";
-      srcInput.value = tool.source || "";
-      toolBody.appendChild(srcInput);
-
-      // Hidden: source_workgroup_id (nullable)
-      const swInput = document.createElement("input");
-      swInput.type = "hidden";
-      swInput.dataset.type = tool.source_workgroup_id != null ? "string" : "null";
-      swInput.dataset.key = "source_workgroup_id";
-      swInput.value = tool.source_workgroup_id || "";
-      toolBody.appendChild(swInput);
-
-      // Checkbox: enabled
-      const toggleLabel = document.createElement("label");
-      toggleLabel.className = "cfg-tool-toggle";
-      const checkbox = document.createElement("input");
-      checkbox.type = "checkbox";
-      checkbox.dataset.type = "boolean";
-      checkbox.dataset.key = "enabled";
-      checkbox.checked = tool.enabled !== false;
-      checkbox.disabled = readonly;
-      checkbox.addEventListener("change", () => {
-        const badge = catSummary.querySelector(".cfg-category-badge");
-        if (badge) {
-          const checks = toolsArrayBody.querySelectorAll('input[type="checkbox"]');
-          let count = 0;
-          checks.forEach((c) => { if (c.checked) count++; });
-          badge.textContent = `${count}/${totalCount}`;
-        }
-      });
-      toggleLabel.appendChild(checkbox);
-      toolBody.appendChild(toggleLabel);
-
-      // Visual info
-      const info = document.createElement("div");
-      info.className = "cfg-tool-manifest-info";
-      const nameSpan = document.createElement("span");
-      nameSpan.className = "cfg-tool-manifest-name";
-      nameSpan.textContent = tool.display_name || tool.name;
-      info.appendChild(nameSpan);
-
-      const badge = document.createElement("span");
-      badge.className = `cfg-tool-source-badge cfg-tool-source-${(tool.source || "").replace(/ /g, "_")}`;
-      badge.textContent = (tool.source || "").replace(/_/g, " ");
-      info.appendChild(badge);
-
-      const desc = document.createElement("div");
-      desc.className = "cfg-tool-manifest-desc";
-      desc.textContent = tool.description || "";
-      info.appendChild(desc);
-
-      toolBody.appendChild(info);
-      toolSection.appendChild(toolBody);
-      toolsArrayBody.appendChild(toolSection);
-    });
-
-    toolsArraySection.appendChild(toolsArrayBody);
-    catBody.appendChild(toolsArraySection);
-    catSection.appendChild(catBody);
-    catArrayBody.appendChild(catSection);
-  });
-
-  catArraySection.appendChild(catArrayBody);
-  body.appendChild(catArraySection);
-  details.appendChild(body);
-  container.appendChild(details);
-}
 
 function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
   const container = qs("file-overlay-form");
@@ -1108,6 +855,9 @@ function workgroupHasUnread(workgroupId) {
     if (agent.description === "__system_admin_agent__") continue;
     const dm = directConversationForAgent(workgroupId, agent.id);
     if (dm && isConversationUnread(dm)) return true;
+  }
+  for (const tc of (data.taskConversations || [])) {
+    if (isConversationUnread(tc)) return true;
   }
   return false;
 }
@@ -2761,7 +2511,7 @@ function renderWorkgroupCreateAgentsEditor() {
           >${escapeHtml(agent.personality)}</textarea>
           <input
             type="text"
-            placeholder="tools: summarize_job, suggest_next_step"
+            placeholder="tools: Read, Write, Edit, Bash"
             value="${escapeHtml(agent.tool_names.join(", "))}"
             data-action="create-agent-tools"
             data-agent-id="${escapeHtml(agent.id)}"
@@ -3011,6 +2761,15 @@ function conversationLabel(workgroupId, conversationId) {
     return jobDisplayName(jobConv);
   }
 
+  const taskConv = (data.taskConversations || []).find((item) => item.id === conversationId);
+  if (taskConv) {
+    const task = (data.agentTasks || []).find((t) => t.conversation_id === conversationId);
+    if (task) {
+      return task.title;
+    }
+    return taskConv.name || taskConv.topic || "Task";
+  }
+
   const direct = data.directs.find((item) => item.id === conversationId);
   if (direct) {
     if (direct.topic.startsWith("dma:")) {
@@ -3033,7 +2792,7 @@ function conversationById(workgroupId, conversationId) {
   if (!data) {
     return null;
   }
-  return data.jobs.find((item) => item.id === conversationId) || data.directs.find((item) => item.id === conversationId) || null;
+  return data.jobs.find((item) => item.id === conversationId) || data.directs.find((item) => item.id === conversationId) || (data.taskConversations || []).find((item) => item.id === conversationId) || null;
 }
 
 
@@ -3433,6 +3192,12 @@ function getConversationAgent(workgroupId, conversationId) {
   if (conversation.kind === "direct" && conversation.topic.startsWith("dma:")) {
     const agentId = conversation.topic.split(":")[2] || "";
     return (data.agents || []).find((a) => a.id === agentId) || null;
+  }
+
+  // Task conversations — find the agent via the task record
+  const task = (data.agentTasks || []).find((t) => t.conversation_id === conversationId);
+  if (task) {
+    return (data.agents || []).find((a) => a.id === task.agent_id) || null;
   }
 
   return null;
@@ -4493,84 +4258,6 @@ async function ensureWorkgroupConfigFile(workgroupId) {
   openFileOverlay(workgroupId, file.id);
 }
 
-async function buildToolsManifest(workgroupId) {
-  return await api(`/api/workgroups/${workgroupId}/tools/catalog`);
-}
-
-function mergeToolsManifest(existing, fresh) {
-  const existingByName = {};
-  for (const cat of (existing.categories || [])) {
-    for (const tool of (cat.tools || [])) {
-      existingByName[tool.name] = tool;
-    }
-  }
-  const merged = { ...fresh };
-  merged.categories = (fresh.categories || []).map((cat) => ({
-    ...cat,
-    tools: (cat.tools || []).map((tool) => {
-      const prev = existingByName[tool.name];
-      return prev !== undefined ? { ...tool, enabled: prev.enabled } : tool;
-    }),
-  }));
-  return merged;
-}
-
-async function ensureToolsManifestFile(workgroupId) {
-  const data = state.treeData[workgroupId];
-  if (!data) return;
-
-  const filePath = "tools.json";
-  const files = normalizeWorkgroupFiles(data.workgroup?.files);
-
-  let fresh;
-  try {
-    fresh = await buildToolsManifest(workgroupId);
-  } catch (err) {
-    flash(err.message || "Failed to load tool catalog", "error");
-    return;
-  }
-
-  let existingFile = files.find((f) => f.path === filePath);
-  let manifestData = fresh;
-
-  if (existingFile) {
-    const parsed = tryParseJson(existingFile.content);
-    if (parsed.ok && isToolsManifestShape(parsed.data)) {
-      manifestData = mergeToolsManifest(parsed.data, fresh);
-    }
-  }
-
-  const content = JSON.stringify(manifestData, null, 2);
-  let file = existingFile;
-  let needsSave = false;
-
-  if (!file) {
-    file = { id: newWorkgroupFileId(), path: filePath, content };
-    needsSave = true;
-  } else if (file.content !== content) {
-    file = { ...file, content };
-    needsSave = true;
-  }
-
-  if (needsSave) {
-    const updatedFiles = files.filter((f) => f.path !== filePath);
-    updatedFiles.push(file);
-    try {
-      await saveWorkgroupFiles(workgroupId, updatedFiles);
-    } catch (err) {
-      flash(err.message || "Failed to save tools manifest", "error");
-      return;
-    }
-  }
-
-  const admin = data.jobs.find((c) => c.kind === "admin");
-  if (admin) {
-    await selectConversation(workgroupId, admin.id, `job:${workgroupId}:${admin.id}`);
-  }
-
-  state.selectedWorkgroupFileIdByWorkgroup[workgroupId] = file.id;
-  openFileOverlay(workgroupId, file.id);
-}
 
 async function ensureAgentConfigFile(workgroupId, agent) {
   const data = state.treeData[workgroupId];
@@ -4737,6 +4424,51 @@ function createJobPrompt(workgroupId) {
           if (autoIndicator) autoIndicator.style.display = "none";
         }
       });
+    },
+  });
+}
+
+function createAgentTaskPrompt(workgroupId, agentId) {
+  const data = state.treeData[workgroupId];
+  const agent = (data?.agents || []).find((a) => a.id === agentId);
+  const agentLabel = agent ? agent.name : "Agent";
+  const workgroupName = data?.workgroup?.name || "Workgroup";
+
+  openSettingsModal({
+    title: "New task",
+    subtitle: `${workgroupName} · ${agentLabel} · New task`,
+    formHtml: `
+      <label class="settings-field">
+        <span class="settings-label">Title</span>
+        <input name="title" type="text" required maxlength="200" placeholder="e.g. Review PR #42" autofocus />
+      </label>
+      <label class="settings-field">
+        <span class="settings-label">Description</span>
+        <textarea name="description" rows="3" placeholder="Optional details about this task"></textarea>
+      </label>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
+        <button type="submit">Create</button>
+      </div>
+    `,
+    onSubmit: async (formData) => {
+      const title = String(formData.get("title") || "").trim();
+      const description = String(formData.get("description") || "").trim();
+      if (!title) throw new Error("Title cannot be empty");
+
+      const result = await api(`/api/workgroups/${workgroupId}/agents/${agentId}/tasks`, {
+        method: "POST",
+        body: { title, description: description || undefined },
+      });
+      const treeData = state.treeData[workgroupId];
+      if (treeData) {
+        await refreshWorkgroupTree(treeData.workgroup);
+        renderTree();
+      }
+      if (result?.conversation_id) {
+        await selectConversation(workgroupId, result.conversation_id, `task:${workgroupId}:${result.id}`);
+      }
+      flash(`Task "${title}" created for ${agentLabel}`, "success");
     },
   });
 }
@@ -5058,7 +4790,7 @@ function openMemberContactCard(workgroupId, memberId) {
 
 async function refreshWorkgroupTree(workgroup) {
   const isOwner = workgroup.owner_id === state.user?.id;
-  const [conversations, members, agents, crossGroupTasks, engagements, invites, jobs] = await Promise.all([
+  const [conversations, members, agents, crossGroupTasks, engagements, invites, jobs, agentTasks] = await Promise.all([
     api(`/api/workgroups/${workgroup.id}/conversations?include_archived=true`),
     api(`/api/workgroups/${workgroup.id}/members`),
     api(`/api/workgroups/${workgroup.id}/agents${isOwner ? "?include_hidden=true" : ""}`),
@@ -5066,13 +4798,18 @@ async function refreshWorkgroupTree(workgroup) {
     api(`/api/workgroups/${workgroup.id}/engagements`).catch(() => []),
     isOwner ? api(`/api/workgroups/${workgroup.id}/invites`).catch(() => []) : Promise.resolve([]),
     api(`/api/workgroups/${workgroup.id}/jobs`).catch(() => []),
+    api(`/api/workgroups/${workgroup.id}/agent-tasks`).catch(() => []),
   ]);
 
   const engagementConversationIds = new Set(
     (engagements || []).flatMap((e) => [e.source_conversation_id, e.target_conversation_id].filter(Boolean))
   );
-  const jobConversations = conversations.filter((item) => (item.kind === "job" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id));
-  const directs = conversations.filter((item) => item.kind === "direct");
+  const taskConversationIds = new Set(
+    (agentTasks || []).map((t) => t.conversation_id).filter(Boolean)
+  );
+  const jobConversations = conversations.filter((item) => (item.kind === "job" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id) && !taskConversationIds.has(item.id));
+  const directs = conversations.filter((item) => item.kind === "direct" && !taskConversationIds.has(item.id));
+  const taskConversations = conversations.filter((item) => taskConversationIds.has(item.id));
   const engagementConversations = conversations.filter((item) => item.kind === "engagement" || engagementConversationIds.has(item.id));
 
   const pendingInvites = (invites || []).filter((inv) => inv.status === "pending");
@@ -5088,6 +4825,8 @@ async function refreshWorkgroupTree(workgroup) {
     engagementConversations,
     invites: pendingInvites,
     jobRecords: jobs || [],
+    agentTasks: agentTasks || [],
+    taskConversations,
   };
 
   const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id];
@@ -5133,9 +4872,57 @@ function renderTree() {
   };
 
   const drillId = state.bladeWorkgroupId;
+  const drillAgentId = state.bladeAgentId;
+
+  if (drillId && drillAgentId) {
+    // ── Level 4: Agent Detail — Tasks ──
+    const workgroup = state.workgroups.find((w) => w.id === drillId);
+    const data = workgroup ? state.treeData[workgroup.id] : null;
+    const agent = data?.agents?.find((a) => a.id === drillAgentId);
+    if (!agent || !data) {
+      state.bladeAgentId = "";
+      renderTree();
+      return;
+    }
+
+    if (breadcrumb) {
+      let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link">Organizations</button>`;
+      if (workgroup.organization_id && workgroup.organization_name) {
+        crumbs += `<span class="blade-crumb-sep">\u203A</span><button data-action="blade-back" class="blade-crumb-link">${escapeHtml(workgroup.organization_name)}</button>`;
+      }
+      crumbs += `<span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(agent.name)}</span>`;
+      crumbs += `<button class="tree-gear summary" data-action="settings-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}" aria-label="Agent settings for ${escapeHtml(agent.name)}">${GEAR_ICON_SVG}</button>`;
+      breadcrumb.innerHTML = crumbs;
+    }
+    if (createWrap) createWrap.classList.add("hidden-by-blade");
+    if (addBtn) addBtn.classList.add("hidden");
+
+    const agentTasks = (data.agentTasks || []).filter((t) => t.agent_id === agent.id);
+    const taskNodes = agentTasks.length
+      ? agentTasks.map((t) => {
+          const taskKey = `task:${workgroup.id}:${t.id}`;
+          const taskActiveClass = state.activeNodeKey === taskKey ? "active" : "";
+          const taskConv = (data.taskConversations || []).find((c) => c.id === t.conversation_id);
+          const taskUnreadDot = taskConv && isConversationUnread(taskConv) ? `<span class="unread-dot"></span>` : "";
+          return `<div class="tree-item-row">
+            <button class="tree-button ${taskActiveClass}" data-action="open-agent-task" data-workgroup="${escapeHtml(workgroup.id)}" data-task-id="${escapeHtml(t.id)}" data-conversation="${escapeHtml(t.conversation_id)}">${escapeHtml(t.title)}<span class="task-badge ${escapeHtml(t.status)}">${escapeHtml(t.status)}</span></button>
+            ${taskUnreadDot}
+          </div>`;
+        }).join("")
+      : "<div class='tree-caption'>No tasks</div>";
+
+    node.innerHTML = `
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Tasks</span><button type="button" class="tree-tool" data-action="new-agent-task" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">+</button></div>
+        <div class="tree-list">${taskNodes}</div>
+      </div>
+    `;
+    updateMetrics();
+    return;
+  }
 
   if (!drillId && !state.bladeOrgId) {
-    // ── Root: Organizations level (sectioned layout) ──
+    // ── Level 1: Root — Organizations ──
     if (breadcrumb) breadcrumb.innerHTML = "<span>Organizations</span>";
     if (createWrap) createWrap.classList.add("hidden-by-blade");
     if (addBtn) addBtn.classList.add("hidden");
@@ -5176,39 +4963,19 @@ function renderTree() {
 
     const orgsContent = orgItems || "<div class='tree-caption'>No organizations</div>";
 
-    // Administration button — opens the Administration workgroup's admin conversation
-    const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
-    const adminButton = (state.user?.is_system_admin && adminWg)
-      ? `<div class="tree-item-row">
-          <button class="tree-button admin" data-action="open-sysadmin" data-workgroup="${escapeHtml(adminWg.id)}">System Administration</button>
-          <button type="button" class="tree-gear" data-action="settings-system" aria-label="System settings">${GEAR_ICON_SVG}</button>
-        </div>`
-      : "";
-
-    const filesSection = "";
-
-    // Engagements section (placeholder)
-    const engagementsSection = `<div class="tree-section">
-      <div class="tree-section-title"><span>Engagements</span></div>
-      <div class="tree-list"><div class="tree-caption">No engagements</div></div>
-    </div>`;
-
     node.innerHTML = `
-      ${adminButton}
       ${invitesHtml}
       <div class="tree-section">
         <div class="tree-section-title"><span>Organizations</span><button type="button" class="tree-tool" data-action="new-org">+</button></div>
         <div class="tree-list">${orgsContent}</div>
       </div>
-      ${engagementsSection}
-      ${filesSection}
     `;
     updateMetrics();
     return;
   }
 
   if (state.bladeOrgId && !drillId) {
-    // ── Org View: workgroups in this organization (sectioned layout) ──
+    // ── Level 2: Org Detail — Workgroups, Engagements, Members ──
     const orgData = orgGroups.get(state.bladeOrgId);
     if (!orgData) {
       state.bladeOrgId = "";
@@ -5222,11 +4989,6 @@ function renderTree() {
     if (createWrap) createWrap.classList.add("hidden-by-blade");
     if (addBtn) addBtn.classList.add("hidden");
 
-    // Administration button — opens org admin chat
-    const orgAdminButton = `<div class="tree-item-row">
-      <button class="tree-button admin" data-action="open-org-admin" data-org="${escapeHtml(state.bladeOrgId)}">Organization Administration</button>
-    </div>`;
-
     // Workgroups section (exclude org-level Administration workgroup)
     const visibleOrgWorkgroups = orgData.workgroups.filter(wg => wg.name !== "Administration");
     const wgItems = visibleOrgWorkgroups.map((wg) => {
@@ -5238,6 +5000,30 @@ function renderTree() {
       </div>`;
     }).join("");
     const wgContent = wgItems || "<div class='tree-caption'>No workgroups</div>";
+
+    // Engagements — aggregated from all workgroups in this org
+    const orgEngagements = [];
+    const seenEngagementIds = new Set();
+    for (const wg of visibleOrgWorkgroups) {
+      const wgData = state.treeData[wg.id];
+      if (!wgData?.engagements) continue;
+      for (const eng of wgData.engagements) {
+        if (seenEngagementIds.has(eng.id)) continue;
+        seenEngagementIds.add(eng.id);
+        orgEngagements.push({ eng, workgroup: wg });
+      }
+    }
+    const orgEngagementNodes = orgEngagements.length
+      ? orgEngagements.map(({ eng, workgroup: wg }) => {
+          const convId = eng.source_workgroup_id === wg.id ? eng.source_conversation_id : eng.target_conversation_id;
+          const key = `engagement:${wg.id}:${eng.id}`;
+          const activeClass = state.activeNodeKey === key ? "active" : "";
+          const statusClass = eng.status || "proposed";
+          return `<div class="tree-item-row">
+            <button class="tree-button ${activeClass}" data-action="open-engagement" data-workgroup="${escapeHtml(wg.id)}" data-engagement="${escapeHtml(eng.id)}" data-conversation="${escapeHtml(convId || "")}">${escapeHtml(eng.title)}<span class="task-badge ${escapeHtml(statusClass)}">${escapeHtml(eng.status)}</span></button>
+          </div>`;
+        }).join("")
+      : "<div class='tree-caption'>No engagements</div>";
 
     // Members section — humans (deduplicated) then agents, matching workgroup layout
     const seenUserIds = new Set();
@@ -5301,11 +5087,17 @@ function renderTree() {
         const agentAvatar = agent.icon
           ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
           : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
-        const agentDm = directConversationForAgent(wg.id, agent.id);
-        const agentUnreadDot = agentDm && isConversationUnread(agentDm) ? `<span class="unread-dot"></span>` : "";
+        // Aggregate unread from agent's task conversations
+        const wgData = state.treeData[wg.id];
+        const agentTaskConvs = (wgData?.agentTasks || [])
+          .filter((t) => t.agent_id === agent.id && t.conversation_id)
+          .map((t) => (wgData.taskConversations || []).find((c) => c.id === t.conversation_id))
+          .filter(Boolean);
+        const hasUnreadTasks = agentTaskConvs.some((c) => isConversationUnread(c));
+        const agentUnreadDot = hasUnreadTasks ? `<span class="unread-dot"></span>` : "";
         return `
           <div class="tree-item-row">
-            <button class="tree-button member" data-action="open-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}">
+            <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}">
               ${agentAvatar}
               <span>${escapeHtml(agent.name)}</span>
               <span class="finder-kind">${escapeHtml(wg.name)}</span>
@@ -5320,25 +5112,24 @@ function renderTree() {
     const orgMemberContent = orgMemberNodes || "<div class='tree-caption'>No members</div>";
 
     node.innerHTML = `
-      ${orgAdminButton}
       <div class="tree-section">
         <div class="tree-section-title"><span>Workgroups</span><button type="button" class="tree-tool" data-action="create-workgroup-in-org" data-org="${escapeHtml(state.bladeOrgId)}">+</button></div>
         <div class="tree-list">${wgContent}</div>
       </div>
       <div class="tree-section">
-        <div class="tree-section-title"><span>Members</span></div>
-        <div class="tree-list">${orgMemberContent}</div>
+        <div class="tree-section-title"><span>Engagements</span></div>
+        <div class="tree-list">${orgEngagementNodes}</div>
       </div>
       <div class="tree-section">
-        <div class="tree-section-title"><span>Engagements</span></div>
-        <div class="tree-list"><div class="tree-caption">No engagements</div></div>
+        <div class="tree-section-title"><span>Members</span></div>
+        <div class="tree-list">${orgMemberContent}</div>
       </div>
     `;
     updateMetrics();
     return;
   }
 
-  // ── Workgroup Detail View ──
+  // ── Level 3: Workgroup Detail ──
   const workgroup = state.workgroups.find((w) => w.id === drillId);
   if (!workgroup) {
     state.bladeWorkgroupId = "";
@@ -5360,7 +5151,7 @@ function renderTree() {
       crumbs += `<span class="blade-crumb-sep">\u203A</span><button data-action="blade-back" class="blade-crumb-link">${escapeHtml(workgroup.organization_name)}</button>`;
     }
     crumbs += `<span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(workgroup.name)}</span>`;
-    crumbs += `<button class="tree-gear summary" data-action="settings-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}">${GEAR_ICON_SVG}</button><button class="tree-gear summary" data-action="settings-tools" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Tools manifest for ${escapeHtml(workgroup.name)}" title="Tools"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>`;
+    crumbs += `<button class="tree-gear summary" data-action="settings-workgroup" data-workgroup="${escapeHtml(workgroup.id)}" aria-label="Workgroup settings for ${escapeHtml(workgroup.name)}">${GEAR_ICON_SVG}</button>`;
     breadcrumb.innerHTML = crumbs;
   }
 
@@ -5372,16 +5163,6 @@ function renderTree() {
   const allWorkgroupFiles = normalizeWorkgroupFiles(data.workgroup?.files);
   const adminConversation = data.jobs.find(c => c.kind === "admin");
   const regularJobs = data.jobs.filter(c => c.kind !== "admin");
-
-  // Administration button — standalone at top of blade
-  let wgAdminButton = "";
-  if (adminConversation) {
-    const adminKey = `job:${workgroup.id}:${adminConversation.id}`;
-    const adminActiveClass = state.activeNodeKey === adminKey ? "active" : "";
-    wgAdminButton = `<div class="tree-item-row">
-      <button class="tree-button admin ${adminActiveClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(adminConversation.id)}">Workgroup Administration</button>
-    </div>`;
-  }
 
   // Build a map of Job model records by conversation_id for status badge lookup
   const jobRecordsByConvId = new Map();
@@ -5424,7 +5205,7 @@ function renderTree() {
         .join("")
     : "<div class='tree-caption'>No jobs</div>";
 
-  // Members — unified list: humans first (owner at top), then agents
+  // Members — unified list: humans first (owner at top), then agents (as navigators)
   const sortedHumans = [...data.members].sort((a, b) => {
     if (a.role === "owner" && b.role !== "owner") return -1;
     if (b.role === "owner" && a.role !== "owner") return 1;
@@ -5472,24 +5253,23 @@ function renderTree() {
       `;
     }),
     ...sortedAgents.map((agent) => {
-      const key = `agent:${workgroup.id}:${agent.id}`;
-      const activeClass = state.activeNodeKey === key ? "active" : "";
       const agentAvatar = agent.icon
         ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
         : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
-      const agentDm = directConversationForAgent(workgroup.id, agent.id);
-      const agentUnreadDot = agentDm && isConversationUnread(agentDm) ? `<span class="unread-dot"></span>` : "";
-      const agentTopicId = agentDm ? topicIdForConversation(agentDm) : "";
-      const agentFileCount = agentTopicId ? allWorkgroupFiles.filter(f => f.topic_id === agentTopicId).length : 0;
-      const agentFileBadge = agentFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-dm-files" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">${agentFileCount} file${agentFileCount !== 1 ? "s" : ""}</button>` : "";
+      // Aggregate unread from agent's task conversations
+      const agentTaskConvs = (data.agentTasks || [])
+        .filter((t) => t.agent_id === agent.id && t.conversation_id)
+        .map((t) => (data.taskConversations || []).find((c) => c.id === t.conversation_id))
+        .filter(Boolean);
+      const hasUnreadTasks = agentTaskConvs.some((c) => isConversationUnread(c));
+      const agentUnreadDot = hasUnreadTasks ? `<span class="unread-dot"></span>` : "";
       return `
         <div class="tree-item-row">
-          <button class="tree-button member ${activeClass}" data-action="open-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
+          <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
             ${agentAvatar}
             <span>${escapeHtml(agent.name)}</span>
           </button>
           ${agentUnreadDot}
-          ${agentFileBadge}
           <button
             type="button"
             class="tree-gear"
@@ -5523,20 +5303,6 @@ function renderTree() {
     }),
   ].join("");
 
-  const fileCount = allWorkgroupFiles.filter(f => !f.topic_id).length;
-  const filesLabel = fileCount + " file" + (fileCount !== 1 ? "s" : "");
-  const filesSection = `
-    <div class="tree-section">
-      <div class="tree-section-title">Files</div>
-      <div class="tree-list">
-        <button class="tree-button member" data-action="open-file-browser" data-workgroup="${escapeHtml(workgroup.id)}">
-          <span class="finder-icon folder">${FINDER_FOLDER_ICON_SVG}</span>
-          <span style="flex:1">Browse Files</span>
-          <span class="finder-kind">${filesLabel}</span>
-        </button>
-      </div>
-    </div>`;
-
   // Engagements section
   const engagementItems = (data.engagements || []);
   const engagementNodes = engagementItems.length
@@ -5555,8 +5321,6 @@ function renderTree() {
     : "<div class='tree-caption'>No engagements</div>";
 
   const html = `
-    ${wgAdminButton}
-
     <div class="tree-section">
       <div class="tree-section-title"><span>Jobs</span><button type="button" class="tree-tool" data-action="create-job" data-workgroup="${escapeHtml(workgroup.id)}">+</button></div>
       <div class="tree-list">${jobConvNodes}</div>
@@ -5571,8 +5335,6 @@ function renderTree() {
       <div class="tree-section-title"><span>Members</span>${isWorkgroupOwner(workgroup.id) ? `<button type="button" class="tree-tool" data-action="invite-member" data-workgroup="${escapeHtml(workgroup.id)}">+</button>` : ""}</div>
       <div class="tree-list">${memberNodes || "<div class='tree-caption'>No members</div>"}</div>
     </div>
-
-    ${filesSection}
   `;
 
   node.innerHTML = html;
@@ -5597,10 +5359,14 @@ async function loadWorkgroups() {
   );
   if (state.bladeWorkgroupId && !workgroupIds.has(state.bladeWorkgroupId)) {
     state.bladeWorkgroupId = "";
+    state.bladeAgentId = "";
   }
   if (state.bladeOrgId) {
     const orgStillExists = state.workgroups.some((w) => w.organization_id === state.bladeOrgId);
-    if (!orgStillExists) state.bladeOrgId = "";
+    if (!orgStillExists) {
+      state.bladeOrgId = "";
+      state.bladeAgentId = "";
+    }
   }
 
   await Promise.all(state.workgroups.map((workgroup) => refreshWorkgroupTree(workgroup)));
@@ -5972,8 +5738,10 @@ function startPolling() {
           const convs = await api(`/api/workgroups/${state.bladeWorkgroupId}/conversations?include_archived=true`);
           const data = state.treeData[state.bladeWorkgroupId];
           if (data) {
+            const taskConvIds = new Set((data.agentTasks || []).map(t => t.conversation_id).filter(Boolean));
             data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
-            data.directs = convs.filter((c) => c.kind === "direct");
+            data.taskConversations = convs.filter(c => taskConvIds.has(c.id));
+            data.directs = convs.filter((c) => c.kind === "direct" && !taskConvIds.has(c.id));
           }
           renderTree();
         } catch (_) { /* skip on error */ }
@@ -5985,8 +5753,10 @@ function startPolling() {
             const convs = await api(`/api/workgroups/${wg.id}/conversations?include_archived=true`);
             const data = state.treeData[wg.id];
             if (data) {
+              const taskConvIds = new Set((data.agentTasks || []).map(t => t.conversation_id).filter(Boolean));
               data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
-              data.directs = convs.filter((c) => c.kind === "direct");
+              data.taskConversations = convs.filter(c => taskConvIds.has(c.id));
+              data.directs = convs.filter((c) => c.kind === "direct" && !taskConvIds.has(c.id));
             }
           }));
           renderTree();
@@ -6115,6 +5885,7 @@ async function setSignedIn(user, token) {
   // Reset blade navigation so every sign-in starts at Organizations root
   state.bladeOrgId = "";
   state.bladeWorkgroupId = "";
+  state.bladeAgentId = "";
 
   await loadMyInvites();
   await loadOrganizations();
@@ -6136,6 +5907,7 @@ function signOut() {
   state.selectedWorkgroupId = "";
   state.bladeOrgId = "";
   state.bladeWorkgroupId = "";
+  state.bladeAgentId = "";
   state.activeConversationId = "";
   state.activeNodeKey = "";
   state.selectedWorkgroupFileIdByWorkgroup = {};
@@ -6627,42 +6399,6 @@ function bindTreeEvents() {
       return;
     }
 
-    if (action === "open-sysadmin") {
-      const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
-      if (adminWg) {
-        await refreshWorkgroupTree(adminWg);
-        const data = state.treeData[adminWg.id];
-        const adminConv = data?.jobs?.find(t => t.kind === "admin");
-        if (adminConv) {
-          await selectConversation(adminWg.id, adminConv.id, `job:${adminWg.id}:${adminConv.id}`);
-        }
-        renderTree();
-      }
-      return;
-    }
-
-
-    if (action === "open-org-admin") {
-      const orgId = button.dataset.org || "";
-      if (orgId) {
-        try {
-          // Ensure org admin workgroup + conversation exist (creates if needed)
-          const result = await api(`/api/organizations/${orgId}/admin-conversation`, { method: "POST" });
-          // Reload workgroups so the admin workgroup appears in state
-          await loadWorkgroups();
-          const adminWg = state.workgroups.find(w => w.id === result.workgroup_id);
-          if (adminWg) {
-            await selectConversation(result.workgroup_id, result.conversation_id, `job:${result.workgroup_id}:${result.conversation_id}`);
-          }
-          renderTree();
-        } catch (err) {
-          flash(err.message || "Failed to open organization administration", "error");
-        }
-      }
-      return;
-    }
-
-
     if (action === "create-workgroup-in-org") {
       const wrapper = document.getElementById("workgroup-create-wrap");
       if (wrapper) {
@@ -6681,6 +6417,7 @@ function bindTreeEvents() {
         clearActiveConversationUI();
         state.bladeOrgId = orgId;
         state.bladeWorkgroupId = "";
+        state.bladeAgentId = "";
         renderTree();
       }
       return;
@@ -6697,7 +6434,28 @@ function bindTreeEvents() {
           state.bladeOrgId = wg.organization_id;
         }
         state.bladeWorkgroupId = workgroupId;
+        state.bladeAgentId = "";
         const wgData = state.treeData[workgroupId];
+        if (wgData) {
+          refreshWorkgroupTree(wgData.workgroup).then(() => renderTree());
+        }
+        renderTree();
+      }
+      return;
+    }
+
+    if (action === "drill-agent") {
+      const agentId = button.dataset.agent || "";
+      const wgId = button.dataset.workgroup || "";
+      if (agentId && wgId) {
+        closeFileOverlay();
+        closeSettingsModal();
+        clearActiveConversationUI();
+        const wg = state.workgroups.find((w) => w.id === wgId);
+        if (wg?.organization_id) state.bladeOrgId = wg.organization_id;
+        state.bladeWorkgroupId = wgId;
+        state.bladeAgentId = agentId;
+        const wgData = state.treeData[wgId];
         if (wgData) {
           refreshWorkgroupTree(wgData.workgroup).then(() => renderTree());
         }
@@ -6711,7 +6469,7 @@ function bindTreeEvents() {
       return;
     }
 
-    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-job" || action === "invite-member" || action === "open-file-browser" || action === "open-job-files" || action === "open-dm-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite")) {
+    if (action && (action.startsWith("settings-") || action.startsWith("file-") || action === "select-file" || action === "browse-services" || action === "propose-engagement" || action === "create-job" || action === "invite-member" || action === "open-file-browser" || action === "open-job-files" || action === "open-dm-files" || action === "accept-invite" || action === "decline-invite" || action === "cancel-invite" || action === "new-agent-task" || action === "open-agent-task")) {
       event.preventDefault();
       event.stopPropagation();
     }
@@ -6731,14 +6489,6 @@ function bindTreeEvents() {
           return;
         }
         await openMemberConversation(workgroupId, memberId);
-      }
-
-      if (action === "open-agent") {
-        const agentId = button.dataset.agent || "";
-        if (!agentId) {
-          return;
-        }
-        await openAgentConversation(workgroupId, agentId);
       }
 
       if (action === "settings-workgroup") {
@@ -6905,6 +6655,21 @@ function bindTreeEvents() {
           renderTree();
         }
       }
+
+      if (action === "new-agent-task") {
+        const agentId = button.dataset.agent || "";
+        if (agentId) {
+          await createAgentTaskPrompt(workgroupId, agentId);
+        }
+      }
+
+      if (action === "open-agent-task") {
+        const taskId = button.dataset.taskId || "";
+        const conversationId = button.dataset.conversation || "";
+        if (conversationId) {
+          await selectConversation(workgroupId, conversationId, `task:${workgroupId}:${taskId}`);
+        }
+      }
     } catch (error) {
       flash(error.message, "error");
     }
@@ -6945,14 +6710,24 @@ function bindTreeEvents() {
         clearActiveConversationUI();
         state.bladeOrgId = "";
         state.bladeWorkgroupId = "";
+        state.bladeAgentId = "";
         renderTree();
       } else if (action === "blade-back") {
         closeFileOverlay();
         closeSettingsModal();
         clearActiveConversationUI();
-        if (state.bladeWorkgroupId) {
+        if (state.bladeAgentId) {
+          // L4 → L2: agent detail back to org detail
+          if (state.bladeWorkgroupId) {
+            const wg = state.workgroups.find((w) => w.id === state.bladeWorkgroupId);
+            if (wg?.organization_id) state.bladeOrgId = wg.organization_id;
+          }
+          state.bladeWorkgroupId = "";
+          state.bladeAgentId = "";
+        } else if (state.bladeWorkgroupId) {
           const wg = state.workgroups.find((w) => w.id === state.bladeWorkgroupId);
           state.bladeWorkgroupId = "";
+          state.bladeAgentId = "";
           if (wg && wg.organization_id) {
             state.bladeOrgId = wg.organization_id;
           } else {
@@ -6962,6 +6737,10 @@ function bindTreeEvents() {
           state.bladeOrgId = "";
         }
         renderTree();
+      } else if (action === "settings-agent") {
+        const wgId = button.dataset.workgroup || "";
+        const agentId = button.dataset.agent || "";
+        if (wgId && agentId) openAgentSettings(wgId, agentId);
       } else if (action === "settings-org") {
         const orgId = button.dataset.org || "";
         if (orgId) openOrgSettingsModal(orgId);

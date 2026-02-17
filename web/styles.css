@@ -212,6 +212,11 @@ h3 {
   font: inherit;
   padding: 0;
   white-space: nowrap;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: bottom;
 }
 
 .blade-crumb-link:hover {
