@@ -140,15 +140,6 @@ class BuildAgentJsonTests(unittest.TestCase):
         self.assertIn("Job: Auth Module", result["prompt"])
         self.assertIn("Description: Implementing OAuth2", result["prompt"])
 
-    def test_workflow_context_in_prompt(self) -> None:
-        agent = _make_agent()
-        conversation = _make_conversation()
-        result = build_agent_json(
-            agent, conversation,
-            workflow_context="Active workflow step: 2. Implementation",
-        )
-        self.assertIn("Active workflow step: 2. Implementation", result["prompt"])
-
     def test_files_context_in_prompt(self) -> None:
         agent = _make_agent()
         conversation = _make_conversation()
@@ -198,23 +189,6 @@ class BuildAgentJsonTests(unittest.TestCase):
         result = build_agent_json(agent, conversation, workgroup=workgroup)
         self.assertIn("Available Skills", result["prompt"])
         self.assertIn("Code Review", result["prompt"])
-
-    def test_skill_context_skipped_when_workflow_active(self) -> None:
-        agent = _make_agent(name="Reviewer")
-        conversation = _make_conversation()
-        workgroup = _make_workgroup(files=[
-            {
-                "path": "workflows/code-review.md",
-                "content": "# Code Review\n\n- **Agent**: Reviewer",
-            },
-        ])
-        result = build_agent_json(
-            agent, conversation, workgroup=workgroup,
-            workflow_context="Step 2: Implementation",
-        )
-        # When workflow_context is active, skill embedding is skipped
-        self.assertNotIn("Available Skills", result["prompt"])
-        self.assertIn("Step 2: Implementation", result["prompt"])
 
     def test_skill_context_skipped_for_irrelevant_agent(self) -> None:
         agent = _make_agent(name="Coordinator")

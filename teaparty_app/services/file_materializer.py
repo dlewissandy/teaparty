@@ -15,7 +15,7 @@ from sqlmodel import Session, select
 from teaparty_app.models import Conversation, Workspace, WorkspaceWorktree, Workgroup
 from teaparty_app.services.activity import post_file_change_activity
 from teaparty_app.services.agent_definition import build_worktree_settings_json
-from teaparty_app.services.tools import _files_for_conversation, _normalize_workgroup_files
+from teaparty_app.services.file_helpers import _files_for_conversation, _normalize_workgroup_files, _topic_id_for_conversation
 from teaparty_app.services.workspace_manager import (
     MAX_FILE_SIZE,
     MAX_FILES,
@@ -24,7 +24,7 @@ from teaparty_app.services.workspace_manager import (
 
 logger = logging.getLogger(__name__)
 
-SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store"}
+SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", ".DS_Store", ".teaparty"}
 
 
 @dataclass
@@ -99,7 +99,7 @@ def sync_directory_to_files(
     # Check for new files on disk
     for path, content in disk_by_path.items():
         if path not in original_file_ids:
-            topic_id = conversation.id if conversation.kind == "job" else ""
+            topic_id = _topic_id_for_conversation(conversation)
             all_files.append({
                 "id": str(uuid4()),
                 "path": path,

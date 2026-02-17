@@ -5,8 +5,8 @@ posts a message, the conversation router calls ``run_agent_auto_responses``
 which:
 
 1.  Determines eligible agents via ``_agents_for_auto_response``.
-2.  Uses the turn policy to decide who responds.
-3.  Builds a system prompt and user message via the prompt builder.
+2.  Routes to the appropriate agent(s) via @mention / @all / default lead.
+3.  Builds agent definitions and user messages via the prompt builder.
 4.  Shells out to ``claude -p`` via ``claude_runner.run_claude``.
 5.  Stores the reply as a ``Message`` and records usage.
 """
@@ -19,15 +19,12 @@ import logging
 import re
 import threading
 import time
-from datetime import timedelta
-
 from sqlmodel import Session, select
 
 from teaparty_app.config import settings
 from teaparty_app.db import commit_with_retry
 from teaparty_app.models import (
     Agent,
-    AgentFollowUpTask,
     Conversation,
     ConversationParticipant,
     Message,
@@ -41,15 +38,10 @@ from teaparty_app.services.admin_workspace import (
     is_admin_agent,
 )
 from teaparty_app.services.agent_definition import build_agent_json, slugify
-from teaparty_app.services.claude_runner import run_claude
+from teaparty_app.services.claude_runner import kill_conversation_process, run_claude
 from teaparty_app.services.file_materializer import materialized_files
 from teaparty_app.services.llm_usage import record_llm_usage
 from teaparty_app.services.prompt_builder import build_user_message
-from teaparty_app.services.turn_policy import (
-    advance_workflow_state,
-    determine_next_turns,
-    parse_workflow_state,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +93,58 @@ def get_conversation_activity(conversation_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Conversation cancellation
+# ---------------------------------------------------------------------------
+_cancelled_conversations: set[str] = set()
+
+
+def cancel_conversation(conversation_id: str) -> None:
+    """Mark a conversation as cancelled, kill any running subprocess, and clear activity."""
+    _cancelled_conversations.add(conversation_id)
+    kill_conversation_process(conversation_id)
+    _clear_activity(conversation_id)
+
+
+def is_conversation_cancelled(conversation_id: str) -> bool:
+    return conversation_id in _cancelled_conversations
+
+
+# ---------------------------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------------------------
+
+def _is_each_invocation(content: str) -> bool:
+    """Return True if the message requests independent fan-out via ``@each``."""
+    return bool(re.search(r"@each\b", content, re.IGNORECASE))
+
+
+def _is_team_invocation(content: str) -> bool:
+    """Return True if the message targets all agents via ``@all`` or ``@team``."""
+    return bool(re.search(r"@(?:all|team)\b", content, re.IGNORECASE))
+
+
+def _resolve_mentioned_agent(content: str, agents: list[Agent]) -> Agent | None:
+    """Return the first agent whose name is @-mentioned in *content*, or None."""
+    text_lower = content.lower()
+    for agent in agents:
+        if f"@{agent.name.lower()}" in text_lower:
+            return agent
+    return None
+
+
+def _select_lead(candidates: list[Agent]) -> Agent:
+    """Return the lead agent from candidates, falling back to the first."""
+    return next((a for a in candidates if a.is_lead), candidates[0])
+
+
+def _is_resumable_conversation(conversation: Conversation) -> bool:
+    """Return True if this conversation should use persistent Claude sessions."""
+    if conversation.kind == "task":
+        return True
+    if conversation.kind == "direct" and (conversation.topic or "").startswith("dma:"):
+        return True
+    return False
+
 
 def infer_requires_response(content: str) -> bool:
     text = content.strip().lower()
@@ -173,62 +215,6 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
         .where(Agent.id.in_(agent_ids), Agent.workgroup_id == conversation.workgroup_id)
         .order_by(Agent.created_at.asc())
     ).all()
-
-
-# ---------------------------------------------------------------------------
-# Follow-up scheduling
-# ---------------------------------------------------------------------------
-
-def _pick_follow_up_user_target(
-    participants: list[ConversationParticipant],
-    sent_by_user_id: str | None,
-) -> str | None:
-    for participant in participants:
-        if participant.user_id and participant.user_id != sent_by_user_id:
-            return participant.user_id
-    return None
-
-
-def schedule_follow_up_if_needed(session: Session, conversation: Conversation, agent: Agent, message: Message) -> None:
-    if not message.requires_response:
-        return
-
-    participants = _conversation_participants(session, conversation.id)
-    waiting_user_id = _pick_follow_up_user_target(participants, message.sender_user_id)
-    if not waiting_user_id:
-        return
-
-    task = AgentFollowUpTask(
-        conversation_id=conversation.id,
-        agent_id=agent.id,
-        origin_message_id=message.id,
-        waiting_on_sender_type="user",
-        waiting_on_user_id=waiting_user_id,
-        reason="agent asked for an update",
-        due_at=utc_now() + timedelta(minutes=agent.follow_up_minutes),
-    )
-    session.add(task)
-
-
-def close_tasks_satisfied_by_message(session: Session, message: Message) -> None:
-    tasks = session.exec(
-        select(AgentFollowUpTask).where(
-            AgentFollowUpTask.conversation_id == message.conversation_id,
-            AgentFollowUpTask.status == "pending",
-            AgentFollowUpTask.waiting_on_sender_type == message.sender_type,
-        )
-    ).all()
-
-    now = utc_now()
-    for task in tasks:
-        if message.sender_type == "user" and task.waiting_on_user_id and task.waiting_on_user_id != message.sender_user_id:
-            continue
-        if message.sender_type == "agent" and task.waiting_on_agent_id and task.waiting_on_agent_id != message.sender_agent_id:
-            continue
-
-        task.status = "completed"
-        task.completed_at = now
-        session.add(task)
 
 
 # ---------------------------------------------------------------------------
@@ -357,12 +343,26 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if not candidates:
         return []
 
-    # Job conversations use Claude's multi-agent team feature (any agent count).
-    # The team is invoked once per user message — agent messages don't re-trigger.
+    # Job conversations: @each fans out independently, @mention routes to a
+    # specific agent, otherwise default to multi-agent team mode.
     if conversation.kind == "job":
         if trigger.sender_type != "user":
             return []
-        return _run_job_team_response(session, conversation, trigger, candidates)
+        if _is_each_invocation(trigger.content):
+            return _run_single_agent_responses(session, conversation, trigger, candidates)
+        mentioned = _resolve_mentioned_agent(trigger.content, candidates)
+        if mentioned:
+            return _run_single_agent_responses(session, conversation, trigger, [mentioned])
+        # Default: team mode when multiple agents, single-agent otherwise.
+        if len(candidates) > 1:
+            return _run_job_team_response(session, conversation, trigger, candidates)
+        return _run_single_agent_responses(session, conversation, trigger, candidates)
+
+    # Task conversations: only user messages trigger auto-responses.
+    if conversation.kind == "task":
+        if trigger.sender_type != "user":
+            return []
+        return _run_single_agent_responses(session, conversation, trigger, candidates)
 
     # Direct and engagement conversations: single-agent path.
     return _run_single_agent_responses(session, conversation, trigger, candidates)
@@ -374,28 +374,13 @@ def _run_single_agent_responses(
     trigger: Message,
     candidates: list[Agent],
 ) -> list[Message]:
-    """Single-shot claude -p invocation for each selected agent."""
+    """Single-shot claude -p invocation for each candidate agent."""
 
-    # Resolve workgroup and workflow state.
     workgroup = session.get(Workgroup, conversation.workgroup_id)
-    workflow_state = parse_workflow_state(workgroup, conversation) if workgroup else None
-
-    # Build workflow context string for prompts.
-    workflow_context = ""
-    if workflow_state and workflow_state.get("status") == "active":
-        step = workflow_state.get("current_step", {})
-        workflow_context = (
-            f"Active workflow step: {step.get('number', '?')}. {step.get('label', '')}\n"
-            f"Your task in this step is described in the workflow definition."
-        )
-
-    # Determine who responds.
-    directive = determine_next_turns(conversation, trigger, candidates, workflow_state)
-    if not directive.agent_ids:
-        return []
-
     if not workgroup:
         return []
+
+    resumable = _is_resumable_conversation(conversation)
 
     # Materialize files once for all agents; sync back after the loop.
     with materialized_files(session, workgroup, conversation) as mat_ctx:
@@ -404,29 +389,32 @@ def _run_single_agent_responses(
             "Use Read, Edit, Write, Glob, and Grep."
         )
 
-        # Invoke claude for each agent.
-        agent_map = {a.id: a for a in candidates}
         created: list[Message] = []
 
-        for agent_id in directive.agent_ids:
-            agent = agent_map.get(agent_id)
-            if not agent:
-                continue
+        for agent in candidates:
+            if is_conversation_cancelled(conversation.id):
+                _cancelled_conversations.discard(conversation.id)
+                break
 
-            step_label = directive.workflow_step_label or "thinking"
-            _set_activity(conversation.id, agent.id, agent.name, "composing", step_label)
+            _set_activity(conversation.id, agent.id, agent.name, "composing", "thinking")
 
             try:
-                user_msg = build_user_message(session, conversation, trigger)
-
-                # Build agent definition and invoke via --agent/--agents
                 agent_def = build_agent_json(
                     agent, conversation, workgroup,
-                    workflow_context=workflow_context,
                     files_context=files_context,
                 )
                 slug = slugify(agent.name)
                 agents_json = json.dumps({slug: agent_def})
+
+                # Determine whether to resume an existing Claude session.
+                resume_id = conversation.claude_session_id if resumable else None
+
+                if resume_id:
+                    # Resume: send only the trigger content (Claude has full prior context).
+                    user_msg = trigger.content
+                else:
+                    # Fresh: reconstruct history via prompt builder.
+                    user_msg = build_user_message(session, conversation, trigger)
 
                 result = asyncio.run(run_claude(
                     user_message=user_msg,
@@ -435,9 +423,34 @@ def _run_single_agent_responses(
                     max_turns=agent_def.get("maxTurns", 3),
                     cwd=mat_ctx.dir_path,
                     settings_json=mat_ctx.settings_json,
+                    conversation_id=conversation.id,
+                    resume_session_id=resume_id,
                 ))
 
-                # Record usage.
+                # If resume failed, clear session and retry fresh.
+                if resume_id and result.is_error:
+                    logger.warning(
+                        "Session resume failed for conversation %s, retrying fresh: %s",
+                        conversation.id, result.error,
+                    )
+                    conversation.claude_session_id = None
+                    session.add(conversation)
+                    user_msg = build_user_message(session, conversation, trigger)
+                    result = asyncio.run(run_claude(
+                        user_message=user_msg,
+                        agent_name=slug,
+                        agents_json=agents_json,
+                        max_turns=agent_def.get("maxTurns", 3),
+                        cwd=mat_ctx.dir_path,
+                        settings_json=mat_ctx.settings_json,
+                        conversation_id=conversation.id,
+                    ))
+
+                # Persist session ID on success for resumable conversations.
+                if resumable and not result.is_error and result.session_id:
+                    conversation.claude_session_id = result.session_id
+                    session.add(conversation)
+
                 record_llm_usage(
                     session, conversation.id, agent.id, result.model or agent.model,
                     result.input_tokens, result.output_tokens,
@@ -461,7 +474,6 @@ def _run_single_agent_responses(
             )
             session.add(agent_message)
             session.flush()
-            schedule_follow_up_if_needed(session, conversation, agent, agent_message)
             created.append(agent_message)
 
             # Commit after each agent so frontend sees incremental progress.
@@ -469,19 +481,6 @@ def _run_single_agent_responses(
                 commit_with_retry(session)
             except Exception as exc:
                 logger.warning("Mid-chain commit failed: %s", exc)
-
-    # Advance workflow state if applicable.
-    workgroup = session.get(Workgroup, conversation.workgroup_id)
-    workflow_state = parse_workflow_state(workgroup, conversation) if workgroup else None
-    if workflow_state and workgroup and workflow_state.get("status") == "active":
-        new_state_md = advance_workflow_state(workgroup, conversation, workflow_state)
-        if new_state_md:
-            _update_workflow_state_file(workgroup, conversation, new_state_md)
-            session.add(workgroup)
-            try:
-                commit_with_retry(session)
-            except Exception as exc:
-                logger.warning("Failed to advance workflow state: %s", exc)
 
     _clear_activity(conversation.id)
     return created
@@ -496,17 +495,18 @@ def _run_job_team_response(
     """Route job conversations through Claude's multi-agent team feature.
 
     All candidate agents are passed via ``--agents``.  The first agent is
-    designated as the lead (``--agent``).  The verbose JSON output is parsed
-    to extract per-agent contributions, each stored as a separate Message.
+    designated as the lead (``--agent``).  The ``stream-json --verbose``
+    output contains structured events showing all inter-agent communication
+    — no text parsing needed.
     """
-    from teaparty_app.services.team_output_parser import parse_team_output, unpack_agent_text
+    from teaparty_app.services.team_output_parser import parse_team_output
 
     workgroup = session.get(Workgroup, conversation.workgroup_id)
     if not workgroup:
         return []
 
-    lead = candidates[0]
-    others = candidates[1:]
+    lead = _select_lead(candidates)
+    others = [a for a in candidates if a.id != lead.id]
 
     # Set activity for all candidates.
     for agent in candidates:
@@ -522,41 +522,41 @@ def _run_job_team_response(
             user_msg = build_user_message(session, conversation, trigger)
 
             # Build agent definitions.  The lead gets a teammates roster.
-            slug_to_id: dict[str, str] = {}
+            # Use display names as keys so the lead's prompt matches --agents keys.
+            name_to_id: dict[str, str] = {}
             agents_dict: dict[str, dict] = {}
 
-            lead_slug = slugify(lead.name)
-            slug_to_id[lead_slug] = lead.id
-            agents_dict[lead_slug] = build_agent_json(
+            lead_key = lead.name
+            name_to_id[lead_key] = lead.id
+            agents_dict[lead_key] = build_agent_json(
                 lead, conversation, workgroup,
                 files_context=files_context,
                 teammates=others if others else None,
             )
 
             for agent in others:
-                slug = slugify(agent.name)
-                # Handle duplicate slugs by appending a suffix.
-                if slug in agents_dict:
-                    slug = f"{slug}-{agent.id[:6]}"
-                slug_to_id[slug] = agent.id
-                agents_dict[slug] = build_agent_json(
+                key = agent.name
+                # Handle duplicate names by appending a suffix.
+                if key in agents_dict:
+                    key = f"{key}-{agent.id[:6]}"
+                name_to_id[key] = agent.id
+                agents_dict[key] = build_agent_json(
                     agent, conversation, workgroup,
                     files_context=files_context,
                 )
 
             agents_json = json.dumps(agents_dict)
             agent_names = [a.name for a in candidates]
-            name_to_id = {a.name: a.id for a in candidates}
 
-            # Determine max turns: lead needs turns for delegation.
-            max_turns = max(3, 2 * len(candidates))
+            # Determine max turns: lead needs turns for delegation + discussion.
+            max_turns = max(6, 4 * len(candidates))
 
             result = asyncio.run(run_claude(
                 user_message=user_msg,
-                agent_name=lead_slug,
+                agent_name=lead_key,
                 agents_json=agents_json,
                 max_turns=max_turns,
-                timeout_seconds=max(120, 60 * len(candidates)),
+                timeout_seconds=max(180, 90 * len(candidates)),
                 cwd=mat_ctx.dir_path,
                 settings_json=mat_ctx.settings_json,
             ))
@@ -583,18 +583,10 @@ def _run_job_team_response(
             _clear_activity(conversation.id)
             return [error_msg]
 
-        # Strategy 1: Parse verbose events for agent attribution.
-        contributions = parse_team_output(result.events, slug_to_id, agent_names)
+        # Extract per-agent contributions from stream-json events.
+        contributions = parse_team_output(result.events, name_to_id, agent_names)
 
-        # Strategy 2: Fall back to text-based unpacking.
-        if not contributions and result.text:
-            text_sections = unpack_agent_text(result.text, agent_names)
-            contributions = [
-                (name_to_id.get(name), content)
-                for name, content in text_sections
-            ]
-
-        # Strategy 3: Attribute everything to the lead.
+        # Fallback: attribute everything to the lead.
         if not contributions and result.text:
             contributions = [(lead.id, result.text)]
 
@@ -614,9 +606,6 @@ def _run_job_team_response(
             session.add(msg)
             session.flush()
 
-            # Schedule follow-ups for attributed agents.
-            resolved_agent = next((a for a in candidates if a.id == msg.sender_agent_id), lead)
-            schedule_follow_up_if_needed(session, conversation, resolved_agent, msg)
             created.append(msg)
 
             try:
@@ -654,7 +643,7 @@ def _run_team_response(
     # Resolve worktree path for workspace-enabled workgroups.
     worktree_path: str | None = None
     if workgroup and workgroup.workspace_enabled:
-        from teaparty_app.services.agent_tools import _resolve_worktree
+        from teaparty_app.services.todo_helpers import _resolve_worktree
         wt, _ = _resolve_worktree(session, conversation)
         worktree_path = wt
 
@@ -691,20 +680,6 @@ def _run_team_response(
     return created
 
 
-def _update_workflow_state_file(workgroup: Workgroup, conversation: Conversation, content: str) -> None:
-    """Write the new workflow state markdown into the workgroup files."""
-    topic_id = conversation.id if conversation.kind == "job" else ""
-    files: list[dict] = list(workgroup.files or [])
-    for f in files:
-        if f.get("path") == "_workflow_state.md" and f.get("topic_id", "") == topic_id:
-            f["content"] = content
-            workgroup.files = files
-            return
-    # Shouldn't normally happen, but create if missing.
-    files.append({"path": "_workflow_state.md", "content": content, "topic_id": topic_id})
-    workgroup.files = files
-
-
 # ---------------------------------------------------------------------------
 # Background auto-response trigger (for orchestration tools)
 # ---------------------------------------------------------------------------
@@ -734,63 +709,6 @@ def _process_auto_responses_in_background(conversation_id: str, trigger_message_
 # ---------------------------------------------------------------------------
 # Periodic tick handlers
 # ---------------------------------------------------------------------------
-
-def process_due_followups(
-    session: Session,
-    allowed_workgroup_ids: set[str],
-    limit: int | None = None,
-) -> list[Message]:
-    if not allowed_workgroup_ids:
-        return []
-
-    now = utc_now()
-    scan_limit = settings.follow_up_scan_limit if limit is None else min(limit, settings.follow_up_scan_limit)
-    rows = session.exec(
-        select(AgentFollowUpTask, Conversation)
-        .join(Conversation, AgentFollowUpTask.conversation_id == Conversation.id)
-        .where(
-            AgentFollowUpTask.status == "pending",
-            AgentFollowUpTask.due_at <= now,
-            Conversation.workgroup_id.in_(allowed_workgroup_ids),
-            Conversation.is_archived == False,  # noqa: E712
-        )
-        .order_by(AgentFollowUpTask.due_at.asc())
-        .limit(scan_limit)
-    ).all()
-
-    created: list[Message] = []
-    for task, conversation in rows:
-        if conversation.workgroup_id not in allowed_workgroup_ids:
-            continue
-
-        agent = session.get(Agent, task.agent_id)
-        if not agent:
-            task.status = "cancelled"
-            task.completed_at = now
-            session.add(task)
-            continue
-
-        follow_up_message = Message(
-            conversation_id=conversation.id,
-            sender_type="agent",
-            sender_agent_id=agent.id,
-            content=(
-                f"{agent.name}: follow-up on my earlier request. "
-                "If blocked, share blocker + owner + ETA so I can help."
-            ),
-            requires_response=False,
-            response_to_message_id=task.origin_message_id,
-        )
-        session.add(follow_up_message)
-        task.status = "completed"
-        task.completed_at = now
-        session.add(task)
-        commit_with_retry(session)
-        created.append(follow_up_message)
-        created.extend(run_agent_auto_responses(session, conversation, follow_up_message))
-
-    return created
-
 
 def process_triggered_todos(
     session: Session,
@@ -913,7 +831,7 @@ def process_triggered_todos(
         todo.updated_at = now
         session.add(todo)
 
-        from teaparty_app.services.agent_tools import _materialize_todo_file
+        from teaparty_app.services.todo_helpers import _materialize_todo_file
         _materialize_todo_file(session, agent, todo.workgroup_id)
 
         session.commit()

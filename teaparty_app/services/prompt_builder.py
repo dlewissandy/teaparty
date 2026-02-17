@@ -15,6 +15,7 @@ from teaparty_app.models import (
     User,
     Workgroup,
 )
+from teaparty_app.services.file_helpers import _topic_id_for_conversation
 
 
 # ---------------------------------------------------------------------------
@@ -24,7 +25,6 @@ from teaparty_app.models import (
 def build_system_prompt(
     agent: Agent,
     conversation: Conversation,
-    workflow_context: str = "",
     workgroup_files_context: str = "",
 ) -> str:
     """Assemble the system prompt from agent config and conversation metadata."""
@@ -52,11 +52,6 @@ def build_system_prompt(
         parts.append(f"Job: {conversation.name}")
     if conversation.description:
         parts.append(f"Description: {conversation.description}")
-
-    # Workflow step (if active)
-    if workflow_context:
-        parts.append("")
-        parts.append(workflow_context)
 
     # Embedded workgroup files (for non-filesystem agents)
     if workgroup_files_context:
@@ -135,12 +130,14 @@ def build_workgroup_files_context(workgroup: Workgroup, conversation: Conversati
     if not files:
         return ""
 
-    # Filter to conversation-scoped files if any, otherwise all
-    topic_id = conversation.id if conversation.kind == "job" else ""
-    scoped = [f for f in files if f.get("topic_id") == topic_id] if topic_id else []
-    shared = [f for f in files if not f.get("topic_id")]
-
-    relevant = scoped + shared
+    # Filter to conversation-scoped files — DMs see only their own scoped files
+    topic_id = _topic_id_for_conversation(conversation)
+    if conversation.kind == "direct" and topic_id:
+        relevant = [f for f in files if f.get("topic_id") == topic_id]
+    else:
+        scoped = [f for f in files if f.get("topic_id") == topic_id] if topic_id else []
+        shared = [f for f in files if not f.get("topic_id")]
+        relevant = scoped + shared
     if not relevant:
         return ""
 

@@ -12,7 +12,6 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import (
     Agent,
-    AgentFollowUpTask,
     AgentLearningEvent,
     AgentMemory,
     AgentTodoItem,
@@ -27,8 +26,6 @@ from teaparty_app.models import (
     Membership,
     Message,
     SyncedMessage,
-    ToolDefinition,
-    ToolGrant,
     User,
     Workgroup,
     utc_now,
@@ -95,13 +92,11 @@ def _delete_messages_and_dependents(session: Session, messages: list[Message]) -
         return {
             "messages": 0,
             "learning_events": 0,
-            "followup_tasks": 0,
             "response_links_cleared": 0,
         }
 
     message_ids = [row.id for row in messages]
     learning_deleted = 0
-    followups_deleted = 0
     response_links_cleared = 0
 
     for chunk in _iter_chunks(message_ids):
@@ -138,18 +133,12 @@ def _delete_messages_and_dependents(session: Session, messages: list[Message]) -
             session.delete(row)
             learning_deleted += 1
 
-        followup_rows = session.exec(select(AgentFollowUpTask).where(AgentFollowUpTask.origin_message_id.in_(chunk))).all()
-        for row in followup_rows:
-            session.delete(row)
-            followups_deleted += 1
-
     for row in messages:
         session.delete(row)
 
     return {
         "messages": len(messages),
         "learning_events": learning_deleted,
-        "followup_tasks": followups_deleted,
         "response_links_cleared": response_links_cleared,
     }
 
@@ -172,7 +161,6 @@ def _delete_conversation_tree(session: Session, conversation_id: str) -> dict[st
             "participants": 0,
             "messages": 0,
             "learning_events": 0,
-            "followup_tasks": 0,
             "response_links_cleared": 0,
         }
 
@@ -181,7 +169,6 @@ def _delete_conversation_tree(session: Session, conversation_id: str) -> dict[st
         "participants": 0,
         "messages": 0,
         "learning_events": 0,
-        "followup_tasks": 0,
         "response_links_cleared": 0,
     }
     # Delete LLM usage events for this conversation
@@ -191,11 +178,6 @@ def _delete_conversation_tree(session: Session, conversation_id: str) -> dict[st
 
     message_rows = session.exec(select(Message).where(Message.conversation_id == conversation_id)).all()
     _merge_counts(counts, _delete_messages_and_dependents(session, message_rows))
-
-    task_rows = session.exec(select(AgentFollowUpTask).where(AgentFollowUpTask.conversation_id == conversation_id)).all()
-    for row in task_rows:
-        session.delete(row)
-    counts["followup_tasks"] += len(task_rows)
 
     participant_rows = session.exec(
         select(ConversationParticipant).where(ConversationParticipant.conversation_id == conversation_id)
@@ -249,7 +231,6 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
             "participants": 0,
             "messages": 0,
             "learning_events": 0,
-            "followup_tasks": 0,
             "response_links_cleared": 0,
             "agents": 0,
             "memberships": 0,
@@ -262,7 +243,6 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
         "participants": 0,
         "messages": 0,
         "learning_events": 0,
-        "followup_tasks": 0,
         "response_links_cleared": 0,
         "agents": 0,
         "memberships": 0,
@@ -283,19 +263,6 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
         import logging
 
         logging.getLogger(__name__).warning("Failed to destroy workspace for workgroup %s", workgroup_id, exc_info=True)
-
-    # Delete ToolGrant → ToolDefinition
-    tool_defs = session.exec(select(ToolDefinition).where(ToolDefinition.workgroup_id == workgroup_id)).all()
-    tool_def_ids = [td.id for td in tool_defs]
-    for chunk in _iter_chunks(tool_def_ids):
-        grants = session.exec(select(ToolGrant).where(ToolGrant.tool_definition_id.in_(chunk))).all()
-        for g in grants:
-            session.delete(g)
-    grants_to = session.exec(select(ToolGrant).where(ToolGrant.grantee_workgroup_id == workgroup_id)).all()
-    for g in grants_to:
-        session.delete(g)
-    for td in tool_defs:
-        session.delete(td)
 
     # Delete SyncedMessage → CrossGroupTaskMessage → CrossGroupTask
     tasks = session.exec(
@@ -364,18 +331,6 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
         memory_rows = session.exec(select(AgentMemory).where(AgentMemory.agent_id == agent.id)).all()
         for row in memory_rows:
             session.delete(row)
-
-        followup_rows = session.exec(
-            select(AgentFollowUpTask).where(
-                or_(
-                    AgentFollowUpTask.agent_id == agent.id,
-                    AgentFollowUpTask.waiting_on_agent_id == agent.id,
-                )
-            )
-        ).all()
-        for row in followup_rows:
-            session.delete(row)
-        counts["followup_tasks"] += len(followup_rows)
 
         session.delete(agent)
     counts["agents"] += len(agents)
@@ -550,7 +505,7 @@ def admin_tool_add_job(
 
     workgroup = session.get(Workgroup, workgroup_id)
     if workgroup:
-        from teaparty_app.services.agent_tools import auto_select_workflow
+        from teaparty_app.services.workflow_helpers import auto_select_workflow
 
         auto_select_workflow(session, workgroup, conversation)
 
@@ -603,7 +558,7 @@ def admin_tool_archive_job(
 
         logging.getLogger(__name__).warning("Failed to remove worktree on archive for %s", conversation.id, exc_info=True)
 
-    from teaparty_app.services.agent_tools import evaluate_job_resolved_todos
+    from teaparty_app.services.todo_helpers import evaluate_job_resolved_todos
     evaluate_job_resolved_todos(session, conversation.id)
 
     memory_note = ""
@@ -1021,7 +976,6 @@ def admin_tool_add_agent(
         temperature=parsed_temperature,
         tool_names=[],
         response_threshold=0.55,
-        follow_up_minutes=60,
         learning_state=learning_state,
         sentiment_state=sentiment_state,
         learned_preferences=dict(learning_state),
@@ -1123,7 +1077,6 @@ def admin_tool_remove_member(
             "participants": 0,
             "messages": 0,
             "learning_events": 0,
-            "followup_tasks": 0,
             "response_links_cleared": 0,
             "memberships": 0,
         }
@@ -1143,18 +1096,6 @@ def admin_tool_remove_member(
             session.delete(row)
         counts["participants"] += len(participant_rows)
 
-        task_rows = session.exec(
-            select(AgentFollowUpTask)
-            .join(Conversation, AgentFollowUpTask.conversation_id == Conversation.id)
-            .where(
-                Conversation.workgroup_id == workgroup_id,
-                AgentFollowUpTask.waiting_on_user_id == user.id,
-            )
-        ).all()
-        for row in task_rows:
-            session.delete(row)
-        counts["followup_tasks"] += len(task_rows)
-
         session.delete(membership)
         counts["memberships"] += 1
         display_name = (user.name or "").strip() or user.email
@@ -1168,13 +1109,14 @@ def admin_tool_remove_member(
         return "Unable to resolve member details."
     if is_admin_agent(agent):
         return "Cannot remove the hidden admin agent."
+    if agent.is_lead:
+        return "Cannot remove the workgroup lead agent."
 
     counts = {
         "conversations": 0,
         "participants": 0,
         "messages": 0,
         "learning_events": 0,
-        "followup_tasks": 0,
         "response_links_cleared": 0,
         "agents": 0,
     }
@@ -1203,21 +1145,6 @@ def admin_tool_remove_member(
     for row in participant_rows:
         session.delete(row)
     counts["participants"] += len(participant_rows)
-
-    task_rows = session.exec(
-        select(AgentFollowUpTask)
-        .join(Conversation, AgentFollowUpTask.conversation_id == Conversation.id)
-        .where(
-            Conversation.workgroup_id == workgroup_id,
-            or_(
-                AgentFollowUpTask.agent_id == agent.id,
-                AgentFollowUpTask.waiting_on_agent_id == agent.id,
-            ),
-        )
-    ).all()
-    for row in task_rows:
-        session.delete(row)
-    counts["followup_tasks"] += len(task_rows)
 
     learning_rows = session.exec(select(AgentLearningEvent).where(AgentLearningEvent.agent_id == agent.id)).all()
     for row in learning_rows:

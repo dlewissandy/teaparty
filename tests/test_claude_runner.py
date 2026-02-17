@@ -11,69 +11,17 @@ from teaparty_app.services.claude_runner import (
 
 
 class ParseJsonOutputTests(unittest.TestCase):
-    """Test the _parse_json_output helper."""
+    """Test NDJSON parsing of --output-format stream-json --verbose output.
 
-    def test_parse_valid_json_with_usage_data(self) -> None:
-        raw = """{
-            "result": "Hello world",
-            "cost_usd": 0.05,
-            "model": "claude-sonnet-4.5",
-            "session_id": "sess-123",
-            "num_turns": 2,
-            "usage": {
-                "input_tokens": 100,
-                "output_tokens": 50
-            }
-        }"""
-        result = _parse_json_output(raw, elapsed_ms=1500)
+    Each line of stdout is a separate JSON event.  The parser collects all
+    events and extracts the result entry for the final ClaudeResult."""
 
-        self.assertEqual(result.text, "Hello world")
-        self.assertEqual(result.cost_usd, 0.05)
-        self.assertEqual(result.input_tokens, 100)
-        self.assertEqual(result.output_tokens, 50)
-        self.assertEqual(result.duration_ms, 1500)
-        self.assertEqual(result.model, "claude-sonnet-4.5")
-        self.assertEqual(result.session_id, "sess-123")
-        self.assertEqual(result.num_turns, 2)
-        self.assertFalse(result.is_error)
-        self.assertIsNone(result.error)
-
-    def test_parse_json_with_total_cost_usd_fallback(self) -> None:
-        raw = """{
-            "result": "Test",
-            "total_cost_usd": 0.03,
-            "usage": {"input_tokens": 80, "output_tokens": 20}
-        }"""
-        result = _parse_json_output(raw, elapsed_ms=800)
-        self.assertEqual(result.cost_usd, 0.03)
-
-    def test_parse_json_with_error_flag(self) -> None:
-        raw = """{
-            "result": "Error message here",
-            "is_error": true,
-            "usage": {}
-        }"""
-        result = _parse_json_output(raw, elapsed_ms=200)
-        self.assertTrue(result.is_error)
-        self.assertEqual(result.error, "Error message here")
-
-    def test_parse_invalid_json_falls_back_to_plain_text(self) -> None:
-        raw = "This is not JSON, just plain text output"
-        result = _parse_json_output(raw, elapsed_ms=1000)
-
-        self.assertEqual(result.text, raw.strip())
-        self.assertEqual(result.duration_ms, 1000)
-        self.assertEqual(result.cost_usd, 0.0)
-        self.assertEqual(result.input_tokens, 0)
-        self.assertEqual(result.output_tokens, 0)
-        self.assertFalse(result.is_error)
-
-    def test_parse_verbose_json_array(self) -> None:
-        """--verbose produces a JSON array; we extract the result entry."""
-        events_data = [
-            {"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-sonnet-4-5"},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}},
-            {
+    def test_parse_ndjson_with_result_event(self) -> None:
+        """Standard stream-json output: multiple event lines, result at end."""
+        lines = [
+            json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-sonnet-4-5"}),
+            json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}}),
+            json.dumps({
                 "type": "result", "subtype": "success",
                 "result": "Hi there!",
                 "is_error": False,
@@ -82,9 +30,9 @@ class ParseJsonOutputTests(unittest.TestCase):
                 "session_id": "s1",
                 "model": "claude-sonnet-4-5",
                 "usage": {"input_tokens": 40, "output_tokens": 10},
-            },
+            }),
         ]
-        raw = json.dumps(events_data)
+        raw = "\n".join(lines)
         result = _parse_json_output(raw, elapsed_ms=900)
 
         self.assertEqual(result.text, "Hi there!")
@@ -95,40 +43,91 @@ class ParseJsonOutputTests(unittest.TestCase):
         self.assertEqual(result.num_turns, 1)
         self.assertFalse(result.is_error)
 
-    def test_verbose_array_preserves_events(self) -> None:
-        """events field should contain the full verbose array."""
-        events_data = [
-            {"type": "system", "subtype": "init"},
-            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}},
-            {"type": "result", "result": "Done", "usage": {}},
+    def test_events_preserved_from_ndjson(self) -> None:
+        """All parsed events are available in result.events."""
+        lines = [
+            json.dumps({"type": "system", "subtype": "init"}),
+            json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}}),
+            json.dumps({"type": "result", "result": "Done", "usage": {}}),
         ]
-        raw = json.dumps(events_data)
+        raw = "\n".join(lines)
         result = _parse_json_output(raw, elapsed_ms=100)
-        self.assertEqual(result.events, events_data)
 
-    def test_non_verbose_output_has_empty_events(self) -> None:
-        """Non-array JSON output should have empty events list."""
-        raw = '{"result": "Hello", "usage": {}}'
-        result = _parse_json_output(raw, elapsed_ms=100)
-        self.assertEqual(result.events, [])
+        self.assertEqual(len(result.events), 3)
+        self.assertEqual(result.events[0]["type"], "system")
+        self.assertEqual(result.events[1]["type"], "assistant")
+        self.assertEqual(result.events[2]["type"], "result")
 
-    def test_parse_verbose_array_without_result_entry(self) -> None:
-        """Verbose array with no result entry returns empty ClaudeResult."""
-        raw = json.dumps([
-            {"type": "system", "subtype": "init"},
-        ])
+    def test_error_flag_in_result_event(self) -> None:
+        raw = json.dumps({
+            "type": "result",
+            "result": "Error message here",
+            "is_error": True,
+            "usage": {},
+        })
+        result = _parse_json_output(raw, elapsed_ms=200)
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.error, "Error message here")
+
+    def test_non_json_falls_back_to_plain_text(self) -> None:
+        raw = "This is not JSON, just plain text output"
+        result = _parse_json_output(raw, elapsed_ms=1000)
+
+        self.assertEqual(result.text, raw.strip())
+        self.assertEqual(result.duration_ms, 1000)
+        self.assertEqual(result.cost_usd, 0.0)
+        self.assertEqual(result.input_tokens, 0)
+        self.assertEqual(result.output_tokens, 0)
+        self.assertFalse(result.is_error)
+
+    def test_ndjson_without_result_entry(self) -> None:
+        """NDJSON with events but no result entry returns empty text."""
+        raw = json.dumps({"type": "system", "subtype": "init"})
         result = _parse_json_output(raw, elapsed_ms=100)
         self.assertEqual(result.text, "")
         self.assertFalse(result.is_error)
+        self.assertEqual(len(result.events), 1)
 
-    def test_parse_json_with_missing_fields(self) -> None:
-        raw = '{"result": "Minimal response"}'
+    def test_cost_usd_field(self) -> None:
+        raw = json.dumps({
+            "type": "result",
+            "result": "Test",
+            "cost_usd": 0.05,
+            "usage": {"input_tokens": 80, "output_tokens": 20},
+        })
+        result = _parse_json_output(raw, elapsed_ms=800)
+        self.assertEqual(result.cost_usd, 0.05)
+
+    def test_total_cost_usd_fallback(self) -> None:
+        raw = json.dumps({
+            "type": "result",
+            "result": "Test",
+            "total_cost_usd": 0.03,
+            "usage": {"input_tokens": 80, "output_tokens": 20},
+        })
+        result = _parse_json_output(raw, elapsed_ms=800)
+        self.assertEqual(result.cost_usd, 0.03)
+
+    def test_missing_fields_default_to_zero(self) -> None:
+        raw = json.dumps({"type": "result", "result": "Minimal response"})
         result = _parse_json_output(raw, elapsed_ms=500)
 
         self.assertEqual(result.text, "Minimal response")
         self.assertEqual(result.cost_usd, 0.0)
         self.assertEqual(result.input_tokens, 0)
         self.assertEqual(result.output_tokens, 0)
+
+    def test_skips_malformed_lines(self) -> None:
+        """Non-JSON lines in the output are silently skipped."""
+        lines = [
+            "some debug output",
+            json.dumps({"type": "result", "result": "OK", "usage": {}}),
+            "another stray line",
+        ]
+        raw = "\n".join(lines)
+        result = _parse_json_output(raw, elapsed_ms=100)
+        self.assertEqual(result.text, "OK")
+        self.assertEqual(len(result.events), 1)
 
 
 class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
@@ -140,7 +139,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(
             return_value=(
-                b'{"result": "Success", "cost_usd": 0.01, "usage": {"input_tokens": 50, "output_tokens": 30}}',
+                json.dumps({"type": "result", "result": "Success", "cost_usd": 0.01, "usage": {"input_tokens": 50, "output_tokens": 30}}).encode(),
                 b"",
             )
         )
@@ -162,13 +161,13 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result.output_tokens, 30)
             self.assertFalse(result.is_error)
 
-            # Verify command construction
-            call_args = mock_exec.call_args
-            cmd = call_args[0]
+            # Verify command construction uses stream-json
+            cmd = mock_exec.call_args[0]
             self.assertEqual(cmd[0], "claude")
             self.assertEqual(cmd[1], "-p")
             self.assertIn("--output-format", cmd)
-            self.assertIn("json", cmd)
+            idx = cmd.index("--output-format")
+            self.assertEqual(cmd[idx + 1], "stream-json")
             self.assertIn("--model", cmd)
             self.assertIn("sonnet", cmd)
             self.assertIn("--max-turns", cmd)
@@ -235,7 +234,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         """Test that allowed_tools are passed correctly."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
@@ -248,7 +247,6 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
 
             cmd = mock_exec.call_args[0]
             self.assertIn("--allowedTools", cmd)
-            # Find the index and check the next argument
             idx = cmd.index("--allowedTools")
             self.assertEqual(cmd[idx + 1], "Read,Write,Bash")
 
@@ -256,7 +254,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         """Test that disallowed_tools are passed correctly."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
@@ -276,7 +274,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         """Test that without allowed or disallowed tools, non-agent mode defaults to no tools."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
@@ -295,7 +293,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         """Agent mode should NOT add --allowedTools '' (needs Task tool for delegation)."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
@@ -314,7 +312,7 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
         """Test that CLAUDECODE and CLAUDE_CODE_ENTRYPOINT are stripped from env."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec, \
              patch.dict("os.environ", {"CLAUDECODE": "1", "CLAUDE_CODE_ENTRYPOINT": "cli"}):
@@ -330,11 +328,50 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("CLAUDECODE", env)
             self.assertNotIn("CLAUDE_CODE_ENTRYPOINT", env)
 
+    async def test_resume_session_id_adds_flag(self) -> None:
+        """Test that resume_session_id adds --resume <id> to the command."""
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_process
+
+            await run_claude(
+                user_message="Follow-up message",
+                agent_name="lead",
+                agents_json='{"lead": {"prompt": "test"}}',
+                resume_session_id="sess-abc-123",
+            )
+
+            cmd = mock_exec.call_args[0]
+            self.assertIn("--resume", cmd)
+            idx = cmd.index("--resume")
+            self.assertEqual(cmd[idx + 1], "sess-abc-123")
+
+    async def test_no_resume_flag_when_session_id_is_none(self) -> None:
+        """Test that --resume is absent when resume_session_id is not set."""
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
+
+        with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
+            mock_exec.return_value = mock_process
+
+            await run_claude(
+                user_message="Fresh message",
+                agent_name="lead",
+                agents_json='{"lead": {"prompt": "test"}}',
+            )
+
+            cmd = mock_exec.call_args[0]
+            self.assertNotIn("--resume", cmd)
+
     async def test_user_message_passed_via_stdin(self) -> None:
         """Test that user_message is passed via stdin."""
         mock_process = MagicMock()
         mock_process.returncode = 0
-        mock_process.communicate = AsyncMock(return_value=(b'{"result": "OK"}', b""))
+        mock_process.communicate = AsyncMock(return_value=(b'{"type":"result","result":"OK"}', b""))
 
         with patch("asyncio.create_subprocess_exec", new_callable=AsyncMock) as mock_exec:
             mock_exec.return_value = mock_process
@@ -345,7 +382,6 @@ class RunClaudeTests(unittest.IsolatedAsyncioTestCase):
                 user_message=user_msg,
             )
 
-            # Verify communicate was called with the encoded message
             mock_process.communicate.assert_called_once_with(input=user_msg.encode())
 
 

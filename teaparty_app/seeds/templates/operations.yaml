@@ -66,19 +66,13 @@ agents:
     max_turns: 10
     verbosity: 0.5
     tool_names:
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - search_files
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
-      - summarize_job
-      - create_job
-      - list_team_jobs
-      - read_job_status
-      - post_to_job
-      - complete_engagement
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.3
-    follow_up_minutes: 30

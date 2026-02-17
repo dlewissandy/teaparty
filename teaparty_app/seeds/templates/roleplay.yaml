@@ -95,17 +95,16 @@ agents:
     max_turns: 1
     verbosity: 0.6
     tool_names:
-      - suggest_next_step
-      - summarize_job
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.45
-    follow_up_minutes: 25
 
   - name: Character Coach
     description: "Strengthens character consistency, motivations, and dialogue voice."
@@ -117,13 +116,13 @@ agents:
     max_turns: 1
     verbosity: 0.65
     tool_names:
-      - summarize_job
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.5
-    follow_up_minutes: 30

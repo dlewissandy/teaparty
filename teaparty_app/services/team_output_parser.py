@@ -1,21 +1,13 @@
-"""Parse verbose ``claude`` CLI output to extract per-agent contributions.
+"""Parse ``stream-json --verbose`` output to extract per-agent contributions.
 
-When a job conversation uses Claude's multi-agent team feature, the lead
-agent delegates to sub-agents via the ``Task`` tool.  The verbose JSON
-output contains ``tool_use`` / ``tool_result`` events that let us attribute
-each contribution to a specific agent.
-
-Two parsing strategies are provided:
-
-1. **Event-based** (``parse_team_output``) — walks the verbose event array
-   looking for Task tool_use/tool_result pairs.
-2. **Text-based** (``unpack_agent_text``) — splits formatted text by known
-   agent name prefixes as a fallback.
+When a job conversation uses Claude's multi-agent team feature
+(``--output-format stream-json --verbose``), the structured events contain
+``Task`` tool_use / tool_result pairs that attribute each contribution to
+a specific sub-agent.  No text parsing is needed — the events are the
+source of truth.
 """
 
 from __future__ import annotations
-
-import re
 
 
 def parse_team_output(
@@ -94,57 +86,6 @@ def parse_team_output(
         contributions.insert(0, (None, lead_text))
 
     return contributions
-
-
-def unpack_agent_text(
-    text: str,
-    agent_names: list[str],
-) -> list[tuple[str, str]]:
-    """Split formatted text into per-agent sections.
-
-    Recognises patterns like ``**Name**: ...``, ``[Name]: ...``, or
-    ``Name: ...`` at line starts, where *Name* is a known agent name.
-
-    Returns ``[(name, content), ...]``.  If no patterns are found, returns
-    the entire text attributed to an empty string.
-    """
-    if not text or not agent_names:
-        return [("", text)] if text else []
-
-    # Build a regex that matches any known agent name at a line start.
-    # Patterns: **Name**:, [Name]:, Name:
-    escaped = [re.escape(n) for n in agent_names]
-    names_alt = "|".join(escaped)
-    pattern = re.compile(
-        rf"^(?:\*\*({names_alt})\*\*|\[({names_alt})\]|({names_alt}))\s*:",
-        re.MULTILINE | re.IGNORECASE,
-    )
-
-    matches = list(pattern.finditer(text))
-    if not matches:
-        return [("", text)]
-
-    # Map case-insensitive name → canonical name.
-    name_lower = {n.lower(): n for n in agent_names}
-
-    sections: list[tuple[str, str]] = []
-    for i, m in enumerate(matches):
-        # Which capture group matched?
-        raw_name = m.group(1) or m.group(2) or m.group(3) or ""
-        canonical = name_lower.get(raw_name.lower(), raw_name)
-        start = m.end()
-        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        section_text = text[start:end].strip()
-        if section_text:
-            sections.append((canonical, section_text))
-
-    # If there's text before the first match, include it unattributed.
-    if matches and matches[0].start() > 0:
-        prefix = text[: matches[0].start()].strip()
-        if prefix:
-            sections.insert(0, ("", prefix))
-
-    return sections if sections else [("", text)]
 
 
 # ---------------------------------------------------------------------------

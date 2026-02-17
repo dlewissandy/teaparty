@@ -18,7 +18,6 @@ from teaparty_app.schemas import (
     MessageRead,
 )
 from teaparty_app.services.agent_runtime import (
-    close_tasks_satisfied_by_message,
     get_conversation_activity,
     infer_requires_response,
     run_agent_auto_responses,
@@ -140,7 +139,7 @@ def create_conversation(
     session.flush()
 
     if payload.kind == "job":
-        from teaparty_app.services.agent_tools import auto_select_workflow
+        from teaparty_app.services.workflow_helpers import auto_select_workflow
 
         workgroup = session.get(Workgroup, workgroup_id)
         if workgroup:
@@ -278,10 +277,10 @@ def update_topic_conversation(
     conversation = session.get(Conversation, conversation_id)
     if not conversation or conversation.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    if conversation.kind != "job":
+    if conversation.kind not in ("job", "task"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only job conversations can be updated by this endpoint",
+            detail="Only job and task conversations can be updated by this endpoint",
         )
 
     if payload.topic is not None:
@@ -325,19 +324,20 @@ def clear_job_conversation_history(
     conversation = session.get(Conversation, conversation_id)
     if not conversation or conversation.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    if conversation.kind != "job":
+    if conversation.kind not in ("job", "task"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only job conversation history can be cleared by this endpoint",
+            detail="Only job and task conversation history can be cleared by this endpoint",
         )
 
     counts = clear_conversation_messages(session, conversation_id)
+    conversation.claude_session_id = None
+    session.add(conversation)
     session.commit()
     return ConversationHistoryClearResponse(
         conversation_id=conversation_id,
         deleted_messages=counts["messages"],
         deleted_learning_events=counts["learning_events"],
-        deleted_followup_tasks=counts["followup_tasks"],
         cleared_response_links=counts["response_links_cleared"],
     )
 
@@ -409,9 +409,7 @@ def post_message(
     session.add(message)
     session.flush()
 
-    close_tasks_satisfied_by_message(session, message)
-
-    from teaparty_app.services.agent_tools import evaluate_message_match_todos
+    from teaparty_app.services.todo_helpers import evaluate_message_match_todos
     evaluate_message_match_todos(session, message)
 
     session.commit()

@@ -31,7 +31,6 @@ class WorkgroupTemplateAgent(TypedDict):
     verbosity: float
     tool_names: list[str]
     response_threshold: float
-    follow_up_minutes: int
 
 
 class WorkgroupTemplate(TypedDict):
@@ -96,7 +95,6 @@ def _clone_template(template: WorkgroupTemplate) -> WorkgroupTemplate:
                 "verbosity": item["verbosity"],
                 "tool_names": list(item["tool_names"]),
                 "response_threshold": item["response_threshold"],
-                "follow_up_minutes": item["follow_up_minutes"],
             }
             for item in template["agents"]
         ],
@@ -206,7 +204,6 @@ def _normalize_storage_template_agent(value: object) -> WorkgroupTemplateAgent |
         "verbosity": _coerce_float(value.get("verbosity"), 0.5, 0.0, 1.0),
         "tool_names": tool_names,
         "response_threshold": _coerce_float(value.get("response_threshold"), 0.55, 0.0, 1.0),
-        "follow_up_minutes": _coerce_int(value.get("follow_up_minutes"), 60, 1, 10080),
     }
 
 
@@ -495,6 +492,115 @@ def _is_workgroup_storage_path(path: str) -> bool:
     return normalized == f"{WORKGROUP_STORAGE_ROOT}/README.md" or normalized.startswith(f"{WORKGROUP_STORAGE_ROOT}/")
 
 
+ORG_STORAGE_PATHS_PREFIXES = ("organization.json", "teams/", "members/")
+
+
+def _is_org_storage_path(path: str) -> bool:
+    normalized = path.replace("\\", "/").lstrip("/")
+    return any(normalized == prefix or normalized.startswith(prefix) for prefix in ORG_STORAGE_PATHS_PREFIXES)
+
+
+def org_storage_files(
+    org: dict,
+    workgroups: list[dict],
+    agents_by_workgroup: dict[str, list[dict]],
+    members: list[dict],
+    members_by_workgroup: dict[str, list[dict]] | None = None,
+) -> list[WorkgroupTemplateFile]:
+    rows = sorted(workgroups, key=lambda item: item.get("id", ""))
+    files: list[WorkgroupTemplateFile] = []
+
+    # organization.json
+    team_refs = [{"id": wg.get("id", ""), "name": wg.get("name", "")} for wg in rows]
+    member_refs = [{"user_id": m.get("user_id", ""), "role": m.get("role", "")} for m in members]
+    org_payload = {
+        "id": org.get("id", ""),
+        "name": org.get("name", ""),
+        "description": org.get("description", ""),
+        "owner_id": org.get("owner_id", ""),
+        "teams": team_refs,
+        "members": member_refs,
+    }
+    files.append({
+        "path": "organization.json",
+        "content": json.dumps(org_payload, indent=2, default=str),
+    })
+
+    # teams/README.md
+    catalog_lines = ["# Teams\n\n"]
+    for wg in rows:
+        catalog_lines.append(f"- **{wg.get('name', '')}** — `teams/{wg.get('id', '')}/`\n")
+    files.append({"path": "teams/README.md", "content": "".join(catalog_lines)})
+
+    # Per-team files
+    for wg in rows:
+        wg_id = wg.get("id", "")
+        base_path = f"teams/{wg_id}"
+        agents = agents_by_workgroup.get(wg_id, [])
+
+        wg_members = (members_by_workgroup or {}).get(wg_id, [])
+        member_refs_wg = [{"user_id": m.get("user_id", ""), "role": m.get("role", "")} for m in wg_members]
+        agent_refs = [{"id": a.get("id", ""), "name": a.get("name", ""), "role": a.get("role", "")} for a in agents]
+        team_payload = {
+            "id": wg_id,
+            "name": wg.get("name", ""),
+            "owner_id": wg.get("owner_id", ""),
+            "is_discoverable": wg.get("is_discoverable", False),
+            "service_description": wg.get("service_description", ""),
+            "created_at": wg.get("created_at", ""),
+            "members": member_refs_wg,
+            "agents": agent_refs,
+        }
+        files.append({
+            "path": f"{base_path}/team.json",
+            "content": json.dumps(team_payload, indent=2, default=str),
+        })
+
+        used_agent_filenames: set[str] = set()
+        for agent in agents:
+            stem = _agent_filename_base(agent.get("name", ""))
+            candidate = stem
+            suffix = 2
+            while candidate in used_agent_filenames:
+                candidate = f"{stem}_{suffix}"
+                suffix += 1
+            used_agent_filenames.add(candidate)
+
+            agent_payload = {
+                "id": agent.get("id", ""),
+                "name": agent.get("name", ""),
+                "description": agent.get("description", ""),
+                "role": agent.get("role", ""),
+                "personality": agent.get("personality", ""),
+                "backstory": agent.get("backstory", ""),
+                "model": agent.get("model", ""),
+                "temperature": agent.get("temperature", 0.7),
+                "verbosity": agent.get("verbosity", 0.5),
+                "tool_names": agent.get("tool_names", []),
+                "response_threshold": agent.get("response_threshold", 0.55),
+            }
+            files.append({
+                "path": f"{base_path}/agents/{candidate}/agent.json",
+                "content": json.dumps(agent_payload, indent=2, default=str),
+            })
+
+    # Per-member files
+    for m in sorted(members, key=lambda x: x.get("user_id", "")):
+        uid = m.get("user_id", "")
+        member_payload = {
+            "user_id": uid,
+            "name": m.get("name", ""),
+            "email": m.get("email", ""),
+            "role": m.get("role", ""),
+        }
+        files.append({
+            "path": f"members/{uid}/member.json",
+            "content": json.dumps(member_payload, indent=2, default=str),
+        })
+
+    return files
+
+
 def workgroup_storage_files(
     workgroups: list[dict],
     agents_by_workgroup: dict[str, list[dict]],
@@ -553,7 +659,6 @@ def workgroup_storage_files(
                 "verbosity": agent.get("verbosity", 0.5),
                 "tool_names": agent.get("tool_names", []),
                 "response_threshold": agent.get("response_threshold", 0.55),
-                "follow_up_minutes": agent.get("follow_up_minutes", 60),
             }
             files.append({
                 "path": f"{base_path}/agents/{candidate}.json",

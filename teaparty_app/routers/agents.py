@@ -5,7 +5,7 @@ from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
 from teaparty_app.models import Agent, Membership, User
 from teaparty_app.schemas import AgentRead, MessageRead, TickResponse
-from teaparty_app.services.agent_runtime import process_due_followups, process_triggered_todos
+from teaparty_app.services.agent_runtime import process_triggered_todos
 from teaparty_app.services.engagement_sync import sync_engagement_messages
 from teaparty_app.services.task_sync import sync_cross_group_messages
 
@@ -40,7 +40,7 @@ def tick_agents(
     memberships = session.exec(select(Membership).where(Membership.user_id == user.id)).all()
     allowed_workgroup_ids = {item.workgroup_id for item in memberships}
 
-    created = process_due_followups(session, allowed_workgroup_ids, limit=limit)
+    created: list = []
 
     todo_created = process_triggered_todos(session, allowed_workgroup_ids)
     created.extend(todo_created)

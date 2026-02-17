@@ -63,7 +63,6 @@ class WorkgroupTemplateAgentWrite(BaseModel):
     verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
     response_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
-    follow_up_minutes: int = Field(default=60, ge=1, le=10080)
 
 
 class WorkgroupCreateRequest(BaseModel):
@@ -186,7 +185,6 @@ class AgentCreateRequest(BaseModel):
     verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
     response_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
-    follow_up_minutes: int = Field(default=60, ge=1, le=10080)
     learning_state: dict[str, Any] = Field(default_factory=dict)
     sentiment_state: dict[str, Any] = Field(default_factory=dict)
     icon: str = ""
@@ -203,7 +201,6 @@ class AgentUpdateRequest(BaseModel):
     verbosity: float | None = Field(default=None, ge=0.0, le=1.0)
     tool_names: list[str] | None = None
     response_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
-    follow_up_minutes: int | None = Field(default=None, ge=1, le=10080)
     icon: str | None = None
 
 
@@ -226,10 +223,10 @@ class AgentRead(ORMBaseModel):
     verbosity: float
     tool_names: list[str]
     response_threshold: float
-    follow_up_minutes: int
     learning_state: dict[str, Any]
     sentiment_state: dict[str, Any]
     learned_preferences: dict[str, Any]
+    is_lead: bool = False
     icon: str = ""
 
 
@@ -239,7 +236,7 @@ class AgentConversationClearRead(BaseModel):
 
 
 class ConversationCreateRequest(BaseModel):
-    kind: Literal["direct", "job"]
+    kind: Literal["direct", "job", "task"]
     topic: str = "general"
     name: str = ""
     description: str = ""
@@ -272,7 +269,6 @@ class ConversationHistoryClearResponse(BaseModel):
     conversation_id: str
     deleted_messages: int
     deleted_learning_events: int
-    deleted_followup_tasks: int
     cleared_response_links: int
 
 
@@ -301,72 +297,6 @@ class MessageEnvelope(BaseModel):
 
 class TickResponse(BaseModel):
     created_messages: list[MessageRead]
-
-
-class ToolDefinitionCreateRequest(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    description: str = ""
-    tool_type: Literal["prompt", "webhook"]
-    prompt_template: str = ""
-    webhook_url: str = ""
-    webhook_method: Literal["GET", "POST"] = "POST"
-    webhook_headers: dict[str, Any] = Field(default_factory=dict)
-    webhook_timeout_seconds: int = Field(default=30, ge=1, le=120)
-    input_schema: dict[str, Any] = Field(default_factory=dict)
-    is_shared: bool = False
-
-
-class ToolDefinitionUpdateRequest(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=120)
-    description: str | None = None
-    tool_type: Literal["prompt", "webhook"] | None = None
-    prompt_template: str | None = None
-    webhook_url: str | None = None
-    webhook_method: Literal["GET", "POST"] | None = None
-    webhook_headers: dict[str, Any] | None = None
-    webhook_timeout_seconds: int | None = Field(default=None, ge=1, le=120)
-    input_schema: dict[str, Any] | None = None
-    is_shared: bool | None = None
-    enabled: bool | None = None
-
-
-class ToolDefinitionRead(ORMBaseModel):
-    id: str
-    workgroup_id: str
-    created_by_user_id: str
-    name: str
-    description: str
-    tool_type: str
-    prompt_template: str
-    webhook_url: str
-    webhook_method: str
-    webhook_headers: dict[str, Any]
-    webhook_timeout_seconds: int
-    input_schema: dict[str, Any]
-    is_shared: bool
-    enabled: bool
-    created_at: datetime
-
-
-class ToolGrantCreateRequest(BaseModel):
-    grantee_workgroup_id: str
-
-
-class ToolGrantRead(ORMBaseModel):
-    id: str
-    tool_definition_id: str
-    grantee_workgroup_id: str
-    granted_by_user_id: str
-    created_at: datetime
-
-
-class AvailableToolRead(BaseModel):
-    name: str
-    display_name: str
-    description: str
-    tool_type: str  # "builtin", "prompt", "webhook"
-    source_workgroup_id: str | None = None
-    is_shared: bool = False
 
 
 # --- Cross-Group Task schemas ---
@@ -516,6 +446,48 @@ class JobDetailRead(JobRead):
     engagement_title: str = ""
 
 
+class JobCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = ""
+
+
+class JobUpdateRequest(BaseModel):
+    status: Literal["in_progress", "completed", "cancelled"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+# --- Agent Task schemas ---
+
+
+class AgentTaskCreateRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+    description: str = ""
+
+
+class AgentTaskUpdateRequest(BaseModel):
+    status: Literal["in_progress", "completed", "cancelled"] | None = None
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    description: str | None = None
+
+
+class AgentTaskRead(ORMBaseModel):
+    id: str
+    title: str
+    description: str
+    status: str
+    agent_id: str
+    workgroup_id: str
+    conversation_id: str | None = None
+    created_by_user_id: str
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
+class AgentTaskDetailRead(AgentTaskRead):
+    agent_name: str = ""
+    workgroup_name: str = ""
+
+
 class AgentMemoryRead(ORMBaseModel):
     id: str
     agent_id: str
@@ -538,26 +510,6 @@ class AgentLearningsRead(BaseModel):
     sentiment_state: dict[str, Any]
     memories: list[AgentMemoryRead]
     recent_signals: list[AgentLearningSignalRead]
-
-
-class ToolCatalogEntry(BaseModel):
-    name: str
-    display_name: str
-    description: str
-    source: str  # "builtin" | "admin" | "server_side" | "special" | "custom_prompt" | "custom_webhook" | "custom_granted"
-    enabled: bool = True
-    source_workgroup_id: str | None = None
-
-
-class ToolCatalogCategory(BaseModel):
-    key: str
-    label: str
-    tools: list[ToolCatalogEntry]
-
-
-class ToolCatalogRead(BaseModel):
-    version: int = 1
-    categories: list[ToolCatalogCategory]
 
 
 class ConversationUsageRead(BaseModel):
@@ -661,7 +613,6 @@ class SystemSettingsRead(BaseModel):
     # Agent Behavior
     agent_chain_max: int
     agent_sdk_max_turns: int
-    follow_up_scan_limit: int
     # Application
     app_name: str
     workspace_root: str
@@ -679,7 +630,6 @@ class SystemSettingsUpdate(BaseModel):
     # Agent Behavior
     agent_chain_max: int | None = Field(default=None, ge=1, le=50)
     agent_sdk_max_turns: int | None = Field(default=None, ge=1, le=50)
-    follow_up_scan_limit: int | None = Field(default=None, ge=10, le=1000)
     # Application
     app_name: str | None = None
     workspace_root: str | None = None

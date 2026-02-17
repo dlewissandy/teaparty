@@ -49,17 +49,10 @@ class UpdateSettingsTests(unittest.TestCase):
         with self.assertRaises(Exception):
             SystemSettingsUpdate(agent_sdk_max_turns=0)
 
-        # follow_up_scan_limit must be 10-1000
-        with self.assertRaises(Exception):
-            SystemSettingsUpdate(follow_up_scan_limit=5)
-        with self.assertRaises(Exception):
-            SystemSettingsUpdate(follow_up_scan_limit=1001)
-
     def test_update_schema_accepts_valid_values(self) -> None:
-        update = SystemSettingsUpdate(agent_chain_max=10, agent_sdk_max_turns=20, follow_up_scan_limit=500)
+        update = SystemSettingsUpdate(agent_chain_max=10, agent_sdk_max_turns=20)
         self.assertEqual(update.agent_chain_max, 10)
         self.assertEqual(update.agent_sdk_max_turns, 20)
-        self.assertEqual(update.follow_up_scan_limit, 500)
 
     def test_update_schema_all_optional(self) -> None:
         update = SystemSettingsUpdate()

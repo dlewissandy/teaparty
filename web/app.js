@@ -277,7 +277,6 @@ function renderAgentConfigForm(data, readonly) {
   rangeField("temperature", 0, 2, 0.1, "temperature");
   rangeField("verbosity", 0, 1, 0.05, "verbosity");
   rangeField("response_threshold", 0, 1, 0.05, "response_threshold");
-  field("follow_up_minutes");
 
   // Tools
   if ("tool_names" in data && Array.isArray(data.tool_names)) {
@@ -2314,7 +2313,6 @@ function normalizeTemplateDraftAgents(agents) {
       verbosity: Number.isFinite(Number(item.verbosity)) ? Number(item.verbosity) : 0.5,
       tool_names: toolNames,
       response_threshold: Number.isFinite(Number(item.response_threshold)) ? Number(item.response_threshold) : 0.55,
-      follow_up_minutes: Number.isFinite(Number(item.follow_up_minutes)) ? Number(item.follow_up_minutes) : 60,
     });
   }
   return normalized;
@@ -2535,7 +2533,6 @@ function newWorkgroupCreateAgentDraft() {
     verbosity: 0.5,
     tool_names: [],
     response_threshold: 0.55,
-    follow_up_minutes: 60,
   };
 }
 
@@ -2612,7 +2609,6 @@ function normalizeWorkgroupCreateAgentsForSubmit() {
       verbosity: Number.isFinite(Number(agent.verbosity)) ? Number(agent.verbosity) : 0.5,
       tool_names: toolNames,
       response_threshold: Number.isFinite(Number(agent.response_threshold)) ? Number(agent.response_threshold) : 0.55,
-      follow_up_minutes: Number.isFinite(Number(agent.follow_up_minutes)) ? Math.trunc(Number(agent.follow_up_minutes)) : 60,
     });
   }
   return normalized;
@@ -2870,6 +2866,12 @@ function inferThinkingAgentIds(workgroupId, conversationId) {
     }
     const parts = conversation.topic.split(":");
     return parts[2] ? [parts[2]] : [];
+  }
+
+  if (conversation.kind === "task") {
+    // topic format: task:{agent_id}:{task_id}
+    const parts = conversation.topic.split(":");
+    return parts[1] ? [parts[1]] : [];
   }
 
   if (conversation.kind === "admin") {
@@ -3559,12 +3561,6 @@ async function openSystemSettingsModal() {
         <input name="agent_sdk_max_turns" type="number" min="1" max="50" value="${config.agent_sdk_max_turns}" />
         <span class="settings-hint">Max tool-use turns per agent reply (1–50)</span>
       </label>
-      <label class="settings-field">
-        <span class="settings-label">Follow-up scan limit</span>
-        <input name="follow_up_scan_limit" type="number" min="10" max="1000" value="${config.follow_up_scan_limit}" />
-        <span class="settings-hint">Messages scanned for follow-up triggers (10–1000)</span>
-      </label>
-
       <div class="settings-section-header">Application</div>
       <label class="settings-field">
         <span class="settings-label">App name</span>
@@ -3604,8 +3600,6 @@ async function openSystemSettingsModal() {
       if (!isNaN(chainMax) && chainMax !== config.agent_chain_max) patch.agent_chain_max = chainMax;
       const sdkMax = parseInt(str("agent_sdk_max_turns"), 10);
       if (!isNaN(sdkMax) && sdkMax !== config.agent_sdk_max_turns) patch.agent_sdk_max_turns = sdkMax;
-      const scanLimit = parseInt(str("follow_up_scan_limit"), 10);
-      if (!isNaN(scanLimit) && scanLimit !== config.follow_up_scan_limit) patch.follow_up_scan_limit = scanLimit;
 
       const useSdk = formData.has("admin_agent_use_sdk");
       if (useSdk !== config.admin_agent_use_sdk) patch.admin_agent_use_sdk = useSdk;
@@ -4279,7 +4273,6 @@ async function ensureAgentConfigFile(workgroupId, agent) {
     verbosity: agent.verbosity,
     tool_names: agent.tool_names || [],
     response_threshold: agent.response_threshold,
-    follow_up_minutes: agent.follow_up_minutes,
     icon: agent.icon || "",
   };
   const content = JSON.stringify(configData, null, 2);
@@ -4373,24 +4366,19 @@ function createJobPrompt(workgroupId) {
       if (!name) throw new Error("Display name cannot be empty");
       if (!topic) throw new Error("Job key cannot be empty");
 
-      const result = await api(`/api/workgroups/${workgroupId}/conversations`, {
+      const result = await api(`/api/workgroups/${workgroupId}/jobs`, {
         method: "POST",
-        body: {
-          kind: "job",
-          topic,
-          name,
-          description,
-          participant_user_ids: [],
-          participant_agent_ids: [],
-        },
+        body: { title: name, description },
       });
       const treeData = state.treeData[workgroupId];
       if (treeData) {
         await refreshWorkgroupTree(treeData.workgroup);
         renderTree();
       }
-      if (result?.id) {
-        await selectConversation(workgroupId, result.id, `job:${workgroupId}:${result.id}`);
+      const convId = result?.conversation_id;
+      if (convId) {
+        await selectConversation(workgroupId, convId, `job:${workgroupId}:${convId}`);
+        startThinkingForMessage({ conversation_id: convId });
       }
       flash(`Job "${name}" created`, "success");
     },
@@ -4467,6 +4455,14 @@ function createAgentTaskPrompt(workgroupId, agentId) {
       }
       if (result?.conversation_id) {
         await selectConversation(workgroupId, result.conversation_id, `task:${workgroupId}:${result.id}`);
+        // Start thinking indicator for the initial message posted by the backend.
+        const initialMsg = (state.activeMessages || []).find(
+          (m) => m.sender_type === "user" && m.conversation_id === result.conversation_id
+        );
+        if (initialMsg) {
+          startThinkingForMessage(initialMsg);
+          renderMessages(state.activeMessages);
+        }
       }
       flash(`Task "${title}" created for ${agentLabel}`, "success");
     },
@@ -6813,6 +6809,28 @@ function bindEvents() {
         archiveBtn.textContent = archived ? "Unarchive" : "Archive";
         archiveBtn.dataset.action = archived ? "chat-unarchive" : "chat-archive";
       }
+
+      // Show/hide task-specific buttons
+      const convId = state.activeConversationId;
+      const wgId = state.selectedWorkgroupId;
+      const conv = wgId && convId ? conversationById(wgId, convId) : null;
+      const isTask = conv?.kind === "task";
+      const wgData = wgId ? state.treeData[wgId] : null;
+      const task = isTask && wgData ? (wgData.agentTasks || []).find((t) => t.conversation_id === convId) : null;
+      const showComplete = task && task.status !== "completed" && task.status !== "cancelled";
+      const completeBtn = qs("task-complete-btn");
+      const deleteBtn = qs("task-delete-btn");
+      if (completeBtn) completeBtn.classList.toggle("hidden", !showComplete);
+      if (deleteBtn) deleteBtn.classList.toggle("hidden", !isTask);
+
+      // Show/hide job-specific buttons
+      const isJob = conv?.kind === "job";
+      const jobRecord = isJob && wgData ? (wgData.jobRecords || []).find((j) => j.conversation_id === convId) : null;
+      const showJobComplete = jobRecord && jobRecord.status !== "completed" && jobRecord.status !== "cancelled";
+      const jobCompleteBtn = qs("job-complete-btn");
+      const jobDeleteBtn = qs("job-delete-btn");
+      if (jobCompleteBtn) jobCompleteBtn.classList.toggle("hidden", !showJobComplete);
+      if (jobDeleteBtn) jobDeleteBtn.classList.toggle("hidden", !isJob || !jobRecord);
     }
   });
 
@@ -6861,6 +6879,86 @@ function bindEvents() {
         flash(deleted > 0 ? `Cleared ${deleted} message${deleted === 1 ? "" : "s"}` : "History already empty", "success");
       } catch (err) {
         flash(err.message || "Failed to clear history", "error");
+      }
+    } else if (action === "task-complete") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const wgData = state.treeData[wgId];
+      const task = wgData ? (wgData.agentTasks || []).find((t) => t.conversation_id === convId) : null;
+      if (!task) return;
+      try {
+        await api(`/api/agent-tasks/${task.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "completed" }),
+        });
+        delete state.thinkingByConversation[convId];
+        await refreshWorkgroupTree(wgData.workgroup);
+        renderTree();
+        refreshActiveConversationHeader();
+        flash("Task completed", "success");
+      } catch (err) {
+        flash(err.message || "Failed to complete task", "error");
+      }
+    } else if (action === "task-delete") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const wgData = state.treeData[wgId];
+      const task = wgData ? (wgData.agentTasks || []).find((t) => t.conversation_id === convId) : null;
+      if (!task) return;
+      const confirmed = window.confirm("Delete this task and its conversation? This cannot be undone.");
+      if (!confirmed) return;
+      try {
+        await api(`/api/agent-tasks/${task.id}`, { method: "DELETE" });
+        delete state.thinkingByConversation[convId];
+        clearActiveConversationUI();
+        await refreshWorkgroupTree(wgData.workgroup);
+        renderTree();
+        flash("Task deleted", "success");
+      } catch (err) {
+        flash(err.message || "Failed to delete task", "error");
+      }
+    } else if (action === "job-complete") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const wgData = state.treeData[wgId];
+      const jobRecord = wgData ? (wgData.jobRecords || []).find((j) => j.conversation_id === convId) : null;
+      if (!jobRecord) return;
+      try {
+        await api(`/api/jobs/${jobRecord.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: "completed" }),
+        });
+        delete state.thinkingByConversation[convId];
+        await refreshWorkgroupTree(wgData.workgroup);
+        renderTree();
+        refreshActiveConversationHeader();
+        flash("Job completed", "success");
+      } catch (err) {
+        flash(err.message || "Failed to complete job", "error");
+      }
+    } else if (action === "job-delete") {
+      const wgId = state.selectedWorkgroupId;
+      const convId = state.activeConversationId;
+      if (!wgId || !convId) return;
+      const wgData = state.treeData[wgId];
+      const jobRecord = wgData ? (wgData.jobRecords || []).find((j) => j.conversation_id === convId) : null;
+      if (!jobRecord) return;
+      const confirmed = window.confirm("Delete this job and its conversation? This cannot be undone.");
+      if (!confirmed) return;
+      try {
+        await api(`/api/jobs/${jobRecord.id}`, { method: "DELETE" });
+        delete state.thinkingByConversation[convId];
+        clearActiveConversationUI();
+        await refreshWorkgroupTree(wgData.workgroup);
+        renderTree();
+        flash("Job deleted", "success");
+      } catch (err) {
+        flash(err.message || "Failed to delete job", "error");
       }
     }
   });

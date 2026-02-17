@@ -3,7 +3,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Membership, Organization, User, Workgroup
+from teaparty_app.models import Agent, Membership, Organization, User, Workgroup
 from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
@@ -58,6 +58,28 @@ def create_organization(
     session.add(admin_wg)
     session.flush()
     session.add(Membership(workgroup_id=admin_wg.id, user_id=user.id, role="owner"))
+
+    # Create the engagements-lead as the lead agent for the Administration workgroup.
+    from teaparty_app.services.claude_tools import claude_tool_names
+    engagements_lead = Agent(
+        workgroup_id=admin_wg.id,
+        created_by_user_id=user.id,
+        name="engagements-lead",
+        description="",
+        role="Engagement coordinator",
+        personality="Organized and collaborative engagement coordinator",
+        backstory="",
+        model="claude-sonnet-4-5",
+        temperature=0.7,
+        tool_names=claude_tool_names(),
+        is_lead=True,
+        learning_state={},
+        sentiment_state={},
+        learned_preferences={},
+    )
+    session.add(engagements_lead)
+    session.flush()
+
     ensure_admin_workspace(session, admin_wg)
 
     session.commit()

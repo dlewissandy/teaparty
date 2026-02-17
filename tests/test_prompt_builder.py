@@ -107,16 +107,6 @@ class BuildSystemPromptTests(unittest.TestCase):
 
         self.assertIn("engagement conversation", prompt)
 
-    def test_includes_workflow_context(self) -> None:
-        agent = _make_agent(name="Eve")
-        conversation = _make_conversation(kind="job")
-        workflow_context = "**Current Step**: 2. Opening Argument\n- Present your initial position"
-
-        prompt = build_system_prompt(agent, conversation, workflow_context=workflow_context)
-
-        self.assertIn("Current Step", prompt)
-        self.assertIn("Opening Argument", prompt)
-
     def test_includes_workgroup_files_context(self) -> None:
         agent = _make_agent(name="Frank")
         conversation = _make_conversation(kind="job")

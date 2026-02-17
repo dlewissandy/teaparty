@@ -246,7 +246,6 @@ def _create_workgroup_from_template(
             verbosity=agent_def["verbosity"],
             tool_names=agent_def["tool_names"],
             response_threshold=agent_def["response_threshold"],
-            follow_up_minutes=agent_def["follow_up_minutes"],
         )
         session.add(agent)
 

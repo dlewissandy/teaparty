@@ -157,23 +157,16 @@ agents:
     max_turns: 20
     verbosity: 0.45
     tool_names:
-      - suggest_next_step
-      - summarize_job
-      - list_open_followups
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
-      - sandbox_exec
-      - git_status
-      - git_diff
-      - git_commit
-      - git_log
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.5
-    follow_up_minutes: 45
 
   - name: Reviewer
     description: "Challenges edge cases, regressions, and test coverage before changes ship."
@@ -185,18 +178,13 @@ agents:
     max_turns: 15
     verbosity: 0.4
     tool_names:
-      - summarize_job
-      - list_open_followups
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
-      - sandbox_exec
-      - git_status
-      - git_diff
-      - git_log
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.58
-    follow_up_minutes: 60

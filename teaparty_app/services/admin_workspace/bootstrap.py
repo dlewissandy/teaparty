@@ -96,6 +96,59 @@ GLOBAL_TOOL_NAMES = [
 SESSION_DELETE_WORKGROUP_KEY = "delete_workgroup_after_response"
 
 
+def lead_agent_name(workgroup_name: str) -> str:
+    """Return the canonical name for a workgroup's lead agent."""
+    return f"{workgroup_name}-lead"
+
+
+def is_lead_agent(agent: Agent) -> bool:
+    """Return True if the agent is a workgroup lead."""
+    return agent.is_lead
+
+
+def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bool]:
+    """Ensure the workgroup has a lead agent, creating one if needed.
+
+    Returns (agent, created) where created is True if a new agent was made.
+    """
+    from teaparty_app.services.claude_tools import claude_tool_names
+
+    existing = session.exec(
+        select(Agent).where(
+            Agent.workgroup_id == workgroup.id,
+            Agent.is_lead == True,  # noqa: E712
+        )
+    ).first()
+
+    if existing:
+        # Rename if workgroup name changed.
+        expected_name = lead_agent_name(workgroup.name)
+        if existing.name != expected_name:
+            existing.name = expected_name
+            session.add(existing)
+        return existing, False
+
+    agent = Agent(
+        workgroup_id=workgroup.id,
+        created_by_user_id=workgroup.owner_id,
+        name=lead_agent_name(workgroup.name),
+        description="",
+        role="Team lead",
+        personality="Organized and collaborative team coordinator",
+        backstory="",
+        model="claude-sonnet-4-5",
+        temperature=0.7,
+        tool_names=claude_tool_names(),
+        is_lead=True,
+        learning_state={},
+        sentiment_state={},
+        learned_preferences={},
+    )
+    session.add(agent)
+    session.flush()
+    return agent, True
+
+
 def direct_conversation_key(user_a_id: str, user_b_id: str) -> str:
     ordered = sorted([user_a_id, user_b_id])
     return f"dm:{ordered[0]}:{ordered[1]}"
@@ -147,7 +200,6 @@ def ensure_admin_workspace(
             temperature=0.2,
             tool_names=list(ADMIN_TOOL_NAMES),
             response_threshold=0.0,
-            follow_up_minutes=30,
             learning_state={"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.4, "brevity_bias": 0.3},
             sentiment_state={"valence": 0.1, "arousal": -0.1, "confidence": 0.4},
             learned_preferences={"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.4, "brevity_bias": 0.3},

@@ -32,16 +32,21 @@ if settings.database_url.startswith("sqlite"):
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _run_lightweight_migrations()
-    _ensure_custom_tool_tables()
+    _drop_custom_tool_tables()
     _ensure_cross_group_task_tables()
     _ensure_llm_usage_table()
     _ensure_agent_memory_table()
     _ensure_agent_todo_table()
     _ensure_workspace_tables()
     _ensure_job_table()
+    _ensure_agent_task_table()
     _ensure_org_operations_field()
     _ensure_agent_max_turns()
+    _ensure_agent_is_lead()
+    _backfill_lead_agents()
+    _ensure_conversation_session_id()
     _migrate_topic_to_job()
+    _migrate_agent_tool_names()
     _run_seeds()
 
 
@@ -286,41 +291,10 @@ def _run_lightweight_migrations() -> None:
                 ), {"org_id": acme_id})
 
 
-def _ensure_custom_tool_tables() -> None:
+def _drop_custom_tool_tables() -> None:
     with engine.begin() as conn:
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS tool_definitions ("
-                "id TEXT PRIMARY KEY, "
-                "workgroup_id TEXT NOT NULL REFERENCES workgroups(id), "
-                "created_by_user_id TEXT NOT NULL REFERENCES users(id), "
-                "name TEXT NOT NULL, "
-                "description TEXT DEFAULT '' NOT NULL, "
-                "tool_type TEXT DEFAULT 'prompt' NOT NULL, "
-                "prompt_template TEXT DEFAULT '' NOT NULL, "
-                "webhook_url TEXT DEFAULT '' NOT NULL, "
-                "webhook_method TEXT DEFAULT 'POST' NOT NULL, "
-                "webhook_headers JSON DEFAULT '{}' NOT NULL, "
-                "webhook_timeout_seconds INTEGER DEFAULT 30 NOT NULL, "
-                "input_schema JSON DEFAULT '{}' NOT NULL, "
-                "is_shared BOOLEAN DEFAULT 0 NOT NULL, "
-                "enabled BOOLEAN DEFAULT 1 NOT NULL, "
-                "created_at DATETIME NOT NULL"
-                ")"
-            )
-        )
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS tool_grants ("
-                "id TEXT PRIMARY KEY, "
-                "tool_definition_id TEXT NOT NULL REFERENCES tool_definitions(id), "
-                "grantee_workgroup_id TEXT NOT NULL REFERENCES workgroups(id), "
-                "granted_by_user_id TEXT NOT NULL REFERENCES users(id), "
-                "created_at DATETIME NOT NULL, "
-                "UNIQUE(tool_definition_id, grantee_workgroup_id)"
-                ")"
-            )
-        )
+        conn.execute(text("DROP TABLE IF EXISTS tool_grants"))
+        conn.execute(text("DROP TABLE IF EXISTS tool_definitions"))
 
 
 def _ensure_cross_group_task_tables() -> None:
@@ -568,6 +542,41 @@ def _ensure_job_table() -> None:
         )
 
 
+def _ensure_agent_task_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS agent_tasks ("
+                "id TEXT PRIMARY KEY, "
+                "title TEXT NOT NULL, "
+                "description TEXT DEFAULT '' NOT NULL, "
+                "status TEXT DEFAULT 'pending' NOT NULL, "
+                "agent_id TEXT NOT NULL REFERENCES agents(id), "
+                "workgroup_id TEXT NOT NULL REFERENCES workgroups(id), "
+                "conversation_id TEXT REFERENCES conversations(id), "
+                "created_by_user_id TEXT NOT NULL REFERENCES users(id), "
+                "created_at DATETIME NOT NULL, "
+                "completed_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_agent_tasks_status ON agent_tasks(status)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_agent_tasks_agent ON agent_tasks(agent_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_agent_tasks_workgroup ON agent_tasks(workgroup_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_agent_tasks_conversation ON agent_tasks(conversation_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_agent_tasks_created_by ON agent_tasks(created_by_user_id)")
+        )
+
+
 def _ensure_agent_max_turns() -> None:
     if not settings.database_url.startswith("sqlite"):
         return
@@ -575,6 +584,51 @@ def _ensure_agent_max_turns() -> None:
     if "max_turns" not in agent_columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE agents ADD COLUMN max_turns INTEGER DEFAULT 3 NOT NULL"))
+
+
+def _ensure_agent_is_lead() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    agent_columns = _sqlite_column_names("agents")
+    if "is_lead" not in agent_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN is_lead BOOLEAN DEFAULT 0 NOT NULL"))
+
+
+def _ensure_conversation_session_id() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("conversations")
+    if "claude_session_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN claude_session_id TEXT"))
+
+
+def _backfill_lead_agents() -> None:
+    """For workgroups that have non-admin agents but no lead, set the first non-admin agent as lead."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    with engine.begin() as conn:
+        # Find workgroups that have non-admin agents but no is_lead=1 agent.
+        rows = conn.execute(text(
+            "SELECT DISTINCT a.workgroup_id FROM agents a "
+            "WHERE (a.description IS NULL OR a.description != '__system_admin_agent__') "
+            "AND a.workgroup_id NOT IN ("
+            "  SELECT a2.workgroup_id FROM agents a2 WHERE a2.is_lead = 1"
+            ")"
+        )).fetchall()
+        for row in rows:
+            wg_id = row[0]
+            first = conn.execute(text(
+                "SELECT id FROM agents "
+                "WHERE workgroup_id = :wg_id "
+                "AND (description IS NULL OR description != '__system_admin_agent__') "
+                "ORDER BY created_at ASC LIMIT 1"
+            ), {"wg_id": wg_id}).first()
+            if first:
+                conn.execute(text(
+                    "UPDATE agents SET is_lead = 1 WHERE id = :id"
+                ), {"id": first[0]})
 
 
 def _ensure_org_operations_field() -> None:
@@ -596,6 +650,40 @@ def _migrate_topic_to_job() -> None:
         conn.execute(text("UPDATE conversations SET kind = 'job' WHERE kind = 'topic'"))
         conn.execute(text("UPDATE agent_todo_items SET trigger_type = 'job_stall' WHERE trigger_type = 'topic_stall'"))
         conn.execute(text("UPDATE agent_todo_items SET trigger_type = 'job_resolved' WHERE trigger_type = 'topic_resolved'"))
+
+
+def _migrate_agent_tool_names() -> None:
+    """Replace stale bespoke tool names with Claude native tools for non-admin agents."""
+    import json as _json
+
+    from teaparty_app.services.claude_tools import claude_tool_names
+
+    valid = set(claude_tool_names())
+    replacement = _json.dumps(claude_tool_names())
+
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                "SELECT id, tool_names FROM agents "
+                "WHERE description != '__system_admin_agent__' OR description IS NULL"
+            )
+        ).fetchall()
+
+        for row in rows:
+            raw = row[1]
+            if not raw:
+                continue
+            try:
+                names = _json.loads(raw) if isinstance(raw, str) else raw
+            except (ValueError, TypeError):
+                continue
+            if not names or not isinstance(names, list):
+                continue
+            if any(n not in valid for n in names):
+                conn.execute(
+                    text("UPDATE agents SET tool_names = :tools WHERE id = :id"),
+                    {"tools": replacement, "id": row[0]},
+                )
 
 
 def get_session() -> Iterator[Session]:

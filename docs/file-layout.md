@@ -246,6 +246,29 @@ Before each agent invocation, virtual files (from the `workgroup.files` JSON col
 
 For workspace-enabled workgroups with an active git worktree, the existing worktree path is reused instead of creating a temporary directory. This lets agents operate directly on the checked-out branch.
 
+## File Scoping
+
+Files are stored in the `workgroup.files` JSON column. Each file entry has an optional `topic_id` field that scopes it to a specific conversation context. Every conversation type gets its own workspace:
+
+| Conversation type | `topic_id` value | Visible files |
+|---|---|---|
+| Admin | *(n/a — sees everything)* | All files |
+| Job | `{conversation.id}` | Shared + own job files |
+| Agent DM | `agent:{agent_id}` | Own agent workspace only (isolated) |
+| User DM | `dm:{user_a}:{user_b}` | Own DM workspace only (isolated) |
+
+Files with no `topic_id` (or empty string) are **shared** — visible to all conversations (except admin, which sees everything including scoped files).
+
+### Workspace identity
+
+- **Agent DMs** — the workspace persists across all DM conversations with the same agent, regardless of which user is chatting. The agent ID is extracted from the conversation `topic` field (`dma:{user_id}:{agent_id}`).
+- **User DMs** — the workspace is scoped to the pair of users. The topic is `dm:{user_a}:{user_b}` (IDs sorted), so both participants share the same file workspace.
+- **Jobs** — each job conversation has its own workspace, identified by the conversation ID.
+
+### Implementation
+
+All `topic_id` assignment is centralized in `_topic_id_for_conversation()` (`tools.py`). The frontend mirror is `topicIdForConversation()` (`app.js`). Both backend and frontend file filtering use this helper — no inline scoping logic elsewhere.
+
 ## Content Placement
 
 **AI-generated content** goes into the scope folder of the conversation that produced it, or one of its subfolders.

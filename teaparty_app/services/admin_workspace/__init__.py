@@ -52,9 +52,12 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ensure_admin_workspace_for_workgroup_id,
     ensure_direct_conversation,
     ensure_direct_conversation_with_agent,
+    ensure_lead_agent,
     find_admin_agent,
     find_admin_conversation,
     is_admin_agent,
+    is_lead_agent,
+    lead_agent_name,
     list_members,
 )
 from teaparty_app.services.admin_workspace.parsing import (  # noqa: F401

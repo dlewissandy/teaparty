@@ -128,11 +128,11 @@ class Agent(SQLModel, table=True):
     verbosity: float = Field(default=0.5)
     tool_names: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     response_threshold: float = Field(default=0.55)
-    follow_up_minutes: int = Field(default=60)
     learning_state: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     sentiment_state: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     learned_preferences: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
     max_turns: int = Field(default=3)
+    is_lead: bool = Field(default=False)
     icon: str = Field(default="")
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -147,6 +147,7 @@ class Conversation(SQLModel, table=True):
     topic: str = Field(default="general")
     name: str = Field(default="general")
     description: str = Field(default="")
+    claude_session_id: str | None = Field(default=None)
     is_archived: bool = Field(default=False, index=True)
     archived_at: datetime | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
@@ -176,23 +177,6 @@ class Message(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-class AgentFollowUpTask(SQLModel, table=True):
-    __tablename__ = "agent_followup_tasks"
-
-    id: str = Field(default_factory=new_id, primary_key=True)
-    conversation_id: str = Field(foreign_key="conversations.id", index=True)
-    agent_id: str = Field(foreign_key="agents.id", index=True)
-    origin_message_id: str = Field(foreign_key="messages.id", index=True)
-    waiting_on_sender_type: str = Field(default="user")
-    waiting_on_user_id: str | None = Field(default=None, foreign_key="users.id", index=True)
-    waiting_on_agent_id: str | None = Field(default=None, foreign_key="agents.id", index=True)
-    reason: str = Field(default="awaiting response")
-    due_at: datetime = Field(index=True)
-    status: str = Field(default="pending", index=True)
-    created_at: datetime = Field(default_factory=utc_now)
-    completed_at: datetime | None = Field(default=None)
-
-
 class AgentLearningEvent(SQLModel, table=True):
     __tablename__ = "agent_learning_events"
 
@@ -214,39 +198,6 @@ class AgentMemory(SQLModel, table=True):
     content: str = Field()
     source_summary: str = Field(default="")
     confidence: float = Field(default=0.7)
-    created_at: datetime = Field(default_factory=utc_now)
-
-
-class ToolDefinition(SQLModel, table=True):
-    __tablename__ = "tool_definitions"
-
-    id: str = Field(default_factory=new_id, primary_key=True)
-    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
-    created_by_user_id: str = Field(foreign_key="users.id", index=True)
-    name: str = Field(index=True)
-    description: str = Field(default="")
-    tool_type: str = Field(default="prompt")  # "prompt" or "webhook"
-    prompt_template: str = Field(default="")
-    webhook_url: str = Field(default="")
-    webhook_method: str = Field(default="POST")
-    webhook_headers: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
-    webhook_timeout_seconds: int = Field(default=30)
-    input_schema: JSONDict = Field(default_factory=dict, sa_column=Column(JSON, nullable=False))
-    is_shared: bool = Field(default=False)
-    enabled: bool = Field(default=True)
-    created_at: datetime = Field(default_factory=utc_now)
-
-
-class ToolGrant(SQLModel, table=True):
-    __tablename__ = "tool_grants"
-    __table_args__ = (
-        UniqueConstraint("tool_definition_id", "grantee_workgroup_id", name="uq_tool_grant"),
-    )
-
-    id: str = Field(default_factory=new_id, primary_key=True)
-    tool_definition_id: str = Field(foreign_key="tool_definitions.id", index=True)
-    grantee_workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
-    granted_by_user_id: str = Field(foreign_key="users.id", index=True)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -387,6 +338,21 @@ class Job(SQLModel, table=True):
     conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
     created_by_agent_id: str | None = Field(default=None, foreign_key="agents.id", index=True)
     deliverables: str = Field(default="")
+    created_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = Field(default=None)
+
+
+class AgentTask(SQLModel, table=True):
+    __tablename__ = "agent_tasks"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    title: str = Field()
+    description: str = Field(default="")
+    status: str = Field(default="pending", index=True)  # pending | in_progress | completed | cancelled
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+    created_by_user_id: str = Field(foreign_key="users.id", index=True)
     created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)
 

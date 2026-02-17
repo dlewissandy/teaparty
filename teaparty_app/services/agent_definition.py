@@ -18,7 +18,6 @@ def build_agent_json(
     agent: Agent,
     conversation: Conversation,
     workgroup: Workgroup | None = None,
-    workflow_context: str = "",
     files_context: str = "",
     teammates: list[Agent] | None = None,
 ) -> dict:
@@ -39,7 +38,7 @@ def build_agent_json(
     return {
         "description": agent.description or agent.role or agent.name,
         "prompt": _build_prompt_body(
-            agent, conversation, workgroup, workflow_context, files_context,
+            agent, conversation, workgroup, files_context,
             teammates=teammates,
         ),
         "model": _resolve_model_alias(agent.model),
@@ -98,7 +97,6 @@ def _build_prompt_body(
     agent: Agent,
     conversation: Conversation,
     workgroup: Workgroup | None = None,
-    workflow_context: str = "",
     files_context: str = "",
     teammates: list[Agent] | None = None,
 ) -> str:
@@ -130,18 +128,13 @@ def _build_prompt_body(
     # Team roster (for lead agent in multi-agent jobs)
     if teammates:
         parts.append("")
-        parts.append("Team:")
+        parts.append("Teammates (engage them using the Task tool):")
         for t in teammates:
             desc = t.role or t.description or t.personality or ""
-            parts.append(f"- {t.name}" + (f" ({desc})" if desc else ""))
-
-    # Workflow / skills context
-    if workflow_context:
-        parts.append("")
-        parts.append(workflow_context)
+            parts.append(f"- {t.name}" + (f" — {desc}" if desc else ""))
 
     # Skill-like workflow embedding (Phase 5)
-    if workgroup and not workflow_context:
+    if workgroup:
         skill_block = _build_skill_context(agent, workgroup, conversation)
         if skill_block:
             parts.append("")

@@ -3,7 +3,9 @@ import unittest
 
 from teaparty_app.services.workgroup_templates import (
     WORKGROUP_STORAGE_ROOT,
+    _is_org_storage_path,
     _is_workgroup_storage_path,
+    org_storage_files,
     workgroup_storage_files,
 )
 
@@ -66,7 +68,6 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                     "verbosity": 0.5,
                     "tool_names": ["summarize_job"],
                     "response_threshold": 0.5,
-                    "follow_up_minutes": 45,
                 },
             ],
         }
@@ -87,14 +88,14 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
                     "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55, "follow_up_minutes": 60,
+                    "tool_names": [], "response_threshold": 0.55,
                 },
             ],
             "wg-2": [
                 {
                     "id": "a2", "name": "Writer", "description": "", "role": "", "personality": "",
                     "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55, "follow_up_minutes": 60,
+                    "tool_names": [], "response_threshold": 0.55,
                 },
             ],
         }
@@ -117,12 +118,12 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "a1", "name": "Reviewer", "description": "First", "role": "", "personality": "",
                     "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55, "follow_up_minutes": 60,
+                    "tool_names": [], "response_threshold": 0.55,
                 },
                 {
                     "id": "a2", "name": "Reviewer", "description": "Second", "role": "", "personality": "",
                     "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55, "follow_up_minutes": 60,
+                    "tool_names": [], "response_threshold": 0.55,
                 },
             ],
         }
@@ -145,7 +146,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "agent-789", "name": "Implementer", "description": "Builds", "role": "Builder",
                     "personality": "Practical", "backstory": "", "model": "gpt-5-nano", "temperature": 0.4,
-                    "verbosity": 0.5, "tool_names": [], "response_threshold": 0.5, "follow_up_minutes": 45,
+                    "verbosity": 0.5, "tool_names": [], "response_threshold": 0.5,
                 },
             ],
         }
@@ -198,7 +199,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                     "id": "a1", "name": "Bot", "description": "Helper", "role": "Assistant",
                     "personality": "Friendly", "backstory": "None", "model": "gpt-5-nano",
                     "temperature": 0.7, "verbosity": 0.5, "tool_names": ["summarize_job"],
-                    "response_threshold": 0.55, "follow_up_minutes": 60,
+                    "response_threshold": 0.55,
                 },
             ],
         }
@@ -236,3 +237,163 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         self.assertIn("Beta", readme["content"])
         self.assertIn("wg-a", readme["content"])
         self.assertIn("wg-b", readme["content"])
+
+
+class IsOrgStoragePathTests(unittest.TestCase):
+    def test_matches_organization_json(self) -> None:
+        self.assertTrue(_is_org_storage_path("organization.json"))
+
+    def test_matches_teams_readme(self) -> None:
+        self.assertTrue(_is_org_storage_path("teams/README.md"))
+
+    def test_matches_team_json(self) -> None:
+        self.assertTrue(_is_org_storage_path("teams/wg-1/team.json"))
+
+    def test_matches_agent_json(self) -> None:
+        self.assertTrue(_is_org_storage_path("teams/wg-1/agents/coder/agent.json"))
+
+    def test_matches_member_json(self) -> None:
+        self.assertTrue(_is_org_storage_path("members/user-1/member.json"))
+
+    def test_rejects_workgroup_storage_path(self) -> None:
+        self.assertFalse(_is_org_storage_path("workgroups/wg-1/workgroup.json"))
+
+    def test_rejects_template_path(self) -> None:
+        self.assertFalse(_is_org_storage_path(".templates/organizations/default/organization.json"))
+
+    def test_rejects_unrelated_path(self) -> None:
+        self.assertFalse(_is_org_storage_path("notes.txt"))
+
+    def test_handles_backslash_paths(self) -> None:
+        self.assertTrue(_is_org_storage_path("teams\\wg-1\\team.json"))
+
+    def test_handles_leading_slash(self) -> None:
+        self.assertTrue(_is_org_storage_path("/organization.json"))
+
+
+class OrgStorageFilesTests(unittest.TestCase):
+    def _make_org(self, **overrides: object) -> dict:
+        base = {"id": "org-1", "name": "Acme Corp", "description": "Test org", "owner_id": "user-1"}
+        base.update(overrides)
+        return base
+
+    def _make_agent(self, **overrides: object) -> dict:
+        base = {
+            "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
+            "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
+            "tool_names": [], "response_threshold": 0.55,
+        }
+        base.update(overrides)
+        return base
+
+    def test_empty_org_produces_org_json_and_teams_readme(self) -> None:
+        files = org_storage_files(self._make_org(), [], {}, [])
+        paths = {f["path"] for f in files}
+
+        self.assertIn("organization.json", paths)
+        self.assertIn("teams/README.md", paths)
+        self.assertEqual(len(files), 2)
+
+    def test_org_json_contains_metadata(self) -> None:
+        org = self._make_org(name="Acme", description="Building things")
+        files = org_storage_files(org, [], {}, [])
+        org_file = next(f for f in files if f["path"] == "organization.json")
+        payload = json.loads(org_file["content"])
+
+        self.assertEqual(payload["id"], "org-1")
+        self.assertEqual(payload["name"], "Acme")
+        self.assertEqual(payload["description"], "Building things")
+        self.assertEqual(payload["owner_id"], "user-1")
+        self.assertEqual(payload["teams"], [])
+        self.assertEqual(payload["members"], [])
+
+    def test_teams_and_agents(self) -> None:
+        workgroups = [
+            {"id": "wg-1", "name": "Dev Team", "owner_id": "user-1", "created_at": "2026-01-01T00:00:00Z"},
+        ]
+        agents_by_wg = {
+            "wg-1": [self._make_agent(id="a1", name="Implementer")],
+        }
+        files = org_storage_files(self._make_org(), workgroups, agents_by_wg, [])
+        paths = {f["path"] for f in files}
+
+        self.assertIn("teams/wg-1/team.json", paths)
+        self.assertIn("teams/wg-1/agents/implementer/agent.json", paths)
+
+    def test_team_json_contains_agent_refs(self) -> None:
+        workgroups = [
+            {"id": "wg-1", "name": "Dev Team", "owner_id": "user-1",
+             "is_discoverable": True, "service_description": "Coding", "created_at": "2026-01-01T00:00:00Z"},
+        ]
+        agents_by_wg = {
+            "wg-1": [self._make_agent(id="a1", name="Bot", role="Helper")],
+        }
+        files = org_storage_files(self._make_org(), workgroups, agents_by_wg, [])
+        team_file = next(f for f in files if f["path"] == "teams/wg-1/team.json")
+        payload = json.loads(team_file["content"])
+
+        self.assertEqual(payload["id"], "wg-1")
+        self.assertEqual(payload["name"], "Dev Team")
+        self.assertEqual(len(payload["agents"]), 1)
+        self.assertEqual(payload["agents"][0]["name"], "Bot")
+
+    def test_members(self) -> None:
+        members = [
+            {"user_id": "user-1", "name": "Alice", "email": "alice@example.com", "role": "owner"},
+            {"user_id": "user-2", "name": "Bob", "email": "bob@example.com", "role": "member"},
+        ]
+        files = org_storage_files(self._make_org(), [], {}, members)
+        paths = {f["path"] for f in files}
+
+        self.assertIn("members/user-1/member.json", paths)
+        self.assertIn("members/user-2/member.json", paths)
+
+        member_file = next(f for f in files if f["path"] == "members/user-1/member.json")
+        payload = json.loads(member_file["content"])
+        self.assertEqual(payload["name"], "Alice")
+        self.assertEqual(payload["email"], "alice@example.com")
+        self.assertEqual(payload["role"], "owner")
+
+    def test_agent_slug_deduplication(self) -> None:
+        workgroups = [
+            {"id": "wg-1", "name": "Test", "owner_id": "u1", "created_at": "2026-01-01T00:00:00Z"},
+        ]
+        agents_by_wg = {
+            "wg-1": [
+                self._make_agent(id="a1", name="Reviewer", description="First"),
+                self._make_agent(id="a2", name="Reviewer", description="Second"),
+            ],
+        }
+        files = org_storage_files(self._make_org(), workgroups, agents_by_wg, [])
+        paths = {f["path"] for f in files}
+
+        self.assertIn("teams/wg-1/agents/reviewer/agent.json", paths)
+        self.assertIn("teams/wg-1/agents/reviewer_2/agent.json", paths)
+
+    def test_org_json_lists_team_and_member_refs(self) -> None:
+        workgroups = [
+            {"id": "wg-1", "name": "Alpha", "owner_id": "u1", "created_at": "2026-01-01T00:00:00Z"},
+        ]
+        members = [
+            {"user_id": "user-1", "name": "Alice", "email": "a@b.com", "role": "owner"},
+        ]
+        files = org_storage_files(self._make_org(), workgroups, {}, members)
+        org_file = next(f for f in files if f["path"] == "organization.json")
+        payload = json.loads(org_file["content"])
+
+        self.assertEqual(len(payload["teams"]), 1)
+        self.assertEqual(payload["teams"][0]["id"], "wg-1")
+        self.assertEqual(payload["teams"][0]["name"], "Alpha")
+        self.assertEqual(len(payload["members"]), 1)
+        self.assertEqual(payload["members"][0]["user_id"], "user-1")
+
+    def test_teams_readme_lists_all_teams(self) -> None:
+        workgroups = [
+            {"id": "wg-a", "name": "Alpha", "owner_id": "u1", "created_at": "2026-01-01T00:00:00Z"},
+            {"id": "wg-b", "name": "Beta", "owner_id": "u2", "created_at": "2026-01-02T00:00:00Z"},
+        ]
+        files = org_storage_files(self._make_org(), workgroups, {}, [])
+        readme = next(f for f in files if f["path"] == "teams/README.md")
+
+        self.assertIn("Alpha", readme["content"])
+        self.assertIn("Beta", readme["content"])

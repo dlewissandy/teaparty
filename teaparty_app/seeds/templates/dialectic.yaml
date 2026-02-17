@@ -135,17 +135,16 @@ agents:
     max_turns: 3
     verbosity: 0.5
     tool_names:
-      - summarize_job
-      - suggest_next_step
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.35
-    follow_up_minutes: 40
 
   - name: Opponent
     description: "Stress-tests claims, surfaces hidden assumptions, and argues the antithesis."
@@ -164,17 +163,16 @@ agents:
     max_turns: 3
     verbosity: 0.5
     tool_names:
-      - summarize_job
-      - suggest_next_step
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.35
-    follow_up_minutes: 40
 
   - name: Synthesist
     description: "Identifies convergence, names remaining tensions, and proposes integrated positions."
@@ -193,18 +191,16 @@ agents:
     max_turns: 3
     verbosity: 0.55
     tool_names:
-      - summarize_job
-      - list_open_followups
-      - suggest_next_step
-      - list_files
-      - read_file
-      - add_file
-      - edit_file
-      - list_workflows
-      - get_workflow_state
-      - advance_workflow
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.7
-    follow_up_minutes: 60
 
   - name: Neophyte
     description: "Asks clarifying and Socratic questions to ground the discussion in fundamentals."
@@ -224,10 +220,13 @@ agents:
     max_turns: 3
     verbosity: 0.4
     tool_names:
-      - summarize_job
-      - list_files
-      - read_file
-      - list_workflows
-      - get_workflow_state
+      - Read
+      - Write
+      - Edit
+      - Glob
+      - Grep
+      - Bash
+      - Task
+      - WebSearch
+      - WebFetch
     response_threshold: 0.5
-    follow_up_minutes: 50

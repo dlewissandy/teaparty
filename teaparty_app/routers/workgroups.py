@@ -43,17 +43,21 @@ from teaparty_app.services.admin_workspace import (
     direct_conversation_key_user_agent,
     ensure_admin_workspace,
     ensure_admin_workspace_for_workgroup_id,
+    ensure_lead_agent,
+    lead_agent_name,
     list_members as list_workgroup_members,
 )
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
 from teaparty_app.services.llm_usage import get_workgroup_usage
 from teaparty_app.services.permissions import require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
-from teaparty_app.services.tools import available_tools, available_tools_for_workgroup
+from teaparty_app.services.claude_tools import claude_tool_names
 from teaparty_app.services.workgroup_templates import (
     TEMPLATE_ROOT,
     WORKGROUP_STORAGE_ROOT,
+    _is_org_storage_path,
     _is_workgroup_storage_path,
     list_workgroup_templates,
+    org_storage_files,
     template_storage_files,
     templates_from_storage_files,
     workgroup_storage_files,
@@ -240,7 +244,6 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
                 "verbosity": agent.verbosity,
                 "tool_names": list(agent.tool_names or []),
                 "response_threshold": agent.response_threshold,
-                "follow_up_minutes": agent.follow_up_minutes,
             }
         )
 
@@ -283,7 +286,11 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
 def _ensure_administration_workgroup(session: Session, user: User) -> tuple[Workgroup, bool]:
     workgroup = session.exec(
         select(Workgroup)
-        .where(Workgroup.owner_id == user.id, Workgroup.name == ADMINISTRATION_WORKGROUP_NAME)
+        .where(
+            Workgroup.owner_id == user.id,
+            Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
+            Workgroup.organization_id.is_(None),
+        )
         .order_by(Workgroup.created_at.asc())
     ).first()
 
@@ -324,10 +331,135 @@ def _ensure_administration_workgroup(session: Session, user: User) -> tuple[Work
     return workgroup, changed
 
 
+def _reconcile_org_administration_files(session: Session, admin_workgroup: Workgroup) -> bool:
+    org_id = admin_workgroup.organization_id
+    org = session.get(Organization, org_id)
+    if not org:
+        return False
+
+    all_workgroups = session.exec(
+        select(Workgroup)
+        .where(Workgroup.organization_id == org_id)
+        .order_by(Workgroup.created_at.asc())
+    ).all()
+    wg_ids = {wg.id for wg in all_workgroups}
+    all_agents = session.exec(
+        select(Agent).where(Agent.workgroup_id.in_(wg_ids)).order_by(Agent.created_at.asc())
+    ).all()
+
+    wg_dicts = [
+        {
+            "id": wg.id,
+            "name": wg.name,
+            "owner_id": wg.owner_id,
+            "is_discoverable": wg.is_discoverable,
+            "service_description": wg.service_description,
+            "created_at": wg.created_at,
+        }
+        for wg in all_workgroups
+    ]
+    agents_by_wg: dict[str, list[dict]] = {}
+    for agent in all_agents:
+        if agent.description == ADMIN_AGENT_SENTINEL:
+            continue
+        agents_by_wg.setdefault(agent.workgroup_id, []).append(
+            {
+                "id": agent.id,
+                "name": agent.name,
+                "description": agent.description,
+                "role": agent.role,
+                "personality": agent.personality,
+                "backstory": agent.backstory,
+                "model": agent.model,
+                "temperature": agent.temperature,
+                "verbosity": agent.verbosity,
+                "tool_names": list(agent.tool_names or []),
+                "response_threshold": agent.response_threshold,
+            }
+        )
+
+    all_memberships = session.exec(
+        select(Membership).where(Membership.workgroup_id.in_(wg_ids))
+    ).all()
+    members_by_wg: dict[str, list[dict]] = {}
+    for m in all_memberships:
+        members_by_wg.setdefault(m.workgroup_id, []).append(
+            {"user_id": m.user_id, "role": m.role}
+        )
+
+    # Collect unique org-level members with names/emails
+    all_member_user_ids = {m.user_id for m in all_memberships}
+    member_users = session.exec(
+        select(User).where(User.id.in_(all_member_user_ids))
+    ).all() if all_member_user_ids else []
+    user_map = {u.id: u for u in member_users}
+    org_members: list[dict] = []
+    seen_member_ids: set[str] = set()
+    for m in all_memberships:
+        if m.user_id in seen_member_ids:
+            continue
+        seen_member_ids.add(m.user_id)
+        u = user_map.get(m.user_id)
+        role = "owner" if m.user_id == org.owner_id else "member"
+        org_members.append({
+            "user_id": m.user_id,
+            "name": (u.name or "") if u else "",
+            "email": (u.email or "") if u else "",
+            "role": role,
+        })
+
+    org_dict = {
+        "id": org.id,
+        "name": org.name,
+        "description": org.description,
+        "owner_id": org.owner_id,
+    }
+
+    desired_entries = org_storage_files(org_dict, wg_dicts, agents_by_wg, org_members, members_by_wg)
+    desired_by_path = {item["path"]: item["content"] for item in desired_entries}
+
+    existing_files = _normalize_persisted_workgroup_files(admin_workgroup.files)
+    # Keep files that are neither org-storage nor legacy system-scoped paths
+    non_storage_files = [
+        dict(f) for f in existing_files
+        if not _is_org_storage_path(f["path"])
+        and not _is_workgroup_storage_path(f["path"])
+        and not _is_template_storage_path(f["path"])
+    ]
+    existing_storage_files = [dict(f) for f in existing_files if _is_org_storage_path(f["path"])]
+    existing_ids_by_path = {f["path"]: f["id"] for f in existing_storage_files}
+
+    canonical_storage_files: list[dict[str, str]] = []
+    for path, content in sorted(desired_by_path.items()):
+        canonical_storage_files.append({
+            "id": existing_ids_by_path.get(path, str(uuid4())),
+            "path": path,
+            "content": content,
+        })
+
+    existing_signature = [(f["path"], f["content"]) for f in existing_storage_files]
+    canonical_signature = [(f["path"], f["content"]) for f in canonical_storage_files]
+    changed = existing_signature != canonical_signature
+
+    # Also detect legacy files that need purging
+    legacy_count = len(existing_files) - len(non_storage_files) - len(existing_storage_files)
+    changed = changed or legacy_count > 0
+
+    if changed:
+        admin_workgroup.files = non_storage_files + canonical_storage_files
+        session.add(admin_workgroup)
+
+    return changed
+
+
 def _sync_workgroup_storage_for_user(session: Session, user: User) -> None:
     admin_wg = session.exec(
         select(Workgroup)
-        .where(Workgroup.owner_id == user.id, Workgroup.name == ADMINISTRATION_WORKGROUP_NAME)
+        .where(
+            Workgroup.owner_id == user.id,
+            Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
+            Workgroup.organization_id.is_(None),
+        )
         .order_by(Workgroup.created_at.asc())
     ).first()
     if admin_wg and _reconcile_administration_workgroup_files(session, admin_wg):
@@ -425,17 +557,6 @@ def create_workgroup_with_template(
             WorkgroupTemplateAgentWrite.model_validate(item.model_dump()) for item in selected_template.agents
         ]
 
-    allowed_tools = set(available_tools())
-    requested_tools = sorted({tool for agent in template_agents for tool in agent.tool_names})
-    unknown_tools = sorted(
-        tool for tool in set(requested_tools) - allowed_tools if not tool.startswith("custom:")
-    )
-    if unknown_tools:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown tools: {', '.join(unknown_tools)}",
-        )
-
     group = Workgroup(name=name, files=files, owner_id=owner.id, organization_id=organization_id)
     session.add(group)
     session.flush()
@@ -460,13 +581,13 @@ def create_workgroup_with_template(
                 verbosity=draft.verbosity,
                 tool_names=draft.tool_names,
                 response_threshold=draft.response_threshold,
-                follow_up_minutes=draft.follow_up_minutes,
                 learning_state={},
                 sentiment_state={},
                 learned_preferences={},
             )
         )
 
+    ensure_lead_agent(session, group)
     ensure_admin_workspace(session, group)
     ensure_activity_conversation(session, group)
     session.flush()
@@ -501,17 +622,6 @@ def create_workgroup(
         selected_template = _resolve_template_for_create(payload, templates_by_key)
         files = _resolve_workgroup_creation_files(payload, selected_template)
         template_agents = _resolve_workgroup_creation_agents(payload, selected_template)
-        allowed_tools = set(available_tools())
-        requested_tools = sorted({tool for agent in template_agents for tool in agent.tool_names})
-        unknown_tools = sorted(
-            tool for tool in set(requested_tools) - allowed_tools if not tool.startswith("custom:")
-        )
-        if unknown_tools:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown tools: {', '.join(unknown_tools)}",
-            )
-
         org = session.get(Organization, payload.organization_id)
         if not org:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
@@ -539,13 +649,13 @@ def create_workgroup(
                     verbosity=draft.verbosity,
                     tool_names=draft.tool_names,
                     response_threshold=draft.response_threshold,
-                    follow_up_minutes=draft.follow_up_minutes,
                     learning_state={},
                     sentiment_state={},
                     learned_preferences={},
                 )
             )
 
+        ensure_lead_agent(session, group)
         ensure_admin_workspace(session, group)
         ensure_activity_conversation(session, group)
     else:
@@ -583,8 +693,13 @@ def list_workgroups(
 
     groups_changed = False
     for workgroup in rows:
+        _lead_agent, lead_created = ensure_lead_agent(session, workgroup)
         _admin_agent, _admin_conversation, group_changed = ensure_admin_workspace(session, workgroup)
         _activity_conversation, activity_changed = ensure_activity_conversation(session, workgroup)
+        groups_changed = groups_changed or lead_created
+        if workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id:
+            org_changed = _reconcile_org_administration_files(session, workgroup)
+            groups_changed = groups_changed or org_changed
         groups_changed = groups_changed or group_changed or activity_changed
     if changed or groups_changed:
         session.commit()
@@ -648,6 +763,13 @@ def update_workgroup(
         if not name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workgroup name cannot be empty")
         workgroup.name = name
+        # Rename the lead agent to match.
+        lead = session.exec(
+            select(Agent).where(Agent.workgroup_id == workgroup.id, Agent.is_lead == True)  # noqa: E712
+        ).first()
+        if lead:
+            lead.name = lead_agent_name(name)
+            session.add(lead)
 
     if payload.files is not None:
         workgroup.files = _normalize_workgroup_files(payload.files)
@@ -900,14 +1022,6 @@ def create_agent(
 ) -> AgentRead:
     require_workgroup_owner(session, workgroup_id, user.id)
 
-    allowed_for_wg = set(available_tools_for_workgroup(session, workgroup_id))
-    unknown_tools = sorted(set(payload.tool_names) - allowed_for_wg)
-    if unknown_tools:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown tools: {', '.join(unknown_tools)}",
-        )
-
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
@@ -925,7 +1039,6 @@ def create_agent(
         verbosity=payload.verbosity,
         tool_names=payload.tool_names,
         response_threshold=payload.response_threshold,
-        follow_up_minutes=payload.follow_up_minutes,
         learning_state=dict(payload.learning_state or {}),
         sentiment_state=dict(payload.sentiment_state or {}),
         learned_preferences=dict(payload.learning_state or {}),
@@ -970,19 +1083,14 @@ def update_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     if payload.tool_names is not None:
-        allowed_for_wg = set(available_tools_for_workgroup(session, workgroup_id))
-        unknown_tools = sorted(set(payload.tool_names) - allowed_for_wg)
-        if unknown_tools:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unknown tools: {', '.join(unknown_tools)}",
-            )
         agent.tool_names = payload.tool_names
 
     if payload.name is not None:
         name = payload.name.strip()
         if not name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
+        if agent.is_lead:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot rename the lead agent")
         agent.name = name
 
     if payload.description is not None:
@@ -1006,8 +1114,6 @@ def update_agent(
         agent.verbosity = payload.verbosity
     if payload.response_threshold is not None:
         agent.response_threshold = payload.response_threshold
-    if payload.follow_up_minutes is not None:
-        agent.follow_up_minutes = payload.follow_up_minutes
     if payload.icon is not None:
         agent.icon = payload.icon
 
@@ -1066,6 +1172,8 @@ def clone_agent(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if agent.description == ADMIN_AGENT_SENTINEL:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot clone the admin agent")
+    if agent.is_lead:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot clone the lead agent")
 
     target_workgroup_id = payload.target_workgroup_id or workgroup_id
     if target_workgroup_id != workgroup_id:
@@ -1078,10 +1186,6 @@ def clone_agent(
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
 
-    # Validate tools against target workgroup — keep only valid ones
-    allowed_for_target = set(available_tools_for_workgroup(session, target_workgroup_id))
-    valid_tools = [t for t in (agent.tool_names or []) if t in allowed_for_target]
-
     cloned = Agent(
         workgroup_id=target_workgroup_id,
         created_by_user_id=user.id,
@@ -1093,9 +1197,8 @@ def clone_agent(
         model=agent.model,
         temperature=agent.temperature,
         verbosity=agent.verbosity,
-        tool_names=valid_tools,
+        tool_names=list(agent.tool_names or []),
         response_threshold=agent.response_threshold,
-        follow_up_minutes=agent.follow_up_minutes,
         learning_state=dict(agent.learning_state) if payload.include_learned_state else {},
         sentiment_state=dict(agent.sentiment_state) if payload.include_learned_state else {},
         learned_preferences=dict(agent.learned_preferences) if payload.include_learned_state else {},

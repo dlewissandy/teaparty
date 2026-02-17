@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.config import settings
 from teaparty_app.models import Conversation, Workspace, WorkspaceWorktree, utc_now
+from teaparty_app.services.file_helpers import _topic_id_for_conversation
 
 logger = logging.getLogger(__name__)
 
@@ -392,7 +393,7 @@ def sync_worktree_to_files(
     Returns a list of changed file paths (for message generation).
     """
     from teaparty_app.models import Workgroup
-    from teaparty_app.services.tools import _normalize_workgroup_files
+    from teaparty_app.services.file_helpers import _normalize_workgroup_files
 
     workgroup = session.get(Workgroup, workgroup_id)
     if not workgroup:
@@ -468,12 +469,14 @@ def materialize_files_to_worktree(
         return 0
 
     files = list(workgroup.files or [])
-    # Filter to relevant files (shared + conversation-scoped)
-    topic_id = conversation.id if conversation.kind == "job" else ""
-    relevant = [
-        f for f in files
-        if not f.get("topic_id") or f.get("topic_id") == topic_id
-    ]
+    # Filter to relevant files — DMs see only their own scoped files
+    topic_id = _topic_id_for_conversation(conversation)
+    if conversation.kind == "direct" and topic_id:
+        relevant = [f for f in files if f.get("topic_id") == topic_id]
+    elif topic_id:
+        relevant = [f for f in files if not f.get("topic_id") or f.get("topic_id") == topic_id]
+    else:
+        relevant = [f for f in files if not f.get("topic_id")]
 
     return _write_files_to_worktree(worktree_path, relevant)
 

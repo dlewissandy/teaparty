@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     allow_dev_auth: bool = True
     session_expires_minutes: int = 24 * 60
-    follow_up_scan_limit: int = 100
     admin_agent_use_sdk: bool = True
     admin_agent_model: str = "claude-sonnet-4-5"
     intent_probe_model: str = "claude-haiku-4-5"

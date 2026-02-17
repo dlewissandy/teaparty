@@ -11,10 +11,38 @@ import asyncio
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Running process tracking (for cancellation)
+# ---------------------------------------------------------------------------
+_running_processes: dict[str, asyncio.subprocess.Process] = {}
+_process_lock = threading.Lock()
+
+
+def _register_process(conversation_id: str, process: asyncio.subprocess.Process) -> None:
+    with _process_lock:
+        _running_processes[conversation_id] = process
+
+
+def _unregister_process(conversation_id: str) -> None:
+    with _process_lock:
+        _running_processes.pop(conversation_id, None)
+
+
+def kill_conversation_process(conversation_id: str) -> None:
+    """Kill a running ``claude -p`` subprocess for the given conversation."""
+    with _process_lock:
+        process = _running_processes.pop(conversation_id, None)
+    if process:
+        try:
+            process.kill()
+        except Exception:
+            pass
 
 
 @dataclass
@@ -48,6 +76,8 @@ async def run_claude(
     disallowed_tools: list[str] | None = None,
     max_turns: int = 3,
     timeout_seconds: int = 120,
+    conversation_id: str | None = None,
+    resume_session_id: str | None = None,
 ) -> ClaudeResult:
     """Run ``claude -p`` as a subprocess and return the parsed result.
 
@@ -61,7 +91,7 @@ async def run_claude(
     cmd: list[str] = [
         "claude",
         "-p",
-        "--output-format", "json",
+        "--output-format", "stream-json",
         "--max-turns", str(max_turns),
         "--verbose",
     ]
@@ -75,6 +105,9 @@ async def run_claude(
         cmd.extend(["--model", model])
         if system_prompt:
             cmd.extend(["--system-prompt", system_prompt])
+
+    if resume_session_id:
+        cmd.extend(["--resume", resume_session_id])
 
     cmd.extend(["--permission-mode", permission_mode])
 
@@ -106,10 +139,16 @@ async def run_claude(
             cwd=cwd,
             env=env,
         )
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(input=user_message.encode()),
-            timeout=timeout_seconds,
-        )
+        if conversation_id:
+            _register_process(conversation_id, process)
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(input=user_message.encode()),
+                timeout=timeout_seconds,
+            )
+        finally:
+            if conversation_id:
+                _unregister_process(conversation_id)
     except asyncio.TimeoutError:
         logger.warning("claude subprocess timed out after %ds", timeout_seconds)
         try:
@@ -144,37 +183,42 @@ async def run_claude(
 
 
 def _parse_json_output(raw: str, elapsed_ms: int) -> ClaudeResult:
-    """Parse the JSON emitted by ``claude -p --output-format json``.
+    """Parse NDJSON from ``claude -p --output-format stream-json --verbose``.
 
-    With ``--verbose`` the output is a JSON array of typed events;
-    without it the output is a single result object.  We handle both.
+    Each line of output is a separate JSON event.  We collect all events
+    and extract the ``result`` entry for the final ClaudeResult.
     """
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        # Fall back to treating stdout as plain text.
-        logger.warning("Failed to parse claude JSON output; treating as plain text")
+    events: list[dict] = []
+    result_entry: dict = {}
+
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(data, dict):
+            events.append(data)
+            if data.get("type") == "result":
+                result_entry = data
+
+    if not result_entry and not events:
+        logger.warning("No parseable JSON in claude output; treating as plain text")
         return ClaudeResult(text=raw.strip(), duration_ms=elapsed_ms)
 
-    # --verbose produces a JSON array: extract the "result" entry and
-    # preserve the full event list for callers (e.g. team output parser).
-    events: list[dict] = []
-    if isinstance(data, list):
-        events = data
-        result_entry = next((e for e in data if isinstance(e, dict) and e.get("type") == "result"), None)
-        data = result_entry or {}
-
-    usage = data.get("usage") or {}
+    usage = result_entry.get("usage") or {}
     return ClaudeResult(
-        text=data.get("result", ""),
-        cost_usd=data.get("cost_usd", 0.0) or data.get("total_cost_usd", 0.0),
+        text=result_entry.get("result", ""),
+        cost_usd=result_entry.get("cost_usd", 0.0) or result_entry.get("total_cost_usd", 0.0),
         input_tokens=usage.get("input_tokens", 0),
         output_tokens=usage.get("output_tokens", 0),
         duration_ms=elapsed_ms,
-        model=data.get("model", ""),
-        session_id=data.get("session_id", ""),
-        num_turns=data.get("num_turns", 0),
-        is_error=bool(data.get("is_error")),
-        error=data.get("result") if data.get("is_error") else None,
+        model=result_entry.get("model", ""),
+        session_id=result_entry.get("session_id", ""),
+        num_turns=result_entry.get("num_turns", 0),
+        is_error=bool(result_entry.get("is_error")),
+        error=result_entry.get("result") if result_entry.get("is_error") else None,
         events=events,
     )

@@ -1,10 +1,14 @@
 import unittest
 
-from teaparty_app.services.team_output_parser import parse_team_output, unpack_agent_text
+from teaparty_app.services.team_output_parser import parse_team_output
 
 
 class ParseTeamOutputTests(unittest.TestCase):
-    """Test event-based parsing of verbose CLI output."""
+    """Test event-based parsing of stream-json --verbose output.
+
+    With --output-format stream-json --verbose, all inter-agent communication
+    appears as structured Task tool_use/tool_result events.  No text parsing
+    is needed — the events are the source of truth for attribution."""
 
     def _make_slug_to_id(self):
         return {
@@ -54,7 +58,9 @@ class ParseTeamOutputTests(unittest.TestCase):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0], "agent-1")
 
-    def test_no_task_events_returns_empty(self) -> None:
+    def test_no_task_events_returns_lead_text_only(self) -> None:
+        """When no Task delegation occurs, the lead's text is returned
+        as an unattributed contribution (agent_id=None)."""
         events = [
             {"type": "assistant", "message": {"content": [
                 {"type": "text", "text": "Just a plain response."},
@@ -62,7 +68,6 @@ class ParseTeamOutputTests(unittest.TestCase):
             {"type": "result", "result": "Done"},
         ]
         result = parse_team_output(events, self._make_slug_to_id(), ["Alice"])
-        # Only lead text, no sub-agent attributions.
         self.assertEqual(len(result), 1)
         self.assertIsNone(result[0][0])
         self.assertIn("plain response", result[0][1])
@@ -98,6 +103,9 @@ class ParseTeamOutputTests(unittest.TestCase):
         self.assertIn("Part two", result[0][1])
 
     def test_non_task_tool_use_ignored(self) -> None:
+        """Only Task tool_use events produce attributions.  Other tools
+        (Read, Write, etc.) are internal agent actions, not inter-agent
+        communication."""
         events = [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "id": "tu-1", "name": "Read", "input": {"path": "/foo"}},
@@ -106,69 +114,6 @@ class ParseTeamOutputTests(unittest.TestCase):
         ]
         result = parse_team_output(events, self._make_slug_to_id(), [])
         self.assertEqual(result, [])
-
-
-class UnpackAgentTextTests(unittest.TestCase):
-    """Test text-based agent attribution."""
-
-    def test_bold_name_prefix(self) -> None:
-        text = "**Alice**: First point.\n\n**Bob**: Second point."
-        result = unpack_agent_text(text, ["Alice", "Bob"])
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][0], "Alice")
-        self.assertIn("First point", result[0][1])
-        self.assertEqual(result[1][0], "Bob")
-        self.assertIn("Second point", result[1][1])
-
-    def test_bracket_name_prefix(self) -> None:
-        text = "[Alice]: Her thoughts.\n[Bob]: His thoughts."
-        result = unpack_agent_text(text, ["Alice", "Bob"])
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][0], "Alice")
-        self.assertEqual(result[1][0], "Bob")
-
-    def test_plain_name_prefix(self) -> None:
-        text = "Alice: Analysis here.\nBob: Response here."
-        result = unpack_agent_text(text, ["Alice", "Bob"])
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][0], "Alice")
-        self.assertEqual(result[1][0], "Bob")
-
-    def test_no_agent_prefixes_returns_full_text(self) -> None:
-        text = "Just a plain response with no agent names."
-        result = unpack_agent_text(text, ["Alice", "Bob"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "")
-        self.assertEqual(result[0][1], text)
-
-    def test_empty_text(self) -> None:
-        result = unpack_agent_text("", ["Alice"])
-        self.assertEqual(result, [])
-
-    def test_empty_agent_names(self) -> None:
-        result = unpack_agent_text("Some text", [])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "")
-
-    def test_case_insensitive_matching(self) -> None:
-        text = "**alice**: lowercase name."
-        result = unpack_agent_text(text, ["Alice"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "Alice")
-
-    def test_text_before_first_agent_preserved(self) -> None:
-        text = "Introduction paragraph.\n\n**Alice**: Her section."
-        result = unpack_agent_text(text, ["Alice"])
-        self.assertEqual(len(result), 2)
-        self.assertEqual(result[0][0], "")
-        self.assertIn("Introduction", result[0][1])
-        self.assertEqual(result[1][0], "Alice")
-
-    def test_single_agent(self) -> None:
-        text = "**Alice**: Only agent response."
-        result = unpack_agent_text(text, ["Alice"])
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0][0], "Alice")
 
 
 if __name__ == "__main__":

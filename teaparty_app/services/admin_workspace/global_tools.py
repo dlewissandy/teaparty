@@ -20,7 +20,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_AGENT_SENTINEL,
     ADMINISTRATION_WORKGROUP_NAME,
 )
-from teaparty_app.services.tools import available_tools_for_workgroup
+from teaparty_app.services.claude_tools import claude_tool_names
 from teaparty_app.services.workgroup_templates import list_workgroup_templates
 
 logger = logging.getLogger(__name__)
@@ -243,7 +243,6 @@ def global_add_agent(
         temperature=temperature,
         tool_names=tool_names,
         response_threshold=0.55,
-        follow_up_minutes=60,
         learning_state={},
         sentiment_state={},
         learned_preferences={},
@@ -397,12 +396,7 @@ def global_list_available_tools(
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
 
-    tools = available_tools_for_workgroup(session, workgroup.id)
-    # Include the always-available server-side tools
-    for extra in ("web_search", "claude_code"):
-        if extra not in tools:
-            tools.append(extra)
-    tools.sort()
+    tools = claude_tool_names()
 
     lines = [f"Available tools for '{workgroup.name}' (count={len(tools)}):"]
     for t in tools:
@@ -465,14 +459,6 @@ def global_update_agent(
         new_tools = tool_input["tool_names"] or []
         if isinstance(new_tools, str):
             new_tools = [t.strip() for t in new_tools.split(",") if t.strip()]
-
-        # Validate against available tools
-        valid_tools = set(available_tools_for_workgroup(session, workgroup.id))
-        valid_tools.add("web_search")
-        valid_tools.add("claude_code")
-        invalid = [t for t in new_tools if t not in valid_tools]
-        if invalid:
-            return f"Invalid tool names: {', '.join(invalid)}. Use global_list_available_tools to see options."
 
         agent.tool_names = list(new_tools)
         updated_fields.append("tool_names")

@@ -142,7 +142,7 @@ def post_file_change_activity(
     actor_user_id: str | None = None,
     actor_agent_id: str | None = None,
 ) -> Message | None:
-    from teaparty_app.services.agent_tools import evaluate_file_changed_todos
+    from teaparty_app.services.todo_helpers import evaluate_file_changed_todos
     evaluate_file_changed_todos(session, workgroup_id, file_path)
 
     return post_activity(
