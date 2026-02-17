@@ -42,12 +42,9 @@ from teaparty_app.services.admin_workspace import (
 )
 from teaparty_app.services.agent_definition import build_agent_json, slugify
 from teaparty_app.services.claude_runner import run_claude
+from teaparty_app.services.file_materializer import materialized_files
 from teaparty_app.services.llm_usage import record_llm_usage
-from teaparty_app.services.prompt_builder import (
-    build_system_prompt,
-    build_user_message,
-    build_workgroup_files_context,
-)
+from teaparty_app.services.prompt_builder import build_user_message
 from teaparty_app.services.turn_policy import (
     advance_workflow_state,
     determine_next_turns,
@@ -255,20 +252,29 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
 
     # Conversational path: use claude CLI like every other agent.
     workgroup = session.get(Workgroup, conversation.workgroup_id)
-    files_context = build_workgroup_files_context(workgroup, conversation) if workgroup else ""
+    if not workgroup:
+        return "Workgroup not found."
 
-    user_msg = build_user_message(session, conversation, trigger)
+    with materialized_files(session, workgroup, conversation) as mat_ctx:
+        files_context = (
+            "Your workgroup's files are in the current working directory. "
+            "Use Read, Edit, Write, Glob, and Grep."
+        )
 
-    agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context)
-    slug = slugify(agent.name)
-    agents_json_str = json.dumps({slug: agent_def})
+        user_msg = build_user_message(session, conversation, trigger)
 
-    result = asyncio.run(run_claude(
-        user_message=user_msg,
-        agent_name=slug,
-        agents_json=agents_json_str,
-        max_turns=1,
-    ))
+        agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context)
+        slug = slugify(agent.name)
+        agents_json_str = json.dumps({slug: agent_def})
+
+        result = asyncio.run(run_claude(
+            user_message=user_msg,
+            agent_name=slug,
+            agents_json=agents_json_str,
+            max_turns=1,
+            cwd=mat_ctx.dir_path,
+            settings_json=mat_ctx.settings_json,
+        ))
 
     if result.is_error:
         logger.warning("Admin agent claude CLI failed: %s", result.error)
@@ -388,72 +394,81 @@ def _run_single_agent_responses(
     if not directive.agent_ids:
         return []
 
-    # Build file context once (shared by all agents).
-    files_context = build_workgroup_files_context(workgroup, conversation) if workgroup else ""
+    if not workgroup:
+        return []
 
-    # Invoke claude for each agent.
-    agent_map = {a.id: a for a in candidates}
-    created: list[Message] = []
-
-    for agent_id in directive.agent_ids:
-        agent = agent_map.get(agent_id)
-        if not agent:
-            continue
-
-        step_label = directive.workflow_step_label or "thinking"
-        _set_activity(conversation.id, agent.id, agent.name, "composing", step_label)
-
-        try:
-            user_msg = build_user_message(session, conversation, trigger)
-
-            # Build agent definition and invoke via --agent/--agents
-            agent_def = build_agent_json(
-                agent, conversation, workgroup,
-                workflow_context=workflow_context,
-                files_context=files_context,
-            )
-            slug = slugify(agent.name)
-            agents_json = json.dumps({slug: agent_def})
-
-            result = asyncio.run(run_claude(
-                user_message=user_msg,
-                agent_name=slug,
-                agents_json=agents_json,
-                max_turns=agent_def.get("maxTurns", 3),
-            ))
-
-            # Record usage.
-            record_llm_usage(
-                session, conversation.id, agent.id, result.model or agent.model,
-                result.input_tokens, result.output_tokens,
-                "reply", result.duration_ms,
-            )
-
-            content = result.text if not result.is_error else f"(Agent error: {result.error})"
-        except Exception:
-            logger.exception("Agent %s reply failed for conversation %s", agent.name, conversation.id)
-            content = "(Agent encountered an error while composing a reply.)"
-        finally:
-            _clear_activity(conversation.id, agent.id)
-
-        agent_message = Message(
-            conversation_id=conversation.id,
-            sender_type="agent",
-            sender_agent_id=agent.id,
-            content=content,
-            requires_response=infer_requires_response(content),
-            response_to_message_id=trigger.id,
+    # Materialize files once for all agents; sync back after the loop.
+    with materialized_files(session, workgroup, conversation) as mat_ctx:
+        files_context = (
+            "Your workgroup's files are in the current working directory. "
+            "Use Read, Edit, Write, Glob, and Grep."
         )
-        session.add(agent_message)
-        session.flush()
-        schedule_follow_up_if_needed(session, conversation, agent, agent_message)
-        created.append(agent_message)
 
-        # Commit after each agent so frontend sees incremental progress.
-        try:
-            commit_with_retry(session)
-        except Exception as exc:
-            logger.warning("Mid-chain commit failed: %s", exc)
+        # Invoke claude for each agent.
+        agent_map = {a.id: a for a in candidates}
+        created: list[Message] = []
+
+        for agent_id in directive.agent_ids:
+            agent = agent_map.get(agent_id)
+            if not agent:
+                continue
+
+            step_label = directive.workflow_step_label or "thinking"
+            _set_activity(conversation.id, agent.id, agent.name, "composing", step_label)
+
+            try:
+                user_msg = build_user_message(session, conversation, trigger)
+
+                # Build agent definition and invoke via --agent/--agents
+                agent_def = build_agent_json(
+                    agent, conversation, workgroup,
+                    workflow_context=workflow_context,
+                    files_context=files_context,
+                )
+                slug = slugify(agent.name)
+                agents_json = json.dumps({slug: agent_def})
+
+                result = asyncio.run(run_claude(
+                    user_message=user_msg,
+                    agent_name=slug,
+                    agents_json=agents_json,
+                    max_turns=agent_def.get("maxTurns", 3),
+                    cwd=mat_ctx.dir_path,
+                    settings_json=mat_ctx.settings_json,
+                ))
+
+                # Record usage.
+                record_llm_usage(
+                    session, conversation.id, agent.id, result.model or agent.model,
+                    result.input_tokens, result.output_tokens,
+                    "reply", result.duration_ms,
+                )
+
+                content = result.text if not result.is_error else f"(Agent error: {result.error})"
+            except Exception:
+                logger.exception("Agent %s reply failed for conversation %s", agent.name, conversation.id)
+                content = "(Agent encountered an error while composing a reply.)"
+            finally:
+                _clear_activity(conversation.id, agent.id)
+
+            agent_message = Message(
+                conversation_id=conversation.id,
+                sender_type="agent",
+                sender_agent_id=agent.id,
+                content=content,
+                requires_response=infer_requires_response(content),
+                response_to_message_id=trigger.id,
+            )
+            session.add(agent_message)
+            session.flush()
+            schedule_follow_up_if_needed(session, conversation, agent, agent_message)
+            created.append(agent_message)
+
+            # Commit after each agent so frontend sees incremental progress.
+            try:
+                commit_with_retry(session)
+            except Exception as exc:
+                logger.warning("Mid-chain commit failed: %s", exc)
 
     # Advance workflow state if applicable.
     workgroup = session.get(Workgroup, conversation.workgroup_id)
@@ -487,7 +502,8 @@ def _run_job_team_response(
     from teaparty_app.services.team_output_parser import parse_team_output, unpack_agent_text
 
     workgroup = session.get(Workgroup, conversation.workgroup_id)
-    files_context = build_workgroup_files_context(workgroup, conversation) if workgroup else ""
+    if not workgroup:
+        return []
 
     lead = candidates[0]
     others = candidates[1:]
@@ -497,45 +513,53 @@ def _run_job_team_response(
         _set_activity(conversation.id, agent.id, agent.name, "composing", "team")
 
     try:
-        user_msg = build_user_message(session, conversation, trigger)
-
-        # Build agent definitions.  The lead gets a teammates roster.
-        slug_to_id: dict[str, str] = {}
-        agents_dict: dict[str, dict] = {}
-
-        lead_slug = slugify(lead.name)
-        slug_to_id[lead_slug] = lead.id
-        agents_dict[lead_slug] = build_agent_json(
-            lead, conversation, workgroup,
-            files_context=files_context,
-            teammates=others if others else None,
-        )
-
-        for agent in others:
-            slug = slugify(agent.name)
-            # Handle duplicate slugs by appending a suffix.
-            if slug in agents_dict:
-                slug = f"{slug}-{agent.id[:6]}"
-            slug_to_id[slug] = agent.id
-            agents_dict[slug] = build_agent_json(
-                agent, conversation, workgroup,
-                files_context=files_context,
+        with materialized_files(session, workgroup, conversation) as mat_ctx:
+            files_context = (
+                "Your workgroup's files are in the current working directory. "
+                "Use Read, Edit, Write, Glob, and Grep."
             )
 
-        agents_json = json.dumps(agents_dict)
-        agent_names = [a.name for a in candidates]
-        name_to_id = {a.name: a.id for a in candidates}
+            user_msg = build_user_message(session, conversation, trigger)
 
-        # Determine max turns: lead needs turns for delegation.
-        max_turns = max(3, 2 * len(candidates))
+            # Build agent definitions.  The lead gets a teammates roster.
+            slug_to_id: dict[str, str] = {}
+            agents_dict: dict[str, dict] = {}
 
-        result = asyncio.run(run_claude(
-            user_message=user_msg,
-            agent_name=lead_slug,
-            agents_json=agents_json,
-            max_turns=max_turns,
-            timeout_seconds=max(120, 60 * len(candidates)),
-        ))
+            lead_slug = slugify(lead.name)
+            slug_to_id[lead_slug] = lead.id
+            agents_dict[lead_slug] = build_agent_json(
+                lead, conversation, workgroup,
+                files_context=files_context,
+                teammates=others if others else None,
+            )
+
+            for agent in others:
+                slug = slugify(agent.name)
+                # Handle duplicate slugs by appending a suffix.
+                if slug in agents_dict:
+                    slug = f"{slug}-{agent.id[:6]}"
+                slug_to_id[slug] = agent.id
+                agents_dict[slug] = build_agent_json(
+                    agent, conversation, workgroup,
+                    files_context=files_context,
+                )
+
+            agents_json = json.dumps(agents_dict)
+            agent_names = [a.name for a in candidates]
+            name_to_id = {a.name: a.id for a in candidates}
+
+            # Determine max turns: lead needs turns for delegation.
+            max_turns = max(3, 2 * len(candidates))
+
+            result = asyncio.run(run_claude(
+                user_message=user_msg,
+                agent_name=lead_slug,
+                agents_json=agents_json,
+                max_turns=max_turns,
+                timeout_seconds=max(120, 60 * len(candidates)),
+                cwd=mat_ctx.dir_path,
+                settings_json=mat_ctx.settings_json,
+            ))
 
         # Record usage against the lead agent.
         record_llm_usage(

@@ -32,10 +32,10 @@ Files: README.md, docs/architecture.md, backlog/todo.md
 
 | Gap | Why it matters |
 |---|---|
-| **read_file** | The Reviewer cannot inspect a file to critique it. The Implementer cannot read `backlog/todo.md` to know what's next. Both agents are blind to file content unless it's pasted into chat. |
-| **search_files** | No way to find which file mentions a term. With larger workgroups (10+ files), agents can't locate relevant content. |
-| **append_to_file** | `edit_file` replaces the entire file. Appending a new backlog item or architecture note requires sending the full existing content back — fragile and wasteful. |
-| **patch_file** (section edit) | Editing one section of `architecture.md` requires rewriting the whole file. Agents should be able to target a heading or line range. |
+| ~~**read_file**~~ (Resolved) | ~~The Reviewer cannot inspect a file to critique it. The Implementer cannot read `backlog/todo.md` to know what's next.~~ Agents now use Claude's native Read tool on materialized files. |
+| ~~**search_files**~~ (Resolved) | ~~No way to find which file mentions a term.~~ Agents now use Grep and Glob on the materialized working directory. |
+| ~~**append_to_file**~~ (Resolved) | ~~`edit_file` replaces the entire file.~~ Agents now use Write and Edit on real files in the working directory. |
+| ~~**patch_file**~~ (Resolved) | ~~Editing one section requires rewriting the whole file.~~ Agents now use Edit for surgical find-and-replace on materialized files. |
 | **search_messages** | Looking up "what did we decide about the API schema?" is impossible once it scrolls past the 6-message `summarize_topic` window. |
 | **create_checklist_item** / **toggle_checklist_item** | The backlog is a markdown file. There's no structured way to add, check off, or reorder items — agents must do raw markdown surgery via `edit_file`. |
 
@@ -46,7 +46,7 @@ Files: topic.md, arguments/pro.md, arguments/con.md, synthesis/verdict.md
 
 | Gap | Why it matters |
 |---|---|
-| **read_file** | The Moderator cannot read `arguments/pro.md` and `arguments/con.md` to synthesize them into `synthesis/verdict.md`. Debaters can't review the opposing side's written arguments. |
+| ~~**read_file**~~ (Resolved) | ~~The Moderator cannot read arguments to synthesize them.~~ Agents now use Claude's native Read tool on materialized files. |
 | **deep_summarize** (full-conversation summary) | `summarize_topic` gives 6 messages. A debate can run dozens of rounds. The Moderator needs a comprehensive summary to write a fair synthesis. |
 | **poll / vote** | No way to collect structured opinions from participants. The Moderator can ask "do you agree?" but can't tally responses. |
 | **timer / round_control** | Debates need structure: "Round 1 opening statements", "Round 2 rebuttals". There's no mechanism to advance rounds or enforce time. |
@@ -60,8 +60,8 @@ Files: setting/world.md, characters/cast.md, sessions/session-001.md
 
 | Gap | Why it matters |
 |---|---|
-| **read_file** | The Character Coach cannot read `characters/cast.md` to check consistency. The Scene Director cannot read `setting/world.md` for scene grounding. |
-| **append_to_file** | Session logs grow over time. Appending new scene beats to `sessions/session-001.md` requires rewriting the entire file. |
+| ~~**read_file**~~ (Resolved) | ~~The Character Coach cannot read files to check consistency.~~ Agents now use Claude's native Read tool on materialized files. |
+| ~~**append_to_file**~~ (Resolved) | ~~Session logs grow over time and require full rewrites.~~ Agents now use Write and Edit on real files in the working directory. |
 | **random / dice_roll** | Tabletop-style randomness is fundamental to many roleplay formats. No tool generates random outcomes. |
 | **search_messages** | "What did the innkeeper say in scene 3?" — players and agents need to recall past narrative moments. |
 | **create_file_from_template** | Starting a new session file (`session-002.md`) from the session template structure. Currently requires manually crafting the content. |
@@ -75,17 +75,17 @@ Files: setting/world.md, characters/cast.md, sessions/session-001.md
 
 | Tool | Description | Rationale |
 |---|---|---|
-| **read_file** | Return the content of a specific file by path | The single biggest gap. Agents literally cannot see file content. Every workgroup type suffers. Without it, file tools are write-only. |
+| ~~**read_file**~~ (Resolved) | Return the content of a specific file by path | Agents now use Claude's native Read tool on materialized files. |
 | **search_messages** | Search conversation history by keyword or date range | `summarize_topic` only covers the last 6 messages. Any workgroup that runs more than a few exchanges loses access to its own history. |
-| **append_to_file** | Append content to an existing file without replacing it | Logs, backlogs, session notes, argument lists — all grow incrementally. Full-file replacement is error-prone. |
+| ~~**append_to_file**~~ (Resolved) | Append content to an existing file without replacing it | Agents now use Write and Edit on real files in the working directory. |
 
 ### Tier 2 — Significant value, moderate complexity
 
 | Tool | Description | Rationale |
 |---|---|---|
 | **deep_summarize** | LLM-powered summary of an entire conversation or a specific range | The current `summarize_topic` is a mechanical snippet dump. A real summary tool should use the LLM to produce coherent synthesis. |
-| **search_files** | Full-text search across all workgroup files | As file count grows, agents need to find relevant content without listing and reading every file. |
-| **patch_file** | Edit a section of a file by heading, line range, or find-and-replace | Surgical edits are safer and more natural than full-file replacement. |
+| ~~**search_files**~~ (Resolved) | Full-text search across all workgroup files | Agents now use Grep and Glob on the materialized working directory. |
+| ~~**patch_file**~~ (Resolved) | Edit a section of a file by heading, line range, or find-and-replace | Agents now use Edit for surgical find-and-replace on materialized files. |
 | **pin_message** | Mark a message as pinned/important for later retrieval | Decisions, action items, key narrative moments — these need to survive the scroll. |
 | **mention_agent** | Explicitly request input from a specific agent | Currently agents respond based on relevance scoring alone. There's no way for one agent (or a user) to direct a question to a specific agent. |
 
@@ -104,11 +104,9 @@ Files: setting/world.md, characters/cast.md, sessions/session-001.md
 
 ## Summary
 
-The current toolset is heavily biased toward file CRUD and lacks the **read** side entirely. Agents can create and modify files but cannot inspect them, search through messages, or perform any structured reasoning over workgroup content.
+With file materialization, agents now have full read/write/search access to workgroup files through Claude's native tools (Read, Write, Edit, Grep, Glob). The core file operation gaps (`read_file`, `append_to_file`, `search_files`, `patch_file`) are resolved.
 
-**Priority order for closing gaps:**
-1. `read_file` — unblocks every workflow; without it, files are opaque to agents
-2. `search_messages` — unblocks any conversation longer than a few exchanges
-3. `append_to_file` — unblocks incremental workflows (logs, backlogs, session notes)
-4. `deep_summarize` — unlocks meaningful synthesis (debate verdicts, project status)
-5. `search_files` + `patch_file` — scales file management beyond small workgroups
+**Remaining priority gaps:**
+1. `search_messages` — unblocks any conversation longer than a few exchanges
+2. `deep_summarize` — unlocks meaningful synthesis (debate verdicts, project status)
+3. Workgroup-specific tools (poll/vote, dice_roll, timer, etc.) — see Tier 3

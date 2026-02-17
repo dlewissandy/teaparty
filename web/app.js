@@ -1477,7 +1477,7 @@ function filesForConversationContext(files, workgroupId) {
   const conversation = conversationById(workgroupId, conversationId);
   if (!conversation || conversation.kind === "admin") return files;
   if (conversation.kind === "job") {
-    return files.filter(f => f.topic_id === conversationId);
+    return files.filter(f => !f.topic_id || f.topic_id === conversationId);
   }
   // direct and everything else: shared files only
   return files.filter(f => !f.topic_id);
@@ -5961,6 +5961,21 @@ function startPolling() {
         const afterLatestId = polledMessages.length ? polledMessages[polledMessages.length - 1].id : "";
         if (afterLatestId && afterLatestId !== beforeLatestId) {
           await loadWorkgroups();
+        }
+      }
+
+      // Refresh workgroup files when new agent messages arrive (agents may create/edit files).
+      if (!shouldWatchTree && state.selectedWorkgroupId) {
+        const afterLatestId = polledMessages.length ? polledMessages[polledMessages.length - 1].id : "";
+        if (afterLatestId && afterLatestId !== beforeLatestId) {
+          try {
+            const fresh = await api(`/api/workgroups/${state.selectedWorkgroupId}`);
+            const data = state.treeData[state.selectedWorkgroupId];
+            if (data) {
+              data.workgroup = fresh;
+              if (state.fileBrowserOpen) renderFileBrowser();
+            }
+          } catch (_) { /* skip on error */ }
         }
       }
 

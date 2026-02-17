@@ -240,6 +240,12 @@ The main branch is synced to `Team.files` so the file browser shows the current 
 
 Each job gets a git branch (`job/<job-id>`) and a sandbox container. The branch isolates the job's code changes; the container provides the execution environment (builds, tests, Claude Code CLI). Completed jobs merge back to main. See [sandbox-design.md](sandbox-design.md) for the full design.
 
+## Agent File Access
+
+Before each agent invocation, virtual files (from the `workgroup.files` JSON column) are materialized to a temporary directory on disk. Agents then work with real files using Claude's built-in file tools — Read, Write, Edit, Glob, and Grep — rather than receiving truncated file content embedded in prompts. A `PreToolUse` constrain hook scopes all file operations to the working directory, preventing agents from accessing anything outside it. When the agent finishes, any changes (modified, new, or deleted files) are synced back to the database.
+
+For workspace-enabled workgroups with an active git worktree, the existing worktree path is reused instead of creating a temporary directory. This lets agents operate directly on the checked-out branch.
+
 ## Content Placement
 
 **AI-generated content** goes into the scope folder of the conversation that produced it, or one of its subfolders.

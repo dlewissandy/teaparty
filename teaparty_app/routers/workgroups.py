@@ -593,6 +593,20 @@ def list_workgroups(
     return _enrich_org_names(session, results)
 
 
+@router.get("/workgroups/{workgroup_id}", response_model=WorkgroupRead)
+def get_workgroup(
+    workgroup_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> WorkgroupRead:
+    require_workgroup_membership(session, workgroup_id, user.id)
+    workgroup = session.get(Workgroup, workgroup_id)
+    if not workgroup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
+    result = WorkgroupRead.model_validate(workgroup)
+    return _enrich_org_names(session, [result])[0]
+
+
 @router.patch("/workgroups/{workgroup_id}", response_model=WorkgroupRead)
 def update_workgroup(
     workgroup_id: str,

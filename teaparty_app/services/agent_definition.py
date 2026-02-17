@@ -57,7 +57,7 @@ def build_worktree_settings_json(worktree_path: str) -> str:
         "hooks": {
             "PreToolUse": [
                 {
-                    "matcher": "Edit|Write|Read",
+                    "matcher": "Edit|Write|Read|Glob|Grep",
                     "hooks": [
                         {
                             "type": "command",

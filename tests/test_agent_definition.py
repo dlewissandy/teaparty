@@ -252,6 +252,8 @@ class BuildWorktreeSettingsJsonTests(unittest.TestCase):
         self.assertIn("Edit", matcher)
         self.assertIn("Write", matcher)
         self.assertIn("Read", matcher)
+        self.assertIn("Glob", matcher)
+        self.assertIn("Grep", matcher)
 
 
 if __name__ == "__main__":
