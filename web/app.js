@@ -5085,7 +5085,7 @@ function renderTree() {
   const addBtn = document.getElementById("new-workgroup-toggle");
 
   if (!state.workgroups.length) {
-    if (breadcrumb) breadcrumb.innerHTML = "<span>Organizations</span>";
+    if (breadcrumb) breadcrumb.innerHTML = '<span class="blade-home-icon"></span>';
     if (createWrap) createWrap.classList.add("hidden-by-blade");
     if (addBtn) addBtn.classList.add("hidden");
     node.innerHTML = "<p class='tree-caption'>Create an organization to get started.</p>";
@@ -5125,7 +5125,7 @@ function renderTree() {
     }
 
     if (breadcrumb) {
-      let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link">Organizations</button>`;
+      let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link blade-home-icon"></button>`;
       if (workgroup.organization_id && workgroup.organization_name) {
         crumbs += `<span class="blade-crumb-sep">\u203A</span><button data-action="blade-back" class="blade-crumb-link">${escapeHtml(workgroup.organization_name)}</button>`;
       }
@@ -5164,7 +5164,7 @@ function renderTree() {
 
   if (!drillId && !state.bladeOrgId) {
     // ── Level 1: Root — Organizations ──
-    if (breadcrumb) breadcrumb.innerHTML = "<span>Organizations</span>";
+    if (breadcrumb) breadcrumb.innerHTML = '<span class="blade-home-icon"></span>';
     if (createWrap) createWrap.classList.add("hidden-by-blade");
     if (addBtn) addBtn.classList.add("hidden");
 
@@ -5266,7 +5266,7 @@ function renderTree() {
     }
 
     if (breadcrumb) {
-      breadcrumb.innerHTML = `<button data-action="blade-back" class="blade-crumb-link">Organizations</button><span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(orgData.name)}</span>`;
+      breadcrumb.innerHTML = `<button data-action="blade-back" class="blade-crumb-link blade-home-icon"></button><span class="blade-crumb-sep">\u203A</span><span>${escapeHtml(orgData.name)}</span>`;
     }
     if (createWrap) createWrap.classList.add("hidden-by-blade");
     if (addBtn) addBtn.classList.add("hidden");
@@ -5435,7 +5435,7 @@ function renderTree() {
 
   // Update breadcrumb — Orgs › OrgName › WorkgroupName  or  Orgs › WorkgroupName
   if (breadcrumb) {
-    let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link">Organizations</button>`;
+    let crumbs = `<button data-action="blade-back-root" class="blade-crumb-link blade-home-icon"></button>`;
     if (workgroup.organization_id && workgroup.organization_name) {
       crumbs += `<span class="blade-crumb-sep">\u203A</span><button data-action="blade-back" class="blade-crumb-link">${escapeHtml(workgroup.organization_name)}</button>`;
     }
