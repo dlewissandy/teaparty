@@ -324,20 +324,23 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if conversation.is_archived:
         return []
 
-    # Enforce max_rounds for job conversations.
+    # Enforce max_rounds for job conversations and read permission_mode.
+    permission_mode = "acceptEdits"
     if conversation.kind == "job":
         job = session.exec(
             select(Job).where(Job.conversation_id == conversation.id)
         ).first()
-        if job and isinstance(job.max_rounds, int):
-            round_count = session.exec(
-                select(func.count()).select_from(Message).where(
-                    Message.conversation_id == conversation.id,
-                    Message.sender_type == "user",
-                )
-            ).one()
-            if isinstance(round_count, int) and round_count > job.max_rounds:
-                return []
+        if job:
+            permission_mode = getattr(job, "permission_mode", "acceptEdits") or "acceptEdits"
+            if isinstance(job.max_rounds, int):
+                round_count = session.exec(
+                    select(func.count()).select_from(Message).where(
+                        Message.conversation_id == conversation.id,
+                        Message.sender_type == "user",
+                    )
+                ).one()
+                if isinstance(round_count, int) and round_count > job.max_rounds:
+                    return []
 
     agents = _agents_for_auto_response(session, conversation)
     if not agents:
@@ -385,14 +388,14 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         if trigger.sender_type != "user":
             return []
         if _is_each_invocation(trigger.content):
-            return _run_single_agent_responses(session, conversation, trigger, candidates)
+            return _run_single_agent_responses(session, conversation, trigger, candidates, permission_mode=permission_mode)
         mentioned = _resolve_mentioned_agent(trigger.content, candidates)
         if mentioned:
-            return _run_single_agent_responses(session, conversation, trigger, [mentioned])
+            return _run_single_agent_responses(session, conversation, trigger, [mentioned], permission_mode=permission_mode)
         # Default: team mode when multiple agents, single-agent otherwise.
         if len(candidates) > 1:
-            return _run_team_response(session, conversation, trigger, candidates)
-        return _run_single_agent_responses(session, conversation, trigger, candidates)
+            return _run_team_response(session, conversation, trigger, candidates, permission_mode=permission_mode)
+        return _run_single_agent_responses(session, conversation, trigger, candidates, permission_mode=permission_mode)
 
     # Task conversations: only user messages trigger auto-responses.
     if conversation.kind == "task":
@@ -427,6 +430,7 @@ def _run_single_agent_responses(
     trigger: Message,
     candidates: list[Agent],
     extra_env: dict[str, str] | None = None,
+    permission_mode: str = "acceptEdits",
 ) -> list[Message]:
     """Single-shot claude -p invocation for each candidate agent."""
 
@@ -480,6 +484,7 @@ def _run_single_agent_responses(
                     user_message=user_msg,
                     agent_name=slug,
                     agents_json=agents_json,
+                    permission_mode=permission_mode,
                     max_turns=agent_def.get("maxTurns", 3),
                     cwd=mat_ctx.dir_path,
                     settings_json=mat_ctx.settings_json,
@@ -501,6 +506,7 @@ def _run_single_agent_responses(
                         user_message=user_msg,
                         agent_name=slug,
                         agents_json=agents_json,
+                        permission_mode=permission_mode,
                         max_turns=agent_def.get("maxTurns", 3),
                         cwd=mat_ctx.dir_path,
                         settings_json=mat_ctx.settings_json,
@@ -554,6 +560,7 @@ def _run_team_response(
     conversation: Conversation,
     trigger: Message,
     candidates: list[Agent],
+    permission_mode: str = "acceptEdits",
 ) -> list[Message]:
     """Route multi-agent conversations through a streaming ``claude -p`` invocation.
 
@@ -602,6 +609,7 @@ def _run_team_response(
                 files_context=files_context,
                 teammates=others or None,
                 settings_json=mat_ctx.settings_json,
+                permission_mode=permission_mode,
             )
 
             # Drain events and store as Messages.
@@ -614,7 +622,7 @@ def _run_team_response(
                     conversation.id,
                 )
                 _clear_activity(conversation.id)
-                return _run_single_agent_responses(session, conversation, trigger, candidates)
+                return _run_single_agent_responses(session, conversation, trigger, candidates, permission_mode=permission_mode)
 
             # Record usage against the lead agent.
             record_llm_usage(
@@ -626,7 +634,7 @@ def _run_team_response(
             logger.exception("Team session failed for conversation %s", conversation.id)
             _clear_activity(conversation.id)
             # Fall back to single-agent sequential responses.
-            return _run_single_agent_responses(session, conversation, trigger, candidates)
+            return _run_single_agent_responses(session, conversation, trigger, candidates, permission_mode=permission_mode)
 
     _clear_activity(conversation.id)
     return created

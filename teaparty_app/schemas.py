@@ -447,6 +447,7 @@ class JobRead(ORMBaseModel):
     created_at: datetime
     completed_at: datetime | None = None
     max_rounds: int | None = None
+    permission_mode: str = "acceptEdits"
 
 
 class JobDetailRead(JobRead):
@@ -459,6 +460,7 @@ class JobCreateRequest(BaseModel):
     description: str = ""
     max_rounds: int | None = None
     agent_ids: list[str] | None = None
+    permission_mode: str | None = None
 
 
 class JobUpdateRequest(BaseModel):

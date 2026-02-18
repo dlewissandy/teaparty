@@ -51,6 +51,7 @@ def init_db() -> None:
     _migrate_topic_to_job()
     _migrate_agent_tool_names()
     _migrate_add_job_max_rounds()
+    _migrate_add_job_permission_mode()
     _run_seeds()
 
 
@@ -762,6 +763,16 @@ def _migrate_add_job_max_rounds() -> None:
     if "max_rounds" not in job_columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE jobs ADD COLUMN max_rounds INTEGER DEFAULT NULL"))
+
+
+def _migrate_add_job_permission_mode() -> None:
+    """Add permission_mode column to jobs table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    job_columns = _sqlite_column_names("jobs")
+    if "permission_mode" not in job_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN permission_mode TEXT DEFAULT 'acceptEdits' NOT NULL"))
 
 
 def get_session() -> Iterator[Session]:

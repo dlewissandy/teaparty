@@ -24,13 +24,6 @@ from teaparty_app.services.agent_definition import build_agent_json, slugify
 
 logger = logging.getLogger(__name__)
 
-_PROTOCOL_TYPES = frozenset({
-    "idle_notification", "permission_request", "shutdown_request",
-    "shutdown_approved", "shutdown_response",
-    "plan_approval_request", "plan_approval_response",
-})
-
-
 @dataclass
 class TeamEvent:
     """A single event parsed from the stream-json output."""
@@ -72,8 +65,6 @@ class TeamSession:
         self.event_queue: queue.Queue[TeamEvent] = queue.Queue()
         self._agent_slugs: dict[str, str] = {}  # slug -> agent_id
         self._materialized_dir: str | None = None  # temp dir for cleanup
-        self.team_dir: str | None = None
-        self._inbox_thread: threading.Thread | None = None
 
     def run(
         self,
@@ -86,6 +77,7 @@ class TeamSession:
         files_context: str = "",
         teammates: list[Agent] | None = None,
         settings_json: str | None = None,
+        permission_mode: str = "acceptEdits",
     ) -> None:
         """Spawn ``claude -p``, pipe the message, and start reading events.
 
@@ -124,7 +116,7 @@ class TeamSession:
             "--output-format", "stream-json",
             "--verbose",
             "--max-turns", str(max_turns),
-            "--permission-mode", "bypassPermissions",
+            "--permission-mode", permission_mode,
             "--agents", json.dumps(agents_dict),
         ]
 
@@ -163,10 +155,6 @@ class TeamSession:
         # Read events from stdout in a background thread.
         self._reader_thread = threading.Thread(target=self._read_events, daemon=True)
         self._reader_thread.start()
-
-        # Poll inbox files for agent-to-agent messages.
-        self._inbox_thread = threading.Thread(target=self._poll_inboxes, daemon=True)
-        self._inbox_thread.start()
 
     def _read_stderr(self) -> None:
         """Read stderr in a background thread to prevent pipe buffer deadlock."""
@@ -333,140 +321,6 @@ class TeamSession:
         )
         return None
 
-    def _discover_team_dir(self) -> str | None:
-        """Find the team directory created for this session.
-
-        Scans ``~/.claude/teams/`` for directories whose ``config.json``
-        has a ``createdAt`` timestamp within 10 seconds of ``self.started_at``.
-        Returns the newest match, or ``None``.
-        """
-        teams_root = os.path.expanduser("~/.claude/teams")
-        if not os.path.isdir(teams_root):
-            return None
-
-        threshold_ms = self.started_at * 1000 - 10000
-        best: tuple[float, str] | None = None
-
-        try:
-            for name in os.listdir(teams_root):
-                config_path = os.path.join(teams_root, name, "config.json")
-                if not os.path.isfile(config_path):
-                    continue
-                try:
-                    with open(config_path) as f:
-                        config = json.load(f)
-                    created_at = config.get("createdAt", 0)
-                    if created_at >= threshold_ms:
-                        if best is None or created_at > best[0]:
-                            best = (created_at, os.path.join(teams_root, name))
-                except (json.JSONDecodeError, OSError):
-                    continue
-        except OSError:
-            return None
-
-        return best[1] if best else None
-
-    def _scan_inboxes(
-        self,
-        inboxes_dir: str,
-        seen_counts: dict[str, int],
-    ) -> int:
-        """Scan inbox files and queue new messages. Returns count of new events."""
-        queued = 0
-        if not os.path.isdir(inboxes_dir):
-            return queued
-        try:
-            for fname in os.listdir(inboxes_dir):
-                if not fname.endswith(".json"):
-                    continue
-                # Filename is the recipient (e.g. "Proponent.json")
-                recipient_name = fname[:-5]
-                fpath = os.path.join(inboxes_dir, fname)
-                try:
-                    with open(fpath) as f:
-                        entries = json.load(f)
-                except (json.JSONDecodeError, OSError):
-                    continue
-                if not isinstance(entries, list):
-                    continue
-
-                prev_count = seen_counts.get(fpath, 0)
-                if len(entries) <= prev_count:
-                    continue
-
-                for entry in entries[prev_count:]:
-                    if not isinstance(entry, dict):
-                        continue
-                    text = entry.get("text") or entry.get("content") or ""
-                    if isinstance(text, str) and text.strip() and not self._is_protocol_message(text):
-                        from_name = entry.get("from", "")
-                        self.event_queue.put(TeamEvent(
-                            kind="inbox",
-                            agent_slug=from_name,
-                            content=text.strip(),
-                            raw={
-                                "recipient": recipient_name,
-                                "from": from_name,
-                                "timestamp": entry.get("timestamp", ""),
-                                "summary": entry.get("summary", ""),
-                            },
-                        ))
-                        queued += 1
-
-                seen_counts[fpath] = len(entries)
-        except OSError:
-            pass
-        return queued
-
-    def _poll_inboxes(self) -> None:
-        """Background thread: poll inbox files for agent-to-agent messages.
-
-        Waits up to 30s for the team directory to appear, then polls
-        ``{team_dir}/inboxes/*.json`` every 2s for new entries.
-        """
-        # Phase 1: discover team dir (up to 30s)
-        for _ in range(15):
-            if not self.is_running:
-                return
-            found = self._discover_team_dir()
-            if found:
-                self.team_dir = found
-                logger.info("Discovered team dir: %s", found)
-                break
-            time.sleep(2)
-        else:
-            logger.warning("No team dir found within 30s for conversation %s", self.conversation_id)
-            return
-
-        # Phase 2: poll inbox files
-        inboxes_dir = os.path.join(self.team_dir, "inboxes")
-        seen_counts: dict[str, int] = {}  # file path → entries already processed
-        total_queued = 0
-
-        while self.is_running:
-            total_queued += self._scan_inboxes(inboxes_dir, seen_counts)
-            time.sleep(2)
-
-        # Final sweep — catch messages written just before process exit
-        final = self._scan_inboxes(inboxes_dir, seen_counts)
-        total_queued += final
-        logger.info(
-            "Inbox poll finished for conversation %s: %d events queued (%d in final sweep)",
-            self.conversation_id, total_queued, final,
-        )
-
-    @staticmethod
-    def _is_protocol_message(text: str) -> bool:
-        """Return True if *text* is a JSON protocol message (not conversational)."""
-        text = text.strip()
-        if not text.startswith("{"):
-            return False
-        try:
-            obj = json.loads(text)
-            return isinstance(obj, dict) and obj.get("type") in _PROTOCOL_TYPES
-        except (json.JSONDecodeError, ValueError):
-            return False
-
     def get_agent_id(self, slug: str) -> str | None:
         """Map an agent slug back to its Agent.id."""
         return self._agent_slugs.get(slug)
@@ -493,9 +347,6 @@ class TeamSession:
         if self._stderr_thread and self._stderr_thread.is_alive():
             self._stderr_thread.join(timeout=2.0)
             self._stderr_thread = None
-        if self._inbox_thread and self._inbox_thread.is_alive():
-            self._inbox_thread.join(timeout=5.0)
-            self._inbox_thread = None
         if self._materialized_dir:
             import shutil
             try:

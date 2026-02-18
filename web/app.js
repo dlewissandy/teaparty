@@ -4382,6 +4382,14 @@ function createJobPrompt(workgroupId) {
           </label>
         </div>
       </div>
+      <label class="settings-field">
+        <span class="settings-label">Permission mode</span>
+        <select name="permission_mode" class="settings-select">
+          <option value="acceptEdits" selected>Accept edits (recommended)</option>
+          <option value="bypassPermissions">Bypass all permissions</option>
+          <option value="plan">Plan only (read-only)</option>
+        </select>
+      </label>
       ${agents.length > 0 ? `
       <div class="settings-field">
         <span class="settings-label">Agents</span>
@@ -4411,9 +4419,11 @@ function createJobPrompt(workgroupId) {
       const agentIds = selectedAgentIds.length === agents.length ? null : selectedAgentIds;
       if (agentIds !== null && agentIds.length === 0) throw new Error("At least one agent must be selected");
 
+      const permissionMode = String(formData.get("permission_mode") || "acceptEdits");
+
       const result = await api(`/api/workgroups/${workgroupId}/jobs`, {
         method: "POST",
-        body: { title: name, description, max_rounds: maxRounds, agent_ids: agentIds },
+        body: { title: name, description, max_rounds: maxRounds, agent_ids: agentIds, permission_mode: permissionMode },
       });
       const treeData = state.treeData[workgroupId];
       if (treeData) {

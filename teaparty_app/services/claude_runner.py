@@ -69,7 +69,7 @@ async def run_claude(
     model: str = "sonnet",
     agent_name: str | None = None,
     agents_json: str | None = None,
-    permission_mode: str = "bypassPermissions",
+    permission_mode: str = "acceptEdits",
     settings_json: str | None = None,
     cwd: str | None = None,
     allowed_tools: list[str] | None = None,
@@ -78,6 +78,7 @@ async def run_claude(
     timeout_seconds: int = 120,
     conversation_id: str | None = None,
     resume_session_id: str | None = None,
+    extra_env: dict[str, str] | None = None,
 ) -> ClaudeResult:
     """Run ``claude -p`` as a subprocess and return the parsed result.
 
@@ -128,6 +129,8 @@ async def run_claude(
     env = {**os.environ}
     env.pop("CLAUDE_CODE_ENTRYPOINT", None)
     env.pop("CLAUDECODE", None)
+    if extra_env:
+        env.update(extra_env)
 
     t0 = time.monotonic()
     try:

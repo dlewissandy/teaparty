@@ -337,7 +337,7 @@ class Job(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     title: str = Field()
     scope: str = Field(default="")
-    status: str = Field(default="pending", index=True)  # pending | in_progress | completed | cancelled
+    status: str = Field(default="in_progress", index=True)  # in_progress | completed | cancelled
     engagement_id: str | None = Field(default=None, foreign_key="engagements.id", index=True)
     workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
@@ -346,6 +346,7 @@ class Job(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)
     max_rounds: int | None = Field(default=None)
+    permission_mode: str = Field(default="acceptEdits")
 
 
 class AgentTask(SQLModel, table=True):
@@ -354,7 +355,7 @@ class AgentTask(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     title: str = Field()
     description: str = Field(default="")
-    status: str = Field(default="pending", index=True)  # pending | in_progress | completed | cancelled
+    status: str = Field(default="in_progress", index=True)  # in_progress | completed | cancelled
     agent_id: str = Field(foreign_key="agents.id", index=True)
     workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)

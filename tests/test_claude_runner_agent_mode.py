@@ -45,7 +45,7 @@ class RunClaudeAgentModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("--model", cmd)
             # Should have --permission-mode
             self.assertIn("--permission-mode", cmd)
-            self.assertIn("bypassPermissions", cmd)
+            self.assertIn("acceptEdits", cmd)
 
     async def test_legacy_mode_still_works(self) -> None:
         """Without agent_name, should use --system-prompt and --model as before."""
@@ -96,7 +96,7 @@ class RunClaudeAgentModeTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(cmd[idx + 1], settings)
 
     async def test_permission_mode_default(self) -> None:
-        """Test that permission_mode defaults to bypassPermissions."""
+        """Test that permission_mode defaults to acceptEdits."""
         mock_process = MagicMock()
         mock_process.returncode = 0
         mock_process.communicate = AsyncMock(
@@ -114,7 +114,7 @@ class RunClaudeAgentModeTests(unittest.IsolatedAsyncioTestCase):
             cmd = mock_exec.call_args[0]
             self.assertIn("--permission-mode", cmd)
             idx = cmd.index("--permission-mode")
-            self.assertEqual(cmd[idx + 1], "bypassPermissions")
+            self.assertEqual(cmd[idx + 1], "acceptEdits")
 
     async def test_agent_mode_no_settings_means_no_flag(self) -> None:
         """Without settings_json, no --settings flag."""

@@ -109,6 +109,7 @@ def create_job(
         workgroup_id=workgroup_id,
         conversation_id=conversation.id,
         max_rounds=payload.max_rounds,
+        permission_mode=payload.permission_mode or "acceptEdits",
     )
     session.add(job)
 
