@@ -285,6 +285,34 @@ class TeamSession:
                 raw=raw,
             )
 
+        elif event_type == "user":
+            # Sub-agent responses arrive as "user" events containing
+            # tool_result blocks.  Extract and emit as tool_result so
+            # the bridge can match them to pending Task delegations.
+            message = raw.get("message", {})
+            content_blocks = message.get("content", [])
+            for block in content_blocks:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id", "")
+                    # Content may be a string or a list of content blocks.
+                    inner = block.get("content", "")
+                    if isinstance(inner, list):
+                        text_parts = []
+                        for part in inner:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text_parts.append(part.get("text", ""))
+                        inner = "\n".join(text_parts)
+                    return TeamEvent(
+                        kind="tool_result",
+                        content=inner,
+                        raw={
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": inner,
+                        },
+                    )
+            return None  # user event with no tool_result blocks
+
         elif event_type == "result":
             return TeamEvent(
                 kind="result",
@@ -299,20 +327,24 @@ class TeamSession:
                 raw=raw,
             )
 
+        logger.debug(
+            "Unhandled stream-json event type=%s keys=%s preview=%.200s",
+            event_type, list(raw.keys()), json.dumps(raw, default=str),
+        )
         return None
 
     def _discover_team_dir(self) -> str | None:
         """Find the team directory created for this session.
 
         Scans ``~/.claude/teams/`` for directories whose ``config.json``
-        has a ``createdAt`` timestamp within 5 seconds of ``self.started_at``.
+        has a ``createdAt`` timestamp within 10 seconds of ``self.started_at``.
         Returns the newest match, or ``None``.
         """
         teams_root = os.path.expanduser("~/.claude/teams")
         if not os.path.isdir(teams_root):
             return None
 
-        threshold_ms = self.started_at * 1000 - 5000
+        threshold_ms = self.started_at * 1000 - 10000
         best: tuple[float, str] | None = None
 
         try:
@@ -334,6 +366,58 @@ class TeamSession:
 
         return best[1] if best else None
 
+    def _scan_inboxes(
+        self,
+        inboxes_dir: str,
+        seen_counts: dict[str, int],
+    ) -> int:
+        """Scan inbox files and queue new messages. Returns count of new events."""
+        queued = 0
+        if not os.path.isdir(inboxes_dir):
+            return queued
+        try:
+            for fname in os.listdir(inboxes_dir):
+                if not fname.endswith(".json"):
+                    continue
+                # Filename is the recipient (e.g. "Proponent.json")
+                recipient_name = fname[:-5]
+                fpath = os.path.join(inboxes_dir, fname)
+                try:
+                    with open(fpath) as f:
+                        entries = json.load(f)
+                except (json.JSONDecodeError, OSError):
+                    continue
+                if not isinstance(entries, list):
+                    continue
+
+                prev_count = seen_counts.get(fpath, 0)
+                if len(entries) <= prev_count:
+                    continue
+
+                for entry in entries[prev_count:]:
+                    if not isinstance(entry, dict):
+                        continue
+                    text = entry.get("text") or entry.get("content") or ""
+                    if isinstance(text, str) and text.strip() and not self._is_protocol_message(text):
+                        from_name = entry.get("from", "")
+                        self.event_queue.put(TeamEvent(
+                            kind="inbox",
+                            agent_slug=from_name,
+                            content=text.strip(),
+                            raw={
+                                "recipient": recipient_name,
+                                "from": from_name,
+                                "timestamp": entry.get("timestamp", ""),
+                                "summary": entry.get("summary", ""),
+                            },
+                        ))
+                        queued += 1
+
+                seen_counts[fpath] = len(entries)
+        except OSError:
+            pass
+        return queued
+
     def _poll_inboxes(self) -> None:
         """Background thread: poll inbox files for agent-to-agent messages.
 
@@ -351,57 +435,25 @@ class TeamSession:
                 break
             time.sleep(2)
         else:
-            logger.debug("No team dir found within 30s for conversation %s", self.conversation_id)
+            logger.warning("No team dir found within 30s for conversation %s", self.conversation_id)
             return
 
         # Phase 2: poll inbox files
         inboxes_dir = os.path.join(self.team_dir, "inboxes")
         seen_counts: dict[str, int] = {}  # file path → entries already processed
+        total_queued = 0
 
         while self.is_running:
-            if os.path.isdir(inboxes_dir):
-                try:
-                    for fname in os.listdir(inboxes_dir):
-                        if not fname.endswith(".json"):
-                            continue
-                        # Filename is the recipient (e.g. "Proponent.json")
-                        recipient_name = fname[:-5]
-                        fpath = os.path.join(inboxes_dir, fname)
-                        try:
-                            with open(fpath) as f:
-                                entries = json.load(f)
-                        except (json.JSONDecodeError, OSError):
-                            continue
-                        if not isinstance(entries, list):
-                            continue
-
-                        prev_count = seen_counts.get(fpath, 0)
-                        if len(entries) <= prev_count:
-                            continue
-
-                        for entry in entries[prev_count:]:
-                            if not isinstance(entry, dict):
-                                continue
-                            text = entry.get("text") or entry.get("content") or ""
-                            if isinstance(text, str) and text.strip() and not self._is_protocol_message(text):
-                                from_name = entry.get("from", "")
-                                self.event_queue.put(TeamEvent(
-                                    kind="inbox",
-                                    agent_slug=from_name,
-                                    content=text.strip(),
-                                    raw={
-                                        "recipient": recipient_name,
-                                        "from": from_name,
-                                        "timestamp": entry.get("timestamp", ""),
-                                        "summary": entry.get("summary", ""),
-                                    },
-                                ))
-
-                        seen_counts[fpath] = len(entries)
-                except OSError:
-                    pass
-
+            total_queued += self._scan_inboxes(inboxes_dir, seen_counts)
             time.sleep(2)
+
+        # Final sweep — catch messages written just before process exit
+        final = self._scan_inboxes(inboxes_dir, seen_counts)
+        total_queued += final
+        logger.info(
+            "Inbox poll finished for conversation %s: %d events queued (%d in final sweep)",
+            self.conversation_id, total_queued, final,
+        )
 
     @staticmethod
     def _is_protocol_message(text: str) -> bool:

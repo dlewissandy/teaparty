@@ -22,7 +22,6 @@ from __future__ import annotations
 import json
 import logging
 import queue
-import time
 
 from sqlmodel import Session
 
@@ -41,11 +40,9 @@ from teaparty_app.services.team_session import TeamSession
 
 logger = logging.getLogger(__name__)
 
-# Maximum time (seconds) to wait for events after sending a message.
-_EVENT_TIMEOUT = 300.0
-
-# Maximum time (seconds) of silence before assuming the team is done.
-_IDLE_TIMEOUT = 30.0
+# How long to wait on queue.get before checking is_running.
+# 10s is responsive enough while avoiding busy-waiting.
+_POLL_INTERVAL = 10.0
 
 
 def _track_task_delegation(
@@ -103,7 +100,6 @@ def process_team_events_sync(
     - **result** event: post lead's final text if not already posted.
     """
     created: list[Message] = []
-    deadline = time.monotonic() + _EVENT_TIMEOUT
 
     slug_to_id = dict(team._agent_slugs)
     lead_id = next(iter(team._agent_slugs.values()), None)
@@ -139,20 +135,10 @@ def process_team_events_sync(
         created.append(msg)
         return msg
 
-    while time.monotonic() < deadline:
-        remaining = min(_IDLE_TIMEOUT, deadline - time.monotonic())
-        if remaining <= 0:
-            break
-
-        try:
-            event = team.event_queue.get(timeout=remaining)
-        except queue.Empty:
-            if not team.is_running:
-                break
-            continue
-
+    def _handle_event(event: TeamEvent) -> str | None:
+        """Process a single event. Returns 'stop' to exit, 'error' for early return."""
         if event.kind == "eof":
-            break
+            return "stop"
 
         if event.kind == "error":
             error_msg = Message(
@@ -166,13 +152,11 @@ def process_team_events_sync(
                 commit_with_retry(session)
             except Exception as exc:
                 logger.warning("Failed to commit error message: %s", exc)
-            return [error_msg]
+            created.append(error_msg)
+            return "error"
 
         # --- assistant: lead text and/or Task delegations ---
         if event.kind == "assistant":
-            # Snapshot before processing — if tasks were already pending,
-            # this assistant event is an intermediate sub-agent event,
-            # not the lead speaking.
             was_pending = bool(pending_tasks)
 
             raw = event.raw
@@ -194,13 +178,6 @@ def process_team_events_sync(
                         block, pending_tasks, slug_to_id, conversation.id,
                     )
 
-            # Post lead text only when this is actually the lead's turn:
-            #  - No tasks were pending before (fresh lead turn), or
-            #  - This event itself contains Task delegations (lead text
-            #    accompanying a delegation, e.g. "Let me ask the team...")
-            # Skip intermediate assistant events that leak from sub-agents
-            # during Task execution — the tool_result is the authoritative
-            # source for sub-agent content.
             if text_parts and (not was_pending or has_new_delegation):
                 _store_message(lead_id, "\n\n".join(text_parts))
             elif text_parts and was_pending:
@@ -236,17 +213,64 @@ def process_team_events_sync(
             recipient_name = event.raw.get("recipient", "")
             text = event.content.strip()
             if not text or text in posted_texts:
-                continue
+                return None
             sender_id = _resolve_agent_id(from_name, slug_to_id)
             formatted = f"@{recipient_name} {text}" if recipient_name else text
             msg = _store_message(sender_id, formatted)
             if msg:
                 posted_texts.add(text)
 
-        # --- result: final output ---
+        # --- result: lead output (don't break — eof is the exit signal) ---
         elif event.kind == "result":
             if event.content:
                 _store_message(lead_id, event.content)
+
+        return None
+
+    # Main event loop — runs until eof or process exits.
+    logger.info("Bridge started for conversation %s (slugs: %s)", conversation.id, list(slug_to_id.keys()))
+    while True:
+        try:
+            event = team.event_queue.get(timeout=_POLL_INTERVAL)
+        except queue.Empty:
+            if not team.is_running:
+                logger.info("Bridge exiting: process stopped (conv %s, %d messages)", conversation.id, len(created))
+                break
+            continue
+
+        action = _handle_event(event)
+        if action == "stop":
+            break
+        if action == "error":
+            return created
+
+    # Wait for inbox thread's final sweep before draining.
+    if team._inbox_thread and team._inbox_thread.is_alive():
+        team._inbox_thread.join(timeout=5.0)
+
+    # Drain remaining events after eof/exit.
+    drained = 0
+    while True:
+        try:
+            event = team.event_queue.get_nowait()
+        except queue.Empty:
+            break
+        drained += 1
+        action = _handle_event(event)
+        if action in ("stop", "error"):
             break
 
+    # Persist session ID so we can map conversation → team dir later.
+    if team.session_id and not conversation.claude_session_id:
+        conversation.claude_session_id = team.session_id
+        session.add(conversation)
+        try:
+            commit_with_retry(session)
+        except Exception as exc:
+            logger.warning("Failed to persist session_id for conversation %s: %s", conversation.id, exc)
+
+    logger.info(
+        "Bridge finished for conversation %s: %d messages stored, %d events drained",
+        conversation.id, len(created), drained,
+    )
     return created

@@ -647,6 +647,175 @@ class TestInboxEventProcessing(unittest.TestCase):
         self.assertEqual(len(created), 0)
 
 
+class TestBridgeLoopTermination(unittest.TestCase):
+    """Test that the bridge loop exits only on eof / process exit, not on result."""
+
+    def _run_bridge(self, events: list[TeamEvent], team: TeamSession | None = None):
+        if team is None:
+            team = _make_team_session()
+
+        for ev in events:
+            team.event_queue.put(ev)
+
+        mock_session = MagicMock()
+        mock_session.flush = MagicMock()
+
+        conversation = _make_conversation()
+        trigger = _make_trigger()
+
+        with patch("teaparty_app.services.team_bridge.commit_with_retry"):
+            with patch("teaparty_app.services.team_bridge._set_activity"):
+                with patch("teaparty_app.services.team_bridge._clear_activity"):
+                    from teaparty_app.services.team_bridge import process_team_events_sync
+                    created = process_team_events_sync(
+                        mock_session, team, conversation, trigger,
+                    )
+
+        return created
+
+    def test_result_does_not_break_loop(self):
+        """Result event followed by more inbox events — all are processed."""
+        events = [
+            TeamEvent(
+                kind="result",
+                content="Early result from lead",
+                raw={"type": "result", "result": "Early result from lead"},
+            ),
+            TeamEvent(
+                kind="inbox",
+                agent_slug="researcher",
+                content="Late inbox message",
+                raw={
+                    "from": "researcher",
+                    "recipient": "lead-agent",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "summary": "Late finding",
+                },
+            ),
+            TeamEvent(kind="eof"),
+        ]
+        created = self._run_bridge(events)
+
+        # Both the result AND the late inbox message should be stored.
+        self.assertEqual(len(created), 2)
+        self.assertEqual(created[0].content, "Early result from lead")
+        self.assertEqual(created[1].content, "@lead-agent Late inbox message")
+
+    def test_eof_terminates_loop(self):
+        """eof after result properly exits — no hang."""
+        events = [
+            TeamEvent(
+                kind="result",
+                content="Final answer",
+                raw={"type": "result", "result": "Final answer"},
+            ),
+            TeamEvent(kind="eof"),
+        ]
+        created = self._run_bridge(events)
+
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].content, "Final answer")
+
+    def test_bridge_exits_when_process_stops(self):
+        """is_running=False with empty queue exits cleanly."""
+        team = _make_team_session()
+        team.is_running = False
+        # No events, no eof — loop should exit via is_running check.
+        created = self._run_bridge([], team=team)
+        self.assertEqual(len(created), 0)
+
+    def test_drain_after_eof_captures_late_events(self):
+        """Events queued just before eof are drained after loop exits."""
+        team = _make_team_session()
+        # Put all events including eof, then one more after eof.
+        team.event_queue.put(TeamEvent(
+            kind="assistant",
+            content="Lead speaking",
+            raw={
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "text", "text": "Lead speaking"}]
+                },
+            },
+        ))
+        team.event_queue.put(TeamEvent(kind="eof"))
+        # This event was queued by the inbox thread just before shutdown.
+        team.event_queue.put(TeamEvent(
+            kind="inbox",
+            agent_slug="researcher",
+            content="Last-second finding",
+            raw={
+                "from": "researcher",
+                "recipient": "lead-agent",
+                "timestamp": "2026-01-01T00:00:00Z",
+                "summary": "Last second",
+            },
+        ))
+
+        created = self._run_bridge([], team=team)
+
+        self.assertEqual(len(created), 2)
+        self.assertEqual(created[0].content, "Lead speaking")
+        self.assertEqual(created[1].content, "@lead-agent Last-second finding")
+
+
+class TestInboxFinalSweep(unittest.TestCase):
+    """Test that the bridge waits for inbox thread final sweep."""
+
+    def test_bridge_joins_inbox_thread_before_drain(self):
+        """After eof, the bridge joins the inbox thread so its final-sweep
+        events land on the queue before the drain loop runs."""
+        team = _make_team_session()
+
+        # Simulate an inbox thread that queues a late event when joined.
+        def _fake_inbox_thread_target():
+            pass  # no-op; we control the queue manually
+
+        fake_thread = MagicMock()
+        fake_thread.is_alive.return_value = True
+
+        def _join_side_effect(timeout=None):
+            # Simulate final sweep: when the bridge joins, the inbox thread
+            # has just queued one last event before exiting.
+            team.event_queue.put(TeamEvent(
+                kind="inbox",
+                agent_slug="researcher",
+                content="Final sweep message",
+                raw={
+                    "from": "researcher",
+                    "recipient": "lead-agent",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "summary": "Final sweep",
+                },
+            ))
+            fake_thread.is_alive.return_value = False
+
+        fake_thread.join.side_effect = _join_side_effect
+        team._inbox_thread = fake_thread
+
+        # Pre-load eof so the main loop exits immediately.
+        team.event_queue.put(TeamEvent(kind="eof"))
+
+        mock_session = MagicMock()
+        mock_session.flush = MagicMock()
+        conversation = _make_conversation()
+        trigger = _make_trigger()
+
+        with patch("teaparty_app.services.team_bridge.commit_with_retry"):
+            with patch("teaparty_app.services.team_bridge._set_activity"):
+                with patch("teaparty_app.services.team_bridge._clear_activity"):
+                    from teaparty_app.services.team_bridge import process_team_events_sync
+                    created = process_team_events_sync(
+                        mock_session, team, conversation, trigger,
+                    )
+
+        # The final-sweep inbox message should have been captured.
+        fake_thread.join.assert_called_once_with(timeout=5.0)
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0].content, "@lead-agent Final sweep message")
+        self.assertEqual(created[0].sender_agent_id, "agent-researcher")
+
+
 class TestParseEventAssistantWithToolUseOnly(unittest.TestCase):
     """Verify _parse_event emits assistant events even with no text blocks."""
 
