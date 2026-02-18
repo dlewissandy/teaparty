@@ -23,8 +23,10 @@ ADMINISTRATION_WORKGROUP_NAME = "Administration"
 
 def admin_agent_name(workgroup: "Workgroup") -> str:
     """Return the display name for a workgroup's admin agent."""
-    if workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id:
-        return "organization-admin"
+    if workgroup.name == ADMINISTRATION_WORKGROUP_NAME:
+        if workgroup.organization_id:
+            return "organization-admin"
+        return "system-admin"
     return "workgroup-admin"
 
 ADMIN_TOOL_ADD_JOB = "add_job"

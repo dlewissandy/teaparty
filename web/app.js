@@ -5203,11 +5203,53 @@ function renderTree() {
 
     const orgsContent = orgItems || "<div class='tree-caption'>No organizations</div>";
 
+    // Members section — current user + system admin agent
+    const sysAdminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
+    const rootMemberParts = [];
+
+    if (state.user) {
+      const userName = state.user.name || state.user.email;
+      const userLabel = `${escapeHtml(userName)} (you)`;
+      const userAvatar = state.user.picture
+        ? `<span class="tree-avatar human"><img src="${escapeHtml(state.user.picture)}" alt="" /></span>`
+        : `<span class="tree-avatar human">${generateHumanSvg(userName)}</span>`;
+      rootMemberParts.push(`
+        <div class="tree-item-row">
+          <button class="tree-button member no-click">${userAvatar}<span>${userLabel}</span></button>
+        </div>
+      `);
+    }
+
+    if (sysAdminWg) {
+      const sysAdminData = state.treeData[sysAdminWg.id];
+      const sysAdminAgent = (sysAdminData?.agents || []).find(a => a.description === "__system_admin_agent__");
+      if (sysAdminAgent) {
+        const agentAvatar = sysAdminAgent.icon
+          ? `<span class="tree-avatar agent"><img src="${escapeHtml(sysAdminAgent.icon)}" alt="" /></span>`
+          : `<span class="tree-avatar agent">${generateBotSvg(sysAdminAgent.name)}</span>`;
+        rootMemberParts.push(`
+          <div class="tree-item-row">
+            <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(sysAdminWg.id)}" data-agent="${escapeHtml(sysAdminAgent.id)}">
+              ${agentAvatar}
+              <span>${escapeHtml(sysAdminAgent.name)}</span>
+            </button>
+            <button type="button" class="tree-gear" data-action="settings-agent" data-workgroup="${escapeHtml(sysAdminWg.id)}" data-agent="${escapeHtml(sysAdminAgent.id)}" aria-label="Agent settings for ${escapeHtml(sysAdminAgent.name)}">${GEAR_ICON_SVG}</button>
+          </div>
+        `);
+      }
+    }
+
+    const rootMemberContent = rootMemberParts.join("") || "<div class='tree-caption'>No members</div>";
+
     node.innerHTML = `
       ${invitesHtml}
       <div class="tree-section">
         <div class="tree-section-title"><span>Organizations</span><button type="button" class="tree-tool" data-action="new-org">+</button></div>
         <div class="tree-list">${orgsContent}</div>
+      </div>
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Members</span></div>
+        <div class="tree-list">${rootMemberContent}</div>
       </div>
     `;
     updateMetrics();
