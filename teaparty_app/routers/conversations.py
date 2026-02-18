@@ -1,6 +1,9 @@
+import asyncio
+import json
 import time
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -430,9 +433,65 @@ def get_activity(
     conversation_id: str,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
-) -> list[dict]:
+) -> dict:
+    from teaparty_app.services.team_registry import get_session as get_team_session
     _conversation_for_user(session, conversation_id, user.id)
-    return get_conversation_activity(conversation_id)
+    agents = get_conversation_activity(conversation_id)
+    team = get_team_session(conversation_id)
+    return {
+        "agents": agents,
+        "stream_active": team is not None and team.is_running,
+    }
+
+
+@router.get("/conversations/{conversation_id}/events")
+async def stream_events(
+    conversation_id: str,
+    request: Request,
+    token: str = Query(...),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    from teaparty_app.auth import decode_access_token
+    from teaparty_app.services.event_bus import subscribe, unsubscribe
+
+    user_id = decode_access_token(token)
+    _conversation_for_user(session, conversation_id, user_id)
+
+    queue, handle = subscribe(conversation_id)
+
+    async def event_stream():
+        try:
+            # Send initial activity snapshot.
+            from teaparty_app.services.team_registry import get_session as get_team_session
+            agents = get_conversation_activity(conversation_id)
+            team = get_team_session(conversation_id)
+            initial = {
+                "type": "activity",
+                "agents": agents,
+                "stream_active": team is not None and team.is_running,
+            }
+            yield f"data: {json.dumps(initial)}\n\n"
+
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=15)
+                    yield f"data: {json.dumps(event, default=str)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": heartbeat\n\n"
+        finally:
+            unsubscribe(conversation_id, handle)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.get("/conversations/{conversation_id}/thoughts")

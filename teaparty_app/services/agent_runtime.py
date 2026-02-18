@@ -54,16 +54,32 @@ _conversation_activity: dict[str, list[dict]] = {}
 _activity_lock = threading.Lock()
 
 
+def _publish_activity(conversation_id: str) -> None:
+    """Push current activity snapshot to SSE subscribers."""
+    from teaparty_app.services.event_bus import publish
+    from teaparty_app.services.team_registry import get_session as get_team_session
+
+    agents = get_conversation_activity(conversation_id)
+    team = get_team_session(conversation_id)
+    publish(conversation_id, {
+        "type": "activity",
+        "agents": agents,
+        "stream_active": team is not None and team.is_running,
+    })
+
+
 def _set_activity(conversation_id: str, agent_id: str, agent_name: str, phase: str, detail: str = "") -> None:
     with _activity_lock:
         entries = _conversation_activity.setdefault(conversation_id, [])
         for entry in entries:
             if entry["agent_id"] == agent_id:
                 entry.update(agent_name=agent_name, phase=phase, detail=detail, started_at=time.time())
-                return
-        entries.append(
-            {"agent_id": agent_id, "agent_name": agent_name, "phase": phase, "detail": detail, "started_at": time.time()}
-        )
+                break
+        else:
+            entries.append(
+                {"agent_id": agent_id, "agent_name": agent_name, "phase": phase, "detail": detail, "started_at": time.time()}
+            )
+    _publish_activity(conversation_id)
 
 
 def _clear_activity(conversation_id: str, agent_id: str | None = None) -> None:
@@ -76,6 +92,7 @@ def _clear_activity(conversation_id: str, agent_id: str | None = None) -> None:
                 _conversation_activity[conversation_id] = [e for e in entries if e["agent_id"] != agent_id]
                 if not _conversation_activity[conversation_id]:
                     del _conversation_activity[conversation_id]
+    _publish_activity(conversation_id)
 
 
 def get_conversation_activity(conversation_id: str) -> list[dict]:
@@ -110,6 +127,9 @@ def cancel_conversation(conversation_id: str) -> None:
     except Exception:
         pass
     _clear_activity(conversation_id)
+    # Explicit cancellation event (stream_active forced false).
+    from teaparty_app.services.event_bus import publish
+    publish(conversation_id, {"type": "activity", "agents": [], "stream_active": False})
 
 
 def is_conversation_cancelled(conversation_id: str) -> bool:
@@ -549,6 +569,21 @@ def _run_single_agent_responses(
                 commit_with_retry(session)
             except Exception as exc:
                 logger.warning("Mid-chain commit failed: %s", exc)
+
+            # Push new message to SSE subscribers.
+            from teaparty_app.services.event_bus import publish
+            publish(conversation.id, {
+                "type": "message",
+                "id": agent_message.id,
+                "conversation_id": agent_message.conversation_id,
+                "sender_type": agent_message.sender_type,
+                "sender_agent_id": agent_message.sender_agent_id,
+                "sender_user_id": None,
+                "content": agent_message.content,
+                "requires_response": agent_message.requires_response,
+                "response_to_message_id": agent_message.response_to_message_id,
+                "created_at": agent_message.created_at.isoformat() if agent_message.created_at else None,
+            })
 
     _clear_activity(conversation.id)
     return created

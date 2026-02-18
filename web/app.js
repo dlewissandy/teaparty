@@ -48,6 +48,8 @@ const state = {
   thoughtsByMessageId: {},
   lastLiveActivity: null,
   toolbarVisible: false,
+  eventSource: null,
+  sseConversationId: null,
 };
 
 const qs = (id) => document.getElementById(id);
@@ -1899,10 +1901,12 @@ function renderFileBrowserListing(node, isOwner) {
     const childCount = folderNode.folders.size + folderNode.files.length;
     const itemLabel = childCount + " item" + (childCount !== 1 ? "s" : "");
     const fullPath = [...state.fileBrowserPath, folderName].join("/");
-    const actions = (isOwner && !isComposite) ? `<span class="file-browser-actions">
+    const folderOwnerActions = (isOwner && !isComposite) ? `
       <button type="button" data-action="browser-rename-folder" data-folder-path="${escapeHtml(fullPath)}">Rename</button>
       <button type="button" data-action="browser-copy-folder" data-folder-path="${escapeHtml(fullPath)}">Copy</button>
-      <button type="button" data-action="browser-delete-folder" data-folder-path="${escapeHtml(fullPath)}">Delete</button>
+      <button type="button" data-action="browser-delete-folder" data-folder-path="${escapeHtml(fullPath)}">Delete</button>` : "";
+    const actions = (!isComposite) ? `<span class="file-browser-actions">
+      <button type="button" data-action="browser-download-folder" data-folder-path="${escapeHtml(fullPath)}">Download</button>${folderOwnerActions}
     </span>` : "";
     html += `<div class="file-browser-row">
       <button class="file-browser-item" data-action="browser-drill" data-folder="${escapeHtml(folderName)}">
@@ -1918,10 +1922,12 @@ function renderFileBrowserListing(node, isOwner) {
     const iconClass = file.isLink ? "link" : "file";
     const iconSvg = file.isLink ? FINDER_LINK_ICON_SVG : FINDER_FILE_ICON_SVG;
     const isVirtual = file._source && file._source.startsWith("virtual-");
-    const actions = (isOwner && !isVirtual && !isComposite) ? `<span class="file-browser-actions">
+    const fileOwnerActions = (isOwner && !isVirtual && !isComposite) ? `
       <button type="button" data-action="browser-rename-file" data-file-id="${escapeHtml(file.id)}">Rename</button>
       <button type="button" data-action="browser-copy-file" data-file-id="${escapeHtml(file.id)}">Copy</button>
-      <button type="button" data-action="browser-delete-file" data-file-id="${escapeHtml(file.id)}">Delete</button>
+      <button type="button" data-action="browser-delete-file" data-file-id="${escapeHtml(file.id)}">Delete</button>` : "";
+    const actions = (!isVirtual && !isComposite) ? `<span class="file-browser-actions">
+      <button type="button" data-action="browser-download-file" data-file-id="${escapeHtml(file.id)}">Download</button>${fileOwnerActions}
     </span>` : "";
     const wgAttr = state.fileBrowserWorkgroupId || (file._sourceWorkgroupId || "");
     html += `<div class="file-browser-row">
@@ -2691,6 +2697,7 @@ function clearActiveConversationUI() {
   if (previousConversationId) {
     delete state.thinkingByConversation[previousConversationId];
   }
+  disconnectSSE();
   state.activeConversationId = "";
   state.activeNodeKey = "";
   state.activeMessages = [];
@@ -4177,6 +4184,140 @@ function browserCopyFolder(workgroupId, folderPath) {
   });
 }
 
+function browserDownloadFile(workgroupId, fileId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const files = normalizeWorkgroupFiles(data.workgroup.files);
+  const file = files.find(f => f.id === fileId);
+  if (!file) { flash("File not found", "error"); return; }
+  const parts = file.path.split("/");
+  const filename = parts[parts.length - 1] || "download.txt";
+  const blob = new Blob([file.content || ""], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function browserDownloadFolder(workgroupId, folderPath) {
+  const data = state.treeData[workgroupId];
+  if (!data) return;
+  const files = normalizeWorkgroupFiles(data.workgroup.files);
+  const prefix = folderPath + "/";
+  const matching = files.filter(f => f.path.startsWith(prefix));
+  if (!matching.length) { flash("No files in this folder", "info"); return; }
+
+  // Build a store-mode zip (no compression, pure JS).
+  const entries = matching.map(f => ({
+    name: f.path.slice(prefix.length),
+    data: new TextEncoder().encode(f.content || ""),
+  }));
+  const blob = _buildZip(entries);
+  const folderName = folderPath.split("/").pop() || "folder";
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = folderName + ".zip";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  flash(`Downloaded ${matching.length} file${matching.length !== 1 ? "s" : ""}`, "success");
+}
+
+function _buildZip(entries) {
+  // Minimal store-mode ZIP (no compression) — works for text files.
+  const localHeaders = [];
+  const centralHeaders = [];
+  let offset = 0;
+
+  for (const { name, data } of entries) {
+    const nameBytes = new TextEncoder().encode(name);
+    const crc = _crc32(data);
+
+    // Local file header (30 + name + data)
+    const local = new Uint8Array(30 + nameBytes.length + data.length);
+    const lv = new DataView(local.buffer);
+    lv.setUint32(0, 0x04034b50, true);   // signature
+    lv.setUint16(4, 20, true);            // version needed
+    lv.setUint16(6, 0, true);             // flags
+    lv.setUint16(8, 0, true);             // compression (store)
+    lv.setUint16(10, 0, true);            // mod time
+    lv.setUint16(12, 0, true);            // mod date
+    lv.setUint32(14, crc, true);          // crc-32
+    lv.setUint32(18, data.length, true);  // compressed size
+    lv.setUint32(22, data.length, true);  // uncompressed size
+    lv.setUint16(26, nameBytes.length, true);
+    lv.setUint16(28, 0, true);            // extra field length
+    local.set(nameBytes, 30);
+    local.set(data, 30 + nameBytes.length);
+    localHeaders.push(local);
+
+    // Central directory header (46 + name)
+    const central = new Uint8Array(46 + nameBytes.length);
+    const cv = new DataView(central.buffer);
+    cv.setUint32(0, 0x02014b50, true);    // signature
+    cv.setUint16(4, 20, true);            // version made by
+    cv.setUint16(6, 20, true);            // version needed
+    cv.setUint16(8, 0, true);             // flags
+    cv.setUint16(10, 0, true);            // compression
+    cv.setUint16(12, 0, true);            // mod time
+    cv.setUint16(14, 0, true);            // mod date
+    cv.setUint32(16, crc, true);          // crc-32
+    cv.setUint32(20, data.length, true);  // compressed size
+    cv.setUint32(24, data.length, true);  // uncompressed size
+    cv.setUint16(28, nameBytes.length, true);
+    cv.setUint16(30, 0, true);            // extra field length
+    cv.setUint16(32, 0, true);            // comment length
+    cv.setUint16(34, 0, true);            // disk number start
+    cv.setUint16(36, 0, true);            // internal attrs
+    cv.setUint32(38, 0, true);            // external attrs
+    cv.setUint32(42, offset, true);       // local header offset
+    central.set(nameBytes, 46);
+    centralHeaders.push(central);
+
+    offset += local.length;
+  }
+
+  const centralOffset = offset;
+  let centralSize = 0;
+  for (const c of centralHeaders) centralSize += c.length;
+
+  // End of central directory (22 bytes)
+  const eocd = new Uint8Array(22);
+  const ev = new DataView(eocd.buffer);
+  ev.setUint32(0, 0x06054b50, true);
+  ev.setUint16(4, 0, true);                       // disk number
+  ev.setUint16(6, 0, true);                       // disk with central dir
+  ev.setUint16(8, entries.length, true);           // entries on this disk
+  ev.setUint16(10, entries.length, true);          // total entries
+  ev.setUint32(12, centralSize, true);             // central dir size
+  ev.setUint32(16, centralOffset, true);           // central dir offset
+  ev.setUint16(20, 0, true);                      // comment length
+
+  const parts = [...localHeaders, ...centralHeaders, eocd];
+  const totalSize = parts.reduce((s, p) => s + p.length, 0);
+  const result = new Uint8Array(totalSize);
+  let pos = 0;
+  for (const part of parts) { result.set(part, pos); pos += part.length; }
+  return new Blob([result], { type: "application/zip" });
+}
+
+function _crc32(data) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i];
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+    }
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
 async function ensureAgentLearningsFile(workgroupId, agent) {
   const data = state.treeData[workgroupId];
   if (!data) return;
@@ -5499,6 +5640,7 @@ async function selectConversation(workgroupId, conversationId, nodeKey = "") {
   savePreferences({ conversationLastRead: lastRead });
 
   refreshActiveConversationHeader();
+  connectSSE(conversationId);
 
   renderTree();
   await loadMessages();
@@ -5635,6 +5777,82 @@ async function loadMessages() {
   return messages;
 }
 
+// ---------------------------------------------------------------------------
+// SSE push — instant activity + message updates
+// ---------------------------------------------------------------------------
+
+function connectSSE(conversationId) {
+  disconnectSSE();
+  if (!state.token || !conversationId) return;
+  const url = `/api/conversations/${encodeURIComponent(conversationId)}/events?token=${encodeURIComponent(state.token)}`;
+  const es = new EventSource(url);
+  state.eventSource = es;
+  state.sseConversationId = conversationId;
+
+  es.onmessage = (evt) => {
+    try {
+      const event = JSON.parse(evt.data);
+      handleSSEEvent(conversationId, event);
+    } catch (_) { /* ignore parse errors */ }
+  };
+  es.onerror = () => {
+    // EventSource auto-reconnects; if it closes, clean up.
+    if (es.readyState === EventSource.CLOSED) {
+      disconnectSSE();
+    }
+  };
+}
+
+function disconnectSSE() {
+  if (state.eventSource) {
+    state.eventSource.close();
+    state.eventSource = null;
+  }
+  state.sseConversationId = null;
+}
+
+function handleSSEEvent(conversationId, event) {
+  if (conversationId !== state.activeConversationId) return;
+
+  if (event.type === "activity") {
+    const pending = state.thinkingByConversation[conversationId];
+    if (pending) {
+      const agents = event.agents || [];
+      const streamActive = !!event.stream_active;
+      pending.liveActivity = agents.length ? agents : null;
+      pending.streamActive = streamActive;
+      if (agents.length || streamActive) {
+        pending.lastActivityAtMs = Date.now();
+      }
+      state.lastLiveActivity = event;
+      renderMessages(state.activeMessages);
+    }
+    return;
+  }
+
+  if (event.type === "message") {
+    // De-duplicate against existing messages.
+    if (event.id && state.activeMessages.some((m) => m.id === event.id)) return;
+    // Build a MessageRead-shaped object.
+    const msg = {
+      id: event.id,
+      conversation_id: event.conversation_id,
+      sender_type: event.sender_type,
+      sender_user_id: event.sender_user_id || null,
+      sender_agent_id: event.sender_agent_id || null,
+      content: event.content,
+      requires_response: event.requires_response,
+      response_to_message_id: event.response_to_message_id || null,
+      created_at: event.created_at,
+    };
+    const optimistic = state.activeMessages.filter((m) => m.id.startsWith("local-"));
+    const real = state.activeMessages.filter((m) => !m.id.startsWith("local-"));
+    state.activeMessages = [...real, msg, ...optimistic];
+    renderMessages(state.activeMessages);
+    return;
+  }
+}
+
 async function pollMessages() {
   if (!state.activeConversationId) {
     return state.activeMessages;
@@ -5737,9 +5955,9 @@ function startPolling() {
           loadConversationUsage(state.activeConversationId);
         }
 
-        // Poll live activity when agents are thinking.
+        // Poll live activity when agents are thinking (skip when SSE is connected).
         const pending = state.thinkingByConversation[state.activeConversationId];
-        if (pending) {
+        if (pending && !state.eventSource) {
           try {
             const resp = await api(`/api/conversations/${state.activeConversationId}/activity`, { retries: 0, timeout: 5000 });
             // Response is { agents: [...], stream_active: bool }.
@@ -5758,7 +5976,7 @@ function startPolling() {
               renderMessages(state.activeMessages);
             }
           } catch (_) { /* skip on error */ }
-        } else {
+        } else if (!pending) {
           state.lastLiveActivity = null;
         }
 
@@ -5897,18 +6115,22 @@ document.addEventListener("visibilitychange", () => {
   if (!state.token) return;
   if (document.hidden) {
     stopPolling();
+    disconnectSSE();
   } else {
     startPolling();
+    if (state.activeConversationId) connectSSE(state.activeConversationId);
   }
 });
 
 window.addEventListener("offline", () => {
   stopPolling();
+  disconnectSSE();
 });
 
 window.addEventListener("online", () => {
   if (state.token) {
     startPolling();
+    if (state.activeConversationId) connectSSE(state.activeConversationId);
   }
 });
 
@@ -5975,6 +6197,7 @@ async function setSignedIn(user, token) {
 
 function signOut() {
   stopPolling();
+  disconnectSSE();
 
   state.user = null;
   state.token = "";
@@ -7123,6 +7346,14 @@ function bindEvents() {
     if (action === "browser-delete-folder") {
       const folderPath = button.dataset.folderPath;
       if (folderPath) deleteWorkgroupFolder(wgId, folderPath);
+    }
+    if (action === "browser-download-file") {
+      const fileId = button.dataset.fileId;
+      if (fileId) browserDownloadFile(wgId, fileId);
+    }
+    if (action === "browser-download-folder") {
+      const folderPath = button.dataset.folderPath;
+      if (folderPath) browserDownloadFolder(wgId, folderPath);
     }
   });
 

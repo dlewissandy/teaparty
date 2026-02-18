@@ -133,6 +133,22 @@ def process_team_events_sync(
         except Exception as exc:
             logger.warning("Failed to commit team message: %s", exc)
         created.append(msg)
+
+        # Push new message to SSE subscribers.
+        from teaparty_app.services.event_bus import publish
+        publish(conversation.id, {
+            "type": "message",
+            "id": msg.id,
+            "conversation_id": msg.conversation_id,
+            "sender_type": msg.sender_type,
+            "sender_agent_id": msg.sender_agent_id,
+            "sender_user_id": None,
+            "content": msg.content,
+            "requires_response": msg.requires_response,
+            "response_to_message_id": msg.response_to_message_id,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        })
+
         return msg
 
     def _handle_event(event: TeamEvent) -> str | None:
@@ -207,19 +223,6 @@ def process_team_events_sync(
                     if agent_id:
                         _clear_activity(conversation.id, agent_id)
 
-        # --- inbox: agent-to-agent message from inbox file ---
-        elif event.kind == "inbox":
-            from_name = event.raw.get("from", "")
-            recipient_name = event.raw.get("recipient", "")
-            text = event.content.strip()
-            if not text or text in posted_texts:
-                return None
-            sender_id = _resolve_agent_id(from_name, slug_to_id)
-            formatted = f"@{recipient_name} {text}" if recipient_name else text
-            msg = _store_message(sender_id, formatted)
-            if msg:
-                posted_texts.add(text)
-
         # --- result: lead output (don't break — eof is the exit signal) ---
         elif event.kind == "result":
             if event.content:
@@ -243,10 +246,6 @@ def process_team_events_sync(
             break
         if action == "error":
             return created
-
-    # Wait for inbox thread's final sweep before draining.
-    if team._inbox_thread and team._inbox_thread.is_alive():
-        team._inbox_thread.join(timeout=5.0)
 
     # Drain remaining events after eof/exit.
     drained = 0
