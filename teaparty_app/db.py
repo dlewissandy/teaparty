@@ -52,6 +52,7 @@ def init_db() -> None:
     _migrate_agent_tool_names()
     _migrate_add_job_max_rounds()
     _migrate_add_job_permission_mode()
+    _migrate_drop_agent_follow_up_minutes()
     _run_seeds()
 
 
@@ -773,6 +774,15 @@ def _migrate_add_job_permission_mode() -> None:
     if "permission_mode" not in job_columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE jobs ADD COLUMN permission_mode TEXT DEFAULT 'acceptEdits' NOT NULL"))
+
+
+def _migrate_drop_agent_follow_up_minutes() -> None:
+    """Drop orphaned follow_up_minutes column from agents table."""
+    cols = _sqlite_column_names("agents")
+    if "follow_up_minutes" not in cols:
+        return
+    with engine.begin() as conn:
+        conn.execute(text("ALTER TABLE agents DROP COLUMN follow_up_minutes"))
 
 
 def get_session() -> Iterator[Session]:
