@@ -1,3 +1,5 @@
+"""LLM usage tracking, cost estimation, and budget enforcement."""
+
 from __future__ import annotations
 
 import logging
@@ -88,9 +90,9 @@ def get_member_usage(session: Session, workgroup_id: str, user_id: str) -> dict:
 
 # Model pricing (USD per million tokens)
 MODEL_PRICING = {
-    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0},
-    "claude-haiku-4-5": {"input": 0.80, "output": 4.0},
-    "claude-opus-4-6": {"input": 15.0, "output": 75.0},
+    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "context": 200_000},
+    "claude-haiku-4-5": {"input": 0.80, "output": 4.0, "context": 200_000},
+    "claude-opus-4-6": {"input": 15.0, "output": 75.0, "context": 200_000},
 }
 
 
@@ -105,6 +107,16 @@ def _estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
             # Unknown models (Ollama, local, etc.) default to zero cost
             return 0.0
     return (input_tokens * pricing["input"] + output_tokens * pricing["output"]) / 1_000_000
+
+
+def _get_context_window(model: str) -> int:
+    pricing = MODEL_PRICING.get(model)
+    if not pricing:
+        for key in MODEL_PRICING:
+            if key in model:
+                pricing = MODEL_PRICING[key]
+                break
+    return pricing.get("context", 0) if pricing else 0
 
 
 def get_conversation_usage(session: Session, conversation_id: str) -> dict:
@@ -122,6 +134,14 @@ def get_conversation_usage(session: Session, conversation_id: str) -> dict:
         entry["output_tokens"] += r.output_tokens
         entry["cost_usd"] += _estimate_cost(r.model, r.input_tokens, r.output_tokens)
         entry["calls"] += 1
+    # Find the most recent row's input tokens and resolve its context window
+    last_input_tokens = 0
+    context_window = 0
+    if rows:
+        latest = max(rows, key=lambda r: r.created_at)
+        last_input_tokens = latest.input_tokens
+        context_window = _get_context_window(latest.model)
+
     return {
         "conversation_id": conversation_id,
         "total_input_tokens": total_input,
@@ -131,6 +151,8 @@ def get_conversation_usage(session: Session, conversation_id: str) -> dict:
         "estimated_cost_usd": round(total_cost, 6),
         "api_calls": len(rows),
         "by_model": by_model,
+        "last_input_tokens": last_input_tokens,
+        "context_window": context_window,
     }
 
 

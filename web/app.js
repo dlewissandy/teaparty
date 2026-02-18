@@ -5985,6 +5985,12 @@ async function loadConversationUsage(conversationId) {
         '</span></span><span class="usage-dot"></span><span class="usage-stat"><span class="usage-label">tokens</span><span class="usage-value">' +
         formatTokenCount(data.total_tokens) +
         "</span></span>";
+      if (data.context_window > 0) {
+        const pct = Math.round((data.last_input_tokens / data.context_window) * 100);
+        const cls = pct > 80 ? "usage-context-red" : pct >= 50 ? "usage-context-yellow" : "usage-context-green";
+        el.innerHTML += '<span class="usage-dot"></span><span class="usage-stat ' + cls +
+          '"><span class="usage-label">context</span><span class="usage-value">' + pct + '%</span></span>';
+      }
       el.classList.remove("hidden");
     } else if (el) {
       el.classList.add("hidden");

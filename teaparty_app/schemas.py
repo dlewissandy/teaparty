@@ -1,3 +1,9 @@
+"""Pydantic request/response schemas for the REST API.
+
+Organized by domain: auth, workgroups, organizations, agents, conversations,
+cross-group tasks, engagements, jobs, agent tasks, workspace, system, and payments.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,8 +12,14 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
+# --- Base ---
+
+
 class ORMBaseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+
+# --- Auth & Users ---
 
 
 class UserRead(ORMBaseModel):
@@ -36,6 +48,9 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserRead
+
+
+# --- Workgroups ---
 
 
 class WorkgroupFileWrite(BaseModel):
@@ -95,6 +110,9 @@ class WorkgroupRead(ORMBaseModel):
     created_at: datetime
 
 
+# --- Organizations ---
+
+
 class OrganizationRead(ORMBaseModel):
     id: str
     name: str
@@ -133,6 +151,9 @@ class WorkgroupTemplateRead(BaseModel):
     description: str
     files: list[WorkgroupTemplateFileRead] = Field(default_factory=list)
     agents: list[WorkgroupTemplateAgentRead] = Field(default_factory=list)
+
+
+# --- Invites & Members ---
 
 
 class InviteCreateRequest(BaseModel):
@@ -176,6 +197,9 @@ class MemberRoleUpdateRequest(BaseModel):
 class MemberBudgetUpdateRequest(BaseModel):
     budget_limit_usd: float | None = Field(default=None, ge=0.0)
     reset_usage: bool = False
+
+
+# --- Agents ---
 
 
 class AgentCreateRequest(BaseModel):
@@ -237,6 +261,9 @@ class AgentRead(ORMBaseModel):
 class AgentConversationClearRead(BaseModel):
     conversation_id: str | None
     deleted_messages: int
+
+
+# --- Conversations & Messages ---
 
 
 class ConversationCreateRequest(BaseModel):
@@ -501,6 +528,9 @@ class AgentTaskDetailRead(AgentTaskRead):
     workgroup_name: str = ""
 
 
+# --- Agent Learning & Usage ---
+
+
 class AgentMemoryRead(ORMBaseModel):
     id: str
     agent_id: str
@@ -534,6 +564,8 @@ class ConversationUsageRead(BaseModel):
     estimated_cost_usd: float
     api_calls: int
     by_model: dict[str, Any] = {}
+    last_input_tokens: int = 0
+    context_window: int = 0
 
 
 class WorkgroupUsageRead(BaseModel):

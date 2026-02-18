@@ -880,6 +880,9 @@ body[data-theme="dark"] .unread-dot {
 .usage-label { text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.5; font-size: 0.6rem; }
 .usage-value { font-variant-numeric: tabular-nums; opacity: 0.8; }
 .usage-dot { width: 3px; height: 3px; border-radius: 50%; background: currentColor; opacity: 0.25; }
+.usage-context-green .usage-value { color: #2e7d32; opacity: 1; }
+.usage-context-yellow .usage-value { color: #f9a825; opacity: 1; }
+.usage-context-red .usage-value { color: #c62828; opacity: 1; }
 
 .workgroup-files-tree {
   max-height: 260px;
