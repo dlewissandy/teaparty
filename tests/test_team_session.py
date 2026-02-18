@@ -182,50 +182,5 @@ class TeamRegistryTests(unittest.TestCase):
         self.assertIsInstance(count, int)
 
 
-class InboxPollingTests(unittest.TestCase):
-    """Test _is_protocol_message filtering."""
-
-    def test_idle_notification_is_protocol(self) -> None:
-        text = json.dumps({"type": "idle_notification", "agentId": "abc"})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_permission_request_is_protocol(self) -> None:
-        text = json.dumps({"type": "permission_request", "tool": "Bash"})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_shutdown_request_is_protocol(self) -> None:
-        text = json.dumps({"type": "shutdown_request"})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_shutdown_response_is_protocol(self) -> None:
-        text = json.dumps({"type": "shutdown_response", "approve": True})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_plan_approval_request_is_protocol(self) -> None:
-        text = json.dumps({"type": "plan_approval_request"})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_plan_approval_response_is_protocol(self) -> None:
-        text = json.dumps({"type": "plan_approval_response", "approve": True})
-        self.assertTrue(TeamSession._is_protocol_message(text))
-
-    def test_plain_text_is_not_protocol(self) -> None:
-        self.assertFalse(TeamSession._is_protocol_message("Hello, how are you?"))
-
-    def test_non_protocol_json_is_not_protocol(self) -> None:
-        text = json.dumps({"type": "message", "content": "hi"})
-        self.assertFalse(TeamSession._is_protocol_message(text))
-
-    def test_malformed_json_is_not_protocol(self) -> None:
-        self.assertFalse(TeamSession._is_protocol_message("{bad json"))
-
-    def test_empty_string_is_not_protocol(self) -> None:
-        self.assertFalse(TeamSession._is_protocol_message(""))
-
-    def test_json_without_type_is_not_protocol(self) -> None:
-        text = json.dumps({"data": "something"})
-        self.assertFalse(TeamSession._is_protocol_message(text))
-
-
 if __name__ == "__main__":
     unittest.main()

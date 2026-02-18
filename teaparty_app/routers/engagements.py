@@ -18,6 +18,7 @@ from teaparty_app.schemas import (
     EngagementCompleteRequest,
     EngagementCreateRequest,
     EngagementDetailRead,
+    EngagementPriceRequest,
     EngagementRead,
     EngagementRespondRequest,
     EngagementReviewRequest,
@@ -299,6 +300,20 @@ def respond_to_engagement(
         engagement.terms = payload.terms.strip()
     session.add(engagement)
 
+    # Escrow payment if price is set
+    from teaparty_app.services.payments import InsufficientBalanceError, escrow_for_engagement
+    try:
+        escrow_for_engagement(session, engagement)
+    except InsufficientBalanceError as e:
+        engagement.status = "proposed"
+        engagement.accepted_at = None
+        session.add(engagement)
+        session.flush()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Insufficient balance: {e.available} available, {e.required} required",
+        )
+
     terms_note = f"\nTerms: {engagement.terms}" if engagement.terms else ""
     _post_system_message(session, engagement.source_conversation_id,
                          f"[Engagement accepted] {engagement.title}{terms_note}")
@@ -437,6 +452,12 @@ def review_engagement(
     engagement.reviewed_at = utc_now()
     engagement.review_rating = payload.rating
     engagement.review_feedback = payload.feedback.strip() if payload.feedback else ""
+
+    # Release escrowed credits to target org
+    if engagement.payment_status == "escrowed":
+        from teaparty_app.services.payments import release_escrow
+        release_escrow(session, engagement)
+
     session.add(engagement)
 
     notification = f"[Engagement reviewed: {payload.rating}]"
@@ -486,6 +507,12 @@ def cancel_engagement(
 
     engagement.status = "cancelled"
     engagement.cancelled_at = utc_now()
+
+    # Refund escrowed credits
+    if engagement.payment_status == "escrowed":
+        from teaparty_app.services.payments import refund_escrow
+        refund_escrow(session, engagement)
+
     session.add(engagement)
 
     reason = payload.reason.strip() if payload.reason else ""
@@ -505,6 +532,40 @@ def cancel_engagement(
                   f"Engagement cancelled: {engagement.title}", actor_user_id=user.id)
     post_activity(session, engagement.target_workgroup_id, "engagement_cancelled",
                   f"Engagement cancelled: {engagement.title}", actor_user_id=user.id)
+
+    session.commit()
+    session.refresh(engagement)
+    return _engagement_detail(session, engagement)
+
+
+@router.post("/engagements/{engagement_id}/price", response_model=EngagementDetailRead)
+def set_engagement_price(
+    engagement_id: str,
+    payload: EngagementPriceRequest,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> EngagementDetailRead:
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found",
+        )
+
+    _require_engagement_participant(session, engagement, user.id)
+
+    if engagement.status in ("cancelled", "declined", "reviewed"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot set price for engagement in status '{engagement.status}'",
+        )
+
+    engagement.agreed_price_credits = payload.price_credits
+    session.add(engagement)
+
+    price_msg = f"[Price agreed] {payload.price_credits} credits for: {engagement.title}"
+    _post_system_message(session, engagement.source_conversation_id, price_msg)
+    _post_system_message(session, engagement.target_conversation_id, price_msg)
 
     session.commit()
     session.refresh(engagement)

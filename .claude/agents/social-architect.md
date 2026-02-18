@@ -33,7 +33,7 @@ Your primary artifact is `docs/SocialArchitecture.md`, which you maintain as the
 ## How You Work
 
 - Ground your analysis in the actual codebase. Read `agent_runtime.py`, `prompt_builder.py`, and the template YAML files to understand current social mechanics.
-- Study `docs/next-speaker-selection.md` and `docs/workflows.md` for the existing turn-taking and workflow models.
+- Study `docs/agent-dispatch.md` and `docs/workflows.md` for the existing turn-taking and workflow models.
 - Use WebSearch to find relevant research in social computing, CSCW, conversational AI, and group dynamics.
 - Propose changes that respect the project's philosophy: agents are autonomous, not scripted; rules are minimal and emergent.
 - Maintain `docs/SocialArchitecture.md` with your analysis, principles, and design recommendations.

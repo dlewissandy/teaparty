@@ -15,6 +15,8 @@ def _timestamp() -> str:
 
 
 def _render_agreement(engagement: Engagement, source_name: str, target_name: str) -> str:
+    price_str = f"{engagement.agreed_price_credits} credits" if engagement.agreed_price_credits else "(not set)"
+    payment_str = getattr(engagement, "payment_status", "none") or "none"
     return (
         f"# Engagement: {engagement.title}\n\n"
         f"**Status:** {engagement.status}\n\n"
@@ -24,6 +26,8 @@ def _render_agreement(engagement: Engagement, source_name: str, target_name: str
         f"## Scope\n{engagement.scope or '(none)'}\n\n"
         f"## Requirements\n{engagement.requirements or '(none)'}\n\n"
         f"## Terms\n{engagement.terms or '(none)'}\n\n"
+        f"## Price\n{price_str}\n\n"
+        f"## Payment Status\n{payment_str}\n\n"
         f"## Deliverables\n{engagement.deliverables or '(none)'}\n\n"
         f"## Timeline\n"
         f"- Created: {engagement.created_at.strftime('%Y-%m-%d %H:%M UTC') if engagement.created_at else 'N/A'}\n"

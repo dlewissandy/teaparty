@@ -140,6 +140,11 @@ def _build_prompt_body(
             parts.append("")
             parts.append(skill_block)
 
+    # Orchestration tools for coordinator agents in operations workgroups
+    if _is_operations_coordinator(agent, workgroup):
+        parts.append("")
+        parts.append(_ORCHESTRATION_DOCS)
+
     # Embedded workgroup files (for non-filesystem agents)
     if files_context:
         parts.append("")
@@ -153,6 +158,69 @@ def _build_prompt_body(
     parts.append("- Be direct and substantive.")
 
     return "\n".join(parts)
+
+
+def _is_operations_coordinator(agent: Agent, workgroup: Workgroup | None) -> bool:
+    """Return True if agent is a coordinator in an operations workgroup."""
+    if not workgroup or not workgroup.organization_id:
+        return False
+    # Check if Bash is in the agent's tools (coordinator needs it for CLI)
+    has_bash = "Bash" in (agent.tool_names or [])
+    if not has_bash:
+        return False
+    # Check if agent role or description mentions coordination/engagement
+    role_lower = (agent.role or "").lower() + " " + (agent.description or "").lower()
+    return "coordinator" in role_lower or "engagement" in role_lower
+
+
+_ORCHESTRATION_DOCS = """\
+## Orchestration Tools
+
+You have access to orchestration commands via Bash. These are available because \
+environment variables TEAPARTY_AGENT_ID, TEAPARTY_WORKGROUP_ID, and TEAPARTY_ORG_ID \
+are set for you.
+
+### Available Commands
+
+```bash
+# Browse organizations accepting engagements
+python -m teaparty_app.cli.orchestrate browse-directory
+
+# Check your org's credit balance
+python -m teaparty_app.cli.orchestrate check-balance
+
+# Propose a new engagement to another org
+python -m teaparty_app.cli.orchestrate propose-engagement \\
+  --target-org-id <ORG_ID> --title "Title" --scope "Scope" --requirements "Reqs"
+
+# Accept or decline an engagement
+python -m teaparty_app.cli.orchestrate respond-engagement \\
+  --engagement-id <ID> --action accept --terms "Terms"
+
+# Set the agreed price for an engagement
+python -m teaparty_app.cli.orchestrate set-price \\
+  --engagement-id <ID> --price 100.0
+
+# Create a job for a team in your org
+python -m teaparty_app.cli.orchestrate create-job \\
+  --team "Design" --title "UI mockups" --scope "Create mockups" --engagement-id <ID>
+
+# List jobs in a team
+python -m teaparty_app.cli.orchestrate list-team-jobs --team "Design"
+
+# Check job status and recent messages
+python -m teaparty_app.cli.orchestrate read-job-status --job-id <ID>
+
+# Post a message to a job conversation
+python -m teaparty_app.cli.orchestrate post-to-job --job-id <ID> --message "Update needed"
+
+# Mark an engagement as completed
+python -m teaparty_app.cli.orchestrate complete-engagement \\
+  --engagement-id <ID> --summary "All deliverables ready"
+```
+
+All commands output JSON. Use these tools to manage engagements and dispatch work.\
+"""
 
 
 def _build_skill_context(

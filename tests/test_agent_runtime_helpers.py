@@ -98,13 +98,13 @@ class AgentRuntimeHelperTests(unittest.TestCase):
 class JobRoutingTests(unittest.TestCase):
     """Full routing matrix for run_agent_auto_responses:
     - Job + @mention -> single named agent (_run_single_agent_responses)
-    - Job + no @-mention, multiple agents -> team mode (_run_job_team_response)
+    - Job + no @-mention, multiple agents -> team mode (_run_team_response)
     - Job + no @-mention, single agent -> single-agent (_run_single_agent_responses)
     - Job + @each -> fan-out (_run_single_agent_responses)
     - Job + agent sender -> no response (prevents re-triggering loops)
     - Direct/engagement -> single agent (_run_single_agent_responses)"""
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_job_at_all_routes_to_team(self, mock_agents, mock_single, mock_team) -> None:
@@ -125,7 +125,7 @@ class JobRoutingTests(unittest.TestCase):
         mock_team.assert_called_once()
         mock_single.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_direct_conversation_routes_to_single(self, mock_agents, mock_single, mock_team) -> None:
@@ -143,7 +143,7 @@ class JobRoutingTests(unittest.TestCase):
         mock_single.assert_called_once()
         mock_team.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_job_at_all_multi_agent_routes_to_team(self, mock_agents, mock_single, mock_team) -> None:
@@ -165,7 +165,7 @@ class JobRoutingTests(unittest.TestCase):
         mock_team.assert_called_once()
         mock_single.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_job_no_mention_multi_agent_routes_to_team(self, mock_agents, mock_single, mock_team) -> None:
@@ -187,7 +187,7 @@ class JobRoutingTests(unittest.TestCase):
         mock_team.assert_called_once()
         mock_single.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_job_no_mention_single_agent_routes_to_single(self, mock_agents, mock_single, mock_team) -> None:
@@ -207,7 +207,7 @@ class JobRoutingTests(unittest.TestCase):
         mock_single.assert_called_once()
         mock_team.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_job_at_mention_routes_to_named_agent(self, mock_agents, mock_single, mock_team) -> None:
@@ -231,7 +231,7 @@ class JobRoutingTests(unittest.TestCase):
         self.assertEqual(passed_candidates[0].name, "Bob")
         mock_team.assert_not_called()
 
-    @patch("teaparty_app.services.agent_runtime._run_job_team_response")
+    @patch("teaparty_app.services.agent_runtime._run_team_response")
     @patch("teaparty_app.services.agent_runtime._run_single_agent_responses")
     @patch("teaparty_app.services.agent_runtime._agents_for_auto_response")
     def test_agent_sender_produces_no_response(self, mock_agents, mock_single, mock_team) -> None:

@@ -31,4 +31,4 @@ PYTHONPATH=. uv run pytest tests/ --tb=short -q
 - [docs/workflows.md](../../docs/workflows.md) -- Workflow system
 - [docs/engagements.md](../../docs/engagements.md) -- Cross-org engagement model
 - [docs/sandbox-design.md](../../docs/sandbox-design.md) -- Docker sandbox architecture
-- [docs/next-speaker-selection.md](../../docs/next-speaker-selection.md) -- Turn-order selection
+- [docs/agent-dispatch.md](../../docs/agent-dispatch.md) -- Agent routing and team sessions

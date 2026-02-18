@@ -14,7 +14,7 @@ Teaparty is a FastAPI + vanilla JS application with:
 - Python backend under `teaparty_app/` (SQLModel, Anthropic SDK, LiteLLM)
 - Single-page frontend in `web/` (app.js, styles.css)
 - Pytest tests in `tests/`
-- Docs in `docs/` (file-layout.md, workflows.md, engagements.md, sandbox-design.md, next-speaker-selection.md)
+- Docs in `docs/` (file-layout.md, workflows.md, engagements.md, sandbox-design.md, agent-dispatch.md)
 - Roadmap in `ROADMAP.md`, task breakdown in `TASKLIST.md`
 
 ## Review Criteria

@@ -28,7 +28,7 @@ Read these for context before making architectural recommendations:
 - `docs/workflows.md` -- Workflow system specification
 - `docs/engagements.md` -- Cross-organization engagement model
 - `docs/sandbox-design.md` -- Docker sandbox architecture for code execution
-- `docs/next-speaker-selection.md` -- Agent turn-order selection algorithm
+- `docs/agent-dispatch.md` -- Agent routing and team sessions
 
 ## Roadmap Phases
 

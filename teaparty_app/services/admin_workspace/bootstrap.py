@@ -17,9 +17,15 @@ from teaparty_app.models import (
 from teaparty_app.services.admin_workspace.parsing import _parse_temperature
 
 ADMIN_AGENT_SENTINEL = "__system_admin_agent__"
-ADMIN_AGENT_NAME = "Admin Agent"
 ADMIN_CONVERSATION_NAME = "Administration"
 ADMINISTRATION_WORKGROUP_NAME = "Administration"
+
+
+def admin_agent_name(workgroup: "Workgroup") -> str:
+    """Return the display name for a workgroup's admin agent."""
+    if workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id:
+        return "organization-admin"
+    return "workgroup-admin"
 
 ADMIN_TOOL_ADD_JOB = "add_job"
 ADMIN_TOOL_ARCHIVE_JOB = "archive_job"
@@ -121,11 +127,6 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
     ).first()
 
     if existing:
-        # Rename if workgroup name changed.
-        expected_name = lead_agent_name(workgroup.name)
-        if existing.name != expected_name:
-            existing.name = expected_name
-            session.add(existing)
         return existing, False
 
     agent = Agent(
@@ -182,12 +183,13 @@ def ensure_admin_workspace(
     workgroup: Workgroup,
 ) -> tuple[Agent, Conversation, bool]:
     changed = False
+    expected_admin_name = admin_agent_name(workgroup)
     admin_agent = find_admin_agent(session, workgroup.id)
     if not admin_agent:
         admin_agent = Agent(
             workgroup_id=workgroup.id,
             created_by_user_id=workgroup.owner_id,
-            name=ADMIN_AGENT_NAME,
+            name=expected_admin_name,
             description=ADMIN_AGENT_SENTINEL,
             role="Workgroup administrator",
             personality=(
@@ -209,6 +211,9 @@ def ensure_admin_workspace(
         changed = True
     else:
         admin_changed = False
+        if admin_agent.name != expected_admin_name:
+            admin_agent.name = expected_admin_name
+            admin_changed = True
         if sorted(admin_agent.tool_names or []) != sorted(ADMIN_TOOL_NAMES):
             admin_agent.tool_names = list(ADMIN_TOOL_NAMES)
             admin_changed = True

@@ -165,7 +165,7 @@ class EnsureLeadAgentTests(unittest.TestCase):
             session.commit()
             self.assertFalse(created)
             self.assertEqual(agent.id, lead_id)
-            self.assertEqual(agent.name, "Creative-lead")
+            self.assertEqual(agent.name, "Design-lead")  # name is not auto-renamed
 
     def test_does_not_create_second_lead(self):
         """If a lead already exists, ensure_lead_agent returns it."""

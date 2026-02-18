@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 
 from teaparty_app.config import settings
 from teaparty_app.db import init_db
-from teaparty_app.routers import agent_tasks, agents, auth, conversations, engagements, jobs, organizations, system, tasks, tools, workgroups, workspace
+from teaparty_app.routers import agent_tasks, agents, auth, balance, conversations, engagements, jobs, org_directory, organizations, system, tasks, tools, workgroups, workspace
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
@@ -38,6 +38,8 @@ def create_app() -> FastAPI:
     app.include_router(jobs.router)
     app.include_router(agent_tasks.router)
     app.include_router(workspace.router)
+    app.include_router(org_directory.router)
+    app.include_router(balance.router)
     app.include_router(system.router)
 
     if WEB_DIR.exists():

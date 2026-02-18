@@ -9,7 +9,6 @@ from sqlmodel import Session
 logger = logging.getLogger(__name__)
 
 from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
-    ADMIN_AGENT_NAME,
     ADMIN_AGENT_SENTINEL,
     ADMIN_CONVERSATION_NAME,
     ADMIN_TOOL_ACCEPT_TASK,
