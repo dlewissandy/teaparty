@@ -863,6 +863,53 @@ function workgroupHasUnread(workgroupId) {
   return false;
 }
 
+function workgroupUnreadCount(workgroupId) {
+  const data = state.treeData[workgroupId];
+  if (!data) return 0;
+  let count = 0;
+  for (const c of data.jobs) {
+    if (!c.is_archived && isConversationUnread(c)) count++;
+  }
+  const userId = state.user?.id;
+  for (const member of data.members) {
+    if (member.user_id === userId) continue;
+    const dm = directConversationForMember(workgroupId, member.user_id);
+    if (dm && isConversationUnread(dm)) count++;
+  }
+  for (const agent of (data.agents || [])) {
+    if (agent.description === "__system_admin_agent__") continue;
+    const dm = directConversationForAgent(workgroupId, agent.id);
+    if (dm && isConversationUnread(dm)) count++;
+  }
+  for (const tc of (data.taskConversations || [])) {
+    if (isConversationUnread(tc)) count++;
+  }
+  return count;
+}
+
+function recategorizeConversations(data, conversations, isOwner) {
+  const engagementConvIds = new Set(
+    (data.engagements || []).flatMap(e =>
+      [e.source_conversation_id, e.target_conversation_id].filter(Boolean)
+    )
+  );
+  const taskConvIds = new Set(
+    (data.agentTasks || []).map(t => t.conversation_id).filter(Boolean)
+  );
+  data.jobs = conversations.filter(c =>
+    (c.kind === "job" || (c.kind === "admin" && isOwner))
+    && !engagementConvIds.has(c.id)
+    && !taskConvIds.has(c.id)
+  );
+  data.taskConversations = conversations.filter(c => taskConvIds.has(c.id));
+  data.directs = conversations.filter(c =>
+    c.kind === "direct" && !taskConvIds.has(c.id)
+  );
+  data.engagementConversations = conversations.filter(c =>
+    c.kind === "engagement" || engagementConvIds.has(c.id)
+  );
+}
+
 function directConversationForMember(workgroupId, memberUserId) {
   const data = state.treeData[workgroupId];
   if (!data) return null;
@@ -5002,33 +5049,24 @@ async function refreshWorkgroupTree(workgroup) {
     api(`/api/workgroups/${workgroup.id}/agent-tasks`).catch(() => []),
   ]);
 
-  const engagementConversationIds = new Set(
-    (engagements || []).flatMap((e) => [e.source_conversation_id, e.target_conversation_id].filter(Boolean))
-  );
-  const taskConversationIds = new Set(
-    (agentTasks || []).map((t) => t.conversation_id).filter(Boolean)
-  );
-  const jobConversations = conversations.filter((item) => (item.kind === "job" || (item.kind === "admin" && isOwner)) && !engagementConversationIds.has(item.id) && !taskConversationIds.has(item.id));
-  const directs = conversations.filter((item) => item.kind === "direct" && !taskConversationIds.has(item.id));
-  const taskConversations = conversations.filter((item) => taskConversationIds.has(item.id));
-  const engagementConversations = conversations.filter((item) => item.kind === "engagement" || engagementConversationIds.has(item.id));
-
   const pendingInvites = (invites || []).filter((inv) => inv.status === "pending");
 
-  state.treeData[workgroup.id] = {
+  const treeEntry = {
     workgroup,
-    jobs: jobConversations,
-    directs,
+    jobs: [],
+    directs: [],
     members,
     agents,
     crossGroupTasks: crossGroupTasks || [],
     engagements: engagements || [],
-    engagementConversations,
+    engagementConversations: [],
     invites: pendingInvites,
     jobRecords: jobs || [],
     agentTasks: agentTasks || [],
-    taskConversations,
+    taskConversations: [],
   };
+  recategorizeConversations(treeEntry, conversations, isOwner);
+  state.treeData[workgroup.id] = treeEntry;
 
   const selectedFileId = state.selectedWorkgroupFileIdByWorkgroup[workgroup.id];
   if (selectedFileId) {
@@ -5155,11 +5193,10 @@ function renderTree() {
     // Organizations section
     const sortedOrgs = [...orgGroups.entries()].sort((a, b) => a[1].name.localeCompare(b[1].name));
     const orgItems = sortedOrgs.map(([orgId, group]) => {
-      const hasUnread = group.workgroups.some((w) => workgroupHasUnread(w.id));
-      const unreadDot = hasUnread ? `<span class="unread-dot"></span>` : "";
+      const unreadCount = group.workgroups.reduce((sum, w) => sum + workgroupUnreadCount(w.id), 0);
+      const unreadBadge = unreadCount > 0 ? `<span class="org-group-count">${unreadCount}</span>` : "";
       return `<div class="tree-item-row">
-        <button class="tree-button" data-action="drill-org" data-org="${escapeHtml(orgId)}">${escapeHtml(group.name)}</button><span class="org-group-count">${group.workgroups.length}</span>
-        ${unreadDot}
+        <button class="tree-button" data-action="drill-org" data-org="${escapeHtml(orgId)}">${escapeHtml(group.name)}</button>${unreadBadge}
         <button type="button" class="tree-gear" data-action="settings-org" data-org="${escapeHtml(orgId)}" aria-label="Organization settings for ${escapeHtml(group.name)}">${GEAR_ICON_SVG}</button>
       </div>`;
     }).join("");
@@ -5195,13 +5232,10 @@ function renderTree() {
     // Workgroups section (exclude org-level Administration workgroup)
     const visibleOrgWorkgroups = orgData.workgroups.filter(wg => wg.name !== "Administration");
     const wgItems = visibleOrgWorkgroups.map((wg) => {
-      const wgData = state.treeData[wg.id];
-      const jobCount = wgData ? wgData.jobs.filter(c => c.kind !== "admin" && !c.is_archived).length : 0;
-      const countBadge = jobCount > 0 ? `<span class="org-group-count">${jobCount}</span>` : "";
-      const unreadDot = workgroupHasUnread(wg.id) ? `<span class="unread-dot"></span>` : "";
+      const unreadCount = workgroupUnreadCount(wg.id);
+      const unreadBadge = unreadCount > 0 ? `<span class="org-group-count">${unreadCount}</span>` : "";
       return `<div class="tree-item-row">
-        <button class="tree-button" data-action="drill-workgroup" data-workgroup="${escapeHtml(wg.id)}">${escapeHtml(wg.name)}</button>${countBadge}
-        ${unreadDot}
+        <button class="tree-button" data-action="drill-workgroup" data-workgroup="${escapeHtml(wg.id)}">${escapeHtml(wg.name)}</button>${unreadBadge}
         <button type="button" class="tree-gear" data-action="settings-workgroup" data-workgroup="${escapeHtml(wg.id)}" aria-label="Workgroup settings for ${escapeHtml(wg.name)}">${GEAR_ICON_SVG}</button>
       </div>`;
     }).join("");
@@ -5306,8 +5340,8 @@ function renderTree() {
           .filter((t) => t.agent_id === agent.id && t.conversation_id)
           .map((t) => (wgData.taskConversations || []).find((c) => c.id === t.conversation_id))
           .filter(Boolean);
-        const hasUnreadTasks = agentTaskConvs.some((c) => isConversationUnread(c));
-        const agentUnreadDot = hasUnreadTasks ? `<span class="unread-dot"></span>` : "";
+        const unreadTaskCount = agentTaskConvs.filter(c => isConversationUnread(c)).length;
+        const agentUnreadBadge = unreadTaskCount > 0 ? `<span class="org-group-count">${unreadTaskCount}</span>` : "";
         return `
           <div class="tree-item-row">
             <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}">
@@ -5315,7 +5349,7 @@ function renderTree() {
               <span>${escapeHtml(agent.name)}</span>
               <span class="finder-kind">${escapeHtml(wg.name)}</span>
             </button>
-            ${agentUnreadDot}
+            ${agentUnreadBadge}
             <button type="button" class="tree-gear" data-action="settings-agent" data-workgroup="${escapeHtml(wg.id)}" data-agent="${escapeHtml(agent.id)}" aria-label="Agent settings for ${escapeHtml(agent.name)}">${GEAR_ICON_SVG}</button>
           </div>
         `;
@@ -5476,17 +5510,14 @@ function renderTree() {
         .filter((t) => t.conversation_id)
         .map((t) => (data.taskConversations || []).find((c) => c.id === t.conversation_id))
         .filter(Boolean);
-      const hasUnreadTasks = agentTaskConvs.some((c) => isConversationUnread(c));
-      const agentUnreadDot = hasUnreadTasks ? `<span class="unread-dot"></span>` : "";
-      const agentTaskCount = agentTasks.length;
-      const agentCountBadge = agentTaskCount > 0 ? `<span class="org-group-count">${agentTaskCount}</span>` : "";
+      const unreadTaskCount = agentTaskConvs.filter(c => isConversationUnread(c)).length;
+      const agentUnreadBadge = unreadTaskCount > 0 ? `<span class="org-group-count">${unreadTaskCount}</span>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
             ${agentAvatar}
             <span>${escapeHtml(agent.name)}</span>
-          </button>${agentCountBadge}
-          ${agentUnreadDot}
+          </button>${agentUnreadBadge}
           <button
             type="button"
             class="tree-gear"
@@ -6036,10 +6067,9 @@ function startPolling() {
           const convs = await api(`/api/workgroups/${state.bladeWorkgroupId}/conversations?include_archived=true`);
           const data = state.treeData[state.bladeWorkgroupId];
           if (data) {
-            const taskConvIds = new Set((data.agentTasks || []).map(t => t.conversation_id).filter(Boolean));
-            data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
-            data.taskConversations = convs.filter(c => taskConvIds.has(c.id));
-            data.directs = convs.filter((c) => c.kind === "direct" && !taskConvIds.has(c.id));
+            const wgRecord = data.workgroup;
+            const isOwner = wgRecord?.owner_id === state.user?.id;
+            recategorizeConversations(data, convs, isOwner);
           }
           renderTree();
         } catch (_) { /* skip on error */ }
@@ -6051,10 +6081,9 @@ function startPolling() {
             const convs = await api(`/api/workgroups/${wg.id}/conversations?include_archived=true`);
             const data = state.treeData[wg.id];
             if (data) {
-              const taskConvIds = new Set((data.agentTasks || []).map(t => t.conversation_id).filter(Boolean));
-              data.jobs = convs.filter((c) => c.kind === "job" || c.kind === "admin");
-              data.taskConversations = convs.filter(c => taskConvIds.has(c.id));
-              data.directs = convs.filter((c) => c.kind === "direct" && !taskConvIds.has(c.id));
+              const wgRecord = data.workgroup;
+              const isOwner = wgRecord?.owner_id === state.user?.id;
+              recategorizeConversations(data, convs, isOwner);
             }
           }));
           renderTree();
