@@ -438,6 +438,7 @@ class JobRead(ORMBaseModel):
     title: str
     scope: str
     status: str
+    derived_status: str = ""
     engagement_id: str | None = None
     workgroup_id: str
     conversation_id: str | None = None
@@ -461,7 +462,7 @@ class JobCreateRequest(BaseModel):
 
 
 class JobUpdateRequest(BaseModel):
-    status: Literal["in_progress", "completed", "cancelled"] | None = None
+    status: Literal["completed", "cancelled"] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
 
 
@@ -474,7 +475,7 @@ class AgentTaskCreateRequest(BaseModel):
 
 
 class AgentTaskUpdateRequest(BaseModel):
-    status: Literal["in_progress", "completed", "cancelled"] | None = None
+    status: Literal["completed", "cancelled"] | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     description: str | None = None
 
@@ -484,6 +485,7 @@ class AgentTaskRead(ORMBaseModel):
     title: str
     description: str
     status: str
+    derived_status: str = ""
     agent_id: str
     workgroup_id: str
     conversation_id: str | None = None

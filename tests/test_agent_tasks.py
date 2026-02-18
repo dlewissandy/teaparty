@@ -116,7 +116,7 @@ class CreateAgentTaskTests(unittest.TestCase):
 
         self.assertEqual(result.title, "Fix bug")
         self.assertEqual(result.description, "It is broken")
-        self.assertEqual(result.status, "pending")
+        self.assertEqual(result.status, "in_progress")
         self.assertEqual(result.agent_id, "agent-1")
         self.assertEqual(result.workgroup_id, "wg-1")
         self.assertEqual(result.created_by_user_id, "user-1")
@@ -444,18 +444,6 @@ class UpdateAgentTaskTests(unittest.TestCase):
 
         self.assertEqual(result.status, "cancelled")
         self.assertIsNotNone(result.completed_at)
-
-    def test_update_status_to_in_progress_no_completed_at(self) -> None:
-        with Session(self.engine) as session:
-            result = update_agent_task(
-                task_id="t1",
-                payload=AgentTaskUpdateRequest(status="in_progress"),
-                session=session,
-                user=session.get(User, "user-1"),
-            )
-
-        self.assertEqual(result.status, "in_progress")
-        self.assertIsNone(result.completed_at)
 
     def test_update_title(self) -> None:
         with Session(self.engine) as session:

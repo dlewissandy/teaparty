@@ -20,9 +20,27 @@ from teaparty_app.schemas import (
     AgentTaskRead,
     AgentTaskUpdateRequest,
 )
+from teaparty_app.services.agent_runtime import get_conversation_activity
 from teaparty_app.services.permissions import require_workgroup_membership
 
 router = APIRouter(prefix="/api", tags=["agent-tasks"])
+
+
+def _derive_task_status(session: Session, task: AgentTask) -> str:
+    """Derive a display status from live conversation state."""
+    if task.status in ("completed", "cancelled"):
+        return task.status
+    if task.conversation_id and get_conversation_activity(task.conversation_id):
+        return "working"
+    if task.conversation_id:
+        last_msg = session.exec(
+            select(Message)
+            .where(Message.conversation_id == task.conversation_id)
+            .order_by(Message.created_at.desc())
+        ).first()
+        if last_msg and last_msg.sender_type == "agent":
+            return "waiting" if last_msg.requires_response else "idle"
+    return "idle"
 
 
 @router.post(
@@ -95,7 +113,9 @@ def create_agent_task(
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 
-    return AgentTaskRead.model_validate(task)
+    result = AgentTaskRead.model_validate(task)
+    result.derived_status = _derive_task_status(session, task)
+    return result
 
 
 @router.get(
@@ -122,7 +142,12 @@ def list_agent_tasks(
         .where(AgentTask.agent_id == agent_id, AgentTask.workgroup_id == workgroup_id)
         .order_by(AgentTask.created_at.desc())
     ).all()
-    return [AgentTaskRead.model_validate(t) for t in tasks]
+    results = []
+    for t in tasks:
+        r = AgentTaskRead.model_validate(t)
+        r.derived_status = _derive_task_status(session, t)
+        results.append(r)
+    return results
 
 
 @router.get(
@@ -141,7 +166,12 @@ def list_workgroup_agent_tasks(
         .where(AgentTask.workgroup_id == workgroup_id)
         .order_by(AgentTask.created_at.desc())
     ).all()
-    return [AgentTaskRead.model_validate(t) for t in tasks]
+    results = []
+    for t in tasks:
+        r = AgentTaskRead.model_validate(t)
+        r.derived_status = _derive_task_status(session, t)
+        results.append(r)
+    return results
 
 
 @router.patch(
@@ -186,7 +216,9 @@ def update_agent_task(
     session.add(task)
     commit_with_retry(session)
     session.refresh(task)
-    return AgentTaskRead.model_validate(task)
+    result = AgentTaskRead.model_validate(task)
+    result.derived_status = _derive_task_status(session, task)
+    return result
 
 
 @router.delete(

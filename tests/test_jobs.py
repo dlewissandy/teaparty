@@ -1,7 +1,7 @@
-"""Tests for job endpoints: create_job, update_job, delete_job."""
+"""Tests for job endpoints: create_job, update_job, delete_job, derived status."""
 
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from fastapi import BackgroundTasks, HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -16,7 +16,7 @@ from teaparty_app.models import (
     User,
     Workgroup,
 )
-from teaparty_app.routers.jobs import create_job, delete_job, update_job
+from teaparty_app.routers.jobs import _derive_job_status, create_job, delete_job, update_job
 from teaparty_app.schemas import JobCreateRequest, JobUpdateRequest
 
 
@@ -94,7 +94,7 @@ class CreateJobTests(unittest.TestCase):
 
         self.assertEqual(result.title, "Build API")
         self.assertEqual(result.scope, "REST endpoints needed")
-        self.assertEqual(result.status, "pending")
+        self.assertEqual(result.status, "in_progress")
         self.assertEqual(result.workgroup_id, "wg-1")
         self.assertIsNotNone(result.conversation_id)
 
@@ -222,18 +222,6 @@ class UpdateJobTests(unittest.TestCase):
         self.assertEqual(result.status, "cancelled")
         self.assertIsNotNone(result.completed_at)
 
-    def test_update_status_to_in_progress_no_completed_at(self) -> None:
-        with Session(self.engine) as session:
-            result = update_job(
-                job_id="job-1",
-                payload=JobUpdateRequest(status="in_progress"),
-                session=session,
-                user=session.get(User, "user-1"),
-            )
-
-        self.assertEqual(result.status, "in_progress")
-        self.assertIsNone(result.completed_at)
-
     def test_update_title(self) -> None:
         with Session(self.engine) as session:
             result = update_job(
@@ -330,6 +318,78 @@ class DeleteJobTests(unittest.TestCase):
                     user=session.get(User, "user-2"),
                 )
             self.assertEqual(ctx.exception.status_code, 403)
+
+
+class DeriveJobStatusTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = _make_engine()
+        with Session(self.engine) as session:
+            _seed(session)
+            _insert_job(session, "job-1", "Test job")
+            session.commit()
+
+    def test_completed_passthrough(self) -> None:
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            job.status = "completed"
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            self.assertEqual(_derive_job_status(session, job), "completed")
+
+    def test_cancelled_passthrough(self) -> None:
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            job.status = "cancelled"
+            session.add(job)
+            session.commit()
+            session.refresh(job)
+            self.assertEqual(_derive_job_status(session, job), "cancelled")
+
+    @patch("teaparty_app.routers.jobs.get_conversation_activity")
+    def test_working_when_activity(self, mock_activity: MagicMock) -> None:
+        mock_activity.return_value = [{"agent_id": "a1", "agent_name": "Bot", "phase": "thinking", "detail": ""}]
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            self.assertEqual(_derive_job_status(session, job), "working")
+            mock_activity.assert_called_once_with(job.conversation_id)
+
+    @patch("teaparty_app.routers.jobs.get_conversation_activity")
+    def test_waiting_when_agent_requires_response(self, mock_activity: MagicMock) -> None:
+        mock_activity.return_value = []
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            session.add(Message(
+                conversation_id=job.conversation_id,
+                sender_type="agent",
+                sender_agent_id="agent-1",
+                content="What do you think?",
+                requires_response=True,
+            ))
+            session.commit()
+            self.assertEqual(_derive_job_status(session, job), "waiting")
+
+    @patch("teaparty_app.routers.jobs.get_conversation_activity")
+    def test_idle_when_agent_no_question(self, mock_activity: MagicMock) -> None:
+        mock_activity.return_value = []
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            session.add(Message(
+                conversation_id=job.conversation_id,
+                sender_type="agent",
+                sender_agent_id="agent-1",
+                content="Done with my analysis.",
+                requires_response=False,
+            ))
+            session.commit()
+            self.assertEqual(_derive_job_status(session, job), "idle")
+
+    @patch("teaparty_app.routers.jobs.get_conversation_activity")
+    def test_idle_fallback_no_messages(self, mock_activity: MagicMock) -> None:
+        mock_activity.return_value = []
+        with Session(self.engine) as session:
+            job = session.get(Job, "job-1")
+            self.assertEqual(_derive_job_status(session, job), "idle")
 
 
 if __name__ == "__main__":

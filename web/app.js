@@ -3278,13 +3278,14 @@ function refreshActiveConversationHeader() {
       }
     }
     if (engagementJobs.length > 0) {
-      const jobList = engagementJobs.map(j =>
-        `<div class="engagement-job-item" data-action="open-job" data-workgroup="${escapeHtml(j.workgroup_id)}" data-job="${escapeHtml(j.id)}" data-conversation="${escapeHtml(j.conversation_id || "")}">
-          <span class="task-badge ${escapeHtml(j.status)}">${escapeHtml(j.status)}</span>
+      const jobList = engagementJobs.map(j => {
+        const ejStatus = j.derived_status || j.status || "";
+        return `<div class="engagement-job-item" data-action="open-job" data-workgroup="${escapeHtml(j.workgroup_id)}" data-job="${escapeHtml(j.id)}" data-conversation="${escapeHtml(j.conversation_id || "")}">
+          <span class="task-badge ${escapeHtml(ejStatus)}">${escapeHtml(ejStatus)}</span>
           <span>${escapeHtml(j.title)}</span>
           <span class="finder-kind">${escapeHtml(j.workgroup_name)}</span>
-        </div>`
-      ).join("");
+        </div>`;
+      }).join("");
       toolBar.innerHTML += `<div class="engagement-jobs-section"><div class="engagement-jobs-title">Jobs</div>${jobList}</div>`;
     }
 
@@ -3295,7 +3296,9 @@ function refreshActiveConversationHeader() {
   const activeJob = getActiveJob();
   let jobInfoHtml = "";
   if (activeJob) {
-    jobInfoHtml = `<span class="task-badge ${escapeHtml(activeJob.status)}">${escapeHtml(activeJob.status)}</span>`;
+    let headerJobStatus = activeJob.derived_status || activeJob.status || "";
+    if (activeJob.conversation_id && state.thinkingByConversation[activeJob.conversation_id]) headerJobStatus = "working";
+    jobInfoHtml = `<span class="task-badge ${escapeHtml(headerJobStatus)}">${escapeHtml(headerJobStatus)}</span>`;
     if (activeJob.engagement_id) {
       jobInfoHtml += ` <span class="job-engagement-link">Engagement: ${escapeHtml(activeJob.engagement_id.substring(0, 8))}...</span>`;
     }
@@ -4951,8 +4954,10 @@ function renderTree() {
           const taskActiveClass = state.activeNodeKey === taskKey ? "active" : "";
           const taskConv = (data.taskConversations || []).find((c) => c.id === t.conversation_id);
           const taskUnreadDot = taskConv && isConversationUnread(taskConv) ? `<span class="unread-dot"></span>` : "";
+          let taskDisplayStatus = t.derived_status || t.status || "";
+          if (t.conversation_id && state.thinkingByConversation[t.conversation_id]) taskDisplayStatus = "working";
           return `<div class="tree-item-row">
-            <button class="tree-button ${taskActiveClass}" data-action="open-agent-task" data-workgroup="${escapeHtml(workgroup.id)}" data-task-id="${escapeHtml(t.id)}" data-conversation="${escapeHtml(t.conversation_id)}">${escapeHtml(t.title)}<span class="task-badge ${escapeHtml(t.status)}">${escapeHtml(t.status)}</span></button>
+            <button class="tree-button ${taskActiveClass}" data-action="open-agent-task" data-workgroup="${escapeHtml(workgroup.id)}" data-task-id="${escapeHtml(t.id)}" data-conversation="${escapeHtml(t.conversation_id)}">${escapeHtml(t.title)}<span class="task-badge ${escapeHtml(taskDisplayStatus)}">${escapeHtml(taskDisplayStatus)}</span></button>
             ${taskUnreadDot}
           </div>`;
         }).join("")
@@ -5242,7 +5247,9 @@ function renderTree() {
           const jobFileCount = allWorkgroupFiles.filter(f => f.topic_id === conversation.id).length;
           const fileBadge = jobFileCount > 0 ? `<button type="button" class="tree-file-count" data-action="open-job-files" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${jobFileCount} file${jobFileCount !== 1 ? "s" : ""}</button>` : "";
           const jobRecord = jobRecordsByConvId.get(conversation.id);
-          const statusBadge = jobRecord ? `<span class="task-badge ${escapeHtml(jobRecord.status)}">${escapeHtml(jobRecord.status)}</span>` : "";
+          let jobDisplayStatus = jobRecord?.derived_status || jobRecord?.status || "";
+          if (state.thinkingByConversation[conversation.id]) jobDisplayStatus = "working";
+          const statusBadge = jobRecord ? `<span class="task-badge ${escapeHtml(jobDisplayStatus)}">${escapeHtml(jobDisplayStatus)}</span>` : "";
           return `
             <div class="tree-item-row${archivedClass}">
               <button class="tree-button ${activeClass}" data-action="open-job" data-workgroup="${escapeHtml(workgroup.id)}" data-conversation="${escapeHtml(conversation.id)}">${archiveIcon}${label}${statusBadge}</button>

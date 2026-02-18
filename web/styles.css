@@ -2809,6 +2809,10 @@ body[data-theme="dark"] .flash.info {
 .task-badge.dissatisfied { background: #f5c6cb; color: #721c24; }
 .task-badge.declined { background: #f8d7da; color: #721c24; }
 .task-badge.cancelled { background: #e2e3e5; color: #383d41; }
+.task-badge.working  { background: #dbeafe; color: #1e40af; animation: badge-pulse 2s ease-in-out infinite; }
+.task-badge.waiting  { background: #fef3c7; color: #92400e; }
+.task-badge.idle     { background: #e0e7ff; color: #3730a3; }
+@keyframes badge-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
 
 /* Invite cards (list view) */
 .invite-card {
@@ -3812,8 +3816,7 @@ body[data-theme="dark"] .cfg-category-badge {
   color: #94a3b8;
 }
 
-/* Job status badges */
-.task-badge.pending { background: #f59e0b; color: #fff; }
+/* Job status badges — derived_status drives display (working, waiting, idle, completed, cancelled) */
 
 /* Engagement jobs section in conversation header */
 .engagement-jobs-section {

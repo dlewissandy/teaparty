@@ -15,9 +15,27 @@ from teaparty_app.models import (
 )
 from teaparty_app.routers.conversations import _process_auto_responses_in_background
 from teaparty_app.schemas import JobCreateRequest, JobDetailRead, JobRead, JobUpdateRequest
+from teaparty_app.services.agent_runtime import get_conversation_activity
 from teaparty_app.services.permissions import require_workgroup_membership
 
 router = APIRouter(prefix="/api", tags=["jobs"])
+
+
+def _derive_job_status(session: Session, job: Job) -> str:
+    """Derive a display status from live conversation state."""
+    if job.status in ("completed", "cancelled"):
+        return job.status
+    if job.conversation_id and get_conversation_activity(job.conversation_id):
+        return "working"
+    if job.conversation_id:
+        last_msg = session.exec(
+            select(Message)
+            .where(Message.conversation_id == job.conversation_id)
+            .order_by(Message.created_at.desc())
+        ).first()
+        if last_msg and last_msg.sender_type == "agent":
+            return "waiting" if last_msg.requires_response else "idle"
+    return "idle"
 
 
 @router.post(
@@ -113,7 +131,9 @@ def create_job(
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 
-    return JobRead.model_validate(job)
+    result = JobRead.model_validate(job)
+    result.derived_status = _derive_job_status(session, job)
+    return result
 
 
 @router.get("/workgroups/{workgroup_id}/jobs", response_model=list[JobRead])
@@ -129,7 +149,12 @@ def list_jobs(
         .where(Job.workgroup_id == workgroup_id)
         .order_by(Job.created_at.desc())
     ).all()
-    return [JobRead.model_validate(j) for j in jobs]
+    results = []
+    for j in jobs:
+        r = JobRead.model_validate(j)
+        r.derived_status = _derive_job_status(session, j)
+        results.append(r)
+    return results
 
 
 @router.get("/jobs/{job_id}", response_model=JobDetailRead)
@@ -150,8 +175,10 @@ def get_job(
     workgroup = session.get(Workgroup, job.workgroup_id)
     engagement = session.get(Engagement, job.engagement_id) if job.engagement_id else None
 
+    job_read = JobRead.model_validate(job)
+    job_read.derived_status = _derive_job_status(session, job)
     return JobDetailRead(
-        **JobRead.model_validate(job).model_dump(),
+        **job_read.model_dump(),
         workgroup_name=workgroup.name if workgroup else "",
         engagement_title=engagement.title if engagement else "",
     )
@@ -193,7 +220,9 @@ def update_job(
     session.add(job)
     commit_with_retry(session)
     session.refresh(job)
-    return JobRead.model_validate(job)
+    result = JobRead.model_validate(job)
+    result.derived_status = _derive_job_status(session, job)
+    return result
 
 
 @router.delete(
