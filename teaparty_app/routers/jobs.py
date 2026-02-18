@@ -79,12 +79,18 @@ def create_job(
     # Add the creating user as a participant.
     session.add(ConversationParticipant(conversation_id=conversation.id, user_id=user.id))
 
+    # Add selected agents as participants (if specific agents were requested).
+    if payload.agent_ids:
+        for aid in payload.agent_ids:
+            session.add(ConversationParticipant(conversation_id=conversation.id, agent_id=aid))
+
     # Create the Job record.
     job = Job(
         title=title,
         scope=description,
         workgroup_id=workgroup_id,
         conversation_id=conversation.id,
+        max_rounds=payload.max_rounds,
     )
     session.add(job)
 

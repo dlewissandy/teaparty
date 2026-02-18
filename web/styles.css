@@ -258,10 +258,19 @@ h3 {
 }
 
 .org-group-count {
-  margin-left: auto;
-  font-size: 0.72rem;
-  font-weight: 400;
-  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .blade-new-org-btn {
@@ -456,7 +465,7 @@ h3 {
 
 .tree-item-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   gap: 4px;
   align-items: center;
 }
@@ -1679,6 +1688,34 @@ body[data-theme="dark"] .unread-dot {
   }
 }
 
+.stream-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 16px 8px 60px;
+  font-size: 0.7rem;
+  font-variant: small-caps;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #888);
+}
+
+.stream-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b3;
+  animation: stream-pulse 2s ease-in-out infinite;
+}
+
+.stream-ended {
+  opacity: 0.5;
+}
+
+@keyframes stream-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
 .composer {
   border-top: 1px solid var(--line);
   padding: 10px 12px;
@@ -2100,6 +2137,99 @@ body[data-theme="dark"] .settings-danger-zone-title {
 body[data-theme="dark"] .settings-field-auto {
   background: #1c2d47;
   color: var(--primary);
+}
+
+/* Job creation: max rounds row */
+.settings-rounds-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-rounds-input {
+  width: 80px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 0.88rem;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.settings-rounds-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-rounds-infinite {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.84rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.settings-rounds-infinite input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--primary);
+}
+
+/* Job creation: agent picker */
+.job-agent-picker {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.job-agent-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 0.84rem;
+}
+
+.job-agent-item:last-child {
+  border-bottom: none;
+}
+
+.job-agent-item:hover {
+  background: #f5f8ff;
+}
+
+.job-agent-item input[type="checkbox"] {
+  accent-color: var(--primary);
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.job-agent-icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.job-agent-name {
+  font-weight: 600;
+}
+
+.job-agent-role {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+body[data-theme="dark"] .job-agent-picker {
+  border-color: var(--line);
+}
+
+body[data-theme="dark"] .job-agent-item:hover {
+  background: #1a2940;
 }
 
 .settings-usage {

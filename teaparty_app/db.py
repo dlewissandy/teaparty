@@ -41,12 +41,16 @@ def init_db() -> None:
     _ensure_job_table()
     _ensure_agent_task_table()
     _ensure_org_operations_field()
+    _ensure_org_directory_fields()
+    _ensure_payment_tables()
+    _ensure_engagement_payment_fields()
     _ensure_agent_max_turns()
     _ensure_agent_is_lead()
     _backfill_lead_agents()
     _ensure_conversation_session_id()
     _migrate_topic_to_job()
     _migrate_agent_tool_names()
+    _migrate_add_job_max_rounds()
     _run_seeds()
 
 
@@ -642,6 +646,70 @@ def _ensure_org_operations_field() -> None:
             )
 
 
+def _ensure_org_directory_fields() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    org_columns = _sqlite_column_names("organizations")
+    with engine.begin() as conn:
+        if "service_description" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN service_description TEXT DEFAULT '' NOT NULL"))
+        if "is_accepting_engagements" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN is_accepting_engagements BOOLEAN DEFAULT 0 NOT NULL"))
+
+
+def _ensure_payment_tables() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS org_balances ("
+                "id TEXT PRIMARY KEY, "
+                "organization_id TEXT NOT NULL UNIQUE REFERENCES organizations(id), "
+                "balance_credits REAL DEFAULT 0.0 NOT NULL, "
+                "updated_at DATETIME NOT NULL, "
+                "created_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_org_balances_org ON org_balances(organization_id)")
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS payment_transactions ("
+                "id TEXT PRIMARY KEY, "
+                "organization_id TEXT NOT NULL REFERENCES organizations(id), "
+                "engagement_id TEXT REFERENCES engagements(id), "
+                "transaction_type TEXT NOT NULL, "
+                "amount_credits REAL DEFAULT 0.0 NOT NULL, "
+                "balance_after_credits REAL DEFAULT 0.0 NOT NULL, "
+                "counterparty_org_id TEXT REFERENCES organizations(id), "
+                "description TEXT DEFAULT '' NOT NULL, "
+                "created_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_payment_transactions_org ON payment_transactions(organization_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_payment_transactions_engagement ON payment_transactions(engagement_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_payment_transactions_type ON payment_transactions(transaction_type)")
+        )
+
+
+def _ensure_engagement_payment_fields() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    eng_columns = _sqlite_column_names("engagements")
+    with engine.begin() as conn:
+        if "agreed_price_credits" not in eng_columns:
+            conn.execute(text("ALTER TABLE engagements ADD COLUMN agreed_price_credits REAL"))
+        if "payment_status" not in eng_columns:
+            conn.execute(text("ALTER TABLE engagements ADD COLUMN payment_status TEXT DEFAULT 'none' NOT NULL"))
+
+
 def _migrate_topic_to_job() -> None:
     """Rename conversation kind 'topic' → 'job' and trigger types for existing rows."""
     if not settings.database_url.startswith("sqlite"):
@@ -684,6 +752,16 @@ def _migrate_agent_tool_names() -> None:
                     text("UPDATE agents SET tool_names = :tools WHERE id = :id"),
                     {"tools": replacement, "id": row[0]},
                 )
+
+
+def _migrate_add_job_max_rounds() -> None:
+    """Add max_rounds column to jobs table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    job_columns = _sqlite_column_names("jobs")
+    if "max_rounds" not in job_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN max_rounds INTEGER DEFAULT NULL"))
 
 
 def get_session() -> Iterator[Session]:

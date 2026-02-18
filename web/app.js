@@ -2912,8 +2912,12 @@ function startThinkingForMessage(postedMessage) {
       agentIds = [mentionedAgentIds[0]];
       mode = "agent";
     } else {
-      agentIds = [];
-      mode = "selecting";
+      // Team mode: show the lead agent as composing immediately.
+      // The backend activity polling will replace this with actual
+      // per-agent status once the team session starts.
+      const lead = jobAgents.find((a) => a.is_lead);
+      agentIds = lead ? [lead.id] : jobAgents.length ? [jobAgents[0].id] : [];
+      mode = "agent";
     }
   }
 
@@ -2992,11 +2996,22 @@ function _phaseStatusText(phase, detail) {
   return "thinking...";
 }
 
+function _streamStatusHtml(pending) {
+  if (pending.streamActive) {
+    return `<div class="stream-status stream-active"><span class="stream-dot"></span>stream active</div>`;
+  }
+  // Only show "stream ended" briefly after we had activity.
+  if (pending.liveActivity === null && pending.lastActivityAtMs) {
+    return `<div class="stream-status stream-ended">stream ended</div>`;
+  }
+  return "";
+}
+
 function renderThinkingRows(workgroupId, pending) {
   // Use live activity data when available.
   const liveActivity = pending.liveActivity;
   if (liveActivity && liveActivity.length) {
-    return liveActivity.map((entry) => {
+    const rows = liveActivity.map((entry) => {
       const name = entry.agent_name || agentName(workgroupId, entry.agent_id);
       const wgData = state.treeData[workgroupId];
       const thinkingAgent = wgData?.agents?.find((a) => a.id === entry.agent_id);
@@ -3016,24 +3031,14 @@ function renderThinkingRows(workgroupId, pending) {
         </article>
       `;
     }).join("");
+    return rows + _streamStatusHtml(pending);
   }
 
-  if (pending.mode === "selecting" || !pending.agentIds.length) {
-    return `
-      <article class="message-row agent thinking">
-        <div class="avatar">${generateBotSvg("Agent router")}</div>
-        <div>
-          <div class="message-meta">
-            <span class="sender">Agent router</span>
-            <span class="thinking-status"><span class="thinking-dot" aria-hidden="true"></span>selecting responder...</span>
-          </div>
-          <div class="message-text">Choosing the best next agent to reply.</div>
-        </div>
-      </article>
-    `;
+  if (!pending.agentIds.length) {
+    return _streamStatusHtml(pending);
   }
 
-  return pending.agentIds
+  const rows = pending.agentIds
     .map((agentId) => {
       const name = agentName(workgroupId, agentId);
       const wgData = state.treeData[workgroupId];
@@ -3047,14 +3052,14 @@ function renderThinkingRows(workgroupId, pending) {
           <div>
             <div class="message-meta">
               <span class="sender">${escapeHtml(name)}</span>
-              <span class="thinking-status"><span class="thinking-dot" aria-hidden="true"></span>thinking...</span>
+              <span class="thinking-status"><span class="thinking-dot" aria-hidden="true"></span>composing reply...</span>
             </div>
-            <div class="message-text">Working on a response.</div>
           </div>
         </article>
       `;
     })
     .join("");
+  return rows + _streamStatusHtml(pending);
 }
 
 function setSettingsSubtitle(value) {
@@ -4336,6 +4341,16 @@ function createJobPrompt(workgroupId) {
   const workgroupName = data?.workgroup?.name || "Workgroup";
   let keyTouched = false;
 
+  const agents = (data?.agents || []).filter(a => a.description !== "__system_admin_agent__");
+  const agentsHtml = agents.map(a => `
+    <label class="job-agent-item">
+      <input type="checkbox" name="agent_ids" value="${a.id}" checked />
+      <span class="job-agent-icon">${a.icon || '🤖'}</span>
+      <span class="job-agent-name">${escapeHtml(a.name)}</span>
+      ${a.role ? `<span class="job-agent-role">${escapeHtml(a.role)}</span>` : ''}
+    </label>
+  `).join('');
+
   openSettingsModal({
     title: "New job",
     subtitle: `${workgroupName} · New job`,
@@ -4354,6 +4369,24 @@ function createJobPrompt(workgroupId) {
         <span class="settings-label">Description</span>
         <textarea name="description" rows="3" placeholder="What's this job about?"></textarea>
       </label>
+      <div class="settings-field">
+        <span class="settings-label">Max rounds</span>
+        <div class="settings-rounds-row">
+          <input name="max_rounds" type="number" min="1" max="999" value="10" class="settings-rounds-input" disabled />
+          <label class="settings-rounds-infinite">
+            <input type="checkbox" name="max_rounds_infinite" checked />
+            <span>Infinite</span>
+          </label>
+        </div>
+      </div>
+      ${agents.length > 0 ? `
+      <div class="settings-field">
+        <span class="settings-label">Agents</span>
+        <div class="job-agent-picker">
+          ${agentsHtml}
+        </div>
+      </div>
+      ` : ''}
       <div class="settings-actions">
         <button type="button" class="secondary" data-action="settings-cancel">Cancel</button>
         <button type="submit">Create</button>
@@ -4366,9 +4399,18 @@ function createJobPrompt(workgroupId) {
       if (!name) throw new Error("Display name cannot be empty");
       if (!topic) throw new Error("Job key cannot be empty");
 
+      const maxRoundsInfinite = formData.get("max_rounds_infinite");
+      const maxRounds = maxRoundsInfinite ? null : parseInt(formData.get("max_rounds") || "10", 10);
+      if (maxRounds !== null && (maxRounds < 1 || isNaN(maxRounds))) throw new Error("Max rounds must be at least 1");
+
+      const agentCheckboxes = document.querySelectorAll("input[name='agent_ids']:checked");
+      const selectedAgentIds = Array.from(agentCheckboxes).map(cb => cb.value);
+      const agentIds = selectedAgentIds.length === agents.length ? null : selectedAgentIds;
+      if (agentIds !== null && agentIds.length === 0) throw new Error("At least one agent must be selected");
+
       const result = await api(`/api/workgroups/${workgroupId}/jobs`, {
         method: "POST",
-        body: { title: name, description },
+        body: { title: name, description, max_rounds: maxRounds, agent_ids: agentIds },
       });
       const treeData = state.treeData[workgroupId];
       if (treeData) {
@@ -4412,6 +4454,15 @@ function createJobPrompt(workgroupId) {
           if (autoIndicator) autoIndicator.style.display = "none";
         }
       });
+
+      const infiniteCheck = form.querySelector("input[name='max_rounds_infinite']");
+      const roundsInput = form.querySelector("input[name='max_rounds']");
+      if (infiniteCheck && roundsInput) {
+        infiniteCheck.addEventListener("change", () => {
+          roundsInput.disabled = infiniteCheck.checked;
+          if (!infiniteCheck.checked) roundsInput.focus();
+        });
+      }
     },
   });
 }
@@ -4951,7 +5002,7 @@ function renderTree() {
       const hasUnread = group.workgroups.some((w) => workgroupHasUnread(w.id));
       const unreadDot = hasUnread ? `<span class="unread-dot"></span>` : "";
       return `<div class="tree-item-row">
-        <button class="tree-button" data-action="drill-org" data-org="${escapeHtml(orgId)}">${escapeHtml(group.name)}<span class="org-group-count">${group.workgroups.length}</span></button>
+        <button class="tree-button" data-action="drill-org" data-org="${escapeHtml(orgId)}">${escapeHtml(group.name)}</button><span class="org-group-count">${group.workgroups.length}</span>
         ${unreadDot}
         <button type="button" class="tree-gear" data-action="settings-org" data-org="${escapeHtml(orgId)}" aria-label="Organization settings for ${escapeHtml(group.name)}">${GEAR_ICON_SVG}</button>
       </div>`;
@@ -4988,9 +5039,12 @@ function renderTree() {
     // Workgroups section (exclude org-level Administration workgroup)
     const visibleOrgWorkgroups = orgData.workgroups.filter(wg => wg.name !== "Administration");
     const wgItems = visibleOrgWorkgroups.map((wg) => {
+      const wgData = state.treeData[wg.id];
+      const jobCount = wgData ? wgData.jobs.filter(c => c.kind !== "admin" && !c.is_archived).length : 0;
+      const countBadge = jobCount > 0 ? `<span class="org-group-count">${jobCount}</span>` : "";
       const unreadDot = workgroupHasUnread(wg.id) ? `<span class="unread-dot"></span>` : "";
       return `<div class="tree-item-row">
-        <button class="tree-button" data-action="drill-workgroup" data-workgroup="${escapeHtml(wg.id)}">${escapeHtml(wg.name)}</button>
+        <button class="tree-button" data-action="drill-workgroup" data-workgroup="${escapeHtml(wg.id)}">${escapeHtml(wg.name)}</button>${countBadge}
         ${unreadDot}
         <button type="button" class="tree-gear" data-action="settings-workgroup" data-workgroup="${escapeHtml(wg.id)}" aria-label="Workgroup settings for ${escapeHtml(wg.name)}">${GEAR_ICON_SVG}</button>
       </div>`;
@@ -5042,13 +5096,20 @@ function renderTree() {
       return (a.member.name || a.member.email).localeCompare(b.member.name || b.member.email);
     });
 
+    const allOrgWorkgroups = orgData.workgroups;
     const orgAgents = [];
-    for (const wg of visibleOrgWorkgroups) {
+    for (const wg of allOrgWorkgroups) {
       const wgData = state.treeData[wg.id];
       if (!wgData?.agents) continue;
+      const isAdminWg = wg.name === "Administration";
       for (const agent of wgData.agents) {
-        if (agent.description === "__system_admin_agent__") continue;
-        orgAgents.push({ agent, workgroup: wg });
+        // Administration wg: show organization-admin + engagements-lead
+        // Regular wgs: show only the workgroup-lead
+        if (isAdminWg) {
+          orgAgents.push({ agent, workgroup: wg });
+        } else if (agent.is_lead) {
+          orgAgents.push({ agent, workgroup: wg });
+        }
       }
     }
     orgAgents.sort((a, b) => a.agent.name.localeCompare(b.agent.name));
@@ -5113,7 +5174,7 @@ function renderTree() {
         <div class="tree-list">${wgContent}</div>
       </div>
       <div class="tree-section">
-        <div class="tree-section-title"><span>Engagements</span></div>
+        <div class="tree-section-title"><span>Engagements</span>${visibleOrgWorkgroups.length ? `<button type="button" class="tree-tool" data-action="propose-engagement" data-workgroup="${escapeHtml(visibleOrgWorkgroups[0].id)}">+</button>` : ""}</div>
         <div class="tree-list">${orgEngagementNodes}</div>
       </div>
       <div class="tree-section">
@@ -5208,7 +5269,6 @@ function renderTree() {
     return (a.name || a.email).localeCompare(b.name || b.email);
   });
   const sortedAgents = (data.agents || [])
-    .filter((agent) => agent.description !== "__system_admin_agent__")
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const pendingInvites = isWorkgroupOwner(workgroup.id) ? (data.invites || []) : [];
@@ -5253,18 +5313,21 @@ function renderTree() {
         ? `<span class="tree-avatar agent"><img src="${escapeHtml(agent.icon)}" alt="" /></span>`
         : `<span class="tree-avatar agent">${generateBotSvg(agent.name)}</span>`;
       // Aggregate unread from agent's task conversations
-      const agentTaskConvs = (data.agentTasks || [])
-        .filter((t) => t.agent_id === agent.id && t.conversation_id)
+      const agentTasks = (data.agentTasks || []).filter((t) => t.agent_id === agent.id);
+      const agentTaskConvs = agentTasks
+        .filter((t) => t.conversation_id)
         .map((t) => (data.taskConversations || []).find((c) => c.id === t.conversation_id))
         .filter(Boolean);
       const hasUnreadTasks = agentTaskConvs.some((c) => isConversationUnread(c));
       const agentUnreadDot = hasUnreadTasks ? `<span class="unread-dot"></span>` : "";
+      const agentTaskCount = agentTasks.length;
+      const agentCountBadge = agentTaskCount > 0 ? `<span class="org-group-count">${agentTaskCount}</span>` : "";
       return `
         <div class="tree-item-row">
           <button class="tree-button member" data-action="drill-agent" data-workgroup="${escapeHtml(workgroup.id)}" data-agent="${escapeHtml(agent.id)}">
             ${agentAvatar}
             <span>${escapeHtml(agent.name)}</span>
-          </button>
+          </button>${agentCountBadge}
           ${agentUnreadDot}
           <button
             type="button"
@@ -5661,14 +5724,18 @@ function startPolling() {
         const pending = state.thinkingByConversation[state.activeConversationId];
         if (pending) {
           try {
-            const activity = await api(`/api/conversations/${state.activeConversationId}/activity`, { retries: 0, timeout: 5000 });
+            const resp = await api(`/api/conversations/${state.activeConversationId}/activity`, { retries: 0, timeout: 5000 });
+            // Response is { agents: [...], stream_active: bool }.
+            const agents = resp.agents || [];
+            const streamActive = !!resp.stream_active;
             const prev = JSON.stringify(state.lastLiveActivity);
-            const next = JSON.stringify(activity);
+            const next = JSON.stringify(resp);
             if (prev !== next) {
-              state.lastLiveActivity = activity;
-              pending.liveActivity = activity.length ? activity : null;
+              state.lastLiveActivity = resp;
+              pending.liveActivity = agents.length ? agents : null;
+              pending.streamActive = streamActive;
               // Reset the inactivity timer when agents are actively working.
-              if (activity.length) {
+              if (agents.length || streamActive) {
                 pending.lastActivityAtMs = Date.now();
               }
               renderMessages(state.activeMessages);

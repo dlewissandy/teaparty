@@ -19,7 +19,7 @@ import logging
 import re
 import threading
 import time
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from teaparty_app.config import settings
 from teaparty_app.db import commit_with_retry
@@ -27,6 +27,7 @@ from teaparty_app.models import (
     Agent,
     Conversation,
     ConversationParticipant,
+    Job,
     Message,
     Workgroup,
     utc_now,
@@ -102,6 +103,12 @@ def cancel_conversation(conversation_id: str) -> None:
     """Mark a conversation as cancelled, kill any running subprocess, and clear activity."""
     _cancelled_conversations.add(conversation_id)
     kill_conversation_process(conversation_id)
+    # Stop persistent team session if one exists
+    try:
+        from teaparty_app.services.team_registry import stop_session
+        stop_session(conversation_id)
+    except Exception:
+        pass
     _clear_activity(conversation_id)
 
 
@@ -195,6 +202,20 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
         ).all()
 
     if conversation.kind in ("job", "engagement"):
+        # If specific agents were assigned as participants, use only those.
+        participants = _conversation_participants(session, conversation.id)
+        agent_ids = [item.agent_id for item in participants if item.agent_id]
+        if agent_ids:
+            return session.exec(
+                select(Agent)
+                .where(
+                    Agent.id.in_(agent_ids),
+                    Agent.workgroup_id == conversation.workgroup_id,
+                    Agent.description != ADMIN_AGENT_SENTINEL,
+                )
+                .order_by(Agent.created_at.asc())
+            ).all()
+        # Otherwise, all non-admin agents in the workgroup.
         return session.exec(
             select(Agent)
             .where(
@@ -303,6 +324,21 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if conversation.is_archived:
         return []
 
+    # Enforce max_rounds for job conversations.
+    if conversation.kind == "job":
+        job = session.exec(
+            select(Job).where(Job.conversation_id == conversation.id)
+        ).first()
+        if job and isinstance(job.max_rounds, int):
+            round_count = session.exec(
+                select(func.count()).select_from(Message).where(
+                    Message.conversation_id == conversation.id,
+                    Message.sender_type == "user",
+                )
+            ).one()
+            if isinstance(round_count, int) and round_count > job.max_rounds:
+                return []
+
     agents = _agents_for_auto_response(session, conversation)
     if not agents:
         return []
@@ -355,7 +391,7 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             return _run_single_agent_responses(session, conversation, trigger, [mentioned])
         # Default: team mode when multiple agents, single-agent otherwise.
         if len(candidates) > 1:
-            return _run_job_team_response(session, conversation, trigger, candidates)
+            return _run_team_response(session, conversation, trigger, candidates)
         return _run_single_agent_responses(session, conversation, trigger, candidates)
 
     # Task conversations: only user messages trigger auto-responses.
@@ -364,8 +400,25 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
             return []
         return _run_single_agent_responses(session, conversation, trigger, candidates)
 
-    # Direct and engagement conversations: single-agent path.
+    # Engagement conversations: inject orchestration env vars for operations agents.
+    if conversation.kind == "engagement":
+        extra_env = _build_orchestration_env(session, candidates[0]) if candidates else None
+        return _run_single_agent_responses(session, conversation, trigger, candidates, extra_env=extra_env)
+
+    # Direct conversations: single-agent path.
     return _run_single_agent_responses(session, conversation, trigger, candidates)
+
+
+def _build_orchestration_env(session: Session, agent: Agent) -> dict[str, str] | None:
+    """Build env vars for coordinator agents in operations workgroups."""
+    workgroup = session.get(Workgroup, agent.workgroup_id)
+    if not workgroup or not workgroup.organization_id:
+        return None
+    return {
+        "TEAPARTY_AGENT_ID": agent.id,
+        "TEAPARTY_WORKGROUP_ID": agent.workgroup_id,
+        "TEAPARTY_ORG_ID": workgroup.organization_id,
+    }
 
 
 def _run_single_agent_responses(
@@ -373,6 +426,7 @@ def _run_single_agent_responses(
     conversation: Conversation,
     trigger: Message,
     candidates: list[Agent],
+    extra_env: dict[str, str] | None = None,
 ) -> list[Message]:
     """Single-shot claude -p invocation for each candidate agent."""
 
@@ -416,6 +470,12 @@ def _run_single_agent_responses(
                     # Fresh: reconstruct history via prompt builder.
                     user_msg = build_user_message(session, conversation, trigger)
 
+                # Build per-agent env if engagement context applies
+                agent_extra_env = extra_env
+                if extra_env and agent.id != candidates[0].id:
+                    # Update TEAPARTY_AGENT_ID for the specific agent
+                    agent_extra_env = {**extra_env, "TEAPARTY_AGENT_ID": agent.id}
+
                 result = asyncio.run(run_claude(
                     user_message=user_msg,
                     agent_name=slug,
@@ -425,6 +485,7 @@ def _run_single_agent_responses(
                     settings_json=mat_ctx.settings_json,
                     conversation_id=conversation.id,
                     resume_session_id=resume_id,
+                    extra_env=agent_extra_env,
                 ))
 
                 # If resume failed, clear session and retry fresh.
@@ -444,6 +505,7 @@ def _run_single_agent_responses(
                         cwd=mat_ctx.dir_path,
                         settings_json=mat_ctx.settings_json,
                         conversation_id=conversation.id,
+                        extra_env=agent_extra_env,
                     ))
 
                 # Persist session ID on success for resumable conversations.
@@ -486,142 +548,6 @@ def _run_single_agent_responses(
     return created
 
 
-def _run_job_team_response(
-    session: Session,
-    conversation: Conversation,
-    trigger: Message,
-    candidates: list[Agent],
-) -> list[Message]:
-    """Route job conversations through Claude's multi-agent team feature.
-
-    All candidate agents are passed via ``--agents``.  The first agent is
-    designated as the lead (``--agent``).  The ``stream-json --verbose``
-    output contains structured events showing all inter-agent communication
-    — no text parsing needed.
-    """
-    from teaparty_app.services.team_output_parser import parse_team_output
-
-    workgroup = session.get(Workgroup, conversation.workgroup_id)
-    if not workgroup:
-        return []
-
-    lead = _select_lead(candidates)
-    others = [a for a in candidates if a.id != lead.id]
-
-    # Set activity for all candidates.
-    for agent in candidates:
-        _set_activity(conversation.id, agent.id, agent.name, "composing", "team")
-
-    try:
-        with materialized_files(session, workgroup, conversation) as mat_ctx:
-            files_context = (
-                "Your workgroup's files are in the current working directory. "
-                "Use Read, Edit, Write, Glob, and Grep."
-            )
-
-            user_msg = build_user_message(session, conversation, trigger)
-
-            # Build agent definitions.  The lead gets a teammates roster.
-            # Use display names as keys so the lead's prompt matches --agents keys.
-            name_to_id: dict[str, str] = {}
-            agents_dict: dict[str, dict] = {}
-
-            lead_key = lead.name
-            name_to_id[lead_key] = lead.id
-            agents_dict[lead_key] = build_agent_json(
-                lead, conversation, workgroup,
-                files_context=files_context,
-                teammates=others if others else None,
-            )
-
-            for agent in others:
-                key = agent.name
-                # Handle duplicate names by appending a suffix.
-                if key in agents_dict:
-                    key = f"{key}-{agent.id[:6]}"
-                name_to_id[key] = agent.id
-                agents_dict[key] = build_agent_json(
-                    agent, conversation, workgroup,
-                    files_context=files_context,
-                )
-
-            agents_json = json.dumps(agents_dict)
-            agent_names = [a.name for a in candidates]
-
-            # Determine max turns: lead needs turns for delegation + discussion.
-            max_turns = max(6, 4 * len(candidates))
-
-            result = asyncio.run(run_claude(
-                user_message=user_msg,
-                agent_name=lead_key,
-                agents_json=agents_json,
-                max_turns=max_turns,
-                timeout_seconds=max(180, 90 * len(candidates)),
-                cwd=mat_ctx.dir_path,
-                settings_json=mat_ctx.settings_json,
-            ))
-
-        # Record usage against the lead agent.
-        record_llm_usage(
-            session, conversation.id, lead.id, result.model or lead.model,
-            result.input_tokens, result.output_tokens,
-            "reply", result.duration_ms,
-        )
-
-        if result.is_error:
-            logger.warning("Job team claude CLI failed: %s", result.error)
-            error_msg = Message(
-                conversation_id=conversation.id,
-                sender_type="agent",
-                sender_agent_id=lead.id,
-                content=f"(Agent error: {result.error})",
-                requires_response=False,
-                response_to_message_id=trigger.id,
-            )
-            session.add(error_msg)
-            session.flush()
-            _clear_activity(conversation.id)
-            return [error_msg]
-
-        # Extract per-agent contributions from stream-json events.
-        contributions = parse_team_output(result.events, name_to_id, agent_names)
-
-        # Fallback: attribute everything to the lead.
-        if not contributions and result.text:
-            contributions = [(lead.id, result.text)]
-
-        # Store each contribution as a separate Message.
-        created: list[Message] = []
-        for agent_id, content in contributions:
-            if not content.strip():
-                continue
-            msg = Message(
-                conversation_id=conversation.id,
-                sender_type="agent",
-                sender_agent_id=agent_id or lead.id,
-                content=content,
-                requires_response=infer_requires_response(content),
-                response_to_message_id=trigger.id,
-            )
-            session.add(msg)
-            session.flush()
-
-            created.append(msg)
-
-            try:
-                commit_with_retry(session)
-            except Exception as exc:
-                logger.warning("Mid-chain commit failed: %s", exc)
-
-    except Exception:
-        logger.exception("Job team response failed for conversation %s", conversation.id)
-        # Fall back to single-agent sequential responses.
-        _clear_activity(conversation.id)
-        return _run_single_agent_responses(session, conversation, trigger, candidates)
-
-    _clear_activity(conversation.id)
-    return created
-
 
 def _run_team_response(
     session: Session,
@@ -629,52 +555,78 @@ def _run_team_response(
     trigger: Message,
     candidates: list[Agent],
 ) -> list[Message]:
-    """Route multi-agent conversations through a persistent team session.
+    """Route multi-agent conversations through a streaming ``claude -p`` invocation.
 
-    The team session runs a long-lived ``claude`` process.  Messages are
-    forwarded via stdin and agent responses are captured from stdout by
-    the team bridge (Phase 3).
+    Spawns a single ``claude -p`` subprocess with all agents via ``--agents``
+    and the lead designated via ``--agent``.  Events are read from stdout
+    line-by-line in a background thread and stored as Messages incrementally
+    so the frontend picks them up via polling.
     """
     from teaparty_app.services.team_bridge import process_team_events_sync
-    from teaparty_app.services.team_registry import get_or_create_session
+    from teaparty_app.services.team_registry import register_session
+    from teaparty_app.services.team_session import TeamSession
 
     workgroup = session.get(Workgroup, conversation.workgroup_id)
+    if not workgroup:
+        return []
 
-    # Resolve worktree path for workspace-enabled workgroups.
-    worktree_path: str | None = None
-    if workgroup and workgroup.workspace_enabled:
-        from teaparty_app.services.todo_helpers import _resolve_worktree
-        wt, _ = _resolve_worktree(session, conversation)
-        worktree_path = wt
+    lead = _select_lead(candidates)
+    others = [a for a in candidates if a.id != lead.id]
+    lead_slug = slugify(lead.name)
 
-    # Set activity for all candidates.
-    for agent in candidates:
-        _set_activity(conversation.id, agent.id, agent.name, "composing", "team session")
+    # Materialize files so agents can use Read/Write/Glob/Grep.
+    with materialized_files(session, workgroup, conversation) as mat_ctx:
+        files_context = (
+            "Your workgroup's files are in the current working directory. "
+            "Use Read, Edit, Write, Glob, and Grep."
+        )
 
-    try:
-        # Start or reuse the team session.
-        team = asyncio.run(get_or_create_session(
-            conversation_id=conversation.id,
-            agents=candidates,
-            workgroup=workgroup,
-            worktree_path=worktree_path,
-            conversation_name=conversation.name or "",
-            conversation_description=conversation.description or "",
-        ))
+        # Only lead shows as composing initially; sub-agents are set
+        # when the lead delegates to them via Task tool_use events.
+        _set_activity(conversation.id, lead.id, lead.name, "composing", "team")
 
-        # Build user message from conversation history + trigger.
-        user_msg = build_user_message(session, conversation, trigger)
+        try:
+            user_msg = build_user_message(session, conversation, trigger)
 
-        # Send the message to the team session.
-        asyncio.run(team.send_message(user_msg))
+            # Create and run the team session.
+            team = TeamSession(conversation.id, worktree_path=mat_ctx.dir_path)
+            register_session(conversation.id, team)
 
-        # Process events from the team session and convert to Messages.
-        created = process_team_events_sync(session, team, conversation, trigger)
+            team.run(
+                agents=candidates,
+                user_message=user_msg,
+                workgroup=workgroup,
+                conversation_name=conversation.name or "",
+                conversation_description=conversation.description or "",
+                lead_slug=lead_slug,
+                files_context=files_context,
+                teammates=others or None,
+                settings_json=mat_ctx.settings_json,
+            )
 
-    except Exception:
-        logger.exception("Team session failed for conversation %s", conversation.id)
-        # Fall back to single-agent sequential responses.
-        created = _run_single_agent_responses(session, conversation, trigger, candidates)
+            # Drain events and store as Messages.
+            created = process_team_events_sync(session, team, conversation, trigger)
+
+            if not created:
+                logger.warning(
+                    "Team session for conversation %s produced no messages. "
+                    "Falling back to single-agent responses.",
+                    conversation.id,
+                )
+                _clear_activity(conversation.id)
+                return _run_single_agent_responses(session, conversation, trigger, candidates)
+
+            # Record usage against the lead agent.
+            record_llm_usage(
+                session, conversation.id, lead.id, lead.model,
+                0, 0, "reply", int((time.time() - team.started_at) * 1000),
+            )
+
+        except Exception:
+            logger.exception("Team session failed for conversation %s", conversation.id)
+            _clear_activity(conversation.id)
+            # Fall back to single-agent sequential responses.
+            return _run_single_agent_responses(session, conversation, trigger, candidates)
 
     _clear_activity(conversation.id)
     return created

@@ -101,6 +101,8 @@ class OrganizationRead(ORMBaseModel):
     description: str
     owner_id: str
     operations_workgroup_id: str | None = None
+    service_description: str = ""
+    is_accepting_engagements: bool = False
     created_at: datetime
 
 
@@ -112,6 +114,8 @@ class OrganizationCreateRequest(BaseModel):
 class OrganizationUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
+    service_description: str | None = None
+    is_accepting_engagements: bool | None = None
 
 
 class WorkgroupTemplateFileRead(BaseModel):
@@ -417,6 +421,8 @@ class EngagementRead(ORMBaseModel):
     cancelled_at: datetime | None = None
     review_rating: str | None = None
     review_feedback: str = ""
+    agreed_price_credits: float | None = None
+    payment_status: str = "none"
 
 
 class EngagementDetailRead(EngagementRead):
@@ -439,6 +445,7 @@ class JobRead(ORMBaseModel):
     deliverables: str = ""
     created_at: datetime
     completed_at: datetime | None = None
+    max_rounds: int | None = None
 
 
 class JobDetailRead(JobRead):
@@ -449,6 +456,8 @@ class JobDetailRead(JobRead):
 class JobCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""
+    max_rounds: int | None = None
+    agent_ids: list[str] | None = None
 
 
 class JobUpdateRequest(BaseModel):
@@ -634,3 +643,46 @@ class SystemSettingsUpdate(BaseModel):
     app_name: str | None = None
     workspace_root: str | None = None
     admin_agent_use_sdk: bool | None = None
+
+
+# --- Payment schemas ---
+
+
+class OrgBalanceRead(ORMBaseModel):
+    id: str
+    organization_id: str
+    balance_credits: float
+    updated_at: datetime
+    created_at: datetime
+
+
+class AddCreditsRequest(BaseModel):
+    amount: float = Field(gt=0)
+    description: str = ""
+
+
+class PaymentTransactionRead(ORMBaseModel):
+    id: str
+    organization_id: str
+    engagement_id: str | None = None
+    transaction_type: str
+    amount_credits: float
+    balance_after_credits: float
+    counterparty_org_id: str | None = None
+    description: str
+    created_at: datetime
+
+
+class EngagementPriceRequest(BaseModel):
+    price_credits: float = Field(ge=0)
+
+
+# --- Org directory schemas ---
+
+
+class OrgDirectoryEntry(BaseModel):
+    id: str
+    name: str
+    description: str
+    service_description: str
+    owner_id: str

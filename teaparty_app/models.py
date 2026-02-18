@@ -39,6 +39,8 @@ class Organization(SQLModel, table=True):
     description: str = Field(default="")
     owner_id: str = Field(foreign_key="users.id", index=True)
     operations_workgroup_id: str | None = Field(default=None, foreign_key="workgroups.id")
+    service_description: str = Field(default="")
+    is_accepting_engagements: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -291,6 +293,9 @@ class Engagement(SQLModel, table=True):
     review_rating: str | None = Field(default=None)
     review_feedback: str = Field(default="")
 
+    agreed_price_credits: float | None = Field(default=None)
+    payment_status: str = Field(default="none")  # none | escrowed | paid | refunded
+
 
 class EngagementSyncedMessage(SQLModel, table=True):
     __tablename__ = "engagement_synced_messages"
@@ -340,6 +345,7 @@ class Job(SQLModel, table=True):
     deliverables: str = Field(default="")
     created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)
+    max_rounds: int | None = Field(default=None)
 
 
 class AgentTask(SQLModel, table=True):
@@ -367,4 +373,30 @@ class SyncedMessage(SQLModel, table=True):
     task_id: str = Field(foreign_key="cross_group_tasks.id", index=True)
     source_message_id: str = Field(foreign_key="messages.id", index=True)
     mirror_message_id: str = Field(foreign_key="messages.id", index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class OrgBalance(SQLModel, table=True):
+    __tablename__ = "org_balances"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    organization_id: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False)
+    )
+    balance_credits: float = Field(default=0.0)
+    updated_at: datetime = Field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PaymentTransaction(SQLModel, table=True):
+    __tablename__ = "payment_transactions"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    organization_id: str = Field(foreign_key="organizations.id", index=True)
+    engagement_id: str | None = Field(default=None, foreign_key="engagements.id", index=True)
+    transaction_type: str = Field(index=True)  # credit | escrow | release | refund
+    amount_credits: float = Field(default=0.0)
+    balance_after_credits: float = Field(default=0.0)
+    counterparty_org_id: str | None = Field(default=None, foreign_key="organizations.id")
+    description: str = Field(default="")
     created_at: datetime = Field(default_factory=utc_now)
