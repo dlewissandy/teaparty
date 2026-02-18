@@ -1,7 +1,6 @@
-import asyncio
 import json
 import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 from teaparty_app.models import Agent, Workgroup
 from teaparty_app.services.team_session import TeamEvent, TeamSession
@@ -142,50 +141,90 @@ class TeamSessionAgentMappingTests(unittest.TestCase):
         self.assertIsNone(session.get_agent_id("unknown"))
 
 
-class TeamSessionLifecycleTests(unittest.IsolatedAsyncioTestCase):
+class TeamSessionLifecycleTests(unittest.TestCase):
     """Test session start/stop lifecycle."""
 
-    async def test_stop_without_start(self) -> None:
+    def test_stop_without_start(self) -> None:
         session = TeamSession("conv-1")
         # Should not raise
-        await session.stop()
+        session.stop()
         self.assertFalse(session.is_running)
 
-    async def test_stop_cancels_reader_task(self) -> None:
+    def test_stop_terminates_process(self) -> None:
         session = TeamSession("conv-1")
-
-        # Simulate a running reader task
-        async def fake_reader():
-            await asyncio.sleep(100)
-
-        session._reader_task = asyncio.create_task(fake_reader())
         session.is_running = True
 
         # Create a mock process
         mock_proc = MagicMock()
         mock_proc.terminate = MagicMock()
         mock_proc.kill = MagicMock()
-        mock_proc.wait = AsyncMock()
+        mock_proc.wait = MagicMock()
         session.process = mock_proc
 
-        await session.stop()
+        session.stop()
         self.assertFalse(session.is_running)
-        self.assertTrue(session._reader_task.cancelled() or session._reader_task.done())
+        mock_proc.terminate.assert_called_once()
+        self.assertIsNone(session.process)
 
 
-class TeamRegistryTests(unittest.IsolatedAsyncioTestCase):
+class TeamRegistryTests(unittest.TestCase):
     """Test the session registry."""
 
-    async def test_get_session_returns_none_for_unknown(self) -> None:
+    def test_get_session_returns_none_for_unknown(self) -> None:
         from teaparty_app.services.team_registry import get_session
         result = get_session("nonexistent-conv")
         self.assertIsNone(result)
 
-    async def test_active_session_count(self) -> None:
+    def test_active_session_count(self) -> None:
         from teaparty_app.services.team_registry import active_session_count
         # Should be 0 initially (or whatever state it's in)
         count = active_session_count()
         self.assertIsInstance(count, int)
+
+
+class InboxPollingTests(unittest.TestCase):
+    """Test _is_protocol_message filtering."""
+
+    def test_idle_notification_is_protocol(self) -> None:
+        text = json.dumps({"type": "idle_notification", "agentId": "abc"})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_permission_request_is_protocol(self) -> None:
+        text = json.dumps({"type": "permission_request", "tool": "Bash"})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_shutdown_request_is_protocol(self) -> None:
+        text = json.dumps({"type": "shutdown_request"})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_shutdown_response_is_protocol(self) -> None:
+        text = json.dumps({"type": "shutdown_response", "approve": True})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_plan_approval_request_is_protocol(self) -> None:
+        text = json.dumps({"type": "plan_approval_request"})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_plan_approval_response_is_protocol(self) -> None:
+        text = json.dumps({"type": "plan_approval_response", "approve": True})
+        self.assertTrue(TeamSession._is_protocol_message(text))
+
+    def test_plain_text_is_not_protocol(self) -> None:
+        self.assertFalse(TeamSession._is_protocol_message("Hello, how are you?"))
+
+    def test_non_protocol_json_is_not_protocol(self) -> None:
+        text = json.dumps({"type": "message", "content": "hi"})
+        self.assertFalse(TeamSession._is_protocol_message(text))
+
+    def test_malformed_json_is_not_protocol(self) -> None:
+        self.assertFalse(TeamSession._is_protocol_message("{bad json"))
+
+    def test_empty_string_is_not_protocol(self) -> None:
+        self.assertFalse(TeamSession._is_protocol_message(""))
+
+    def test_json_without_type_is_not_protocol(self) -> None:
+        text = json.dumps({"data": "something"})
+        self.assertFalse(TeamSession._is_protocol_message(text))
 
 
 if __name__ == "__main__":
