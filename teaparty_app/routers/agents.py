@@ -1,3 +1,5 @@
+"""REST API for agent CRUD, cloning, learning, and tick endpoints."""
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlmodel import Session, select
 

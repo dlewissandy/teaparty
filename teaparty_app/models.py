@@ -1,3 +1,9 @@
+"""SQLModel table definitions for all domain entities.
+
+Exports every ORM model (User, Organization, Workgroup, Agent, Conversation,
+Message, etc.) plus the ``new_id`` and ``utc_now`` factory helpers.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -39,6 +45,7 @@ class Organization(SQLModel, table=True):
     description: str = Field(default="")
     owner_id: str = Field(foreign_key="users.id", index=True)
     operations_workgroup_id: str | None = Field(default=None, foreign_key="workgroups.id")
+    files: list[JSONDict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     service_description: str = Field(default="")
     is_accepting_engagements: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utc_now)
@@ -279,6 +286,7 @@ class Engagement(SQLModel, table=True):
     requirements: str = Field(default="")
     terms: str = Field(default="")
     deliverables: str = Field(default="")
+    files: list[JSONDict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
 
     source_conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
     target_conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
@@ -343,6 +351,7 @@ class Job(SQLModel, table=True):
     conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
     created_by_agent_id: str | None = Field(default=None, foreign_key="agents.id", index=True)
     deliverables: str = Field(default="")
+    files: list[JSONDict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(default_factory=utc_now)
     completed_at: datetime | None = Field(default=None)
     max_rounds: int | None = Field(default=None)

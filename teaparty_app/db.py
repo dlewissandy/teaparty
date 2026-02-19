@@ -1,3 +1,5 @@
+"""Database engine setup, lightweight migrations, seed runner, and session helpers."""
+
 import json
 import logging
 import time
@@ -53,6 +55,11 @@ def init_db() -> None:
     _migrate_add_job_max_rounds()
     _migrate_add_job_permission_mode()
     _migrate_drop_agent_follow_up_minutes()
+    _migrate_add_org_files()
+    _migrate_add_engagement_files()
+    _migrate_add_job_files()
+    _migrate_engagement_files_to_entity()
+    _migrate_job_files_to_entity()
     _run_seeds()
 
 
@@ -783,6 +790,184 @@ def _migrate_drop_agent_follow_up_minutes() -> None:
         return
     with engine.begin() as conn:
         conn.execute(text("ALTER TABLE agents DROP COLUMN follow_up_minutes"))
+
+
+def _migrate_add_org_files() -> None:
+    """Add files JSON column to organizations table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    org_columns = _sqlite_column_names("organizations")
+    if "files" not in org_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN files JSON DEFAULT '[]' NOT NULL"))
+
+
+def _migrate_add_engagement_files() -> None:
+    """Add files JSON column to engagements table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    eng_columns = _sqlite_column_names("engagements")
+    if "files" not in eng_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE engagements ADD COLUMN files JSON DEFAULT '[]' NOT NULL"))
+
+
+def _migrate_add_job_files() -> None:
+    """Add files JSON column to jobs table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    job_columns = _sqlite_column_names("jobs")
+    if "files" not in job_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN files JSON DEFAULT '[]' NOT NULL"))
+
+
+def _migrate_engagement_files_to_entity() -> None:
+    """Move engagement files from workgroup.files to Engagement.files."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    with engine.begin() as conn:
+        engagements = conn.execute(
+            text("SELECT id, files FROM engagements WHERE status != 'declined'")
+        ).mappings().all()
+
+        for eng in engagements:
+            eng_id = eng["id"]
+            # Skip if engagement already has files
+            existing = eng["files"]
+            if isinstance(existing, str):
+                try:
+                    existing = json.loads(existing or "[]")
+                except (ValueError, TypeError):
+                    existing = []
+            if existing:
+                continue
+
+            prefix = f"engagements/{eng_id}/"
+
+            # Scan all workgroups for files matching this engagement
+            workgroups = conn.execute(text("SELECT id, files FROM workgroups")).mappings().all()
+            eng_files: list[dict] = []
+            seen_paths: set[str] = set()
+
+            for wg in workgroups:
+                wg_files = wg["files"]
+                if isinstance(wg_files, str):
+                    try:
+                        wg_files = json.loads(wg_files or "[]")
+                    except (ValueError, TypeError):
+                        continue
+                if not isinstance(wg_files, list):
+                    continue
+
+                remaining = []
+                changed = False
+                for f in wg_files:
+                    if not isinstance(f, dict):
+                        remaining.append(f)
+                        continue
+                    path = f.get("path", "")
+                    if path.startswith(prefix):
+                        # Strip the engagement prefix for the entity-scoped path
+                        short_path = path[len(prefix):]
+                        if short_path and short_path not in seen_paths:
+                            eng_files.append({
+                                "id": f.get("id", str(uuid4())),
+                                "path": short_path,
+                                "content": f.get("content", ""),
+                            })
+                            seen_paths.add(short_path)
+                        changed = True
+                    else:
+                        remaining.append(f)
+
+                if changed:
+                    conn.execute(
+                        text("UPDATE workgroups SET files = :files WHERE id = :id"),
+                        {"files": json.dumps(remaining), "id": wg["id"]},
+                    )
+
+            if eng_files:
+                conn.execute(
+                    text("UPDATE engagements SET files = :files WHERE id = :id"),
+                    {"files": json.dumps(eng_files), "id": eng_id},
+                )
+
+
+def _migrate_job_files_to_entity() -> None:
+    """Move job-scoped files from workgroup.files to Job.files."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    with engine.begin() as conn:
+        jobs = conn.execute(
+            text("SELECT id, conversation_id, workgroup_id, files FROM jobs WHERE conversation_id IS NOT NULL")
+        ).mappings().all()
+
+        for job in jobs:
+            job_id = job["id"]
+            conv_id = job["conversation_id"]
+            wg_id = job["workgroup_id"]
+
+            # Skip if job already has files
+            existing = job["files"]
+            if isinstance(existing, str):
+                try:
+                    existing = json.loads(existing or "[]")
+                except (ValueError, TypeError):
+                    existing = []
+            if existing:
+                continue
+
+            # Get the workgroup files
+            wg_row = conn.execute(
+                text("SELECT files FROM workgroups WHERE id = :id"),
+                {"id": wg_id},
+            ).mappings().first()
+            if not wg_row:
+                continue
+
+            wg_files = wg_row["files"]
+            if isinstance(wg_files, str):
+                try:
+                    wg_files = json.loads(wg_files or "[]")
+                except (ValueError, TypeError):
+                    continue
+            if not isinstance(wg_files, list):
+                continue
+
+            # Find files scoped to this job's conversation
+            job_files: list[dict] = []
+            remaining = []
+            changed = False
+
+            for f in wg_files:
+                if not isinstance(f, dict):
+                    remaining.append(f)
+                    continue
+                topic_id = f.get("topic_id", "")
+                if topic_id == conv_id:
+                    job_files.append({
+                        "id": f.get("id", str(uuid4())),
+                        "path": f.get("path", ""),
+                        "content": f.get("content", ""),
+                    })
+                    changed = True
+                else:
+                    remaining.append(f)
+
+            if changed:
+                conn.execute(
+                    text("UPDATE workgroups SET files = :files WHERE id = :id"),
+                    {"files": json.dumps(remaining), "id": wg_id},
+                )
+
+            if job_files:
+                conn.execute(
+                    text("UPDATE jobs SET files = :files WHERE id = :id"),
+                    {"files": json.dumps(job_files), "id": job_id},
+                )
 
 
 def get_session() -> Iterator[Session]:

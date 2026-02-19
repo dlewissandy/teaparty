@@ -3,6 +3,19 @@ name: Roleplay
 description: "Character, setting, and scene templates for collaborative storytelling sessions."
 
 files:
+  - path: CLAUDE.md
+    content: |
+      # Workgroup Instructions
+
+      ## Conventions
+      - Stay in character. Maintain consistent voice and motivation.
+      - Respect the world's established tone and boundaries.
+      - Advance the story collaboratively — no single character dominates.
+
+      ## Session Flow
+      - Begin with scene-setting before jumping into action.
+      - End sessions with a debrief noting threads to continue.
+
   - path: setting/world.md
     content: |
       # World Setup

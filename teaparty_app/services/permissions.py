@@ -1,3 +1,5 @@
+"""Workgroup membership and role authorization checks."""
+
 from fastapi import HTTPException, status
 from sqlmodel import Session, select
 

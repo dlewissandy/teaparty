@@ -289,7 +289,7 @@ def global_list_agents(
 def global_add_job(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
-    from teaparty_app.services.admin_workspace.tools import admin_tool_add_job
+    from teaparty_app.services.admin_workspace.job_tools import admin_tool_add_job
 
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
     if not workgroup_name:
@@ -318,7 +318,7 @@ def global_add_job(
 def global_list_jobs(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
-    from teaparty_app.services.admin_workspace.tools import admin_tool_list_jobs
+    from teaparty_app.services.admin_workspace.job_tools import admin_tool_list_jobs
 
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
     if not workgroup_name:
@@ -339,7 +339,7 @@ def global_list_jobs(
 def global_add_file(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
-    from teaparty_app.services.admin_workspace.tools import admin_tool_add_file
+    from teaparty_app.services.admin_workspace.file_tools import admin_tool_add_file
 
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
     if not workgroup_name:

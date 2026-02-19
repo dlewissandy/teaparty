@@ -1,3 +1,5 @@
+"""JWT token creation/verification and Google OAuth ID-token validation."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

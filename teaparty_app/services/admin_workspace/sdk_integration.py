@@ -48,27 +48,33 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     GLOBAL_TOOL_UPDATE_AGENT,
 )
 from teaparty_app.services.admin_workspace.parsing import _help_text
-from teaparty_app.services.admin_workspace.tools import (
-    admin_tool_accept_task,
+from teaparty_app.services.admin_workspace.member_tools import (
     admin_tool_add_agent,
-    admin_tool_add_file,
-    admin_tool_add_job,
     admin_tool_add_user,
-    admin_tool_archive_job,
-    admin_tool_clear_job_messages,
-    admin_tool_complete_task,
-    admin_tool_decline_task,
-    admin_tool_delete_file,
     admin_tool_delete_workgroup,
+    admin_tool_list_members,
+    admin_tool_remove_member,
+)
+from teaparty_app.services.admin_workspace.file_tools import (
+    admin_tool_add_file,
+    admin_tool_delete_file,
     admin_tool_edit_file,
     admin_tool_list_files,
-    admin_tool_list_members,
-    admin_tool_list_tasks,
-    admin_tool_list_jobs,
-    admin_tool_remove_member,
-    admin_tool_remove_job,
     admin_tool_rename_file,
+)
+from teaparty_app.services.admin_workspace.job_tools import (
+    admin_tool_add_job,
+    admin_tool_archive_job,
+    admin_tool_clear_job_messages,
+    admin_tool_list_jobs,
+    admin_tool_remove_job,
     admin_tool_unarchive_job,
+)
+from teaparty_app.services.admin_workspace.task_tools import (
+    admin_tool_accept_task,
+    admin_tool_complete_task,
+    admin_tool_decline_task,
+    admin_tool_list_tasks,
 )
 
 logger = logging.getLogger(__name__)

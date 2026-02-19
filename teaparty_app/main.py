@@ -1,3 +1,5 @@
+"""FastAPI application factory, router mounting, and static file serving."""
+
 from pathlib import Path
 
 from fastapi import FastAPI

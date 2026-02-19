@@ -1,7 +1,11 @@
+"""REST API for cross-org engagements: propose, accept, complete, review."""
+
+from uuid import uuid4
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlmodel import Session, select
 
-from teaparty_app.db import get_session
+from teaparty_app.db import commit_with_retry, get_session
 from teaparty_app.deps import get_current_user
 from teaparty_app.models import (
     Conversation,
@@ -22,6 +26,8 @@ from teaparty_app.schemas import (
     EngagementRead,
     EngagementRespondRequest,
     EngagementReviewRequest,
+    EntityFileRead,
+    EntityFileWrite,
 )
 from teaparty_app.services.activity import post_activity
 from teaparty_app.services.engagement_files import (
@@ -570,3 +576,56 @@ def set_engagement_price(
     session.commit()
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
+
+
+@router.get("/engagements/{engagement_id}/files", response_model=list[EntityFileRead])
+def get_engagement_files(
+    engagement_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[EntityFileRead]:
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found",
+        )
+    _require_engagement_participant(session, engagement, user.id)
+    return [EntityFileRead(**f) for f in (engagement.files or [])]
+
+
+@router.put("/engagements/{engagement_id}/files", response_model=list[EntityFileRead])
+def update_engagement_files_endpoint(
+    engagement_id: str,
+    payload: list[EntityFileWrite],
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[EntityFileRead]:
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found",
+        )
+    _require_engagement_participant(session, engagement, user.id)
+
+    normalized: list[dict] = []
+    for f in payload:
+        file_id = f.id or str(uuid4())
+        path = f.path.strip()
+        if not path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path cannot be empty",
+            )
+        normalized.append({
+            "id": file_id,
+            "path": path[:512],
+            "content": (f.content or "")[:200_000],
+        })
+
+    engagement.files = normalized
+    session.add(engagement)
+    commit_with_retry(session)
+    session.refresh(engagement)
+    return [EntityFileRead(**f) for f in engagement.files]

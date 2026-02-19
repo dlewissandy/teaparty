@@ -1,3 +1,5 @@
+"""REST API for the public organization directory listing."""
+
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, select
 

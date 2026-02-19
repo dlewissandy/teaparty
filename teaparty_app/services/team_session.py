@@ -78,6 +78,7 @@ class TeamSession:
         teammates: list[Agent] | None = None,
         settings_json: str | None = None,
         permission_mode: str = "acceptEdits",
+        org_files: list[dict] | None = None,
     ) -> None:
         """Spawn ``claude -p``, pipe the message, and start reading events.
 
@@ -105,6 +106,7 @@ class TeamSession:
                 agent, dummy_conv, workgroup,
                 files_context=files_context,
                 teammates=teammates if is_lead else None,
+                org_files=org_files,
             )
             self._agent_slugs[slug] = agent.id
 

@@ -8,7 +8,6 @@ from sqlmodel import Session, SQLModel, create_engine
 
 from teaparty_app.models import (
     Agent,
-    AgentLearningEvent,
     AgentMemory,
     Conversation,
     Message,
@@ -17,7 +16,6 @@ from teaparty_app.models import (
     new_id,
 )
 from teaparty_app.services.agent_learning import (
-    apply_short_term_learning,
     get_agent_memory_context,
     is_learning_eligible,
     synthesize_long_term_memories,
@@ -113,129 +111,6 @@ def _create_test_engine():
     engine = create_engine("sqlite://", echo=False)
     SQLModel.metadata.create_all(engine)
     return engine
-
-
-class TestApplyShortTermLearning(unittest.TestCase):
-    def setUp(self) -> None:
-        self.engine = _create_test_engine()
-
-    def test_skips_cross_group_conversations(self) -> None:
-        with Session(self.engine) as session:
-            wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
-            session.add(wg)
-            user = User(id="user-1", email="test@example.com")
-            session.add(user)
-            agent = _make_agent(agent_id="agent-1")
-            session.add(agent)
-            conv = _make_conversation(kind="job", topic="task:abc-123")
-            session.add(conv)
-            trigger = _make_message(conversation_id=conv.id, content="Tell me about the project")
-            session.add(trigger)
-            reply = _make_message(
-                conversation_id=conv.id,
-                sender_type="agent",
-                sender_user_id=None,
-                sender_agent_id=agent.id,
-                content="The project is going well",
-            )
-            session.add(reply)
-            session.commit()
-
-            apply_short_term_learning(session, agent, conv, trigger, reply)
-            session.commit()
-
-            events = session.exec(
-                AgentLearningEvent.__table__.select()
-            ).all()
-            self.assertEqual(len(events), 0)
-
-    def test_creates_job_expertise_event(self) -> None:
-        with Session(self.engine) as session:
-            wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
-            session.add(wg)
-            user = User(id="user-1", email="test@example.com")
-            session.add(user)
-            agent = _make_agent(agent_id="agent-1")
-            session.add(agent)
-            conv = _make_conversation(kind="job", topic="machine-learning")
-            session.add(conv)
-            trigger = _make_message(
-                conversation_id=conv.id,
-                content="What about neural network architectures?",
-            )
-            session.add(trigger)
-            reply = _make_message(
-                conversation_id=conv.id,
-                sender_type="agent",
-                sender_user_id=None,
-                sender_agent_id=agent.id,
-                content="Transformer architectures have revolutionized the field",
-            )
-            session.add(reply)
-            session.commit()
-
-            apply_short_term_learning(session, agent, conv, trigger, reply)
-            session.commit()
-
-            from sqlmodel import select
-
-            events = session.exec(
-                select(AgentLearningEvent).where(
-                    AgentLearningEvent.agent_id == agent.id,
-                    AgentLearningEvent.signal_type == "topic_expertise",
-                )
-            ).all()
-            self.assertGreaterEqual(len(events), 1)
-            value = events[0].value
-            self.assertIn("domain_tokens", value)
-            self.assertIn("machine-learning", value["topic"])
-
-    def test_creates_collaboration_event_for_agent_trigger(self) -> None:
-        with Session(self.engine) as session:
-            wg = Workgroup(id="wg-1", name="Test WG", owner_id="user-1")
-            session.add(wg)
-            user = User(id="user-1", email="test@example.com")
-            session.add(user)
-            agent_a = _make_agent(agent_id="agent-a", name="Alice")
-            agent_b = _make_agent(agent_id="agent-b", name="Bob")
-            session.add(agent_a)
-            session.add(agent_b)
-            conv = _make_conversation(kind="job", topic="design")
-            session.add(conv)
-            trigger = _make_message(
-                conversation_id=conv.id,
-                sender_type="agent",
-                sender_user_id=None,
-                sender_agent_id=agent_a.id,
-                content="We should use microservices for better scalability",
-            )
-            session.add(trigger)
-            reply = _make_message(
-                conversation_id=conv.id,
-                sender_type="agent",
-                sender_user_id=None,
-                sender_agent_id=agent_b.id,
-                content="I agree about scalability but monolith might be simpler initially",
-            )
-            session.add(reply)
-            session.commit()
-
-            apply_short_term_learning(session, agent_b, conv, trigger, reply)
-            session.commit()
-
-            from sqlmodel import select
-
-            events = session.exec(
-                select(AgentLearningEvent).where(
-                    AgentLearningEvent.agent_id == agent_b.id,
-                    AgentLearningEvent.signal_type == "collaboration",
-                )
-            ).all()
-            self.assertEqual(len(events), 1)
-            value = events[0].value
-            self.assertIn("overlap_ratio", value)
-            self.assertIn("is_complementary", value)
-            self.assertEqual(value["trigger_agent_id"], agent_a.id)
 
 
 class TestGetAgentMemoryContext(unittest.TestCase):

@@ -1,3 +1,5 @@
+"""REST API for listing available agent tools per workgroup."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends

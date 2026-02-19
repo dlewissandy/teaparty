@@ -3,6 +3,19 @@ name: Coding
 description: "Implementation-focused workspace with architecture, backlog, and notes scaffolding."
 
 files:
+  - path: CLAUDE.md
+    content: |
+      # Workgroup Instructions
+
+      ## Conventions
+      - Write clean, well-structured code.
+      - Use the project's existing patterns and conventions.
+      - Keep changes focused — one concern per commit.
+
+      ## Review Standards
+      - All code changes should be reviewed before shipping.
+      - Flag security concerns, performance issues, and edge cases.
+
   - path: README.md
     content: |
       # Project Brief

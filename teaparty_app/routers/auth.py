@@ -1,3 +1,5 @@
+"""REST API for authentication: Google OAuth and dev-mode login."""
+
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, status

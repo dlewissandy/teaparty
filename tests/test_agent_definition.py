@@ -17,6 +17,7 @@ def _make_agent(
     backstory: str = "",
     model: str = "claude-sonnet-4-5",
     max_turns: int = 3,
+    is_lead: bool = False,
 ) -> Agent:
     return Agent(
         id=agent_id,
@@ -29,6 +30,7 @@ def _make_agent(
         model=model,
         max_turns=max_turns,
         tool_names=[],
+        is_lead=is_lead,
     )
 
 
@@ -177,31 +179,20 @@ class BuildAgentJsonTests(unittest.TestCase):
         self.assertIn("Guidelines:", result["prompt"])
         self.assertIn("Be direct and substantive", result["prompt"])
 
-    def test_skill_context_embedded_when_workflow_not_active(self) -> None:
+    def test_workflows_not_injected_into_prompt(self) -> None:
+        """Workflows are just files — not injected into agent prompts."""
         agent = _make_agent(name="Reviewer")
         conversation = _make_conversation()
         workgroup = _make_workgroup(files=[
             {
                 "path": "workflows/code-review.md",
-                "content": "# Code Review\n\n## Steps\n### 1. Analyze\n- **Agent**: Reviewer\n- Review the code",
+                "content": "# Code Review\n\n## Steps\n### 1. Analyze\n- **Agent**: Reviewer",
             },
         ])
         result = build_agent_json(agent, conversation, workgroup=workgroup)
-        self.assertIn("Available Skills", result["prompt"])
-        self.assertIn("Code Review", result["prompt"])
-
-    def test_skill_context_skipped_for_irrelevant_agent(self) -> None:
-        agent = _make_agent(name="Coordinator")
-        conversation = _make_conversation()
-        workgroup = _make_workgroup(files=[
-            {
-                "path": "workflows/code-review.md",
-                "content": "# Code Review\n\n- **Agent**: Reviewer\n- Review the code",
-            },
-        ])
-        result = build_agent_json(agent, conversation, workgroup=workgroup)
-        # Coordinator not mentioned in the workflow
-        self.assertNotIn("Available Skills", result["prompt"])
+        self.assertNotIn("Active Workflow", result["prompt"])
+        self.assertNotIn("Available Workflows", result["prompt"])
+        self.assertNotIn("Code Review", result["prompt"])
 
 
 class BuildWorktreeSettingsJsonTests(unittest.TestCase):

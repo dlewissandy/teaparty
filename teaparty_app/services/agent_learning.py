@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 import time
 
@@ -12,7 +11,6 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import (
     Agent,
-    AgentLearningEvent,
     AgentMemory,
     Conversation,
     Message,
@@ -21,13 +19,6 @@ from teaparty_app.models import (
 from teaparty_app.services.llm_usage import record_llm_usage
 
 logger = logging.getLogger(__name__)
-
-_TOKEN_RE = re.compile(r"[a-z][a-z0-9_-]{2,}")
-_STOPWORDS = {
-    "the", "and", "for", "with", "that", "this", "from", "into", "about",
-    "agent", "assistant", "professional", "concise", "structured", "detailed",
-    "brief", "team", "workgroup", "chat", "conversation",
-}
 
 
 # ---------------------------------------------------------------------------
@@ -42,77 +33,6 @@ def is_learning_eligible(conversation: Conversation) -> bool:
     if conversation.kind in ("activity", "admin", "engagement"):
         return False
     return True
-
-
-# ---------------------------------------------------------------------------
-# Short-term learning (called after every agent reply)
-# ---------------------------------------------------------------------------
-
-def _extract_tokens(text: str) -> set[str]:
-    return {
-        token
-        for token in _TOKEN_RE.findall(text.lower())
-        if token not in _STOPWORDS
-    }
-
-
-def apply_short_term_learning(
-    session: Session,
-    agent: Agent,
-    conversation: Conversation,
-    trigger: Message,
-    agent_reply: Message,
-) -> None:
-    """Record short-term learning signals after an agent reply.
-
-    Two signal types:
-    1. Topic expertise — domain tokens from conversation + messages
-    2. Collaboration quality — when trigger is from another agent
-    """
-    if not is_learning_eligible(conversation):
-        return
-
-    # 2. Topic expertise
-    topic_tokens = _extract_tokens(conversation.topic or "")
-    trigger_tokens = _extract_tokens(trigger.content or "")
-    reply_tokens = _extract_tokens(agent_reply.content or "")
-    domain_tokens = sorted(topic_tokens | trigger_tokens | reply_tokens)[:30]
-
-    if domain_tokens:
-        session.add(
-            AgentLearningEvent(
-                agent_id=agent.id,
-                message_id=agent_reply.id,
-                signal_type="topic_expertise",
-                value={
-                    "topic": (conversation.topic or "").strip(),
-                    "domain_tokens": domain_tokens,
-                },
-            )
-        )
-
-    # 3. Collaboration quality (agent-to-agent)
-    if trigger.sender_type == "agent":
-        trigger_toks = _extract_tokens(trigger.content or "")
-        reply_toks = _extract_tokens(agent_reply.content or "")
-        overlap = trigger_toks & reply_toks
-        union = trigger_toks | reply_toks
-        overlap_ratio = len(overlap) / max(len(union), 1)
-        novel_tokens = reply_toks - trigger_toks
-        is_complementary = len(novel_tokens) > len(overlap)
-
-        session.add(
-            AgentLearningEvent(
-                agent_id=agent.id,
-                message_id=agent_reply.id,
-                signal_type="collaboration",
-                value={
-                    "trigger_agent_id": trigger.sender_agent_id,
-                    "overlap_ratio": round(overlap_ratio, 3),
-                    "is_complementary": is_complementary,
-                },
-            )
-        )
 
 
 # ---------------------------------------------------------------------------

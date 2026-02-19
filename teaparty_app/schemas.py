@@ -119,6 +119,7 @@ class OrganizationRead(ORMBaseModel):
     description: str
     owner_id: str
     operations_workgroup_id: str | None = None
+    files: list[WorkgroupFileRead] = []
     service_description: str = ""
     is_accepting_engagements: bool = False
     created_at: datetime
@@ -132,6 +133,7 @@ class OrganizationCreateRequest(BaseModel):
 class OrganizationUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     description: str | None = None
+    files: list[WorkgroupFileWrite | str] | None = None
     service_description: str | None = None
     is_accepting_engagements: bool | None = None
 
@@ -427,6 +429,18 @@ class EngagementCancelRequest(BaseModel):
     reason: str = ""
 
 
+class EntityFileRead(BaseModel):
+    id: str
+    path: str
+    content: str
+
+
+class EntityFileWrite(BaseModel):
+    id: str | None = None
+    path: str = Field(min_length=1, max_length=512)
+    content: str = ""
+
+
 class EngagementRead(ORMBaseModel):
     id: str
     source_workgroup_id: str
@@ -438,6 +452,7 @@ class EngagementRead(ORMBaseModel):
     requirements: str
     terms: str
     deliverables: str
+    files: list[EntityFileRead] = []
     source_conversation_id: str | None = None
     target_conversation_id: str | None = None
     created_at: datetime
@@ -471,6 +486,7 @@ class JobRead(ORMBaseModel):
     conversation_id: str | None = None
     created_by_agent_id: str | None = None
     deliverables: str = ""
+    files: list[EntityFileRead] = []
     created_at: datetime
     completed_at: datetime | None = None
     max_rounds: int | None = None

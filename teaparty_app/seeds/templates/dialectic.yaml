@@ -3,6 +3,19 @@ name: Dialectic
 description: "Four-agent reasoning workshop: thesis, antithesis, synthesis, and Socratic questioning."
 
 files:
+  - path: CLAUDE.md
+    content: |
+      # Workgroup Instructions
+
+      ## Conventions
+      - Argue positions with evidence and reasoning, not rhetoric.
+      - Acknowledge strong counterpoints openly.
+      - Prioritize clarity and intellectual honesty over winning.
+
+      ## Process
+      - Let both sides speak before synthesizing.
+      - Flag when discussion is looping without new insight.
+
   - path: topic.md
     content: |
       # Topic

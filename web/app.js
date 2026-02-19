@@ -22,14 +22,23 @@ const state = {
   pollTimer: null,
   settingsOpen: false,
   settingsSubmitHandler: null,
-  fileOverlayOpen: false,
-  fileOverlayWorkgroupId: "",
-  fileOverlayFileId: "",
-  fileOverlayShowRaw: false,
-  fileOverlayViewMode: "raw",
-  fileOverlayParsedJson: null,
-  fileOverlayLastContent: "",
-  fileOverlayMemberContext: null,
+  filePanel: {
+    open: false,
+    scope: "",
+    workgroupId: "",
+    orgId: "",
+    jobId: "",
+    engagementId: "",
+    path: [],
+    selectedFileId: "",
+    compositeFiles: [],
+    viewMode: "auto",
+    editing: false,
+    showRaw: false,
+    parsedJson: null,
+    lastContent: "",
+    memberContext: null,
+  },
   crossGroupTasks: [],
   activeTaskId: "",
   activeEngagementId: "",
@@ -38,13 +47,6 @@ const state = {
   usagePollCounter: 0,
   myInvites: [],
   invitePollCounter: 0,
-  fileBrowserOpen: false,
-  fileBrowserWorkgroupId: "",
-  fileBrowserPath: [],
-  fileBrowserFileId: "",
-  fileBrowserScope: "",
-  fileBrowserOrgId: "",
-  fileBrowserCompositeFiles: [],
   thoughtsByMessageId: {},
   lastLiveActivity: null,
   toolbarVisible: false,
@@ -138,11 +140,11 @@ function tryParseJson(content) {
   }
 }
 
-function setFileOverlayViewMode(mode) {
-  state.fileOverlayViewMode = mode;
-  const pre = qs("file-overlay-content");
-  const form = qs("file-overlay-form");
-  const rawToggle = qs("file-overlay-raw-toggle");
+function setFilePanelViewMode(mode) {
+  state.filePanel.viewMode = mode;
+  const pre = qs("file-panel-content");
+  const form = qs("file-panel-form");
+  const rawToggle = qs("file-panel-raw-toggle");
 
   if (mode === "form") {
     pre.classList.add("hidden");
@@ -155,8 +157,8 @@ function setFileOverlayViewMode(mode) {
   }
 }
 
-function updateFileOverlayEditButton(isOwner, isFormMode, isJsonParsed) {
-  const editBtn = qs("file-overlay-edit");
+function updateFilePanelEditButton(isOwner, isFormMode, isJsonParsed) {
+  const editBtn = qs("file-panel-edit");
   if (isOwner && isFormMode && isJsonParsed) {
     editBtn.textContent = "Save";
     editBtn.classList.remove("hidden");
@@ -169,7 +171,7 @@ function updateFileOverlayEditButton(isOwner, isFormMode, isJsonParsed) {
 }
 
 function renderJsonForm(data, readonly, lockedKeys) {
-  const container = qs("file-overlay-form");
+  const container = qs("file-panel-form");
   container.innerHTML = "";
   if (data !== null && typeof data === "object") {
     const isArray = Array.isArray(data);
@@ -203,7 +205,7 @@ function renderJsonFormField(key, value, readonly, path, lockedKeys) {
 
 
 function renderAgentConfigForm(data, readonly) {
-  const container = qs("file-overlay-form");
+  const container = qs("file-panel-form");
   container.innerHTML = "";
 
   // Decorative header
@@ -385,7 +387,7 @@ function renderAgentConfigForm(data, readonly) {
 
 
 function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
-  const container = qs("file-overlay-form");
+  const container = qs("file-panel-form");
   container.innerHTML = "";
 
   const wgName = data.name || "Workgroup";
@@ -411,7 +413,7 @@ function renderWorkgroupConfigForm(data, readonly, lockedKeys) {
   container.appendChild(hero);
 
   // Stats strip
-  const wgData = state.treeData[state.fileOverlayWorkgroupId];
+  const wgData = state.treeData[state.filePanel.workgroupId];
   if (wgData) {
     const memberCount = (wgData.members || []).length;
     const agentCount = (wgData.agents || []).filter((a) => a.description !== "__system_admin_agent__").length;
@@ -672,7 +674,7 @@ function buildHiddenField(key, value) {
 }
 
 function collectJsonFromForm() {
-  const root = qs("file-overlay-form").querySelector(".json-section");
+  const root = qs("file-panel-form").querySelector(".json-section");
   if (!root) return null;
   return collectJsonValue(root);
 }
@@ -722,10 +724,10 @@ function collectJsonValue(el) {
 
 async function saveJsonFormOverlay() {
   const data = collectJsonFromForm();
-  if (data === null && !state.fileOverlayParsedJson) return;
+  if (data === null && !state.filePanel.parsedJson) return;
 
-  const workgroupId = state.fileOverlayWorkgroupId;
-  const fileId = state.fileOverlayFileId;
+  const workgroupId = state.filePanel.workgroupId;
+  const fileId = state.filePanel.selectedFileId;
   const treeData = state.treeData[workgroupId];
   if (!treeData) return;
 
@@ -736,8 +738,8 @@ async function saveJsonFormOverlay() {
 
   try {
     await saveWorkgroupFiles(workgroupId, files);
-    state.fileOverlayLastContent = content;
-    qs("file-overlay-content").textContent = content;
+    state.filePanel.lastContent = content;
+    qs("file-panel-content").textContent = content;
     flash("File updated", "success");
   } catch (err) {
     flash(err.message || "Failed to save file", "error");
@@ -1487,162 +1489,145 @@ function updateFileSelection(workgroupId, fileId) {
   }
 }
 
-function showOverlaySplit() {
-  const chatPanel = document.getElementById("chat-panel");
-  document.getElementById("file-overlay-resize-handle").classList.remove("hidden");
-  chatPanel.classList.add("overlay-split");
+function showFilePanel() {
+  const panel = qs("file-panel");
+  panel.classList.remove("hidden");
   const prefs = (state.user && state.user.preferences) || {};
-  if (prefs.overlayHeight) {
-    chatPanel.style.setProperty("--overlay-height", prefs.overlayHeight + "px");
+  if (prefs.filePanelWidth) {
+    document.querySelector(".layout").style.setProperty("--file-panel-width", prefs.filePanelWidth + "px");
   }
 }
 
-function hideOverlaySplit() {
-  document.getElementById("file-overlay-resize-handle").classList.add("hidden");
-  document.getElementById("chat-panel").classList.remove("overlay-split");
+function hideFilePanel() {
+  qs("file-panel").classList.add("hidden");
 }
 
+function openFilePanel(scope, opts = {}) {
+  const fp = state.filePanel;
+  fp.scope = scope || "";
+  fp.workgroupId = opts.workgroupId || "";
+  fp.orgId = opts.orgId || "";
+  fp.jobId = opts.jobId || "";
+  fp.engagementId = opts.engagementId || "";
+  fp.path = [];
+  fp.selectedFileId = opts.fileId || "";
+  fp.compositeFiles = [];
+  fp.viewMode = "auto";
+  fp.editing = false;
+  fp.showRaw = false;
+  fp.parsedJson = null;
+  fp.lastContent = "";
+  fp.memberContext = null;
+  fp.open = true;
+
+  if (scope === "root") {
+    fp.compositeFiles = buildCompositeFilesForRoot();
+  } else if (scope === "org" && opts.orgId) {
+    fp.compositeFiles = buildCompositeFilesForOrg(opts.orgId);
+  }
+
+  showFilePanel();
+  renderFilePanel();
+
+  if (opts.fileId) {
+    filePanelSelectFile(opts.fileId);
+  }
+}
+
+function closeFilePanel() {
+  document.querySelector(".cfg-tool-picker-backdrop")?.remove();
+  hideFilePanel();
+
+  state.filePanel.open = false;
+  state.filePanel.scope = "";
+  state.filePanel.workgroupId = "";
+  state.filePanel.orgId = "";
+  state.filePanel.jobId = "";
+  state.filePanel.engagementId = "";
+  state.filePanel.path = [];
+  state.filePanel.selectedFileId = "";
+  state.filePanel.compositeFiles = [];
+  state.filePanel.viewMode = "auto";
+  state.filePanel.editing = false;
+  state.filePanel.showRaw = false;
+  state.filePanel.parsedJson = null;
+  state.filePanel.lastContent = "";
+  state.filePanel.memberContext = null;
+
+  const rendered = qs("file-panel-rendered");
+  rendered.innerHTML = "";
+  rendered.classList.add("hidden");
+
+  const form = qs("file-panel-form");
+  form.innerHTML = "";
+  form.classList.add("hidden");
+
+  qs("file-panel-listing").innerHTML = "";
+  qs("file-panel-breadcrumbs").innerHTML = "";
+  qs("file-panel-scope").textContent = "";
+
+  const editBtn = qs("file-panel-edit");
+  editBtn.textContent = "Edit";
+  editBtn.classList.add("hidden");
+
+  qs("file-panel-delete").classList.add("hidden");
+
+  const pre = qs("file-panel-content");
+  pre.textContent = "";
+  pre.classList.remove("hidden");
+  qs("file-panel-raw-toggle").classList.add("hidden");
+
+  qs("file-panel-viewer").classList.add("hidden");
+  qs("composer-file-context").classList.add("hidden");
+}
+
+// Backward-compat wrappers
 function openFileOverlay(workgroupId, fileId) {
-  const data = state.treeData[workgroupId];
-  if (!data) {
-    return;
-  }
-  const files = normalizeWorkgroupFiles(data.workgroup?.files);
-  const file = files.find((item) => item.id === fileId);
-  if (!file) {
-    return;
-  }
-
-  qs("file-overlay-path").textContent = file.path;
-  qs("file-overlay-workgroup").textContent = data.workgroup.name;
-
-  const pre = qs("file-overlay-content");
-  const rendered = qs("file-overlay-rendered");
-  const rawToggle = qs("file-overlay-raw-toggle");
-
-  pre.textContent = file.content;
-  state.fileOverlayShowRaw = false;
-  state.fileOverlayLastContent = file.content;
-
-  const form = qs("file-overlay-form");
-  const isOwner = isWorkgroupOwner(workgroupId);
-
-  if (isJsonFile(file.path)) {
-    const parsed = tryParseJson(file.content);
-    state.fileOverlayParsedJson = parsed.ok ? parsed.data : null;
-
-    if (parsed.ok) {
-      rendered.innerHTML = "";
-      rendered.classList.add("hidden");
-      if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
-        renderAgentConfigForm(parsed.data, !isOwner);
-      } else if (isToolsManifestPath(file.path) && isToolsManifestShape(parsed.data)) {
-        renderToolsManifestForm(parsed.data, !isOwner);
-      } else if (isWorkgroupConfigPath(file.path)) {
-        renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
-      } else {
-        const lockedKeys = file.path.endsWith("workgroup.json")
-          ? new Set(["id", "owner_id", "created_at"])
-          : null;
-        renderJsonForm(parsed.data, !isOwner, lockedKeys);
-      }
-      rawToggle.classList.remove("hidden");
-      setFileOverlayViewMode("form");
-      updateFileOverlayEditButton(isOwner, true, true);
-    } else {
-      form.innerHTML = "";
-      form.classList.add("hidden");
-      rendered.innerHTML = "";
-      rendered.classList.add("hidden");
-      pre.classList.remove("hidden");
-      rawToggle.classList.add("hidden");
-      state.fileOverlayViewMode = "raw";
-      state.fileOverlayParsedJson = null;
-      const editBtn = qs("file-overlay-edit");
-      editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner);
-    }
-  } else if (isMarkdownFile(file.path)) {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    state.fileOverlayViewMode = "raw";
-    pre.classList.add("hidden");
-    rendered.innerHTML = renderMarkdown(file.content);
-    rendered.classList.remove("hidden");
-    rawToggle.textContent = "Raw";
-    rawToggle.classList.remove("hidden");
-    const editBtn = qs("file-overlay-edit");
-    editBtn.textContent = "Edit";
-    editBtn.classList.toggle("hidden", !isOwner);
-  } else if (isImageFile(file.path) || isDataUrl(file.content)) {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    state.fileOverlayViewMode = "raw";
-    pre.classList.add("hidden");
-    const src = isDataUrl(file.content) ? escapeHtml(file.content) : escapeHtml(file.content);
-    rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
-    rendered.classList.remove("hidden");
-    rawToggle.classList.add("hidden");
-    qs("file-overlay-edit").classList.add("hidden");
-  } else {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    state.fileOverlayViewMode = "raw";
-    pre.classList.remove("hidden");
-    rendered.innerHTML = "";
-    rendered.classList.add("hidden");
-    rawToggle.classList.add("hidden");
-    const editBtn = qs("file-overlay-edit");
-    editBtn.textContent = "Edit";
-    editBtn.classList.toggle("hidden", !isOwner);
-  }
-
-  qs("file-overlay-delete").classList.toggle("hidden", !isOwner);
-
-  qs("file-overlay").classList.remove("hidden");
-  showOverlaySplit();
-  state.fileOverlayOpen = true;
-  state.fileOverlayWorkgroupId = workgroupId;
-  state.fileOverlayFileId = fileId;
-
-  const ctxBar = qs("composer-file-context");
-  ctxBar.innerHTML = `<span>Attached: <strong>${escapeHtml(file.path)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
-  ctxBar.classList.remove("hidden");
+  openFilePanel("", { workgroupId, fileId });
 }
 
 function openConfigOverlay(workgroupId, label, data) {
-  qs("file-overlay-path").textContent = label;
+  const fp = state.filePanel;
+  fp.scope = "";
+  fp.workgroupId = workgroupId;
+  fp.orgId = "";
+  fp.jobId = "";
+  fp.engagementId = "";
+  fp.path = [];
+  fp.selectedFileId = "";
+  fp.compositeFiles = [];
+  fp.showRaw = false;
+  fp.parsedJson = data;
+  fp.memberContext = null;
+  fp.open = true;
+
   const wgData = state.treeData[workgroupId];
-  qs("file-overlay-workgroup").textContent = wgData?.workgroup?.name || "";
+  qs("file-panel-scope").textContent = `[${wgData?.workgroup?.name || ""}] ${label}`;
 
   const jsonStr = JSON.stringify(data, null, 2);
-  const pre = qs("file-overlay-content");
-  const rendered = qs("file-overlay-rendered");
-  const rawToggle = qs("file-overlay-raw-toggle");
-  const form = qs("file-overlay-form");
-  const editBtn = qs("file-overlay-edit");
+  const pre = qs("file-panel-content");
+  const rendered = qs("file-panel-rendered");
+  const rawToggle = qs("file-panel-raw-toggle");
+  const form = qs("file-panel-form");
+  const editBtn = qs("file-panel-edit");
 
   pre.textContent = jsonStr;
-  state.fileOverlayShowRaw = false;
-  state.fileOverlayLastContent = jsonStr;
-  state.fileOverlayParsedJson = data;
+  fp.lastContent = jsonStr;
 
   rendered.innerHTML = "";
   rendered.classList.add("hidden");
   renderJsonForm(data, true);
   rawToggle.classList.remove("hidden");
-  setFileOverlayViewMode("form");
+  setFilePanelViewMode("form");
   editBtn.classList.add("hidden");
-  qs("file-overlay-delete").classList.add("hidden");
+  qs("file-panel-delete").classList.add("hidden");
 
-  qs("file-overlay").classList.remove("hidden");
-  showOverlaySplit();
-  state.fileOverlayOpen = true;
-  state.fileOverlayWorkgroupId = workgroupId;
-  state.fileOverlayFileId = "";
+  // Hide directory section, show viewer
+  qs("file-panel-directory").classList.add("hidden");
+  qs("file-panel-divider").classList.add("hidden");
+  qs("file-panel-viewer").classList.remove("hidden");
+
+  showFilePanel();
 
   const ctxBar = qs("composer-file-context");
   ctxBar.innerHTML = `<span>Viewing: <strong>${escapeHtml(label)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
@@ -1661,52 +1646,7 @@ async function openConfigAndAdmin(workgroupId, label, configData) {
 }
 
 function closeFileOverlay() {
-  document.querySelector(".cfg-tool-picker-backdrop")?.remove();
-  qs("file-overlay").classList.add("hidden");
-  hideOverlaySplit();
-  state.fileOverlayOpen = false;
-  state.fileOverlayShowRaw = false;
-  state.fileOverlayViewMode = "raw";
-  state.fileOverlayParsedJson = null;
-  state.fileOverlayLastContent = "";
-  state.fileOverlayMemberContext = null;
-
-  state.fileBrowserOpen = false;
-  state.fileBrowserWorkgroupId = "";
-  state.fileBrowserPath = [];
-  state.fileBrowserFileId = "";
-  state.fileBrowserScope = "";
-  state.fileBrowserOrgId = "";
-  state.fileBrowserCompositeFiles = [];
-
-  const rendered = qs("file-overlay-rendered");
-  rendered.innerHTML = "";
-  rendered.classList.add("hidden");
-
-  const form = qs("file-overlay-form");
-  form.innerHTML = "";
-  form.classList.add("hidden");
-
-  const listing = qs("file-browser-listing");
-  listing.innerHTML = "";
-  listing.classList.add("hidden");
-
-  const editBtn = qs("file-overlay-edit");
-  editBtn.textContent = "Edit";
-
-  qs("file-overlay-delete").classList.add("hidden");
-
-  qs("file-overlay-content").classList.remove("hidden");
-  qs("file-overlay-raw-toggle").classList.add("hidden");
-
-  // Restore title elements that renderFileBrowser may have hidden
-  qs("file-overlay-path").classList.remove("hidden");
-  qs("file-overlay-workgroup").classList.remove("hidden");
-  const breadcrumbWrap = qs("file-browser-breadcrumb");
-  breadcrumbWrap.innerHTML = "";
-  breadcrumbWrap.classList.add("hidden");
-
-  qs("composer-file-context").classList.add("hidden");
+  closeFilePanel();
 }
 
 function fileBrowserSlug(name) {
@@ -1824,87 +1764,49 @@ function buildCompositeFilesForOrg(orgId) {
 }
 
 function openFileBrowser(workgroupId, pathSegments = [], scope = "", orgId = "") {
-  if (scope === "root") {
-    state.fileBrowserOpen = true;
-    state.fileBrowserWorkgroupId = "";
-    state.fileBrowserPath = pathSegments;
-    state.fileBrowserFileId = "";
-    state.fileBrowserScope = "root";
-    state.fileBrowserOrgId = "";
-    state.fileBrowserCompositeFiles = buildCompositeFilesForRoot();
-    state.fileOverlayOpen = false;
-    state.fileOverlayParsedJson = null;
-    renderFileBrowser();
-    return;
+  openFilePanel(scope || "", { workgroupId, orgId });
+  if (pathSegments.length) {
+    state.filePanel.path = pathSegments;
+    renderFilePanel();
   }
-
-  if (scope === "org" && orgId) {
-    state.fileBrowserOpen = true;
-    state.fileBrowserWorkgroupId = "";
-    state.fileBrowserPath = pathSegments;
-    state.fileBrowserFileId = "";
-    state.fileBrowserScope = "org";
-    state.fileBrowserOrgId = orgId;
-    state.fileBrowserCompositeFiles = buildCompositeFilesForOrg(orgId);
-    state.fileOverlayOpen = false;
-    state.fileOverlayParsedJson = null;
-    renderFileBrowser();
-    return;
-  }
-
-  const data = state.treeData[workgroupId];
-  if (!data) return;
-
-  state.fileBrowserOpen = true;
-  state.fileBrowserWorkgroupId = workgroupId;
-  state.fileBrowserPath = pathSegments;
-  state.fileBrowserFileId = "";
-  state.fileBrowserScope = "";
-  state.fileBrowserOrgId = "";
-  state.fileBrowserCompositeFiles = [];
-
-  state.fileOverlayOpen = false;
-  state.fileOverlayParsedJson = null;
-
-  renderFileBrowser();
 }
 
 function renderFileBrowserBreadcrumbs() {
-  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
+  const isComposite = state.filePanel.scope === "root" || state.filePanel.scope === "org";
   let rootLabel = "Files";
-  if (state.fileBrowserScope === "org") {
-    const org = state.organizations.find(o => o.id === state.fileBrowserOrgId);
+  if (state.filePanel.scope === "org") {
+    const org = state.organizations.find(o => o.id === state.filePanel.orgId);
     rootLabel = org?.name || "Organization";
   } else if (!isComposite) {
-    rootLabel = fileBrowserContextLabel(state.fileBrowserWorkgroupId);
+    rootLabel = fileBrowserContextLabel(state.filePanel.workgroupId);
   }
 
   const parts = [];
 
   // Root crumb
-  if (state.fileBrowserPath.length > 0 || state.fileBrowserFileId) {
+  if (state.filePanel.path.length > 0 || state.filePanel.selectedFileId) {
     parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="0">${escapeHtml(rootLabel)}</button>`);
   } else {
     parts.push(`<span class="file-browser-crumb-current">${escapeHtml(rootLabel)}</span>`);
   }
 
   // Path segments
-  for (let i = 0; i < state.fileBrowserPath.length; i++) {
+  for (let i = 0; i < state.filePanel.path.length; i++) {
     parts.push(`<span class="file-browser-sep">\u203A</span>`);
-    const isLast = i === state.fileBrowserPath.length - 1 && !state.fileBrowserFileId;
+    const isLast = i === state.filePanel.path.length - 1 && !state.filePanel.selectedFileId;
     if (isLast) {
-      parts.push(`<span class="file-browser-crumb-current">${escapeHtml(state.fileBrowserPath[i])}</span>`);
+      parts.push(`<span class="file-browser-crumb-current">${escapeHtml(state.filePanel.path[i])}</span>`);
     } else {
-      parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="${i + 1}">${escapeHtml(state.fileBrowserPath[i])}</button>`);
+      parts.push(`<button class="file-browser-crumb" data-action="browser-navigate" data-depth="${i + 1}">${escapeHtml(state.filePanel.path[i])}</button>`);
     }
   }
 
   // File name breadcrumb
-  if (state.fileBrowserFileId) {
+  if (state.filePanel.selectedFileId) {
     const allFiles = isComposite
-      ? state.fileBrowserCompositeFiles
-      : filesForConversationContext(normalizeWorkgroupFiles(state.treeData[state.fileBrowserWorkgroupId]?.workgroup?.files), state.fileBrowserWorkgroupId);
-    const file = allFiles.find((f) => f.id === state.fileBrowserFileId);
+      ? state.filePanel.compositeFiles
+      : filesForConversationContext(normalizeWorkgroupFiles(state.treeData[state.filePanel.workgroupId]?.workgroup?.files), state.filePanel.workgroupId);
+    const file = allFiles.find((f) => f.id === state.filePanel.selectedFileId);
     if (file) {
       const fileName = file.path.split("/").pop() || file.path;
       parts.push(`<span class="file-browser-sep">\u203A</span>`);
@@ -1916,7 +1818,7 @@ function renderFileBrowserBreadcrumbs() {
 }
 
 function renderFileBrowserListing(node, isOwner) {
-  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
+  const isComposite = state.filePanel.scope === "root" || state.filePanel.scope === "org";
   const folders = Array.from(node.folders.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }));
   const files = [...node.files]
@@ -1931,7 +1833,7 @@ function renderFileBrowserListing(node, isOwner) {
       <button type="button" class="file-browser-toolbar-btn" data-action="browser-new-folder">+ Folder</button>
     </div>`;
   } else if (isOwner && isComposite) {
-    const currentPath = state.fileBrowserPath.join("/");
+    const currentPath = state.filePanel.path.join("/");
     if (currentPath.startsWith(".templates")) {
       html += `<div class="file-browser-toolbar">
         <button type="button" class="file-browser-toolbar-btn" data-action="browser-add-file">+ File</button>
@@ -1947,7 +1849,7 @@ function renderFileBrowserListing(node, isOwner) {
   for (const [folderName, folderNode] of folders) {
     const childCount = folderNode.folders.size + folderNode.files.length;
     const itemLabel = childCount + " item" + (childCount !== 1 ? "s" : "");
-    const fullPath = [...state.fileBrowserPath, folderName].join("/");
+    const fullPath = [...state.filePanel.path, folderName].join("/");
     const folderOwnerActions = (isOwner && !isComposite) ? `
       <button type="button" data-action="browser-rename-folder" data-folder-path="${escapeHtml(fullPath)}">Rename</button>
       <button type="button" data-action="browser-copy-folder" data-folder-path="${escapeHtml(fullPath)}">Copy</button>
@@ -1976,7 +1878,7 @@ function renderFileBrowserListing(node, isOwner) {
     const actions = (!isVirtual && !isComposite) ? `<span class="file-browser-actions">
       <button type="button" data-action="browser-download-file" data-file-id="${escapeHtml(file.id)}">Download</button>${fileOwnerActions}
     </span>` : "";
-    const wgAttr = state.fileBrowserWorkgroupId || (file._sourceWorkgroupId || "");
+    const wgAttr = state.filePanel.workgroupId || (file._sourceWorkgroupId || "");
     html += `<div class="file-browser-row">
       <button class="file-browser-item" data-action="browser-open-file" data-file-id="${escapeHtml(file.id)}" data-workgroup="${escapeHtml(wgAttr)}">
         <span class="finder-icon ${iconClass}">${iconSvg}</span>
@@ -1990,101 +1892,147 @@ function renderFileBrowserListing(node, isOwner) {
   return html;
 }
 
-function renderFileBrowser() {
-  const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
-  const data = state.treeData[state.fileBrowserWorkgroupId];
+function filePanelScopeLabel() {
+  const fp = state.filePanel;
+  if (fp.scope === "root") return "Files";
+  if (fp.scope === "org") {
+    const org = state.organizations.find(o => o.id === fp.orgId);
+    return org?.name || "Organization";
+  }
+  const data = state.treeData[fp.workgroupId];
+  const wgName = data?.workgroup?.name || "";
+  if (fp.selectedFileId) {
+    const files = filePanelAllFiles();
+    const file = files.find(f => f.id === fp.selectedFileId);
+    if (file) {
+      const displayPath = file._originalPath || file.path;
+      return wgName ? `[${wgName}] ${displayPath}` : displayPath;
+    }
+  }
+  return wgName ? `[${wgName}]` : "Files";
+}
+
+function filePanelAllFiles() {
+  const fp = state.filePanel;
+  const isComposite = fp.scope === "root" || fp.scope === "org";
+  if (isComposite) return fp.compositeFiles;
+  const data = state.treeData[fp.workgroupId];
+  if (!data) return [];
+  return filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), fp.workgroupId);
+}
+
+function filePanelSelectFile(fileId) {
+  state.filePanel.selectedFileId = fileId;
+  renderFilePanel();
+}
+
+function renderFilePanel() {
+  const fp = state.filePanel;
+  const isComposite = fp.scope === "root" || fp.scope === "org";
+  const data = state.treeData[fp.workgroupId];
   if (!isComposite && !data) return;
 
-  const overlay = qs("file-overlay");
-  const listing = qs("file-browser-listing");
-  const pre = qs("file-overlay-content");
-  const rendered = qs("file-overlay-rendered");
-  const form = qs("file-overlay-form");
+  // Update scope label
+  qs("file-panel-scope").textContent = filePanelScopeLabel();
 
-  // Show breadcrumbs, hide normal title elements
-  qs("file-overlay-path").classList.add("hidden");
-  qs("file-overlay-workgroup").classList.add("hidden");
-  const breadcrumbEl = qs("file-browser-breadcrumb");
-  breadcrumbEl.innerHTML = renderFileBrowserBreadcrumbs();
-  breadcrumbEl.classList.remove("hidden");
+  const directoryEl = qs("file-panel-directory");
+  const listing = qs("file-panel-listing");
+  const viewerEl = qs("file-panel-viewer");
+  const divider = qs("file-panel-divider");
+  const pre = qs("file-panel-content");
+  const rendered = qs("file-panel-rendered");
+  const form = qs("file-panel-form");
 
-  if (state.fileBrowserFileId) {
-    // Viewing a file within the browser
-    listing.innerHTML = "";
-    listing.classList.add("hidden");
+  // Build breadcrumbs
+  qs("file-panel-breadcrumbs").innerHTML = renderFileBrowserBreadcrumbs();
 
-    // Resolve the file from composite or workgroup files
-    let file = null;
-    if (isComposite) {
-      file = state.fileBrowserCompositeFiles.find((f) => f.id === state.fileBrowserFileId);
+  // Build directory tree and listing
+  const allFiles = filePanelAllFiles();
+  const tree = buildWorkgroupFileTree(allFiles);
+  let node = tree;
+  for (const segment of fp.path) {
+    if (node.folders.has(segment)) {
+      node = node.folders.get(segment);
     } else {
-      const files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
-      file = files.find((f) => f.id === state.fileBrowserFileId);
+      fp.path = [];
+      node = tree;
+      break;
     }
-    if (!file) return;
+  }
+  const isOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(fp.workgroupId);
+  listing.innerHTML = renderFileBrowserListing(node, isOwner);
+  directoryEl.classList.remove("hidden");
+
+  if (fp.selectedFileId) {
+    let file = allFiles.find(f => f.id === fp.selectedFileId);
+    if (!file) {
+      fp.selectedFileId = "";
+      viewerEl.classList.add("hidden");
+      divider.classList.add("hidden");
+      qs("file-panel-raw-toggle").classList.add("hidden");
+      qs("file-panel-edit").classList.add("hidden");
+      qs("file-panel-delete").classList.add("hidden");
+      qs("composer-file-context").classList.add("hidden");
+      qs("file-panel-scope").textContent = filePanelScopeLabel();
+      return;
+    }
 
     // For composite virtual files, route to appropriate UI
     if (isComposite && file._source) {
       if (file._source === "virtual-org" && file._orgId) {
         openOrgSettingsModal(file._orgId);
-        state.fileBrowserFileId = "";
-        renderFileBrowser();
+        fp.selectedFileId = "";
+        renderFilePanel();
         return;
       }
       if (file._source === "virtual-wg" && file._sourceWorkgroupId) {
         const wgData = state.treeData[file._sourceWorkgroupId];
         if (wgData) {
-          state.fileBrowserFileId = "";
-          // Navigate to workgroup-scoped browser
+          fp.selectedFileId = "";
           openFileBrowser(file._sourceWorkgroupId);
           return;
         }
       }
       if (file._source === "virtual-agent" && file._sourceWorkgroupId && file._agentId) {
         openAgentSettings(file._sourceWorkgroupId, file._agentId);
-        state.fileBrowserFileId = "";
-        renderFileBrowser();
+        fp.selectedFileId = "";
+        renderFilePanel();
         return;
       }
     }
 
-    // Set file overlay state so edit/delete handlers work
-    state.fileOverlayOpen = true;
-    const effectiveWgId = file._sourceWorkgroupId || state.fileBrowserWorkgroupId;
-    state.fileOverlayWorkgroupId = effectiveWgId;
-    state.fileOverlayFileId = state.fileBrowserFileId;
-
-    const isOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(state.fileBrowserWorkgroupId);
+    const effectiveWgId = file._sourceWorkgroupId || fp.workgroupId;
+    fp.workgroupId = effectiveWgId;
+    const fileIsOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(fp.workgroupId);
     const isVirtual = file._source && file._source.startsWith("virtual-");
 
-    // Reuse existing file rendering logic
     const displayPath = file._originalPath || file.path;
     pre.textContent = file.content;
-    state.fileOverlayShowRaw = false;
-    state.fileOverlayLastContent = file.content;
+    fp.showRaw = false;
+    fp.lastContent = file.content;
 
-    const rawToggle = qs("file-overlay-raw-toggle");
+    const rawToggle = qs("file-panel-raw-toggle");
 
     if (isJsonFile(displayPath)) {
       const parsed = tryParseJson(file.content);
-      state.fileOverlayParsedJson = parsed.ok ? parsed.data : null;
+      fp.parsedJson = parsed.ok ? parsed.data : null;
 
       if (parsed.ok) {
         rendered.innerHTML = "";
         rendered.classList.add("hidden");
         if (isAgentConfigPath(displayPath) && isAgentConfigShape(parsed.data)) {
-          renderAgentConfigForm(parsed.data, !isOwner || isVirtual);
+          renderAgentConfigForm(parsed.data, !fileIsOwner || isVirtual);
         } else if (isWorkgroupConfigPath(displayPath)) {
-          renderWorkgroupConfigForm(parsed.data, !isOwner || isVirtual, new Set(["id", "owner_id", "created_at"]));
+          renderWorkgroupConfigForm(parsed.data, !fileIsOwner || isVirtual, new Set(["id", "owner_id", "created_at"]));
         } else {
           const lockedKeys = displayPath.endsWith("workgroup.json")
             ? new Set(["id", "owner_id", "created_at"])
             : null;
-          renderJsonForm(parsed.data, !isOwner || isVirtual, lockedKeys);
+          renderJsonForm(parsed.data, !fileIsOwner || isVirtual, lockedKeys);
         }
         rawToggle.classList.remove("hidden");
-        setFileOverlayViewMode("form");
-        updateFileOverlayEditButton(isOwner && !isVirtual, true, true);
+        setFilePanelViewMode("form");
+        updateFilePanelEditButton(fileIsOwner && !isVirtual, true, true);
       } else {
         form.innerHTML = "";
         form.classList.add("hidden");
@@ -2092,215 +2040,83 @@ function renderFileBrowser() {
         rendered.classList.add("hidden");
         pre.classList.remove("hidden");
         rawToggle.classList.add("hidden");
-        state.fileOverlayViewMode = "raw";
-        state.fileOverlayParsedJson = null;
-        const editBtn = qs("file-overlay-edit");
+        fp.viewMode = "raw";
+        fp.parsedJson = null;
+        const editBtn = qs("file-panel-edit");
         editBtn.textContent = "Edit";
-        editBtn.classList.toggle("hidden", !isOwner || isVirtual);
+        editBtn.classList.toggle("hidden", !fileIsOwner || isVirtual);
       }
     } else if (isMarkdownFile(displayPath)) {
       form.innerHTML = "";
       form.classList.add("hidden");
-      state.fileOverlayParsedJson = null;
-      state.fileOverlayViewMode = "raw";
+      fp.parsedJson = null;
+      fp.viewMode = "raw";
       pre.classList.add("hidden");
       rendered.innerHTML = renderMarkdown(file.content);
       rendered.classList.remove("hidden");
       rawToggle.textContent = "Raw";
       rawToggle.classList.remove("hidden");
-      const editBtn = qs("file-overlay-edit");
+      const editBtn = qs("file-panel-edit");
       editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner || isVirtual);
+      editBtn.classList.toggle("hidden", !fileIsOwner || isVirtual);
     } else if (isImageFile(displayPath) || isDataUrl(file.content)) {
       form.innerHTML = "";
       form.classList.add("hidden");
-      state.fileOverlayParsedJson = null;
-      state.fileOverlayViewMode = "raw";
+      fp.parsedJson = null;
+      fp.viewMode = "raw";
       pre.classList.add("hidden");
       const src = escapeHtml(file.content);
-      rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(displayPath)}" class="file-overlay-image" />`;
+      rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(displayPath)}" class="file-panel-image" />`;
       rendered.classList.remove("hidden");
       rawToggle.classList.add("hidden");
-      qs("file-overlay-edit").classList.add("hidden");
+      qs("file-panel-edit").classList.add("hidden");
     } else {
       form.innerHTML = "";
       form.classList.add("hidden");
-      state.fileOverlayParsedJson = null;
-      state.fileOverlayViewMode = "raw";
+      fp.parsedJson = null;
+      fp.viewMode = "raw";
       pre.classList.remove("hidden");
       rendered.innerHTML = "";
       rendered.classList.add("hidden");
       rawToggle.classList.add("hidden");
-      const editBtn = qs("file-overlay-edit");
+      const editBtn = qs("file-panel-edit");
       editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner || isVirtual);
+      editBtn.classList.toggle("hidden", !fileIsOwner || isVirtual);
     }
 
-    qs("file-overlay-delete").classList.toggle("hidden", !isOwner || isVirtual);
+    qs("file-panel-delete").classList.toggle("hidden", !fileIsOwner || isVirtual);
 
-    // Show composer file context
+    viewerEl.classList.remove("hidden");
+    divider.classList.remove("hidden");
+
     const ctxBar = qs("composer-file-context");
     ctxBar.innerHTML = `<span>Attached: <strong>${escapeHtml(displayPath)}</strong></span><button type="button" class="icon-button" data-action="clear-file-context">\u00d7</button>`;
     ctxBar.classList.remove("hidden");
   } else {
-    // Browsing directory listing
-    state.fileOverlayOpen = false;
-    state.fileOverlayParsedJson = null;
+    // No file selected -- hide viewer
+    fp.parsedJson = null;
 
     pre.classList.add("hidden");
     rendered.innerHTML = "";
     rendered.classList.add("hidden");
     form.innerHTML = "";
     form.classList.add("hidden");
-    qs("file-overlay-raw-toggle").classList.add("hidden");
-    qs("file-overlay-edit").classList.add("hidden");
-    qs("file-overlay-delete").classList.add("hidden");
+    qs("file-panel-raw-toggle").classList.add("hidden");
+    qs("file-panel-edit").classList.add("hidden");
+    qs("file-panel-delete").classList.add("hidden");
     qs("composer-file-context").classList.add("hidden");
-
-    // Navigate to the current path in the file tree
-    let files;
-    if (isComposite) {
-      files = state.fileBrowserCompositeFiles;
-    } else {
-      files = filesForConversationContext(normalizeWorkgroupFiles(data.workgroup?.files), state.fileBrowserWorkgroupId);
-    }
-    const tree = buildWorkgroupFileTree(files);
-    let node = tree;
-    for (const segment of state.fileBrowserPath) {
-      if (node.folders.has(segment)) {
-        node = node.folders.get(segment);
-      } else {
-        // Path no longer exists, reset to root
-        state.fileBrowserPath = [];
-        node = tree;
-        break;
-      }
-    }
-
-    const isOwner = isComposite ? !!state.user?.is_system_admin : isWorkgroupOwner(state.fileBrowserWorkgroupId);
-    listing.innerHTML = renderFileBrowserListing(node, isOwner);
-    listing.classList.remove("hidden");
+    viewerEl.classList.add("hidden");
+    divider.classList.add("hidden");
   }
 
-  overlay.classList.remove("hidden");
-  showOverlaySplit();
+  // Update scope label (file selection may have changed it)
+  qs("file-panel-scope").textContent = filePanelScopeLabel();
 }
 
 function refreshFileOverlayIfOpen() {
-  if (state.fileBrowserOpen) {
-    renderFileBrowser();
-    return;
-  }
-  if (!state.fileOverlayOpen) {
-    return;
-  }
-  const data = state.treeData[state.fileOverlayWorkgroupId];
-  if (!data) {
-    closeFileOverlay();
-    flash("Workgroup no longer available", "info");
-    return;
-  }
-  const files = normalizeWorkgroupFiles(data.workgroup?.files);
-  const file = files.find((item) => item.id === state.fileOverlayFileId);
-  if (!file) {
-    closeFileOverlay();
-    flash("File was deleted", "info");
-    return;
-  }
-  qs("file-overlay-path").textContent = file.path;
-  qs("file-overlay-workgroup").textContent = data.workgroup.name;
-
-  if (file.content === state.fileOverlayLastContent) {
-    return;
-  }
-  state.fileOverlayLastContent = file.content;
-
-  const pre = qs("file-overlay-content");
-  const rendered = qs("file-overlay-rendered");
-  const rawToggle = qs("file-overlay-raw-toggle");
-  const form = qs("file-overlay-form");
-  const isOwner = isWorkgroupOwner(state.fileOverlayWorkgroupId);
-
-  pre.textContent = file.content;
-
-  if (isJsonFile(file.path)) {
-    const parsed = tryParseJson(file.content);
-    state.fileOverlayParsedJson = parsed.ok ? parsed.data : null;
-
-    if (parsed.ok) {
-      rendered.innerHTML = "";
-      rendered.classList.add("hidden");
-      if (isAgentConfigPath(file.path) && isAgentConfigShape(parsed.data)) {
-        renderAgentConfigForm(parsed.data, !isOwner);
-      } else if (isToolsManifestPath(file.path) && isToolsManifestShape(parsed.data)) {
-        renderToolsManifestForm(parsed.data, !isOwner);
-      } else if (isWorkgroupConfigPath(file.path)) {
-        renderWorkgroupConfigForm(parsed.data, !isOwner, new Set(["id", "owner_id", "created_at"]));
-      } else {
-        const lockedKeys = file.path.endsWith("workgroup.json")
-          ? new Set(["id", "owner_id", "created_at"])
-          : null;
-        renderJsonForm(parsed.data, !isOwner, lockedKeys);
-      }
-      rawToggle.classList.remove("hidden");
-      if (state.fileOverlayViewMode === "form") {
-        setFileOverlayViewMode("form");
-      }
-      updateFileOverlayEditButton(isOwner, state.fileOverlayViewMode === "form", true);
-    } else {
-      form.innerHTML = "";
-      form.classList.add("hidden");
-      rendered.innerHTML = "";
-      rendered.classList.add("hidden");
-      pre.classList.remove("hidden");
-      rawToggle.classList.add("hidden");
-      state.fileOverlayViewMode = "raw";
-      state.fileOverlayParsedJson = null;
-      const editBtn = qs("file-overlay-edit");
-      editBtn.textContent = "Edit";
-      editBtn.classList.toggle("hidden", !isOwner);
-    }
-  } else if (isMarkdownFile(file.path)) {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    rawToggle.classList.remove("hidden");
-    if (state.fileOverlayShowRaw) {
-      pre.classList.remove("hidden");
-      rendered.innerHTML = "";
-      rendered.classList.add("hidden");
-      rawToggle.textContent = "Rendered";
-    } else {
-      pre.classList.add("hidden");
-      rendered.innerHTML = renderMarkdown(file.content);
-      rendered.classList.remove("hidden");
-      rawToggle.textContent = "Raw";
-    }
-    const editBtn = qs("file-overlay-edit");
-    editBtn.textContent = "Edit";
-    editBtn.classList.toggle("hidden", !isOwner);
-  } else if (isImageFile(file.path) || isDataUrl(file.content)) {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    pre.classList.add("hidden");
-    const src = isDataUrl(file.content) ? escapeHtml(file.content) : escapeHtml(file.content);
-    rendered.innerHTML = `<img src="${src}" alt="${escapeHtml(file.path)}" class="file-overlay-image" />`;
-    rendered.classList.remove("hidden");
-    rawToggle.classList.add("hidden");
-    qs("file-overlay-edit").classList.add("hidden");
-  } else {
-    form.innerHTML = "";
-    form.classList.add("hidden");
-    state.fileOverlayParsedJson = null;
-    pre.classList.remove("hidden");
-    rendered.innerHTML = "";
-    rendered.classList.add("hidden");
-    rawToggle.classList.add("hidden");
-    const editBtn = qs("file-overlay-edit");
-    editBtn.textContent = "Edit";
-    editBtn.classList.toggle("hidden", !isOwner);
-  }
+  if (!state.filePanel.open) return;
+  // Re-render the whole panel (handles both browser and file views)
+  renderFilePanel();
 }
 
 function newWorkgroupFileId() {
@@ -3802,7 +3618,7 @@ function openWorkgroupFileEditor({ title, subtitle, pathValue = "", contentValue
       </div>`
     : "";
   const previewHtml = isMd
-    ? `<div class="md-editor-preview file-overlay-rendered hidden"></div>`
+    ? `<div class="md-editor-preview file-panel-rendered hidden"></div>`
     : "";
   openSettingsModal({
     title,
@@ -3979,7 +3795,7 @@ function deleteWorkgroupFolder(workgroupId, folderPath) {
       if (selectedFileId && matchingIds.has(selectedFileId)) {
         delete state.selectedWorkgroupFileIdByWorkgroup[workgroupId];
       }
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash(`Folder "${folderPath}" deleted (${matchingFiles.length} file${matchingFiles.length === 1 ? "" : "s"})`, "success");
     })
@@ -3993,7 +3809,7 @@ function deleteWorkgroupFolder(workgroupId, folderPath) {
 function browserAddFile(workgroupId) {
   const data = state.treeData[workgroupId];
   if (!data) { flash("Workgroup not loaded", "error"); return; }
-  const pathPrefix = state.fileBrowserPath.length ? state.fileBrowserPath.join("/") + "/" : "";
+  const pathPrefix = state.filePanel.path.length ? state.filePanel.path.join("/") + "/" : "";
   openWorkgroupFileEditor({
     title: "New file",
     subtitle: fileBrowserContextLabel(workgroupId),
@@ -4005,7 +3821,7 @@ function browserAddFile(workgroupId) {
       const topic_id = topicIdForConversation(conversation);
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("File added", "success");
     },
@@ -4019,7 +3835,7 @@ function browserNewFolder(workgroupId) {
   if (!name || !name.trim()) return;
   const folderName = normalizePathEntry(name.trim());
   if (!folderName) { flash("Invalid folder name", "error"); return; }
-  const currentPath = state.fileBrowserPath.join("/");
+  const currentPath = state.filePanel.path.join("/");
   const prefix = currentPath ? currentPath + "/" + folderName + "/" : folderName + "/";
   openWorkgroupFileEditor({
     title: "New file in " + folderName,
@@ -4032,8 +3848,8 @@ function browserNewFolder(workgroupId) {
       const topic_id = topicIdForConversation(conversation);
       const newFile = { id: newWorkgroupFileId(), path, content, topic_id };
       await saveWorkgroupFiles(workgroupId, [...files, newFile]);
-      state.fileBrowserFileId = "";
-      if (state.fileBrowserOpen) renderFileBrowser();
+      state.filePanel.selectedFileId = "";
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("Folder and file created", "success");
     },
@@ -4068,7 +3884,7 @@ function browserRenameFile(workgroupId, fileId) {
       }
       const updated = files.map(f => f.id === fileId ? { ...f, path: newPath } : f);
       await saveWorkgroupFiles(workgroupId, updated);
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("File renamed", "success");
     },
@@ -4096,7 +3912,7 @@ function browserCopyFile(workgroupId, fileId) {
   const newFile = { id: newWorkgroupFileId(), path: copyPath, content: file.content, topic_id: file.topic_id };
   saveWorkgroupFiles(workgroupId, [...files, newFile])
     .then(() => {
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("File copied", "success");
     })
@@ -4115,8 +3931,8 @@ function browserDeleteFile(workgroupId, fileId) {
   const remaining = files.filter(f => f.id !== fileId);
   saveWorkgroupFiles(workgroupId, remaining)
     .then(() => {
-      if (state.fileBrowserFileId === fileId) state.fileBrowserFileId = "";
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.selectedFileId === fileId) state.filePanel.selectedFileId = "";
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("File deleted", "success");
     })
@@ -4167,13 +3983,13 @@ function browserRenameFolder(workgroupId, folderPath) {
       await saveWorkgroupFiles(workgroupId, updated);
       // Update browser path if we're inside the renamed folder
       const browserPrefix = folderPath.split("/");
-      const currentPath = state.fileBrowserPath.join("/");
+      const currentPath = state.filePanel.path.join("/");
       if (currentPath === folderPath || currentPath.startsWith(folderPath + "/")) {
-        state.fileBrowserPath = newFolderPath.split("/").concat(
-          state.fileBrowserPath.slice(browserPrefix.length)
+        state.filePanel.path = newFolderPath.split("/").concat(
+          state.filePanel.path.slice(browserPrefix.length)
         );
       }
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash("Folder renamed", "success");
     },
@@ -4224,7 +4040,7 @@ function browserCopyFolder(workgroupId, folderPath) {
       }
 
       await saveWorkgroupFiles(workgroupId, [...files, ...copies]);
-      if (state.fileBrowserOpen) renderFileBrowser();
+      if (state.filePanel.open) renderFilePanel();
       renderTree();
       flash(`Folder copied (${copies.length} file${copies.length !== 1 ? "s" : ""})`, "success");
     },
@@ -4856,7 +4672,7 @@ async function openAgentSettings(workgroupId, agentId) {
 }
 
 function renderMemberContactCard(member, isOwner) {
-  const container = qs("file-overlay-form");
+  const container = qs("file-panel-form");
   container.innerHTML = "";
 
   // Header with avatar
@@ -4945,12 +4761,12 @@ function renderMemberContactCard(member, isOwner) {
 }
 
 async function saveMemberContactCard() {
-  const ctx = state.fileOverlayMemberContext;
+  const ctx = state.filePanel.memberContext;
   if (!ctx) return;
 
   const { workgroupId, memberId, originalRole, originalBudgetLimit } = ctx;
 
-  const form = qs("file-overlay-form");
+  const form = qs("file-panel-form");
   const roleSelect = form.querySelector('select[data-key="role"]');
   const budgetInput = form.querySelector('input[data-key="budget_limit_usd"]');
 
@@ -4990,26 +4806,32 @@ function openMemberContactCard(workgroupId, memberId) {
 
   const isOwner = isWorkgroupOwner(workgroupId);
 
-  qs("file-overlay-path").textContent = `member: ${member.name || member.email}`;
-  qs("file-overlay-workgroup").textContent = data.workgroup?.name || "";
+  const memberLabel = `member: ${member.name || member.email}`;
+  const wgName = data.workgroup?.name || "";
+  qs("file-panel-scope").textContent = wgName ? `[${wgName}] ${memberLabel}` : memberLabel;
 
-  qs("file-overlay-content").classList.add("hidden");
-  qs("file-overlay-rendered").innerHTML = "";
-  qs("file-overlay-rendered").classList.add("hidden");
-  qs("file-overlay-raw-toggle").classList.add("hidden");
-  qs("file-overlay-delete").classList.add("hidden");
+  qs("file-panel-content").classList.add("hidden");
+  qs("file-panel-rendered").innerHTML = "";
+  qs("file-panel-rendered").classList.add("hidden");
+  qs("file-panel-raw-toggle").classList.add("hidden");
+  qs("file-panel-delete").classList.add("hidden");
 
-  state.fileOverlayShowRaw = false;
-  state.fileOverlayParsedJson = null;
-  state.fileOverlayLastContent = "";
-  state.fileOverlayViewMode = "form";
+  // Hide directory section for member view
+  qs("file-panel-directory").classList.add("hidden");
+  qs("file-panel-divider").classList.add("hidden");
+  qs("file-panel-viewer").classList.remove("hidden");
+
+  state.filePanel.showRaw = false;
+  state.filePanel.parsedJson = null;
+  state.filePanel.lastContent = "";
+  state.filePanel.viewMode = "form";
 
   renderMemberContactCard(member, isOwner);
-  setFileOverlayViewMode("form");
+  setFilePanelViewMode("form");
 
   const isSelf = member.user_id === state.user?.id;
   const canEdit = isOwner && !isSelf;
-  const editBtn = qs("file-overlay-edit");
+  const editBtn = qs("file-panel-edit");
   if (canEdit) {
     editBtn.textContent = "Save";
     editBtn.classList.remove("hidden");
@@ -5017,18 +4839,18 @@ function openMemberContactCard(workgroupId, memberId) {
     editBtn.classList.add("hidden");
   }
 
-  state.fileOverlayMemberContext = {
+  state.filePanel.memberContext = {
     workgroupId,
     memberId: member.user_id,
     originalRole: member.role || "",
     originalBudgetLimit: member.budget_limit_usd ?? null,
   };
 
-  qs("file-overlay").classList.remove("hidden");
-  showOverlaySplit();
-  state.fileOverlayOpen = true;
-  state.fileOverlayWorkgroupId = workgroupId;
-  state.fileOverlayFileId = "";
+  qs("file-panel").classList.remove("hidden");
+  showFilePanel();
+  state.filePanel.open = true;
+  state.filePanel.workgroupId = workgroupId;
+  state.filePanel.selectedFileId = "";
 
   const ctxBar = qs("composer-file-context");
   const label = `member: ${member.name || member.email}`;
@@ -5400,7 +5222,30 @@ function renderTree() {
 
     const orgMemberContent = orgMemberNodes || "<div class='tree-caption'>No members</div>";
 
+    // Files section — org-level files (CLAUDE.md, workflows, etc.)
+    const orgFiles = normalizeWorkgroupFiles(orgRecord?.files);
+    const orgFileNodes = orgFiles.length
+      ? orgFiles.map((f) => {
+          const fileName = f.path.split("/").pop() || f.path;
+          return `<div class="tree-item-row workgroup-file-item">
+            <button class="tree-button file" data-action="open-org-file" data-org="${escapeHtml(state.bladeOrgId)}" data-file-id="${escapeHtml(f.id)}" title="${escapeHtml(f.path)}">
+              <span class="finder-file-label">
+                <span class="finder-icon file">${FINDER_FILE_ICON_SVG}</span>
+                <span class="finder-file-name">${escapeHtml(fileName)}</span>
+              </span>
+              <span class="finder-kind">File</span>
+            </button>
+          </div>`;
+        }).join("")
+      : "<div class='tree-caption'>No files</div>";
+    const isOrgOwner = orgRecord?.owner_id === state.user?.id;
+    const orgFileAddBtn = isOrgOwner ? `<button type="button" class="tree-tool" data-action="browse-org-files" data-org="${escapeHtml(state.bladeOrgId)}">+</button>` : "";
+
     node.innerHTML = `
+      <div class="tree-section">
+        <div class="tree-section-title"><span>Files</span>${orgFileAddBtn}</div>
+        <div class="tree-list">${orgFileNodes}</div>
+      </div>
       <div class="tree-section">
         <div class="tree-section-title"><span>Workgroups</span><button type="button" class="tree-tool" data-action="create-workgroup-in-org" data-org="${escapeHtml(state.bladeOrgId)}">+</button></div>
         <div class="tree-list">${wgContent}</div>
@@ -6071,7 +5916,7 @@ function startPolling() {
         }
       }
 
-      if (state.fileOverlayOpen && polledMessages.length) {
+      if (state.filePanel.open && polledMessages.length) {
         const currentLatestId = polledMessages[polledMessages.length - 1].id;
         if (currentLatestId && currentLatestId !== beforeLatestId) {
           const lastNew = polledMessages[polledMessages.length - 1];
@@ -6154,7 +5999,7 @@ function startPolling() {
             const data = state.treeData[state.selectedWorkgroupId];
             if (data) {
               data.workgroup = fresh;
-              if (state.fileBrowserOpen) renderFileBrowser();
+              if (state.filePanel.open) renderFilePanel();
             }
           } catch (_) { /* skip on error */ }
         }
@@ -6295,10 +6140,10 @@ function signOut() {
   state.thinkingByConversation = {};
   state.thoughtsByMessageId = {};
   state.lastLiveActivity = null;
-  state.fileOverlayOpen = false;
-  state.fileOverlayWorkgroupId = "";
-  state.fileOverlayFileId = "";
-  state.fileOverlayShowRaw = false;
+  state.filePanel.open = false;
+  state.filePanel.workgroupId = "";
+  state.filePanel.selectedFileId = "";
+  state.filePanel.showRaw = false;
   state.myInvites = [];
   state.invitePollCounter = 0;
 
@@ -6824,6 +6669,23 @@ function bindTreeEvents() {
       return;
     }
 
+    if (action === "open-org-file") {
+      event.preventDefault();
+      event.stopPropagation();
+      const orgId = button.dataset.org || "";
+      const fileId = button.dataset.fileId || "";
+      if (orgId) openFilePanel("org", { orgId, fileId });
+      return;
+    }
+
+    if (action === "browse-org-files") {
+      event.preventDefault();
+      event.stopPropagation();
+      const orgId = button.dataset.org || "";
+      if (orgId) openFilePanel("org", { orgId });
+      return;
+    }
+
     if (action === "drill-agent") {
       const agentId = button.dataset.agent || "";
       const wgId = button.dataset.workgroup || "";
@@ -7168,7 +7030,7 @@ function bindEvents() {
 
   // --- Chat header action buttons ---
   qs("toggle-files-btn").addEventListener("click", () => {
-    if (state.fileBrowserOpen) {
+    if (state.filePanel.open) {
       closeFileOverlay();
     } else if (state.selectedWorkgroupId) {
       openFileBrowser(state.selectedWorkgroupId);
@@ -7347,46 +7209,46 @@ function bindEvents() {
     }
   });
 
-  qs("file-overlay-close").addEventListener("click", closeFileOverlay);
+  qs("file-panel-close").addEventListener("click", closeFileOverlay);
 
-  qs("file-overlay").addEventListener("click", (event) => {
+  qs("file-panel").addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const button = target.closest("button[data-action]");
     if (!button) return;
     const action = button.dataset.action;
 
-    if (!state.fileBrowserOpen) return;
+    if (!state.filePanel.open) return;
 
     if (action === "browser-drill") {
       const folder = button.dataset.folder;
       if (folder) {
-        state.fileBrowserPath = [...state.fileBrowserPath, folder];
-        state.fileBrowserFileId = "";
-        renderFileBrowser();
+        state.filePanel.path = [...state.filePanel.path, folder];
+        state.filePanel.selectedFileId = "";
+        renderFilePanel();
       }
     }
 
     if (action === "browser-navigate") {
       const depth = parseInt(button.dataset.depth, 10);
-      state.fileBrowserPath = state.fileBrowserPath.slice(0, depth);
-      state.fileBrowserFileId = "";
-      renderFileBrowser();
+      state.filePanel.path = state.filePanel.path.slice(0, depth);
+      state.filePanel.selectedFileId = "";
+      renderFilePanel();
     }
 
     if (action === "browser-open-file") {
       const fileId = button.dataset.fileId;
       if (fileId) {
-        state.fileBrowserFileId = fileId;
-        renderFileBrowser();
+        state.filePanel.selectedFileId = fileId;
+        renderFilePanel();
       }
     }
 
     // For composite mode, resolve effective workgroup from .templates/ → admin wg
-    const isComposite = state.fileBrowserScope === "root" || state.fileBrowserScope === "org";
-    let wgId = state.fileBrowserWorkgroupId;
+    const isComposite = state.filePanel.scope === "root" || state.filePanel.scope === "org";
+    let wgId = state.filePanel.workgroupId;
     if (isComposite && !wgId) {
-      const currentPath = state.fileBrowserPath.join("/");
+      const currentPath = state.filePanel.path.join("/");
       if (currentPath.startsWith(".templates")) {
         const adminWg = state.workgroups.find(w => w.name === "Administration" && !w.organization_id);
         if (adminWg) wgId = adminWg.id;
@@ -7444,19 +7306,19 @@ function bindEvents() {
     input.focus();
   });
 
-  qs("file-overlay-edit").addEventListener("click", () => {
-    if (state.fileOverlayMemberContext) {
+  qs("file-panel-edit").addEventListener("click", () => {
+    if (state.filePanel.memberContext) {
       saveMemberContactCard();
-    } else if (state.fileOverlayViewMode === "form" && state.fileOverlayParsedJson !== null) {
+    } else if (state.filePanel.viewMode === "form" && state.filePanel.parsedJson !== null) {
       saveJsonFormOverlay();
     } else {
-      editWorkgroupFile(state.fileOverlayWorkgroupId);
+      editWorkgroupFile(state.filePanel.workgroupId);
     }
   });
 
-  qs("file-overlay-delete").addEventListener("click", () => {
-    const workgroupId = state.fileOverlayWorkgroupId;
-    const fileId = state.fileOverlayFileId;
+  qs("file-panel-delete").addEventListener("click", () => {
+    const workgroupId = state.filePanel.workgroupId;
+    const fileId = state.filePanel.selectedFileId;
     if (!workgroupId || !fileId) {
       return;
     }
@@ -7486,19 +7348,19 @@ function bindEvents() {
       });
   });
 
-  qs("file-overlay-raw-toggle").addEventListener("click", () => {
-    if (state.fileOverlayParsedJson !== null) {
-      const newMode = state.fileOverlayViewMode === "form" ? "raw" : "form";
-      setFileOverlayViewMode(newMode);
-      const isOwner = isWorkgroupOwner(state.fileOverlayWorkgroupId);
-      updateFileOverlayEditButton(isOwner, newMode === "form", true);
+  qs("file-panel-raw-toggle").addEventListener("click", () => {
+    if (state.filePanel.parsedJson !== null) {
+      const newMode = state.filePanel.viewMode === "form" ? "raw" : "form";
+      setFilePanelViewMode(newMode);
+      const isOwner = isWorkgroupOwner(state.filePanel.workgroupId);
+      updateFilePanelEditButton(isOwner, newMode === "form", true);
     } else {
-      state.fileOverlayShowRaw = !state.fileOverlayShowRaw;
-      const pre = qs("file-overlay-content");
-      const rendered = qs("file-overlay-rendered");
-      const rawToggle = qs("file-overlay-raw-toggle");
+      state.filePanel.showRaw = !state.filePanel.showRaw;
+      const pre = qs("file-panel-content");
+      const rendered = qs("file-panel-rendered");
+      const rawToggle = qs("file-panel-raw-toggle");
 
-      if (state.fileOverlayShowRaw) {
+      if (state.filePanel.showRaw) {
         pre.classList.remove("hidden");
         rendered.classList.add("hidden");
         rawToggle.textContent = "Rendered";
@@ -7554,8 +7416,8 @@ function bindEvents() {
         requestSettingsClose({ saveIfDirty: true }).catch((error) => {
           flash(error.message || "Failed to close settings", "error");
         });
-      } else if (state.fileOverlayOpen || state.fileBrowserOpen) {
-        closeFileOverlay();
+      } else if (state.filePanel.open) {
+        closeFilePanel();
       }
     }
   });
@@ -7654,10 +7516,10 @@ function bindEvents() {
     }
 
     let fullContent = content;
-    if (state.fileOverlayOpen && state.fileOverlayFileId) {
-      const wgData = state.treeData[state.fileOverlayWorkgroupId];
+    if (state.filePanel.open && state.filePanel.selectedFileId) {
+      const wgData = state.treeData[state.filePanel.workgroupId];
       const files = normalizeWorkgroupFiles(wgData?.workgroup?.files);
-      const file = files.find(f => f.id === state.fileOverlayFileId);
+      const file = files.find(f => f.id === state.filePanel.selectedFileId);
       if (file) {
         fullContent = `[file: ${file.path}]\n<<<\n${file.content}\n>>>\n\n${content}`;
       }
@@ -7799,41 +7661,39 @@ function bindEvents() {
     });
   }
 
-  // File overlay resize handle
+  // File panel left-edge resize (horizontal drag to resize panel width)
   {
-    const handle = document.getElementById("file-overlay-resize-handle");
-    const chatPanel = document.getElementById("chat-panel");
-    const MIN_HEIGHT = 100;
-    const MAX_FRAC = 0.85;
+    const filePanel = document.getElementById("file-panel");
+    const layout = document.querySelector(".layout");
+    const MIN_WIDTH = 280;
+    const MAX_WIDTH = 600;
 
     let dragging = false;
 
-    handle.addEventListener("pointerdown", (e) => {
+    filePanel.addEventListener("pointerdown", (e) => {
+      // Only trigger if clicking near the left edge (first 6px)
+      const rect = filePanel.getBoundingClientRect();
+      if (e.clientX - rect.left > 6) return;
       e.preventDefault();
       dragging = true;
-      handle.classList.add("dragging");
-      handle.setPointerCapture(e.pointerId);
+      filePanel.style.cursor = "col-resize";
+      filePanel.setPointerCapture(e.pointerId);
     });
 
-    handle.addEventListener("pointermove", (e) => {
+    filePanel.addEventListener("pointermove", (e) => {
       if (!dragging) return;
-      const chatRect = chatPanel.getBoundingClientRect();
-      const headerEl = chatPanel.querySelector(".chat-header");
-      const headerH = headerEl ? headerEl.getBoundingClientRect().height : 0;
-      const composerEl = document.getElementById("message-form");
-      const composerH = composerEl.getBoundingClientRect().height;
-      const maxH = (chatRect.height - headerH - composerH) * MAX_FRAC;
-      const height = Math.min(maxH, Math.max(MIN_HEIGHT, e.clientY - chatRect.top - headerH));
-      chatPanel.style.setProperty("--overlay-height", height + "px");
+      const layoutRect = layout.getBoundingClientRect();
+      const width = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, layoutRect.right - e.clientX));
+      layout.style.setProperty("--file-panel-width", width + "px");
     });
 
-    handle.addEventListener("pointerup", (e) => {
+    filePanel.addEventListener("pointerup", (e) => {
       if (!dragging) return;
       dragging = false;
-      handle.classList.remove("dragging");
-      handle.releasePointerCapture(e.pointerId);
-      const val = parseInt(chatPanel.style.getPropertyValue("--overlay-height"), 10);
-      if (val) savePreferences({ overlayHeight: val });
+      filePanel.style.cursor = "";
+      filePanel.releasePointerCapture(e.pointerId);
+      const val = parseInt(layout.style.getPropertyValue("--file-panel-width"), 10);
+      if (val) savePreferences({ filePanelWidth: val });
     });
   }
 

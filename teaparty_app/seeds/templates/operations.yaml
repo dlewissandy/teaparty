@@ -3,6 +3,18 @@ name: Operations
 description: "Engagement coordination hub — receives engagements and dispatches work to specialized teams."
 
 files:
+  - path: CLAUDE.md
+    content: |
+      # Workgroup Instructions
+
+      ## Conventions
+      - Break complex engagements into clear, actionable jobs.
+      - Monitor progress proactively — don't wait for escalation.
+      - Communicate status updates to both internal teams and external clients.
+
+      ## Quality
+      - Verify deliverables meet engagement requirements before marking complete.
+
   - path: README.md
     content: |
       # Operations Center

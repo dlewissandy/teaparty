@@ -1,3 +1,5 @@
+"""REST API for organization CRUD and admin workspace bootstrapping."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 
@@ -100,7 +102,7 @@ def update_organization(
     if org.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the organization owner can update it")
 
-    if all(v is None for v in (payload.name, payload.description, payload.service_description, payload.is_accepting_engagements)):
+    if all(v is None for v in (payload.name, payload.description, payload.files, payload.service_description, payload.is_accepting_engagements)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No updates provided")
 
     if payload.name is not None:
@@ -111,6 +113,10 @@ def update_organization(
 
     if payload.description is not None:
         org.description = payload.description.strip()
+
+    if payload.files is not None:
+        from teaparty_app.db import _normalize_workgroup_files_payload
+        org.files = _normalize_workgroup_files_payload(payload.files)
 
     if payload.service_description is not None:
         org.service_description = payload.service_description.strip()
@@ -186,7 +192,7 @@ def delete_organization(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the organization owner can delete it")
 
     # Cascade-delete all workgroups in this org
-    from teaparty_app.services.admin_workspace.tools import delete_workgroup_data
+    from teaparty_app.services.admin_workspace.tools_common import delete_workgroup_data
 
     workgroups = session.exec(
         select(Workgroup).where(Workgroup.organization_id == org_id)

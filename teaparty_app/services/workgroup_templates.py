@@ -1,3 +1,5 @@
+"""Load and apply workgroup templates from YAML seed files."""
+
 from __future__ import annotations
 
 import json

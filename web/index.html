@@ -132,27 +132,6 @@
           <p id="active-usage" class="meta usage-line hidden"></p>
         </header>
 
-        <div id="file-overlay" class="file-overlay hidden">
-          <div class="file-overlay-header">
-            <div class="file-overlay-title">
-              <h3 id="file-overlay-path">file.txt</h3>
-              <p id="file-overlay-workgroup" class="meta"></p>
-              <div id="file-browser-breadcrumb" class="hidden"></div>
-            </div>
-            <div class="file-overlay-actions">
-              <button id="file-overlay-raw-toggle" class="secondary hidden">Raw</button>
-              <button id="file-overlay-edit" class="secondary hidden">Edit</button>
-              <button id="file-overlay-delete" class="danger hidden">Delete</button>
-              <button id="file-overlay-close" class="icon-button" aria-label="Close file viewer">×</button>
-            </div>
-          </div>
-          <div id="file-browser-listing" class="file-browser-listing hidden"></div>
-          <pre id="file-overlay-content" class="file-overlay-content"></pre>
-          <div id="file-overlay-rendered" class="file-overlay-content file-overlay-rendered hidden"></div>
-          <div id="file-overlay-form" class="file-overlay-form hidden"></div>
-        </div>
-        <div id="file-overlay-resize-handle" class="file-overlay-resize-handle hidden"></div>
-
         <div id="messages" class="messages"></div>
 
         <form id="message-form" class="composer">
@@ -161,6 +140,29 @@
           <button type="submit">Send</button>
         </form>
       </section>
+
+      <div id="file-panel" class="file-panel hidden">
+        <div class="file-panel-header">
+          <div class="file-panel-scope" id="file-panel-scope"></div>
+          <div class="file-panel-actions">
+            <button id="file-panel-raw-toggle" class="secondary hidden">Raw</button>
+            <button id="file-panel-edit" class="secondary hidden">Edit</button>
+            <button id="file-panel-delete" class="danger hidden">Delete</button>
+            <button id="file-panel-close" class="icon-button" aria-label="Close file panel">&times;</button>
+          </div>
+        </div>
+        <div class="file-panel-directory" id="file-panel-directory">
+          <div class="file-panel-breadcrumbs" id="file-panel-breadcrumbs"></div>
+          <div class="file-panel-toolbar" id="file-panel-toolbar"></div>
+          <div class="file-panel-listing" id="file-panel-listing"></div>
+        </div>
+        <div class="file-panel-divider" id="file-panel-divider"></div>
+        <div class="file-panel-viewer" id="file-panel-viewer">
+          <pre id="file-panel-content" class="file-panel-content"></pre>
+          <div id="file-panel-rendered" class="file-panel-content file-panel-rendered hidden"></div>
+          <div id="file-panel-form" class="file-panel-form hidden"></div>
+        </div>
+      </div>
 
       <section id="empty-panel" class="empty-panel">
         <h2>Login To Start</h2>

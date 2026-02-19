@@ -158,7 +158,7 @@ h3 {
 .layout {
   height: calc(100vh - 64px);
   display: grid;
-  grid-template-columns: var(--blade-width, 330px) 5px minmax(0, 1fr);
+  grid-template-columns: var(--blade-width, 330px) 5px minmax(0, 1fr) auto;
   min-height: 0;
 }
 
@@ -757,30 +757,86 @@ body[data-theme="dark"] .unread-dot {
   background: #ffffff;
 }
 
-.chat-panel.overlay-split {
-  grid-template-rows: auto var(--overlay-height, 45%) 5px minmax(80px, 1fr) auto;
+/* Right-side file panel */
+.file-panel {
+  grid-column: 4;
+  width: var(--file-panel-width, 380px);
+  min-width: 280px;
+  max-width: 600px;
+  border-left: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  overflow: hidden;
 }
 
-.chat-panel.overlay-split .file-overlay {
-  grid-row: auto;
-  grid-column: auto;
-  z-index: auto;
-  border-bottom: none;
+.file-panel.hidden {
+  display: none;
 }
 
-.file-overlay-resize-handle {
-  height: 5px;
+.file-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  min-height: 40px;
+}
+
+.file-panel-scope {
+  font-weight: 600;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.file-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.file-panel-directory {
+  flex: 0 0 auto;
+  max-height: 50%;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.file-panel-breadcrumbs {
+  padding: 8px 12px;
+}
+
+.file-panel-listing {
+  overflow-y: auto;
+}
+
+.file-panel-divider {
+  width: 100%;
+  height: 4px;
   cursor: row-resize;
   background: transparent;
-  position: relative;
-  z-index: 11;
-  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
   transition: background 0.15s;
 }
 
-.file-overlay-resize-handle:hover,
-.file-overlay-resize-handle.dragging {
+.file-panel-divider:hover {
   background: var(--primary);
+}
+
+.file-panel-viewer {
+  flex: 1 1 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-panel-viewer.hidden {
+  display: none;
 }
 
 .chat-panel.drag-over {
@@ -1016,45 +1072,7 @@ body[data-theme="dark"] .unread-dot {
   background: #e7f0ff;
 }
 
-.file-overlay {
-  grid-row: 2 / 3;
-  grid-column: 1;
-  z-index: 10;
-  background: var(--panel);
-  border-bottom: 1px solid var(--line);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-}
-
-.file-overlay-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.file-overlay-title {
-  min-width: 0;
-  overflow: hidden;
-}
-
-.file-overlay-title h3 {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-overlay-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
-}
-
-.file-overlay-content {
+.file-panel-content {
   overflow: auto;
   padding: 14px;
   margin: 0;
@@ -1066,20 +1084,20 @@ body[data-theme="dark"] .unread-dot {
   color: var(--ink);
 }
 
-.file-overlay-image {
+.file-panel-image {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
   display: block;
 }
 
-/* Rendered markdown in file overlay */
-.file-overlay-rendered {
+/* Rendered markdown in file panel */
+.file-panel-rendered {
   white-space: normal;
   font-family: "Manrope", "Segoe UI", sans-serif;
 }
 
-.file-overlay-rendered h1 {
+.file-panel-rendered h1 {
   font-size: 1.5rem;
   font-weight: 700;
   margin: 0 0 0.5em;
@@ -1087,7 +1105,7 @@ body[data-theme="dark"] .unread-dot {
   border-bottom: 1px solid var(--line);
 }
 
-.file-overlay-rendered h2 {
+.file-panel-rendered h2 {
   font-size: 1.25rem;
   font-weight: 700;
   margin: 1em 0 0.4em;
@@ -1095,33 +1113,33 @@ body[data-theme="dark"] .unread-dot {
   border-bottom: 1px solid var(--line);
 }
 
-.file-overlay-rendered h3 {
+.file-panel-rendered h3 {
   font-size: 1.1rem;
   font-weight: 700;
   margin: 1em 0 0.3em;
 }
 
-.file-overlay-rendered h4 {
+.file-panel-rendered h4 {
   font-size: 1rem;
   font-weight: 700;
   margin: 1em 0 0.25em;
 }
 
-.file-overlay-rendered p {
+.file-panel-rendered p {
   margin: 0 0 0.75em;
 }
 
-.file-overlay-rendered ul,
-.file-overlay-rendered ol {
+.file-panel-rendered ul,
+.file-panel-rendered ol {
   margin: 0 0 0.75em;
   padding-left: 1.5em;
 }
 
-.file-overlay-rendered li {
+.file-panel-rendered li {
   margin-bottom: 0.25em;
 }
 
-.file-overlay-rendered blockquote {
+.file-panel-rendered blockquote {
   margin: 0 0 0.75em;
   padding: 0.5em 1em;
   border-left: 4px solid var(--primary);
@@ -1129,7 +1147,7 @@ body[data-theme="dark"] .unread-dot {
   color: var(--ink);
 }
 
-.file-overlay-rendered code {
+.file-panel-rendered code {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
   font-size: 0.85em;
   background: rgba(45, 102, 214, 0.08);
@@ -1137,7 +1155,7 @@ body[data-theme="dark"] .unread-dot {
   border-radius: 4px;
 }
 
-.file-overlay-rendered pre {
+.file-panel-rendered pre {
   margin: 0 0 0.75em;
   padding: 12px;
   border: 1px solid var(--line);
@@ -1146,51 +1164,51 @@ body[data-theme="dark"] .unread-dot {
   overflow-x: auto;
 }
 
-.file-overlay-rendered pre code {
+.file-panel-rendered pre code {
   background: none;
   padding: 0;
   border-radius: 0;
   font-size: 0.84rem;
 }
 
-.file-overlay-rendered a {
+.file-panel-rendered a {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.file-overlay-rendered img {
+.file-panel-rendered img {
   max-width: 100%;
   height: auto;
   border-radius: 6px;
 }
 
-.file-overlay-rendered hr {
+.file-panel-rendered hr {
   border: none;
   border-top: 1px solid var(--line);
   margin: 1em 0;
 }
 
-.file-overlay-rendered table {
+.file-panel-rendered table {
   border-collapse: collapse;
   width: 100%;
   margin: 0 0 0.75em;
 }
 
-.file-overlay-rendered th,
-.file-overlay-rendered td {
+.file-panel-rendered th,
+.file-panel-rendered td {
   border: 1px solid var(--line);
   padding: 6px 10px;
   text-align: left;
 }
 
-.file-overlay-rendered th {
+.file-panel-rendered th {
   background: #f0f4f8;
   font-weight: 700;
 }
 
-/* JSON form in file overlay */
-.file-overlay-form {
+/* JSON form in file panel */
+.file-panel-form {
   overflow: auto;
   padding: 14px;
   display: flex;
@@ -1296,16 +1314,16 @@ body[data-theme="dark"] .unread-dot {
   padding: 2px 8px 8px;
 }
 
-.file-overlay-form > .json-root {
+.file-panel-form > .json-root {
   border: none;
   margin: 0;
 }
 
-.file-overlay-form > .json-root > .json-section-summary {
+.file-panel-form > .json-root > .json-section-summary {
   display: none;
 }
 
-.file-overlay-form > .json-root > .json-section-body {
+.file-panel-form > .json-root > .json-section-body {
   padding: 0;
 }
 
@@ -1844,7 +1862,7 @@ body[data-theme="dark"] .unread-dot {
 }
 
 .empty-panel {
-  grid-column: 3;
+  grid-column: 3 / -1;
   display: grid;
   place-content: center;
   gap: 8px;
@@ -2329,6 +2347,14 @@ body[data-theme="dark"] .job-agent-item:hover {
     min-height: 54vh;
   }
 
+  .file-panel {
+    grid-column: 1;
+    width: 100% !important;
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid var(--line);
+  }
+
   .empty-panel {
     grid-column: 1;
   }
@@ -2495,32 +2521,37 @@ body[data-theme="dark"] .member-pill.admin {
 }
 
 
-body[data-theme="dark"] .file-overlay-resize-handle {
-  border-top-color: var(--line);
-}
-
-body[data-theme="dark"] .file-overlay {
+body[data-theme="dark"] .file-panel {
   background: #101a29;
+  border-left-color: #2a3f5a;
 }
 
-body[data-theme="dark"] .file-overlay-content {
+body[data-theme="dark"] .file-panel-header {
+  border-bottom-color: #2a3f5a;
+}
+
+body[data-theme="dark"] .file-panel-directory {
+  border-bottom-color: #2a3f5a;
+}
+
+body[data-theme="dark"] .file-panel-content {
   color: #d7e5f4;
 }
 
-body[data-theme="dark"] .file-overlay-rendered pre {
+body[data-theme="dark"] .file-panel-rendered pre {
   background: #1a2940;
   border-color: #2a3f5a;
 }
 
-body[data-theme="dark"] .file-overlay-rendered code {
+body[data-theme="dark"] .file-panel-rendered code {
   background: rgba(109, 163, 255, 0.12);
 }
 
-body[data-theme="dark"] .file-overlay-rendered th {
+body[data-theme="dark"] .file-panel-rendered th {
   background: #1a2940;
 }
 
-body[data-theme="dark"] .file-overlay-rendered blockquote {
+body[data-theme="dark"] .file-panel-rendered blockquote {
   background: #1c2d47;
 }
 

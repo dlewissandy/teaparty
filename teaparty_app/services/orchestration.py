@@ -321,6 +321,18 @@ def create_engagement_job(
     session.add(conversation)
     session.flush()
 
+    # Fork engagement files into job
+    job_files: list[dict] = []
+    if engagement and isinstance(engagement.files, list):
+        from uuid import uuid4
+        for f in engagement.files:
+            if isinstance(f, dict) and f.get("path"):
+                job_files.append({
+                    "id": str(uuid4()),
+                    "path": f"engagement/{f['path']}",
+                    "content": f.get("content", ""),
+                })
+
     # Create the Job record
     job = Job(
         title=title,
@@ -329,6 +341,7 @@ def create_engagement_job(
         conversation_id=conversation.id,
         engagement_id=engagement_id,
         created_by_agent_id=agent_id,
+        files=job_files,
     )
     session.add(job)
 

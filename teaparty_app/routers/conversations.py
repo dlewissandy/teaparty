@@ -1,3 +1,5 @@
+"""REST API for conversations: CRUD, messaging, SSE streaming, and history."""
+
 import asyncio
 import json
 import time

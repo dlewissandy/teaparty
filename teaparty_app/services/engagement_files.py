@@ -1,8 +1,7 @@
-"""Create and update engagement tracking files in both workgroups."""
+"""Create and update engagement tracking files on Engagement.files."""
 
 from __future__ import annotations
 
-from datetime import timezone
 from uuid import uuid4
 
 from sqlmodel import Session
@@ -46,16 +45,17 @@ def _render_deliverables(engagement: Engagement) -> str:
     )
 
 
-def _add_file_to_workgroup(workgroup: Workgroup, path: str, content: str) -> None:
-    raw_files = workgroup.files if isinstance(workgroup.files, list) else []
+def _add_file(engagement: Engagement, path: str, content: str) -> None:
+    """Add a file to Engagement.files."""
+    raw_files = engagement.files if isinstance(engagement.files, list) else []
     all_files = list(raw_files)
     all_files.append({"id": str(uuid4()), "path": path, "content": content})
-    workgroup.files = all_files
+    engagement.files = all_files
 
 
-def _update_file_in_workgroup(workgroup: Workgroup, path: str, content: str) -> None:
-    """Update a file's content. Creates new dicts to ensure SQLAlchemy JSON change detection works."""
-    raw_files = workgroup.files if isinstance(workgroup.files, list) else []
+def _update_file(engagement: Engagement, path: str, content: str) -> None:
+    """Update a file's content on Engagement.files."""
+    raw_files = engagement.files if isinstance(engagement.files, list) else []
     found = False
     new_files = []
     for entry in raw_files:
@@ -65,15 +65,14 @@ def _update_file_in_workgroup(workgroup: Workgroup, path: str, content: str) -> 
         else:
             new_files.append(dict(entry) if isinstance(entry, dict) else entry)
     if found:
-        workgroup.files = new_files
+        engagement.files = new_files
         return
-    # File not found — create it
-    _add_file_to_workgroup(workgroup, path, content)
+    _add_file(engagement, path, content)
 
 
-def _append_to_deliverables(workgroup: Workgroup, path: str, line: str) -> None:
-    """Append a status update line. Creates new dicts for SQLAlchemy change detection."""
-    raw_files = workgroup.files if isinstance(workgroup.files, list) else []
+def _append_to_deliverables(engagement: Engagement, path: str, line: str) -> None:
+    """Append a status update line to the deliverables file."""
+    raw_files = engagement.files if isinstance(engagement.files, list) else []
     new_files = []
     for entry in raw_files:
         if isinstance(entry, dict) and entry.get("path") == path:
@@ -82,7 +81,7 @@ def _append_to_deliverables(workgroup: Workgroup, path: str, line: str) -> None:
             new_files.append({**entry, "content": new_content})
         else:
             new_files.append(dict(entry) if isinstance(entry, dict) else entry)
-    workgroup.files = new_files
+    engagement.files = new_files
 
 
 def create_engagement_files(
@@ -91,22 +90,16 @@ def create_engagement_files(
     source_wg: Workgroup,
     target_wg: Workgroup,
 ) -> None:
+    """Write agreement.md and deliverables.md to Engagement.files."""
     source_name = source_wg.name
     target_name = target_wg.name
 
     agreement_content = _render_agreement(engagement, source_name, target_name)
     deliverables_content = _render_deliverables(engagement)
 
-    agreement_path = f"engagements/{engagement.id}/agreement.md"
-    deliverables_path = f"engagements/{engagement.id}/deliverables.md"
-
-    _add_file_to_workgroup(source_wg, agreement_path, agreement_content)
-    _add_file_to_workgroup(source_wg, deliverables_path, deliverables_content)
-    session.add(source_wg)
-
-    _add_file_to_workgroup(target_wg, agreement_path, agreement_content)
-    _add_file_to_workgroup(target_wg, deliverables_path, deliverables_content)
-    session.add(target_wg)
+    _add_file(engagement, "agreement.md", agreement_content)
+    _add_file(engagement, "deliverables.md", deliverables_content)
+    session.add(engagement)
 
 
 def update_engagement_files(
@@ -117,18 +110,15 @@ def update_engagement_files(
     event: str,
     detail: str = "",
 ) -> None:
+    """Update agreement.md and append to deliverables.md on Engagement.files."""
     source_name = source_wg.name
     target_name = target_wg.name
 
-    agreement_path = f"engagements/{engagement.id}/agreement.md"
-    deliverables_path = f"engagements/{engagement.id}/deliverables.md"
-
     agreement_content = _render_agreement(engagement, source_name, target_name)
+    _update_file(engagement, "agreement.md", agreement_content)
 
-    for wg in (source_wg, target_wg):
-        _update_file_in_workgroup(wg, agreement_path, agreement_content)
-        line = event
-        if detail:
-            line += f" — {detail}"
-        _append_to_deliverables(wg, deliverables_path, line)
-        session.add(wg)
+    line = event
+    if detail:
+        line += f" — {detail}"
+    _append_to_deliverables(engagement, "deliverables.md", line)
+    session.add(engagement)

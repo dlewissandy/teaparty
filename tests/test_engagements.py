@@ -172,16 +172,11 @@ class EngagementRouterHelpersTest(unittest.TestCase):
             tgt_wg = session.get(Workgroup, "wg-tgt")
             create_engagement_files(session, eng, src_wg, tgt_wg)
             session.commit()
-            session.refresh(src_wg)
-            session.refresh(tgt_wg)
+            session.refresh(eng)
 
-            src_paths = [f["path"] for f in src_wg.files if isinstance(f, dict)]
-            tgt_paths = [f["path"] for f in tgt_wg.files if isinstance(f, dict)]
-
-            self.assertTrue(any(f"engagements/{eng.id}/agreement.md" in p for p in src_paths))
-            self.assertTrue(any(f"engagements/{eng.id}/deliverables.md" in p for p in src_paths))
-            self.assertTrue(any(f"engagements/{eng.id}/agreement.md" in p for p in tgt_paths))
-            self.assertTrue(any(f"engagements/{eng.id}/deliverables.md" in p for p in tgt_paths))
+            eng_paths = [f["path"] for f in eng.files if isinstance(f, dict)]
+            self.assertIn("agreement.md", eng_paths)
+            self.assertIn("deliverables.md", eng_paths)
 
     def test_engagement_files_updated(self) -> None:
         from teaparty_app.services.engagement_files import (
@@ -208,16 +203,16 @@ class EngagementRouterHelpersTest(unittest.TestCase):
             update_engagement_files(session, eng, src_wg, tgt_wg, "Engagement completed", "All done")
             session.commit()
 
-            session.refresh(src_wg)
+            session.refresh(eng)
             agreement_file = next(
-                (f for f in src_wg.files if isinstance(f, dict) and f["path"] == f"engagements/{eng.id}/agreement.md"),
+                (f for f in eng.files if isinstance(f, dict) and f["path"] == "agreement.md"),
                 None,
             )
             self.assertIsNotNone(agreement_file)
             self.assertIn("completed", agreement_file["content"])
 
             deliverables_file = next(
-                (f for f in src_wg.files if isinstance(f, dict) and f["path"] == f"engagements/{eng.id}/deliverables.md"),
+                (f for f in eng.files if isinstance(f, dict) and f["path"] == "deliverables.md"),
                 None,
             )
             self.assertIsNotNone(deliverables_file)

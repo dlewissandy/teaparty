@@ -19,6 +19,7 @@ import logging
 import re
 import threading
 import time
+from datetime import timedelta
 from sqlmodel import Session, func, select
 
 from teaparty_app.config import settings
@@ -29,6 +30,7 @@ from teaparty_app.models import (
     ConversationParticipant,
     Job,
     Message,
+    Organization,
     Workgroup,
     utc_now,
 )
@@ -259,6 +261,18 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
 
 
 # ---------------------------------------------------------------------------
+# Org files loader
+# ---------------------------------------------------------------------------
+
+def _load_org_files(session: Session, workgroup: Workgroup) -> list[dict] | None:
+    """Load the organization's files list for a workgroup, or None."""
+    if not workgroup.organization_id:
+        return None
+    org = session.get(Organization, workgroup.organization_id)
+    return org.files if org else None
+
+
+# ---------------------------------------------------------------------------
 # Admin agent (unchanged)
 # ---------------------------------------------------------------------------
 
@@ -290,7 +304,8 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
 
         user_msg = build_user_message(session, conversation, trigger)
 
-        agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context)
+        org_files = _load_org_files(session, workgroup)
+        agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context, org_files=org_files)
         slug = slugify(agent.name)
         agents_json_str = json.dumps({slug: agent_def})
 
@@ -458,6 +473,7 @@ def _run_single_agent_responses(
     if not workgroup:
         return []
 
+    org_files = _load_org_files(session, workgroup)
     resumable = _is_resumable_conversation(conversation)
 
     # Materialize files once for all agents; sync back after the loop.
@@ -480,6 +496,7 @@ def _run_single_agent_responses(
                 agent_def = build_agent_json(
                     agent, conversation, workgroup,
                     files_context=files_context,
+                    org_files=org_files,
                 )
                 slug = slugify(agent.name)
                 agents_json = json.dumps({slug: agent_def})
@@ -612,6 +629,7 @@ def _run_team_response(
     if not workgroup:
         return []
 
+    org_files = _load_org_files(session, workgroup)
     lead = _select_lead(candidates)
     others = [a for a in candidates if a.id != lead.id]
     lead_slug = slugify(lead.name)
@@ -645,6 +663,7 @@ def _run_team_response(
                 teammates=others or None,
                 settings_json=mat_ctx.settings_json,
                 permission_mode=permission_mode,
+                org_files=org_files,
             )
 
             # Drain events and store as Messages.

@@ -1,3 +1,7 @@
+"""REST API for jobs: create, list, update, and launch background runs."""
+
+from uuid import uuid4
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlmodel import Session, select
 
@@ -14,7 +18,7 @@ from teaparty_app.models import (
     utc_now,
 )
 from teaparty_app.routers.conversations import _process_auto_responses_in_background
-from teaparty_app.schemas import JobCreateRequest, JobDetailRead, JobRead, JobUpdateRequest
+from teaparty_app.schemas import EntityFileRead, EntityFileWrite, JobCreateRequest, JobDetailRead, JobRead, JobUpdateRequest
 from teaparty_app.services.agent_runtime import get_conversation_activity
 from teaparty_app.services.permissions import require_workgroup_membership
 
@@ -260,3 +264,56 @@ def delete_job(
 
     session.delete(job)
     commit_with_retry(session)
+
+
+@router.get("/jobs/{job_id}/files", response_model=list[EntityFileRead])
+def get_job_files(
+    job_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[EntityFileRead]:
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    require_workgroup_membership(session, job.workgroup_id, user.id)
+    return [EntityFileRead(**f) for f in (job.files or [])]
+
+
+@router.put("/jobs/{job_id}/files", response_model=list[EntityFileRead])
+def update_job_files(
+    job_id: str,
+    payload: list[EntityFileWrite],
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[EntityFileRead]:
+    job = session.get(Job, job_id)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+    require_workgroup_membership(session, job.workgroup_id, user.id)
+
+    normalized: list[dict] = []
+    for f in payload:
+        file_id = f.id or str(uuid4())
+        path = f.path.strip()
+        if not path:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File path cannot be empty",
+            )
+        normalized.append({
+            "id": file_id,
+            "path": path[:512],
+            "content": (f.content or "")[:200_000],
+        })
+
+    job.files = normalized
+    session.add(job)
+    commit_with_retry(session)
+    session.refresh(job)
+    return [EntityFileRead(**f) for f in job.files]

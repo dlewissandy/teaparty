@@ -1,3 +1,5 @@
+"""REST API for cross-group tasks: create, negotiate, accept, complete."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, select
 

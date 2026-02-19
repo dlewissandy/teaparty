@@ -7,11 +7,11 @@ by building the agents JSON structure that Claude Code expects.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 
 from teaparty_app.models import Agent, Conversation, Workgroup
+from teaparty_app.services.convention_resolver import extract_claude_md
 
 
 def build_agent_json(
@@ -20,6 +20,7 @@ def build_agent_json(
     workgroup: Workgroup | None = None,
     files_context: str = "",
     teammates: list[Agent] | None = None,
+    org_files: list[dict] | None = None,
 ) -> dict:
     """Convert an Agent record to a dict suitable for ``--agents`` JSON.
 
@@ -39,7 +40,7 @@ def build_agent_json(
         "description": agent.description or agent.role or agent.name,
         "prompt": _build_prompt_body(
             agent, conversation, workgroup, files_context,
-            teammates=teammates,
+            teammates=teammates, org_files=org_files,
         ),
         "model": _resolve_model_alias(agent.model),
         "maxTurns": getattr(agent, "max_turns", 3) or 3,
@@ -99,6 +100,7 @@ def _build_prompt_body(
     workgroup: Workgroup | None = None,
     files_context: str = "",
     teammates: list[Agent] | None = None,
+    org_files: list[dict] | None = None,
 ) -> str:
     """Build the agent's prompt body — same content as build_system_prompt()."""
     parts: list[str] = []
@@ -125,6 +127,20 @@ def _build_prompt_body(
     if conversation.description:
         parts.append(f"Description: {conversation.description}")
 
+    # Organization-level CLAUDE.md (broadest scope)
+    org_claude_md = extract_claude_md(org_files)
+    if org_claude_md:
+        parts.append("")
+        parts.append("## Organization Instructions")
+        parts.append(org_claude_md)
+
+    # Workgroup-level CLAUDE.md (narrower scope)
+    wg_claude_md = extract_claude_md(workgroup.files if workgroup else None)
+    if wg_claude_md:
+        parts.append("")
+        parts.append("## Workgroup Instructions")
+        parts.append(wg_claude_md)
+
     # Team roster (for lead agent in multi-agent jobs)
     if teammates:
         parts.append("")
@@ -132,13 +148,6 @@ def _build_prompt_body(
         for t in teammates:
             desc = t.role or t.description or t.personality or ""
             parts.append(f"- {t.name}" + (f" — {desc}" if desc else ""))
-
-    # Skill-like workflow embedding (Phase 5)
-    if workgroup:
-        skill_block = _build_skill_context(agent, workgroup, conversation)
-        if skill_block:
-            parts.append("")
-            parts.append(skill_block)
 
     # Orchestration tools for coordinator agents in operations workgroups
     if _is_operations_coordinator(agent, workgroup):
@@ -223,47 +232,3 @@ All commands output JSON. Use these tools to manage engagements and dispatch wor
 """
 
 
-def _build_skill_context(
-    agent: Agent,
-    workgroup: Workgroup,
-    conversation: Conversation,
-) -> str:
-    """Embed workflow definitions as skill-like instruction blocks.
-
-    Scans the workgroup's workflow files and includes any that reference
-    this agent by name, giving the agent awareness of its role in workflows.
-    """
-    files: list[dict] = workgroup.files or []
-    if not files:
-        return ""
-
-    # Find workflow files relevant to this agent
-    agent_name_lower = agent.name.lower()
-    relevant: list[tuple[str, str]] = []
-
-    for f in files:
-        path = f.get("path", "")
-        content = f.get("content", "")
-        if not path.startswith("workflows/") or not path.endswith(".md"):
-            continue
-        if path == "workflows/README.md":
-            continue
-        # Include if agent name appears in the workflow
-        if agent_name_lower in content.lower():
-            title = ""
-            for line in content.splitlines():
-                if line.strip().startswith("# "):
-                    title = line.strip()[2:].strip()
-                    break
-            relevant.append((title or path, content))
-
-    if not relevant:
-        return ""
-
-    parts = ["## Available Skills"]
-    for title, content in relevant[:3]:  # Cap at 3 workflows
-        # Trim to reasonable size
-        trimmed = content[:2000] if len(content) > 2000 else content
-        parts.append(f"\n### {title}\n{trimmed}")
-
-    return "\n".join(parts)

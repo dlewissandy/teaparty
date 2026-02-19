@@ -1,3 +1,5 @@
+"""REST API for agent task CRUD and lifecycle (create, update, cancel)."""
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlmodel import Session, select
 

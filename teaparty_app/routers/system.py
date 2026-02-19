@@ -1,3 +1,5 @@
+"""REST API for system-wide settings (admin-only)."""
+
 from fastapi import APIRouter, Depends
 
 from teaparty_app.config import settings

@@ -294,7 +294,7 @@ class DeleteProtectionTests(unittest.TestCase):
 
 class AdminToolRemoveMemberLeadProtectionTests(unittest.TestCase):
     def test_admin_tool_blocks_lead_removal(self):
-        from teaparty_app.services.admin_workspace.tools import admin_tool_remove_member
+        from teaparty_app.services.admin_workspace.member_tools import admin_tool_remove_member
 
         engine = _make_engine()
         with Session(engine) as session:
