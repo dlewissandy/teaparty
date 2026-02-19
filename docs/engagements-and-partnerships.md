@@ -43,6 +43,8 @@ A future enhancement may add an org directory for discovery, but the MVP relies 
 
 ## What Is an Engagement
 
+> **Note**: The current implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Phase 1 of the [Roadmap](../ROADMAP.md) will migrate engagements to org-level scoping as described in this document.
+
 An engagement represents "someone asks an organization to do something." The source can be:
 
 - **External** -- A partnered organization proposes work. This is the cross-org collaboration path: Org A proposes an engagement to Org B (via their A->B partnership), they negotiate terms, and Org B delivers.
@@ -71,9 +73,9 @@ The Administration workgroup is not a special system concept -- it's a regular w
 ```
 proposed -> negotiating -> accepted -> in_progress -> completed -> reviewed
     |            |             |             |
-    +------------+-------------+-------------+---> cancelled
-                               |
-                            declined
+    +------------+-----+------+-------------+---> cancelled
+    |            |
+    +------------+---> declined
 ```
 
 1. **Proposed** -- A source (partnered org or internal human) creates the engagement with a title, scope, and requirements. This creates an engagement conversation visible to both parties. The org lead sees the message and responds.

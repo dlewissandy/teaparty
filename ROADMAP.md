@@ -12,7 +12,7 @@ The following exists and works today:
 - **Agents**: Configurable agents with roles, personalities, models, tools, learning state
 - **Conversations**: Job, direct, task, engagement, admin, and activity conversations
 - **Agent runtime**: Claude Code CLI team sessions with bidirectional `stream-json` I/O; single-agent and multi-agent dispatch
-- **Engagements**: Basic workgroup-to-workgroup engagement model with lifecycle tracking and message syncing
+- **Engagements**: Basic workgroup-to-workgroup engagement model with lifecycle tracking and message syncing (Phase 1 migrates to org-level scoping)
 - **Jobs**: Job model with conversation, workflow state, and engagement linking
 - **Workspaces**: Basic git repo + worktree integration for workspace-enabled workgroups
 - **Virtual files**: JSON-based file store with topic-scoped isolation and file materialization

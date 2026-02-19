@@ -47,7 +47,7 @@ The top-level corporate structure. An organization has a name, a description, me
 
 - **Lead agent**: The org lead. Lives in the Administration workgroup (the designated operations workgroup). Can create projects, propose engagements to partnered organizations, onboard new workgroups, and coordinate cross-workgroup work.
 - **Members**: Humans invited to the organization. Membership grants visibility into the org's structure and the ability to interact with the org lead.
-- **Administration workgroup**: Every organization has one. It is the operations hub -- the org lead lives here and handles incoming engagements, project coordination, and organizational management.
+- **Administration workgroup** (the designated `operations_workgroup` in the data model): Every organization has one. It is the operations hub -- the org lead lives here and handles incoming engagements, project coordination, and organizational management.
 
 ### Workgroup
 
@@ -59,11 +59,13 @@ The lower-level organizational unit. A workgroup is like a department -- it has 
 
 ### Partnerships
 
+> **Note**: Partnerships are planned for Phase 1 of the [Roadmap](../ROADMAP.md) and are not yet implemented.
+
 Partnerships are directional trust links between organizations that enable cross-org collaboration.
 
 - **Directional**: A partnership from Org A to Org B means A can propose engagements to B. It does **not** mean B can propose engagements to A.
 - **Mutual**: Both directions must be established independently for mutual engagement capability.
-- **Lifecycle**: `proposed -> accepted -> active -> revoked`
+- **Lifecycle**: `proposed -> accepted -> active -> revoked` (with `declined` branch from `proposed`)
 - **No discovery required**: Once a partnership exists, either side (in the permitted direction) can propose engagements directly, without going through a public directory.
 
 ---
@@ -89,13 +91,14 @@ The atomic unit of work. A job happens within a single workgroup and is executed
 
 - **Agent team**: The workgroup's agents, coordinated by the workgroup lead.
 - **Workspace**: Each job gets its own isolated workspace (a worktree or copy branched from the workgroup's shared files). This is critical when multiple jobs within a project or engagement modify the same files -- isolation prevents clobbering. Completed jobs merge their changes back. Agents read/write through the agent team mechanism.
+- **Linkage**: Jobs carry an optional `engagement_id` and `project_id` to trace back to the engagement or project that spawned them. This enables the org lead to aggregate status and deliverables.
 - **Created by**: Workgroup lead (when decomposing a project), org lead (direct dispatch), or a human participant.
 - **Lifecycle**: `in_progress -> completed | cancelled`
 - **Conversation**: A chat where the agents discuss, plan, and execute. Humans can participate.
 
 ### Project
 
-Cross-workgroup collaboration within a single organization. A project coordinates work that spans multiple departments.
+Cross-workgroup collaboration within a single organization. A project coordinates work that spans multiple departments. Projects are planned for Phase 2 of the [Roadmap](../ROADMAP.md).
 
 - **Agent team**: The workgroup leads from each participating workgroup, coordinated by the org lead.
 - **Workspace**: A shared project workspace that all participating workgroup leads can access. Each workgroup lead can also create jobs within their own workgroup, using their workgroup's workspace.
@@ -107,6 +110,8 @@ Cross-workgroup collaboration within a single organization. A project coordinate
 
 Cross-organization work between two partnered organizations. An engagement is how organizations do business with each other.
 
+> **Note**: The current implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Phase 1 of the [Roadmap](../ROADMAP.md) will migrate engagements to org-level scoping as described here.
+
 - **Agent team**: Org leads from both the source (requesting) and target (delivering) organizations.
 - **Workspace**: Contract-based visibility -- not all files are visible to the customer organization. The target org controls what the source org can see. See [Open Questions](#open-questions).
 - **Created by**: The source org's lead proposes, the target org's lead accepts.
@@ -115,6 +120,26 @@ Cross-organization work between two partnered organizations. An engagement is ho
 - **Internal engagements**: A human member of an org can create an engagement directly -- they describe what they need, and the org lead handles it the same way as external work.
 
 See [engagements-and-partnerships.md](engagements-and-partnerships.md) for the full engagement and partnership model.
+
+---
+
+## Conversation Kinds
+
+Every interaction in TeaParty happens through a conversation. Each conversation has a **kind** that determines its participants, dispatch behavior, and scope.
+
+| Kind | Purpose | Participants | Dispatch |
+|------|---------|-------------|----------|
+| `job` | Work execution within a workgroup | Workgroup agents + humans | Team session (multi-agent) or single agent |
+| `project` | Cross-workgroup coordination | Workgroup leads + org lead | Team session |
+| `engagement` | Cross-org negotiation and tracking | Org leads from both orgs | Single agent (org lead) |
+| `direct` | 1:1 conversation with an agent | One agent + one human | Single agent |
+| `task` | Persistent single-agent work session | One agent | Single agent with persistent session |
+| `admin` | Workgroup administration | Admin commands (no LLM selection) | Deterministic command handler |
+| `activity` | Activity log | Read-only | No auto-response |
+
+The three work-unit kinds (`job`, `project`, `engagement`) each have their own workspace and agent team as described in the [Work Hierarchy](#work-hierarchy) above. The remaining kinds (`direct`, `task`, `admin`, `activity`) are supporting conversation types that don't carry their own workspace.
+
+See [agent-dispatch.md](agent-dispatch.md) for the full routing table and dispatch mechanics.
 
 ---
 
@@ -235,6 +260,7 @@ These are design questions that need resolution as the system evolves:
 3. **Home agent capabilities**: How does the home agent discover available org templates? Is there a system-level registry?
 4. **Partnership revocation mid-engagement**: What happens to active engagements when a partnership is revoked? Grace period? Forced cancellation?
 5. **Project workspace isolation**: How do workgroup leads access both the project workspace and their own workgroup workspace simultaneously?
+6. **Legacy models**: The codebase contains `CrossGroupTask`, `CrossGroupTaskMessage`, and `AgentTask` models that predate the current engagement and job architecture. These should be evaluated for removal or migration as the engagement model is revised in Phase 1.
 
 ---
 

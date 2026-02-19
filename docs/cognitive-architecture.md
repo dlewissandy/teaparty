@@ -323,8 +323,8 @@ agent_runtime.run_agent_auto_responses()
 
 ### 5.3 Key Gaps
 
-1. **No memory retrieval pipeline**: `AgentMemory` exists but nothing reads from it during prompt construction. The injection point is `_build_prompt_body()` in `agent_definition.py:96-155` -- between the conversation context block and the guidelines block.
-2. **No reflection loop**: `AgentLearningEvent` exists but nothing triggers learning or writes to it. The hook point is `agent_runtime.py:473-483` -- immediately after `session.add(agent_message)` / `session.flush()`.
+1. **No memory retrieval pipeline**: `AgentMemory` exists but nothing reads from it during prompt construction. The injection point is `_build_prompt_body()` in `agent_definition.py` -- between the conversation context block and the guidelines block.
+2. **No reflection loop**: `AgentLearningEvent` exists but nothing triggers learning or writes to it. The hook point is in `agent_runtime.py` -- immediately after the agent message is persisted (`session.add(agent_message)` / `session.flush()`).
 3. **No memory decay/consolidation**: Memories accumulate without pruning
 4. **No cross-agent knowledge sharing**: Each agent's memory is siloed. `AgentMemory` lacks a `workgroup_id` column for cross-conversation retrieval.
 5. **No capability modeling**: Agents don't know what their teammates are good at
@@ -703,7 +703,7 @@ memory_consolidation_enabled: bool = False  # Phase 2
 Wire up the existing `AgentMemory` table:
 
 1. Add `_retrieve_memories()` to `prompt_builder.py` -- query `agent_memories` for the current agent, score by recency + relevance + importance
-2. Inject retrieved memories into the system prompt via `_build_prompt_body()` in `agent_definition.py:96-155` -- new section between conversation context and guidelines
+2. Inject retrieved memories into the system prompt via `_build_prompt_body()` in `agent_definition.py` -- new section between conversation context and guidelines
 3. Add `GET /api/agents/{id}/memories` endpoint for admin inspection
 4. Populate memories manually or via admin API to validate the retrieval pipeline before adding automatic learning
 
@@ -716,7 +716,7 @@ Wire up the existing `AgentMemory` table:
 Add asynchronous post-turn reflection:
 
 1. Create `teaparty_app/services/reflection.py` -- uses `llm_client.create_message()` with `resolve_model(purpose="cheap")` for reflection calls
-2. Hook into `agent_runtime.py:473-483` after `session.add(agent_message)` / `session.flush()` -- fire reflection in background thread, similar to `_process_auto_responses_in_background()` pattern at `agent_runtime.py:583-602`
+2. Hook into `agent_runtime.py` after the agent message is persisted -- fire reflection in background thread, similar to the `_process_auto_responses_in_background()` pattern
 3. Add schema migration for new `AgentMemory` columns (`workgroup_id`, `access_level`, `relevance_count`, `last_accessed_at`, `is_archived`)
 4. Add `POST /api/agents/{id}/reflect` admin endpoint for debugging
 

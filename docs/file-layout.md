@@ -12,6 +12,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the conceptual model this tree reflec
 ./
 +-- config.json                                          # System configuration
 |
++-- home/                                                # Per-user home level (Phase 1)
+|   +-- home.json                                        # Home agent config, user preferences
+|
 +-- tools/                                               # Tool registry (read-only)
 |   +-- file-ops/
 |   |   +-- toolkit.json                                 #   read_file, list_files, add_file, edit_file, ...
@@ -98,6 +101,7 @@ Each conversation is scoped to a subtree. Agents and users in that conversation 
 | Context                | Scope Path                                                 |
 |------------------------|------------------------------------------------------------|
 | System administration  | `.`                                                        |
+| Home (per-user)        | `./home`                                                   |
 | Organization admin     | `./organizations/<org>`                                    |
 | Engagement             | `./organizations/<org>/engagements/<engagement>`           |
 | Project                | `./organizations/<org>/projects/<project>`                 |
@@ -118,11 +122,11 @@ Each entity has a JSON configuration file at its root:
 | System       | `./config.json`                                                         | LLM models, API keys, agent behavior limits |
 | Organization | `./organizations/<org>/organization.json`                               | Name, description, operations workgroup, service description |
 | Partnership  | `./organizations/<org>/partnerships/<partnership>/partnership.json`      | Direction, status, partner org ID, established date |
-| Engagement   | `./organizations/<org>/engagements/<engagement>/engagement.json`        | Status, source/target org IDs, terms, engagement chain, linked project/job IDs |
+| Engagement   | `./organizations/<org>/engagements/<engagement>/engagement.json`        | Status, source/target IDs (currently workgroup-scoped, migrating to org-scoped in Phase 1), terms, engagement chain, linked project/job IDs |
 | Project      | `./organizations/<org>/projects/<project>/project.json`                 | Status, participating workgroup IDs, engagement_id |
 | Workgroup    | `./organizations/<org>/workgroups/<workgroup>/workgroup.json`           | Name, description, workspace config (image, preset, git_remote) |
 | Agent        | `./organizations/<org>/workgroups/<workgroup>/agents/<agent>/agent.json` | Model, personality, tool_names, thresholds |
-| Member       | `./organizations/<org>/members/<member>/member.json`                    | Org role (owner/admin/member), preferences |
+| Member       | `./organizations/<org>/members/<member>/member.json`                    | Org role (owner/admin/member), preferences. Note: the current data model tracks membership at the workgroup level; org-level membership is a Phase 1 target. |
 | Job          | `./organizations/<org>/workgroups/<workgroup>/jobs/<job>/job.json`      | Title, scope, status, engagement_id, project_id |
 
 ## Tools

@@ -123,6 +123,19 @@ An in-memory store (`_conversation_activity`) tracks what each agent is doing, e
 
 ---
 
+## Feedback Routing
+
+The feedback bubble-up model (see [ARCHITECTURE.md](ARCHITECTURE.md)) does not introduce a new conversation kind or dispatch path. Feedback requests flow through existing conversation kinds:
+
+1. A job agent posts a feedback request in the **job conversation**.
+2. The workgroup lead picks it up and escalates via the **project conversation** (or a direct message to the org lead).
+3. The org lead notifies the human via the **engagement conversation** or **direct message**.
+4. The human responds through the same channel, and the response routes back down.
+
+Each hop uses the existing dispatch routing for its conversation kind. No special feedback-specific routing is required.
+
+---
+
 ## Implementation
 
 | Component | File | Purpose |
