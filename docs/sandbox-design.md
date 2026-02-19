@@ -6,7 +6,7 @@ How TeaParty workgroups get real filesystems, git version control, containerized
 
 ## Problem
 
-TeaParty stores team files as JSON blobs in a SQLite column (`Team.files`). This works for collaborative documents, workflows, and configuration, but it cannot support real software engineering:
+TeaParty stores workgroup files as JSON blobs in a SQLite column (`Workgroup.files`). This works for collaborative documents, workflows, and configuration, but it cannot support real software engineering:
 
 - No git history, no branches, no merges, no diffs
 - No filesystem, so no `npm install`, no test runners, no build tools
@@ -17,7 +17,7 @@ TeaParty stores team files as JSON blobs in a SQLite column (`Team.files`). This
 ## Design Principles
 
 1. **Don't reimplement Claude Code.** Claude Code is a battle-tested coding agent with Bash execution, git operations, file editing, test running, and planning. TeaParty should orchestrate it, not duplicate it.
-2. **Git is the source of truth for code.** Team files (JSON blobs) remain for documents, workflows, and config (see [file-layout.md](file-layout.md)). Code lives in git repos on disk.
+2. **Git is the source of truth for code.** Workgroup files (JSON blobs) remain for documents, workflows, and config (see [file-layout.md](file-layout.md)). Code lives in git repos on disk.
 3. **Jobs map to branches.** Each job works on an isolated branch via git worktrees, enabling concurrent tasks without interference.
 4. **Containers are the sandbox boundary.** Claude Code runs inside containers with the job's files mounted. The container enforces resource limits and isolation. The host never executes untrusted commands.
 5. **TeaParty is the collaboration layer.** It manages who can access what, coordinates multi-agent workflows, tracks history and decisions, and presents a unified UI. The actual coding happens inside the sandbox.
@@ -57,21 +57,21 @@ TeaParty stores team files as JSON blobs in a SQLite column (`Team.files`). This
 
 ## Key Concepts
 
-### Team Repository
+### Workgroup Repository
 
-Every team has a **git repository** on the host filesystem. The repo is the team's codebase — it holds source code, configuration, and any artifacts that benefit from version history. The repo is created automatically when the team is created.
+Every workgroup has a **git repository** on the host filesystem. The repo is the workgroup's codebase — it holds source code, configuration, and any artifacts that benefit from version history. The repo is created automatically when the workgroup is created with workspace enabled.
 
 ```
-Team (DB)               Repository (disk)
-├── files (JSON)        ├── bare repo:  /data/repos/<team-id>/repo.git
-├── agents              ├── main worktree: /data/repos/<team-id>/main
+Workgroup (DB)          Repository (disk)
+├── files (JSON)        ├── bare repo:  /data/repos/<workgroup-id>/repo.git
+├── agents              ├── main worktree: /data/repos/<workgroup-id>/main
 ├── jobs ───────────────├── job worktrees:
-│   ├── job-1  ──────── │   ├── /data/repos/<team-id>/jobs/job-1  (branch: job/job-1)
-│   └── job-2  ──────── │   └── /data/repos/<team-id>/jobs/job-2  (branch: job/job-2)
+│   ├── job-1  ──────── │   ├── /data/repos/<workgroup-id>/jobs/job-1  (branch: job/job-1)
+│   └── job-2  ──────── │   └── /data/repos/<workgroup-id>/jobs/job-2  (branch: job/job-2)
 └── conversations       └── .teaparty/  (metadata, ignored by git)
 ```
 
-The JSON file store (`Team.files`) and the git repo coexist. The JSON store holds documents, workflows, and config — things that agents read as prompt context. The git repo holds code — things that get built, tested, and executed. The main branch is synced to `Team.files` so the file browser shows the current codebase state.
+The JSON file store (`Workgroup.files`) and the git repo coexist. The JSON store holds documents, workflows, and config — things that agents read as prompt context. The git repo holds code — things that get built, tested, and executed. The main branch is synced to `Workgroup.files` so the file browser shows the current codebase state.
 
 ### Branch-per-Job
 
@@ -79,7 +79,7 @@ Each job gets its own git worktree branching from `main`. This is the natural ma
 
 | TeaParty concept | Git concept | Why |
 |---|---|---|
-| Team | Repository | One codebase per team |
+| Workgroup | Repository | One codebase per workgroup |
 | Job | Branch + Worktree | Parallel tasks without interference |
 | Message history | Commit log | "Save progress" creates commits |
 | Job merge | PR / merge to main | Completed work flows back |
@@ -97,7 +97,7 @@ Worktree lifecycle:
 Each active job gets a **sandbox** — a Docker container that provides an isolated execution environment. The sandbox:
 - Has the job's worktree bind-mounted at `/workspace`
 - Has Claude Code CLI pre-installed
-- Has language runtimes and common tools (configurable per team via a `Dockerfile` or image reference in team config)
+- Has language runtimes and common tools (configurable per workgroup via a `Dockerfile` or image reference in workgroup config)
 - Runs with resource limits (CPU, memory, disk, network)
 - Has no access to the host network or other jobs (network-isolated by default)
 - Exposes a gRPC or HTTP sidecar for TeaParty to send commands and receive results
@@ -110,15 +110,15 @@ Sandboxes are **not** long-lived VMs. They are pooled and recycled:
 
 ## Data Model Changes
 
-### New fields on `Team`
+### New fields on `Workgroup`
 
 ```python
-class Team(SQLModel, table=True):
+class Workgroup(SQLModel, table=True):
     # ... existing fields ...
 
     # Repository (host-side paths)
-    repo_path: str = ""              # /data/repos/<team-id>/repo.git (bare)
-    repo_main_path: str = ""         # /data/repos/<team-id>/main (worktree)
+    repo_path: str = ""              # /data/repos/<workgroup-id>/repo.git (bare)
+    repo_main_path: str = ""         # /data/repos/<workgroup-id>/main (worktree)
 
     # Sandbox configuration
     sandbox_image: str = "teaparty/sandbox:default"  # Docker image for job containers
@@ -134,12 +134,12 @@ class Team(SQLModel, table=True):
 ```python
 class JobSandbox(SQLModel, table=True):
     id: str = Field(default_factory=lambda: str(uuid4()), primary_key=True)
-    team_id: str = Field(foreign_key="teams.id", index=True)
-    conversation_id: str = Field(foreign_key="conversation.id", unique=True, index=True)
+    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    conversation_id: str = Field(foreign_key="conversations.id", unique=True, index=True)
 
     # Git state
     branch_name: str             # job/<conversation-id>
-    worktree_path: str           # /data/repos/<team-id>/jobs/<conversation-id>
+    worktree_path: str           # /data/repos/<workgroup-id>/jobs/<conversation-id>
     base_commit: str = ""        # SHA of the commit this branch started from
     head_commit: str = ""        # current HEAD SHA
 
@@ -161,24 +161,24 @@ No model changes. Agents gain access to sandbox tools through their existing `to
 
 ### 1. `teaparty_app/services/repo_manager.py`
 
-Manages the lifecycle of team repositories and job worktrees on the host filesystem. This service never touches containers — it only manages git repos and worktrees.
+Manages the lifecycle of workgroup repositories and job worktrees on the host filesystem. This service never touches containers — it only manages git repos and worktrees.
 
 **Key functions:**
 
 ```python
-async def init_repo(session: Session, team: Team) -> None:
-    """Initialize a bare repo + main worktree for a team.
+async def init_repo(session: Session, workgroup: Workgroup) -> None:
+    """Initialize a bare repo + main worktree for a workgroup.
 
     Steps:
-    1. Create directory structure: /data/repos/<team-id>/
+    1. Create directory structure: /data/repos/<workgroup-id>/
     2. git init --bare repo.git
-    3. Create initial commit on main (with any existing team files synced to disk)
+    3. Create initial commit on main (with any existing workgroup files synced to disk)
     4. git worktree add main (checked out to main branch)
-    5. Update team.repo_path, team.repo_main_path, team.repo_status
+    5. Update workgroup.repo_path, workgroup.repo_main_path, workgroup.repo_status
     """
 
 async def create_job_worktree(
-    session: Session, team: Team, conversation: Conversation,
+    session: Session, workgroup: Workgroup, conversation: Conversation,
 ) -> JobSandbox:
     """Create a git worktree for a job.
 
@@ -198,7 +198,7 @@ async def remove_job_worktree(session: Session, job_sandbox: JobSandbox) -> None
     """
 
 async def merge_job(
-    session: Session, job_sandbox: JobSandbox, team: Team, user_id: str,
+    session: Session, job_sandbox: JobSandbox, workgroup: Workgroup, user_id: str,
 ) -> MergeResult:
     """Merge a job branch into main.
 
@@ -208,26 +208,26 @@ async def merge_job(
     3. git merge job/<conversation-id> --no-ff
     4. Handle conflicts (return conflict info if any — user resolves via UI or agent)
     5. Update job_sandbox status to 'merged'
-    6. Sync main worktree back to team.files (for the file browser UI)
+    6. Sync main worktree back to workgroup.files (for the file browser UI)
     """
 
-async def sync_main_to_files(session: Session, team: Team) -> None:
-    """Sync the main worktree's tracked files into team.files JSON.
+async def sync_main_to_files(session: Session, workgroup: Workgroup) -> None:
+    """Sync the main worktree's tracked files into workgroup.files JSON.
 
-    This keeps the TeaParty file browser working for coding teams.
+    This keeps the TeaParty file browser working for coding workgroups.
     Only syncs text files under a size threshold. Binary files get
     a placeholder entry with path and size metadata.
     """
 
-async def sync_files_to_main(session: Session, team: Team) -> None:
-    """Sync team.files JSON changes back to the main worktree.
+async def sync_files_to_main(session: Session, workgroup: Workgroup) -> None:
+    """Sync workgroup.files JSON changes back to the main worktree.
 
     Used when files are edited via the TeaParty UI file browser.
     Creates a commit: 'sync: updated via TeaParty UI'
     """
 
-async def destroy_repo(session: Session, team: Team) -> None:
-    """Remove all worktrees, the bare repo, and reset the team's repo fields.
+async def destroy_repo(session: Session, workgroup: Workgroup) -> None:
+    """Remove all worktrees, the bare repo, and reset the workgroup's repo fields.
 
     Requires owner role. This is destructive and irreversible.
     """
@@ -236,7 +236,7 @@ async def destroy_repo(session: Session, team: Team) -> None:
 **Git operations** are executed via `asyncio.create_subprocess_exec` calling the `git` binary directly. No Python git library — the git CLI is the most reliable and well-tested interface. All git commands run with `GIT_DIR` and `GIT_WORK_TREE` environment variables set explicitly to prevent any confusion about which repo is being operated on.
 
 **File sync strategy:**
-- **Main → JSON**: After each merge to main, scan tracked files and update `team.files`. Skip binary files (detected by `git diff --numstat` null markers or file extension heuristics). Cap synced file content at the existing 200KB limit. Store a summary entry for files that exceed the limit: `{"path": "large-file.bin", "content": "(binary, 4.2 MB)", "meta": {"binary": true, "size": 4404019}}`.
+- **Main → JSON**: After each merge to main, scan tracked files and update `workgroup.files`. Skip binary files (detected by `git diff --numstat` null markers or file extension heuristics). Cap synced file content at the existing 200KB limit. Store a summary entry for files that exceed the limit: `{"path": "large-file.bin", "content": "(binary, 4.2 MB)", "meta": {"binary": true, "size": 4404019}}`.
 - **JSON → Main**: When a user edits a file via the TeaParty file browser, write the change to the main worktree and auto-commit. This path is intentionally simple — the UI is a convenience, not the primary editing interface.
 - **Job worktree files are NOT synced to JSON during active work.** The job's worktree is the source of truth while the job is active. The TeaParty UI shows job files by reading the filesystem directly (via the sandbox or a read-only mount), not through the JSON column.
 
@@ -248,7 +248,7 @@ Manages Docker containers for sandboxed code execution.
 
 ```python
 async def ensure_sandbox(
-    session: Session, job_sandbox: JobSandbox, team: Team,
+    session: Session, job_sandbox: JobSandbox, workgroup: Workgroup,
 ) -> ContainerInfo:
     """Ensure a running container exists for this job.
 
@@ -333,7 +333,7 @@ RUN useradd -m -s /bin/bash sandbox
 USER sandbox
 ```
 
-Team owners can specify a custom `sandbox_image` in team config to get different language stacks (Rust, Go, Java, etc.) or pre-installed project dependencies.
+Workgroup owners can specify a custom `sandbox_image` in workgroup config to get different language stacks (Rust, Go, Java, etc.) or pre-installed project dependencies.
 
 **Resource limits** (applied via Docker container create):
 
@@ -348,7 +348,7 @@ The `connected` preset allows outbound network access for `npm install`, `pip in
 
 ### 3. `teaparty_app/services/sandbox_tools.py`
 
-Agent tools for interacting with the team's repository and job sandboxes. These replace the homegrown `claude_code` tool.
+Agent tools for interacting with the workgroup's repository and job sandboxes. These replace the homegrown `claude_code` tool.
 
 ```python
 SANDBOX_TOOL_SCHEMAS: list[dict] = [
@@ -509,13 +509,13 @@ The key tool is `sandbox_exec`. Its implementation:
 async def _tool_sandbox_exec(
     session: Session,
     job_sandbox: JobSandbox,
-    team: Team,
+    workgroup: Workgroup,
     agent: Agent,
     task: str,
     max_turns: int = 25,
 ) -> str:
     """Delegate a coding task to Claude Code CLI running in the sandbox."""
-    container = await sandbox_pool.ensure_sandbox(session, job_sandbox, team)
+    container = await sandbox_pool.ensure_sandbox(session, job_sandbox, workgroup)
 
     result = await sandbox_pool.invoke_claude_code(
         container_id=container.container_id,
@@ -532,7 +532,7 @@ async def _tool_sandbox_exec(
     return result.response_text
 ```
 
-This is the critical design decision: **TeaParty agents don't write code. They delegate to Claude Code.** A TeaParty agent decides *what* needs to be done (using conversation context, workflow state, team discussion), then hands the task to Claude Code which decides *how* to do it. This avoids duplicating Claude Code's planning, file editing, test running, and error recovery capabilities.
+This is the critical design decision: **TeaParty agents don't write code. They delegate to Claude Code.** A TeaParty agent decides *what* needs to be done (using conversation context, workflow state, workgroup discussion), then hands the task to Claude Code which decides *how* to do it. This avoids duplicating Claude Code's planning, file editing, test running, and error recovery capabilities.
 
 ### 4. `teaparty_app/services/repo_sync.py`
 
@@ -545,7 +545,7 @@ async def worktree_to_file_view(
     """Read the job's worktree files and return a virtual file list.
 
     Used by the UI to display job files without going through
-    the team.files JSON column. This reads the filesystem directly.
+    the workgroup.files JSON column. This reads the filesystem directly.
 
     Filters:
     - Only git-tracked files (not in .gitignore)
@@ -555,9 +555,9 @@ async def worktree_to_file_view(
     """
 
 async def export_main_to_files(
-    session: Session, team: Team,
+    session: Session, workgroup: Workgroup,
 ) -> None:
-    """Snapshot the main branch into team.files for the file browser.
+    """Snapshot the main branch into workgroup.files for the file browser.
 
     Called after:
     - merge_to_main completes
@@ -588,23 +588,23 @@ async def export_main_to_files(
 14. **Reviewer** posts review feedback
 15. After iteration, **User** says "Looks good, merge it"
 16. **Implementer** calls `merge_to_main`
-17. **TeaParty** merges the branch, syncs main to `team.files`, cleans up the worktree
+17. **TeaParty** merges the branch, syncs main to `workgroup.files`, cleans up the worktree
 
 ### Scenario: Importing an existing repository
 
-1. Owner creates a coding team
-2. In team config, sets `git_remote: "https://github.com/org/repo.git"`
+1. Owner creates a coding workgroup
+2. In workgroup config, sets `git_remote: "https://github.com/org/repo.git"`
 3. `repo_manager.init_repo()`:
    - `git clone --bare <remote> repo.git`
    - `git worktree add main` (checks out default branch)
-   - Syncs main to `team.files` for the file browser
+   - Syncs main to `workgroup.files` for the file browser
 4. Jobs now branch from the imported codebase
 
 ## Configuration
 
-### Team Config (`team.json`)
+### Workgroup Config (`workgroup.json`)
 
-Sandbox-related fields in team configuration:
+Sandbox-related fields in workgroup configuration:
 
 ```json
 {
@@ -632,13 +632,13 @@ class Settings(BaseSettings):
     # ... existing settings ...
 
     # Repository and sandbox settings
-    repo_root: str = "/data/repos"                     # Base directory for all team repos
+    repo_root: str = "/data/repos"                     # Base directory for all workgroup repos
     sandbox_docker_socket: str = "/var/run/docker.sock"
     sandbox_default_image: str = "teaparty/sandbox:default"
     sandbox_warm_pool_size: int = 2                    # Pre-warmed containers
     sandbox_max_containers: int = 10                   # Hard limit on concurrent containers
     sandbox_idle_timeout_minutes: int = 30             # Auto-stop idle containers
-    sandbox_max_jobs_per_team: int = 20                # Limit concurrent job branches
+    sandbox_max_jobs_per_workgroup: int = 20            # Limit concurrent job branches
 ```
 
 ## API Endpoints
@@ -646,42 +646,42 @@ class Settings(BaseSettings):
 ### Repository management
 
 ```
-POST   /api/teams/{team_id}/repo              Initialize repo for team
-GET    /api/teams/{team_id}/repo              Get repo status and info
-DELETE /api/teams/{team_id}/repo              Destroy repo (owner only)
-POST   /api/teams/{team_id}/repo/sync         Trigger manual file sync
+POST   /api/workgroups/{workgroup_id}/repo              Initialize repo for workgroup
+GET    /api/workgroups/{workgroup_id}/repo              Get repo status and info
+DELETE /api/workgroups/{workgroup_id}/repo              Destroy repo (owner only)
+POST   /api/workgroups/{workgroup_id}/repo/sync         Trigger manual file sync
 ```
 
 ### Job branch management
 
 ```
-GET    /api/teams/{team_id}/repo/jobs                   List all job branches
-GET    /api/teams/{team_id}/repo/jobs/{conv_id}         Get job branch status
-POST   /api/teams/{team_id}/repo/jobs/{conv_id}/merge   Merge job to main
-DELETE /api/teams/{team_id}/repo/jobs/{conv_id}         Remove job branch
+GET    /api/workgroups/{workgroup_id}/repo/jobs                   List all job branches
+GET    /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}         Get job branch status
+POST   /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}/merge   Merge job to main
+DELETE /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}         Remove job branch
 ```
 
 ### File access (repo-backed)
 
 ```
-GET    /api/teams/{team_id}/repo/files?ref={branch|commit}     List files
-GET    /api/teams/{team_id}/repo/files/{path}?ref={branch}     Read file
-GET    /api/teams/{team_id}/repo/diff?base=main&head={branch}  Get diff
+GET    /api/workgroups/{workgroup_id}/repo/files?ref={branch|commit}     List files
+GET    /api/workgroups/{workgroup_id}/repo/files/{path}?ref={branch}     Read file
+GET    /api/workgroups/{workgroup_id}/repo/diff?base=main&head={branch}  Get diff
 ```
 
-These endpoints serve the UI's file browser when the team has a repo. The frontend detects `repo_status == "active"` and switches from the JSON-based file browser to the repo-backed one.
+These endpoints serve the UI's file browser when the workgroup has a repo. The frontend detects `repo_status == "active"` and switches from the JSON-based file browser to the repo-backed one.
 
 ### Sandbox status (for UI activity indicators)
 
 ```
-GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with status
+GET    /api/workgroups/{workgroup_id}/sandboxes    List running sandbox containers with status
 ```
 
 ## Security Model
 
 ### Isolation boundaries
 
-1. **Container isolation**: Each job's sandbox is isolated from others. No shared filesystem beyond the specific worktree mount. No access to the TeaParty database or other teams' repos.
+1. **Container isolation**: Each job's sandbox is isolated from others. No shared filesystem beyond the specific worktree mount. No access to the TeaParty database or other workgroups' repos.
 
 2. **Git branch isolation**: Worktrees are git branches. One job cannot modify another job's files without going through a merge. `main` is only modified via merge operations.
 
@@ -690,7 +690,7 @@ GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with st
    - **Editor**: Can use sandbox tools, commit to job branches, request merges.
    - **Member**: Read-only. Can view files and diffs but not execute commands or modify code.
 
-4. **API key isolation**: The `ANTHROPIC_API_KEY` is injected into sandbox containers as an environment variable. Each container gets the key associated with the team owner. Token usage is tracked and attributed to the requesting agent/user.
+4. **API key isolation**: The `ANTHROPIC_API_KEY` is injected into sandbox containers as an environment variable. Each container gets the key associated with the organization owner. Token usage is tracked and attributed to the requesting agent/user.
 
 5. **Network isolation**: Sandboxes default to no external network access. The `connected` preset enables outbound access for package managers. Inbound access is never allowed.
 
@@ -713,11 +713,11 @@ GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with st
 
 ### Phase 1: Repository Manager (no containers)
 
-- Add `repo_*` fields to Team and `JobSandbox` model
+- Add `repo_*` fields to Workgroup and `JobSandbox` model
 - Implement `repo_manager.py` with git operations
 - Add repo API endpoints
 - Hook into job creation/deletion lifecycle
-- File sync between main worktree and `team.files`
+- File sync between main worktree and `workgroup.files`
 - **Agents operate via direct git/file commands on the host** (no container isolation yet)
 - This phase is useful even without containers — it adds git history and branching
 
@@ -732,7 +732,7 @@ GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with st
 ### Phase 3: Claude Code Integration
 
 - Replace the homegrown `claude_code.py` tool with `sandbox_exec`
-- Update the `coding` team template to use sandbox tools
+- Update the `coding` workgroup template to use sandbox tools
 - Add `sandbox_exec`, `git_status`, `git_commit`, `git_diff` to agent tool sets
 - Update agent system prompts to explain the repo + sandbox model
 
@@ -747,7 +747,7 @@ GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with st
 ### Phase 5: Advanced Features
 
 - Remote git push/pull (sync with GitHub, GitLab)
-- Custom Dockerfiles per team
+- Custom Dockerfiles per workgroup
 - Persistent container volumes for `node_modules`, `.venv`, etc. (cache mounts)
 - Container snapshots for reproducible environments
 - Multi-file diff review workflow
@@ -761,7 +761,7 @@ GET    /api/teams/{team_id}/sandboxes    List running sandbox containers with st
 
 3. **Conflict resolution**: When merging job→main, conflicts can arise. Options: (a) reject the merge and show conflicts in the UI, (b) let an agent resolve conflicts via `sandbox_exec`, (c) create a conflict-resolution job. Start with (a), add (b) later.
 
-4. **File browser source of truth**: For teams with repos, should the file browser read from `team.files` (cached, potentially stale) or from the filesystem (live, requires API call)? Recommendation: read from filesystem for the active job's worktree, from `team.files` for the main branch overview.
+4. **File browser source of truth**: For teams with repos, should the file browser read from `workgroup.files` (cached, potentially stale) or from the filesystem (live, requires API call)? Recommendation: read from filesystem for the active job's worktree, from `workgroup.files` for the main branch overview.
 
 5. **Cost attribution**: Claude Code CLI usage inside sandboxes consumes API tokens. How to attribute this to specific users/agents for budget tracking? The container's API key usage can be tracked via Anthropic's API usage endpoints, or by parsing Claude Code's `--output-format json` output which includes token counts.
 
@@ -790,7 +790,7 @@ teaparty_app/
 │   └── repo_sync.py           # Bidirectional file sync (filesystem ↔ JSON)
 ├── routers/
 │   └── repo.py                # REST API endpoints for repo + sandbox management
-├── models.py                  # + JobSandbox model, Team repo fields
+├── models.py                  # + JobSandbox model, Workgroup repo fields
 └── config.py                  # + repo_*, sandbox_* settings
 
 docker/
