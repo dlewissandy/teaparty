@@ -1,168 +1,93 @@
-# TeaParty: Workgroup Chat (Humans + AI Agents)
+# TeaParty
 
-Python/FastAPI MVP for team chat with:
-- Google login
-- Workgroup ownership and member invites
-- AI agents as first-class members
-- Hidden admin agent + administration conversation per workgroup (OpenAI Agents SDK)
-- Direct or topic-based conversations
-- Agent response gating (respond only when useful)
-- Agent follow-up tasks when no response arrives
-- Per-agent tools and evolving preference profile
+A platform where teams of humans and AI agents co-author files and collaborate in chat, organized through a corporate hierarchy.
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full conceptual model.
 
 ## Stack
-- Backend: FastAPI + SQLModel + SQLite
-- Auth: Google ID token verification + app bearer token
-- Web client: static HTML/CSS/JS served by FastAPI
-- Admin orchestration: OpenAI Agents SDK tools
+
+- **Backend**: FastAPI + SQLModel + SQLite
+- **Frontend**: Vanilla JS (no framework, no build tools)
+- **Auth**: Google ID token verification + app bearer token
+- **Agent runtime**: Claude Code CLI (team sessions via `stream-json`)
+- **LLM calls**: All through `llm_client.create_message()`
 
 ## Quick Start
-1. Install dependencies.
+
 ```bash
 uv sync
-```
-2. Set environment variables.
-```bash
 cp .env.example .env
-```
-3. Run the app.
-```bash
 uv run uvicorn teaparty_app.main:app --reload
 ```
-4. Open `http://localhost:8000`.
 
-## Environment Variables
+Open `http://localhost:8000`.
+
+### Environment Variables
+
 Create `.env` in project root:
+
 ```env
 TEAPARTY_APP_SECRET=replace-with-strong-secret
 TEAPARTY_DATABASE_URL=sqlite:///./teaparty.db
 TEAPARTY_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
 TEAPARTY_ALLOW_DEV_AUTH=true
-OPENAI_API_KEY=your-openai-api-key
-TEAPARTY_ADMIN_AGENT_USE_SDK=true
-TEAPARTY_ADMIN_AGENT_MODEL=gpt-5-nano
+ANTHROPIC_API_KEY=your-anthropic-api-key
 ```
 
-`TEAPARTY_ALLOW_DEV_AUTH=true` keeps local iteration simple when Google OAuth is not configured.
+`TEAPARTY_ALLOW_DEV_AUTH=true` enables local dev login when Google OAuth is not configured.
+
+### Running Tests
+
+```bash
+PYTHONPATH=. uv run pytest tests/ --tb=short -q
+```
 
 ## Core Concepts
-### Workgroup
-- Owned by a user (`role=owner`)
-- Owner can invite members by email
-- Owner can add AI agents
-- Can be created from a template (`coding`, `debate`, `roleplay`)
-- Template definitions are stored in each owner’s `Administration` workgroup under `.templates/workgroups/`
-- Includes a built-in `Administration` conversation and hidden `Admin Agent`
 
-### Agent
-Each agent has:
-- `name` identity
-- `role` functional remit in the team
-- `personality` prompt text
-- `backstory` context for voice and viewpoint
-- `model` and `temperature` generation settings
-- `tool_names` capability list
-- `response_threshold` gate for deciding when to speak
-- `follow_up_minutes` cadence for nudge timing
-- `learning_state` profile (`brevity_bias`, `engagement_bias`, `initiative_bias`, `confidence_bias`)
-- `sentiment_state` (`valence`, `arousal`, `confidence`)
+### Corporate Hierarchy
 
-### Conversations
-- `direct`: narrower participant set
-- `topic`: group chat with a topic key plus `name` and optional `description`
-- `admin`: system conversation for workgroup administration
+**Home** > **Organization** > **Workgroup**
 
-### Messages
-- User and agent messages live in one timeline
-- `requires_response` drives follow-up task creation
-- Agent replies may be auto-generated when threshold criteria are met
+- **Home**: A user's view across all their organizations. Has a home agent that can create orgs and manage partnerships.
+- **Organization**: Contains workgroups, members, partnerships, engagements, and projects. Has an org lead agent in the Administration workgroup.
+- **Workgroup**: A department-like unit with agents and jobs. Has a workgroup lead agent.
+- **Partnerships**: Directional trust links between organizations that enable cross-org engagements.
 
-### Admin Conversation
-Each workgroup has a hidden `Admin Agent` in an `Administration` conversation backed by the OpenAI Agents SDK.  
-The admin agent is configured with explicit tools:
-- `add topic <name> [description=<text>]`
-- `archive topic <topic|id>`
-- `unarchive topic <topic|id>`
-- `clear topic <topic|id>` (owner only)
-- `remove topic <topic|id>` (owner only)
-- `add agent <name> [role=<text>] [personality=<text>] [backstory=<text>] [model=<name>] [temperature=<0..2>]` (owner only)
-- `add user <email>` (owner only)
-- `remove member <id|email|name>` (owner only)
-- `list topics [open|archived|both]`
-- `list members` (includes human users and agents with type flag)
-- `delete workgroup confirm` (owner only)
+### Work Units
 
-If `OPENAI_API_KEY` is missing or SDK calls fail, the server falls back to deterministic command parsing for the same commands.
-Recent administration conversation history is passed into the SDK run as context so the agent can resolve references across turns.
+Each work unit gets its own agent team, workspace, and conversation.
 
-## Agent Behavior (Current MVP Logic)
-### Respond-or-Not Decision
-Score based on:
-- direct chat context
-- explicit mention (`@agent_name`)
-- question presence (`?`)
-- prior engagement bias learned from team interactions
+- **Job**: Single-workgroup work. Agents execute tasks within a workgroup's scope.
+- **Project**: Cross-workgroup collaboration within an org. Workgroup leads coordinate.
+- **Engagement**: Cross-org work between partnered organizations. Org leads negotiate and coordinate.
 
-Response occurs when score >= `response_threshold`.
+### Agents
 
-### Learning Team Preferences
-On incoming user messages, each agent updates:
-- `brevity_bias` (signals from words like `brief`, `detailed`)
-- `engagement_bias` (mention/question frequency)
-- `initiative_bias` and `confidence_bias` (interaction feedback)
-- `sentiment_state` (`valence`, `arousal`, `confidence`)
+Each agent has: `name`, `role`, `personality`, `backstory`, `model`, `temperature`, `tool_names`, `response_threshold`, `learning_state`, `sentiment_state`, and `is_lead`.
 
-Learning events are logged in `agent_learning_events`.
-
-### Follow-Up
-When an agent sends a message that requires response:
-- Creates pending `agent_followup_tasks` with `due_at`
-- If target user replies, task closes
-- `/api/agents/tick` emits follow-up messages for overdue tasks
-
-## Tooling Model
-Built-in tools:
-- `summarize_topic`
-- `list_open_followups`
-- `suggest_next_step`
-
-Agents can only call tools listed in their `tool_names`.
-
-## API Overview
-### Auth
-- `GET /api/config`
-- `POST /api/auth/google`
-- `POST /api/auth/dev-login` (optional)
-- `GET /api/auth/me`
-
-### Workgroups
-- `GET /api/workgroup-templates`
-- `POST /api/workgroups`
-- `GET /api/workgroups`
-- `GET /api/workgroups/{workgroup_id}/administration`
-- `GET /api/workgroups/{workgroup_id}/members`
-- `POST /api/workgroups/{workgroup_id}/invites`
-- `GET /api/workgroups/{workgroup_id}/invites`
-- `POST /api/workgroups/{workgroup_id}/invites/{token}/accept`
-- `POST /api/workgroups/{workgroup_id}/agents`
-- `GET /api/workgroups/{workgroup_id}/agents`
-- `GET /api/workgroups/{workgroup_id}/tools`
+Agents are autonomous -- they decide what to do based on context, not scripts. Agent output is never truncated. Workflows are advisory, not mandatory.
 
 ### Conversations
-- `POST /api/workgroups/{workgroup_id}/conversations`
-- `GET /api/workgroups/{workgroup_id}/conversations` (`include_archived=true` optional)
-- `POST /api/workgroups/{workgroup_id}/members/{member_user_id}/direct-conversation`
-- `GET /api/conversations/{conversation_id}/messages`
-- `POST /api/conversations/{conversation_id}/messages`
 
-### Agent Runtime
-- `GET /api/agents/{agent_id}`
-- `POST /api/agents/tick`
+- **job**: Work execution with workgroup agents
+- **project**: Cross-workgroup coordination with workgroup leads
+- **engagement**: Cross-org negotiation and tracking
+- **direct**: DM with an agent (org lead only for humans)
+- **task**: Single-agent persistent session
+- **admin**: Workgroup administration
 
-## Suggested Next Enhancements
-1. Replace heuristic response logic with LLM policy + structured evaluator.
-2. Add websocket streaming for real-time chat updates.
-3. Add robust invite email delivery and deep links.
-4. Add agent tool plugins with permission scopes and audit logs.
-5. Add durable job queue (RQ/Celery) for follow-up scheduler.
-6. Add retrieval memory per workgroup/agent for richer preference learning.
+### Human Interaction
+
+Humans interact primarily through agents. They can participate in job, project, and engagement conversations, and DM the org lead. They cannot DM workgroup members or workgroup leads directly. Feedback requests bubble up: job -> workgroup lead -> org lead -> human.
+
+## Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) -- Full conceptual model
+- [Engagements and Partnerships](docs/engagements-and-partnerships.md) -- Cross-org collaboration
+- [File Layout](docs/file-layout.md) -- Virtual file tree structure
+- [Workflows](docs/workflows.md) -- Workgroup-internal playbooks
+- [Agent Dispatch](docs/agent-dispatch.md) -- Message routing and team sessions
+- [Sandbox Design](docs/sandbox-design.md) -- Future: Docker containers and git integration
+- [Cognitive Architecture](docs/cognitive-architecture.md) -- Future: Agent learning and memory
+- [Roadmap](ROADMAP.md) -- Phased implementation plan
+- [Task List](TASKLIST.md) -- Granular task breakdown

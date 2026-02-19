@@ -10,7 +10,7 @@ Research is organized by topic file. Each entry includes: title, authors/year, t
 
 - Browse by tag to find papers relevant to a specific design question.
 - Each entry links to the detail file where full citations and implications are recorded.
-- "COGARCH" entries are cataloged in `/COGARCH.md` (the primary cognitive architecture document).
+- "COGARCH" entries are cataloged in `/docs/cognitive-architecture.md` (the primary cognitive architecture document).
 - "SUPPLEMENT" entries are in `docs/research/cognitive-architectures-supplement.md`.
 
 ---

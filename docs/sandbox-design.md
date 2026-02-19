@@ -1,6 +1,8 @@
 # Repositories, Sandboxes, and Code Execution
 
-How TeaParty teams get real filesystems, git version control, containerized execution, and Claude Code CLI — without duplicating what Claude Code already does well.
+> **FUTURE PHASE** -- This document describes architecture for Phases 4-5 of the [Roadmap](../ROADMAP.md). The sandbox/Docker system is not part of the current MVP. The workspace system (git repos + worktrees) is partially implemented; Docker containers and Claude Code CLI delegation are future work.
+
+How TeaParty workgroups get real filesystems, git version control, containerized execution, and Claude Code CLI -- without duplicating what Claude Code already does well.
 
 ## Problem
 

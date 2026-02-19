@@ -1,12 +1,12 @@
-# Team Workflows
+# Workgroup Workflows
 
-Workflows give team agents a repeatable, multi-step playbook they can follow. A workflow is just a markdown file — human-readable, human-editable, stored alongside every other team file. There are no new database tables, no special runtime, no orchestrator process. Agents discover workflows through prompt context, execute them by calling tools, and track progress in a lightweight state file.
+Workflows give workgroup agents a repeatable, multi-step playbook they can follow. A workflow is just a markdown file -- human-readable, human-editable, stored alongside every other workgroup file. There are no new database tables, no special runtime, no orchestrator process. Agents discover workflows through prompt context, execute them by calling tools, and track progress in a lightweight state file.
 
 ## Storage
 
 ### Workflow definitions
 
-Workflow files live under `files/workflows/` in the team's file list. Any `.md` file in that directory (except `workflows/README.md`) is treated as a workflow. Examples from the built-in templates:
+Workflow files live under `files/workflows/` in the workgroup's file list. Any `.md` file in that directory (except `workflows/README.md`) is treated as a workflow. Examples from the built-in templates:
 
 | Template   | File                              | Title             |
 |------------|-----------------------------------|-------------------|
@@ -23,7 +23,7 @@ Each file follows a conventional markdown structure:
 Description of the workflow.
 
 ## Trigger
-When to activate — e.g. "When a user requests a code review."
+When to activate --e.g. "When a user requests a code review."
 
 ## Steps
 
@@ -48,11 +48,11 @@ When to activate — e.g. "When a user requests a code review."
 - **Completes**: Workflow done
 ```
 
-Because they are ordinary team files, you can add, edit, rename, or delete workflows through the UI, through admin commands, or through agent file tools. No deploy step needed.
+Because they are ordinary workgroup files, you can add, edit, rename, or delete workflows through the UI, through admin commands, or through agent file tools. No deploy step needed.
 
 ### Workflow state
 
-Active progress is tracked in a single file called `_workflow_state.md`. It is **job-scoped** — each job gets its own independent state file, so the same team can run different workflows (or the same workflow at different stages) in different jobs simultaneously. In non-job conversations (e.g. agent DMs) the state file has no job scope and is shared.
+Active progress is tracked in a single file called `_workflow_state.md`. It is **job-scoped** -- each job gets its own independent state file, so the same workgroup can run different workflows (or the same workflow at different stages) in different jobs simultaneously. In non-job conversations (e.g. agent DMs) the state file has no job scope and is shared.
 
 A typical state file looks like:
 
@@ -78,15 +78,15 @@ A typical state file looks like:
 - Step 2 output: review-notes.md created
 ```
 
-The state file is written entirely by agents — the framework does not validate or enforce its structure. This means agents can add notes, adjust the step log, or correct errors naturally.
+The state file is written entirely by agents -- the framework does not validate or enforce its structure. This means agents can add notes, adjust the step log, or correct errors naturally.
 
 ## Auto-selection at job creation
 
-When a new job is created (via the API, an admin command, or the coordinator's `create_job` tool), the system automatically matches the job's name and description against available workflows:
+When a new job is created (via the API, an admin command, or a lead agent's `create_job` tool), the system automatically matches the job's name and description against available workflows:
 
-- **0 workflows** — nothing happens, no state file is created.
-- **1 workflow** — it is auto-selected without an LLM call.
-- **2+ workflows** — Haiku is called to match the job text against workflow triggers. If a match is found with confidence >= 0.5, that workflow is selected. Otherwise no workflow is started.
+- **0 workflows** -- nothing happens, no state file is created.
+- **1 workflow** -- it is auto-selected without an LLM call.
+- **2+ workflows** -- Haiku is called to match the job text against workflow triggers. If a match is found with confidence >= 0.5, that workflow is selected. Otherwise no workflow is started.
 
 When a workflow is selected, the system creates a job-scoped `_workflow_state.md` with `Status: pending` and `Current Step: 1`. Agents see this state on the very first message and can begin following the workflow immediately, without the user needing to explicitly request it.
 
@@ -114,18 +114,18 @@ Reads `_workflow_state.md` for the current conversation scope. Returns the file 
 
 #### `advance_workflow`
 
-Creates or updates `_workflow_state.md` with new content. Takes a single required parameter `state_content` — the full markdown body of the state file. This is how agents:
+Creates or updates `_workflow_state.md` with new content. Takes a single required parameter `state_content` --the full markdown body of the state file. This is how agents:
 
 - **Start** a workflow (create initial state with step 1 in progress)
 - **Advance** to the next step (update the step log, bump current step)
 - **Record loop iterations** (increment iteration counts)
 - **Mark completion** (set status to `completed`)
 
-Because `advance_workflow` does a full-file replacement (not a diff), concurrent writes use last-write-wins semantics. This is safe because workflow state is not diffed or merged — each update is a self-consistent snapshot.
+Because `advance_workflow` does a full-file replacement (not a diff), concurrent writes use last-write-wins semantics. This is safe because workflow state is not diffed or merged --each update is a self-consistent snapshot.
 
 ## Execution
 
-Execution is entirely agent-driven. There is no framework-level orchestration — agents read workflow definitions, decide what to do, and manage their own state.
+Execution is entirely agent-driven. There is no framework-level orchestration --agents read workflow definitions, decide what to do, and manage their own state.
 
 ### Typical execution flow
 
@@ -140,13 +140,13 @@ Execution is entirely agent-driven. There is no framework-level orchestration �
 
 Agents can also read the full workflow definition (using `read_file` on the workflow path) if they need to consult step details beyond what's in the state summary.
 
-## Scope: Team Workflows vs. Cross-Team Orchestration
+## Scope: Workgroup Workflows vs. Cross-Workgroup Orchestration
 
-Workflows as defined here are **single-team playbooks**. All agents named in a workflow belong to the same team and operate on the same files.
+Workflows as defined here are **single-workgroup playbooks**. All agents named in a workflow belong to the same workgroup and operate on the same files.
 
-Cross-team orchestration (e.g. the coordinator dispatching jobs to multiple teams and sequencing their work) is a different mechanism — it uses the **orchestration toolkit** (`create_job`, `list_team_jobs`, `read_job_status`, etc.) rather than workflows. See [engagements.md](engagements.md) for the cross-team model.
+Cross-workgroup orchestration (e.g. the org lead dispatching jobs to multiple workgroups and sequencing their work) is a different mechanism -- it uses the **orchestration toolkit** (`create_job`, `create_project`, `list_workgroup_jobs`, `read_job_status`, etc.) rather than workflows. See [engagements-and-partnerships.md](engagements-and-partnerships.md) for the cross-workgroup model.
 
-The two can compose: the coordinator dispatches a job to a team, and that team's agents execute a workflow within the job. The coordinator doesn't need to know about the team's internal workflow — it just sees job status.
+The two can compose: the org lead dispatches a job to a workgroup, and that workgroup's agents execute a workflow within the job. The org lead doesn't need to know about the workgroup's internal workflow -- it just sees job status.
 
 ## Termination
 
@@ -162,7 +162,7 @@ Completed state files persist until deleted, so agents (and users) can review wh
 
 ## Human interruption
 
-Workflows are not modal — they don't lock a conversation into a fixed script. Human messages are processed normally at every turn. Agents see workflow context alongside the human's message and decide how to handle both:
+Workflows are not modal --they don't lock a conversation into a fixed script. Human messages are processed normally at every turn. Agents see workflow context alongside the human's message and decide how to handle both:
 
 - If the message is on-topic for the current step, the agent incorporates it and continues.
 - If the message asks to skip ahead, the agent can advance multiple steps.
@@ -177,4 +177,4 @@ If a step names a specific agent but that agent does not respond, any agent can 
 
 ### Corrupted state
 
-If the state file contains garbled or inconsistent content, the next `advance_workflow` call overwrites it entirely with a corrected version. Since the tool does a full replacement, there is no accumulation of corruption — each write is a clean slate.
+If the state file contains garbled or inconsistent content, the next `advance_workflow` call overwrites it entirely with a corrected version. Since the tool does a full replacement, there is no accumulation of corruption --each write is a clean slate.
