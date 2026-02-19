@@ -24,11 +24,12 @@ PYTHONPATH=. uv run pytest tests/ --tb=short -q
 
 ## Docs
 
+- [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) -- Master conceptual model
 - [ROADMAP.md](../../ROADMAP.md) -- Phased plan
 - [TASKLIST.md](../../TASKLIST.md) -- Task breakdown
-- [TOOL_GAPS.md](../../TOOL_GAPS.md) -- Agent tool capability gaps
 - [docs/file-layout.md](../../docs/file-layout.md) -- Virtual file tree
 - [docs/workflows.md](../../docs/workflows.md) -- Workflow system
-- [docs/engagements.md](../../docs/engagements.md) -- Cross-org engagement model
-- [docs/sandbox-design.md](../../docs/sandbox-design.md) -- Docker sandbox architecture
+- [docs/engagements-and-partnerships.md](../../docs/engagements-and-partnerships.md) -- Cross-org engagement and partnership model
+- [docs/sandbox-design.md](../../docs/sandbox-design.md) -- Docker sandbox architecture (future)
 - [docs/agent-dispatch.md](../../docs/agent-dispatch.md) -- Agent routing and team sessions
+- [docs/cognitive-architecture.md](../../docs/cognitive-architecture.md) -- Agent learning and memory (future)

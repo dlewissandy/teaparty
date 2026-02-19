@@ -17,7 +17,8 @@ TeaParty does not select speakers or orchestrate turn-taking. It dispatches user
 | `job` (default, single agent) | User message | `_run_single_agent_responses` | Single agent |
 | `direct` | User message | `_run_single_agent_responses` | Single participating agent |
 | `task` | User message | `_run_single_agent_responses` | Single agent with persistent Claude session |
-| `engagement` | User message | `_run_single_agent_responses` | Single coordinator agent |
+| `engagement` | User message | `_run_single_agent_responses` | Single org lead agent |
+| `project` | User message | `_run_team_response` | Persistent team session with workgroup leads |
 | `admin` | User message | `build_admin_agent_reply` | Deterministic command handler (no LLM selection) |
 | `activity` | Any | None | No auto-response |
 
@@ -97,14 +98,17 @@ Every agent gets the same conversation history + trigger and responds independen
 
 ## Lead Agents
 
-Every workgroup has an explicit lead agent (`is_lead=True`) that serves as the default responder and the top-level agent in multi-agent teams.
+Every organizational level has an explicit lead agent (`is_lead=True`) that serves as the default responder and the top-level agent in multi-agent team sessions.
 
-| Level | Lead agent name | Created when |
-|---|---|---|
-| Workgroup | `<workgroup-name>-lead` | Workgroup is created |
-| Organization | `engagements-lead` | Organization is created (lives in Administration workgroup) |
+| Level | Lead agent name | Created when | Role |
+|---|---|---|---|
+| Home | `home-agent` | User first login | Creates orgs, manages partnerships |
+| Organization | `org-lead` | Organization is created (lives in Administration workgroup) | Orchestrates engagements, projects; decomposes work to workgroups |
+| Workgroup | `<workgroup-name>-lead` | Workgroup is created | Manages jobs, onboards agents |
 
 Lead agents are configurable (personality, model, tools) but not removable or renamable. Selection uses `_select_lead()` which picks the `is_lead=True` agent, falling back to `candidates[0]`.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full hierarchy and how lead agents interact across levels.
 
 ---
 

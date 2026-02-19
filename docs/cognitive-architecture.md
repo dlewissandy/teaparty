@@ -1,22 +1,47 @@
 # Cognitive Architecture for Learning Agents
 
-A design for giving TeaParty agents the ability to learn, remember, and adapt over time — grounded in cognitive science research and mapped to the existing system.
+> **FUTURE PHASE** -- This document describes Phase 3 of the [Roadmap](../ROADMAP.md). Agent cognition and memory systems are not part of the current MVP.
+
+A design for giving TeaParty agents the ability to learn, remember, and adapt over time -- grounded in cognitive science research and mapped to the existing system.
+
+---
 
 ## 1. Research Foundations
 
-### 1.1 Classical Cognitive Architectures
+### 1.1 What Is a Cognitive Architecture?
 
-The field of cognitive architecture has spent decades modeling how minds work. Three systems are most relevant to TeaParty:
+A cognitive architecture is a theory of the fixed structures and processes that underlie intelligent behavior. In AI, it's the infrastructure that sits *around* the reasoning engine (here, an LLM) -- providing memory, learning, goal management, and self-monitoring capabilities that the raw model lacks.
 
-**ACT-R** (Anderson, Carnegie Mellon) models cognition as the interaction of declarative memory (facts, with activation levels that decay and strengthen) and procedural memory (production rules that fire when conditions match). Learning happens through *strengthening* — chunks that get retrieved more often become easier to retrieve. The subsymbolic layer computes activation as a function of recency, frequency, and context, which determines what the agent "thinks of" in any given moment.
+Classical cognitive architectures (ACT-R, SOAR, CLARION, LIDA) share a common skeleton:
+
+| Component | Purpose | Classical Example |
+|-----------|---------|-------------------|
+| **Working Memory** | Active context for current reasoning | ACT-R buffers, SOAR working memory |
+| **Long-Term Declarative Memory** | Facts and experiences | ACT-R chunks, SOAR semantic memory |
+| **Long-Term Procedural Memory** | Skills and action patterns | ACT-R productions, SOAR procedural rules |
+| **Episodic Memory** | Autobiographical experiences | SOAR episodic memory, LIDA transient episodic |
+| **Perception** | Environment sensing | SOAR input-link, LIDA sensory memory |
+| **Action Selection** | Choosing what to do | ACT-R conflict resolution, SOAR operator selection |
+| **Learning** | Updating memories from experience | ACT-R utility learning, SOAR chunking |
+| **Metacognition** | Monitoring and regulating own cognition | CLARION metacognitive subsystem |
+
+The key insight from decades of cognitive science: **intelligence is not just reasoning -- it's the memory systems that feed reasoning, and the learning systems that update memory from experience.**
+
+### 1.2 Classical Architectures Relevant to TeaParty
+
+**ACT-R** (Anderson, Carnegie Mellon) models cognition as the interaction of declarative memory (facts, with activation levels that decay and strengthen) and procedural memory (production rules that fire when conditions match). Learning happens through *strengthening* -- chunks that get retrieved more often become easier to retrieve. The subsymbolic layer computes activation as a function of recency, frequency, and context, which determines what the agent "thinks of" in any given moment.
 
 **Soar** (Laird, University of Michigan) uses a working-memory-centric cycle: perceive → propose operators → select → apply → detect impasses → subgoal. When an impasse is resolved, *chunking* compiles the solution into a new production rule, so the agent never encounters the same impasse twice. Soar also maintains episodic memory (timestamped snapshots of working memory) and semantic memory (long-term factual store) that are queried during deliberation.
 
-**LIDA** (Franklin, University of Memphis) implements Global Workspace Theory — a model of how consciousness arises from competing coalitions of information. Attention codelets form coalitions from the current situational model; the winning coalition gets "broadcast" globally, making it available to all modules simultaneously. This broadcast-then-learn cycle is the basis for all LIDA learning: perceptual, episodic, procedural, and attentional.
+**LIDA** (Franklin, University of Memphis) implements Global Workspace Theory -- a model of how consciousness arises from competing coalitions of information. Attention codelets form coalitions from the current situational model; the winning coalition gets "broadcast" globally, making it available to all modules simultaneously. This broadcast-then-learn cycle is the basis for all LIDA learning: perceptual, episodic, procedural, and attentional.
 
-### 1.2 CoALA: The Bridge to LLM Agents
+### 1.3 LLM-Agent Cognitive Architectures (State of the Art)
 
-The **Cognitive Architectures for Language Agents** framework (Sumers et al., 2024, TMLR) maps classical cognitive architecture concepts onto LLM-based systems. Its key insight: an LLM agent's cognition can be decomposed into:
+Recent work has adapted cognitive architecture principles for LLM-based agents.
+
+#### 1.3.1 CoALA -- Cognitive Architectures for Language Agents
+
+**Sumers, Yao, Narasimhan & Griffiths (2024)** provide the most comprehensive theoretical framework. CoALA maps classical cognitive architecture concepts onto LLM agents:
 
 | CoALA Component | Classical Analog | LLM Agent Implementation |
 |----------------|-----------------|-------------------------|
@@ -26,40 +51,228 @@ The **Cognitive Architectures for Language Agents** framework (Sumers et al., 20
 | Procedural Memory | ACT-R productions, Soar rules | Prompt templates, tool definitions, learned skills |
 | Decision Cycle | Soar propose-select-apply | Perceive → plan → act → observe loop |
 
-### 1.3 Modern LLM Learning Patterns
+CoALA's key contribution is the taxonomy: agents differ in *what memory types they use*, *what their action space is*, and *how they learn*. It's not a single architecture but a design space.
 
-**MemGPT/Letta** — Two-tier memory: core memory (in-context, self-editable persona + user info) and archival/recall memory (out-of-context, searchable). The agent moves data between tiers via tool calls, creating an illusion of unlimited memory. Letta V1 has evolved this into a production framework.
+#### 1.3.2 Generative Agents (Stanford, Park et al. 2023)
 
-**Reflexion** (Shinn et al., 2023) — Verbal reinforcement learning. After task failure, the agent writes a natural-language reflection ("I failed because X, next time I should Y") stored in a reflection buffer. On subsequent attempts, reflections are included in the prompt. No weight updates; all learning is in-context.
+Simulated 25 agents in a sandbox environment with:
 
-**Voyager** (Wang et al., 2023) — Lifelong skill accumulation in Minecraft. Three components: (1) automatic curriculum proposing increasingly hard tasks, (2) iterative code generation with self-verification, (3) a *skill library* of named, reusable programs indexed by description embedding. New skills build on old ones. Achieved 3.3x more unique items than baselines.
+- **Memory stream**: timestamped log of all observations and actions
+- **Retrieval**: recency × relevance × importance scoring to surface memories
+- **Reflection**: periodic synthesis of recent memories into higher-level insights ("I've noticed Klaus often avoids social events")
+- **Planning**: daily plans decomposed into hourly actions, revised based on observations
 
-**Generative Agents** (Park et al., 2023) — Agents with a memory stream of all observations, a retrieval function weighting recency + importance + relevance, and a *reflection* process that periodically synthesizes higher-level insights from raw memories.
+Key finding: reflection was the critical ingredient. Without it, agents repeated patterns and failed to develop. With it, emergent social behaviors arose (party planning, opinion formation, relationship dynamics).
 
-**Collaborative Memory** (Rezazadeh et al., 2025, ICML) — Multi-user, multi-agent memory with access control. Each agent has private + shared memory tiers. Write policies project interactions into structured fragments; read policies construct agent-specific views based on permissions.
+#### 1.3.3 Reflexion (Shinn et al. 2023)
 
-**Memory as a Service** (MaaS, 2025) — Decouples memory from agents entirely. Memory Containers package data with access policies; a Memory Routing Layer dispatches queries to the right containers. Enables cross-agent, cross-session memory sharing.
+Agents that learn from failure through verbal self-reflection:
+
+1. Agent attempts a task
+2. Evaluator scores the attempt
+3. Agent reflects on what went wrong (generating natural language feedback)
+4. Reflection is stored in memory and prepended to next attempt
+
+No weight updates -- learning is entirely through accumulated reflective text in the context window. Achieved near-human performance on HumanEval coding after 2-3 reflection cycles.
+
+#### 1.3.4 Voyager (Wang et al. 2023)
+
+Minecraft agent with a **skill library** -- procedural memory implemented as a growing codebase:
+
+- **Curriculum**: automatic task proposal based on current capabilities
+- **Skill library**: verified JavaScript functions stored and retrieved by description
+- **Iterative refinement**: failed skills are debugged via environment feedback
+
+Key insight: procedural memory as *executable code* is more reliable than natural language instructions.
+
+#### 1.3.5 CLIN -- Continually Learning from Interactions (Majumder et al. 2024)
+
+Agents that persistently learn across task episodes:
+
+- After each episode, agent extracts **causal abstractions** ("when X happens, doing Y leads to Z")
+- Abstractions stored in a growing memory that persists across episodes
+- Memory is retrieved and injected into the prompt for future tasks
+
+CLIN showed that agents *do* improve over time with this approach, and that memories transfer across similar (but not identical) tasks.
+
+#### 1.3.6 MemGPT / Letta (Packer et al. 2023-2024)
+
+Explicit memory management as an OS-like system:
+
+- **Main context** (working memory): limited, actively managed
+- **Archival memory**: unlimited long-term storage, searchable
+- **Recall memory**: conversation history, paginated
+- Agent explicitly calls `archival_memory_insert`, `archival_memory_search`, `conversation_search` tools
+
+Key insight: give agents *tools* for memory management rather than automating it. The agent decides what to remember, what to forget, and when to retrieve.
+
+#### 1.3.7 ExpeL -- Experiential Learning (Zhao et al. 2024)
+
+Agents that learn from *contrasting* successes and failures:
+
+- **Phase 1**: Agent attempts training tasks, recording full trajectories (both successes and failures)
+- **Phase 2**: Agent *compares* failed and successful trajectories to identify what differed, then extracts cross-task patterns
+- Extracted insights are iteratively refined: adding, editing, voting on importance
+
+Key distinction from Reflexion: ExpeL learns from *contrasts* ("this worked, that didn't, and the difference was...") rather than from failures alone. Does NOT require repeated attempts at the same task -- insights transfer across tasks.
+
+#### 1.3.8 Recent Systems (2025)
+
+**AutoRefine** -- Automatically extracts **dual-form Experience Patterns**:
+- **Specialized subagents** for recurring procedural subtasks
+- **Skill patterns** (guidelines or code snippets) for static knowledge
+- Continuous maintenance: scoring, pruning, and merging patterns to prevent degradation
+
+Results: ALFWorld 98.4%, ScienceWorld 70.4%. On TravelPlanner, automatic extraction exceeds manually designed systems (27.1% vs 12.1%) -- showing that learned patterns can outperform hand-crafted ones.
+
+**Mem0** -- Production-ready memory architecture with two variants:
+- **Basic**: structured extraction + updation pipeline
+- **Graph-enhanced (Mem0g)**: directed labeled graph of entities and relationships
+
+Results: 26% accuracy boost, 91% lower p95 latency, 90% token savings vs. full-context approaches.
+
+**FadeMem** (2025) -- Biologically-inspired decay/forgetting -- retains 82.1% of critical facts using only 55% of storage (vs. 78.4% retention at 100% storage without decay). Selective forgetting *improves* retention quality.
 
 ### 1.4 Key Takeaways for TeaParty
 
 1. **Memory is not monolithic.** Multiple types serve different purposes: episodic (what happened), semantic (what I know), procedural (how to do things), working (what I'm thinking about now).
 2. **Learning signals are diverse.** Explicit feedback, implicit success/failure, self-reflection, and inter-agent observation all contribute.
-3. **Retrieval is as important as storage.** Activation-based retrieval (ACT-R), recency-importance-relevance weighting (generative agents), and embedding similarity all solve the same problem: surfacing the right memory at the right time.
+3. **Retrieval is as important as storage.** Activation-based retrieval (ACT-R), recency-importance-relevance weighting (Generative Agents), and embedding similarity all solve the same problem: surfacing the right memory at the right time.
 4. **Multi-agent memory needs access control.** Not all agents should see all memories. Shared workgroup knowledge vs. private agent insights.
 5. **The LLM context window *is* working memory.** What you put in the prompt determines what the agent can think about.
 
 ---
 
-## 2. TeaParty's Current State
+## 2. Memory Systems: What Works
 
-### 2.1 Existing Infrastructure
+### 2.1 Episodic Memory (What Happened)
+
+**What it is**: Timestamped records of specific experiences -- "In conversation X, user Y asked about Z, and my approach of W worked well."
+
+**What works in practice**:
+- **Memory streams** (Generative Agents): simple chronological logs with retrieval scoring
+- **Episode summaries** (CLIN): condensed takeaways after each interaction, not raw logs
+- **Indexed trajectories** (ExpeL): full task trajectories stored for replay as demonstrations
+- **Retrieval by similarity + recency + importance**: triple-weighted retrieval outperforms any single factor
+
+The **gold standard retrieval formula** (from Generative Agents, validated across multiple systems):
+
+```
+score = α·recency(m) + β·relevance(m, query) + γ·importance(m)
+
+recency(m)    = exponential decay from last access time
+relevance(m)  = cosine similarity of embedding vectors (memory description vs current context)
+importance(m) = LLM-rated significance (1-10 scale, rated at creation time)
+
+All weights = 1.0, scores min-max normalized to [0,1]
+```
+
+This is directly descended from ACT-R's activation-based retrieval (combining recency, frequency, and contextual relevance) -- validated for 40+ years in cognitive science.
+
+Recent finding: "Episodic Memory is the Missing Piece for Long-Term LLM Agents" (2025) argues that most agent systems underweight episodic memory relative to semantic/procedural. Agents that can recall specific past experiences perform better than those relying only on general knowledge.
+
+### 2.2 Semantic Memory (What I Know)
+
+**What it is**: General knowledge and facts -- "User prefers concise responses", "The codebase uses FastAPI with SQLModel", "Markdown headers should use ATX style."
+
+**What works in practice**:
+- **Self-extracted knowledge** (Reflexion, CLIN): agent distills knowledge from experience
+- **Key-value stores**: simple and effective for factual knowledge
+- **Vector stores**: better for fuzzy/semantic retrieval but add infrastructure complexity
+- **Hierarchical summaries**: knowledge at different levels of abstraction
+
+### 2.3 Procedural Memory (How to Do Things)
+
+**What it is**: Skills, strategies, workflows -- "When asked to review code, first read the PR diff, then check for security issues, then comment on style."
+
+**What works in practice**:
+- **Skill libraries** (Voyager): executable code/prompts indexed by capability description
+- **Workflow templates**: structured plans that can be adapted (TeaParty already has workflows)
+- **Prompt libraries**: curated prompts for specific tasks, refined through use
+- **Natural language procedures** are fragile; structured/executable forms are more reliable
+
+### 2.4 Working Memory (Active Context)
+
+**What it is**: The information actively being reasoned about -- the LLM's context window.
+
+**What works in practice**:
+- **Selective injection**: retrieve only relevant memories into the prompt
+- **Summarization**: compress old context rather than dropping it
+- **MemGPT's approach**: agent explicitly manages what's in working memory via tools
+
+---
+
+## 3. Learning Mechanisms
+
+### 3.1 Learning Mechanisms Compared
+
+| Mechanism | How It Works | Cost | Reliability | Transfer |
+|-----------|-------------|------|-------------|----------|
+| **Self-reflection** (Reflexion) | Agent reviews output, extracts verbal feedback | 1 LLM call/episode | Moderate -- can hallucinate | Low -- trial-scoped |
+| **Causal abstraction** (CLIN) | Extract situation→action→outcome rules | 1 LLM call/episode | High -- structured | High -- cross-task |
+| **Contrastive learning** (ExpeL) | Compare successes vs failures, extract insights | 1 LLM call/batch | High -- grounded in evidence | Medium -- cross-task |
+| **Skill libraries** (Voyager) | Store verified executable procedures | 1 LLM call + verification | High -- tested before storage | Medium -- domain-bound |
+| **Outcome feedback** | Environment/user signals success or failure | Near-free | High signal but sparse | N/A |
+| **Preference learning** | Track user corrections and stated preferences | Near-free | High for explicit signals | N/A |
+| **Peer observation** | Learn from teammates' successes | Free (read shared memory) | Depends on trust/quality | Low |
+
+CLIN's causal abstractions outperform Reflexion's narrative reflections by 23 absolute points on ScienceWorld. The key difference: structured "when X, doing Y leads to Z" rules generalize better than "I should have done X instead."
+
+### 3.2 What Makes Learning Work in LLM Agents
+
+Research consensus points to several critical factors:
+
+1. **Reflection must be grounded**: Abstract reflection ("I should try harder") is useless. Effective reflection cites specific actions and outcomes ("When I used `grep` instead of `find`, I found the file 3x faster because..."). CLIN's causal format enforces this.
+
+2. **Forgetting is essential**: FadeMem (2025) demonstrates that selective forgetting *improves* quality -- 82.1% retention of critical facts at 55% storage, vs 78.4% at 100% storage. Agents that forget strategically remember important things better.
+
+3. **Learning should be opt-in, not forced**: Per the TeaParty philosophy of "agents are agents, not scripted" -- learning loops should be *available* to agents as tools, not imposed as mandatory post-processing. Soar's impasse-driven model is the ideal: learn only when encountering a gap.
+
+4. **Transfer is hard**: Memories from one context often don't apply cleanly in another. Domain-specific memories are more useful than general ones. CLIN's causal rules transfer better than narrative reflections.
+
+5. **Reflection without persistence is ephemeral**: Self-reflection improves performance only if reflections are *persisted, indexed, and retrievable*. A reflection bank must be searchable and context-aware, not just a list.
+
+---
+
+## 4. Social Cognition for Multi-Agent Workgroups
+
+### 4.1 Theory of Mind
+
+Agents in workgroups benefit from modeling other agents' knowledge, beliefs, and capabilities:
+
+- **Capability maps**: "Agent X is good at code review; Agent Y is good at research"
+- **Shared mental models**: Common understanding of the task, the plan, and each other's roles
+- **Attribution**: Understanding *why* a teammate did something, not just *what* they did
+
+Research findings: LLMs show surprising Theory of Mind abilities in zero-shot settings. But maintaining consistent mental models of other agents over extended interactions remains an open challenge.
+
+From CSCW research (25+ years): workgroups with better shared mental models coordinate more effectively with *less explicit communication*. This translates to agents maintaining models of other agents' capabilities, current state, and goals -- enabling implicit coordination without constant messaging.
+
+### 4.2 Collective Memory
+
+Multi-agent workgroups can share knowledge in several ways:
+
+| Pattern | Description | Trade-off |
+|---------|-------------|-----------|
+| **Shared knowledge base** | All agents read/write to the same memory store | Rich but noisy; needs curation |
+| **Broadcast learning** | Agent shares a lesson with all teammates | Simple but can overwhelm |
+| **Selective sharing** | Agent shares only with relevant teammates | Targeted but requires routing intelligence |
+| **Stigmergy** | Agents leave traces in shared artifacts (files, messages) | Natural in TeaParty; implicit rather than explicit |
+
+For TeaParty, **stigmergy** is already the dominant pattern -- agents leave their work in shared files and conversations. The opportunity is to layer *explicit* knowledge sharing on top.
+
+---
+
+## 5. TeaParty's Current State
+
+### 5.1 Existing Infrastructure
 
 TeaParty already has significant scaffolding for agent learning, though most of it is unused:
 
 **Agent model fields** (`models.py:115-137`):
-- `learning_state: JSONDict` — empty, general-purpose learning state
-- `sentiment_state: JSONDict` — empty, intended for emotional/sentiment tracking
-- `learned_preferences: JSONDict` — empty, intended for user preference learning
+- `learning_state: JSONDict` -- empty, general-purpose learning state
+- `sentiment_state: JSONDict` -- empty, intended for emotional/sentiment tracking
+- `learned_preferences: JSONDict` -- empty, intended for user preference learning
 
 **AgentLearningEvent** (`models.py:180-188`):
 - Stores discrete learning signals tied to specific messages
@@ -71,7 +284,7 @@ TeaParty already has significant scaffolding for agent learning, though most of 
 - Fields: `agent_id`, `conversation_id`, `memory_type`, `content`, `source_summary`, `confidence`
 - Not currently written to or read by any code path
 
-### 2.2 Current Agent Cognition Flow
+### 5.2 Current Agent Cognition Flow
 
 ```
 User message
@@ -81,7 +294,7 @@ agent_runtime.run_agent_auto_responses()
     |
     +--> _agents_for_auto_response()       # Who responds?
     +--> _run_single_agent_responses() OR   # Single agent
-         _run_team_response()               # Multi-agent team
+         _run_team_response()               # Multi-agent workgroup
              |
              v
          build_agent_json()                 # Build identity prompt
@@ -95,10 +308,10 @@ agent_runtime.run_agent_auto_responses()
 ```
 
 **What agents currently "know":**
-- Their identity (name, role, personality, backstory) — from `Agent` record
-- The conversation context (kind, name, description) — from `Conversation` record
-- Recent conversation history (last 40 messages, max 12K chars) — from `build_user_message()`
-- Workflow skills (if matched by name) — from workgroup files
+- Their identity (name, role, personality, backstory) -- from `Agent` record
+- The conversation context (kind, name, description) -- from `Conversation` record
+- Recent conversation history (last 40 messages, max 12K chars) -- from `build_user_message()`
+- Workflow skills (if matched by name) -- from workgroup files
 - Teammate roster (if lead in multi-agent mode)
 
 **What agents currently lack:**
@@ -108,32 +321,33 @@ agent_runtime.run_agent_auto_responses()
 - Cross-conversation knowledge transfer
 - Self-reflection on their own performance
 
-### 2.3 Extension Points
+### 5.3 Key Gaps
 
-The architecture has clean seams where cognitive capabilities can be added:
-
-1. **`build_agent_json()` / `_build_prompt_body()`** — The prompt assembly point. New memory sections can be injected here.
-2. **Post-response hook** — After `run_claude()` returns, before the message is committed. Learning extraction can happen here.
-3. **`Agent` model JSON fields** — `learning_state`, `sentiment_state`, `learned_preferences` are ready for structured data.
-4. **`AgentMemory` and `AgentLearningEvent` tables** — Already defined, waiting for write/read logic.
-5. **`AgentTodoItem` trigger system** — Existing proactive agent trigger infrastructure could drive reflection cycles.
+1. **No memory retrieval pipeline**: `AgentMemory` exists but nothing reads from it during prompt construction. The injection point is `_build_prompt_body()` in `agent_definition.py:96-155` -- between the conversation context block and the guidelines block.
+2. **No reflection loop**: `AgentLearningEvent` exists but nothing triggers learning or writes to it. The hook point is `agent_runtime.py:473-483` -- immediately after `session.add(agent_message)` / `session.flush()`.
+3. **No memory decay/consolidation**: Memories accumulate without pruning
+4. **No cross-agent knowledge sharing**: Each agent's memory is siloed. `AgentMemory` lacks a `workgroup_id` column for cross-conversation retrieval.
+5. **No capability modeling**: Agents don't know what their teammates are good at
+6. **No metacognition**: Agents can't monitor their own uncertainty or ask for help strategically
+7. **No cross-conversation awareness**: Agents perceive only their current conversation (40-message window via `build_user_message`). No visibility into other conversations, past interactions, or workgroup-level patterns.
 
 ---
 
-## 3. Proposed Cognitive Architecture
+## 6. Proposed Cognitive Architecture
 
-### 3.1 Design Principles
+### 6.1 Design Principles
 
 Following TeaParty's philosophy:
 
-- **Agents are agents** — learning happens autonomously, not through prescriptive rules
-- **Advisory, not mandatory** — cognitive systems inform but don't constrain
-- **Minimal overhead** — no learning system should add more than ~200ms to response latency
-- **Transparent** — all learning state is inspectable and editable by users
+1. **Agents are agents** -- Memory and learning are *tools available to the agent*, not imposed pipelines. The agent chooses when to reflect, what to remember, and when to retrieve.
+2. **Advisory, not mandatory** -- cognitive systems inform but don't constrain
+3. **Minimal overhead** -- Don't add latency or cost to every interaction. Learning happens *asynchronously* after interactions, not blocking the response path.
+4. **Build on what exists** -- Use the `AgentMemory`, `AgentLearningEvent`, and `learning_state` schemas that already exist.
+5. **Start with episodic + semantic** -- Procedural memory (skill libraries) and metacognition are later phases.
 
-### 3.2 Memory System
+### 6.2 Memory System
 
-Mapping CoALA to TeaParty:
+Mapping cognitive architecture research to TeaParty:
 
 ```
 +-------------------------------------------------------------------+
@@ -167,7 +381,7 @@ Mapping CoALA to TeaParty:
                     +--------------------+
 ```
 
-#### 3.2.1 Episodic Memory
+#### 6.2.1 Episodic Memory
 
 **What:** Compressed records of past conversations and significant events.
 
@@ -186,9 +400,9 @@ Mapping CoALA to TeaParty:
 
 **Retrieval:** By recency (most recent episodes first) and relevance (keyword/semantic match to current conversation topic).
 
-#### 3.2.2 Semantic Memory
+#### 6.2.2 Semantic Memory
 
-**What:** Distilled knowledge — patterns, insights, domain facts — synthesized from multiple episodes.
+**What:** Distilled knowledge -- patterns, insights, domain facts -- synthesized from multiple episodes.
 
 **Storage:** `AgentMemory` rows with `memory_type` in ("insight", "pattern", "domain_knowledge")
 
@@ -196,18 +410,18 @@ Mapping CoALA to TeaParty:
 ```json
 {
   "memory_type": "pattern",
-  "content": "This team prefers TypeScript over JavaScript for new modules.",
+  "content": "This workgroup prefers TypeScript over JavaScript for new modules.",
   "confidence": 0.85
 }
 ```
 
-**When created:** Periodically via a reflection cycle (see 3.3), or when the agent notices a recurring pattern across episodes.
+**When created:** Periodically via a reflection cycle (see 6.3), or when the agent notices a recurring pattern across episodes.
 
 **Retrieval:** All high-confidence semantic memories relevant to the current context are included in the prompt.
 
-#### 3.2.3 Procedural Memory
+#### 6.2.3 Procedural Memory
 
-**What:** How to do things — preferred tools, response styles, task-specific strategies.
+**What:** How to do things -- preferred tools, response styles, task-specific strategies.
 
 **Storage:** `Agent.learning_state` JSON field (compact, always loaded)
 
@@ -233,7 +447,7 @@ Mapping CoALA to TeaParty:
 
 **Retrieval:** Always included (lives on the Agent record).
 
-### 3.3 Learning Cycle
+### 6.3 Learning Cycle
 
 Inspired by Soar's perceive-decide-act-learn cycle and Reflexion's verbal RL:
 
@@ -271,7 +485,7 @@ Inspired by Soar's perceive-decide-act-learn cycle and Reflexion's verbal RL:
         +----------------------+
 ```
 
-#### 3.3.1 Signal Detection (Step 3: OBSERVE)
+#### 6.3.1 Signal Detection (Step 3: OBSERVE)
 
 Learning signals extracted from conversation flow:
 
@@ -286,7 +500,7 @@ Learning signals extracted from conversation flow:
 
 **Implementation:** A lightweight post-response analyzer runs after each agent message. Uses keyword matching first (zero LLM cost), falling back to a cheap LLM call only when ambiguous.
 
-#### 3.3.2 Memory Formation (Step 4: LEARN)
+#### 6.3.2 Memory Formation (Step 4: LEARN)
 
 When a signal is detected:
 1. Write an `AgentLearningEvent` record (signal_type, value, linked to message)
@@ -299,9 +513,9 @@ When a signal is detected:
 - Contradicted: decrease by 0.2
 - Explicitly stated by user ("always do X"): 0.95
 
-#### 3.3.3 Reflection (Step 5: REFLECT)
+#### 6.3.3 Reflection (Step 5: REFLECT)
 
-Inspired by generative agents' reflection process. Runs asynchronously, not on the hot path:
+Inspired by Generative Agents' reflection process. Runs asynchronously, not on the hot path:
 
 **Trigger:** When an agent accumulates N new learning events since last reflection (default: 10), or on a time schedule via `AgentTodoItem` triggers.
 
@@ -312,9 +526,9 @@ Inspired by generative agents' reflection process. Runs asynchronously, not on t
 4. Store resulting insights as semantic memories
 5. Prune low-confidence, old, or contradicted memories
 
-### 3.4 Memory Retrieval for Prompt Assembly
+### 6.4 Memory Retrieval for Prompt Assembly
 
-The critical integration point — how memories enter the agent's working memory (context window):
+The critical integration point -- how memories enter the agent's working memory (context window):
 
 ```python
 def _build_prompt_body(agent, conversation, workgroup, ...):
@@ -336,7 +550,7 @@ def _build_prompt_body(agent, conversation, workgroup, ...):
 ```
 
 The retrieval function:
-1. Loads `Agent.learning_state` (procedural memory — always included, compact)
+1. Loads `Agent.learning_state` (procedural memory -- always included, compact)
 2. Queries `AgentMemory` for relevant semantic memories (high confidence, keyword match)
 3. Queries `AgentMemory` for recent episodic memories (if same topic/participants)
 4. Formats into a natural-language block, budget-constrained
@@ -344,26 +558,40 @@ The retrieval function:
 **Example prompt injection:**
 ```
 From your experience:
-- This team prefers TypeScript for new modules (high confidence)
+- This workgroup prefers TypeScript for new modules (high confidence)
 - User tends to ask for examples alongside explanations
 - Previous conversation on this topic: discussed REST vs GraphQL, agreed on versioned endpoints
 ```
 
-### 3.5 Multi-Agent Learning
+**Retrieval scoring:**
 
-In team sessions, agents can learn from observing each other:
+```
+score = α·recency(m) + β·relevance(m, query) + γ·importance(m)
+
+where:
+  recency(m)    = exponential decay from m.created_at
+  relevance(m)  = keyword/embedding similarity to current conversation context
+  importance(m) = f(m.confidence, m.relevance_count)
+  α, β, γ       = tunable weights (default: 0.2, 0.5, 0.3)
+```
+
+Budget: retrieve at most **5-8 memories** per turn to avoid context bloat.
+
+### 6.5 Multi-Agent Learning
+
+In workgroup sessions, agents can learn from observing each other:
 
 **Shared workgroup knowledge:** Semantic memories with `memory_type = "domain_knowledge"` are shared across all agents in a workgroup. When one agent learns a domain fact, all agents in the workgroup can access it.
 
 **Private agent memories:** Insights, corrections, and patterns are private to each agent unless explicitly promoted to shared.
 
-**Team reflection:** After a multi-agent job completes, a reflection cycle runs for each participating agent, with access to the full conversation (not just their own contributions).
+**Workgroup reflection:** After a multi-agent job completes, a reflection cycle runs for each participating agent, with access to the full conversation (not just their own contributions).
 
 ---
 
-## 4. API Implications
+## 7. API Implications
 
-### 4.1 New Endpoints
+### 7.1 New Endpoints
 
 ```
 # Memory CRUD
@@ -385,28 +613,50 @@ POST   /api/agents/{agent_id}/reflect                    # Trigger reflection cy
 # Workgroup shared knowledge
 GET    /api/workgroups/{wg_id}/knowledge                 # Shared knowledge base
 POST   /api/workgroups/{wg_id}/knowledge                 # Add shared knowledge
+
+# Trigger manual reflection
+POST   /api/agents/{agent_id}/reflect
+     (Primarily for debugging/admin use)
 ```
 
-### 4.2 Modified Endpoints
+### 7.2 Modified Endpoints
 
 ```
-# Existing agent endpoint — add memory stats to response
+# Existing agent endpoint -- add memory stats to response
 GET    /api/agents/{agent_id}
   + memory_count: int
   + last_reflection_at: datetime | null
   + learning_event_count: int
 
-# Existing conversation archive — trigger episode creation
+# Existing conversation archive -- trigger episode creation
 POST   /api/conversations/{conv_id}/archive
   + (side effect) Creates episodic memory for participating agents
 ```
 
-### 4.3 Database Changes
+### 7.3 Database Schema Changes
 
 **New columns on `Agent`:**
 ```python
 last_reflection_at: datetime | None = Field(default=None)
 memory_budget_tokens: int = Field(default=800)  # max tokens for memory in prompt
+```
+
+**Extend agent_memories table:**
+```sql
+ALTER TABLE agent_memories ADD COLUMN workgroup_id TEXT REFERENCES workgroups(id);
+ALTER TABLE agent_memories ADD COLUMN access_level TEXT DEFAULT 'private';
+ALTER TABLE agent_memories ADD COLUMN relevance_count INTEGER DEFAULT 0;
+ALTER TABLE agent_memories ADD COLUMN last_accessed_at TIMESTAMP;
+ALTER TABLE agent_memories ADD COLUMN is_archived BOOLEAN DEFAULT FALSE;
+
+-- Index for retrieval
+CREATE INDEX idx_agent_memories_retrieval
+  ON agent_memories(agent_id, memory_type, is_archived)
+  WHERE is_archived = FALSE;
+
+CREATE INDEX idx_agent_memories_shared
+  ON agent_memories(workgroup_id, access_level, is_archived)
+  WHERE access_level = 'workgroup' AND is_archived = FALSE;
 ```
 
 **New index on `AgentMemory`:**
@@ -415,14 +665,7 @@ memory_budget_tokens: int = Field(default=800)  # max tokens for memory in promp
 Index("ix_agent_memory_retrieval", "agent_id", "memory_type", "confidence")
 ```
 
-**New columns on `AgentMemory`:**
-```python
-access_scope: str = Field(default="private")  # "private" | "workgroup"
-last_accessed_at: datetime | None = Field(default=None)  # for activation decay
-access_count: int = Field(default=0)  # for activation strengthening
-```
-
-### 4.4 Service Layer Changes
+### 7.4 Service Layer Changes
 
 **New service: `teaparty_app/services/agent_memory.py`**
 ```
@@ -440,75 +683,198 @@ detect_learning_signals(agent_id, message, conversation) -> list[dict]
 - Post-response: call `detect_learning_signals()` and `store_learning_event()`
 - On conversation archive: call `create_memory()` for episodic summary
 
+### 7.5 Config Changes
+
+```python
+# New settings in config.py
+reflection_enabled: bool = True          # Global toggle
+reflection_model: str = ""               # Override model for reflection (defaults to cheap)
+memory_retrieval_limit: int = 8          # Max memories per prompt
+memory_decay_days: int = 30              # Days before unused memories decay
+memory_consolidation_enabled: bool = False  # Phase 2
+```
+
 ---
 
-## 5. Implementation Phases
+## 8. Implementation Phases
 
-### Phase 1: Memory Retrieval (read path)
-- Implement `retrieve_agent_memories()`
-- Inject memory block into `_build_prompt_body()`
-- Add memory CRUD endpoints
-- Allow manual memory creation via admin workspace
+### Phase 1: Memory Retrieval (Low Risk, High Value)
 
-This is immediately useful — humans can seed agent memories manually.
+Wire up the existing `AgentMemory` table:
 
-### Phase 2: Signal Detection (observation)
-- Implement `detect_learning_signals()` with keyword-based detection
+1. Add `_retrieve_memories()` to `prompt_builder.py` -- query `agent_memories` for the current agent, score by recency + relevance + importance
+2. Inject retrieved memories into the system prompt via `_build_prompt_body()` in `agent_definition.py:96-155` -- new section between conversation context and guidelines
+3. Add `GET /api/agents/{id}/memories` endpoint for admin inspection
+4. Populate memories manually or via admin API to validate the retrieval pipeline before adding automatic learning
+
+**Files touched**: `agent_definition.py`, `prompt_builder.py`, new router. No schema migration needed -- the `agent_memories` table and `_ensure_agent_memory_table()` migration already exist in `db.py`.
+
+**Estimated scope**: ~200 lines across 3 files.
+
+### Phase 2: Reflection Engine (Medium Risk, High Value)
+
+Add asynchronous post-turn reflection:
+
+1. Create `teaparty_app/services/reflection.py` -- uses `llm_client.create_message()` with `resolve_model(purpose="cheap")` for reflection calls
+2. Hook into `agent_runtime.py:473-483` after `session.add(agent_message)` / `session.flush()` -- fire reflection in background thread, similar to `_process_auto_responses_in_background()` pattern at `agent_runtime.py:583-602`
+3. Add schema migration for new `AgentMemory` columns (`workgroup_id`, `access_level`, `relevance_count`, `last_accessed_at`, `is_archived`)
+4. Add `POST /api/agents/{id}/reflect` admin endpoint for debugging
+
+**Files touched**: new `reflection.py`, `agent_runtime.py`, `db.py` (migration), new router.
+
+**Estimated scope**: ~300 lines, 1 new file, 1 migration.
+
+### Phase 3: Signal Detection (Observation)
+
+Implement `detect_learning_signals()` with keyword-based detection:
 - Write `AgentLearningEvent` records after each agent response
 - Surface learning events in the admin UI
 
-### Phase 3: Automatic Memory Formation
-- Convert learning events into `AgentMemory` records
+### Phase 4: Automatic Memory Formation
+
+Convert learning events into `AgentMemory` records:
 - Implement confidence scoring and deduplication
 - Episodic memory creation on conversation archive
 
-### Phase 4: Reflection Cycle
-- Implement `run_reflection()` using cheap LLM
-- Wire into `AgentTodoItem` trigger system for periodic reflection
-- Memory pruning and consolidation
+### Phase 5: Shared Memory and Social Cognition (Medium Risk, Medium Value)
 
-### Phase 5: Multi-Agent Knowledge Sharing
-- Implement workgroup-scoped memories
-- Team reflection after multi-agent jobs
-- Knowledge promotion (private → shared)
+Enable cross-agent knowledge sharing:
+
+1. Add `workgroup_id` and `access_level` to memory retrieval
+2. Add `share` tool to agent definitions
+3. Add `peer_skill` memory type with automatic extraction during workgroup sessions
+4. Add `GET /api/workgroups/{id}/shared-memories` endpoint
+
+**Estimated scope**: ~200 lines across 4 files, extends Phase 2 migration.
+
+### Phase 6: Memory Consolidation and Decay (Low Risk, Medium Value)
+
+Prevent memory bloat:
+
+1. Add consolidation task to the existing tick system (`process_triggered_todos`)
+2. Implement decay scoring in retrieval
+3. Add archival/pruning logic
+4. Add admin UI for viewing and managing agent memories
+
+**Estimated scope**: ~250 lines, background task integration.
+
+### Phase 7: Procedural Memory / Skill Libraries (High Risk, High Value)
+
+Agent-authored procedures and skills:
+
+1. Agents can define reusable "skills" (structured prompts/plans)
+2. Skills stored in a new table, indexed by capability description
+3. Retrieved during prompt construction when relevant
+4. Builds on workflow system but is agent-authored rather than admin-defined
+
+This is the most architecturally complex phase and should wait until Phases 1-5 are validated.
 
 ---
 
-## 6. Risks and Mitigations
+## 9. Design Tensions and Trade-offs
 
-| Risk | Impact | Mitigation |
-|------|--------|-----------|
-| Memory pollution (wrong/outdated memories) | Agent gives bad advice | Confidence decay over time; user can edit/delete memories; reflection cycle prunes |
-| Prompt bloat (too many memories) | Slower responses, higher cost | Token budget cap (`memory_budget_tokens`); retrieval scoring |
-| Privacy leakage (cross-user memories) | Security concern | Memories scoped to agent + workgroup; access_scope field; no cross-workgroup sharing |
-| Hallucinated learning signals | False pattern detection | Conservative keyword matching first; require multiple observations for high confidence |
-| Reflection cost | LLM cost for reflection cycles | Use cheap model; batch reflections; rate-limit |
+### Autonomy vs. Control
+
+The research strongly supports giving agents autonomy over their memory (MemGPT pattern). But unbounded memory writing could lead to:
+- **Cost**: Every memory write is a future retrieval candidate, increasing prompt size
+- **Quality**: Agents may store low-quality or redundant memories
+- **Privacy**: Agents might memorize sensitive information
+
+**Mitigation**: Rate limits on memory creation, confidence thresholds, and admin visibility.
+
+### Memory Persistence vs. Forgetting
+
+- Too much persistence → context pollution, outdated information
+- Too little → agents never develop, repeat mistakes
+
+Forgetting strategies from the literature:
+
+| Strategy | Mechanism | Example System |
+|----------|-----------|---------------|
+| **Time-based decay** | Activation decreases with time | ACT-R, FadeMem |
+| **Access-based decay** | Unused memories fade | Soar, Generative Agents |
+| **Importance threshold** | Only memories above score retained | Generative Agents |
+| **Consolidation** | Specific memories → general knowledge | Generative Agents reflection |
+| **Capacity-based pruning** | Lowest-activation items removed when limit hit | FadeMem |
+
+FadeMem results: With biologically-inspired decay, 82.1% retention of critical facts at 55% storage. Without decay: 78.4% at 100% storage. Selective forgetting actually *improves* what you remember.
+
+**Mitigation**: Combine time-based decay with importance scoring. Memories fade naturally unless they're important or frequently accessed. Consolidation preserves the essence while allowing specifics to fade -- mirroring the human trajectory from vivid episodes to general knowledge.
+
+### Individual vs. Collective Learning
+
+- Individual memory is private and high-signal
+- Shared memory enables workgroup coordination but introduces noise
+
+**Mitigation**: Default to private; sharing is an explicit agent action. Workgroup admins can view all memories.
+
+### Cost of Reflection
+
+Each reflection call costs ~500-1000 tokens (using a cheap model). For a workgroup with 4 agents doing 20 interactions/day, that's ~80 extra cheap-model calls/day -- negligible cost.
+
+But reflection *quality* matters: bad reflections pollute memory. The cheap model may produce lower-quality insights than the main model.
+
+**Mitigation**: Start with reflection disabled by default. Enable per-workgroup. Monitor memory quality.
+
+### Latency
+
+Memory retrieval adds a database query + scoring to each agent turn. This should be <50ms for typical memory sizes (<1000 memories per agent).
+
+Reflection is fully async and adds zero latency to the user-facing response.
 
 ---
 
-## 7. References
+## 10. References
 
 ### Classical Cognitive Architectures
-- Anderson, J.R. (2007). *How Can the Human Mind Occur in the Physical Universe?* Oxford University Press. (ACT-R)
-- Laird, J.E. (2012). *The Soar Cognitive Architecture.* MIT Press. (Soar)
-- Franklin, S. et al. (2016). "LIDA: A Systems-level Architecture for Cognition, Emotion, and Learning." (LIDA)
+- Anderson. "An Integrated Theory of the Mind" (ACT-R), *Psychological Review*, 2004. -- Activation-based retrieval, production compilation.
+- Laird. *The Soar Cognitive Architecture*, MIT Press, 2012. -- Impasse-driven learning, chunking, three-store memory.
+- Sun. "The CLARION Cognitive Architecture", 2016. -- Dual-process implicit/explicit learning, metacognitive subsystem.
+- Franklin et al. "LIDA: A Systems-level Architecture for Cognition, Emotion, and Learning", IEEE, 2014. -- Global workspace, attention gating.
+- Baars. *A Cognitive Theory of Consciousness* (Global Workspace Theory), Cambridge University Press, 1988.
 
-### LLM Agent Architectures
-- [Sumers et al. (2024). "Cognitive Architectures for Language Agents." TMLR.](https://arxiv.org/abs/2309.02427) (CoALA)
-- [Packer et al. (2023). "MemGPT: Towards LLMs as Operating Systems."](https://arxiv.org/abs/2310.08560)
-- [Shinn et al. (2023). "Reflexion: Language Agents with Verbal Reinforcement Learning."](https://arxiv.org/abs/2303.11366)
-- [Wang et al. (2023). "Voyager: An Open-Ended Embodied Agent with Large Language Models."](https://arxiv.org/abs/2305.16291)
-- [Park et al. (2023). "Generative Agents: Interactive Simulacra of Human Behavior."](https://arxiv.org/abs/2304.03442)
+### Modern LLM-Agent Architectures
+- Sumers, Yao, Narasimhan & Griffiths. ["Cognitive Architectures for Language Agents"](https://arxiv.org/abs/2309.02427) (CoALA), TMLR 2024. -- The unifying theoretical framework.
+- Park et al. ["Generative Agents: Interactive Simulacra of Human Behavior"](https://arxiv.org/abs/2304.03442), UIST 2023. -- Memory streams, three-factor retrieval, reflection.
+- Shinn et al. ["Reflexion: Language Agents with Verbal Reinforcement Learning"](https://arxiv.org/abs/2303.11366), NeurIPS 2023. -- Self-reflection for learning.
+- Wang et al. ["Voyager: An Open-Ended Embodied Agent with Large Language Models"](https://arxiv.org/abs/2305.16291), 2023. -- Skill libraries, auto-curriculum.
+- Majumder et al. ["CLIN: A Continually Learning Language Agent"](https://arxiv.org/abs/2310.10134), 2024. -- Causal abstraction learning, cross-episode persistence.
+- Packer et al. ["MemGPT: Towards LLMs as Operating Systems"](https://arxiv.org/abs/2310.08560), 2023. -- Agent-managed memory hierarchy.
+- Zhao et al. ["ExpeL: LLM Agents Are Experiential Learners"](https://arxiv.org/abs/2308.10144), AAAI 2024. -- Contrastive learning from successes and failures.
+- ["AutoRefine"](https://arxiv.org/html/2601.22758v1), 2025. -- Dual-form experience patterns, automatic extraction outperforming manual design.
+- Wu et al. ["LLM-ACTR"](https://arxiv.org/abs/2408.09176), 2024-2025. -- ACT-R decision-making embedded in LLMs.
+- ["Brain-Inspired Modular Agentic Planner"](https://www.nature.com/articles/s41467-025-63804-5), Nature Communications, 2025.
 
-### Multi-Agent Memory
-- [Rezazadeh et al. (2025). "Collaborative Memory: Multi-User Memory Sharing in LLM Agents." ICML.](https://arxiv.org/abs/2505.18279)
-- [Memory as a Service (MaaS, 2025).](https://arxiv.org/html/2506.22815v1)
+### Memory Systems
+- Chhikara et al. ["Mem0"](https://arxiv.org/abs/2504.19413), 2025. -- Production-ready structured memory with graph variant.
+- ["FadeMem"](https://www.co-r-e.com/method/agent-memory-forgetting), 2025. -- Biologically-inspired forgetting, selective decay improves retention.
+- ["Episodic Memory is the Missing Piece for Long-Term LLM Agents"](https://arxiv.org/abs/2502.06975), 2025.
+- ["ACT-R-inspired Memory for LLM Agents"](https://dl.acm.org/doi/10.1145/3765766.3765803), 2024-2025.
 
-### Integration Research
-- [Wang et al. (2024). "Cognitive LLMs: Towards Integrating Cognitive Architectures and Large Language Models."](https://arxiv.org/pdf/2408.09176)
-- [Rosenbloom et al. (2025). "Applying Cognitive Design Patterns to General LLM Agents."](https://arxiv.org/html/2505.07087v2)
+### Multi-Agent / Collaborative Memory
+- Rezazadeh et al. ["Collaborative Memory: Multi-User Memory Sharing in LLM Agents"](https://arxiv.org/abs/2505.18279), ICML 2025.
+- ["Memory as a Service (MaaS)"](https://arxiv.org/html/2506.22815v1), 2025.
+- ["Theory of Mind for Multi-Agent Collaboration via LLMs"](https://arxiv.org/abs/2310.10701), 2024.
+- Gross. "Supporting Effortless Coordination", *CSCW Journal*, 2013. -- 25 years of awareness research.
 
-### Frameworks
-- [Letta (MemGPT)](https://github.com/letta-ai/letta) — Stateful agent platform with tiered memory
-- [LangGraph](https://www.langchain.com/langgraph) — Agent orchestration with persistence
-- [DSPy](https://dspy.ai/) — Declarative prompting and optimization
+### Surveys and Related Work
+- [Agent Memory Paper List](https://github.com/Shichun-Liu/Agent-Memory-Paper-List) -- Curated bibliography.
+- "A Survey on the Memory Mechanism of Large Language Model-based Agents", ACM TOIS, 2025.
+- Khattab et al. ["DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines"](https://arxiv.org/abs/2310.19115), 2024.
+- Wu et al. ["AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation"](https://arxiv.org/abs/2308.08155), 2024.
+- [Letta (MemGPT)](https://github.com/letta-ai/letta) -- Stateful agent platform with tiered memory
+- [LangGraph](https://www.langchain.com/langgraph) -- Agent orchestration with persistence
+
+---
+
+## 11. Summary
+
+TeaParty already has the *schema* for cognitive architecture -- `AgentMemory`, `AgentLearningEvent`, `learning_state`, `learned_preferences`. What's missing is the *wiring*: retrieval during prompt construction, reflection after interactions, and agent tools for explicit memory management.
+
+The proposed architecture follows three principles from the research:
+
+1. **Memory retrieval matters more than memory storage** -- the scoring and injection pipeline is the highest-value work
+2. **Reflection should be grounded and optional** -- agents reflect on specific interactions, not abstractly, and only when it's useful
+3. **Agents manage their own memory** -- following MemGPT, agents get tools for remember/recall/forget rather than having learning imposed on them
+
+Phase 1 (memory retrieval) can be implemented with ~200 lines and zero schema changes, using the tables that already exist. This is the recommended starting point.
