@@ -158,6 +158,10 @@ function renderSidebar(orgId, filter) {
     return;
   }
 
+  // Hide the no-orgs placeholder if it exists
+  const noOrgsEl = document.getElementById('sidebar-no-orgs');
+  if (noOrgsEl) noOrgsEl.style.display = 'none';
+
   // All possible sidebar sections
   const allSections = [
     'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
@@ -227,17 +231,37 @@ function renderSidebar(orgId, filter) {
 }
 
 function showNoOrgsPlaceholder() {
-  const first = document.getElementById('sidebar-engagements-list');
-  if (first) {
-    first.innerHTML = `<div class="sidebar-empty-state">
-      <p>Create an organization to begin.</p>
-      <p class="meta">Click the <strong>+</strong> button to get started.</p>
-    </div>`;
+  // Hide all section headers
+  const allSections = [
+    'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
+    'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
+    'sidebar-members',
+  ];
+  for (const id of allSections) {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
   }
-  ['sidebar-organizations-list', 'sidebar-workgroups-list', 'sidebar-agents-list', 'sidebar-partners-list', 'sidebar-projects-list', 'sidebar-members-list'].forEach(id => {
+
+  // Clear all list contents
+  [...allSections.map(id => id + '-list')].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   });
+
+  // Show the placeholder message in the sidebar content area
+  const sidebarContent = document.getElementById('sidebar-content');
+  let placeholder = document.getElementById('sidebar-no-orgs');
+  if (!placeholder && sidebarContent) {
+    placeholder = document.createElement('div');
+    placeholder.id = 'sidebar-no-orgs';
+    placeholder.className = 'sidebar-empty-state';
+    placeholder.innerHTML = `
+      <p>Create an organization to begin.</p>
+      <p class="meta">Click the <strong>+</strong> button to get started.</p>
+    `;
+    sidebarContent.appendChild(placeholder);
+  }
+  if (placeholder) placeholder.style.display = '';
 }
 
 function clearContainers() {

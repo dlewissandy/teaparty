@@ -5,6 +5,7 @@ import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { flash } from '../../components/shared/flash.js';
+import { loadMyInvites } from '../data/data-loading.js';
 
 let _store = null;
 let _notifications = [];
@@ -56,8 +57,10 @@ export function initNotifications(store) {
 function updateBadge() {
   const badge = document.getElementById('notif-badge');
   if (!badge) return;
-  if (_unreadCount > 0) {
-    badge.textContent = _unreadCount > 99 ? '99+' : String(_unreadCount);
+  const inviteCount = (_store?.get().data.invites || []).length;
+  const total = _unreadCount + inviteCount;
+  if (total > 0) {
+    badge.textContent = total > 99 ? '99+' : String(total);
     badge.classList.remove('hidden');
   } else {
     badge.classList.add('hidden');
@@ -98,6 +101,9 @@ export function connectSSE() {
         _unreadCount += 1;
         updateBadge();
         showToast(event);
+      } else if (event.type === 'member_removed') {
+        flash('You have been removed from a workgroup', 'info');
+        bus.emit('data:refresh');
       }
     } catch { /* ignore */ }
   };
@@ -125,9 +131,12 @@ async function openPanel() {
   const panel = document.getElementById('notification-panel');
   if (panel) panel.classList.remove('hidden');
 
-  // Load notifications
+  // Load notifications and invites in parallel
   try {
-    const data = await api('/api/notifications?limit=50');
+    const [data] = await Promise.all([
+      api('/api/notifications?limit=50'),
+      loadMyInvites(),
+    ]);
     _notifications = data || [];
     renderPanel();
   } catch {
@@ -146,27 +155,82 @@ function renderPanel() {
   const list = document.getElementById('notification-list');
   if (!list) return;
 
-  if (!_notifications.length) {
+  const invites = _store.get().data.invites || [];
+  let html = '';
+
+  // Pending invites section
+  if (invites.length) {
+    html += `<div class="notif-section-label">Pending Invites</div>`;
+    html += invites.map(inv => `
+      <div class="notif-invite-item" data-wg-id="${escapeHtml(inv.workgroup_id)}" data-token="${escapeHtml(inv.token)}">
+        <div class="notif-invite-body">
+          <div class="notif-invite-message"><strong>${escapeHtml(inv.invited_by_name || 'Someone')}</strong> invited you to <strong>${escapeHtml(inv.workgroup_name || 'a workgroup')}</strong></div>
+          <div class="notification-time">${formatRelativeTime(inv.created_at)}</div>
+        </div>
+        <div class="notif-invite-actions">
+          <button class="notif-invite-accept" data-action="accept">Accept</button>
+          <button class="notif-invite-decline" data-action="decline">Decline</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  // Regular notifications
+  if (_notifications.length) {
+    if (invites.length) html += `<div class="notif-section-label">Notifications</div>`;
+    html += _notifications.map(n => {
+      const unread = !n.is_read ? 'unread' : '';
+      const time = formatRelativeTime(n.created_at);
+      return `
+        <div class="notification-item ${unread}" data-notif-id="${escapeHtml(n.id)}"
+             ${n.source_conversation_id ? `data-conversation="${escapeHtml(n.source_conversation_id)}"` : ''}>
+          <div class="notification-body">
+            <div class="notification-message">${escapeHtml(n.message || n.summary || '')}</div>
+            <div class="notification-time">${escapeHtml(time)}</div>
+          </div>
+          ${!n.is_read ? '<span class="notification-dot"></span>' : ''}
+        </div>
+      `;
+    }).join('');
+  }
+
+  if (!html) {
     list.innerHTML = '<p class="meta notification-empty">No notifications yet.</p>';
     return;
   }
 
-  list.innerHTML = _notifications.map(n => {
-    const unread = !n.is_read ? 'unread' : '';
-    const time = formatRelativeTime(n.created_at);
-    return `
-      <div class="notification-item ${unread}" data-notif-id="${escapeHtml(n.id)}"
-           ${n.source_conversation_id ? `data-conversation="${escapeHtml(n.source_conversation_id)}"` : ''}>
-        <div class="notification-body">
-          <div class="notification-message">${escapeHtml(n.message || n.summary || '')}</div>
-          <div class="notification-time">${escapeHtml(time)}</div>
-        </div>
-        ${!n.is_read ? '<span class="notification-dot"></span>' : ''}
-      </div>
-    `;
-  }).join('');
+  list.innerHTML = html;
 
-  // Click to mark read + navigate
+  // Wire invite accept/decline buttons
+  list.querySelectorAll('.notif-invite-item').forEach(item => {
+    const wgId = item.dataset.wgId;
+    const token = item.dataset.token;
+    item.querySelector('[data-action="accept"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await api(`/api/workgroups/${wgId}/invites/${token}/accept`, { method: 'POST' });
+        flash('Invite accepted!', 'success');
+        await loadMyInvites();
+        renderPanel();
+        bus.emit('data:refresh');
+      } catch (err) {
+        flash(err.message || 'Failed to accept invite', 'error');
+      }
+    });
+    item.querySelector('[data-action="decline"]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      try {
+        await api(`/api/workgroups/${wgId}/invites/${token}/decline`, { method: 'POST' });
+        flash('Invite declined', 'info');
+        await loadMyInvites();
+        renderPanel();
+      } catch (err) {
+        flash(err.message || 'Failed to decline invite', 'error');
+      }
+    });
+  });
+
+  // Click to mark read + navigate (regular notifications)
   list.querySelectorAll('.notification-item').forEach(item => {
     item.addEventListener('click', async () => {
       const notifId = item.dataset.notifId;

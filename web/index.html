@@ -50,6 +50,9 @@
         <div id="sidebar-content" class="sidebar-content hidden">
         <div class="sidebar-header">
           <h2 id="sidebar-org-name" class="sidebar-org-name">TeaParty</h2>
+          <button id="sidebar-directory-btn" class="sidebar-icon-btn" aria-label="Directory" title="Directory">
+            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v12" stroke="currentColor" stroke-width="1.3"/><path d="M10 8h4M10 11h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
           <button id="sidebar-settings-btn" class="sidebar-icon-btn" aria-label="Organization settings" title="Settings">
             <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M8.6 3.6a1.4 1.4 0 0 1 2.8 0 1.4 1.4 0 0 0 2.1.87 1.4 1.4 0 0 1 2.36 1.36 1.4 1.4 0 0 0 .51 2.19 1.4 1.4 0 0 1 0 2.03 1.4 1.4 0 0 0-.51 2.19 1.4 1.4 0 0 1-2.36 1.36 1.4 1.4 0 0 0-2.1.87 1.4 1.4 0 0 1-2.8 0 1.4 1.4 0 0 0-2.1-.87 1.4 1.4 0 0 1-2.36-1.36 1.4 1.4 0 0 0-.51-2.19 1.4 1.4 0 0 1 0-2.03 1.4 1.4 0 0 0 .51-2.19A1.4 1.4 0 0 1 6.5 4.47a1.4 1.4 0 0 0 2.1-.87Z" stroke="currentColor" stroke-width="1.3"/><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.3"/></svg>
           </button>
@@ -200,6 +203,21 @@
           <div id="agent-profile-body" class="agent-profile-body"></div>
         </div>
 
+        <!-- Directory view (shown when directory opened from sidebar) -->
+        <div id="directory-view" class="directory-view hidden">
+          <header class="directory-header">
+            <h3 class="directory-title">Directory</h3>
+            <div class="directory-tabs" role="tablist">
+              <button class="directory-tab active" data-tab="people" role="tab">People</button>
+              <button class="directory-tab" data-tab="orgs" role="tab">Organizations</button>
+            </div>
+          </header>
+          <div class="directory-search">
+            <input id="directory-input" type="text" placeholder="Search..." autocomplete="off" />
+          </div>
+          <div id="directory-results" class="directory-results" role="list"></div>
+        </div>
+
         <!-- Composer (always at bottom of content pane) -->
         <form id="message-form" class="composer">
           <div id="composer-file-context" class="composer-file-context hidden"></div>
@@ -268,6 +286,7 @@
       </div>
     </div>
 
+
     <!-- Settings Modal -->
     <div id="settings-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
       <div class="modal-backdrop"></div>
@@ -324,11 +343,11 @@
           <svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M10 2l2.09 4.26L17 7.27l-3.5 3.41.83 4.82L10 13.27l-4.33 2.23.83-4.82L3 7.27l4.91-1.01L10 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
           <span>Skill</span>
         </button>
-        <button class="add-menu-item add-menu-org-item" data-action="new-partner">
+        <button class="add-menu-item add-menu-org-item add-menu-home-item" data-action="new-partner">
           <svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M4 10a6 6 0 0112 0" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="7" cy="14" r="2.5" stroke="currentColor" stroke-width="1.4"/><circle cx="13" cy="14" r="2.5" stroke="currentColor" stroke-width="1.4"/><path d="M9.5 14h1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
           <span>Partner</span>
         </button>
-        <button class="add-menu-item add-menu-org-item" data-action="new-engagement">
+        <button class="add-menu-item add-menu-org-item add-menu-home-item" data-action="new-engagement">
           <svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M5 4h10a1 1 0 011 1v8a1 1 0 01-1 1h-3l-2 3-2-3H5a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M7 8h6M7 11h3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
           <span>Engagement</span>
         </button>

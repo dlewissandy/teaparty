@@ -19,6 +19,7 @@ import { initUserMenu } from './features/auth/user-menu.js';
 import { initOrgRail } from './features/nav/org-rail.js';
 import { initSidebar } from './features/nav/sidebar.js';
 import { initQuickSwitcher } from './features/nav/quick-switcher.js';
+import { initDirectory } from './features/nav/directory.js';
 
 import { initChatPanel } from './features/chat/chat-panel.js';
 import { initAgentProfile } from './features/agents/agent-profile.js';
@@ -131,6 +132,7 @@ async function init() {
   initOrgRail(store);
   initSidebar(store);
   initQuickSwitcher(store);
+  initDirectory(store);
   initChatPanel(store);
   initAgentProfile(store);
   initRightPanel(store);

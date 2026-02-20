@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.deps import get_current_user
 from teaparty_app.db import get_session
-from teaparty_app.models import Invite, Membership, User, Workgroup, utc_now
+from teaparty_app.models import Invite, Membership, Organization, User, Workgroup, utc_now
 from teaparty_app.schemas import (
     InviteCreateRequest,
     InviteDetailRead,
@@ -18,6 +18,7 @@ from teaparty_app.schemas import (
 )
 from teaparty_app.services.activity import add_activity_participant, post_activity
 from teaparty_app.services.admin_workspace import list_members as list_workgroup_members
+from teaparty_app.services.event_bus import publish_user
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
 
 router = APIRouter(prefix="/api", tags=["workgroups"])
@@ -237,6 +238,47 @@ def list_members(
         )
         for row_membership, row_user in rows
     ]
+
+
+@router.delete("/workgroups/{workgroup_id}/members/{member_user_id}", status_code=204)
+def remove_member(
+    workgroup_id: str,
+    member_user_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    require_workgroup_owner(session, workgroup_id, user.id)
+
+    if member_user_id == user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove yourself")
+
+    membership = session.exec(
+        select(Membership).where(
+            Membership.workgroup_id == workgroup_id,
+            Membership.user_id == member_user_id,
+        )
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+    # Prevent removing the organization owner
+    workgroup = session.get(Workgroup, workgroup_id)
+    if workgroup and workgroup.organization_id:
+        org = session.get(Organization, workgroup.organization_id)
+        if org and org.owner_id == member_user_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove the organization owner")
+
+    member_user = session.get(User, member_user_id)
+    display_name = (member_user.name or "").strip() or (member_user.email if member_user else "Unknown")
+
+    session.delete(membership)
+    post_activity(session, workgroup_id, "member_removed", display_name, actor_user_id=user.id)
+    session.commit()
+
+    publish_user(member_user_id, {
+        "type": "member_removed",
+        "workgroup_id": workgroup_id,
+    })
 
 
 @router.patch("/workgroups/{workgroup_id}/members/{member_user_id}/role", response_model=MemberRead)

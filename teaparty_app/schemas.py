@@ -764,6 +764,20 @@ class OrgDirectoryEntry(BaseModel):
     description: str
     service_description: str
     owner_id: str
+    owner_name: str = ""
+    partner_count: int = 0
+    engagement_count: int = 0
+    avg_rating: float | None = None
+
+
+class UserDirectoryEntry(BaseModel):
+    id: str
+    name: str
+    email: str
+    picture: str
+    orgs_owned: int = 0
+    orgs_member_of: int = 0
+    avg_rating: float | None = None
 
 
 # --- Notification schemas ---

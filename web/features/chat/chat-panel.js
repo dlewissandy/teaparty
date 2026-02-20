@@ -19,18 +19,22 @@ function showChatView() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
+  const directoryView = document.getElementById('directory-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
+  if (directoryView) directoryView.classList.add('hidden');
 }
 
 function showHomeView() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
+  const directoryView = document.getElementById('directory-view');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
   if (profileView) profileView.classList.add('hidden');
+  if (directoryView) directoryView.classList.add('hidden');
 }
 
 // ─── Conversation loading ──────────────────────────────────────────────────

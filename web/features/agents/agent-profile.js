@@ -14,9 +14,11 @@ function showAgentProfile() {
   const profileView = document.getElementById('agent-profile-view');
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
+  const directoryView = document.getElementById('directory-view');
   if (profileView) profileView.classList.remove('hidden');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.add('hidden');
+  if (directoryView) directoryView.classList.add('hidden');
 }
 
 function renderProfile(agent) {

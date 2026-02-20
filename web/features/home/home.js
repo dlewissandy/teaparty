@@ -33,9 +33,11 @@ export function renderHome() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
   const dashboard = document.getElementById('home-dashboard');
+  const directoryView = document.getElementById('directory-view');
 
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
+  if (directoryView) directoryView.classList.add('hidden');
 
   const s = _store.get();
   if (!s.auth.user) return;
@@ -46,18 +48,7 @@ export function renderHome() {
 
   const summary = s.data.homeSummary;
   if (!summary?.orgs?.length) {
-    if (dashboard) {
-      dashboard.innerHTML = `
-        <div class="home-empty">
-          <h3 class="heading-serif">No organizations yet</h3>
-          <p class="meta">Create an organization to get started.</p>
-          <button class="btn-primary" id="home-create-org-btn">Create Organization</button>
-        </div>
-      `;
-      document.getElementById('home-create-org-btn')?.addEventListener('click', () => {
-        bus.emit('nav:create-org');
-      });
-    }
+    if (dashboard) dashboard.innerHTML = '';
     return;
   }
 

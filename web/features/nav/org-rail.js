@@ -60,7 +60,8 @@ export function initOrgRail(store) {
 function updateAddMenuItems() {
   const hasOrg = !!_store.get().nav.activeOrgId;
   document.querySelectorAll('.add-menu-org-item').forEach(el => {
-    el.style.display = hasOrg ? '' : 'none';
+    const isHomeItem = el.classList.contains('add-menu-home-item');
+    el.style.display = (hasOrg || isHomeItem) ? '' : 'none';
   });
 }
 
@@ -88,10 +89,10 @@ async function handleAddAction(action) {
       if (orgId) bus.emit('nav:create-skill', { orgId });
       break;
     case 'new-partner':
-      if (orgId) bus.emit('nav:create-partner', { orgId });
+      bus.emit('nav:create-partner', { orgId });
       break;
     case 'new-engagement':
-      if (orgId) bus.emit('nav:create-engagement', { orgId });
+      bus.emit('nav:create-engagement', { orgId });
       break;
   }
 }
