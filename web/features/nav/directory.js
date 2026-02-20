@@ -5,6 +5,7 @@ import { bus } from '../../core/bus.js';
 import { api } from '../../core/api.js';
 import { escapeHtml } from '../../core/utils.js';
 import { flash } from '../../components/shared/flash.js';
+import { loadPartnerships } from '../data/data-loading.js';
 
 let _store = null;
 let _activeTab = 'people'; // 'people' | 'orgs'
@@ -219,9 +220,23 @@ function renderResults(query) {
         if (myOrgs.every(o => isTaken(o.id))) showInvite = false;
       }
     }
+
+    // Show "Add Partner" for orgs that aren't the active org and don't already have a partnership (source direction only)
+    let showOrgInvite = false;
+    if (item.type === 'org' && activeOrgId && item.id !== activeOrgId && myOrgs.some(o => o.id === activeOrgId)) {
+      const partnerships = s.data.partnerships || [];
+      const hasPartnership = partnerships.some(p =>
+        p.status === 'accepted' &&
+        p.source_org_id === activeOrgId && p.target_org_id === item.id
+      );
+      showOrgInvite = !hasPartnership;
+    }
+
     const inviteBtn = showInvite
       ? `<span class="dir-card-invite" data-action="invite-person" data-email="${escapeHtml(item.sublabel)}" data-name="${escapeHtml(item.label)}" title="Invite to organization">Invite</span>`
-      : '';
+      : showOrgInvite
+        ? `<span class="dir-card-invite" data-action="invite-org" data-org-id="${escapeHtml(item.id)}" data-org-name="${escapeHtml(item.label)}" title="Add as partner">Add Partner</span>`
+        : '';
 
     html += `<button class="dir-card" data-type="${item.type}" data-id="${escapeHtml(item.id)}">
       ${avatar}
@@ -261,6 +276,31 @@ function renderResults(query) {
         _orgInvitedEmails.get(targetOrgId).add(email.toLowerCase());
       } catch (err) {
         flash(err.message || 'Failed to send invite', 'error');
+        btn.textContent = 'Invite';
+        btn.style.pointerEvents = '';
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-action="invite-org"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const targetOrgId = btn.dataset.orgId;
+      const targetOrgName = btn.dataset.orgName;
+      if (!activeOrgId) return;
+      btn.textContent = 'Sending...';
+      btn.style.pointerEvents = 'none';
+      try {
+        await api('/api/partnerships', {
+          method: 'POST',
+          body: { source_org_id: activeOrgId, target_org_id: targetOrgId },
+        });
+        flash(`Added ${targetOrgName} as partner`, 'success');
+        btn.textContent = 'Partner';
+        if (activeOrgId) loadPartnerships(activeOrgId);
+        invalidateDirectoryCache();
+      } catch (err) {
+        flash(err.message || 'Failed to add partner', 'error');
         btn.textContent = 'Invite';
         btn.style.pointerEvents = '';
       }

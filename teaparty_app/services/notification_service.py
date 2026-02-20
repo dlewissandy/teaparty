@@ -17,6 +17,7 @@ def create_notification(
     source_conversation_id: str | None = None,
     source_job_id: str | None = None,
     source_engagement_id: str | None = None,
+    source_partnership_id: str | None = None,
 ) -> Notification:
     """Create a notification record and return it (caller must commit).
 
@@ -30,6 +31,7 @@ def create_notification(
         source_conversation_id=source_conversation_id,
         source_job_id=source_job_id,
         source_engagement_id=source_engagement_id,
+        source_partnership_id=source_partnership_id,
     )
     session.add(notification)
     session.flush()
@@ -44,6 +46,7 @@ def create_notification(
         "source_conversation_id": notification.source_conversation_id,
         "source_job_id": notification.source_job_id,
         "source_engagement_id": notification.source_engagement_id,
+        "source_partnership_id": notification.source_partnership_id,
         "is_read": False,
         "created_at": notification.created_at.isoformat(),
     })

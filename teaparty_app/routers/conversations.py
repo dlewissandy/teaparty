@@ -454,16 +454,16 @@ async def stream_events(
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     from teaparty_app.auth import decode_access_token
-    from teaparty_app.services.event_bus import subscribe, unsubscribe
+    from teaparty_app.services.event_bus import get_shutdown_event, subscribe, unsubscribe
 
     user_id = decode_access_token(token)
     _conversation_for_user(session, conversation_id, user_id)
 
     queue, handle = subscribe(conversation_id)
+    shutdown = get_shutdown_event()
 
     async def event_stream():
         try:
-            # Send initial activity snapshot.
             from teaparty_app.services.team_registry import get_session as get_team_session
             agents = get_conversation_activity(conversation_id)
             team = get_team_session(conversation_id)
@@ -474,13 +474,23 @@ async def stream_events(
             }
             yield f"data: {json.dumps(initial)}\n\n"
 
-            while True:
+            while not shutdown.is_set():
                 if await request.is_disconnected():
                     break
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
-                except asyncio.TimeoutError:
+                get_task = asyncio.ensure_future(queue.get())
+                shut_task = asyncio.ensure_future(shutdown.wait())
+                done, pending = await asyncio.wait(
+                    {get_task, shut_task},
+                    timeout=15,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                if shut_task in done:
+                    break
+                if get_task in done:
+                    yield f"data: {json.dumps(get_task.result(), default=str)}\n\n"
+                else:
                     yield ": heartbeat\n\n"
         finally:
             unsubscribe(conversation_id, handle)

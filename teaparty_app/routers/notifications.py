@@ -82,23 +82,34 @@ async def stream_notifications(
 ) -> StreamingResponse:
     """SSE stream of real-time notification events for the authenticated user."""
     from teaparty_app.auth import decode_access_token
-    from teaparty_app.services.event_bus import subscribe_user, unsubscribe_user
+    from teaparty_app.services.event_bus import get_shutdown_event, subscribe_user, unsubscribe_user
 
     user_id = decode_access_token(token)
 
     queue, handle = subscribe_user(user_id)
+    shutdown = get_shutdown_event()
 
     async def event_stream():
         try:
-            # Send initial keepalive so the client knows the connection is live.
             yield ": connected\n\n"
-            while True:
+            while not shutdown.is_set():
                 if await request.is_disconnected():
                     break
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=20)
-                    yield f"data: {json.dumps(event, default=str)}\n\n"
-                except asyncio.TimeoutError:
+                # Race queue.get against shutdown so we exit promptly on reload
+                get_task = asyncio.ensure_future(queue.get())
+                shut_task = asyncio.ensure_future(shutdown.wait())
+                done, pending = await asyncio.wait(
+                    {get_task, shut_task},
+                    timeout=20,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+                if shut_task in done:
+                    break
+                if get_task in done:
+                    yield f"data: {json.dumps(get_task.result(), default=str)}\n\n"
+                else:
                     yield ": heartbeat\n\n"
         finally:
             unsubscribe_user(user_id, handle)

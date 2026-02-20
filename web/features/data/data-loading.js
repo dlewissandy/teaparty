@@ -86,30 +86,6 @@ export async function loadPartnerships(orgId) {
   }
 }
 
-export async function loadAllPartnerships() {
-  try {
-    const orgs = _store.get().data.organizations || [];
-    const allResults = await Promise.all(
-      orgs.map(org => api(`/api/organizations/${org.id}/partnerships`).catch(() => []))
-    );
-    // Dedup by partnership id
-    const seen = new Set();
-    const partnerships = [];
-    for (const list of allResults) {
-      for (const p of list) {
-        if (!seen.has(p.id)) {
-          seen.add(p.id);
-          partnerships.push(p);
-        }
-      }
-    }
-    _store.update(s => { s.data.partnerships = partnerships; });
-    _store.notify('data.partnerships');
-  } catch {
-    _store.update(s => { s.data.partnerships = []; });
-  }
-}
-
 // ─── Workgroups ───────────────────────────────────────────────────────────────
 
 export async function loadWorkgroups() {

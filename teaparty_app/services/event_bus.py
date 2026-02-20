@@ -20,6 +20,21 @@ _lock = threading.Lock()
 _subscribers: dict[str, dict[int, asyncio.Queue]] = {}
 _user_subscribers: dict[str, dict[int, asyncio.Queue]] = {}
 _next_handle = 0
+_shutdown_event: asyncio.Event | None = None
+
+
+def get_shutdown_event() -> asyncio.Event:
+    """Return the global shutdown event, creating it lazily."""
+    global _shutdown_event
+    if _shutdown_event is None:
+        _shutdown_event = asyncio.Event()
+    return _shutdown_event
+
+
+def signal_shutdown() -> None:
+    """Signal all SSE generators to stop."""
+    if _shutdown_event is not None:
+        _shutdown_event.set()
 
 
 def subscribe(conversation_id: str) -> tuple[asyncio.Queue, int]:

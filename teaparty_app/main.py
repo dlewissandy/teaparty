@@ -41,6 +41,11 @@ def create_app() -> FastAPI:
     def startup() -> None:
         init_db()
 
+    @app.on_event("shutdown")
+    def shutdown() -> None:
+        from teaparty_app.services.event_bus import signal_shutdown
+        signal_shutdown()
+
     app.include_router(auth.router)
     app.include_router(organizations.router)
     app.include_router(workgroups.router)

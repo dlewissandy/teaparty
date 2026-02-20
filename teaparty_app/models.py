@@ -420,6 +420,7 @@ class Partnership(SQLModel, table=True):
     proposed_by_user_id: str = Field(foreign_key="users.id", index=True)
     status: str = Field(default="proposed", index=True)  # proposed | accepted | declined | revoked
     direction: str = Field(default="bidirectional")  # bidirectional | source_to_target | target_to_source
+    message: str = Field(default="")
     created_at: datetime = Field(default_factory=utc_now)
     accepted_at: datetime | None = Field(default=None)
     revoked_at: datetime | None = Field(default=None)
@@ -462,5 +463,6 @@ class Notification(SQLModel, table=True):
     source_conversation_id: str | None = Field(default=None, foreign_key="conversations.id")
     source_job_id: str | None = Field(default=None, foreign_key="jobs.id")
     source_engagement_id: str | None = Field(default=None, foreign_key="engagements.id")
+    source_partnership_id: str | None = Field(default=None, foreign_key="partnerships.id")
     is_read: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utc_now)

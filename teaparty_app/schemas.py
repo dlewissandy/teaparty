@@ -511,6 +511,7 @@ class PartnershipProposeRequest(BaseModel):
     source_org_id: str
     target_org_id: str
     direction: str = "bidirectional"
+    message: str = ""
 
 
 class PartnershipRead(ORMBaseModel):
@@ -520,6 +521,7 @@ class PartnershipRead(ORMBaseModel):
     proposed_by_user_id: str
     status: str
     direction: str
+    message: str = ""
     created_at: datetime
     accepted_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -528,6 +530,19 @@ class PartnershipRead(ORMBaseModel):
 class PartnershipDetailRead(PartnershipRead):
     source_org_name: str = ""
     target_org_name: str = ""
+    proposed_by_user_name: str = ""
+
+
+class PartnershipProposalRead(ORMBaseModel):
+    id: str
+    source_org_id: str
+    source_org_name: str = ""
+    target_org_id: str
+    target_org_name: str = ""
+    proposed_by_user_name: str = ""
+    message: str = ""
+    direction: str = "bidirectional"
+    created_at: datetime
 
 
 # --- Job schemas ---
@@ -824,6 +839,7 @@ class NotificationRead(ORMBaseModel):
     source_conversation_id: str | None = None
     source_job_id: str | None = None
     source_engagement_id: str | None = None
+    source_partnership_id: str | None = None
     is_read: bool
     created_at: datetime
 

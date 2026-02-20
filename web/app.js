@@ -34,7 +34,7 @@ import { initPartnerships } from './features/partnerships/partnerships.js';
 
 import {
   initDataLoading, loadWorkgroupTemplates,
-  loadMyInvites, loadPartnerships, loadAllPartnerships, startPolling, selectConversation,
+  loadMyInvites, loadPartnerships, startPolling, selectConversation,
 } from './features/data/data-loading.js';
 
 // ─── Nav persistence ─────────────────────────────────────────────────────────
@@ -242,9 +242,6 @@ async function init() {
       if (s.nav.activeOrgId) {
         savePreferences({ lastOrgId: s.nav.activeOrgId });
         loadPartnerships(s.nav.activeOrgId);
-      } else {
-        // Home view: load partnerships across all orgs
-        loadAllPartnerships();
       }
     }
   });

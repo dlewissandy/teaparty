@@ -1166,6 +1166,22 @@ pre code {
 .sidebar-partner-item {
   padding-left: 20px;
   gap: 10px;
+  cursor: default;
+}
+
+.sidebar-partner-select {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
 }
 
 .sidebar-partner-avatar {
@@ -1218,6 +1234,7 @@ pre code {
 }
 
 .sidebar-member-item:hover .sidebar-member-remove,
+.sidebar-partner-item:hover .sidebar-member-remove,
 .sidebar-pending-item:hover .sidebar-member-remove {
   display: flex;
 }

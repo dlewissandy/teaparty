@@ -64,6 +64,8 @@ def init_db() -> None:
     _ensure_notification_table()
     _ensure_org_membership_tables()
     _backfill_org_memberships()
+    _migrate_partnership_message()
+    _migrate_notification_partnership_fk()
     _run_seeds()
 
 
@@ -1075,6 +1077,24 @@ def _ensure_org_membership_tables() -> None:
         conn.execute(
             text("CREATE UNIQUE INDEX IF NOT EXISTS ix_org_invites_token ON org_invites(token)")
         )
+
+
+def _migrate_partnership_message() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("partnerships")
+    if "message" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE partnerships ADD COLUMN message TEXT DEFAULT '' NOT NULL"))
+
+
+def _migrate_notification_partnership_fk() -> None:
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("notifications")
+    if "source_partnership_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE notifications ADD COLUMN source_partnership_id TEXT REFERENCES partnerships(id)"))
 
 
 def _backfill_org_memberships() -> None:
