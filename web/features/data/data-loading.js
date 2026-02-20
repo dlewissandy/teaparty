@@ -254,6 +254,8 @@ export async function loadTeamRoster(conversationId) {
     const roster = await api(`/api/conversations/${conversationId}/participants`, { retries: 0, timeout: 8000 });
     _store.update(s => { s.conversation.teamRoster = roster || []; });
     _store.notify('conversation.teamRoster');
+    // Re-render messages so agent names resolve from roster
+    _store.notify('conversation.messages');
   } catch {
     _store.update(s => { s.conversation.teamRoster = []; });
   }
@@ -277,8 +279,10 @@ export async function selectConversation(workgroupId, conversationId) {
   // Show chat view
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
+  const profileView = document.getElementById('agent-profile-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
+  if (profileView) profileView.classList.add('hidden');
 
   connectSSE(conversationId);
   await loadMessages();

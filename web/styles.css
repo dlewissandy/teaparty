@@ -1512,10 +1512,20 @@ pre code {
   margin-top: 2px;
 }
 
-/* Agent avatar — square with gold ring */
+.message-avatar svg {
+  width: 100%;
+  height: 100%;
+}
+
+.message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Agent avatar — square */
 .message-row.agent .message-avatar {
   border-radius: 6px;
-  box-shadow: 0 0 0 2px var(--tp-agent-border);
 }
 
 /* Message body */
@@ -1534,7 +1544,7 @@ pre code {
 }
 
 .message-sender {
-  font-weight: 600;
+  font-weight: 700;
   font-size: 0.875rem;
   line-height: 1.4;
 }
@@ -1578,6 +1588,85 @@ pre code {
 
 .message-text li {
   margin-bottom: 0.25em;
+}
+
+.message-text h1,
+.message-text h2,
+.message-text h3,
+.message-text h4,
+.message-text h5,
+.message-text h6 {
+  margin: 1em 0 0.4em;
+  line-height: 1.3;
+  font-family: "Source Serif 4", Georgia, serif;
+  color: var(--tp-ink);
+}
+.message-text h1:first-child,
+.message-text h2:first-child,
+.message-text h3:first-child {
+  margin-top: 0;
+}
+.message-text h1 { font-size: 1.35em; }
+.message-text h2 { font-size: 1.2em; }
+.message-text h3 { font-size: 1.08em; }
+.message-text h4 { font-size: 1em; font-weight: 600; }
+
+.message-text blockquote {
+  margin: 0.5em 0;
+  padding: 0.35em 0.8em;
+  border-left: 3px solid var(--tp-primary);
+  background: var(--tp-surface-inset);
+  border-radius: 0 var(--tp-radius-sm) var(--tp-radius-sm) 0;
+  color: var(--tp-ink-secondary);
+}
+.message-text blockquote p { margin-bottom: 0.25em; }
+
+.message-text pre {
+  margin: 0.5em 0;
+  max-height: 30em;
+  overflow: auto;
+}
+
+.message-text code {
+  font-size: 0.85em;
+}
+
+.message-text img {
+  max-width: 100%;
+  max-height: 28em;
+  border-radius: var(--tp-radius-sm);
+  margin: 0.5em 0;
+}
+
+.message-text hr {
+  border: none;
+  border-top: 1px solid var(--tp-line);
+  margin: 0.8em 0;
+}
+
+.message-text table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  width: 100%;
+  font-size: 0.875em;
+}
+.message-text th,
+.message-text td {
+  border: 1px solid var(--tp-line);
+  padding: 0.35em 0.6em;
+  text-align: left;
+}
+.message-text th {
+  background: var(--tp-surface-inset);
+  font-weight: 600;
+}
+
+.message-text a {
+  color: var(--tp-primary);
+  text-decoration: none;
+}
+.message-text a:hover {
+  text-decoration: underline;
 }
 
 /* Mention highlight */
@@ -2584,10 +2673,9 @@ pre code {
 .avatar-md  { width: 36px; height: 36px; font-size: 0.75rem;  border-radius: 50%; }
 .avatar-lg  { width: 48px; height: 48px; font-size: 1rem;     border-radius: 50%; }
 
-/* Agent avatars get a square + ring */
+/* Agent avatars get a square shape */
 .avatar.agent {
   border-radius: 6px !important;
-  box-shadow: 0 0 0 2px var(--tp-agent-border);
 }
 
 /* Presence dot */
@@ -3375,6 +3463,107 @@ pre code {
 .tool-chip-remove svg {
   width: 10px;
   height: 10px;
+}
+
+/* ==========================================================================
+   22b. AGENT PROFILE VIEW (main content area)
+   ========================================================================== */
+
+.agent-profile-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 40px;
+}
+
+.agent-profile-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--tp-line-subtle);
+  margin-bottom: 24px;
+}
+
+.agent-profile-identity {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.agent-profile-avatar {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+}
+
+.agent-profile-avatar svg {
+  width: 100%;
+  height: 100%;
+}
+
+.agent-profile-name {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--tp-ink);
+  margin: 0;
+  line-height: 1.2;
+}
+
+.agent-profile-role {
+  margin: 2px 0 0;
+  font-size: 0.875rem;
+}
+
+.agent-profile-body {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 640px;
+}
+
+.agent-profile-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agent-profile-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--tp-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.agent-profile-text {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--tp-ink);
+  white-space: pre-wrap;
+}
+
+.agent-profile-kvs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.agent-profile-kv {
+  font-size: 0.875rem;
+  color: var(--tp-ink);
+}
+
+.agent-profile-key {
+  font-weight: 600;
+  color: var(--tp-ink-secondary);
+  margin-right: 6px;
 }
 
 /* ==========================================================================

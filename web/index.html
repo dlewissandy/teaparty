@@ -185,6 +185,21 @@
           </div>
         </div>
 
+        <!-- Agent profile view (shown when agent selected in sidebar) -->
+        <div id="agent-profile-view" class="agent-profile-view hidden">
+          <header class="agent-profile-header">
+            <div class="agent-profile-identity">
+              <div id="agent-profile-avatar" class="agent-profile-avatar"></div>
+              <div>
+                <h3 id="agent-profile-name" class="agent-profile-name"></h3>
+                <p id="agent-profile-role" class="agent-profile-role meta"></p>
+              </div>
+            </div>
+            <button id="agent-profile-chat-btn" class="btn btn-primary">Chat</button>
+          </header>
+          <div id="agent-profile-body" class="agent-profile-body"></div>
+        </div>
+
         <!-- Composer (always at bottom of content pane) -->
         <form id="message-form" class="composer">
           <div id="composer-file-context" class="composer-file-context hidden"></div>

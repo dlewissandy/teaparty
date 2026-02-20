@@ -55,11 +55,11 @@ function conversationContextLabel(store, workgroupId, conversationId) {
   // Check if it's admin
   const jobConv = data.jobs?.find(c => c.id === conversationId);
   if (jobConv?.kind === 'admin') {
-    if (orgName) return `Administration \u203A ${orgName}`;
+    if (orgName) return `${orgName} \u203A Administration`;
     return 'Administration';
   }
 
-  if (orgName) return `${wgName} \u203A ${orgName}`;
+  if (orgName) return `${orgName} \u203A ${wgName}`;
   return wgName;
 }
 

@@ -132,7 +132,14 @@ function renderOrgIcons() {
   container.querySelectorAll('.org-rail-icon').forEach(btn => {
     btn.addEventListener('click', () => {
       const orgId = btn.dataset.orgId;
-      _store.update(s => { s.nav.activeOrgId = orgId; });
+      _store.update(s => {
+        s.nav.activeOrgId = orgId;
+        s.nav.activeWorkgroupId = '';
+        s.nav.activeConversationId = '';
+        s.nav.sidebarSelection = '';
+      });
+      // Force notify even if orgId didn't change (re-click same org)
+      _store.notify('nav.activeOrgId');
       bus.emit('nav:org-selected', { orgId });
     });
   });

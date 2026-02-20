@@ -147,6 +147,12 @@ export function initMessageList(store) {
     renderMessages(store, messages);
   });
 
+  // Re-render when tree data loads (agent/member names resolve from treeData)
+  store.on('data.treeData', () => {
+    const messages = store.get().conversation.messages || [];
+    if (messages.length) renderMessages(store, messages);
+  });
+
   // Handle incoming SSE messages
   bus.on('sse:message', ({ conversationId, event }) => {
     const s = store.get();

@@ -22,10 +22,16 @@ export function memberName(workgroupId, userId) {
 }
 
 export function agentName(workgroupId, agentId) {
-  const data = _store.get().data.treeData[workgroupId];
+  const s = _store.get();
+  const data = s.data.treeData[workgroupId];
   const agent = data?.agents?.find(a => a.id === agentId);
-  if (!agent) return agentId?.slice(0, 8) || 'agent';
-  return agent.name || agent.id.slice(0, 8);
+  if (agent) return agent.name || agent.id.slice(0, 8);
+
+  // Fallback: check team roster for active conversation
+  const rosterAgent = s.conversation?.teamRoster?.agents?.find(a => a.id === agentId);
+  if (rosterAgent) return rosterAgent.name;
+
+  return agentId?.slice(0, 8) || 'agent';
 }
 
 export function senderLabel(workgroupId, message) {

@@ -1,7 +1,7 @@
 // Sidebar Jobs section: job conversations for the active workgroup.
 
 import { bus } from '../../core/bus.js';
-import { escapeHtml } from '../../core/utils.js';
+import { escapeHtml, jobDisplayName } from '../../core/utils.js';
 
 export function renderJobSection(store, container, workgroupId, filter) {
   const s = store.get();
@@ -11,7 +11,7 @@ export function renderJobSection(store, container, workgroupId, filter) {
   const selection = s.nav.sidebarSelection;
 
   const filtered = filterLower
-    ? jobs.filter(j => (j.title || j.id).toLowerCase().includes(filterLower))
+    ? jobs.filter(j => jobDisplayName(j).toLowerCase().includes(filterLower))
     : jobs;
 
   if (!filtered.length) {
@@ -20,7 +20,7 @@ export function renderJobSection(store, container, workgroupId, filter) {
   }
 
   container.innerHTML = filtered.map(job => {
-    const name = job.title || 'Untitled';
+    const name = jobDisplayName(job);
     const itemId = `job:${job.id}`;
     const isActive = selection === itemId;
     return `<button

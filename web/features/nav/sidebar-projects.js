@@ -1,7 +1,7 @@
 // Sidebar Projects section: job conversations across all workgroups in the org.
 
 import { bus } from '../../core/bus.js';
-import { escapeHtml } from '../../core/utils.js';
+import { escapeHtml, jobDisplayName } from '../../core/utils.js';
 
 export function renderProjectSection(store, container, orgId, filter) {
   const s = store.get();
@@ -19,7 +19,7 @@ export function renderProjectSection(store, container, orgId, filter) {
   }
 
   const filtered = filterLower
-    ? projects.filter(({ job }) => (job.title || job.id).toLowerCase().includes(filterLower))
+    ? projects.filter(({ job }) => jobDisplayName(job).toLowerCase().includes(filterLower))
     : projects;
 
   if (!filtered.length) {
@@ -28,7 +28,7 @@ export function renderProjectSection(store, container, orgId, filter) {
   }
 
   container.innerHTML = filtered.map(({ job, workgroupId }) => {
-    const name = job.title || 'Untitled';
+    const name = jobDisplayName(job);
     const itemId = `project:${job.id}`;
     const isActive = selection === itemId;
     return `<button

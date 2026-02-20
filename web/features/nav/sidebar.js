@@ -15,6 +15,7 @@ import { renderMemberSection } from './sidebar-members.js';
 const STORAGE_KEY = 'teaparty_sidebar_collapsed';
 
 let _store = null;
+let _drilledWorkgroupId = '';  // only set by explicit workgroup drill-in
 
 function loadCollapsed() {
   try {
@@ -72,8 +73,25 @@ export function initSidebar(store) {
     if (orgId) bus.emit('nav:org-settings', { orgId });
   });
 
+  // Explicit workgroup drill-in
+  bus.on('nav:workgroup-selected', ({ workgroupId }) => {
+    _drilledWorkgroupId = workgroupId || '';
+    refreshSidebar();
+  });
+
+  // Drill-out when navigating to org or home
+  bus.on('nav:org-selected', () => {
+    _drilledWorkgroupId = '';
+    refreshSidebar();
+  });
+  bus.on('nav:home', () => {
+    _drilledWorkgroupId = '';
+    refreshSidebar();
+  });
+
   // Re-render when org selection changes
   store.on('nav.activeOrgId', (s) => {
+    _drilledWorkgroupId = '';
     const searchInput = document.getElementById('sidebar-search');
     const filter = searchInput?.value.trim() || '';
     renderSidebar(s.nav.activeOrgId, filter);
@@ -86,7 +104,6 @@ export function initSidebar(store) {
   store.on('data.partnerships', () => refreshSidebar());
   store.on('conversation.thinkingByConversation', () => refreshSidebar());
   store.on('nav.activeConversationId', () => refreshSidebar());
-  store.on('nav.activeWorkgroupId', () => refreshSidebar());
   store.on('nav.sidebarSelection', () => refreshSidebar());
 
   renderSidebar(_store.get().nav.activeOrgId, '');
@@ -107,7 +124,7 @@ function renderSidebar(orgId, filter) {
   const orgNameEl = document.getElementById('sidebar-org-name');
   const settingsBtn = document.getElementById('sidebar-settings-btn');
   const isHome = !orgId && s.auth.user && orgs.length;
-  const activeWgId = s.nav.activeWorkgroupId;
+  const activeWgId = _drilledWorkgroupId;
 
   if (orgNameEl) {
     if (orgId && activeWgId) {
@@ -118,6 +135,7 @@ function renderSidebar(orgId, filter) {
       orgNameEl.innerHTML = `<span id="sidebar-breadcrumb-org" class="sidebar-breadcrumb-link">${escapeHtml(orgName)}</span> <span class="sidebar-breadcrumb-sep">&rsaquo;</span> ${escapeHtml(wgName)}`;
       // Wire up org breadcrumb click
       document.getElementById('sidebar-breadcrumb-org')?.addEventListener('click', () => {
+        _drilledWorkgroupId = '';
         _store.update(s => {
           s.nav.activeWorkgroupId = '';
           s.nav.activeConversationId = '';

@@ -21,6 +21,7 @@ import { initSidebar } from './features/nav/sidebar.js';
 import { initQuickSwitcher } from './features/nav/quick-switcher.js';
 
 import { initChatPanel } from './features/chat/chat-panel.js';
+import { initAgentProfile } from './features/agents/agent-profile.js';
 
 import { initRightPanel } from './features/files/right-panel.js';
 
@@ -131,6 +132,7 @@ async function init() {
   initSidebar(store);
   initQuickSwitcher(store);
   initChatPanel(store);
+  initAgentProfile(store);
   initRightPanel(store);
   initSettings(store);
   initNotifications(store);

@@ -13,31 +13,31 @@ function resolveAvatarHtml(store, message) {
   if (message.sender_type === 'agent' && message.sender_agent_id && wgData) {
     const agent = wgData.agents?.find(a => a.id === message.sender_agent_id);
     if (agent?.icon) {
-      return `<div class="avatar avatar-agent"><img src="${escapeHtml(agent.icon)}" alt="" /></div>`;
+      return `<div class="message-avatar avatar avatar-agent"><img src="${escapeHtml(agent.icon)}" alt="" /></div>`;
     }
     const name = agent?.name || agentName(wgId, message.sender_agent_id);
-    return `<div class="avatar avatar-agent">${generateBotSvg(name)}</div>`;
+    return `<div class="message-avatar avatar avatar-agent">${generateBotSvg(name)}</div>`;
   }
 
   if (message.sender_type === 'user' && message.sender_user_id && wgData) {
     const member = wgData.members?.find(m => m.user_id === message.sender_user_id);
     if (member?.picture) {
-      return `<div class="avatar avatar-human"><img src="${escapeHtml(member.picture)}" alt="" /></div>`;
+      return `<div class="message-avatar avatar avatar-human"><img src="${escapeHtml(member.picture)}" alt="" /></div>`;
     }
     const name = member?.name || member?.email || memberName(wgId, message.sender_user_id);
-    return `<div class="avatar avatar-human">${generateHumanSvg(name)}</div>`;
+    return `<div class="message-avatar avatar avatar-human">${generateHumanSvg(name)}</div>`;
   }
 
   if (message.sender_type === 'system') {
-    return `<div class="avatar avatar-system"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#8da3a6"/><text x="16" y="16" text-anchor="middle" dominant-baseline="central" fill="#fff" font-family="sans-serif" font-weight="700" font-size="10">SYS</text></svg></div>`;
+    return `<div class="message-avatar avatar avatar-system"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#8da3a6"/><text x="16" y="16" text-anchor="middle" dominant-baseline="central" fill="#fff" font-family="sans-serif" font-weight="700" font-size="10">SYS</text></svg></div>`;
   }
 
   // Fallback
   const label = senderLabel(wgId, message);
   if (message.sender_type === 'agent') {
-    return `<div class="avatar avatar-agent">${generateBotSvg(label)}</div>`;
+    return `<div class="message-avatar avatar avatar-agent">${generateBotSvg(label)}</div>`;
   }
-  return `<div class="avatar avatar-human">${generateHumanSvg(label)}</div>`;
+  return `<div class="message-avatar avatar avatar-human">${generateHumanSvg(label)}</div>`;
 }
 
 /** Resolve sender display name with appropriate class. */
@@ -47,12 +47,12 @@ function resolveSenderHtml(store, message) {
   const label = senderLabel(wgId, message);
 
   if (message.sender_type === 'agent') {
-    return `<span class="sender agent-name">${escapeHtml(label)}</span>`;
+    return `<span class="message-sender agent-name">${escapeHtml(label)}</span>`;
   }
   if (message.sender_type === 'system') {
-    return `<span class="sender system-name">${escapeHtml(label)}</span>`;
+    return `<span class="message-sender system-name">${escapeHtml(label)}</span>`;
   }
-  return `<span class="sender human-name">${escapeHtml(label)}</span>`;
+  return `<span class="message-sender human-name">${escapeHtml(label)}</span>`;
 }
 
 /** Format timestamp to short local time string. */
@@ -62,14 +62,28 @@ function formatTime(isoString) {
   return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 }
 
-/** Build message content HTML with file context, escaping, and linkification. */
+/** Render markdown to sanitized HTML, with @mention highlighting. */
+function renderMarkdown(text) {
+  if (typeof window.marked !== 'undefined' && typeof window.DOMPurify !== 'undefined') {
+    const raw = window.marked.parse(text);
+    const clean = window.DOMPurify.sanitize(raw, {
+      ADD_TAGS: ['iframe'],
+      ADD_ATTR: ['target', 'rel', 'class'],
+    });
+    return highlightMentions(clean);
+  }
+  // Fallback when CDN libs aren't loaded
+  return highlightMentions(linkifyUrls(escapeHtml(text)));
+}
+
+/** Build message content HTML with file context and markdown rendering. */
 function buildContentHtml(content) {
   const fc = parseFileContext(content);
   if (fc) {
     const fileToggle = `<div class="message-file-context" onclick="this.classList.toggle('expanded')"><span class="message-file-context-toggle">\u{1F4CE} ${escapeHtml(fc.path)}</span><pre class="message-file-context-content">${escapeHtml(fc.fileContent)}</pre></div>`;
-    return fileToggle + highlightMentions(linkifyUrls(escapeHtml(fc.message)));
+    return fileToggle + renderMarkdown(fc.message);
   }
-  return highlightMentions(linkifyUrls(escapeHtml(content)));
+  return renderMarkdown(content);
 }
 
 /** Determine CSS row classes for a message. */
@@ -114,7 +128,7 @@ export function createMessageElement(store, message, isGrouped = false, isNew = 
     <div class="message-body">
       <div class="message-meta">
         ${senderHtml}
-        <time class="message-time" datetime="${escapeHtml(message.created_at || '')}">${escapeHtml(timeStr)}</time>
+        <time class="message-timestamp" datetime="${escapeHtml(message.created_at || '')}">${escapeHtml(timeStr)}</time>
       </div>
       <div class="message-text">${contentHtml}</div>
     </div>
@@ -138,10 +152,9 @@ export function updateMessageElement(store, el, message, isGrouped = false) {
   el.className = isNew ? classes + ' message-new' : classes;
 
   // Update avatar
-  const avatarSlot = el.querySelector('.avatar, .avatar-agent, .avatar-human, .avatar-system');
+  const avatarSlot = el.querySelector('.message-avatar');
   if (avatarSlot) {
     const newAvatarHtml = resolveAvatarHtml(store, message);
-    // Replace outer div
     const temp = document.createElement('div');
     temp.innerHTML = newAvatarHtml;
     const newAvatar = temp.firstElementChild;
@@ -149,7 +162,7 @@ export function updateMessageElement(store, el, message, isGrouped = false) {
   }
 
   // Update sender name
-  const senderEl = el.querySelector('.sender');
+  const senderEl = el.querySelector('.message-sender');
   if (senderEl) {
     const s = store.get();
     const wgId = s.nav.activeWorkgroupId;
@@ -158,7 +171,7 @@ export function updateMessageElement(store, el, message, isGrouped = false) {
   }
 
   // Update time
-  const timeEl = el.querySelector('.message-time');
+  const timeEl = el.querySelector('.message-timestamp');
   if (timeEl) {
     timeEl.textContent = formatTime(message.created_at);
     timeEl.setAttribute('datetime', message.created_at || '');

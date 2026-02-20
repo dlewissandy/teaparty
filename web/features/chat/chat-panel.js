@@ -18,15 +18,19 @@ let _store = null;
 function showChatView() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
+  const profileView = document.getElementById('agent-profile-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
+  if (profileView) profileView.classList.add('hidden');
 }
 
 function showHomeView() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
+  const profileView = document.getElementById('agent-profile-view');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
+  if (profileView) profileView.classList.add('hidden');
 }
 
 // ─── Conversation loading ──────────────────────────────────────────────────
@@ -63,6 +67,8 @@ async function loadTeamRoster(store, conversationId) {
     if (s.nav.activeConversationId !== conversationId) return;
     store.update(st => { st.conversation.teamRoster = roster; });
     renderTeamRoster(roster);
+    // Re-render messages so agent names resolve from roster
+    store.notify('conversation.messages');
   } catch {
     // Non-critical
   }
@@ -173,7 +179,11 @@ export function initChatPanel(store) {
     if (convId) {
       showChatView();
     } else {
-      showHomeView();
+      // Don't override the agent profile view if it's currently showing
+      const profileView = document.getElementById('agent-profile-view');
+      if (!profileView || profileView.classList.contains('hidden')) {
+        showHomeView();
+      }
     }
   });
 
