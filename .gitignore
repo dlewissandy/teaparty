@@ -12,3 +12,9 @@ wheels/
 # Local app state
 .env
 teaparty.db
+
+# OS files
+.DS_Store
+
+# Claude Code
+.claude/worktrees/
