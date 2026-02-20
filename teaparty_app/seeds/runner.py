@@ -58,31 +58,25 @@ def _ensure_system_user(session: Session) -> User:
     user = session.exec(
         select(User).where(User.email == SYSTEM_USER_EMAIL)
     ).first()
-    if user:
-        if not existing_record:
-            session.add(SeedRecord(
-                seed_key="system-user",
-                entity_type="user",
-                entity_id=user.id,
-                seed_version=1,
-                checksum="",
-            ))
-        return user
+    if not user:
+        user = User(
+            email=SYSTEM_USER_EMAIL,
+            name=SYSTEM_USER_NAME,
+        )
+        session.add(user)
+        session.flush()
 
-    user = User(
-        email=SYSTEM_USER_EMAIL,
-        name=SYSTEM_USER_NAME,
-    )
-    session.add(user)
-    session.flush()
-
-    session.add(SeedRecord(
-        seed_key="system-user",
-        entity_type="user",
-        entity_id=user.id,
-        seed_version=1,
-        checksum="",
-    ))
+    if existing_record:
+        existing_record.entity_id = user.id
+        session.add(existing_record)
+    else:
+        session.add(SeedRecord(
+            seed_key="system-user",
+            entity_type="user",
+            entity_id=user.id,
+            seed_version=1,
+            checksum="",
+        ))
     return user
 
 
@@ -98,28 +92,22 @@ def _ensure_seed_organization(session: Session, system_user: User) -> Organizati
     org = session.exec(
         select(Organization).where(Organization.name == SEED_ORGANIZATION_NAME)
     ).first()
-    if org:
-        if not existing_record:
-            session.add(SeedRecord(
-                seed_key="seed-organization",
-                entity_type="organization",
-                entity_id=org.id,
-                seed_version=1,
-                checksum="",
-            ))
-        return org
+    if not org:
+        org = Organization(name=SEED_ORGANIZATION_NAME, description="Default organization for seed workgroups", owner_id=system_user.id)
+        session.add(org)
+        session.flush()
 
-    org = Organization(name=SEED_ORGANIZATION_NAME, description="Default organization for seed workgroups", owner_id=system_user.id)
-    session.add(org)
-    session.flush()
-
-    session.add(SeedRecord(
-        seed_key="seed-organization",
-        entity_type="organization",
-        entity_id=org.id,
-        seed_version=1,
-        checksum="",
-    ))
+    if existing_record:
+        existing_record.entity_id = org.id
+        session.add(existing_record)
+    else:
+        session.add(SeedRecord(
+            seed_key="seed-organization",
+            entity_type="organization",
+            entity_id=org.id,
+            seed_version=1,
+            checksum="",
+        ))
     return org
 
 

@@ -125,37 +125,8 @@ def list_users(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[UserDirectoryEntry]:
-    org_ids = _user_org_ids(session, user)
-    if not org_ids:
-        return []
-
-    # Find all workgroups in those orgs
-    wg_ids = session.exec(
-        select(Workgroup.id).where(Workgroup.organization_id.in_(org_ids))
-    ).all()
-    if not wg_ids:
-        return []
-
-    # Find all co-members (excluding the current user)
-    co_member_user_ids = set(
-        session.exec(
-            select(Membership.user_id)
-            .where(Membership.workgroup_id.in_(wg_ids), Membership.user_id != user.id)
-        ).all()
-    )
-
-    # Also include org owners
-    org_owner_ids = set(
-        session.exec(
-            select(Organization.owner_id).where(Organization.id.in_(org_ids))
-        ).all()
-    )
-
-    all_user_ids = co_member_user_ids | org_owner_ids | {user.id}
-    if not all_user_ids:
-        return []
-
-    users = session.exec(select(User).where(User.id.in_(list(all_user_ids)))).all()
+    users = session.exec(select(User)).all()
+    all_user_ids = {u.id for u in users}
 
     # Orgs owned per user
     owned_rows = session.exec(

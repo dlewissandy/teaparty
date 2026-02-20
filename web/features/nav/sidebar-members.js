@@ -1,6 +1,5 @@
-// Sidebar Members section: human members for the active org or workgroup.
-// When scopeWgId is provided, shows members for that workgroup only.
-// Otherwise shows members across all workgroups in the org.
+// Sidebar Members section: human members for the active org.
+// Fetches from org-level endpoints and shows pending org invites.
 
 import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
@@ -8,45 +7,29 @@ import { escapeHtml } from '../../core/utils.js';
 import { generateHumanSvg } from '../../components/shared/avatar.js';
 import { flash } from '../../components/shared/flash.js';
 
-export function renderMemberSection(store, container, orgId, filter, scopeWgId) {
+export async function renderMemberSection(store, container, orgId, filter, scopeWgId) {
   const s = store.get();
-  const workgroups = scopeWgId
-    ? (s.data.workgroups || []).filter(w => w.id === scopeWgId)
-    : (s.data.workgroups || []).filter(w => w.organization_id === orgId);
-  const filterLower = (filter || '').toLowerCase();
   const currentUserId = s.auth.user?.id;
+  const org = (s.data.organizations || []).find(o => o.id === orgId);
+  const isOwner = org?.owner_id === currentUserId;
+  const filterLower = (filter || '').toLowerCase();
   const selection = s.nav.sidebarSelection;
 
-  // Check if current user is owner of any scoped workgroup
-  const isOwner = workgroups.some(wg => wg.owner_id === currentUserId);
+  let members = [];
+  let invites = [];
+  try {
+    members = await api(`/api/organizations/${orgId}/org-members`);
+    if (isOwner) invites = await api(`/api/organizations/${orgId}/org-invites`);
+  } catch { /* fallback empty */ }
 
-  // Collect members with their workgroup ID (for remove API)
-  const memberMap = new Map(); // userId -> { member, workgroupId }
-  for (const wg of workgroups) {
-    const tree = s.data.treeData[wg.id];
-    if (!tree) continue;
-    for (const m of (tree.members || [])) {
-      if (!memberMap.has(m.user_id)) {
-        memberMap.set(m.user_id, { member: m, workgroupId: wg.id });
-      }
-    }
+  // Optionally filter to a specific workgroup's members
+  let filtered = members || [];
+  if (scopeWgId) {
+    filtered = filtered.filter(m => (m.workgroup_ids || []).includes(scopeWgId));
   }
-
-  const entries = Array.from(memberMap.values());
-  const filtered = filterLower
-    ? entries.filter(e => (e.member.name || e.member.email || '').toLowerCase().includes(filterLower))
-    : entries;
-
-  // Collect pending invites across scoped workgroups
-  const invites = [];
-  for (const wg of workgroups) {
-    const tree = s.data.treeData[wg.id];
-    if (!tree?.invites) continue;
-    for (const inv of tree.invites) {
-      if (!filterLower || (inv.email || '').toLowerCase().includes(filterLower)) {
-        invites.push({ ...inv, _workgroupId: wg.id });
-      }
-    }
+  if (filterLower) {
+    filtered = filtered.filter(m => (m.name || m.email || '').toLowerCase().includes(filterLower));
+    invites = invites.filter(inv => (inv.email || '').toLowerCase().includes(filterLower));
   }
 
   if (!filtered.length && !invites.length) {
@@ -54,7 +37,7 @@ export function renderMemberSection(store, container, orgId, filter, scopeWgId) 
     return;
   }
 
-  let html = filtered.map(({ member: m, workgroupId }) => {
+  let html = filtered.map(m => {
     const name = m.name || m.email || 'Member';
     const isYou = m.user_id === currentUserId;
     const isMemberOwner = m.role === 'owner';
@@ -65,7 +48,7 @@ export function renderMemberSection(store, container, orgId, filter, scopeWgId) 
       : generateHumanSvg(name);
 
     const removeBtn = (isOwner && !isYou && !isMemberOwner)
-      ? `<button class="sidebar-member-remove" data-action="remove-member" data-wg-id="${escapeHtml(workgroupId)}" data-user-id="${escapeHtml(m.user_id)}" data-name="${escapeHtml(name)}" title="Remove member" aria-label="Remove ${escapeHtml(name)}">
+      ? `<button class="sidebar-member-remove" data-action="remove-member" data-org-id="${escapeHtml(orgId)}" data-user-id="${escapeHtml(m.user_id)}" data-name="${escapeHtml(name)}" title="Remove member" aria-label="Remove ${escapeHtml(name)}">
           <svg viewBox="0 0 20 20" fill="none" width="12" height="12"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>`
       : '';
@@ -83,7 +66,7 @@ export function renderMemberSection(store, container, orgId, filter, scopeWgId) 
     html += `<div class="sidebar-pending-label">Pending Invites</div>`;
     html += invites.map(inv => {
       const cancelBtn = isOwner
-        ? `<button class="sidebar-member-remove" data-action="cancel-invite" data-wg-id="${escapeHtml(inv._workgroupId)}" data-invite-id="${escapeHtml(inv.id)}" title="Cancel invite" aria-label="Cancel invite for ${escapeHtml(inv.email)}">
+        ? `<button class="sidebar-member-remove" data-action="cancel-invite" data-org-id="${escapeHtml(orgId)}" data-invite-id="${escapeHtml(inv.id)}" title="Cancel invite" aria-label="Cancel invite for ${escapeHtml(inv.email)}">
             <svg viewBox="0 0 20 20" fill="none" width="12" height="12"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
           </button>`
         : '';
@@ -113,12 +96,12 @@ export function renderMemberSection(store, container, orgId, filter, scopeWgId) 
   container.querySelectorAll('[data-action="remove-member"]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const wgId = btn.dataset.wgId;
+      const oId = btn.dataset.orgId;
       const userId = btn.dataset.userId;
       const name = btn.dataset.name;
-      if (!confirm(`Remove ${name} from this workgroup?`)) return;
+      if (!confirm(`Remove ${name} from this organization?`)) return;
       try {
-        await api(`/api/workgroups/${wgId}/members/${userId}`, { method: 'DELETE' });
+        await api(`/api/organizations/${oId}/org-members/${userId}`, { method: 'DELETE' });
         flash(`${name} removed`, 'success');
         bus.emit('data:refresh');
       } catch (err) {
@@ -131,11 +114,11 @@ export function renderMemberSection(store, container, orgId, filter, scopeWgId) 
   container.querySelectorAll('[data-action="cancel-invite"]').forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
-      const wgId = btn.dataset.wgId;
+      const oId = btn.dataset.orgId;
       const inviteId = btn.dataset.inviteId;
       if (!confirm('Cancel this invite?')) return;
       try {
-        await api(`/api/workgroups/${wgId}/invites/${inviteId}`, { method: 'DELETE' });
+        await api(`/api/organizations/${oId}/org-invites/${inviteId}`, { method: 'DELETE' });
         flash('Invite cancelled', 'success');
         bus.emit('data:refresh');
       } catch (err) {

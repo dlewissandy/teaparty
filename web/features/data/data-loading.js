@@ -200,7 +200,7 @@ export async function loadWorkgroupTemplates() {
 
 export async function loadMyInvites() {
   try {
-    const invites = await api('/api/invites/mine');
+    const invites = await api('/api/org-invites/mine');
     _store.update(s => { s.data.invites = invites; });
   } catch {
     _store.update(s => { s.data.invites = []; });

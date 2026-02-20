@@ -121,6 +121,31 @@ class Invite(SQLModel, table=True):
     accepted_at: datetime | None = Field(default=None)
 
 
+class OrgMembership(SQLModel, table=True):
+    __tablename__ = "org_memberships"
+    __table_args__ = (UniqueConstraint("organization_id", "user_id", name="uq_org_membership"),)
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    organization_id: str = Field(foreign_key="organizations.id", index=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    role: str = Field(default="member")  # "owner" | "member"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class OrgInvite(SQLModel, table=True):
+    __tablename__ = "org_invites"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    organization_id: str = Field(foreign_key="organizations.id", index=True)
+    invited_by_user_id: str = Field(foreign_key="users.id", index=True)
+    email: str = Field(index=True)
+    token: str = Field(sa_column=Column(String, unique=True, index=True, nullable=False))
+    status: str = Field(default="pending")  # pending | accepted | declined | cancelled | expired
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = Field(default=None)
+    accepted_at: datetime | None = Field(default=None)
+
+
 class Agent(SQLModel, table=True):
     __tablename__ = "agents"
 

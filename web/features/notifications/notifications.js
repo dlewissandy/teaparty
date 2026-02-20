@@ -6,6 +6,7 @@ import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { flash } from '../../components/shared/flash.js';
 import { loadMyInvites } from '../data/data-loading.js';
+import { invalidateDirectoryCache } from '../nav/directory.js';
 
 let _store = null;
 let _notifications = [];
@@ -101,8 +102,16 @@ export function connectSSE() {
         _unreadCount += 1;
         updateBadge();
         showToast(event);
-      } else if (event.type === 'member_removed') {
-        flash('You have been removed from a workgroup', 'info');
+      } else if (event.type === 'org_invite_received') {
+        loadMyInvites();
+        flash(`${event.invited_by} invited you to ${event.organization_name}`, 'info');
+      } else if (event.type === 'org_member_joined') {
+        bus.emit('data:refresh');
+      } else if (event.type === 'org_invite_declined') {
+        invalidateDirectoryCache();
+        bus.emit('nav:directory-refresh');
+      } else if (event.type === 'member_removed' || event.type === 'org_member_removed') {
+        flash('You have been removed from an organization', 'info');
         bus.emit('data:refresh');
       }
     } catch { /* ignore */ }
@@ -162,9 +171,9 @@ function renderPanel() {
   if (invites.length) {
     html += `<div class="notif-section-label">Pending Invites</div>`;
     html += invites.map(inv => `
-      <div class="notif-invite-item" data-wg-id="${escapeHtml(inv.workgroup_id)}" data-token="${escapeHtml(inv.token)}">
+      <div class="notif-invite-item" data-org-id="${escapeHtml(inv.organization_id)}" data-token="${escapeHtml(inv.token)}">
         <div class="notif-invite-body">
-          <div class="notif-invite-message"><strong>${escapeHtml(inv.invited_by_name || 'Someone')}</strong> invited you to <strong>${escapeHtml(inv.workgroup_name || 'a workgroup')}</strong></div>
+          <div class="notif-invite-message"><strong>${escapeHtml(inv.invited_by_name || 'Someone')}</strong> invited you to <strong>${escapeHtml(inv.organization_name || 'an organization')}</strong></div>
           <div class="notification-time">${formatRelativeTime(inv.created_at)}</div>
         </div>
         <div class="notif-invite-actions">
@@ -203,12 +212,12 @@ function renderPanel() {
 
   // Wire invite accept/decline buttons
   list.querySelectorAll('.notif-invite-item').forEach(item => {
-    const wgId = item.dataset.wgId;
+    const orgId = item.dataset.orgId;
     const token = item.dataset.token;
     item.querySelector('[data-action="accept"]')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        await api(`/api/workgroups/${wgId}/invites/${token}/accept`, { method: 'POST' });
+        await api(`/api/organizations/${orgId}/org-invites/${token}/accept`, { method: 'POST' });
         flash('Invite accepted!', 'success');
         await loadMyInvites();
         renderPanel();
@@ -220,7 +229,7 @@ function renderPanel() {
     item.querySelector('[data-action="decline"]')?.addEventListener('click', async (e) => {
       e.stopPropagation();
       try {
-        await api(`/api/workgroups/${wgId}/invites/${token}/decline`, { method: 'POST' });
+        await api(`/api/organizations/${orgId}/org-invites/${token}/decline`, { method: 'POST' });
         flash('Invite declined', 'info');
         await loadMyInvites();
         renderPanel();

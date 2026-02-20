@@ -201,6 +201,38 @@ class MemberBudgetUpdateRequest(BaseModel):
     reset_usage: bool = False
 
 
+class OrgInviteCreateRequest(BaseModel):
+    email: EmailStr
+
+
+class OrgInviteRead(ORMBaseModel):
+    id: str
+    organization_id: str
+    email: EmailStr
+    token: str
+    status: str
+    created_at: datetime
+
+
+class OrgInviteDetailRead(ORMBaseModel):
+    id: str
+    organization_id: str
+    organization_name: str = ""
+    invited_by_name: str = ""
+    email: EmailStr
+    token: str
+    status: str
+    created_at: datetime
+
+
+class OrgMemberRead(BaseModel):
+    user_id: str
+    email: EmailStr
+    name: str
+    role: str
+    picture: str = ""
+
+
 # --- Agents ---
 
 

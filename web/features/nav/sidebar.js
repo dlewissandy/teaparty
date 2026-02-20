@@ -2,8 +2,11 @@
 // Coordinates sub-components and reacts to org selection.
 
 import { bus } from '../../core/bus.js';
+import { api } from '../../core/api.js';
 import { escapeHtml } from '../../core/utils.js';
 import { avatarColor, initialsFromName } from '../../components/shared/avatar.js';
+import { flash } from '../../components/shared/flash.js';
+import { loadMyInvites } from '../data/data-loading.js';
 import { renderWorkgroupSections } from './sidebar-workgroup.js';
 import { renderAgentSection } from './sidebar-agents.js';
 import { renderJobSection } from './sidebar-jobs.js';
@@ -102,6 +105,7 @@ export function initSidebar(store) {
   store.on('data.workgroups', () => refreshSidebar());
   store.on('data.treeData', () => refreshSidebar());
   store.on('data.partnerships', () => refreshSidebar());
+  store.on('data.invites', () => refreshSidebar());
   store.on('conversation.thinkingByConversation', () => refreshSidebar());
   store.on('nav.activeConversationId', () => refreshSidebar());
   store.on('nav.sidebarSelection', () => refreshSidebar());
@@ -123,7 +127,9 @@ function renderSidebar(orgId, filter) {
   // Update org name / breadcrumb in sidebar header
   const orgNameEl = document.getElementById('sidebar-org-name');
   const settingsBtn = document.getElementById('sidebar-settings-btn');
-  const isHome = !orgId && s.auth.user && orgs.length;
+  const invites = s.data.invites || [];
+  const hasOrgsOrInvites = orgs.length || invites.length;
+  const isHome = !orgId && s.auth.user && hasOrgsOrInvites;
   const activeWgId = _drilledWorkgroupId;
 
   if (orgNameEl) {
@@ -144,7 +150,8 @@ function renderSidebar(orgId, filter) {
       });
     } else if (orgId) {
       const org = orgs.find(o => o.id === orgId);
-      orgNameEl.textContent = org?.name || 'TeaParty';
+      const invite = invites.find(inv => inv.organization_id === orgId);
+      orgNameEl.textContent = org?.name || invite?.organization_name || 'TeaParty';
     } else {
       orgNameEl.textContent = 'TeaParty';
     }
@@ -153,7 +160,7 @@ function renderSidebar(orgId, filter) {
   // Hide settings gear on home view
   if (settingsBtn) settingsBtn.style.display = isHome ? 'none' : '';
 
-  if (!s.auth.user || !orgs.length) {
+  if (!s.auth.user || !hasOrgsOrInvites) {
     showNoOrgsPlaceholder();
     return;
   }
@@ -168,6 +175,22 @@ function renderSidebar(orgId, filter) {
     'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
     'sidebar-members',
   ];
+
+  // Pending invite: show accept/decline banner instead of sections
+  const pendingInvite = orgId && !orgs.find(o => o.id === orgId)
+    ? invites.find(inv => inv.organization_id === orgId)
+    : null;
+  if (pendingInvite) {
+    for (const id of allSections) {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    }
+    clearContainers();
+    showInviteBanner(pendingInvite);
+    if (settingsBtn) settingsBtn.style.display = 'none';
+    return;
+  }
+  hideInviteBanner();
 
   // Determine which mode we're in and which sections to show
   const isWorkgroup = !!(orgId && activeWgId);
@@ -231,6 +254,8 @@ function renderSidebar(orgId, filter) {
 }
 
 function showNoOrgsPlaceholder() {
+  hideInviteBanner();
+
   // Hide all section headers
   const allSections = [
     'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
@@ -269,6 +294,65 @@ function clearContainers() {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   });
+}
+
+function showInviteBanner(invite) {
+  const sidebarContent = document.getElementById('sidebar-content');
+  if (!sidebarContent) return;
+
+  let banner = document.getElementById('sidebar-invite-banner');
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = 'sidebar-invite-banner';
+    const header = sidebarContent.querySelector('.sidebar-header');
+    if (header) {
+      header.after(banner);
+    } else {
+      sidebarContent.prepend(banner);
+    }
+  }
+
+  const inviterName = invite.invited_by_name || 'Someone';
+  const orgName = invite.organization_name || 'this organization';
+
+  banner.className = 'sidebar-invite-banner';
+  banner.innerHTML = `
+    <p class="sidebar-invite-message"><strong>${escapeHtml(inviterName)}</strong> invited you to join <strong>${escapeHtml(orgName)}</strong></p>
+    <div class="sidebar-invite-actions">
+      <button class="btn-primary sidebar-invite-accept" data-action="accept">Accept</button>
+      <button class="btn-ghost sidebar-invite-decline" data-action="decline">Decline</button>
+    </div>
+  `;
+  banner.style.display = '';
+
+  banner.querySelector('[data-action="accept"]').addEventListener('click', async () => {
+    try {
+      await api(`/api/organizations/${invite.organization_id}/org-invites/${invite.token}/accept`, { method: 'POST' });
+      flash(`Joined ${orgName}`, 'success');
+      await loadMyInvites();
+      bus.emit('data:refresh');
+    } catch (err) {
+      flash(err.message || 'Failed to accept invite', 'error');
+    }
+  });
+
+  banner.querySelector('[data-action="decline"]').addEventListener('click', async () => {
+    try {
+      await api(`/api/organizations/${invite.organization_id}/org-invites/${invite.token}/decline`, { method: 'POST' });
+      flash('Invite declined', 'info');
+      await loadMyInvites();
+      _store.update(s => { s.nav.activeOrgId = ''; });
+      _store.notify('nav.activeOrgId');
+      bus.emit('nav:home');
+    } catch (err) {
+      flash(err.message || 'Failed to decline invite', 'error');
+    }
+  });
+}
+
+function hideInviteBanner() {
+  const banner = document.getElementById('sidebar-invite-banner');
+  if (banner) banner.style.display = 'none';
 }
 
 // ─── Home mode: cross-org renderers ──────────────────────────────────────────

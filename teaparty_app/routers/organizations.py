@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Organization, User, Workgroup
+from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Organization, OrgMembership, User, Workgroup
 from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
@@ -19,19 +19,11 @@ def list_organizations(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> list[OrganizationRead]:
-    # Orgs the user owns
-    owned = select(Organization.id).where(Organization.owner_id == user.id)
-
-    # Orgs the user is a member of via workgroup membership
-    member_org_ids = (
-        select(Workgroup.organization_id)
-        .join(Membership, Membership.workgroup_id == Workgroup.id)
-        .where(Membership.user_id == user.id, Workgroup.organization_id.isnot(None))
-    )
+    member_org_ids = select(OrgMembership.organization_id).where(OrgMembership.user_id == user.id)
 
     orgs = session.exec(
         select(Organization)
-        .where(Organization.id.in_(owned.union(member_org_ids)))
+        .where(Organization.id.in_(member_org_ids))
         .order_by(Organization.created_at.asc())
     ).all()
     return [OrganizationRead.model_validate(o) for o in orgs]
@@ -50,6 +42,7 @@ def create_organization(
     org = Organization(name=name, description=payload.description.strip(), owner_id=user.id)
     session.add(org)
     session.flush()
+    session.add(OrgMembership(organization_id=org.id, user_id=user.id, role="owner"))
 
     # Create an Administration workgroup for this organization
     admin_wg = Workgroup(
@@ -181,7 +174,7 @@ def ensure_org_admin_conversation(
 
 
 def _require_org_access(session: Session, org_id: str, user_id: str) -> Organization:
-    """Return the org if the user owns it or belongs to a workgroup in it."""
+    """Return the org if the user has an OrgMembership record for it."""
     org = session.get(Organization, org_id)
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
@@ -189,13 +182,13 @@ def _require_org_access(session: Session, org_id: str, user_id: str) -> Organiza
     if org.owner_id == user_id:
         return org
 
-    member_wg = session.exec(
-        select(Workgroup).join(Membership, Membership.workgroup_id == Workgroup.id).where(
-            Workgroup.organization_id == org_id,
-            Membership.user_id == user_id,
+    membership = session.exec(
+        select(OrgMembership).where(
+            OrgMembership.organization_id == org_id,
+            OrgMembership.user_id == user_id,
         )
     ).first()
-    if not member_wg:
+    if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this organization")
     return org
 
@@ -344,38 +337,22 @@ def get_org_members(
 ) -> list:
     _require_org_access(session, org_id, user.id)
 
-    workgroups = session.exec(
-        select(Workgroup).where(Workgroup.organization_id == org_id)
-    ).all()
-    wg_ids = [wg.id for wg in workgroups]
-
-    if not wg_ids:
-        return []
-
     memberships = session.exec(
-        select(Membership).where(Membership.workgroup_id.in_(wg_ids))
+        select(OrgMembership).where(OrgMembership.organization_id == org_id)
     ).all()
 
-    # Aggregate per user
-    user_data: dict[str, dict] = {}
+    result = []
     for m in memberships:
-        if m.user_id not in user_data:
-            member_user = session.get(User, m.user_id)
-            if not member_user:
-                continue
-            user_data[m.user_id] = {
-                "user_id": m.user_id,
-                "name": member_user.name,
-                "email": member_user.email,
-                "workgroup_count": 0,
-                "role": m.role,
-            }
-        user_data[m.user_id]["workgroup_count"] += 1
-        # Promote role to owner if any workgroup has owner role
-        if m.role == "owner":
-            user_data[m.user_id]["role"] = "owner"
-
-    return list(user_data.values())
+        member_user = session.get(User, m.user_id)
+        if not member_user:
+            continue
+        result.append({
+            "user_id": m.user_id,
+            "name": member_user.name,
+            "email": member_user.email,
+            "role": m.role,
+        })
+    return result
 
 
 @router.get("/organizations/{org_id}/engagements")
@@ -425,19 +402,10 @@ def get_home_summary(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    # Orgs the user owns
-    owned_org_ids = session.exec(
-        select(Organization.id).where(Organization.owner_id == user.id)
+    # Orgs the user belongs to via OrgMembership
+    all_org_ids = session.exec(
+        select(OrgMembership.organization_id).where(OrgMembership.user_id == user.id)
     ).all()
-
-    # Orgs the user belongs to via workgroup membership
-    member_org_ids = session.exec(
-        select(Workgroup.organization_id)
-        .join(Membership, Membership.workgroup_id == Workgroup.id)
-        .where(Membership.user_id == user.id, Workgroup.organization_id.isnot(None))
-    ).all()
-
-    all_org_ids = list(set(list(owned_org_ids) + [oid for oid in member_org_ids if oid]))
 
     if not all_org_ids:
         return {"orgs": [], "total_active_jobs": 0, "total_attention_needed": 0}

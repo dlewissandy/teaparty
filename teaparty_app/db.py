@@ -62,6 +62,8 @@ def init_db() -> None:
     _migrate_job_files_to_entity()
     _ensure_partnership_table()
     _ensure_notification_table()
+    _ensure_org_membership_tables()
+    _backfill_org_memberships()
     _run_seeds()
 
 
@@ -1026,6 +1028,83 @@ def _ensure_notification_table() -> None:
         )
         conn.execute(
             text("CREATE INDEX IF NOT EXISTS ix_notifications_is_read ON notifications(is_read)")
+        )
+
+
+def _ensure_org_membership_tables() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS org_memberships ("
+                "id TEXT PRIMARY KEY, "
+                "organization_id TEXT NOT NULL REFERENCES organizations(id), "
+                "user_id TEXT NOT NULL REFERENCES users(id), "
+                "role TEXT DEFAULT 'member' NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "UNIQUE(organization_id, user_id)"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_org_memberships_organization ON org_memberships(organization_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_org_memberships_user ON org_memberships(user_id)")
+        )
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS org_invites ("
+                "id TEXT PRIMARY KEY, "
+                "organization_id TEXT NOT NULL REFERENCES organizations(id), "
+                "invited_by_user_id TEXT NOT NULL REFERENCES users(id), "
+                "email TEXT NOT NULL, "
+                "token TEXT NOT NULL UNIQUE, "
+                "status TEXT DEFAULT 'pending' NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "expires_at DATETIME, "
+                "accepted_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_org_invites_organization ON org_invites(organization_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_org_invites_email ON org_invites(email)")
+        )
+        conn.execute(
+            text("CREATE UNIQUE INDEX IF NOT EXISTS ix_org_invites_token ON org_invites(token)")
+        )
+
+
+def _backfill_org_memberships() -> None:
+    """Idempotently create OrgMembership rows from existing org ownership and workgroup membership."""
+    with engine.begin() as conn:
+        # Backfill org owner memberships
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO org_memberships (id, organization_id, user_id, role, created_at) "
+                "SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || "
+                "substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || "
+                "substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), "
+                "o.id, o.owner_id, 'owner', datetime('now') "
+                "FROM organizations o "
+                "WHERE o.owner_id IS NOT NULL"
+            )
+        )
+        # Backfill workgroup member memberships (deduplicated per org)
+        conn.execute(
+            text(
+                "INSERT OR IGNORE INTO org_memberships (id, organization_id, user_id, role, created_at) "
+                "SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || "
+                "substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || "
+                "substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6))), "
+                "w.organization_id, m.user_id, 'member', datetime('now') "
+                "FROM memberships m "
+                "JOIN workgroups w ON w.id = m.workgroup_id "
+                "WHERE w.organization_id IS NOT NULL "
+                "GROUP BY w.organization_id, m.user_id"
+            )
         )
 
 

@@ -13,6 +13,7 @@ export function initOrgRail(store) {
   _store = store;
 
   store.on('data.organizations', renderOrgIcons);
+  store.on('data.invites', renderOrgIcons);
   store.on('nav.activeOrgId', () => {
     updateActiveIndicator();
     updateAddMenuItems();
@@ -103,14 +104,19 @@ function renderOrgIcons() {
 
   const s = _store.get();
   const orgs = s.data.organizations || [];
+  const invites = s.data.invites || [];
   const activeOrgId = s.nav.activeOrgId;
+  const memberOrgIds = new Set(orgs.map(o => o.id));
 
-  if (!orgs.length) {
+  if (!orgs.length && !invites.length) {
     container.innerHTML = '';
     return;
   }
 
-  container.innerHTML = orgs.map(org => {
+  let html = '';
+
+  // Render member orgs
+  html += orgs.map(org => {
     const name = org.name || 'Org';
     const initials = initialsFromName(name);
     const color = avatarColor(name);
@@ -130,6 +136,28 @@ function renderOrgIcons() {
     </button>`;
   }).join('');
 
+  // Render pending invite orgs (skip if already a member)
+  const pendingInvites = invites.filter(inv => !memberOrgIds.has(inv.organization_id));
+  html += pendingInvites.map(inv => {
+    const name = inv.organization_name || 'Org';
+    const initials = initialsFromName(name);
+    const color = avatarColor(name);
+
+    return `<button
+      class="org-rail-icon pending"
+      data-org-id="${escapeHtml(inv.organization_id)}"
+      title="${escapeHtml(name)} (pending invite)"
+      aria-label="${escapeHtml(name)} pending invite"
+      style="--org-color: ${escapeHtml(color)}"
+    >
+      <span class="org-rail-icon-inner" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span>
+      <span class="org-rail-pending-dot" aria-hidden="true"></span>
+    </button>`;
+  }).join('');
+
+  container.innerHTML = html;
+
+  // Wire all org icon clicks (both member and pending invite)
   container.querySelectorAll('.org-rail-icon').forEach(btn => {
     btn.addEventListener('click', () => {
       const orgId = btn.dataset.orgId;
@@ -139,7 +167,6 @@ function renderOrgIcons() {
         s.nav.activeConversationId = '';
         s.nav.sidebarSelection = '';
       });
-      // Force notify even if orgId didn't change (re-click same org)
       _store.notify('nav.activeOrgId');
       bus.emit('nav:org-selected', { orgId });
     });

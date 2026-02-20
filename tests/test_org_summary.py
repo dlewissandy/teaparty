@@ -13,6 +13,7 @@ from teaparty_app.models import (
     Membership,
     Message,
     Organization,
+    OrgMembership,
     User,
     Workgroup,
     utc_now,
@@ -33,6 +34,7 @@ def _seed_base(session: Session):
     session.add_all([user, org, wg1, wg2])
     session.add(Membership(workgroup_id="wg1", user_id="u1", role="owner"))
     session.add(Membership(workgroup_id="wg2", user_id="u1", role="owner"))
+    session.add(OrgMembership(organization_id="org1", user_id="u1", role="owner"))
     session.commit()
     return user, org, wg1, wg2
 
@@ -241,9 +243,10 @@ class OrgMembersTest(unittest.TestCase):
 
             user2 = User(id="u2", email="member@example.com", name="Member")
             session.add(user2)
-            # user2 is in both workgroups
+            # user2 is in both workgroups and has an org membership
             session.add(Membership(workgroup_id="wg1", user_id="u2", role="member"))
             session.add(Membership(workgroup_id="wg2", user_id="u2", role="member"))
+            session.add(OrgMembership(organization_id="org1", user_id="u2", role="member"))
             session.commit()
 
         with Session(self.engine) as session:
@@ -254,7 +257,6 @@ class OrgMembersTest(unittest.TestCase):
         self.assertEqual(len(result), 2)
         user2_entry = next((m for m in result if m["user_id"] == "u2"), None)
         self.assertIsNotNone(user2_entry)
-        self.assertEqual(user2_entry["workgroup_count"], 2)
 
     def test_members_empty_org(self):
         from teaparty_app.routers.organizations import get_org_members
@@ -277,9 +279,10 @@ class OrgMembersTest(unittest.TestCase):
 
             user3 = User(id="u3", email="editor@example.com", name="Editor")
             session.add(user3)
-            # member in wg1, owner in wg2
+            # member in wg1, owner in wg2; org membership at member level
             session.add(Membership(workgroup_id="wg1", user_id="u3", role="member"))
             session.add(Membership(workgroup_id="wg2", user_id="u3", role="owner"))
+            session.add(OrgMembership(organization_id="org1", user_id="u3", role="member"))
             session.commit()
 
         with Session(self.engine) as session:
@@ -288,7 +291,8 @@ class OrgMembersTest(unittest.TestCase):
 
         u3_entry = next((m for m in result if m["user_id"] == "u3"), None)
         self.assertIsNotNone(u3_entry)
-        self.assertEqual(u3_entry["role"], "owner")
+        # OrgMembership has role "member"; workgroup roles don't affect org role
+        self.assertEqual(u3_entry["role"], "member")
 
 
 class OrgEngagementsTest(unittest.TestCase):

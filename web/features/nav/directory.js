@@ -4,12 +4,15 @@
 import { bus } from '../../core/bus.js';
 import { api } from '../../core/api.js';
 import { escapeHtml } from '../../core/utils.js';
+import { flash } from '../../components/shared/flash.js';
 
 let _store = null;
 let _activeTab = 'people'; // 'people' | 'orgs'
 let _orgs = [];
 let _users = [];
 let _cacheTime = 0;
+let _orgMemberIds = new Map(); // orgId -> Set of user IDs
+let _orgInvitedEmails = new Map(); // orgId -> Set of emails
 
 const CACHE_TTL = 30_000;
 
@@ -33,6 +36,40 @@ export function initDirectory(store) {
   });
 
   bus.on('nav:directory-open', () => showDirectoryView());
+
+  bus.on('nav:directory-refresh', async () => {
+    const directoryView = document.getElementById('directory-view');
+    if (directoryView && !directoryView.classList.contains('hidden')) {
+      await fetchData();
+      const input = document.getElementById('directory-input');
+      renderResults(input?.value.trim() || '');
+    }
+  });
+
+  bus.on('nav:invite-member', ({ orgId }) => {
+    const s = _store.get();
+    const org = (s.data.organizations || []).find(o => o.id === orgId);
+    const orgName = org?.name || 'this organization';
+    bus.emit('settings:open', {
+      title: 'Invite Member',
+      subtitle: `Invite a new member to ${orgName}`,
+      formHtml: `
+        <label class="settings-field">
+          <span class="settings-label">Email</span>
+          <input type="email" name="email" required placeholder="user@example.com" />
+        </label>
+        <div class="settings-actions">
+          <button type="button" class="btn-ghost" data-action="settings-cancel">Cancel</button>
+          <button type="submit" class="btn-primary">Send Invite</button>
+        </div>
+      `,
+      onSubmit: async (formData) => {
+        const email = formData.get('email');
+        await api(`/api/organizations/${orgId}/org-invites`, { method: 'POST', body: { email } });
+        bus.emit('data:refresh');
+      },
+    });
+  });
 }
 
 async function fetchData() {
@@ -45,6 +82,22 @@ async function fetchData() {
     _orgs = orgs || [];
     _users = users || [];
     _cacheTime = Date.now();
+
+    // Fetch org members for orgs the current user owns (for invite filtering)
+    const s = _store.get();
+    const myOrgs = (s.data.organizations || []).filter(o => o.owner_id === s.auth.user?.id);
+    _orgMemberIds = new Map();
+    _orgInvitedEmails = new Map();
+    await Promise.all(myOrgs.map(async o => {
+      try {
+        const [members, invites] = await Promise.all([
+          api(`/api/organizations/${o.id}/org-members`),
+          api(`/api/organizations/${o.id}/org-invites`),
+        ]);
+        _orgMemberIds.set(o.id, new Set((members || []).map(m => m.user_id)));
+        _orgInvitedEmails.set(o.id, new Set((invites || []).map(i => i.email.toLowerCase())));
+      } catch { /* skip */ }
+    }));
   } catch {
     // keep stale data
   }
@@ -73,6 +126,10 @@ async function showDirectoryView() {
 export function hideDirectoryView() {
   const directoryView = document.getElementById('directory-view');
   if (directoryView) directoryView.classList.add('hidden');
+}
+
+export function invalidateDirectoryCache() {
+  _cacheTime = 0;
 }
 
 function buildResults(query) {
@@ -114,6 +171,9 @@ function renderResults(query) {
   if (!container) return;
 
   const results = buildResults(query);
+  const s = _store.get();
+  const myOrgs = (s.data.organizations || []).filter(o => o.owner_id === s.auth.user?.id);
+  const activeOrgId = s.nav.activeOrgId;
 
   if (!results.length) {
     container.innerHTML = '<p class="qs-empty">No results</p>';
@@ -145,11 +205,30 @@ function renderResults(query) {
       </span>`;
     }
 
+    // Hide invite for people already in the org or with a pending invite
+    let showInvite = item.type === 'person' && myOrgs.length > 0;
+    if (showInvite) {
+      const email = (item.sublabel || '').toLowerCase();
+      const isTaken = (orgId) =>
+        _orgMemberIds.get(orgId)?.has(item.id) || _orgInvitedEmails.get(orgId)?.has(email);
+
+      if (activeOrgId && _orgMemberIds.has(activeOrgId)) {
+        showInvite = !isTaken(activeOrgId);
+      } else {
+        // No active org — hide if person is member/invited in ALL owned orgs
+        if (myOrgs.every(o => isTaken(o.id))) showInvite = false;
+      }
+    }
+    const inviteBtn = showInvite
+      ? `<span class="dir-card-invite" data-action="invite-person" data-email="${escapeHtml(item.sublabel)}" data-name="${escapeHtml(item.label)}" title="Invite to organization">Invite</span>`
+      : '';
+
     html += `<button class="dir-card" data-type="${item.type}" data-id="${escapeHtml(item.id)}">
       ${avatar}
       <span class="dir-card-name">${escapeHtml(item.label)}</span>
       <span class="dir-card-detail">${escapeHtml(item.sublabel)}</span>
       ${meta}
+      ${inviteBtn}
     </button>`;
   }
   html += '</div>';
@@ -159,6 +238,32 @@ function renderResults(query) {
   container.querySelectorAll('.dir-card').forEach(btn => {
     btn.addEventListener('click', () => {
       activateResult(btn.dataset.type, btn.dataset.id);
+    });
+  });
+
+  container.querySelectorAll('[data-action="invite-person"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const email = btn.dataset.email;
+      const name = btn.dataset.name;
+      const targetOrgId = activeOrgId && myOrgs.find(o => o.id === activeOrgId)
+        ? activeOrgId : myOrgs[0]?.id;
+      if (!targetOrgId) return;
+      btn.textContent = 'Sending...';
+      btn.style.pointerEvents = 'none';
+      try {
+        await api(`/api/organizations/${targetOrgId}/org-invites`, { method: 'POST', body: { email } });
+        const orgName = myOrgs.find(o => o.id === targetOrgId)?.name || 'organization';
+        flash(`Invited ${name} to ${orgName}`, 'success');
+        btn.textContent = 'Invited';
+        // Update local cache so button won't reappear on next render
+        if (!_orgInvitedEmails.has(targetOrgId)) _orgInvitedEmails.set(targetOrgId, new Set());
+        _orgInvitedEmails.get(targetOrgId).add(email.toLowerCase());
+      } catch (err) {
+        flash(err.message || 'Failed to send invite', 'error');
+        btn.textContent = 'Invite';
+        btn.style.pointerEvents = '';
+      }
     });
   });
 }
