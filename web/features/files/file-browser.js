@@ -665,4 +665,5 @@ export function initFileBrowser(store) {
       render();
     }
   });
+
 }
