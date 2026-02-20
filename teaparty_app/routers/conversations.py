@@ -496,6 +496,113 @@ async def stream_events(
     )
 
 
+@router.get("/conversations/{conversation_id}/participants")
+def get_conversation_participants(
+    conversation_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    conversation = _conversation_for_user(session, conversation_id, user.id)
+
+    participants = session.exec(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id
+        )
+    ).all()
+
+    users_out = []
+    agents_out = []
+
+    for p in participants:
+        if p.user_id:
+            member = session.get(User, p.user_id)
+            if member:
+                users_out.append({"id": member.id, "name": member.name, "email": member.email})
+        elif p.agent_id:
+            agent = session.get(Agent, p.agent_id)
+            if agent:
+                agents_out.append({"id": agent.id, "name": agent.name, "role": agent.role, "is_lead": agent.is_lead})
+
+    return {"users": users_out, "agents": agents_out}
+
+
+@router.get("/conversations/{conversation_id}/workflow-state")
+def get_conversation_workflow_state(
+    conversation_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    conversation = _conversation_for_user(session, conversation_id, user.id)
+
+    workgroup = session.get(Workgroup, conversation.workgroup_id)
+    if not workgroup:
+        return {"steps": [], "current_step": None}
+
+    # Find the _workflow_state.md file scoped to this conversation
+    all_files = workgroup.files or []
+    state_file = next(
+        (
+            f for f in all_files
+            if isinstance(f, dict)
+            and f.get("path") == "_workflow_state.md"
+            and f.get("topic_id") == conversation_id
+        ),
+        None,
+    )
+
+    if not state_file:
+        return {"steps": [], "current_step": None}
+
+    return _parse_workflow_state(state_file.get("content", ""))
+
+
+def _parse_workflow_state(content: str) -> dict:
+    """Parse a _workflow_state.md file into structured step data."""
+    import re
+
+    steps = []
+    current_step = None
+
+    for line in content.splitlines():
+        # Parse current step: "- **Current Step**: 2"
+        m = re.match(r"-\s+\*\*Current Step\*\*:\s*(\d+)", line.strip())
+        if m:
+            current_step = int(m.group(1))
+
+        # Parse step log entries: "- [x] 1. Scope (completed)" or "- [ ] 2. Analyze (in_progress)"
+        m = re.match(r"-\s+\[([x ])\]\s+(\d+)\.\s+(.+)", line.strip())
+        if m:
+            checked = m.group(1) == "x"
+            number = int(m.group(2))
+            rest = m.group(3).strip()
+
+            # Extract status from parentheses at the end
+            status_match = re.search(r"\((\w+)\)\s*$", rest)
+            if status_match:
+                raw_status = status_match.group(1)
+                name = rest[: status_match.start()].strip().rstrip(".-").strip()
+            else:
+                raw_status = "completed" if checked else "pending"
+                name = rest.strip()
+
+            # Normalize status
+            if raw_status in ("done", "complete", "completed"):
+                step_status = "completed"
+            elif raw_status in ("active", "in_progress", "in-progress", "current"):
+                step_status = "in_progress"
+            else:
+                step_status = "pending" if not checked else "completed"
+
+            steps.append({
+                "number": number,
+                "name": name,
+                "status": step_status,
+                "description": "",
+            })
+
+    return {"steps": steps, "current_step": current_step}
+
+
 @router.get("/conversations/{conversation_id}/thoughts")
 def get_thoughts(
     conversation_id: str,

@@ -11,6 +11,7 @@ from teaparty_app.models import (
     Conversation,
     ConversationParticipant,
     Engagement,
+    Job,
     Membership,
     Message,
     User,
@@ -576,6 +577,37 @@ def set_engagement_price(
     session.commit()
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
+
+
+@router.get("/engagements/{engagement_id}/jobs")
+def get_engagement_jobs(
+    engagement_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list:
+    engagement = session.get(Engagement, engagement_id)
+    if not engagement:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Engagement not found",
+        )
+    _require_engagement_participant(session, engagement, user.id)
+
+    jobs = session.exec(
+        select(Job).where(Job.engagement_id == engagement_id).order_by(Job.created_at.desc())
+    ).all()
+
+    return [
+        {
+            "id": j.id,
+            "title": j.title,
+            "status": j.status,
+            "workgroup_id": j.workgroup_id,
+            "conversation_id": j.conversation_id,
+            "created_at": j.created_at.isoformat(),
+        }
+        for j in jobs
+    ]
 
 
 @router.get("/engagements/{engagement_id}/files", response_model=list[EntityFileRead])

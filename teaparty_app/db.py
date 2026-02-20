@@ -60,6 +60,8 @@ def init_db() -> None:
     _migrate_add_job_files()
     _migrate_engagement_files_to_entity()
     _migrate_job_files_to_entity()
+    _ensure_partnership_table()
+    _ensure_notification_table()
     _run_seeds()
 
 
@@ -968,6 +970,63 @@ def _migrate_job_files_to_entity() -> None:
                     text("UPDATE jobs SET files = :files WHERE id = :id"),
                     {"files": json.dumps(job_files), "id": job_id},
                 )
+
+
+def _ensure_partnership_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS partnerships ("
+                "id TEXT PRIMARY KEY, "
+                "source_org_id TEXT NOT NULL REFERENCES organizations(id), "
+                "target_org_id TEXT NOT NULL REFERENCES organizations(id), "
+                "proposed_by_user_id TEXT NOT NULL REFERENCES users(id), "
+                "status TEXT DEFAULT 'proposed' NOT NULL, "
+                "direction TEXT DEFAULT 'bidirectional' NOT NULL, "
+                "created_at DATETIME NOT NULL, "
+                "accepted_at DATETIME, "
+                "revoked_at DATETIME"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_partnerships_source_org ON partnerships(source_org_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_partnerships_target_org ON partnerships(target_org_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_partnerships_status ON partnerships(status)")
+        )
+
+
+def _ensure_notification_table() -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS notifications ("
+                "id TEXT PRIMARY KEY, "
+                "user_id TEXT NOT NULL REFERENCES users(id), "
+                "type TEXT NOT NULL, "
+                "title TEXT NOT NULL, "
+                "body TEXT DEFAULT '' NOT NULL, "
+                "source_conversation_id TEXT REFERENCES conversations(id), "
+                "source_job_id TEXT REFERENCES jobs(id), "
+                "source_engagement_id TEXT REFERENCES engagements(id), "
+                "is_read BOOLEAN DEFAULT 0 NOT NULL, "
+                "created_at DATETIME NOT NULL"
+                ")"
+            )
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications(user_id)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_notifications_type ON notifications(type)")
+        )
+        conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_notifications_is_read ON notifications(is_read)")
+        )
 
 
 def get_session() -> Iterator[Session]:

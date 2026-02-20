@@ -472,6 +472,32 @@ class EngagementDetailRead(EngagementRead):
     target_workgroup_name: str = ""
 
 
+# --- Partnership schemas ---
+
+
+class PartnershipProposeRequest(BaseModel):
+    source_org_id: str
+    target_org_id: str
+    direction: str = "bidirectional"
+
+
+class PartnershipRead(ORMBaseModel):
+    id: str
+    source_org_id: str
+    target_org_id: str
+    proposed_by_user_id: str
+    status: str
+    direction: str
+    created_at: datetime
+    accepted_at: datetime | None = None
+    revoked_at: datetime | None = None
+
+
+class PartnershipDetailRead(PartnershipRead):
+    source_org_name: str = ""
+    target_org_name: str = ""
+
+
 # --- Job schemas ---
 
 
@@ -738,3 +764,23 @@ class OrgDirectoryEntry(BaseModel):
     description: str
     service_description: str
     owner_id: str
+
+
+# --- Notification schemas ---
+
+
+class NotificationRead(ORMBaseModel):
+    id: str
+    user_id: str
+    type: str
+    title: str
+    body: str
+    source_conversation_id: str | None = None
+    source_job_id: str | None = None
+    source_engagement_id: str | None = None
+    is_read: bool
+    created_at: datetime
+
+
+class NotificationCountsRead(BaseModel):
+    unread: int

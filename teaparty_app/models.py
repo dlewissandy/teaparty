@@ -386,6 +386,20 @@ class SyncedMessage(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class Partnership(SQLModel, table=True):
+    __tablename__ = "partnerships"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    source_org_id: str = Field(foreign_key="organizations.id", index=True)
+    target_org_id: str = Field(foreign_key="organizations.id", index=True)
+    proposed_by_user_id: str = Field(foreign_key="users.id", index=True)
+    status: str = Field(default="proposed", index=True)  # proposed | accepted | declined | revoked
+    direction: str = Field(default="bidirectional")  # bidirectional | source_to_target | target_to_source
+    created_at: datetime = Field(default_factory=utc_now)
+    accepted_at: datetime | None = Field(default=None)
+    revoked_at: datetime | None = Field(default=None)
+
+
 class OrgBalance(SQLModel, table=True):
     __tablename__ = "org_balances"
 
@@ -409,4 +423,19 @@ class PaymentTransaction(SQLModel, table=True):
     balance_after_credits: float = Field(default=0.0)
     counterparty_org_id: str | None = Field(default=None, foreign_key="organizations.id")
     description: str = Field(default="")
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class Notification(SQLModel, table=True):
+    __tablename__ = "notifications"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    type: str = Field(index=True)  # attention_needed | engagement_proposed | partnership_proposed | job_completed
+    title: str = Field()
+    body: str = Field(default="")
+    source_conversation_id: str | None = Field(default=None, foreign_key="conversations.id")
+    source_job_id: str | None = Field(default=None, foreign_key="jobs.id")
+    source_engagement_id: str | None = Field(default=None, foreign_key="engagements.id")
+    is_read: bool = Field(default=False, index=True)
     created_at: datetime = Field(default_factory=utc_now)
