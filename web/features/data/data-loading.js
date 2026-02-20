@@ -17,6 +17,16 @@ let _invitePollCounter = 0;
 let _notifPollCounter = 0;
 let _treePollCounter = 0;
 
+const _pendingRefreshes = new Map();
+function _debouncedTreeRefresh(workgroupId, delayMs = 500) {
+    if (_pendingRefreshes.has(workgroupId)) clearTimeout(_pendingRefreshes.get(workgroupId));
+    _pendingRefreshes.set(workgroupId, setTimeout(async () => {
+        _pendingRefreshes.delete(workgroupId);
+        const wg = _store.get().data.treeData[workgroupId]?.workgroup;
+        if (wg) { await refreshWorkgroupTree(wg); _store.notify('data.treeData'); }
+    }, delayMs));
+}
+
 const POLL_INTERVAL = 4000;
 const POLL_MAX = 60000;
 
@@ -27,6 +37,28 @@ export function initDataLoading(store) {
   bus.on('data:refresh', () => loadWorkgroups());
   bus.on('auth:signed-in', () => loadWorkgroups());
   bus.on('auth:signed-out', () => stopPolling());
+
+  // Cross-member sync events
+  bus.on('sync:tree-changed', ({ workgroupId }) => _debouncedTreeRefresh(workgroupId));
+  bus.on('sync:agents-changed', ({ workgroupId }) => _debouncedTreeRefresh(workgroupId));
+  bus.on('sync:workgroup-updated', ({ workgroupId }) => _debouncedTreeRefresh(workgroupId));
+  bus.on('sync:members-changed', ({ workgroupId }) => _debouncedTreeRefresh(workgroupId));
+  bus.on('sync:engagement-changed', () => {
+    // Refresh all workgroups since engagement spans two
+    const wgs = _store.get().data.workgroups || [];
+    wgs.forEach(wg => _debouncedTreeRefresh(wg.id));
+  });
+  bus.on('sync:org-updated', () => loadOrganizations());
+  bus.on('sync:partnerships-changed', ({ orgId }) => {
+    const activeOrg = (_store.get().data.organizations || []).find(o => o.id === orgId);
+    if (activeOrg) loadPartnerships(orgId);
+  });
+  bus.on('sync:message-posted', ({ conversationId, workgroupId }) => {
+    // If not the active conversation, refresh tree for unread indicators
+    if (conversationId !== _store.get().nav.activeConversationId) {
+      _debouncedTreeRefresh(workgroupId);
+    }
+  });
 
   // Visibility and network handlers
   document.addEventListener('visibilitychange', () => {

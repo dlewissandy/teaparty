@@ -35,6 +35,7 @@ from teaparty_app.services.admin_workspace import (
     ensure_direct_conversation_with_agent,
 )
 from teaparty_app.services.permissions import check_budget, require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["conversations"])
 
@@ -189,6 +190,7 @@ def create_conversation(
         )
 
     session.commit()
+    publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:tree_changed", {"workgroup_id": conversation.workgroup_id})
     session.refresh(conversation)
     return ConversationRead.model_validate(conversation)
 
@@ -310,6 +312,7 @@ def update_topic_conversation(
 
     session.add(conversation)
     session.commit()
+    publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:tree_changed", {"workgroup_id": conversation.workgroup_id})
     session.refresh(conversation)
     return ConversationRead.model_validate(conversation)
 
@@ -339,6 +342,7 @@ def clear_job_conversation_history(
     conversation.claude_session_id = None
     session.add(conversation)
     session.commit()
+    publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:tree_changed", {"workgroup_id": conversation.workgroup_id})
     return ConversationHistoryClearResponse(
         conversation_id=conversation_id,
         deleted_messages=counts["messages"],
@@ -418,6 +422,7 @@ def post_message(
     evaluate_message_match_todos(session, message)
 
     session.commit()
+    publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:message_posted", {"workgroup_id": conversation.workgroup_id, "conversation_id": conversation.id})
     session.refresh(message)
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)

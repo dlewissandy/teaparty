@@ -21,6 +21,7 @@ from teaparty_app.routers.conversations import _process_auto_responses_in_backgr
 from teaparty_app.schemas import EntityFileRead, EntityFileWrite, JobCreateRequest, JobDetailRead, JobRead, JobUpdateRequest
 from teaparty_app.services.agent_runtime import get_conversation_activity
 from teaparty_app.services.permissions import require_workgroup_membership
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["jobs"])
 
@@ -134,6 +135,8 @@ def create_job(
     session.refresh(job)
     session.refresh(message)
 
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:tree_changed", {"workgroup_id": workgroup_id})
+
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 
     result = JobRead.model_validate(job)
@@ -225,6 +228,9 @@ def update_job(
     session.add(job)
     commit_with_retry(session)
     session.refresh(job)
+
+    publish_sync_event(session, "workgroup", job.workgroup_id, "sync:tree_changed", {"workgroup_id": job.workgroup_id})
+
     result = JobRead.model_validate(job)
     result.derived_status = _derive_job_status(session, job)
     return result
@@ -262,8 +268,11 @@ def delete_job(
                 session.delete(cp)
             session.delete(conv)
 
+    wg_id = job.workgroup_id
     session.delete(job)
     commit_with_retry(session)
+
+    publish_sync_event(session, "workgroup", wg_id, "sync:tree_changed", {"workgroup_id": wg_id})
 
 
 @router.get("/jobs/{job_id}/files", response_model=list[EntityFileRead])

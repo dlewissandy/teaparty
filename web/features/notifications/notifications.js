@@ -113,6 +113,24 @@ export function connectSSE() {
       } else if (event.type === 'member_removed' || event.type === 'org_member_removed') {
         flash('You have been removed from an organization', 'info');
         bus.emit('data:refresh');
+      } else if (event.type === 'sync:tree_changed') {
+        bus.emit('sync:tree-changed', { workgroupId: event.workgroup_id });
+      } else if (event.type === 'sync:agents_changed') {
+        bus.emit('sync:agents-changed', { workgroupId: event.workgroup_id });
+      } else if (event.type === 'sync:workgroup_updated') {
+        bus.emit('sync:workgroup-updated', { workgroupId: event.workgroup_id });
+      } else if (event.type === 'sync:workgroups_changed') {
+        bus.emit('data:refresh');
+      } else if (event.type === 'sync:org_updated') {
+        bus.emit('sync:org-updated', { orgId: event.org_id });
+      } else if (event.type === 'sync:engagement_changed') {
+        bus.emit('sync:engagement-changed', { engagementId: event.engagement_id });
+      } else if (event.type === 'sync:partnerships_changed') {
+        bus.emit('sync:partnerships-changed', { orgId: event.org_id });
+      } else if (event.type === 'sync:members_changed') {
+        bus.emit('sync:members-changed', { workgroupId: event.workgroup_id });
+      } else if (event.type === 'sync:message_posted') {
+        bus.emit('sync:message-posted', { conversationId: event.conversation_id, workgroupId: event.workgroup_id });
       }
     } catch { /* ignore */ }
   };

@@ -38,6 +38,18 @@ export function initDirectory(store) {
 
   bus.on('nav:directory-open', () => showDirectoryView());
 
+  // Re-render when active org changes so invite/partner filters reflect the new org
+  store.on('nav.activeOrgId', () => {
+    const directoryView = document.getElementById('directory-view');
+    if (directoryView && !directoryView.classList.contains('hidden')) {
+      invalidateDirectoryCache();
+      fetchData().then(() => {
+        const input = document.getElementById('directory-input');
+        renderResults(input?.value.trim() || '');
+      });
+    }
+  });
+
   bus.on('nav:directory-refresh', async () => {
     const directoryView = document.getElementById('directory-view');
     if (directoryView && !directoryView.classList.contains('hidden')) {

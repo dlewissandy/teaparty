@@ -12,12 +12,13 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import commit_with_retry, get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Organization, Partnership, User, utc_now
+from teaparty_app.models import Organization, OrgMembership, Partnership, User, utc_now
 from teaparty_app.schemas import (
     PartnershipDetailRead,
     PartnershipProposeRequest,
     PartnershipRead,
 )
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["partnerships"])
 
@@ -99,6 +100,8 @@ def propose_partnership(
     commit_with_retry(session)
     session.refresh(partnership)
 
+    publish_sync_event(session, "org", payload.source_org_id, "sync:partnerships_changed", {"org_id": payload.source_org_id})
+
     return _partnership_detail(session, partnership)
 
 
@@ -113,11 +116,19 @@ def list_partnerships(
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
+    # Any org member can view partnerships
     if org.owner_id != user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the organization owner can view partnerships",
-        )
+        membership = session.exec(
+            select(OrgMembership).where(
+                OrgMembership.organization_id == org_id,
+                OrgMembership.user_id == user.id,
+            )
+        ).first()
+        if not membership:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not a member of this organization",
+            )
 
     # Asymmetric: only return partnerships where this org is the source
     query = select(Partnership).where(Partnership.source_org_id == org_id)
@@ -152,4 +163,7 @@ def revoke_partnership(
     session.add(partnership)
     commit_with_retry(session)
     session.refresh(partnership)
+
+    publish_sync_event(session, "org", partnership.source_org_id, "sync:partnerships_changed", {"org_id": partnership.source_org_id})
+
     return _partnership_detail(session, partnership)

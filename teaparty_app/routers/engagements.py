@@ -35,6 +35,7 @@ from teaparty_app.services.engagement_files import (
     create_engagement_files,
     update_engagement_files,
 )
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["engagements"])
 
@@ -187,6 +188,7 @@ def create_engagement(
                   f"New engagement proposal: {engagement.title}", actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
 
@@ -297,6 +299,7 @@ def respond_to_engagement(
                       f"Engagement declined: {engagement.title}", actor_user_id=user.id)
 
         session.commit()
+        publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
         session.refresh(engagement)
         return _engagement_detail(session, engagement)
 
@@ -355,6 +358,7 @@ def respond_to_engagement(
                   f"Engagement accepted: {engagement.title}", actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
 
     # Trigger auto-responses on the target conversation so the coordinator agent picks up the engagement
@@ -419,6 +423,7 @@ def complete_engagement(
                   f"Engagement completed: {engagement.title}", actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
 
@@ -486,6 +491,7 @@ def review_engagement(
                   f"Engagement reviewed ({payload.rating}): {engagement.title}", actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
 
@@ -541,6 +547,7 @@ def cancel_engagement(
                   f"Engagement cancelled: {engagement.title}", actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
 
@@ -575,6 +582,7 @@ def set_engagement_price(
     _post_system_message(session, engagement.target_conversation_id, price_msg)
 
     session.commit()
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return _engagement_detail(session, engagement)
 
@@ -659,5 +667,6 @@ def update_engagement_files_endpoint(
     engagement.files = normalized
     session.add(engagement)
     commit_with_retry(session)
+    publish_sync_event(session, "engagement", engagement.id, "sync:engagement_changed", {"engagement_id": engagement.id})
     session.refresh(engagement)
     return [EntityFileRead(**f) for f in engagement.files]

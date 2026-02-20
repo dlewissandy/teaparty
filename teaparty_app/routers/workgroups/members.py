@@ -20,6 +20,7 @@ from teaparty_app.services.activity import add_activity_participant, post_activi
 from teaparty_app.services.admin_workspace import list_members as list_workgroup_members
 from teaparty_app.services.event_bus import publish_user
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["workgroups"])
 
@@ -162,6 +163,7 @@ def accept_invite(
     post_activity(session, workgroup_id, "member_joined", display_name, actor_user_id=user.id)
 
     session.commit()
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:members_changed", {"workgroup_id": workgroup_id})
 
     workgroup = session.get(Workgroup, workgroup_id)
     if not workgroup:
@@ -274,6 +276,7 @@ def remove_member(
     session.delete(membership)
     post_activity(session, workgroup_id, "member_removed", display_name, actor_user_id=user.id)
     session.commit()
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:members_changed", {"workgroup_id": workgroup_id})
 
     publish_user(member_user_id, {
         "type": "member_removed",
@@ -306,6 +309,7 @@ def update_member_role(
     membership.role = payload.role
     session.add(membership)
     session.commit()
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:members_changed", {"workgroup_id": workgroup_id})
     session.refresh(membership)
 
     member_user = session.get(User, member_user_id)

@@ -33,6 +33,7 @@ from teaparty_app.services.admin_workspace import (
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
 from teaparty_app.services.llm_usage import get_workgroup_usage
 from teaparty_app.services.permissions import require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
+from teaparty_app.services.sync_events import publish_sync_event
 from teaparty_app.services.workgroup_templates import (
     TEMPLATE_ROOT,
     WORKGROUP_STORAGE_ROOT,
@@ -653,6 +654,7 @@ def create_workgroup(
         )
 
     session.commit()
+    publish_sync_event(session, "org", group.organization_id, "sync:workgroups_changed", {"org_id": group.organization_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(group)
     result = WorkgroupRead.model_validate(group)
@@ -803,6 +805,7 @@ def update_workgroup(
 
     session.add(workgroup)
     session.commit()
+    publish_sync_event(session, "workgroup", workgroup.id, "sync:workgroup_updated", {"workgroup_id": workgroup.id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(workgroup)
     result = WorkgroupRead.model_validate(workgroup)

@@ -21,6 +21,7 @@ from teaparty_app.services.admin_workspace import (
     direct_conversation_key_user_agent,
 )
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
+from teaparty_app.services.sync_events import publish_sync_event
 
 from .core import _sync_workgroup_storage_for_user
 
@@ -62,6 +63,7 @@ def create_agent(
     session.flush()
     post_activity(session, workgroup_id, "agent_created", agent.name, actor_user_id=user.id)
     session.commit()
+    publish_sync_event(session, "workgroup", agent.workgroup_id, "sync:agents_changed", {"workgroup_id": agent.workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(agent)
     return AgentRead.model_validate(agent)
@@ -134,6 +136,7 @@ def update_agent(
     session.add(agent)
     post_activity(session, workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
     session.commit()
+    publish_sync_event(session, "workgroup", agent.workgroup_id, "sync:agents_changed", {"workgroup_id": agent.workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(agent)
     return AgentRead.model_validate(agent)
@@ -222,6 +225,7 @@ def clone_agent(
     session.flush()
     post_activity(session, target_workgroup_id, "agent_cloned", cloned.name, actor_user_id=user.id)
     session.commit()
+    publish_sync_event(session, "workgroup", target_workgroup_id, "sync:agents_changed", {"workgroup_id": target_workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(cloned)
     return AgentRead.model_validate(cloned)

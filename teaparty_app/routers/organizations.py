@@ -10,6 +10,7 @@ from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Org
 from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["organizations"])
 
@@ -120,6 +121,7 @@ def update_organization(
 
     session.add(org)
     session.commit()
+    publish_sync_event(session, "org", org.id, "sync:org_updated", {"org_id": org.id})
     session.refresh(org)
     return OrganizationRead.model_validate(org)
 

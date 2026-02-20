@@ -24,6 +24,7 @@ from teaparty_app.schemas import (
 )
 from teaparty_app.services.agent_runtime import get_conversation_activity
 from teaparty_app.services.permissions import require_workgroup_membership
+from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["agent-tasks"])
 
@@ -112,6 +113,8 @@ def create_agent_task(
     commit_with_retry(session)
     session.refresh(task)
     session.refresh(message)
+
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:tree_changed", {"workgroup_id": workgroup_id})
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 
@@ -218,6 +221,9 @@ def update_agent_task(
     session.add(task)
     commit_with_retry(session)
     session.refresh(task)
+
+    publish_sync_event(session, "workgroup", task.workgroup_id, "sync:tree_changed", {"workgroup_id": task.workgroup_id})
+
     result = AgentTaskRead.model_validate(task)
     result.derived_status = _derive_task_status(session, task)
     return result
@@ -255,5 +261,8 @@ def delete_agent_task(
                 session.delete(cp)
             session.delete(conv)
 
+    wg_id = task.workgroup_id
     session.delete(task)
     commit_with_retry(session)
+
+    publish_sync_event(session, "workgroup", wg_id, "sync:tree_changed", {"workgroup_id": wg_id})
