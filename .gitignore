@@ -12,6 +12,8 @@ wheels/
 # Local app state
 .env
 teaparty.db
+teaparty.db-shm
+teaparty.db-wal
 
 # OS files
 .DS_Store
