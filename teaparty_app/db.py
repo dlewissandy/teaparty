@@ -55,6 +55,7 @@ def init_db() -> None:
     _migrate_add_job_max_rounds()
     _migrate_add_job_permission_mode()
     _migrate_drop_agent_follow_up_minutes()
+    _migrate_drop_agent_vestigial_fields()
     _migrate_add_org_files()
     _migrate_add_engagement_files()
     _migrate_add_job_files()
@@ -72,6 +73,7 @@ def init_db() -> None:
     _migrate_conversation_org_id()
     _migrate_org_config_fields()
     _migrate_message_drop_agent_fk()
+    _backfill_projects_lead()
     _run_seeds()
 
 
@@ -242,12 +244,6 @@ def _run_lightweight_migrations() -> None:
             conn.execute(text("ALTER TABLE agents ADD COLUMN model TEXT DEFAULT 'sonnet' NOT NULL"))
         if "temperature" not in agent_columns:
             conn.execute(text("ALTER TABLE agents ADD COLUMN temperature FLOAT DEFAULT 0.7 NOT NULL"))
-        if "verbosity" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN verbosity FLOAT DEFAULT 0.5 NOT NULL"))
-        if "learning_state" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN learning_state JSON DEFAULT '{}' NOT NULL"))
-        if "sentiment_state" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN sentiment_state JSON DEFAULT '{}' NOT NULL"))
         if "icon" not in agent_columns:
             conn.execute(text("ALTER TABLE agents ADD COLUMN icon TEXT DEFAULT '' NOT NULL"))
 
@@ -263,23 +259,8 @@ def _run_lightweight_migrations() -> None:
         conn.execute(
             text(
                 "UPDATE agents "
-                "SET learning_state = learned_preferences "
-                "WHERE learned_preferences IS NOT NULL "
-                "AND (learning_state IS NULL OR learning_state = '{}' OR learning_state = 'null')"
-            )
-        )
-        conn.execute(
-            text(
-                "UPDATE agents "
                 "SET model = 'sonnet' "
                 "WHERE model IS NULL OR model = '' OR model = 'gpt-4.1-mini' OR model = 'gpt-5-nano'"
-            )
-        )
-        conn.execute(
-            text(
-                "UPDATE agents "
-                "SET verbosity = 0.5 "
-                "WHERE verbosity IS NULL OR verbosity < 0 OR verbosity > 1"
             )
         )
 
@@ -804,6 +785,18 @@ def _migrate_drop_agent_follow_up_minutes() -> None:
         conn.execute(text("ALTER TABLE agents DROP COLUMN follow_up_minutes"))
 
 
+def _migrate_drop_agent_vestigial_fields() -> None:
+    """Drop unused agent fields: verbosity, response_threshold, learning_state, sentiment_state, learned_preferences."""
+    cols = _sqlite_column_names("agents")
+    drop_cols = ["verbosity", "response_threshold", "learning_state", "sentiment_state", "learned_preferences"]
+    to_drop = [c for c in drop_cols if c in cols]
+    if not to_drop:
+        return
+    with engine.begin() as conn:
+        for col in to_drop:
+            conn.execute(text(f"ALTER TABLE agents DROP COLUMN {col}"))
+
+
 def _migrate_add_org_files() -> None:
     """Add files JSON column to organizations table."""
     if not settings.database_url.startswith("sqlite"):
@@ -1270,6 +1263,40 @@ def _migrate_message_drop_agent_fk() -> None:
         conn.execute(text("CREATE INDEX ix_messages_sender_user_id ON messages(sender_user_id)"))
         conn.execute(text("CREATE INDEX ix_messages_sender_agent_id ON messages(sender_agent_id)"))
         conn.execute(text("CREATE INDEX ix_messages_response_to_message_id ON messages(response_to_message_id)"))
+
+
+def _backfill_projects_lead() -> None:
+    """Ensure every org's Administration workgroup has a projects-lead agent."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    import json as _json
+    from teaparty_app.services.claude_tools import claude_tool_names
+
+    tools_json = _json.dumps(claude_tool_names())
+
+    with engine.begin() as conn:
+        # Find Administration workgroups in orgs that lack a projects-lead agent.
+        rows = conn.execute(text(
+            "SELECT w.id, w.owner_id FROM workgroups w "
+            "WHERE w.name = 'Administration' AND w.organization_id IS NOT NULL "
+            "AND w.id NOT IN ("
+            "  SELECT a.workgroup_id FROM agents a WHERE a.name = 'projects-lead'"
+            ")"
+        )).fetchall()
+
+        for row in rows:
+            wg_id, owner_id = row[0], row[1]
+            agent_id = str(uuid4())
+            conn.execute(text(
+                "INSERT INTO agents "
+                "(id, workgroup_id, created_by_user_id, name, description, role, "
+                "personality, backstory, model, temperature, tool_names, "
+                "max_turns, is_lead, icon, created_at) "
+                "VALUES (:id, :wg_id, :owner_id, 'projects-lead', '', 'Project coordinator', "
+                "'Strategic and collaborative project coordinator', '', 'sonnet', 0.7, :tools, "
+                "3, 1, '', datetime('now'))"
+            ), {"id": agent_id, "wg_id": wg_id, "owner_id": owner_id, "tools": tools_json})
 
 
 def _migrate_workgroup_team_config() -> None:

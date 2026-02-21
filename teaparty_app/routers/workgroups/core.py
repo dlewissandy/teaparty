@@ -224,9 +224,7 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
                 "backstory": agent.backstory,
                 "model": agent.model,
                 "temperature": agent.temperature,
-                "verbosity": agent.verbosity,
                 "tool_names": list(agent.tool_names or []),
-                "response_threshold": agent.response_threshold,
             }
         )
 
@@ -355,9 +353,7 @@ def _reconcile_org_administration_files(session: Session, admin_workgroup: Workg
                 "backstory": agent.backstory,
                 "model": agent.model,
                 "temperature": agent.temperature,
-                "verbosity": agent.verbosity,
                 "tool_names": list(agent.tool_names or []),
-                "response_threshold": agent.response_threshold,
             }
         )
 
@@ -561,12 +557,7 @@ def create_workgroup_with_template(
                 backstory=draft.backstory.strip(),
                 model=draft.model.strip() or "sonnet",
                 temperature=draft.temperature,
-                verbosity=draft.verbosity,
                 tool_names=draft.tool_names,
-                response_threshold=draft.response_threshold,
-                learning_state={},
-                sentiment_state={},
-                learned_preferences={},
             )
         )
 
@@ -629,12 +620,7 @@ def create_workgroup(
                     backstory=draft.backstory.strip(),
                     model=draft.model.strip() or "sonnet",
                     temperature=draft.temperature,
-                    verbosity=draft.verbosity,
                     tool_names=draft.tool_names,
-                    response_threshold=draft.response_threshold,
-                    learning_state={},
-                    sentiment_state={},
-                    learned_preferences={},
                 )
             )
 

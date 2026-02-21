@@ -127,8 +127,6 @@ def admin_tool_add_agent(
     backstory_text = backstory.strip()
     personality_text = personality.strip() or "Professional and concise"
     model_name = model.strip() or "sonnet"
-    learning_state = {"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.0, "brevity_bias": 0.0}
-    sentiment_state = {"valence": 0.0, "arousal": 0.0, "confidence": 0.0}
 
     agent = Agent(
         workgroup_id=workgroup_id,
@@ -141,10 +139,6 @@ def admin_tool_add_agent(
         model=model_name,
         temperature=parsed_temperature,
         tool_names=[],
-        response_threshold=0.55,
-        learning_state=learning_state,
-        sentiment_state=sentiment_state,
-        learned_preferences=dict(learning_state),
     )
     session.add(agent)
     session.flush()

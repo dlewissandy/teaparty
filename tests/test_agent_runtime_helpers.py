@@ -19,9 +19,7 @@ def _make_agent(
     personality: str = "Professional and concise",
     role: str = "",
     backstory: str = "",
-    verbosity: float = 0.5,
-    learning_state: dict[str, float] | None = None,
-    response_threshold: float = 0.55,
+
 ) -> Agent:
     return Agent(
         id=agent_id,
@@ -32,9 +30,6 @@ def _make_agent(
         role=role,
         backstory=backstory,
         tool_names=tool_names or [],
-        verbosity=verbosity,
-        learning_state=learning_state or {},
-        response_threshold=response_threshold,
     )
 
 

@@ -76,7 +76,6 @@ agents:
     model: sonnet
     temperature: 0.3
     max_turns: 10
-    verbosity: 0.5
     tool_names:
       - Read
       - Write
@@ -87,4 +86,3 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.3

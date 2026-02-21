@@ -242,10 +242,6 @@ def global_add_agent(
         model=model,
         temperature=temperature,
         tool_names=tool_names,
-        response_threshold=0.55,
-        learning_state={},
-        sentiment_state={},
-        learned_preferences={},
     )
     session.add(agent)
     session.flush()

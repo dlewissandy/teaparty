@@ -63,7 +63,7 @@ Each work unit gets its own agent team, workspace, and conversation.
 
 ### Agents
 
-Each agent has: `name`, `role`, `personality`, `backstory`, `model`, `temperature`, `tool_names`, `response_threshold`, `learning_state`, `sentiment_state`, and `is_lead`.
+Each agent has: `name`, `role`, `personality`, `backstory`, `model`, `temperature`, `tool_names`, and `is_lead`.
 
 Agents are autonomous -- they decide what to do based on context, not scripts. Agent output is never truncated. Workflows are advisory, not mandatory.
 

@@ -45,9 +45,6 @@ def _make_agent(*, agent_id: str = "", workgroup_id: str = "wg-1", name: str = "
         created_by_user_id="user-1",
         name=name,
         personality="Professional and concise",
-        learning_state={},
-        sentiment_state={},
-        learned_preferences={},
         tool_names=[],
     )
 

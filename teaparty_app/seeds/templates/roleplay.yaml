@@ -106,7 +106,6 @@ agents:
     model: sonnet
     temperature: 0.9
     max_turns: 1
-    verbosity: 0.6
     tool_names:
       - Read
       - Write
@@ -117,7 +116,6 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.45
 
   - name: Character Coach
     description: "Strengthens character consistency, motivations, and dialogue voice."
@@ -127,7 +125,6 @@ agents:
     model: sonnet
     temperature: 0.85
     max_turns: 1
-    verbosity: 0.65
     tool_names:
       - Read
       - Write
@@ -138,4 +135,3 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.5

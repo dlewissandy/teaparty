@@ -51,12 +51,7 @@ def create_agent(
         backstory=payload.backstory.strip(),
         model=payload.model.strip() or "sonnet",
         temperature=payload.temperature,
-        verbosity=payload.verbosity,
         tool_names=payload.tool_names,
-        response_threshold=payload.response_threshold,
-        learning_state=dict(payload.learning_state or {}),
-        sentiment_state=dict(payload.sentiment_state or {}),
-        learned_preferences=dict(payload.learning_state or {}),
         icon=payload.icon or "",
     )
     session.add(agent)
@@ -126,10 +121,6 @@ def update_agent(
 
     if payload.temperature is not None:
         agent.temperature = payload.temperature
-    if payload.verbosity is not None:
-        agent.verbosity = payload.verbosity
-    if payload.response_threshold is not None:
-        agent.response_threshold = payload.response_threshold
     if payload.icon is not None:
         agent.icon = payload.icon
 
@@ -213,12 +204,7 @@ def clone_agent(
         backstory=agent.backstory,
         model=agent.model,
         temperature=agent.temperature,
-        verbosity=agent.verbosity,
         tool_names=list(agent.tool_names or []),
-        response_threshold=agent.response_threshold,
-        learning_state=dict(agent.learning_state) if payload.include_learned_state else {},
-        sentiment_state=dict(agent.sentiment_state) if payload.include_learned_state else {},
-        learned_preferences=dict(agent.learned_preferences) if payload.include_learned_state else {},
         icon=agent.icon or "",
     )
     session.add(cloned)
@@ -259,8 +245,6 @@ def get_agent_learnings(
     ).all()
 
     return AgentLearningsRead(
-        learning_state=dict(agent.learning_state or {}),
-        sentiment_state=dict(agent.sentiment_state or {}),
         memories=[AgentMemoryRead.model_validate(m) for m in memories],
         recent_signals=[
             AgentLearningSignalRead(

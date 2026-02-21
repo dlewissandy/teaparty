@@ -70,11 +70,24 @@ def create_organization(
         temperature=0.7,
         tool_names=claude_tool_names(),
         is_lead=True,
-        learning_state={},
-        sentiment_state={},
-        learned_preferences={},
     )
     session.add(engagements_lead)
+
+    # Create the projects-lead for cross-workgroup project coordination.
+    projects_lead = Agent(
+        workgroup_id=admin_wg.id,
+        created_by_user_id=user.id,
+        name="projects-lead",
+        description="",
+        role="Project coordinator",
+        personality="Strategic and collaborative project coordinator",
+        backstory="",
+        model="sonnet",
+        temperature=0.7,
+        tool_names=claude_tool_names(),
+        is_lead=True,
+    )
+    session.add(projects_lead)
     session.flush()
 
     ensure_admin_workspace(session, admin_wg)

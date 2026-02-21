@@ -269,11 +269,6 @@ For TeaParty, **stigmergy** is already the dominant pattern -- agents leave thei
 
 TeaParty already has significant scaffolding for agent learning, though most of it is unused:
 
-**Agent model fields** (`models.py:115-137`):
-- `learning_state: JSONDict` -- empty, general-purpose learning state
-- `sentiment_state: JSONDict` -- empty, intended for emotional/sentiment tracking
-- `learned_preferences: JSONDict` -- empty, intended for user preference learning
-
 **AgentLearningEvent** (`models.py:180-188`):
 - Stores discrete learning signals tied to specific messages
 - Fields: `agent_id`, `message_id`, `signal_type`, `value` (JSON)

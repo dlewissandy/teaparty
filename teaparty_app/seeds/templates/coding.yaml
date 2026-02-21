@@ -168,7 +168,6 @@ agents:
     model: sonnet
     temperature: 0.4
     max_turns: 20
-    verbosity: 0.45
     tool_names:
       - Read
       - Write
@@ -179,7 +178,6 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.5
 
   - name: Reviewer
     description: "Challenges edge cases, regressions, and test coverage before changes ship."
@@ -189,7 +187,6 @@ agents:
     model: sonnet
     temperature: 0.35
     max_turns: 15
-    verbosity: 0.4
     tool_names:
       - Read
       - Write
@@ -200,4 +197,3 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.58

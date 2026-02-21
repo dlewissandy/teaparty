@@ -143,9 +143,6 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
         temperature=0.7,
         tool_names=claude_tool_names(),
         is_lead=True,
-        learning_state={},
-        sentiment_state={},
-        learned_preferences={},
     )
     session.add(agent)
     session.flush()
@@ -203,10 +200,6 @@ def ensure_admin_workspace(
             model=settings.admin_agent_model,
             temperature=0.2,
             tool_names=list(ADMIN_TOOL_NAMES),
-            response_threshold=0.0,
-            learning_state={"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.4, "brevity_bias": 0.3},
-            sentiment_state={"valence": 0.1, "arousal": -0.1, "confidence": 0.4},
-            learned_preferences={"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.4, "brevity_bias": 0.3},
         )
         session.add(admin_agent)
         session.flush()
@@ -231,15 +224,6 @@ def ensure_admin_workspace(
             admin_changed = True
         if not (admin_agent.backstory or "").strip():
             admin_agent.backstory = "You maintain this workspace and enforce ownership and safety constraints."
-            admin_changed = True
-        if not isinstance(admin_agent.learning_state, dict) or not admin_agent.learning_state:
-            admin_agent.learning_state = {"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.4, "brevity_bias": 0.3}
-            admin_changed = True
-        if not isinstance(admin_agent.sentiment_state, dict) or not admin_agent.sentiment_state:
-            admin_agent.sentiment_state = {"valence": 0.1, "arousal": -0.1, "confidence": 0.4}
-            admin_changed = True
-        if not isinstance(admin_agent.learned_preferences, dict) or not admin_agent.learned_preferences:
-            admin_agent.learned_preferences = dict(admin_agent.learning_state or {})
             admin_changed = True
         if admin_changed:
             session.add(admin_agent)

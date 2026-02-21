@@ -114,8 +114,6 @@ export function renderAgentConfigForm(container, data, readonly) {
   emit(buildSectionDivider('Model & Behavior'));
   field('model');
   rangeField('temperature', 0, 2, 0.1, 'temperature');
-  rangeField('verbosity', 0, 1, 0.05, 'verbosity');
-  rangeField('response_threshold', 0, 1, 0.05, 'response_threshold');
 
   // Tools
   if ('tool_names' in data && Array.isArray(data.tool_names)) {

@@ -75,9 +75,7 @@ class WorkgroupTemplateAgentWrite(BaseModel):
     backstory: str = ""
     model: str = "sonnet"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
-    response_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
 
 
 class WorkgroupCreateRequest(BaseModel):
@@ -262,11 +260,7 @@ class AgentCreateRequest(BaseModel):
     backstory: str = ""
     model: str = "sonnet"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
-    response_threshold: float = Field(default=0.55, ge=0.0, le=1.0)
-    learning_state: dict[str, Any] = Field(default_factory=dict)
-    sentiment_state: dict[str, Any] = Field(default_factory=dict)
     icon: str = ""
 
 
@@ -278,16 +272,13 @@ class AgentUpdateRequest(BaseModel):
     backstory: str | None = None
     model: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    verbosity: float | None = Field(default=None, ge=0.0, le=1.0)
     tool_names: list[str] | None = None
-    response_threshold: float | None = Field(default=None, ge=0.0, le=1.0)
     icon: str | None = None
 
 
 class AgentCloneRequest(BaseModel):
     target_workgroup_id: str | None = None       # None = same workgroup
     name: str | None = None                       # None = original name + " (copy)"
-    include_learned_state: bool = False
 
 
 class AgentRead(ORMBaseModel):
@@ -300,12 +291,7 @@ class AgentRead(ORMBaseModel):
     backstory: str
     model: str
     temperature: float
-    verbosity: float
     tool_names: list[str]
-    response_threshold: float
-    learning_state: dict[str, Any]
-    sentiment_state: dict[str, Any]
-    learned_preferences: dict[str, Any]
     is_lead: bool = False
     icon: str = ""
 
@@ -687,8 +673,6 @@ class AgentLearningSignalRead(BaseModel):
 
 
 class AgentLearningsRead(BaseModel):
-    learning_state: dict[str, Any]
-    sentiment_state: dict[str, Any]
     memories: list[AgentMemoryRead]
     recent_signals: list[AgentLearningSignalRead]
 

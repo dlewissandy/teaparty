@@ -30,9 +30,7 @@ class WorkgroupTemplateAgent(TypedDict):
     backstory: str
     model: str
     temperature: float
-    verbosity: float
     tool_names: list[str]
-    response_threshold: float
 
 
 class WorkgroupTemplate(TypedDict):
@@ -94,9 +92,7 @@ def _clone_template(template: WorkgroupTemplate) -> WorkgroupTemplate:
                 "backstory": item["backstory"],
                 "model": item["model"],
                 "temperature": item["temperature"],
-                "verbosity": item["verbosity"],
                 "tool_names": list(item["tool_names"]),
-                "response_threshold": item["response_threshold"],
             }
             for item in template["agents"]
         ],
@@ -203,9 +199,7 @@ def _normalize_storage_template_agent(value: object) -> WorkgroupTemplateAgent |
         "backstory": str(value.get("backstory", "")),
         "model": str(value.get("model", "sonnet")) or "sonnet",
         "temperature": _coerce_float(value.get("temperature"), 0.7, 0.0, 2.0),
-        "verbosity": _coerce_float(value.get("verbosity"), 0.5, 0.0, 1.0),
         "tool_names": tool_names,
-        "response_threshold": _coerce_float(value.get("response_threshold"), 0.55, 0.0, 1.0),
     }
 
 
@@ -577,9 +571,7 @@ def org_storage_files(
                 "backstory": agent.get("backstory", ""),
                 "model": agent.get("model", ""),
                 "temperature": agent.get("temperature", 0.7),
-                "verbosity": agent.get("verbosity", 0.5),
                 "tool_names": agent.get("tool_names", []),
-                "response_threshold": agent.get("response_threshold", 0.55),
             }
             files.append({
                 "path": f"{base_path}/agents/{candidate}/agent.json",
@@ -658,9 +650,7 @@ def workgroup_storage_files(
                 "backstory": agent.get("backstory", ""),
                 "model": agent.get("model", ""),
                 "temperature": agent.get("temperature", 0.7),
-                "verbosity": agent.get("verbosity", 0.5),
                 "tool_names": agent.get("tool_names", []),
-                "response_threshold": agent.get("response_threshold", 0.55),
             }
             files.append({
                 "path": f"{base_path}/agents/{candidate}.json",

@@ -63,8 +63,6 @@ function renderProfile(agent) {
   const modelParts = [];
   if (agent.model) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Model</span> ${escapeHtml(agent.model)}</span>`);
   if (agent.temperature != null) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Temperature</span> ${agent.temperature}</span>`);
-  if (agent.verbosity) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Verbosity</span> ${escapeHtml(agent.verbosity)}</span>`);
-  if (agent.response_threshold != null) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Response threshold</span> ${agent.response_threshold}</span>`);
 
   if (modelParts.length) {
     html += `

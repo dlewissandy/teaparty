@@ -70,9 +70,6 @@ class OrgSummaryTest(unittest.TestCase):
                 created_by_user_id="u1",
                 name="Helper",
                 tool_names=[],
-                learning_state={},
-                sentiment_state={},
-                learned_preferences={},
             )
             session.add(agent)
 
@@ -422,9 +419,6 @@ class HomeSummaryTest(unittest.TestCase):
                 created_by_user_id="u1",
                 name="Helper",
                 tool_names=[],
-                learning_state={},
-                sentiment_state={},
-                learned_preferences={},
             )
             session.add(agent)
 
@@ -510,9 +504,6 @@ class ConversationParticipantsTest(unittest.TestCase):
                 role="Coder",
                 is_lead=True,
                 tool_names=[],
-                learning_state={},
-                sentiment_state={},
-                learned_preferences={},
             )
             session.add(agent)
             session.flush()

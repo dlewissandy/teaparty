@@ -146,7 +146,6 @@ agents:
     model: sonnet
     temperature: 0.5
     max_turns: 3
-    verbosity: 0.5
     tool_names:
       - Read
       - Write
@@ -157,7 +156,6 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.35
 
   - name: Opponent
     description: "Stress-tests claims, surfaces hidden assumptions, and argues the antithesis."
@@ -174,7 +172,6 @@ agents:
     model: sonnet
     temperature: 0.45
     max_turns: 3
-    verbosity: 0.5
     tool_names:
       - Read
       - Write
@@ -185,7 +182,6 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.35
 
   - name: Synthesist
     description: "Identifies convergence, names remaining tensions, and proposes integrated positions."
@@ -202,7 +198,6 @@ agents:
     model: sonnet
     temperature: 0.35
     max_turns: 3
-    verbosity: 0.55
     tool_names:
       - Read
       - Write
@@ -213,7 +208,6 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.7
 
   - name: Neophyte
     description: "Asks clarifying and Socratic questions to ground the discussion in fundamentals."
@@ -231,7 +225,6 @@ agents:
     model: sonnet
     temperature: 0.6
     max_turns: 3
-    verbosity: 0.4
     tool_names:
       - Read
       - Write
@@ -242,4 +235,3 @@ agents:
       - Task
       - WebSearch
       - WebFetch
-    response_threshold: 0.5

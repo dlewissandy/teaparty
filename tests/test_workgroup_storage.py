@@ -65,9 +65,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                     "backstory": "",
                     "model": "gpt-5-nano",
                     "temperature": 0.4,
-                    "verbosity": 0.5,
                     "tool_names": ["summarize_job"],
-                    "response_threshold": 0.5,
                 },
             ],
         }
@@ -87,15 +85,15 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
             "wg-1": [
                 {
                     "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55,
+                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
+                    "tool_names": [],
                 },
             ],
             "wg-2": [
                 {
                     "id": "a2", "name": "Writer", "description": "", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55,
+                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
+                    "tool_names": [],
                 },
             ],
         }
@@ -117,13 +115,13 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
             "wg-1": [
                 {
                     "id": "a1", "name": "Reviewer", "description": "First", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55,
+                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
+                    "tool_names": [],
                 },
                 {
                     "id": "a2", "name": "Reviewer", "description": "Second", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-                    "tool_names": [], "response_threshold": 0.55,
+                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
+                    "tool_names": [],
                 },
             ],
         }
@@ -146,7 +144,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "agent-789", "name": "Implementer", "description": "Builds", "role": "Builder",
                     "personality": "Practical", "backstory": "", "model": "gpt-5-nano", "temperature": 0.4,
-                    "verbosity": 0.5, "tool_names": [], "response_threshold": 0.5,
+                    "tool_names": [],
                 },
             ],
         }
@@ -198,8 +196,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                 {
                     "id": "a1", "name": "Bot", "description": "Helper", "role": "Assistant",
                     "personality": "Friendly", "backstory": "None", "model": "gpt-5-nano",
-                    "temperature": 0.7, "verbosity": 0.5, "tool_names": ["summarize_job"],
-                    "response_threshold": 0.55,
+                    "temperature": 0.7, "tool_names": ["summarize_job"],
                 },
             ],
         }
@@ -280,8 +277,8 @@ class OrgStorageFilesTests(unittest.TestCase):
     def _make_agent(self, **overrides: object) -> dict:
         base = {
             "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
-            "backstory": "", "model": "gpt-5-nano", "temperature": 0.7, "verbosity": 0.5,
-            "tool_names": [], "response_threshold": 0.55,
+            "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
+            "tool_names": [],
         }
         base.update(overrides)
         return base

@@ -231,9 +231,7 @@ def _create_workgroup_from_template(
             backstory=agent_def["backstory"],
             model=agent_def["model"],
             temperature=agent_def["temperature"],
-            verbosity=agent_def["verbosity"],
             tool_names=agent_def["tool_names"],
-            response_threshold=agent_def["response_threshold"],
         )
         session.add(agent)
 

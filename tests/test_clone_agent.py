@@ -30,12 +30,7 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
         backstory="Created for testing",
         model="sonnet",
         temperature=0.8,
-        verbosity=0.6,
         tool_names=["Read", "Write"],
-        response_threshold=0.7,
-        learning_state={"topic": "python"},
-        sentiment_state={"mood": "positive"},
-        learned_preferences={"style": "concise"},
         icon="robot",
     )
     session.add(user)
@@ -87,8 +82,6 @@ class CloneAgentSameWorkgroupTests(unittest.TestCase):
         self.assertEqual(result.backstory, "Created for testing")
         self.assertEqual(result.model, "sonnet")
         self.assertEqual(result.temperature, 0.8)
-        self.assertEqual(result.verbosity, 0.6)
-        self.assertEqual(result.response_threshold, 0.7)
         self.assertEqual(result.icon, "robot")
         self.assertIn("Read", result.tool_names)
         self.assertIn("Write", result.tool_names)
@@ -113,44 +106,6 @@ class CloneAgentCustomNameTests(unittest.TestCase):
 
         self.assertEqual(result.name, "My Custom Agent")
 
-
-class CloneAgentLearnedStateTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.engine = _make_engine()
-
-    def test_clone_resets_learned_state_by_default(self) -> None:
-        with Session(self.engine) as session:
-            _seed(session)
-
-        with Session(self.engine) as session:
-            result = clone_agent(
-                workgroup_id="wg-1",
-                agent_id="agent-1",
-                payload=AgentCloneRequest(),
-                session=session,
-                user=session.get(User, "user-1"),
-            )
-
-        self.assertEqual(result.learning_state, {})
-        self.assertEqual(result.sentiment_state, {})
-        self.assertEqual(result.learned_preferences, {})
-
-    def test_clone_preserves_learned_state_when_opted_in(self) -> None:
-        with Session(self.engine) as session:
-            _seed(session)
-
-        with Session(self.engine) as session:
-            result = clone_agent(
-                workgroup_id="wg-1",
-                agent_id="agent-1",
-                payload=AgentCloneRequest(include_learned_state=True),
-                session=session,
-                user=session.get(User, "user-1"),
-            )
-
-        self.assertEqual(result.learning_state, {"topic": "python"})
-        self.assertEqual(result.sentiment_state, {"mood": "positive"})
-        self.assertEqual(result.learned_preferences, {"style": "concise"})
 
 
 class CloneAgentAdminBlockedTests(unittest.TestCase):
