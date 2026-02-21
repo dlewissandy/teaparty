@@ -734,6 +734,12 @@ pre code {
   height: 12px;
 }
 
+.sidebar-section-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin: 4px 10px;
+}
+
 .sidebar-section-body {
   display: flex;
   flex-direction: column;

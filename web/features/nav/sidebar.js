@@ -13,6 +13,7 @@ import { renderJobSection } from './sidebar-jobs.js';
 import { renderPartnerSection } from './sidebar-partnerships.js';
 import { renderEngagementSection } from './sidebar-engagements.js';
 import { renderProjectSection } from './sidebar-projects.js';
+import { renderAdministrationSection } from './sidebar-administration.js';
 import { renderMemberSection } from './sidebar-members.js';
 
 const STORAGE_KEY = 'teaparty_sidebar_collapsed';
@@ -109,6 +110,7 @@ export function initSidebar(store) {
   store.on('data.workgroups', () => refreshSidebar());
   store.on('data.treeData', () => refreshSidebar());
   store.on('data.partnerships', () => refreshSidebar());
+  store.on('data.projects', () => refreshSidebar());
   store.on('data.invites', () => refreshSidebar());
   store.on('conversation.thinkingByConversation', () => refreshSidebar());
   store.on('nav.activeConversationId', () => refreshSidebar());
@@ -177,7 +179,7 @@ function renderSidebar(orgId, filter) {
   const allSections = [
     'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
     'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
-    'sidebar-members',
+    'sidebar-administration', 'sidebar-members',
   ];
 
   // Pending invite: show accept/decline banner instead of sections
@@ -205,7 +207,10 @@ function renderSidebar(orgId, filter) {
   } else if (isWorkgroup) {
     visibleSections = ['sidebar-agents', 'sidebar-jobs', 'sidebar-members'];
   } else if (orgId) {
-    visibleSections = ['sidebar-workgroups', 'sidebar-agents', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects', 'sidebar-members'];
+    const org = orgs.find(o => o.id === orgId);
+    const isOrgOwner = org?.owner_id === s.auth.user?.id;
+    visibleSections = [...(isOrgOwner ? ['sidebar-administration'] : []),
+      'sidebar-workgroups', 'sidebar-agents', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects', 'sidebar-members'];
   } else {
     clearContainers();
     return;
@@ -254,6 +259,8 @@ function renderSidebar(orgId, filter) {
   if (partnerContainer) renderPartnerSection(_store, partnerContainer, orgId, filter);
   if (engContainer) renderEngagementSection(_store, engContainer, orgId, filter);
   if (projContainer) renderProjectSection(_store, projContainer, orgId, filter);
+  const adminContainer = document.getElementById('sidebar-administration-list');
+  if (adminContainer) renderAdministrationSection(_store, adminContainer, orgId, filter);
   if (memberContainer) renderMemberSection(_store, memberContainer, orgId, filter);
 }
 
@@ -264,7 +271,7 @@ function showNoOrgsPlaceholder() {
   const allSections = [
     'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
     'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
-    'sidebar-members',
+    'sidebar-administration', 'sidebar-members',
   ];
   for (const id of allSections) {
     const el = document.getElementById(id);
@@ -294,7 +301,7 @@ function showNoOrgsPlaceholder() {
 }
 
 function clearContainers() {
-  ['sidebar-organizations-list', 'sidebar-engagements-list', 'sidebar-workgroups-list', 'sidebar-agents-list', 'sidebar-partners-list', 'sidebar-projects-list', 'sidebar-members-list'].forEach(id => {
+  ['sidebar-organizations-list', 'sidebar-engagements-list', 'sidebar-workgroups-list', 'sidebar-agents-list', 'sidebar-partners-list', 'sidebar-projects-list', 'sidebar-administration-list', 'sidebar-members-list'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.innerHTML = '';
   });
