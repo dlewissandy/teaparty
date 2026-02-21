@@ -97,7 +97,7 @@ def update_organization(
     if org.owner_id != user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the organization owner can update it")
 
-    if all(v is None for v in (payload.name, payload.description, payload.files, payload.service_description, payload.is_accepting_engagements)):
+    if all(v is None for v in (payload.name, payload.description, payload.files, payload.service_description, payload.icon_url, payload.is_accepting_engagements, payload.is_discoverable, payload.engagement_base_fee, payload.engagement_markup_pct)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No updates provided")
 
     if payload.name is not None:
@@ -116,8 +116,20 @@ def update_organization(
     if payload.service_description is not None:
         org.service_description = payload.service_description.strip()
 
+    if payload.icon_url is not None:
+        org.icon_url = payload.icon_url
+
     if payload.is_accepting_engagements is not None:
         org.is_accepting_engagements = payload.is_accepting_engagements
+
+    if payload.is_discoverable is not None:
+        org.is_discoverable = payload.is_discoverable
+
+    if payload.engagement_base_fee is not None:
+        org.engagement_base_fee = payload.engagement_base_fee
+
+    if payload.engagement_markup_pct is not None:
+        org.engagement_markup_pct = payload.engagement_markup_pct
 
     session.add(org)
     session.commit()

@@ -53,8 +53,11 @@
           <button id="sidebar-directory-btn" class="sidebar-icon-btn" aria-label="Directory" title="Directory">
             <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v12" stroke="currentColor" stroke-width="1.3"/><path d="M10 8h4M10 11h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
           </button>
-          <button id="sidebar-settings-btn" class="sidebar-icon-btn" aria-label="Info" title="Info">
+          <button id="sidebar-info-btn" class="sidebar-icon-btn" aria-label="Info" title="Info">
             <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.3"/><path d="M10 9v4.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="6.5" r="0.8" fill="currentColor"/></svg>
+          </button>
+          <button id="sidebar-config-btn" class="sidebar-icon-btn" aria-label="Settings" title="Settings">
+            <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M8.3 2.5h3.4l.4 2.1a5.5 5.5 0 011.5.9l2-.8 1.7 2.9-1.6 1.3a5.6 5.6 0 010 1.8l1.6 1.3-1.7 2.9-2-.8a5.5 5.5 0 01-1.5.9l-.4 2.1H8.3l-.4-2.1a5.5 5.5 0 01-1.5-.9l-2 .8-1.7-2.9 1.6-1.3a5.6 5.6 0 010-1.8L2.7 7.6l1.7-2.9 2 .8a5.5 5.5 0 011.5-.9l.4-2.1z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10" cy="10" r="2.5" stroke="currentColor" stroke-width="1.3"/></svg>
           </button>
         </div>
 
@@ -202,6 +205,11 @@
         <!-- Org dashboard view (shown when org selected from rail) -->
         <div id="org-dashboard-view" class="org-dashboard-view hidden">
           <div id="org-dashboard-content" class="org-dashboard-content"></div>
+        </div>
+
+        <!-- Org settings view (shown when gear icon clicked) -->
+        <div id="org-settings-view" class="org-settings-view hidden">
+          <div id="org-settings-content" class="org-settings-content"></div>
         </div>
 
         <!-- Agent profile view (shown when agent selected in sidebar) -->

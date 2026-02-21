@@ -121,11 +121,13 @@ async function showDirectoryView() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
+  const settingsOrgView = document.getElementById('org-settings-view');
 
   if (directoryView) directoryView.classList.remove('hidden');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
+  if (settingsOrgView) settingsOrgView.classList.add('hidden');
   const input = document.getElementById('directory-input');
   if (input) {
     input.value = '';
@@ -155,6 +157,7 @@ function buildResults(query) {
         results.push({
           type: 'org', id: org.id, label: org.name,
           sublabel: org.service_description || org.description || '',
+          icon_url: org.icon_url || '',
           owner_name: org.owner_name || '',
           partner_count: org.partner_count || 0,
           engagement_count: org.engagement_count || 0,
@@ -195,9 +198,14 @@ function renderResults(query) {
 
   let html = '<div class="directory-grid">';
   for (const item of results) {
-    const avatar = item.type === 'person' && item.picture
-      ? `<img src="${escapeHtml(item.picture)}" class="dir-card-avatar" alt="" />`
-      : `<span class="dir-card-icon">${typeIcon(item.type)}</span>`;
+    let avatar;
+    if (item.type === 'person' && item.picture) {
+      avatar = `<img src="${escapeHtml(item.picture)}" class="dir-card-avatar" alt="" />`;
+    } else if (item.type === 'org' && item.icon_url) {
+      avatar = `<img src="${escapeHtml(item.icon_url)}" class="dir-card-avatar" alt="" />`;
+    } else {
+      avatar = `<span class="dir-card-icon">${typeIcon(item.type)}</span>`;
+    }
 
     let meta = '';
     if (item.type === 'org') {

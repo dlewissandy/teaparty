@@ -43,11 +43,15 @@ class Organization(SQLModel, table=True):
     id: str = Field(default_factory=new_id, primary_key=True)
     name: str = Field(index=True)
     description: str = Field(default="")
+    icon_url: str = Field(default="")
     owner_id: str = Field(foreign_key="users.id", index=True)
     operations_workgroup_id: str | None = Field(default=None, foreign_key="workgroups.id")
     files: list[JSONDict] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     service_description: str = Field(default="")
     is_accepting_engagements: bool = Field(default=False)
+    is_discoverable: bool = Field(default=True)
+    engagement_base_fee: float = Field(default=0.0)
+    engagement_markup_pct: float = Field(default=5.0)
     created_at: datetime = Field(default_factory=utc_now)
 
 

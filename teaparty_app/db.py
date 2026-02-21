@@ -70,6 +70,7 @@ def init_db() -> None:
     _migrate_workgroup_team_config()
     _migrate_add_job_project_id()
     _migrate_conversation_org_id()
+    _migrate_org_config_fields()
     _migrate_message_drop_agent_fk()
     _run_seeds()
 
@@ -1212,6 +1213,22 @@ def _migrate_conversation_org_id() -> None:
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_created_by_user_id ON conversations(created_by_user_id)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_kind ON conversations(kind)"))
         conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_is_archived ON conversations(is_archived)"))
+
+
+def _migrate_org_config_fields() -> None:
+    """Add is_discoverable, engagement_base_fee, engagement_markup_pct, and icon_url to organizations."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    org_columns = _sqlite_column_names("organizations")
+    with engine.begin() as conn:
+        if "is_discoverable" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN is_discoverable BOOLEAN DEFAULT 1 NOT NULL"))
+        if "engagement_base_fee" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN engagement_base_fee REAL DEFAULT 0.0 NOT NULL"))
+        if "engagement_markup_pct" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN engagement_markup_pct REAL DEFAULT 5.0 NOT NULL"))
+        if "icon_url" not in org_columns:
+            conn.execute(text("ALTER TABLE organizations ADD COLUMN icon_url TEXT DEFAULT '' NOT NULL"))
 
 
 def _migrate_message_drop_agent_fk() -> None:

@@ -126,6 +126,10 @@ function renderOrgIcons() {
     const isActive = org.id === activeOrgId;
     const hasUnread = orgHasUnread(org.id, s);
 
+    const iconInner = org.icon_url
+      ? `<span class="org-rail-icon-inner"><img src="${escapeHtml(org.icon_url)}" alt="" style="width:72px;height:72px;object-fit:cover;display:block" /></span>`
+      : `<span class="org-rail-icon-inner" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span>`;
+
     return `<button
       class="org-rail-icon${isActive ? ' active' : ''}"
       data-org-id="${escapeHtml(org.id)}"
@@ -134,7 +138,7 @@ function renderOrgIcons() {
       aria-pressed="${isActive}"
       style="--org-color: ${escapeHtml(color)}"
     >
-      <span class="org-rail-icon-inner" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span>
+      ${iconInner}
       ${hasUnread ? '<span class="org-rail-unread-dot" aria-hidden="true"></span>' : ''}
     </button>`;
   }).join('');

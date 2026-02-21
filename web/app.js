@@ -19,6 +19,7 @@ import { initUserMenu } from './features/auth/user-menu.js';
 import { initOrgRail } from './features/nav/org-rail.js';
 import { initSidebar } from './features/nav/sidebar.js';
 import { initWorkgroupSettings } from './features/nav/sidebar-workgroup.js';
+import { initOrgSettings } from './features/settings/org-settings.js';
 import { initQuickSwitcher } from './features/nav/quick-switcher.js';
 import { initDirectory } from './features/nav/directory.js';
 
@@ -136,6 +137,7 @@ async function init() {
   initOrgRail(store);
   initSidebar(store);
   initWorkgroupSettings(store);
+  initOrgSettings(store);
   initQuickSwitcher(store);
   initDirectory(store);
   initChatPanel(store);
@@ -189,12 +191,8 @@ async function init() {
 
   // Wire up right panel toggles from chat header
   const btnFiles = document.getElementById('btn-toggle-files');
-  const btnInfo = document.getElementById('btn-toggle-info');
   if (btnFiles) {
     btnFiles.addEventListener('click', () => bus.emit('panel:toggle-files'));
-  }
-  if (btnInfo) {
-    btnInfo.addEventListener('click', () => bus.emit('panel:toggle-info'));
   }
 
   // Mobile nav

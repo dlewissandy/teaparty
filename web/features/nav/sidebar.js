@@ -71,13 +71,21 @@ export function initSidebar(store) {
     });
   }
 
-  // Settings button — context-sensitive: workgroup settings when drilled-in, else org settings
-  document.getElementById('sidebar-settings-btn')?.addEventListener('click', () => {
+  // Info button — context-sensitive: workgroup settings when drilled-in, else org dashboard
+  document.getElementById('sidebar-info-btn')?.addEventListener('click', () => {
     const orgId = _store.get().nav.activeOrgId;
     if (_drilledWorkgroupId) {
       bus.emit('nav:workgroup-settings', { workgroupId: _drilledWorkgroupId, orgId });
     } else if (orgId) {
       bus.emit('nav:org-settings', { orgId });
+    }
+  });
+
+  // Config gear button — org-level configuration screen
+  document.getElementById('sidebar-config-btn')?.addEventListener('click', () => {
+    const orgId = _store.get().nav.activeOrgId;
+    if (orgId) {
+      bus.emit('nav:org-config', { orgId });
     }
   });
 
@@ -132,7 +140,8 @@ function renderSidebar(orgId, filter) {
 
   // Update org name / breadcrumb in sidebar header
   const orgNameEl = document.getElementById('sidebar-org-name');
-  const settingsBtn = document.getElementById('sidebar-settings-btn');
+  const settingsBtn = document.getElementById('sidebar-info-btn');
+  const configBtn = document.getElementById('sidebar-config-btn');
   const invites = s.data.invites || [];
   const hasOrgsOrInvites = orgs.length || invites.length;
   const isHome = !orgId && s.auth.user && hasOrgsOrInvites;
@@ -163,8 +172,15 @@ function renderSidebar(orgId, filter) {
     }
   }
 
-  // Hide settings gear on home view
+  // Hide info button on home view
   if (settingsBtn) settingsBtn.style.display = isHome ? 'none' : '';
+
+  // Show config gear only at org level (not home, not workgroup) and only for owner
+  if (configBtn) {
+    const org = orgId ? orgs.find(o => o.id === orgId) : null;
+    const isOrgOwner = org?.owner_id === s.auth.user?.id;
+    configBtn.style.display = (orgId && !activeWgId && isOrgOwner) ? '' : 'none';
+  }
 
   if (!s.auth.user || !hasOrgsOrInvites) {
     showNoOrgsPlaceholder();
@@ -194,6 +210,7 @@ function renderSidebar(orgId, filter) {
     clearContainers();
     showInviteBanner(pendingInvite);
     if (settingsBtn) settingsBtn.style.display = 'none';
+    if (configBtn) configBtn.style.display = 'none';
     return;
   }
   hideInviteBanner();

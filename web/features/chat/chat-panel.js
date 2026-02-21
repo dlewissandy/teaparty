@@ -21,11 +21,13 @@ function showChatView() {
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
   const dashboardView = document.getElementById('org-dashboard-view');
+  const settingsView = document.getElementById('org-settings-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
   if (dashboardView) dashboardView.classList.add('hidden');
+  if (settingsView) settingsView.classList.add('hidden');
 }
 
 function showHomeView() {
@@ -34,11 +36,13 @@ function showHomeView() {
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
   const dashboardView = document.getElementById('org-dashboard-view');
+  const settingsView = document.getElementById('org-settings-view');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
   if (dashboardView) dashboardView.classList.add('hidden');
+  if (settingsView) settingsView.classList.add('hidden');
 }
 
 export function showOrgDashboardView() {
@@ -47,11 +51,13 @@ export function showOrgDashboardView() {
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
   const dashboardView = document.getElementById('org-dashboard-view');
+  const settingsView = document.getElementById('org-settings-view');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
   if (dashboardView) dashboardView.classList.remove('hidden');
+  if (settingsView) settingsView.classList.add('hidden');
 }
 
 // ─── Conversation loading ──────────────────────────────────────────────────

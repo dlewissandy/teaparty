@@ -127,11 +127,15 @@ class OrganizationRead(ORMBaseModel):
     id: str
     name: str
     description: str
+    icon_url: str = ""
     owner_id: str
     operations_workgroup_id: str | None = None
     files: list[WorkgroupFileRead] = []
     service_description: str = ""
     is_accepting_engagements: bool = False
+    is_discoverable: bool = True
+    engagement_base_fee: float = 0.0
+    engagement_markup_pct: float = 5.0
     created_at: datetime
 
 
@@ -145,7 +149,11 @@ class OrganizationUpdateRequest(BaseModel):
     description: str | None = None
     files: list[WorkgroupFileWrite | str] | None = None
     service_description: str | None = None
+    icon_url: str | None = None
     is_accepting_engagements: bool | None = None
+    is_discoverable: bool | None = None
+    engagement_base_fee: float | None = None
+    engagement_markup_pct: float | None = None
 
 
 class WorkgroupTemplateFileRead(BaseModel):
@@ -850,7 +858,9 @@ class OrgDirectoryEntry(BaseModel):
     id: str
     name: str
     description: str
+    icon_url: str = ""
     service_description: str
+    is_discoverable: bool = True
     owner_id: str
     owner_name: str = ""
     partner_count: int = 0
