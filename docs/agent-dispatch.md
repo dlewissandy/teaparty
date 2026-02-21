@@ -123,16 +123,108 @@ An in-memory store (`_conversation_activity`) tracks what each agent is doing, e
 
 ---
 
+## Hierarchical Team Dispatch
+
+Projects and engagements create hierarchical teams -- multiple independent Claude Code team sessions connected by liaison agents. See [hierarchical-teams.md](hierarchical-teams.md) for the full design.
+
+### Project Team Dispatch
+
+When a project starts, TeaParty creates a project team session:
+
+```
+Project created (status: pending)
+    |
+    v
+Generate agent definitions:
+  - org-lead (team lead, from Administration workgroup)
+  - liaison-{workgroup} (one per workgroup in project.workgroup_ids)
+    |
+    v
+Launch team session (claude --input-format stream-json --agents {...})
+    |
+    v
+Send project prompt as initial message
+    |
+    v
+Project status -> in_progress
+```
+
+The project team uses native Claude Code team primitives internally (SendMessage, TaskCreate). The org lead assigns tasks to liaisons, who relay to sub-teams via `relay_to_subteam`.
+
+### Liaison-to-SubTeam Dispatch
+
+When a liaison calls `relay_to_subteam` for the first time:
+
+```
+relay_to_subteam(message="...")
+    |
+    v
+Create Job record (linked to project, in liaison's workgroup)
+    |
+    v
+Create job conversation (kind: "job")
+    |
+    v
+Generate agent definitions for workgroup agents
+    |
+    v
+Launch job team session (separate claude process)
+    |
+    v
+Send liaison's message as initial task prompt
+    |
+    v
+Return confirmation to liaison
+```
+
+Subsequent calls send messages to the existing job team session via `TeamSession.send_message()`.
+
+### Async Notification Bridge
+
+Sub-teams may run for extended periods. When a sub-team produces notable output (completion, question, stall), TeaParty bridges the notification to the parent team:
+
+1. `team_bridge.py` detects the event in the sub-team's event stream.
+2. TeaParty injects a message into the parent team session, addressed to the relevant liaison.
+3. The liaison picks up the notification and relays to the team lead.
+
+This bridges the async gap between independent Claude Code processes without the liaison needing to poll.
+
+### Engagement Team Dispatch
+
+Engagement dispatch is two-phase:
+
+1. **Negotiation phase**: Single-agent dispatch (existing behavior). The engagement conversation uses `_run_single_agent_responses` with the org lead.
+2. **Work phase** (after acceptance): A team session is created with the org lead + internal liaisons + external liaison(s). Dispatches the same way as project teams.
+
+### Team Parameter Inheritance
+
+Job team sessions inherit configuration from multiple levels:
+
+```
+Workgroup defaults  <--  Project overrides  <--  Job overrides
+```
+
+| Parameter | Source |
+|-----------|--------|
+| `model` | Workgroup config, overridden by Project.model if set |
+| `permission_mode` | Workgroup config (default: `acceptEdits`), overridden by Project.permission_mode |
+| `max_turns` | Workgroup config, overridden by Project.max_turns |
+| `max_cost_usd` | Workgroup config, overridden by Project.max_cost_usd |
+| `max_time_seconds` | Workgroup config, overridden by Project.max_time_seconds |
+
+---
+
 ## Feedback Routing
 
-The feedback bubble-up model (see [ARCHITECTURE.md](ARCHITECTURE.md)) does not introduce a new conversation kind or dispatch path. Feedback requests flow through existing conversation kinds:
+The feedback bubble-up model (see [ARCHITECTURE.md](ARCHITECTURE.md)) flows through the hierarchical team structure:
 
 1. A job agent posts a feedback request in the **job conversation**.
-2. The workgroup lead picks it up and escalates via the **project conversation** (or a direct message to the org lead).
-3. The org lead notifies the human via the **engagement conversation** or **direct message**.
-4. The human responds through the same channel, and the response routes back down.
+2. TeaParty notifies the liaison in the parent team session.
+3. The liaison relays to the org lead in the **project** or **engagement conversation**.
+4. The org lead notifies the human (via org-level DM or the engagement conversation).
+5. The human responds. The response routes back down: org lead -> liaison (`relay_to_subteam`) -> job team.
 
-Each hop uses the existing dispatch routing for its conversation kind. No special feedback-specific routing is required.
+Each hop uses the existing dispatch routing for its conversation kind. The liaison bridge handles the cross-team hops transparently.
 
 ---
 
@@ -146,5 +238,8 @@ Each hop uses the existing dispatch routing for its conversation kind. No specia
 | Session management | `team_session.py` : `TeamSession` | Bidirectional `stream-json` I/O with `claude` process |
 | Session registry | `team_registry.py` | In-memory registry of active sessions per conversation |
 | Event bridge | `team_bridge.py` | Converts `TeamEvent`s to `Message` records in the database |
-| Agent definitions | `agent_definition.py` | Builds per-agent JSON for `--agents` |
+| Agent definitions | `agent_definition.py` | Builds per-agent JSON for `--agents` (including liaison definitions) |
 | Routing helpers | `agent_runtime.py` : `_is_each_invocation()`, `_is_team_invocation()`, `_resolve_mentioned_agent()` | Routing decisions |
+| Liaison tool | *(new)* `relay_to_subteam` | Creates jobs, spawns sub-team sessions, bridges messages |
+| Notification bridge | *(new)* async injector | Pushes sub-team events into parent team sessions |
+| Project lifecycle | *(new)* project team manager | Orchestrates project team creation, monitoring, shutdown |

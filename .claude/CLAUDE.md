@@ -32,4 +32,5 @@ PYTHONPATH=. uv run pytest tests/ --tb=short -q
 - [docs/engagements-and-partnerships.md](../docs/engagements-and-partnerships.md) -- Cross-org engagement and partnership model
 - [docs/sandbox-design.md](../docs/sandbox-design.md) -- Docker sandbox architecture (future)
 - [docs/agent-dispatch.md](../docs/agent-dispatch.md) -- Agent routing and team sessions
+- [docs/hierarchical-teams.md](../docs/hierarchical-teams.md) -- Hierarchical agent teams (projects and engagements)
 - [docs/cognitive-architecture.md](../docs/cognitive-architecture.md) -- Agent learning and memory (future)

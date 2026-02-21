@@ -122,13 +122,25 @@ When the org lead accepts an engagement, it decomposes the work and dispatches i
 - **Projects** for cross-workgroup work (e.g., "Build mobile app" touches Design, Engineering, and QA)
 - **Jobs** for single-workgroup work (e.g., "Write API documentation" goes directly to a workgroup)
 
+Orchestration uses **hierarchical agent teams**: each level of work runs as an independent Claude Code team session, connected by liaison agents. See [hierarchical-teams.md](hierarchical-teams.md) for the full design.
+
+### Engagement Team
+
+When work begins on an accepted engagement, TeaParty launches an engagement team session:
+
+- **Team lead**: Target org lead
+- **Internal liaisons**: One per participating workgroup (or project, for cross-workgroup work)
+- **External liaison**: Bridges to the source org's representative (for external engagements)
+
+The org lead coordinates via native Claude Code team primitives (SendMessage, TaskCreate). Liaisons relay tasks to sub-teams via `relay_to_subteam` and results back via SendMessage.
+
 ### Org Lead Tools
 
 The org lead needs tools beyond the standard toolkit to orchestrate across workgroups:
 
 | Tool | Description |
 |------|-------------|
-| `create_project` | Create a project spanning multiple workgroups. Links back to the source engagement. |
+| `create_project` | Create a project spanning multiple workgroups. Links back to the source engagement. Triggers a project team session with liaisons. |
 | `create_job` | Create a job in a specified workgroup with title, scope, and requirements. Links back to the source engagement or project. |
 | `list_workgroup_jobs` | List active jobs in a specified workgroup, with status. |
 | `read_job_status` | Read the current state of a dispatched job (status, deliverables, latest activity). |
@@ -141,36 +153,51 @@ These are **orchestration tools** -- a toolkit in the tool registry available to
 
 ```
 Organization: Acme Corp
-|
-+-- Engagement: "Build mobile app for client"
-|   +-- org lead decomposes into:
-|
-+-- Project: "Mobile App v1"
-|   +-- workgroup leads from Design, Engineering, QA collaborate
-|   |
-|   +-- Workgroup: Design
-|   |   +-- Job: "Mobile app UI/UX design"       <- project_id links back
-|   |
-|   +-- Workgroup: Engineering
-|   |   +-- Job: "Mobile app implementation"      <- project_id links back
-|   |
-|   +-- Workgroup: QA
-|       +-- Job: "Mobile app test plan"           <- project_id links back
+
+Engagement Team Session:
+  org-lead (team lead)
+  liaison-design
+  liaison-engineering
+  liaison-qa
+  liaison-partner (external, if cross-org)
+    |
+    +-- org-lead assigns: "Design the mobile app UI" --> liaison-design
+    |     |
+    |     +-- liaison-design calls relay_to_subteam()
+    |           |
+    |           +-- Job Team Session (Design workgroup):
+    |                 design-lead, designer, researcher
+    |                 Task: "Mobile app UI/UX design"
+    |
+    +-- org-lead assigns: "Build the API and frontend" --> liaison-engineering
+    |     |
+    |     +-- liaison-engineering calls relay_to_subteam()
+    |           |
+    |           +-- Job Team Session (Engineering workgroup):
+    |                 engineering-lead, implementer, reviewer
+    |                 Task: "Mobile app implementation"
+    |
+    +-- org-lead assigns: "Create test plan and run QA" --> liaison-qa
+          |
+          +-- liaison-qa calls relay_to_subteam()
+                |
+                +-- Job Team Session (QA workgroup):
+                      qa-lead, tester
+                      Task: "Mobile app test plan"
 ```
 
-The org lead doesn't need to dispatch everything at once. It can sequence work -- start with design, then kick off engineering when design delivers, then QA. The org lead tracks these dependencies by reading job status and posting follow-ups.
+The org lead doesn't need to dispatch everything at once. It can sequence work -- assign design first, wait for the liaison to report completion, then assign engineering. The org lead coordinates this through the native Claude Code team primitives within the engagement/project team session.
 
 Jobs dispatched from an engagement carry an `engagement_id` (and optionally a `project_id`) in their metadata, allowing the org lead to aggregate status and deliverables. Within each workgroup, agents may follow a [workflow](workflows.md) to execute the job.
 
 ### Progress Monitoring
 
-The org lead monitors dispatched work through its orchestration tools:
+The org lead monitors dispatched work through two channels:
 
-- **Polling**: Periodically calls `list_workgroup_jobs` and `read_job_status` on dispatched work.
-- **Follow-ups**: The org lead's follow-up mechanism (same as any agent) triggers it to check on stale jobs.
-- **Messages**: Workgroup agents can post updates to the job, which the org lead can read.
+- **Liaison reports**: Liaisons relay sub-team status via SendMessage when notified by TeaParty's async bridge. This is the primary feedback path.
+- **Orchestration tools**: `list_workgroup_jobs` and `read_job_status` provide direct status queries for when the org lead wants to check without waiting for a liaison report.
 
-There is no push notification from jobs to the org lead. The org lead is an agent -- it acts on its own follow-up schedule and when prompted by messages in the engagement conversation.
+TeaParty pushes sub-team events (completion, questions, stalls) to the parent team session via the async notification bridge, so the org lead doesn't need to poll -- liaisons report proactively.
 
 ---
 

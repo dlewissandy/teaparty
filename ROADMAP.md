@@ -53,25 +53,33 @@ Establish the full corporate hierarchy and interaction model.
 - Ensure all human-agent interaction goes through proper channels
 - Update frontend to reflect permitted interaction patterns
 
-## Phase 2: Projects
+## Phase 2: Hierarchical Agent Teams (Projects)
 
-Cross-workgroup collaboration within a single organization.
+Cross-workgroup collaboration via hierarchical Claude Code team sessions. Each project runs as an independent team (org lead + liaison agents) that spawns job teams in participating workgroups. See [docs/hierarchical-teams.md](docs/hierarchical-teams.md).
 
-### Project Model
-- Project data model (status, participating workgroups, engagement_id)
-- Project conversation kind
-- Project workspace (shared files accessible to workgroup leads)
-- Project CRUD endpoints
+### Liaison Agent Infrastructure
+- Ephemeral liaison agent definition generator (builds from workgroup metadata)
+- `relay_to_subteam` tool: creates jobs, spawns sub-team sessions, bridges messages
+- Async notification bridge: pushes sub-team events into parent team sessions
+- Liaison spawn prompt and behavioral constraints
 
-### Cross-Workgroup Agent Teams
-- Project conversations with workgroup leads as participants
-- Workgroup leads can create jobs in their workgroup from project context
-- Project-to-job linking
+### Project Team Lifecycle
+- Project team session creation (org lead + liaisons from `workgroup_ids`)
+- Project team dispatch routing (kind: `project` -> hierarchical team session)
+- Project completion detection (all sub-teams done -> project complete)
+- Graceful shutdown cascade (project -> liaisons -> sub-teams)
+- Resource limit enforcement at each level
 
-### Project Orchestration
-- Org lead tools for project creation and management (`create_project`)
-- Sequencing and dependency tracking between project jobs
-- Project status aggregation from constituent jobs
+### Workgroup Team Configuration
+- Workgroup-level team parameters: model, permission_mode (default: `acceptEdits`), max_turns, max_cost_usd, max_time_seconds
+- Configuration inheritance: workgroup defaults <- project overrides <- job overrides
+- Workgroup configuration UI screen
+
+### Project CRUD and UI
+- Project CRUD endpoints (existing model extended)
+- Project detail view with participating workgroups and constituent jobs
+- Project conversation chat interface
+- Real-time status from hierarchical team sessions
 
 ## Phase 3: Agent Cognition
 

@@ -124,62 +124,108 @@ Granular task breakdown for [ROADMAP.md](ROADMAP.md) Phases 1-2.
 
 ---
 
-## Phase 2: Projects
+## Phase 2: Hierarchical Agent Teams (Projects)
 
-### 2.1 Project Model
+See [docs/hierarchical-teams.md](docs/hierarchical-teams.md) for the full design.
 
-#### Data Model
-- [ ] `Project` model: id, org_id, title, scope, status, engagement_id, created_by_agent_id, timestamps
-- [ ] `ProjectWorkgroup` join model: project_id, workgroup_id (participating workgroups)
-- [ ] Project conversation (kind: "project")
-- [ ] DB migration
+### 2.1 Liaison Agent Infrastructure
+
+#### Agent Definition
+- [ ] Liaison agent definition generator: builds ephemeral `AgentDefinition` from workgroup metadata
+- [ ] Liaison spawn prompt template with behavioral constraints (relay-only, must use `relay_to_subteam`)
+- [ ] Liaison naming convention: `liaison-{workgroup-slug}`
+
+#### `relay_to_subteam` Tool
+- [ ] Tool implementation: first call creates Job + conversation + launches sub-team session
+- [ ] Tool implementation: subsequent calls send message to existing sub-team via `TeamSession.send_message()`
+- [ ] Tool response: returns sub-team status/output summary to liaison
+- [ ] Job creation with linkage: sets `project_id` and `engagement_id` on created jobs
+- [ ] Team parameter inheritance: job session uses workgroup defaults, overridden by project config
+
+#### `relay_to_partner` Tool (External Liaisons)
+- [ ] Tool implementation: reads/writes to engagement conversation for cross-org communication
+- [ ] External liaison definition generator
+
+#### Async Notification Bridge
+- [ ] Detect sub-team events in `team_bridge.py` (completion, question, stall, timeout)
+- [ ] Inject notification messages into parent team session addressed to the relevant liaison
+- [ ] Event types: `sub_team_completed`, `sub_team_question`, `sub_team_stalled`, `sub_team_timeout`
+
+#### Tests
+- [ ] Liaison definition generation tests
+- [ ] `relay_to_subteam` tool: first-call job creation tests
+- [ ] `relay_to_subteam` tool: subsequent-call message relay tests
+- [ ] Async notification bridge tests
+- [ ] Team parameter inheritance tests
+
+### 2.2 Project Team Lifecycle
 
 #### Backend
-- [ ] `POST /api/organizations/{org_id}/projects` -- create project
-- [ ] `GET /api/organizations/{org_id}/projects` -- list projects
-- [ ] `GET /api/projects/{id}` -- project details with status, workgroups, jobs
-- [ ] `PATCH /api/projects/{id}` -- update status
-- [ ] Project conversation creation with workgroup leads as participants
-- [ ] Project-to-job linking (jobs carry `project_id`)
+- [ ] Project team session creation: generates org lead + liaison definitions, launches `claude` process
+- [ ] Project dispatch routing: kind `project` -> hierarchical team session (update routing table)
+- [ ] Project prompt injection: sends `project.prompt` as initial message to team session
+- [ ] Project status transitions: `pending -> in_progress` on team session start
+- [ ] Project completion detection: all linked jobs completed -> notify org lead -> mark project complete
+- [ ] Graceful shutdown cascade: project complete -> shutdown liaisons -> shutdown sub-teams
+- [ ] Resource limit enforcement: `max_turns`, `max_cost_usd`, `max_time_seconds` per level
+
+#### Failure Handling
+- [ ] Sub-team stall detection (no output within `max_time_seconds`)
+- [ ] Stall notification to liaison and team lead
+- [ ] Liaison non-responsiveness detection
+- [ ] Replacement liaison spawning (picks up sub-team state from Job record)
+
+#### Tests
+- [ ] Project team session creation tests
+- [ ] Project dispatch routing tests
+- [ ] Completion detection and propagation tests
+- [ ] Graceful shutdown cascade tests
+- [ ] Stall detection and notification tests
+- [ ] Resource limit enforcement tests
+
+### 2.3 Workgroup Team Configuration
+
+#### Data Model
+- [ ] Add team config fields to Workgroup model: `team_model`, `team_permission_mode`, `team_max_turns`, `team_max_cost_usd`, `team_max_time_seconds`
+- [ ] DB migration for new workgroup fields
+- [ ] Default values: `permission_mode=acceptEdits`, `model=claude-sonnet-4-6`, `max_turns=30`
+
+#### Backend
+- [ ] Configuration inheritance logic: workgroup defaults <- project overrides <- job overrides
+- [ ] `PATCH /api/workgroups/{id}` -- update team config fields
+- [ ] Validation: permission_mode must be valid Claude Code mode
+
+#### Frontend
+- [ ] Workgroup team configuration screen (model selector, permission mode, limits)
+- [ ] Configuration display in workgroup settings panel
+
+#### Tests
+- [ ] Configuration inheritance tests (workgroup -> project -> job)
+- [ ] Configuration validation tests
+- [ ] API endpoint tests
+
+### 2.4 Project CRUD and UI
+
+#### Data Model
+- [ ] Extend existing `Project` model if needed (already has `model`, `max_turns`, `permission_mode`, `workgroup_ids`)
+- [ ] Ensure `project_id` foreign key on Job model
+
+#### Backend
+- [ ] `POST /api/organizations/{org_id}/projects` -- create project (triggers team session)
+- [ ] `GET /api/organizations/{org_id}/projects` -- list projects with status
+- [ ] `GET /api/projects/{id}` -- project details with workgroups, jobs, team session status
+- [ ] `PATCH /api/projects/{id}` -- update status, cancel
+- [ ] Project-to-job aggregation: list jobs per project with status
 
 #### Frontend
 - [ ] Project list view within organization
-- [ ] Project detail view with participating workgroups and constituent jobs
-- [ ] Project conversation chat interface
-- [ ] Project creation flow (select workgroups, describe scope)
+- [ ] Project detail view: participating workgroups, constituent jobs, status per job
+- [ ] Project conversation chat interface (messages from project team session)
+- [ ] Project creation flow: select workgroups, describe scope, configure overrides
+- [ ] Job status indicators within project view (linked from sub-teams)
 
 #### Tests
 - [ ] Project CRUD tests
-- [ ] Project-workgroup association tests
-- [ ] Project-job linking tests
-- [ ] Project conversation participant tests
-
-### 2.2 Cross-Workgroup Agent Teams
-
-#### Backend
-- [ ] Project conversation dispatch routing (new `kind` in agent_dispatch routing table)
-- [ ] Workgroup leads as project conversation participants
-- [ ] Workgroup lead tools from project context: `create_job` (in own workgroup, linked to project)
-- [ ] Project workspace file scoping
-
-#### Agent Runtime
-- [ ] Add `project` to conversation kinds in dispatch routing
-- [ ] Project-level team session with workgroup leads
-
-#### Tests
-- [ ] Project dispatch routing tests
-- [ ] Cross-workgroup job creation tests
-- [ ] Project workspace isolation tests
-
-### 2.3 Project Orchestration
-
-#### Backend
-- [ ] Org lead tool: `create_project` with workgroup selection
-- [ ] Project status aggregation from constituent jobs
-- [ ] Job sequencing support (dependency hints in project.json)
-- [ ] Project completion logic (all jobs completed -> project completed)
-
-#### Tests
-- [ ] Project orchestration end-to-end tests
-- [ ] Status aggregation tests
-- [ ] Completion propagation tests
+- [ ] Project-job aggregation tests
+- [ ] Project conversation tests
+- [ ] Frontend rendering tests
