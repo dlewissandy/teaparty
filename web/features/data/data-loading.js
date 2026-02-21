@@ -289,10 +289,12 @@ export async function selectConversation(workgroupId, conversationId) {
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
+  const dashboardView = document.getElementById('org-dashboard-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.add('hidden');
 
   connectSSE(conversationId);
   await loadMessages();
