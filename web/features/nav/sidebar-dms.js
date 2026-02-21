@@ -46,8 +46,8 @@ export function renderDMSection(store, container, orgId, filter) {
         const agent = (tree.agents || []).find(a => a.id === conv.participant_agent_id);
         if (agent) {
           name = agent.name || name;
-          avatarHtml = agent.icon
-            ? `<img src="${escapeHtml(agent.icon)}" alt="" class="sidebar-dm-avatar" />`
+          avatarHtml = agent.image
+            ? `<img src="${escapeHtml(agent.image)}" alt="" class="sidebar-dm-avatar" />`
             : generateBotSvg(name);
         } else {
           avatarHtml = generateBotSvg(name);

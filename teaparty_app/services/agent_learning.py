@@ -126,7 +126,7 @@ def synthesize_long_term_memories(
     agent_info = {
         aid: {
             "name": a.name,
-            "role": (a.role or a.description or "").strip()[:200],
+            "description": (a.description or "").strip()[:200],
             "existing_memories": existing_by_agent.get(aid, [])[:10],
         }
         for aid, a in agent_map.items()

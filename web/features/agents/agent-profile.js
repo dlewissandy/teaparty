@@ -15,72 +15,72 @@ function showAgentProfile() {
   const chatView = document.getElementById('chat-view');
   const homeView = document.getElementById('home-view');
   const directoryView = document.getElementById('directory-view');
+  const dashboardView = document.getElementById('org-dashboard-view');
+  const settingsView = document.getElementById('org-settings-view');
   if (profileView) profileView.classList.remove('hidden');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.add('hidden');
+  if (settingsView) settingsView.classList.add('hidden');
+
+  // Close the right panel so the profile gets the full content width
+  if (_store) {
+    const s = _store.get();
+    if (s.panels.rightPanelOpen) {
+      _store.update(st => { st.panels.rightPanelOpen = false; });
+      _store.notify('panels.rightPanelOpen');
+    }
+  }
 }
 
 function renderProfile(agent) {
   const avatarEl = document.getElementById('agent-profile-avatar');
   const nameEl = document.getElementById('agent-profile-name');
-  const roleEl = document.getElementById('agent-profile-role');
+  const subtitleEl = document.getElementById('agent-profile-role');
   const bodyEl = document.getElementById('agent-profile-body');
 
   if (avatarEl) avatarEl.innerHTML = generateBotSvg(agent.name);
   if (nameEl) nameEl.textContent = agent.name;
-  if (roleEl) roleEl.textContent = agent.role || '';
+  if (subtitleEl) subtitleEl.textContent = agent.description || '';
 
   if (!bodyEl) return;
 
   let html = '';
 
-  if (agent.description) {
+  if (agent.prompt) {
     html += `
-      <section class="agent-profile-section">
-        <h4 class="agent-profile-section-title">Description</h4>
-        <p class="agent-profile-text">${escapeHtml(agent.description)}</p>
-      </section>`;
+      <div class="agent-profile-card">
+        <h4 class="agent-profile-card-title">Prompt</h4>
+        <p class="agent-profile-text">${escapeHtml(agent.prompt)}</p>
+      </div>`;
   }
 
-  if (agent.personality) {
-    html += `
-      <section class="agent-profile-section">
-        <h4 class="agent-profile-section-title">Personality</h4>
-        <p class="agent-profile-text">${escapeHtml(agent.personality)}</p>
-      </section>`;
-  }
+  // Configuration
+  const configParts = [];
+  if (agent.model) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Model</span> ${escapeHtml(agent.model)}</span>`);
+  if (agent.permission_mode && agent.permission_mode !== 'default') configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Permissions</span> ${escapeHtml(agent.permission_mode)}</span>`);
+  if (agent.memory) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Memory</span> ${escapeHtml(agent.memory)}</span>`);
+  if (agent.background) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Background</span> yes</span>`);
+  if (agent.isolation === false) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Isolation</span> off</span>`);
 
-  if (agent.backstory) {
+  if (configParts.length) {
     html += `
-      <section class="agent-profile-section">
-        <h4 class="agent-profile-section-title">Backstory</h4>
-        <p class="agent-profile-text">${escapeHtml(agent.backstory)}</p>
-      </section>`;
-  }
-
-  // Model & Behavior
-  const modelParts = [];
-  if (agent.model) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Model</span> ${escapeHtml(agent.model)}</span>`);
-  if (agent.temperature != null) modelParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Temperature</span> ${agent.temperature}</span>`);
-
-  if (modelParts.length) {
-    html += `
-      <section class="agent-profile-section">
-        <h4 class="agent-profile-section-title">Model & Behavior</h4>
-        <div class="agent-profile-kvs">${modelParts.join('')}</div>
-      </section>`;
+      <div class="agent-profile-card">
+        <h4 class="agent-profile-card-title">Configuration</h4>
+        <div class="agent-profile-kvs">${configParts.join('')}</div>
+      </div>`;
   }
 
   // Tools
-  const tools = agent.tool_names || [];
+  const tools = agent.tools || [];
   if (tools.length) {
     const chips = tools.map(t => `<span class="tool-chip">${escapeHtml(t)}</span>`).join('');
     html += `
-      <section class="agent-profile-section">
-        <h4 class="agent-profile-section-title">Tools</h4>
+      <div class="agent-profile-card">
+        <h4 class="agent-profile-card-title">Tools</h4>
         <div class="tool-chip-list">${chips}</div>
-      </section>`;
+      </div>`;
   }
 
   bodyEl.innerHTML = html;

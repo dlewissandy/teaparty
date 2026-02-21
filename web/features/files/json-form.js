@@ -42,15 +42,15 @@ export function renderAgentConfigForm(container, data, readonly) {
 
   const avatarEl = document.createElement('div');
   avatarEl.className = 'cfg-agent-avatar';
-  if (data.icon && isDataUrl(data.icon)) {
-    avatarEl.innerHTML = `<img src="${escapeHtml(data.icon)}" alt="">`;
+  if (data.image && isDataUrl(data.image)) {
+    avatarEl.innerHTML = `<img src="${escapeHtml(data.image)}" alt="">`;
   } else {
     avatarEl.innerHTML = _generateBotSvg(data.name || 'Agent');
   }
 
   const nameBlock = document.createElement('div');
   nameBlock.innerHTML = `<strong>${escapeHtml(data.name || 'Agent')}</strong>`;
-  if (data.role) nameBlock.innerHTML += `<div class="meta">${escapeHtml(data.role)}</div>`;
+  if (data.description) nameBlock.innerHTML += `<div class="meta">${escapeHtml(data.description)}</div>`;
 
   header.appendChild(avatarEl);
   header.appendChild(nameBlock);
@@ -102,39 +102,35 @@ export function renderAgentConfigForm(container, data, readonly) {
   emit(buildSectionDivider('Identity'));
   hiddenField('id');
   field('name');
-  field('role');
   textareaField('description', 'description');
+  textareaField('prompt', 'prompt');
 
-  // Personality
-  emit(buildSectionDivider('Personality'));
-  textareaField('personality', 'personality');
-  textareaField('backstory', 'backstory');
-
-  // Model & Behavior
-  emit(buildSectionDivider('Model & Behavior'));
+  // Configuration
+  emit(buildSectionDivider('Configuration'));
   field('model');
-  rangeField('temperature', 0, 2, 0.1, 'temperature');
+  field('permission_mode');
+  field('memory');
 
   // Tools
-  if ('tool_names' in data && Array.isArray(data.tool_names)) {
-    knownKeys.add('tool_names');
+  if ('tools' in data && Array.isArray(data.tools)) {
+    knownKeys.add('tools');
     emit(buildSectionDivider('Tools'));
 
     const toolSection = document.createElement('details');
     toolSection.className = 'json-section';
     toolSection.open = true;
-    toolSection.dataset.key = 'tool_names';
+    toolSection.dataset.key = 'tools';
     toolSection.dataset.type = 'array';
 
     const toolSummary = document.createElement('summary');
     toolSummary.className = 'json-section-summary';
-    toolSummary.textContent = `tool_names (${data.tool_names.length} items)`;
+    toolSummary.textContent = `tools (${data.tools.length} items)`;
     toolSection.appendChild(toolSummary);
 
     const toolBody = document.createElement('div');
     toolBody.className = 'json-section-body cfg-tools-grid';
 
-    const currentTools = [...data.tool_names];
+    const currentTools = [...data.tools];
 
     function rebuildToolPills() {
       toolBody.innerHTML = '';
@@ -195,7 +191,7 @@ export function renderAgentConfigForm(container, data, readonly) {
         toolBody.appendChild(addRow);
       }
 
-      toolSummary.textContent = `tool_names (${currentTools.length} items)`;
+      toolSummary.textContent = `tools (${currentTools.length} items)`;
     }
 
     rebuildToolPills();
@@ -203,8 +199,8 @@ export function renderAgentConfigForm(container, data, readonly) {
     emit(toolSection);
   }
 
-  // Hidden icon
-  hiddenField('icon');
+  // Hidden image
+  hiddenField('image');
 
   // Fallback: any unknown keys
   for (const [k, v] of Object.entries(data)) {

@@ -38,15 +38,15 @@ def build_agent_json(
     When *teammates* is provided (for the lead agent in a multi-agent job),
     a team roster is appended to the prompt so the lead knows who's available.
     """
-    return {
-        "description": agent.description or agent.role or agent.name,
+    result = {
+        "description": agent.description or agent.name,
         "prompt": _build_prompt_body(
             agent, conversation, workgroup, files_context,
             teammates=teammates, org_files=org_files,
         ),
         "model": agent.model,
-        "maxTurns": getattr(agent, "max_turns", 3) or 3,
     }
+    return result
 
 
 def build_worktree_settings_json(worktree_path: str) -> str:
@@ -283,12 +283,8 @@ def _build_prompt_body(
 
     # Identity
     parts.append(f"You are {agent.name}.")
-    if agent.role:
-        parts.append(f"Role: {agent.role}")
-    if agent.personality:
-        parts.append(f"Personality: {agent.personality}")
-    if agent.backstory:
-        parts.append(f"Backstory: {agent.backstory}")
+    if agent.prompt:
+        parts.append(agent.prompt)
 
     # Conversation context
     parts.append("")
@@ -322,7 +318,7 @@ def _build_prompt_body(
         parts.append("")
         parts.append("Teammates (engage them using the Task tool):")
         for t in teammates:
-            desc = t.role or t.description or t.personality or ""
+            desc = t.description or ""
             parts.append(f"- {t.name}" + (f" — {desc}" if desc else ""))
 
     # Orchestration tools for coordinator agents in operations workgroups
@@ -350,12 +346,12 @@ def _is_operations_coordinator(agent: Agent, workgroup: Workgroup | None) -> boo
     if not workgroup or not workgroup.organization_id:
         return False
     # Check if Bash is in the agent's tools (coordinator needs it for CLI)
-    has_bash = "Bash" in (agent.tool_names or [])
+    has_bash = "Bash" in (agent.tools or [])
     if not has_bash:
         return False
-    # Check if agent role or description mentions coordination/engagement
-    role_lower = (agent.role or "").lower() + " " + (agent.description or "").lower()
-    return "coordinator" in role_lower or "engagement" in role_lower
+    # Check if agent description or prompt mentions coordination/engagement
+    check_text = (agent.description or "").lower() + " " + (agent.prompt or "").lower()
+    return "coordinator" in check_text or "engagement" in check_text
 
 
 _ORCHESTRATION_DOCS = """\

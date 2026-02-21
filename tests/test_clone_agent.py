@@ -25,13 +25,11 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
         created_by_user_id=user.id,
         name="Helper",
         description="A helpful agent",
-        role="assistant",
-        personality="Friendly",
-        backstory="Created for testing",
+        prompt="Friendly assistant created for testing",
         model="sonnet",
-        temperature=0.8,
-        tool_names=["Read", "Write"],
-        icon="robot",
+        tools=["Read", "Write"],
+        image="robot",
+        permission_mode="acceptEdits",
     )
     session.add(user)
     session.add(workgroup)
@@ -77,14 +75,12 @@ class CloneAgentSameWorkgroupTests(unittest.TestCase):
             )
 
         self.assertEqual(result.description, "A helpful agent")
-        self.assertEqual(result.role, "assistant")
-        self.assertEqual(result.personality, "Friendly")
-        self.assertEqual(result.backstory, "Created for testing")
+        self.assertEqual(result.prompt, "Friendly assistant created for testing")
         self.assertEqual(result.model, "sonnet")
-        self.assertEqual(result.temperature, 0.8)
-        self.assertEqual(result.icon, "robot")
-        self.assertIn("Read", result.tool_names)
-        self.assertIn("Write", result.tool_names)
+        self.assertEqual(result.image, "robot")
+        self.assertEqual(result.permission_mode, "acceptEdits")
+        self.assertIn("Read", result.tools)
+        self.assertIn("Write", result.tools)
 
 
 class CloneAgentCustomNameTests(unittest.TestCase):

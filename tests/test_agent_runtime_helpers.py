@@ -15,21 +15,16 @@ def _make_agent(
     *,
     agent_id: str,
     name: str,
-    tool_names: list[str] | None = None,
-    personality: str = "Professional and concise",
-    role: str = "",
-    backstory: str = "",
-
+    tools: list[str] | None = None,
+    prompt: str = "",
 ) -> Agent:
     return Agent(
         id=agent_id,
         workgroup_id="wg-1",
         created_by_user_id="user-1",
         name=name,
-        personality=personality,
-        role=role,
-        backstory=backstory,
-        tool_names=tool_names or [],
+        prompt=prompt,
+        tools=tools or [],
     )
 
 

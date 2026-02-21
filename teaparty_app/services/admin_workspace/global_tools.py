@@ -215,18 +215,10 @@ def global_add_agent(
     if existing:
         return f"Agent '{existing.name}' already exists in '{workgroup.name}' (id={existing.id})."
 
-    role = (tool_input.get("role") or "").strip()
-    personality = (tool_input.get("personality") or "Professional and concise").strip()
-    backstory = (tool_input.get("backstory") or "").strip()
+    prompt = (tool_input.get("prompt") or "").strip()
+    description = (tool_input.get("description") or "").strip()
     model = (tool_input.get("model") or "sonnet").strip()
-    temperature = tool_input.get("temperature", 0.7)
-    tool_names = tool_input.get("tool_names") or []
-
-    try:
-        temperature = float(temperature)
-        temperature = max(0.0, min(2.0, temperature))
-    except (TypeError, ValueError):
-        temperature = 0.7
+    tool_names = tool_input.get("tools") or []
 
     if isinstance(tool_names, str):
         tool_names = [t.strip() for t in tool_names.split(",") if t.strip()]
@@ -235,19 +227,16 @@ def global_add_agent(
         workgroup_id=workgroup.id,
         created_by_user_id=requester_user_id,
         name=agent_name,
-        description=role,
-        role=role,
-        personality=personality,
-        backstory=backstory,
+        description=description,
+        prompt=prompt,
         model=model,
-        temperature=temperature,
-        tool_names=tool_names,
+        tools=tool_names,
     )
     session.add(agent)
     session.flush()
     return (
         f"Created agent '{agent.name}' in '{workgroup.name}' (id={agent.id}). "
-        f"model={agent.model}, temperature={agent.temperature}, role={agent.role or '(none)'}."
+        f"model={agent.model}, prompt={agent.prompt[:40] or '(none)'}."
     )
 
 
@@ -274,10 +263,10 @@ def global_list_agents(
 
     lines = [f"Agents in '{workgroup.name}' (count={len(agents)}):"]
     for agent in agents:
-        tools = ", ".join(agent.tool_names) if agent.tool_names else "(none)"
+        tools = ", ".join(agent.tools) if agent.tools else "(none)"
         lines.append(
             f"- {agent.name} (id={agent.id}, model={agent.model}, "
-            f"role={agent.role or '(none)'}, tools=[{tools}])"
+            f"prompt={agent.prompt[:40] or '(none)'}, tools=[{tools}])"
         )
     return "\n".join(lines)
 
@@ -427,37 +416,25 @@ def global_update_agent(
 
     updated_fields: list[str] = []
 
-    if "role" in tool_input:
-        agent.role = (tool_input["role"] or "").strip()
-        updated_fields.append("role")
+    if "prompt" in tool_input:
+        agent.prompt = (tool_input["prompt"] or "").strip()
+        updated_fields.append("prompt")
 
-    if "personality" in tool_input:
-        agent.personality = (tool_input["personality"] or "").strip()
-        updated_fields.append("personality")
-
-    if "backstory" in tool_input:
-        agent.backstory = (tool_input["backstory"] or "").strip()
-        updated_fields.append("backstory")
+    if "permission_mode" in tool_input:
+        agent.permission_mode = (tool_input["permission_mode"] or "default").strip()
+        updated_fields.append("permission_mode")
 
     if "model" in tool_input:
         agent.model = (tool_input["model"] or "sonnet").strip()
         updated_fields.append("model")
 
-    if "temperature" in tool_input:
-        try:
-            temp = float(tool_input["temperature"])
-            agent.temperature = max(0.0, min(2.0, temp))
-        except (TypeError, ValueError):
-            agent.temperature = 0.7
-        updated_fields.append("temperature")
-
-    if "tool_names" in tool_input:
-        new_tools = tool_input["tool_names"] or []
+    if "tools" in tool_input:
+        new_tools = tool_input["tools"] or []
         if isinstance(new_tools, str):
             new_tools = [t.strip() for t in new_tools.split(",") if t.strip()]
 
-        agent.tool_names = list(new_tools)
-        updated_fields.append("tool_names")
+        agent.tools = list(new_tools)
+        updated_fields.append("tools")
 
     if not updated_fields:
         return f"No fields to update for agent '{agent.name}'."

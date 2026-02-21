@@ -33,12 +33,8 @@ def build_system_prompt(
 
     # Identity
     parts.append(f"You are {agent.name}.")
-    if agent.role:
-        parts.append(f"Role: {agent.role}")
-    if agent.personality:
-        parts.append(f"Personality: {agent.personality}")
-    if agent.backstory:
-        parts.append(f"Backstory: {agent.backstory}")
+    if agent.prompt:
+        parts.append(agent.prompt)
 
     # Conversation context
     parts.append("")

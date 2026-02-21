@@ -11,18 +11,15 @@ def _make_agent(
     agent_id: str = "a1",
     name: str = "Implementer",
     model: str = "sonnet",
-    max_turns: int = 3,
 ) -> Agent:
     return Agent(
         id=agent_id,
         workgroup_id="wg-1",
         created_by_user_id="user-1",
         name=name,
-        role="Test agent",
-        personality="Helpful",
+        prompt="Test agent. Helpful.",
         model=model,
-        max_turns=max_turns,
-        tool_names=[],
+        tools=[],
     )
 
 

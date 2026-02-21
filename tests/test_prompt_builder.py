@@ -15,19 +15,17 @@ def _make_agent(
     *,
     agent_id: str = "a1",
     name: str = "TestAgent",
-    role: str = "Assistant",
-    personality: str = "Helpful and concise",
-    backstory: str = "",
+    description: str = "Assistant",
+    prompt: str = "Helpful and concise",
 ) -> Agent:
     return Agent(
         id=agent_id,
         workgroup_id="wg-1",
         created_by_user_id="user-1",
         name=name,
-        role=role,
-        personality=personality,
-        backstory=backstory,
-        tool_names=[],
+        description=description,
+        prompt=prompt,
+        tools=[],
     )
 
 
@@ -63,18 +61,16 @@ class BuildSystemPromptTests(unittest.TestCase):
     def test_includes_agent_identity(self) -> None:
         agent = _make_agent(
             name="Alice",
-            role="Code Reviewer",
-            personality="Detail-oriented and thorough",
-            backstory="Senior engineer with 10 years experience",
+            description="Code Reviewer",
+            prompt="Detail-oriented and thorough. Senior engineer with 10 years experience.",
         )
         conversation = _make_conversation(kind="job")
 
         prompt = build_system_prompt(agent, conversation)
 
         self.assertIn("You are Alice", prompt)
-        self.assertIn("Role: Code Reviewer", prompt)
-        self.assertIn("Personality: Detail-oriented and thorough", prompt)
-        self.assertIn("Backstory: Senior engineer with 10 years experience", prompt)
+        self.assertIn("Detail-oriented and thorough", prompt)
+        self.assertIn("Senior engineer with 10 years experience", prompt)
 
     def test_includes_conversation_context(self) -> None:
         agent = _make_agent(name="Bob")
@@ -128,15 +124,12 @@ class BuildSystemPromptTests(unittest.TestCase):
         self.assertIn("Do not prefix your response with your name", prompt)
 
     def test_minimal_agent_without_optional_fields(self) -> None:
-        agent = _make_agent(name="Henry", role="", personality="", backstory="")
+        agent = _make_agent(name="Henry", description="", prompt="")
         conversation = _make_conversation(kind="job")
 
         prompt = build_system_prompt(agent, conversation)
 
         self.assertIn("You are Henry", prompt)
-        self.assertNotIn("Role:", prompt)
-        self.assertNotIn("Personality:", prompt)
-        self.assertNotIn("Backstory:", prompt)
 
 
 class BuildUserMessageTests(unittest.TestCase):
@@ -167,8 +160,8 @@ class BuildUserMessageTests(unittest.TestCase):
             workgroup_id="wg-1",
             created_by_user_id="user-1",
             name="Bot",
-            personality="Helpful",
-            tool_names=[],
+            prompt="Helpful",
+            tools=[],
         )
         self.session.add(user)
         self.session.add(agent)

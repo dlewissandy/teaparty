@@ -189,17 +189,14 @@ def _handle_admin_message_deterministic(
     if add_agent_match:
         name, parsed = _parse_add_agent_payload(add_agent_match.group(1))
         if not name:
-            return "Usage: add agent <name> [role=<text>] [personality=<text>] [backstory=<text>] [model=<name>] [temperature=<0..2>]"
+            return "Usage: add agent <name> [prompt=<text>] [model=<name>]"
         return admin_tool_add_agent(
             session=session,
             workgroup_id=workgroup_id,
             requester_user_id=requester_user_id,
             name=name,
-            personality=parsed["personality"],
-            role=parsed["role"],
-            backstory=parsed["backstory"],
+            prompt=parsed["prompt"],
             model=parsed["model"],
-            temperature=parsed["temperature"],
         )
 
     add_user_match = ADD_USER_RE.match(message)

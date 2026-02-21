@@ -68,8 +68,8 @@ export function renderThinkingIndicator(store) {
     html = liveActivity.map(entry => {
       const name = entry.agent_name || agentName(wgId, entry.agent_id);
       const thinkingAgent = wgData?.agents?.find(a => a.id === entry.agent_id);
-      const avatarContent = thinkingAgent?.icon
-        ? `<img src="${escapeHtml(thinkingAgent.icon)}" alt="" />`
+      const avatarContent = thinkingAgent?.image
+        ? `<img src="${escapeHtml(thinkingAgent.image)}" alt="" />`
         : generateBotSvg(name);
       const statusText = phaseStatusText(entry.phase, entry.detail);
       return buildThinkingRowHtml(name, avatarContent, statusText);
@@ -78,8 +78,8 @@ export function renderThinkingIndicator(store) {
     html = pending.agentIds.map(agentId => {
       const name = agentName(wgId, agentId);
       const thinkingAgent = wgData?.agents?.find(a => a.id === agentId);
-      const avatarContent = thinkingAgent?.icon
-        ? `<img src="${escapeHtml(thinkingAgent.icon)}" alt="" />`
+      const avatarContent = thinkingAgent?.image
+        ? `<img src="${escapeHtml(thinkingAgent.image)}" alt="" />`
         : generateBotSvg(name);
       return buildThinkingRowHtml(name, avatarContent, 'composing reply...');
     }).join('');

@@ -14,7 +14,6 @@ from teaparty_app.models import (
     User,
     Workgroup,
 )
-from teaparty_app.services.admin_workspace.parsing import _parse_temperature
 
 ADMIN_AGENT_SENTINEL = "__system_admin_agent__"
 ADMIN_CONVERSATION_NAME = "Administration"
@@ -136,12 +135,9 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
         created_by_user_id=workgroup.owner_id,
         name=lead_agent_name(workgroup.name),
         description="",
-        role="Team lead",
-        personality="Organized and collaborative team coordinator",
-        backstory="",
+        prompt="",
         model="sonnet",
-        temperature=0.7,
-        tool_names=claude_tool_names(),
+        tools=claude_tool_names(),
         is_lead=True,
     )
     session.add(agent)
@@ -190,16 +186,9 @@ def ensure_admin_workspace(
             created_by_user_id=workgroup.owner_id,
             name=expected_admin_name,
             description=ADMIN_AGENT_SENTINEL,
-            role="Workgroup administrator",
-            personality=(
-                "Administrative assistant. Use tools to add/archive/unarchive/clear/remove jobs, "
-                "list jobs, list members, list files, add users, add/remove agents, remove members, "
-                "add/edit/rename/delete files, and delete workgroups from explicit commands."
-            ),
-            backstory="You maintain this workspace and enforce ownership and safety constraints.",
+            prompt="Workgroup administrator. You maintain this workspace and enforce ownership and safety constraints.",
             model=settings.admin_agent_model,
-            temperature=0.2,
-            tool_names=list(ADMIN_TOOL_NAMES),
+            tools=list(ADMIN_TOOL_NAMES),
         )
         session.add(admin_agent)
         session.flush()
@@ -209,21 +198,11 @@ def ensure_admin_workspace(
         if admin_agent.name != expected_admin_name:
             admin_agent.name = expected_admin_name
             admin_changed = True
-        if sorted(admin_agent.tool_names or []) != sorted(ADMIN_TOOL_NAMES):
-            admin_agent.tool_names = list(ADMIN_TOOL_NAMES)
+        if sorted(admin_agent.tools or []) != sorted(ADMIN_TOOL_NAMES):
+            admin_agent.tools = list(ADMIN_TOOL_NAMES)
             admin_changed = True
         if (admin_agent.model or "").strip() != settings.admin_agent_model:
             admin_agent.model = settings.admin_agent_model
-            admin_changed = True
-        admin_temp, _ = _parse_temperature(admin_agent.temperature, default=0.7)
-        if abs(admin_temp - 0.2) > 1e-9:
-            admin_agent.temperature = 0.2
-            admin_changed = True
-        if not (admin_agent.role or "").strip():
-            admin_agent.role = "Workgroup administrator"
-            admin_changed = True
-        if not (admin_agent.backstory or "").strip():
-            admin_agent.backstory = "You maintain this workspace and enforce ownership and safety constraints."
             admin_changed = True
         if admin_changed:
             session.add(admin_agent)

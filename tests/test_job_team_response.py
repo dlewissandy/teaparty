@@ -15,9 +15,9 @@ def _make_agent(*, agent_id: str, name: str, role: str = "", model: str = "sonne
         workgroup_id="wg-1",
         created_by_user_id="user-1",
         name=name,
-        role=role,
+        description=role,
         model=model,
-        tool_names=[],
+        tools=[],
     )
 
 

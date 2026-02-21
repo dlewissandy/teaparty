@@ -41,9 +41,8 @@ def _make_agent(session, workgroup, user, name="Helper", agent_id="agent-1", is_
         created_by_user_id=user.id,
         name=name,
         description="",
-        role="assistant",
         model="sonnet",
-        tool_names=["Read", "Write"],
+        tools=["Read", "Write"],
         is_lead=is_lead,
     )
     session.add(agent)
@@ -125,7 +124,6 @@ class EnsureLeadAgentTests(unittest.TestCase):
             self.assertTrue(created)
             self.assertEqual(agent.name, "Design-lead")
             self.assertTrue(agent.is_lead)
-            self.assertEqual(agent.role, "Team lead")
 
     def test_idempotent(self):
         engine = _make_engine()
@@ -283,12 +281,12 @@ class DeleteProtectionTests(unittest.TestCase):
             result = update_agent(
                 workgroup_id="wg-1",
                 agent_id="lead-1",
-                payload=AgentUpdateRequest(role="New role", personality="Chill"),
+                payload=AgentUpdateRequest(description="New description", prompt="Chill"),
                 session=session,
                 user=session.get(User, "user-1"),
             )
-            self.assertEqual(result.role, "New role")
-            self.assertEqual(result.personality, "Chill")
+            self.assertEqual(result.description, "New description")
+            self.assertEqual(result.prompt, "Chill")
             self.assertEqual(result.name, "Core-lead")
 
 

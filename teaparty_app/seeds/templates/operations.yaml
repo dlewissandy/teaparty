@@ -70,13 +70,9 @@ files:
 agents:
   - name: Coordinator
     description: "Engagement coordinator — analyzes requests, negotiates terms and pricing, dispatches jobs to teams, monitors progress, manages payments, and delivers results. Has access to orchestration CLI tools via Bash."
-    role: Engagement coordinator
-    personality: "Professional, organized, and proactive. Breaks complex requests into clear, actionable jobs."
-    backstory: ""
+    prompt: "Engagement coordinator. Professional, organized, and proactive. Breaks complex requests into clear, actionable jobs."
     model: sonnet
-    temperature: 0.3
-    max_turns: 10
-    tool_names:
+    tools:
       - Read
       - Write
       - Edit

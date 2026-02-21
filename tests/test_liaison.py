@@ -44,11 +44,10 @@ def _make_agent(
         workgroup_id=workgroup_id,
         created_by_user_id="user-1",
         name=name,
-        role=role,
-        personality="Practical",
+        description=role,
+        prompt="Practical.",
         model=model,
-        max_turns=3,
-        tool_names=[],
+        tools=[],
         is_lead=is_lead,
     )
 

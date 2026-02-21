@@ -12,11 +12,9 @@ def _make_agent(
     *,
     agent_id: str = "a1",
     name: str = "Implementer",
-    role: str = "Implementation lead",
-    personality: str = "Practical and concise",
-    backstory: str = "",
+    description: str = "Implementation lead",
+    prompt: str = "Practical and concise",
     model: str = "sonnet",
-    max_turns: int = 3,
     is_lead: bool = False,
 ) -> Agent:
     return Agent(
@@ -24,12 +22,10 @@ def _make_agent(
         workgroup_id="wg-1",
         created_by_user_id="user-1",
         name=name,
-        role=role,
-        personality=personality,
-        backstory=backstory,
+        description=description,
+        prompt=prompt,
         model=model,
-        max_turns=max_turns,
-        tool_names=[],
+        tools=[],
         is_lead=is_lead,
     )
 
@@ -92,10 +88,9 @@ class BuildAgentJsonTests(unittest.TestCase):
 
         self.assertEqual(result["description"], "Implementation lead")
         self.assertEqual(result["model"], "sonnet")
-        self.assertEqual(result["maxTurns"], 3)
+        self.assertNotIn("maxTurns", result)
         self.assertIn("You are Implementer", result["prompt"])
-        self.assertIn("Role: Implementation lead", result["prompt"])
-        self.assertIn("Personality: Practical and concise", result["prompt"])
+        self.assertIn("Practical and concise", result["prompt"])
 
     def test_model_alias_mapping(self) -> None:
         agent = _make_agent(model="sonnet")
@@ -117,18 +112,11 @@ class BuildAgentJsonTests(unittest.TestCase):
         result = build_agent_json(agent, conversation)
         self.assertEqual(result["model"], "custom-model-v1")
 
-    def test_max_turns_from_agent(self) -> None:
-        agent = _make_agent(max_turns=20)
-        conversation = _make_conversation()
-        result = build_agent_json(agent, conversation)
-        self.assertEqual(result["maxTurns"], 20)
-
-    def test_max_turns_defaults_to_3(self) -> None:
+    def test_max_turns_not_in_result(self) -> None:
         agent = _make_agent()
-        agent.max_turns = 0  # Edge case
         conversation = _make_conversation()
         result = build_agent_json(agent, conversation)
-        self.assertEqual(result["maxTurns"], 3)
+        self.assertNotIn("maxTurns", result)
 
     def test_conversation_context_in_prompt(self) -> None:
         agent = _make_agent()
@@ -154,21 +142,18 @@ class BuildAgentJsonTests(unittest.TestCase):
 
     def test_description_fallback_chain(self) -> None:
         # Uses description first
-        agent = _make_agent(role="Code Reviewer")
-        agent.description = "Reviews code quality"
+        agent = _make_agent(description="Reviews code quality")
         conversation = _make_conversation()
         result = build_agent_json(agent, conversation)
         self.assertEqual(result["description"], "Reviews code quality")
 
-        # Falls back to role
-        agent2 = _make_agent(role="Architect")
-        agent2.description = ""
+        # Falls back to name when description is empty
+        agent2 = _make_agent(name="Architect", description="")
         result2 = build_agent_json(agent2, conversation)
         self.assertEqual(result2["description"], "Architect")
 
         # Falls back to name
-        agent3 = _make_agent(name="Bob", role="")
-        agent3.description = ""
+        agent3 = _make_agent(name="Bob", description="")
         result3 = build_agent_json(agent3, conversation)
         self.assertEqual(result3["description"], "Bob")
 

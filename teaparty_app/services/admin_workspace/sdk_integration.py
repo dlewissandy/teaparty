@@ -116,16 +116,14 @@ _ADMIN_TOOLS = [
     },
     {
         "name": ADMIN_TOOL_ADD_AGENT,
-        "description": "Create a new AI agent in the workgroup (owner-only). Supports role, backstory, model, and temperature.",
+        "description": "Create a new AI agent in the workgroup (owner-only). Supports prompt and model.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "agent_name": {"type": "string", "description": "Short name for the agent"},
-                "personality": {"type": "string", "description": "Agent personality text", "default": "Professional and concise"},
-                "role": {"type": "string", "description": "Agent role", "default": ""},
-                "backstory": {"type": "string", "description": "Agent backstory", "default": ""},
+                "prompt": {"type": "string", "description": "Agent system prompt", "default": ""},
+                "description": {"type": "string", "description": "Short agent description", "default": ""},
                 "model": {"type": "string", "description": "Model name", "default": "sonnet"},
-                "temperature": {"type": "number", "description": "Temperature (0.0-2.0)", "default": 0.7},
             },
             "required": ["agent_name"],
         },
@@ -359,15 +357,13 @@ _GLOBAL_ADMIN_TOOLS = [
             "properties": {
                 "workgroup_name": {"type": "string", "description": "Target workgroup name"},
                 "agent_name": {"type": "string", "description": "Short name for the agent"},
-                "role": {"type": "string", "description": "Agent role description", "default": ""},
-                "personality": {"type": "string", "description": "Agent personality text", "default": "Professional and concise"},
-                "backstory": {"type": "string", "description": "Agent backstory", "default": ""},
+                "prompt": {"type": "string", "description": "Agent system prompt", "default": ""},
+                "description": {"type": "string", "description": "Short agent description", "default": ""},
                 "model": {"type": "string", "description": "Model name", "default": "sonnet"},
-                "temperature": {"type": "number", "description": "Temperature (0.0-2.0)", "default": 0.7},
-                "tool_names": {
+                "tools": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of tool names to assign",
+                    "description": "List of tool names to assign (use global_list_available_tools to see options)",
                     "default": [],
                 },
             },
@@ -450,15 +446,13 @@ _GLOBAL_ADMIN_TOOLS = [
             "properties": {
                 "workgroup_name": {"type": "string", "description": "Target workgroup name"},
                 "agent_name": {"type": "string", "description": "Name of the agent to update"},
-                "role": {"type": "string", "description": "New role"},
-                "personality": {"type": "string", "description": "New personality"},
-                "backstory": {"type": "string", "description": "New backstory"},
+                "prompt": {"type": "string", "description": "New system prompt"},
+                "permission_mode": {"type": "string", "description": "New permission mode (e.g. default, acceptEdits)"},
                 "model": {"type": "string", "description": "New model name"},
-                "temperature": {"type": "number", "description": "New temperature (0.0-2.0)"},
-                "tool_names": {
+                "tools": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "New list of tool names (replaces current list). Use global_list_available_tools to see options.",
+                    "description": "New list of tools (replaces current list). Use global_list_available_tools to see options.",
                 },
             },
             "required": ["workgroup_name", "agent_name"],
@@ -545,11 +539,9 @@ def _dispatch_admin_tool(
         return admin_tool_add_agent(
             session, workgroup_id, requester_user_id,
             name=tool_input["agent_name"],
-            personality=tool_input.get("personality", "Professional and concise"),
-            role=tool_input.get("role", ""),
-            backstory=tool_input.get("backstory", ""),
+            prompt=tool_input.get("prompt", ""),
+            description=tool_input.get("description", ""),
             model=tool_input.get("model", ""),
-            temperature=tool_input.get("temperature"),
         )
     if tool_name == ADMIN_TOOL_ADD_USER:
         return admin_tool_add_user(session, workgroup_id, requester_user_id, tool_input["email"])
@@ -676,8 +668,8 @@ def _handle_admin_message_with_sdk(
         "When extracting names for tools (job_name, agent_name, etc.), pass only the actual name — "
         "strip any surrounding context like 'to this workgroup' or 'in this group'. "
         "When adding jobs, include the description argument when the user provides one. "
-        "When creating agents, include explicit role/backstory/model/temperature when provided. "
-        "For add_agent, pass only the agent's short name in agent_name; put profile text into personality/role/backstory. "
+        "When creating agents, include explicit prompt/model when provided. "
+        "For add_agent, pass only the agent's short name in agent_name; put profile text into prompt. "
         "The default model for new agents is sonnet. "
         "For add_file/edit_file, include full file content in the content argument when provided. "
         "Deleting a workgroup is destructive; require explicit confirmation before execution. "
@@ -692,7 +684,7 @@ def _handle_admin_message_with_sdk(
             "add agents/jobs/files to any workgroup, and apply templates. When creating a complex "
             "structure (like a company), plan the steps then execute them one by one using tools. "
             "Use global_list_templates to see available templates before creating workgroups. "
-            "When adding agents, choose appropriate tool_names from the available tools list. "
+            "When adding agents, choose appropriate tools from the available tools list. "
             "For cross-workgroup operations, use the global_* tools (they take workgroup_name). "
             "For operations on the current Administration workgroup itself, use the non-global tools."
         )
@@ -703,7 +695,7 @@ def _handle_admin_message_with_sdk(
             "Use the global_* tools to create workgroups, add agents, and manage resources "
             "across workgroups within this organization. "
             "Use global_list_templates to see available templates before creating workgroups. "
-            "When adding agents, choose appropriate tool_names from the available tools list. "
+            "When adding agents, choose appropriate tools from the available tools list. "
             "For operations on this Administration workgroup itself, use the non-global tools."
         )
 

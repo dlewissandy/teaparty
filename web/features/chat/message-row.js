@@ -12,8 +12,8 @@ function resolveAvatarHtml(store, message) {
 
   if (message.sender_type === 'agent' && message.sender_agent_id && wgData) {
     const agent = wgData.agents?.find(a => a.id === message.sender_agent_id);
-    if (agent?.icon) {
-      return `<div class="message-avatar avatar avatar-agent"><img src="${escapeHtml(agent.icon)}" alt="" /></div>`;
+    if (agent?.image) {
+      return `<div class="message-avatar avatar avatar-agent"><img src="${escapeHtml(agent.image)}" alt="" /></div>`;
     }
     const name = agent?.name || agentName(wgId, message.sender_agent_id);
     return `<div class="message-avatar avatar avatar-agent">${generateBotSvg(name)}</div>`;

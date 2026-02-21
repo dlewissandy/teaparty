@@ -84,17 +84,13 @@ COMPLETE_TASK_RE = re.compile(
 )
 _NAME_INTRODUCER_RE = re.compile(r"\b(?:called|named|titled)\s+", re.IGNORECASE)
 LEADING_POLITE_RE = re.compile(r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?", re.IGNORECASE)
-PERSONALITY_SPLIT_RE = re.compile(r"\s+(?:with\s+)?personality\s*(?:[:=]\s*|\s+)(.+)$", re.IGNORECASE)
+PROMPT_SPLIT_RE = re.compile(r"\s+(?:with\s+)?prompt\s*(?:[:=]\s*|\s+)(.+)$", re.IGNORECASE)
 AGENT_OPTION_RE = re.compile(
-    r"(?:^|\s)(personality|role|backstory|model|temperature)\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s]+)",
+    r"(?:^|\s)(prompt|model)\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s]+)",
     re.IGNORECASE,
 )
 AGENT_MODEL_HINT_RE = re.compile(
     r"(?:^|[\s,.;])(?:use|using)?\s*model\s*(?:=|:|\s+)([A-Za-z0-9._\-]+)",
-    re.IGNORECASE,
-)
-AGENT_TEMPERATURE_HINT_RE = re.compile(
-    r"(?:^|[\s,.;])(?:at\s+)?temperature\s*(?:=|:|\s+)([0-2](?:\.\d+)?)",
     re.IGNORECASE,
 )
 JOB_DESCRIPTION_RE = re.compile(
@@ -115,7 +111,7 @@ def _help_text() -> str:
     return (
         "Available admin tools: `add job <name> [description=<text>]`, `archive job <name|id>`, "
         "`unarchive job <name|id>`, `clear job <name|id>`, `remove job <name|id>`, "
-        "`add agent <name> [role=<text>] [personality=<text>] [backstory=<text>] [model=<name>] [temperature=<0..2>]`, "
+        "`add agent <name> [prompt=<text>] [model=<name>]`, "
         "`add user <email>`, "
         "`add file <path> [content=<text>]`, `edit file <path> content=<text>`, "
         "`rename file <path> to <new-path>`, `delete file <path>`, "
@@ -238,32 +234,25 @@ def _parse_add_agent_payload(raw_payload: str) -> tuple[str, dict[str, str]]:
         payload, hinted_model = _extract_inline_option(payload, AGENT_MODEL_HINT_RE)
         if hinted_model:
             options["model"] = hinted_model
-    if "temperature" not in options:
-        payload, hinted_temperature = _extract_inline_option(payload, AGENT_TEMPERATURE_HINT_RE)
-        if hinted_temperature:
-            options["temperature"] = hinted_temperature
 
-    personality = options.get("personality")
-    if not personality:
-        personality_match = PERSONALITY_SPLIT_RE.search(payload)
-        if personality_match:
-            personality = personality_match.group(1).strip()
-            payload = payload[: personality_match.start()].strip()
+    prompt = options.get("prompt")
+    if not prompt:
+        prompt_match = PROMPT_SPLIT_RE.search(payload)
+        if prompt_match:
+            prompt = prompt_match.group(1).strip()
+            payload = payload[: prompt_match.start()].strip()
 
     candidate_name, narrative = _split_agent_name_and_narrative(payload)
     normalized_name = _normalize_agent_name(candidate_name)
     narrative_text = narrative.strip()
     if normalized_name and narrative_text.lower().startswith(normalized_name.lower() + " "):
         narrative_text = narrative_text[len(normalized_name) :].strip(" \t\r\n.,;:-")
-    if not personality and narrative_text:
-        personality = narrative_text
+    if not prompt and narrative_text:
+        prompt = narrative_text
 
     parsed = {
-        "personality": (personality or "Professional and concise").strip() or "Professional and concise",
-        "role": (options.get("role") or "").strip(),
-        "backstory": (options.get("backstory") or "").strip(),
+        "prompt": (prompt or "").strip(),
         "model": (options.get("model") or "").strip(),
-        "temperature": (options.get("temperature") or "").strip(),
     }
     return normalized_name, parsed
 

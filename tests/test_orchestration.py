@@ -96,8 +96,8 @@ def _make_agent(
         workgroup_id=workgroup.id,
         created_by_user_id=user.id,
         name=name,
-        role=role,
-        tool_names=[],
+        description=role,
+        tools=[],
     )
     session.add(agent)
     return agent

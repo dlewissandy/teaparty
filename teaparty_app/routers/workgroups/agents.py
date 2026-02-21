@@ -46,13 +46,15 @@ def create_agent(
         created_by_user_id=user.id,
         name=name,
         description=payload.description.strip(),
-        role=(payload.role.strip() or payload.description.strip()),
-        personality=payload.personality.strip(),
-        backstory=payload.backstory.strip(),
+        prompt=payload.prompt.strip(),
         model=payload.model.strip() or "sonnet",
-        temperature=payload.temperature,
-        tool_names=payload.tool_names,
-        icon=payload.icon or "",
+        tools=payload.tools,
+        image=payload.image or "",
+        permission_mode=payload.permission_mode,
+        hooks=payload.hooks,
+        memory=payload.memory,
+        background=payload.background,
+        isolation=payload.isolation,
     )
     session.add(agent)
     session.flush()
@@ -93,8 +95,8 @@ def update_agent(
     if not agent or agent.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    if payload.tool_names is not None:
-        agent.tool_names = payload.tool_names
+    if payload.tools is not None:
+        agent.tools = payload.tools
 
     if payload.name is not None:
         name = payload.name.strip()
@@ -106,12 +108,8 @@ def update_agent(
 
     if payload.description is not None:
         agent.description = payload.description.strip()
-    if payload.role is not None:
-        agent.role = payload.role.strip()
-    if payload.personality is not None:
-        agent.personality = payload.personality.strip()
-    if payload.backstory is not None:
-        agent.backstory = payload.backstory.strip()
+    if payload.prompt is not None:
+        agent.prompt = payload.prompt.strip()
 
     if payload.model is not None:
         model = payload.model.strip()
@@ -119,10 +117,18 @@ def update_agent(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent model cannot be empty")
         agent.model = model
 
-    if payload.temperature is not None:
-        agent.temperature = payload.temperature
-    if payload.icon is not None:
-        agent.icon = payload.icon
+    if payload.image is not None:
+        agent.image = payload.image
+    if payload.permission_mode is not None:
+        agent.permission_mode = payload.permission_mode
+    if payload.hooks is not None:
+        agent.hooks = payload.hooks
+    if payload.memory is not None:
+        agent.memory = payload.memory
+    if payload.background is not None:
+        agent.background = payload.background
+    if payload.isolation is not None:
+        agent.isolation = payload.isolation
 
     session.add(agent)
     post_activity(session, workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
@@ -199,13 +205,15 @@ def clone_agent(
         created_by_user_id=user.id,
         name=name,
         description=agent.description,
-        role=agent.role,
-        personality=agent.personality,
-        backstory=agent.backstory,
+        prompt=agent.prompt,
         model=agent.model,
-        temperature=agent.temperature,
-        tool_names=list(agent.tool_names or []),
-        icon=agent.icon or "",
+        tools=list(agent.tools or []),
+        image=agent.image or "",
+        permission_mode=agent.permission_mode,
+        hooks=agent.hooks,
+        memory=agent.memory,
+        background=agent.background,
+        isolation=agent.isolation,
     )
     session.add(cloned)
     session.flush()

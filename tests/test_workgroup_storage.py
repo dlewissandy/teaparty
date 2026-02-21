@@ -60,12 +60,9 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
                     "id": "agent-1",
                     "name": "Implementer",
                     "description": "Builds things",
-                    "role": "Builder",
-                    "personality": "Practical",
-                    "backstory": "",
+                    "prompt": "Builder. Practical.",
                     "model": "gpt-5-nano",
-                    "temperature": 0.4,
-                    "tool_names": ["summarize_job"],
+                    "tools": ["summarize_job"],
                 },
             ],
         }
@@ -84,16 +81,14 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         agents_by_wg = {
             "wg-1": [
                 {
-                    "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
-                    "tool_names": [],
+                    "id": "a1", "name": "Coder", "description": "", "prompt": "",
+                    "model": "gpt-5-nano", "tools": [],
                 },
             ],
             "wg-2": [
                 {
-                    "id": "a2", "name": "Writer", "description": "", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
-                    "tool_names": [],
+                    "id": "a2", "name": "Writer", "description": "", "prompt": "",
+                    "model": "gpt-5-nano", "tools": [],
                 },
             ],
         }
@@ -114,14 +109,12 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         agents_by_wg = {
             "wg-1": [
                 {
-                    "id": "a1", "name": "Reviewer", "description": "First", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
-                    "tool_names": [],
+                    "id": "a1", "name": "Reviewer", "description": "First", "prompt": "",
+                    "model": "gpt-5-nano", "tools": [],
                 },
                 {
-                    "id": "a2", "name": "Reviewer", "description": "Second", "role": "", "personality": "",
-                    "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
-                    "tool_names": [],
+                    "id": "a2", "name": "Reviewer", "description": "Second", "prompt": "",
+                    "model": "gpt-5-nano", "tools": [],
                 },
             ],
         }
@@ -142,9 +135,8 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         agents_by_wg = {
             "wg-1": [
                 {
-                    "id": "agent-789", "name": "Implementer", "description": "Builds", "role": "Builder",
-                    "personality": "Practical", "backstory": "", "model": "gpt-5-nano", "temperature": 0.4,
-                    "tool_names": [],
+                    "id": "agent-789", "name": "Implementer", "description": "Builder",
+                    "prompt": "Practical", "model": "gpt-5-nano", "tools": [],
                 },
             ],
         }
@@ -160,7 +152,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         self.assertEqual(len(payload["agents"]), 1)
         self.assertEqual(payload["agents"][0]["id"], "agent-789")
         self.assertEqual(payload["agents"][0]["name"], "Implementer")
-        self.assertEqual(payload["agents"][0]["role"], "Builder")
+        self.assertEqual(payload["agents"][0]["description"], "Builder")
 
     def test_workgroup_json_contains_members(self) -> None:
         workgroups = [
@@ -194,9 +186,9 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
         agents_by_wg = {
             "wg-1": [
                 {
-                    "id": "a1", "name": "Bot", "description": "Helper", "role": "Assistant",
-                    "personality": "Friendly", "backstory": "None", "model": "gpt-5-nano",
-                    "temperature": 0.7, "tool_names": ["summarize_job"],
+                    "id": "a1", "name": "Bot", "description": "Helper",
+                    "prompt": "Friendly assistant", "model": "gpt-5-nano",
+                    "tools": ["summarize_job"],
                 },
             ],
         }
@@ -206,7 +198,7 @@ class WorkgroupStorageFilesTests(unittest.TestCase):
 
         self.assertEqual(payload["id"], "a1")
         self.assertEqual(payload["name"], "Bot")
-        self.assertEqual(payload["tool_names"], ["summarize_job"])
+        self.assertEqual(payload["tools"], ["summarize_job"])
         self.assertNotIn("learning_state", payload)
         self.assertNotIn("sentiment_state", payload)
         self.assertNotIn("learned_preferences", payload)
@@ -276,9 +268,8 @@ class OrgStorageFilesTests(unittest.TestCase):
 
     def _make_agent(self, **overrides: object) -> dict:
         base = {
-            "id": "a1", "name": "Coder", "description": "", "role": "", "personality": "",
-            "backstory": "", "model": "gpt-5-nano", "temperature": 0.7,
-            "tool_names": [],
+            "id": "a1", "name": "Coder", "description": "", "prompt": "",
+            "model": "gpt-5-nano", "tools": [],
         }
         base.update(overrides)
         return base

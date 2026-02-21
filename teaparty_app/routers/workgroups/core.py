@@ -219,12 +219,10 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
                 "id": agent.id,
                 "name": agent.name,
                 "description": agent.description,
-                "role": agent.role,
-                "personality": agent.personality,
-                "backstory": agent.backstory,
+                "prompt": agent.prompt,
                 "model": agent.model,
-                "temperature": agent.temperature,
-                "tool_names": list(agent.tool_names or []),
+                "tools": list(agent.tools or []),
+                "permission_mode": agent.permission_mode,
             }
         )
 
@@ -348,12 +346,10 @@ def _reconcile_org_administration_files(session: Session, admin_workgroup: Workg
                 "id": agent.id,
                 "name": agent.name,
                 "description": agent.description,
-                "role": agent.role,
-                "personality": agent.personality,
-                "backstory": agent.backstory,
+                "prompt": agent.prompt,
                 "model": agent.model,
-                "temperature": agent.temperature,
-                "tool_names": list(agent.tool_names or []),
+                "tools": list(agent.tools or []),
+                "permission_mode": agent.permission_mode,
             }
         )
 
@@ -552,12 +548,9 @@ def create_workgroup_with_template(
                 created_by_user_id=owner.id,
                 name=agent_name,
                 description=draft.description.strip(),
-                role=(draft.role.strip() or draft.description.strip()),
-                personality=draft.personality.strip(),
-                backstory=draft.backstory.strip(),
+                prompt=draft.prompt.strip(),
                 model=draft.model.strip() or "sonnet",
-                temperature=draft.temperature,
-                tool_names=draft.tool_names,
+                tools=draft.tools,
             )
         )
 
@@ -615,12 +608,9 @@ def create_workgroup(
                     created_by_user_id=user.id,
                     name=agent_name,
                     description=draft.description.strip(),
-                    role=(draft.role.strip() or draft.description.strip()),
-                    personality=draft.personality.strip(),
-                    backstory=draft.backstory.strip(),
+                    prompt=draft.prompt.strip(),
                     model=draft.model.strip() or "sonnet",
-                    temperature=draft.temperature,
-                    tool_names=draft.tool_names,
+                    tools=draft.tools,
                 )
             )
 

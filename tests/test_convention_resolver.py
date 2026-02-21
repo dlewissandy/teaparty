@@ -46,10 +46,9 @@ def _make_agent(session, workgroup, user, name="Helper", agent_id="agent-1", is_
         workgroup_id=workgroup.id,
         created_by_user_id=user.id,
         name=name,
-        description="",
-        role="assistant",
+        description="assistant",
         model="sonnet",
-        tool_names=["Read", "Write"],
+        tools=["Read", "Write"],
         is_lead=is_lead,
     )
     session.add(agent)

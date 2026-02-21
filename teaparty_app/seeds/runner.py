@@ -225,13 +225,10 @@ def _create_workgroup_from_template(
             workgroup_id=workgroup.id,
             created_by_user_id=system_user.id,
             name=agent_def["name"],
-            description=agent_def["description"],
-            role=agent_def["role"],
-            personality=agent_def["personality"],
-            backstory=agent_def["backstory"],
-            model=agent_def["model"],
-            temperature=agent_def["temperature"],
-            tool_names=agent_def["tool_names"],
+            description=agent_def.get("description", ""),
+            prompt=agent_def.get("prompt", ""),
+            model=agent_def.get("model", "sonnet"),
+            tools=agent_def.get("tools", []),
         )
         session.add(agent)
 

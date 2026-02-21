@@ -74,6 +74,7 @@ def init_db() -> None:
     _migrate_org_config_fields()
     _migrate_message_drop_agent_fk()
     _backfill_projects_lead()
+    _migrate_agent_restructure()
     _run_seeds()
 
 
@@ -236,26 +237,10 @@ def _run_lightweight_migrations() -> None:
             )
         )
 
-        if "role" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN role TEXT DEFAULT '' NOT NULL"))
-        if "backstory" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN backstory TEXT DEFAULT '' NOT NULL"))
         if "model" not in agent_columns:
             conn.execute(text("ALTER TABLE agents ADD COLUMN model TEXT DEFAULT 'sonnet' NOT NULL"))
-        if "temperature" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN temperature FLOAT DEFAULT 0.7 NOT NULL"))
-        if "icon" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN icon TEXT DEFAULT '' NOT NULL"))
 
-        conn.execute(
-            text(
-                "UPDATE agents "
-                "SET role = description "
-                "WHERE (role IS NULL OR role = '') "
-                "AND description IS NOT NULL "
-                "AND description != '__system_admin_agent__'"
-            )
-        )
+        # Legacy role backfill removed — role column dropped by _migrate_agent_restructure
         conn.execute(
             text(
                 "UPDATE agents "
@@ -263,6 +248,10 @@ def _run_lightweight_migrations() -> None:
                 "WHERE model IS NULL OR model = '' OR model = 'gpt-4.1-mini' OR model = 'gpt-5-nano'"
             )
         )
+        # Normalize long Claude model IDs to short aliases.
+        conn.execute(text("UPDATE agents SET model = 'sonnet' WHERE model LIKE 'claude%sonnet%'"))
+        conn.execute(text("UPDATE agents SET model = 'haiku' WHERE model LIKE 'claude%haiku%'"))
+        conn.execute(text("UPDATE agents SET model = 'opus' WHERE model LIKE 'claude%opus%'"))
 
         if "workspace_enabled" not in workgroup_columns:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN workspace_enabled BOOLEAN DEFAULT 0 NOT NULL"))
@@ -584,12 +573,8 @@ def _ensure_agent_task_table() -> None:
 
 
 def _ensure_agent_max_turns() -> None:
-    if not settings.database_url.startswith("sqlite"):
-        return
-    agent_columns = _sqlite_column_names("agents")
-    if "max_turns" not in agent_columns:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN max_turns INTEGER DEFAULT 3 NOT NULL"))
+    # max_turns removed from Agent model — kept as no-op for migration ordering
+    pass
 
 
 def _ensure_agent_is_lead() -> None:
@@ -731,10 +716,16 @@ def _migrate_agent_tool_names() -> None:
     valid = set(claude_tool_names())
     replacement = _json.dumps(claude_tool_names())
 
+    # Column may be tool_names (old) or tools (new)
+    cols = _sqlite_column_names("agents")
+    col_name = "tools" if "tools" in cols else "tool_names" if "tool_names" in cols else None
+    if not col_name:
+        return
+
     with engine.begin() as conn:
         rows = conn.execute(
             text(
-                "SELECT id, tool_names FROM agents "
+                f"SELECT id, {col_name} FROM agents "
                 "WHERE description != '__system_admin_agent__' OR description IS NULL"
             )
         ).fetchall()
@@ -751,7 +742,7 @@ def _migrate_agent_tool_names() -> None:
                 continue
             if any(n not in valid for n in names):
                 conn.execute(
-                    text("UPDATE agents SET tool_names = :tools WHERE id = :id"),
+                    text(f"UPDATE agents SET {col_name} = :tools WHERE id = :id"),
                     {"tools": replacement, "id": row[0]},
                 )
 
@@ -1274,9 +1265,15 @@ def _backfill_projects_lead() -> None:
     from teaparty_app.services.claude_tools import claude_tool_names
 
     tools_json = _json.dumps(claude_tool_names())
+    cols = _sqlite_column_names("agents")
+
+    # Determine column names (may be pre- or post-restructure)
+    tools_col = "tools" if "tools" in cols else "tool_names"
+    image_col = "image" if "image" in cols else "icon"
+    has_prompt = "prompt" in cols
+    has_old = "role" in cols
 
     with engine.begin() as conn:
-        # Find Administration workgroups in orgs that lack a projects-lead agent.
         rows = conn.execute(text(
             "SELECT w.id, w.owner_id FROM workgroups w "
             "WHERE w.name = 'Administration' AND w.organization_id IS NOT NULL "
@@ -1288,15 +1285,96 @@ def _backfill_projects_lead() -> None:
         for row in rows:
             wg_id, owner_id = row[0], row[1]
             agent_id = str(uuid4())
-            conn.execute(text(
-                "INSERT INTO agents "
-                "(id, workgroup_id, created_by_user_id, name, description, role, "
-                "personality, backstory, model, temperature, tool_names, "
-                "max_turns, is_lead, icon, created_at) "
-                "VALUES (:id, :wg_id, :owner_id, 'projects-lead', '', 'Project coordinator', "
-                "'Strategic and collaborative project coordinator', '', 'sonnet', 0.7, :tools, "
-                "3, 1, '', datetime('now'))"
-            ), {"id": agent_id, "wg_id": wg_id, "owner_id": owner_id, "tools": tools_json})
+            if has_prompt and not has_old:
+                # New schema
+                conn.execute(text(
+                    f"INSERT INTO agents "
+                    f"(id, workgroup_id, created_by_user_id, name, description, prompt, "
+                    f"model, {tools_col}, is_lead, {image_col}, created_at) "
+                    f"VALUES (:id, :wg_id, :owner_id, 'projects-lead', "
+                    f"'Project coordinator', 'Strategic and collaborative project coordinator.', "
+                    f"'sonnet', :tools, 1, '', datetime('now'))"
+                ), {"id": agent_id, "wg_id": wg_id, "owner_id": owner_id, "tools": tools_json})
+            else:
+                # Old schema (pre-restructure)
+                conn.execute(text(
+                    f"INSERT INTO agents "
+                    f"(id, workgroup_id, created_by_user_id, name, description, role, "
+                    f"personality, backstory, model, temperature, {tools_col}, "
+                    f"max_turns, is_lead, {image_col}, created_at) "
+                    f"VALUES (:id, :wg_id, :owner_id, 'projects-lead', '', 'Project coordinator', "
+                    f"'Strategic and collaborative project coordinator', '', 'sonnet', 0.7, :tools, "
+                    f"3, 1, '', datetime('now'))"
+                ), {"id": agent_id, "wg_id": wg_id, "owner_id": owner_id, "tools": tools_json})
+
+
+def _migrate_agent_restructure() -> None:
+    """Restructure agents table: replace role/personality/backstory/temperature/max_turns
+    with prompt/permission_mode/hooks/memory/background/isolation, rename icon→image and tool_names→tools."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    cols = _sqlite_column_names("agents")
+
+    with engine.begin() as conn:
+        # Add new columns
+        if "prompt" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN prompt TEXT DEFAULT '' NOT NULL"))
+
+            # Backfill prompt from role + personality + backstory
+            rows = conn.execute(text(
+                "SELECT id, role, personality, backstory FROM agents"
+            )).fetchall() if "role" in cols else []
+            for row in rows:
+                parts = []
+                role = (row[1] or "").strip()
+                personality = (row[2] or "").strip()
+                backstory = (row[3] or "").strip()
+                if role:
+                    parts.append(role + ".")
+                if personality and personality != "Professional and concise":
+                    parts.append(personality)
+                if backstory:
+                    parts.append(backstory)
+                prompt_val = " ".join(parts)
+                if prompt_val:
+                    conn.execute(text(
+                        "UPDATE agents SET prompt = :prompt WHERE id = :id"
+                    ), {"prompt": prompt_val, "id": row[0]})
+
+        if "permission_mode" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN permission_mode TEXT DEFAULT 'default' NOT NULL"))
+        if "hooks" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN hooks JSON DEFAULT '{}' NOT NULL"))
+        if "memory" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN memory TEXT DEFAULT '' NOT NULL"))
+        if "background" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN background BOOLEAN DEFAULT 0 NOT NULL"))
+        if "isolation" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN isolation BOOLEAN DEFAULT 1 NOT NULL"))
+
+        # Rename icon → image
+        if "icon" in cols and "image" not in cols:
+            conn.execute(text("ALTER TABLE agents RENAME COLUMN icon TO image"))
+        elif "image" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN image TEXT DEFAULT '' NOT NULL"))
+
+        # Rename tool_names → tools
+        if "tool_names" in cols and "tools" not in cols:
+            conn.execute(text("ALTER TABLE agents RENAME COLUMN tool_names TO tools"))
+        elif "tools" not in cols:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN tools JSON DEFAULT '[]' NOT NULL"))
+
+    # Refresh cols after additions/renames
+    cols = _sqlite_column_names("agents")
+
+    # Drop old columns
+    drop_cols = ["role", "personality", "backstory", "temperature", "max_turns"]
+    to_drop = [c for c in drop_cols if c in cols]
+    if to_drop:
+        with engine.begin() as conn:
+            for col in to_drop:
+                conn.execute(text(f"ALTER TABLE agents DROP COLUMN {col}"))
 
 
 def _migrate_workgroup_team_config() -> None:

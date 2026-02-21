@@ -78,8 +78,8 @@ class WorkgroupTemplateTests(unittest.TestCase):
             agents=[
                 {
                     "name": "Custom Analyst",
-                    "role": "Custom role",
-                    "tool_names": ["summarize_job"],
+                    "prompt": "Custom role",
+                    "tools": ["summarize_job"],
                 }
             ],
             organization_id="org-1",

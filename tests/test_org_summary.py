@@ -69,7 +69,7 @@ class OrgSummaryTest(unittest.TestCase):
                 workgroup_id="wg1",
                 created_by_user_id="u1",
                 name="Helper",
-                tool_names=[],
+                tools=[],
             )
             session.add(agent)
 
@@ -418,7 +418,7 @@ class HomeSummaryTest(unittest.TestCase):
                 workgroup_id="wg1",
                 created_by_user_id="u1",
                 name="Helper",
-                tool_names=[],
+                tools=[],
             )
             session.add(agent)
 
@@ -501,9 +501,9 @@ class ConversationParticipantsTest(unittest.TestCase):
                 workgroup_id="wg1",
                 created_by_user_id="u1",
                 name="Helper",
-                role="Coder",
+                description="Coder",
                 is_lead=True,
-                tool_names=[],
+                tools=[],
             )
             session.add(agent)
             session.flush()

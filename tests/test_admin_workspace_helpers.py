@@ -28,25 +28,20 @@ class AdminWorkspaceHelperTests(unittest.TestCase):
 
     def test_parse_add_agent_payload_with_explicit_options(self) -> None:
         name, parsed = _parse_add_agent_payload(
-            'named "@Mia" role="Product Strategist" personality="Warm and clear" model=gpt-4.1-mini temperature=0.4'
+            'named "@Mia" prompt="Warm and clear product strategist" model=gpt-4.1-mini'
         )
         self.assertEqual(name, "Mia")
-        self.assertEqual(parsed["role"], "Product Strategist")
-        self.assertEqual(parsed["personality"], "Warm and clear")
+        self.assertEqual(parsed["prompt"], "Warm and clear product strategist")
         self.assertEqual(parsed["model"], "gpt-4.1-mini")
-        self.assertEqual(parsed["temperature"], "0.4")
 
     def test_parse_add_agent_payload_uses_narrative_and_inline_hints(self) -> None:
         name, parsed = _parse_add_agent_payload("Alex: pragmatic release manager")
         self.assertEqual(name, "Alex")
-        self.assertEqual(parsed["personality"], "pragmatic release manager")
-        self.assertEqual(parsed["role"], "")
+        self.assertEqual(parsed["prompt"], "pragmatic release manager")
 
-        hinted_name, hinted = _parse_add_agent_payload("Lena use model gpt-5-nano at temperature 0.2")
+        hinted_name, hinted = _parse_add_agent_payload("Lena use model gpt-5-nano")
         self.assertEqual(hinted_name, "Lena")
         self.assertEqual(hinted["model"], "gpt-5-nano")
-        self.assertEqual(hinted["temperature"], "0.2")
-        self.assertEqual(hinted["personality"], "Professional and concise")
 
     def test_parse_temperature(self) -> None:
         self.assertEqual(_parse_temperature(None), (0.7, None))

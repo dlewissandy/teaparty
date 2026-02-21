@@ -62,13 +62,10 @@ def create_organization(
         workgroup_id=admin_wg.id,
         created_by_user_id=user.id,
         name="engagements-lead",
-        description="",
-        role="Engagement coordinator",
-        personality="Organized and collaborative engagement coordinator",
-        backstory="",
+        description="Engagement coordinator",
+        prompt="Organized and collaborative engagement coordinator.",
         model="sonnet",
-        temperature=0.7,
-        tool_names=claude_tool_names(),
+        tools=claude_tool_names(),
         is_lead=True,
     )
     session.add(engagements_lead)
@@ -78,13 +75,10 @@ def create_organization(
         workgroup_id=admin_wg.id,
         created_by_user_id=user.id,
         name="projects-lead",
-        description="",
-        role="Project coordinator",
-        personality="Strategic and collaborative project coordinator",
-        backstory="",
+        description="Project coordinator",
+        prompt="Strategic and collaborative project coordinator.",
         model="sonnet",
-        temperature=0.7,
-        tool_names=claude_tool_names(),
+        tools=claude_tool_names(),
         is_lead=True,
     )
     session.add(projects_lead)

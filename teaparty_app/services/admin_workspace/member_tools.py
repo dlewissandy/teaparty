@@ -29,7 +29,6 @@ from teaparty_app.services.admin_workspace.bootstrap import (
 from teaparty_app.services.admin_workspace.parsing import (
     _normalize_member_selector,
     _parse_add_agent_payload,
-    _parse_temperature,
 )
 from teaparty_app.services.admin_workspace.tools_common import (
     ResolvedMemberTarget,
@@ -75,43 +74,29 @@ def admin_tool_add_agent(
     workgroup_id: str,
     requester_user_id: str,
     name: str,
-    personality: str,
-    role: str = "",
-    backstory: str = "",
+    prompt: str = "",
+    description: str = "",
     model: str = "",
-    temperature: float | str | None = None,
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
         return "Owner permissions required to add agents."
-
-    inferred_temperature, _ = _parse_temperature(temperature, default=0.7)
 
     # Safety net for SDK calls that pass a full free-form profile in `agent_name`.
     if (
         name
         and (len(name) > 48 or " is " in name.lower() or " model " in name.lower() or "." in name)
-        and personality.strip() == "Professional and concise"
-        and not role.strip()
-        and not backstory.strip()
+        and not prompt.strip()
         and (not model.strip() or model.strip() == "sonnet")
-        and abs(inferred_temperature - 0.7) <= 1e-9
     ):
         parsed_name, parsed = _parse_add_agent_payload(name)
         if parsed_name:
             name = parsed_name
-            personality = parsed.get("personality") or personality
-            role = parsed.get("role") or role
-            backstory = parsed.get("backstory") or backstory
+            prompt = prompt or parsed.get("prompt") or prompt
             model = parsed.get("model") or model
-            temperature = parsed.get("temperature") or temperature
 
     cleaned_name = name.strip()
     if not cleaned_name:
-        return "Usage: add agent <name> [role=<text>] [personality=<text>] [backstory=<text>] [model=<name>] [temperature=<0..2>]"
-
-    parsed_temperature, temp_error = _parse_temperature(temperature, default=0.7)
-    if temp_error:
-        return temp_error
+        return "Usage: add agent <name> [prompt=<text>] [model=<name>]"
 
     existing = session.exec(
         select(Agent).where(
@@ -123,29 +108,25 @@ def admin_tool_add_agent(
     if existing:
         return f"Agent '{existing.name}' already exists (id={existing.id})."
 
-    role_text = role.strip()
-    backstory_text = backstory.strip()
-    personality_text = personality.strip() or "Professional and concise"
+    prompt_text = prompt.strip()
+    description_text = description.strip()
     model_name = model.strip() or "sonnet"
 
     agent = Agent(
         workgroup_id=workgroup_id,
         created_by_user_id=requester_user_id,
         name=cleaned_name,
-        description=role_text,
-        role=role_text,
-        personality=personality_text,
-        backstory=backstory_text,
+        description=description_text,
+        prompt=prompt_text,
         model=model_name,
-        temperature=parsed_temperature,
-        tool_names=[],
+        tools=[],
     )
     session.add(agent)
     session.flush()
 
     return (
         f"Created agent '{agent.name}' with id={agent.id}. "
-        f"model={agent.model}, temperature={agent.temperature}, role={agent.role or '(none)'}."
+        f"model={agent.model}, prompt={agent.prompt[:40] or '(none)'}."
     )
 
 

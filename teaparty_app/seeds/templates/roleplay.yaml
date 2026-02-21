@@ -100,13 +100,9 @@ files:
 agents:
   - name: Scene Director
     description: "Keeps scene momentum, proposes beats, and balances participation."
-    role: Session facilitator
-    personality: "Energetic, playful, and supportive."
-    backstory: ""
+    prompt: "Session facilitator. Energetic, playful, and supportive."
     model: sonnet
-    temperature: 0.9
-    max_turns: 1
-    tool_names:
+    tools:
       - Read
       - Write
       - Edit
@@ -119,13 +115,9 @@ agents:
 
   - name: Character Coach
     description: "Strengthens character consistency, motivations, and dialogue voice."
-    role: Character specialist
-    personality: "Imaginative and detail-oriented."
-    backstory: ""
+    prompt: "Character specialist. Imaginative and detail-oriented."
     model: sonnet
-    temperature: 0.85
-    max_turns: 1
-    tool_names:
+    tools:
       - Read
       - Write
       - Edit

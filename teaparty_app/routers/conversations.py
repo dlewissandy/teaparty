@@ -553,7 +553,7 @@ def get_conversation_participants(
         elif p.agent_id:
             agent = session.get(Agent, p.agent_id)
             if agent:
-                agents_out.append({"id": agent.id, "name": agent.name, "role": agent.role, "is_lead": agent.is_lead})
+                agents_out.append({"id": agent.id, "name": agent.name, "description": agent.description, "is_lead": agent.is_lead})
 
     return {"users": users_out, "agents": agents_out}
 

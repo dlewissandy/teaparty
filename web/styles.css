@@ -4158,7 +4158,12 @@ body[data-theme="dark"] .qs-result-item.selected {
   flex-direction: column;
   flex: 1;
   overflow-y: auto;
-  padding: 32px 40px;
+}
+
+.agent-profile-content {
+  max-width: 900px;
+  width: 100%;
+  padding: 48px 24px 96px;
 }
 
 .agent-profile-header {
@@ -4166,21 +4171,19 @@ body[data-theme="dark"] .qs-result-item.selected {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--tp-line-subtle);
-  margin-bottom: 24px;
+  margin-bottom: 36px;
 }
 
 .agent-profile-identity {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 20px;
   min-width: 0;
 }
 
 .agent-profile-avatar {
-  width: 56px;
-  height: 56px;
+  width: 72px;
+  height: 72px;
   flex-shrink: 0;
 }
 
@@ -4191,7 +4194,7 @@ body[data-theme="dark"] .qs-result-item.selected {
 
 .agent-profile-name {
   font-family: 'Source Serif 4', Georgia, serif;
-  font-size: 1.5rem;
+  font-size: 1.625rem;
   font-weight: 700;
   color: var(--tp-ink);
   margin: 0;
@@ -4199,35 +4202,39 @@ body[data-theme="dark"] .qs-result-item.selected {
 }
 
 .agent-profile-role {
-  margin: 2px 0 0;
-  font-size: 0.875rem;
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: var(--tp-muted);
 }
 
 .agent-profile-body {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-  max-width: 640px;
+  gap: 16px;
 }
 
-.agent-profile-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.agent-profile-card {
+  background: var(--tp-panel);
+  border: 1px solid var(--tp-line-subtle);
+  border-radius: var(--tp-radius);
+  padding: 20px 22px;
+  transition: border-color var(--tp-duration-base);
 }
 
-.agent-profile-section-title {
-  font-size: 0.75rem;
+.agent-profile-card:hover {
+  border-color: var(--tp-line);
+}
+
+.agent-profile-card-title {
+  font-size: 0.9375rem;
   font-weight: 700;
-  color: var(--tp-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  margin: 0;
+  color: var(--tp-ink);
+  margin: 0 0 12px;
 }
 
 .agent-profile-text {
   margin: 0;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   line-height: 1.6;
   color: var(--tp-ink);
   white-space: pre-wrap;

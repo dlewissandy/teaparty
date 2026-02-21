@@ -162,13 +162,9 @@ files:
 agents:
   - name: Implementer
     description: "Turns requirements into concrete implementation steps and code plans."
-    role: Implementation lead
-    personality: "Practical, concise, and execution-focused."
-    backstory: ""
+    prompt: "Implementation lead. Practical, concise, and execution-focused."
     model: sonnet
-    temperature: 0.4
-    max_turns: 20
-    tool_names:
+    tools:
       - Read
       - Write
       - Edit
@@ -181,13 +177,9 @@ agents:
 
   - name: Reviewer
     description: "Challenges edge cases, regressions, and test coverage before changes ship."
-    role: Code review partner
-    personality: "Skeptical but constructive."
-    backstory: ""
+    prompt: "Code review partner. Skeptical but constructive."
     model: sonnet
-    temperature: 0.35
-    max_turns: 15
-    tool_names:
+    tools:
       - Read
       - Write
       - Edit

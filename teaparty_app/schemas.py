@@ -70,12 +70,9 @@ class WorkgroupFileRead(BaseModel):
 class WorkgroupTemplateAgentWrite(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     description: str = ""
-    role: str = ""
-    personality: str = "Professional and concise"
-    backstory: str = ""
+    prompt: str = ""
     model: str = "sonnet"
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    tool_names: list[str] = Field(default_factory=list)
+    tools: list[str] = Field(default_factory=list)
 
 
 class WorkgroupCreateRequest(BaseModel):
@@ -254,26 +251,30 @@ class OrgMemberRead(BaseModel):
 
 class AgentCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
+    image: str = ""
     description: str = ""
-    role: str = ""
-    personality: str = "Professional and concise"
-    backstory: str = ""
+    prompt: str = ""
     model: str = "sonnet"
-    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    tool_names: list[str] = Field(default_factory=list)
-    icon: str = ""
+    tools: list[str] = Field(default_factory=list)
+    permission_mode: str = "default"
+    hooks: dict = Field(default_factory=dict)
+    memory: str = ""
+    background: bool = False
+    isolation: bool = True
 
 
 class AgentUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=80)
+    image: str | None = None
     description: str | None = None
-    role: str | None = None
-    personality: str | None = None
-    backstory: str | None = None
+    prompt: str | None = None
     model: str | None = None
-    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    tool_names: list[str] | None = None
-    icon: str | None = None
+    tools: list[str] | None = None
+    permission_mode: str | None = None
+    hooks: dict | None = None
+    memory: str | None = None
+    background: bool | None = None
+    isolation: bool | None = None
 
 
 class AgentCloneRequest(BaseModel):
@@ -285,15 +286,17 @@ class AgentRead(ORMBaseModel):
     id: str
     workgroup_id: str
     name: str
+    image: str = ""
     description: str
-    role: str
-    personality: str
-    backstory: str
+    prompt: str = ""
     model: str
-    temperature: float
-    tool_names: list[str]
+    tools: list[str]
+    permission_mode: str = "default"
+    hooks: dict = Field(default_factory=dict)
+    memory: str = ""
+    background: bool = False
+    isolation: bool = True
     is_lead: bool = False
-    icon: str = ""
 
 
 class AgentConversationClearRead(BaseModel):

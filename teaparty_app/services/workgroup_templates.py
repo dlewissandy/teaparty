@@ -25,12 +25,9 @@ class WorkgroupTemplateFile(TypedDict):
 class WorkgroupTemplateAgent(TypedDict):
     name: str
     description: str
-    role: str
-    personality: str
-    backstory: str
+    prompt: str
     model: str
-    temperature: float
-    tool_names: list[str]
+    tools: list[str]
 
 
 class WorkgroupTemplate(TypedDict):
@@ -87,12 +84,9 @@ def _clone_template(template: WorkgroupTemplate) -> WorkgroupTemplate:
             {
                 "name": item["name"],
                 "description": item["description"],
-                "role": item["role"],
-                "personality": item["personality"],
-                "backstory": item["backstory"],
+                "prompt": item["prompt"],
                 "model": item["model"],
-                "temperature": item["temperature"],
-                "tool_names": list(item["tool_names"]),
+                "tools": list(item["tools"]),
             }
             for item in template["agents"]
         ],
@@ -180,8 +174,8 @@ def _normalize_storage_template_agent(value: object) -> WorkgroupTemplateAgent |
     if not name:
         return None
 
-    tools_raw = value.get("tool_names", [])
-    tool_names: list[str] = []
+    tools_raw = value.get("tools", [])
+    tools: list[str] = []
     if isinstance(tools_raw, list):
         seen_tools: set[str] = set()
         for raw_tool in tools_raw:
@@ -189,17 +183,14 @@ def _normalize_storage_template_agent(value: object) -> WorkgroupTemplateAgent |
             if not tool or tool in seen_tools:
                 continue
             seen_tools.add(tool)
-            tool_names.append(tool)
+            tools.append(tool)
 
     return {
         "name": name,
         "description": str(value.get("description", "")),
-        "role": str(value.get("role", "")),
-        "personality": str(value.get("personality", "Professional and concise")) or "Professional and concise",
-        "backstory": str(value.get("backstory", "")),
+        "prompt": str(value.get("prompt", "")),
         "model": str(value.get("model", "sonnet")) or "sonnet",
-        "temperature": _coerce_float(value.get("temperature"), 0.7, 0.0, 2.0),
-        "tool_names": tool_names,
+        "tools": tools,
     }
 
 
@@ -536,7 +527,7 @@ def org_storage_files(
 
         wg_members = (members_by_workgroup or {}).get(wg_id, [])
         member_refs_wg = [{"user_id": m.get("user_id", ""), "role": m.get("role", "")} for m in wg_members]
-        agent_refs = [{"id": a.get("id", ""), "name": a.get("name", ""), "role": a.get("role", "")} for a in agents]
+        agent_refs = [{"id": a.get("id", ""), "name": a.get("name", ""), "description": a.get("description", "")} for a in agents]
         team_payload = {
             "id": wg_id,
             "name": wg.get("name", ""),
@@ -566,12 +557,10 @@ def org_storage_files(
                 "id": agent.get("id", ""),
                 "name": agent.get("name", ""),
                 "description": agent.get("description", ""),
-                "role": agent.get("role", ""),
-                "personality": agent.get("personality", ""),
-                "backstory": agent.get("backstory", ""),
+                "prompt": agent.get("prompt", ""),
                 "model": agent.get("model", ""),
-                "temperature": agent.get("temperature", 0.7),
-                "tool_names": agent.get("tool_names", []),
+                "tools": agent.get("tools", []),
+                "permission_mode": agent.get("permission_mode", "default"),
             }
             files.append({
                 "path": f"{base_path}/agents/{candidate}/agent.json",
@@ -615,7 +604,7 @@ def workgroup_storage_files(
 
         members = (members_by_workgroup or {}).get(wg_id, [])
         member_refs = [{"user_id": m.get("user_id", ""), "role": m.get("role", "")} for m in members]
-        agent_refs = [{"id": a.get("id", ""), "name": a.get("name", ""), "role": a.get("role", "")} for a in agents]
+        agent_refs = [{"id": a.get("id", ""), "name": a.get("name", ""), "description": a.get("description", "")} for a in agents]
         wg_payload = {
             "id": wg_id,
             "name": wg.get("name", ""),
@@ -645,12 +634,10 @@ def workgroup_storage_files(
                 "id": agent.get("id", ""),
                 "name": agent.get("name", ""),
                 "description": agent.get("description", ""),
-                "role": agent.get("role", ""),
-                "personality": agent.get("personality", ""),
-                "backstory": agent.get("backstory", ""),
+                "prompt": agent.get("prompt", ""),
                 "model": agent.get("model", ""),
-                "temperature": agent.get("temperature", 0.7),
-                "tool_names": agent.get("tool_names", []),
+                "tools": agent.get("tools", []),
+                "permission_mode": agent.get("permission_mode", "default"),
             }
             files.append({
                 "path": f"{base_path}/agents/{candidate}.json",
