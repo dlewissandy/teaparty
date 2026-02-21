@@ -1,5 +1,5 @@
 // Org dashboard: strategic overview shown when an org is selected.
-// Sections: summary bar, projects, workgroup health, financials, team, activity, engagements, owner extras.
+// Sections: summary bar, financials graph, activity graph, engagement pipeline, owner extras.
 
 import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
@@ -16,6 +16,15 @@ export function initOrgDashboard(store) {
     const s = store.get();
     // Don't show dashboard if we have an active conversation (e.g. restored from nav state)
     if (s.nav.activeConversationId) return;
+    _currentOrgId = orgId;
+    showOrgDashboardView();
+    renderDashboard(orgId);
+    loadDashboardData(orgId);
+  });
+
+  // Sidebar info button — always show dashboard for the active org
+  bus.on('nav:org-settings', ({ orgId }) => {
+    store.update(s => { s.nav.activeConversationId = ''; });
     _currentOrgId = orgId;
     showOrgDashboardView();
     renderDashboard(orgId);
@@ -43,20 +52,35 @@ export function initOrgDashboard(store) {
 async function loadDashboardData(orgId) {
   const calls = [
     api(`/api/organizations/${orgId}/summary`).catch(() => null),
-    api(`/api/organizations/${orgId}/activity`).catch(() => []),
+    api(`/api/organizations/${orgId}/spending-breakdown`).catch(() => null),
     api(`/api/organizations/${orgId}/members`).catch(() => []),
     api(`/api/organizations/${orgId}/projects`).catch(() => []),
     api(`/api/organizations/${orgId}/engagements`).catch(() => []),
     api(`/api/organizations/${orgId}/balance`).catch(() => null),
+    api(`/api/organizations/${orgId}/transactions`).catch(err => {
+      // 403 = not owner; gracefully return a sentinel
+      if (err?.status === 403) return { forbidden: true };
+      return null;
+    }),
   ];
 
-  const [summary, activity, members, projects, engagements, balance] = await Promise.all(calls);
+  const [summary, spendingBreakdown, members, projects, engagements, balance, transactions] = await Promise.all(calls);
 
   // Guard against stale responses
   if (_currentOrgId !== orgId) return;
 
+  // Fetch per-workgroup LLM usage for spend breakdown
+  const s = _store.get();
+  const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
+  const usageCalls = wgs.map(wg =>
+    api(`/api/workgroups/${wg.id}/usage`).catch(() => null).then(u => ({ workgroup: wg, usage: u }))
+  );
+  const workgroupUsage = await Promise.all(usageCalls);
+
+  if (_currentOrgId !== orgId) return;
+
   _store.update(s => {
-    s.data.orgDashboard = { summary, activity, members, projects, engagements, balance };
+    s.data.orgDashboard = { summary, spendingBreakdown, members, projects, engagements, balance, transactions, workgroupUsage };
   });
   _store.notify('data.orgDashboard');
 }
@@ -77,12 +101,10 @@ function renderDashboard(orgId) {
   const html = [
     `<h3 class="heading-serif org-dash-title">${escapeHtml(org.name)}</h3>`,
     renderSummaryBar(orgId, db),
-    renderProjectsSection(db),
-    renderWorkgroupHealth(orgId, db),
-    renderFinancialsSection(orgId, db),
-    renderTeamSection(db),
-    renderActivityFeed(db),
-    renderEngagementsSection(orgId, db),
+    renderFinancialsGraph(orgId, db),
+    renderSpendByWorkgroup(db),
+    renderSpendByCategory(db),
+    renderEngagementPipeline(db),
     isOwner ? renderOwnerExtras(org) : '',
   ].join('');
 
@@ -98,13 +120,11 @@ function renderSummaryBar(orgId, db) {
   const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
 
   const wgCount = summary?.workgroups?.length ?? wgs.length;
-  const memberCount = summary?.member_count ?? '—';
   const activeJobs = summary?.active_jobs ?? '—';
   const activeProjects = summary?.active_projects ?? '—';
   const balance = db.balance;
   const credits = balance ? formatCredits(balance.balance_credits) : '—';
 
-  // Health: check attention from homeSummary
   const homeSummary = s.data.homeSummary;
   const orgSummary = homeSummary?.orgs?.find(o => o.id === orgId);
   const attention = orgSummary?.attention_needed ?? 0;
@@ -116,10 +136,6 @@ function renderSummaryBar(orgId, db) {
       <div class="org-dash-stat-tile">
         <span class="org-dash-stat-value">${wgCount}</span>
         <span class="org-dash-stat-label">Workgroups</span>
-      </div>
-      <div class="org-dash-stat-tile">
-        <span class="org-dash-stat-value">${memberCount}</span>
-        <span class="org-dash-stat-label">Members</span>
       </div>
       <div class="org-dash-stat-tile">
         <span class="org-dash-stat-value">${activeJobs}</span>
@@ -141,323 +157,517 @@ function renderSummaryBar(orgId, db) {
   `;
 }
 
-// ─── Projects ─────────────────────────────────────────────────────────────────
+// ─── Financials: Balance Over Time ────────────────────────────────────────────
 
-function renderProjectsSection(db) {
-  const projects = db.projects || [];
-  const active = projects.filter(p => p.status === 'in_progress' || p.status === 'pending');
-  const completed = projects.filter(p => p.status === 'completed').slice(0, 5);
+function renderFinancialsGraph(orgId, db) {
+  const txData = db.transactions;
 
-  let rows = '';
-  if (!active.length && !completed.length) {
-    rows = '<p class="meta">No projects yet.</p>';
-  } else {
-    rows = active.map(p => renderProjectRow(p)).join('');
-    if (completed.length) {
-      rows += `
-        <button class="org-dash-collapse-toggle" aria-expanded="false" data-toggle="completed-projects">
-          <svg class="org-dash-collapse-chevron" viewBox="0 0 20 20" fill="none" width="12" height="12">
-            <path d="M5 7.5l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-          <span class="meta">${completed.length} recently completed</span>
-        </button>
-        <div class="org-dash-collapsible hidden" data-collapsible="completed-projects">
-          ${completed.map(p => renderProjectRow(p)).join('')}
-        </div>
-      `;
-    }
-  }
-
-  return `
-    <div class="org-dash-section">
-      <div class="org-dash-section-header">
-        <h4 class="heading-serif">Projects</h4>
-      </div>
-      ${rows}
-    </div>
-  `;
-}
-
-function renderProjectRow(p) {
-  const statusClass = p.status === 'completed' ? 'completed' :
-                      p.status === 'cancelled' ? 'cancelled' :
-                      p.status === 'in_progress' ? 'active' : 'pending';
-  const statusLabel = p.status.replace('_', ' ');
-
-  let budgetHtml = '';
-  if (p.max_cost_usd) {
-    budgetHtml = `<span class="meta">$${p.max_cost_usd.toFixed(2)} budget</span>`;
-  }
-
-  return `
-    <div class="org-dash-project-row">
-      <span class="org-dash-project-name" title="${escapeHtml(p.name || p.prompt || 'Untitled')}">${escapeHtml(p.name || p.prompt?.slice(0, 60) || 'Untitled')}</span>
-      <span class="home-badge ${statusClass}">${escapeHtml(statusLabel)}</span>
-      ${budgetHtml}
-    </div>
-  `;
-}
-
-// ─── Workgroup Health ─────────────────────────────────────────────────────────
-
-function renderWorkgroupHealth(orgId, db) {
-  const s = _store.get();
-  const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
-  const summaryWgs = db.summary?.workgroups || [];
-
-  if (!wgs.length) {
+  // Owner access required
+  if (txData?.forbidden) {
     return `
       <div class="org-dash-section">
-        <div class="org-dash-section-header"><h4 class="heading-serif">Workgroup Health</h4></div>
-        <p class="meta">No workgroups yet.</p>
+        <div class="org-dash-section-header"><h4 class="heading-serif">Financials</h4></div>
+        <p class="meta">Owner access required.</p>
       </div>
     `;
   }
 
-  const cards = wgs.map(wg => {
-    const sw = summaryWgs.find(s => s.id === wg.id);
-    const tree = s.data.treeData[wg.id];
-    const agentCount = sw?.agent_count ?? tree?.agents?.length ?? 0;
-    const activeJobs = sw?.active_job_count ?? 0;
-    const totalJobs = sw?.job_count ?? tree?.jobRecords?.length ?? 0;
-    const busy = activeJobs > 0;
-    const dotClass = busy ? 'active' : 'idle';
+  const balance = db.balance;
+  const currentBalance = balance?.balance_credits ?? null;
+  const transactions = Array.isArray(txData) ? txData : [];
 
-    return `
-      <button class="org-dash-wg-card" data-workgroup-id="${escapeHtml(wg.id)}">
-        <div class="org-dash-wg-card-header">
-          <span class="presence-dot presence-${dotClass}"></span>
-          <span class="org-dash-wg-card-name">${escapeHtml(wg.name)}</span>
-        </div>
-        <div class="org-dash-wg-card-stats">
-          <span class="home-badge">${agentCount} agent${agentCount !== 1 ? 's' : ''}</span>
-          ${activeJobs > 0 ? `<span class="home-badge active">${activeJobs} active</span>` : ''}
-          <span class="home-badge">${totalJobs} job${totalJobs !== 1 ? 's' : ''}</span>
-        </div>
-      </button>
-    `;
-  }).join('');
+  // Compute revenue, spend, net flow from transactions
+  let revenue = 0;
+  let spend = 0;
+  for (const tx of transactions) {
+    const amt = tx.amount_credits ?? 0;
+    if (amt > 0) revenue += amt;
+    else spend += Math.abs(amt);
+  }
+  const netFlow = revenue - spend;
 
-  return `
-    <div class="org-dash-section">
-      <div class="org-dash-section-header"><h4 class="heading-serif">Workgroup Health</h4></div>
-      <div class="org-dash-wg-grid">${cards}</div>
+  const balanceDisplay = currentBalance !== null
+    ? formatCredits(currentBalance)
+    : '—';
+
+  const chartSvg = renderLineChart(transactions);
+
+  const statTiles = `
+    <div class="org-dash-fin-stats-row">
+      <div class="org-dash-fin-stat">
+        <span class="org-dash-fin-stat-label">Revenue</span>
+        <span class="org-dash-fin-stat-value earned">${formatCredits(revenue)}</span>
+      </div>
+      <div class="org-dash-fin-stat">
+        <span class="org-dash-fin-stat-label">Spend</span>
+        <span class="org-dash-fin-stat-value spent">${formatCredits(spend)}</span>
+      </div>
+      <div class="org-dash-fin-stat">
+        <span class="org-dash-fin-stat-label">Net Flow</span>
+        <span class="org-dash-fin-stat-value ${netFlow >= 0 ? 'earned' : 'spent'}">${netFlow >= 0 ? '+' : ''}${formatCredits(netFlow)}</span>
+      </div>
     </div>
   `;
-}
-
-// ─── Financials ───────────────────────────────────────────────────────────────
-
-function renderFinancialsSection(orgId, db) {
-  const s = _store.get();
-  const balance = db.balance;
-  const engagements = db.engagements || [];
-  const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
-  const wgIds = new Set(wgs.map(w => w.id));
-
-  // Revenue: engagements where this org is the target (service provider)
-  const revenue = { earned: 0, pipeline: 0 };
-  const spend = { paid: 0, pipeline: 0 };
-
-  for (const eng of engagements) {
-    const price = eng.agreed_price_credits || 0;
-    if (!price) continue;
-
-    const isTarget = wgIds.has(eng.target_workgroup?.id);
-    const isSource = wgIds.has(eng.source_workgroup?.id);
-
-    if (isTarget) {
-      if (eng.payment_status === 'paid') revenue.earned += price;
-      else if (eng.payment_status === 'escrowed') revenue.pipeline += price;
-    }
-    if (isSource) {
-      if (eng.payment_status === 'paid') spend.paid += price;
-      else if (eng.payment_status === 'escrowed') spend.pipeline += price;
-    }
-  }
-
-  const balanceCredits = balance ? balance.balance_credits : null;
 
   return `
     <div class="org-dash-section">
       <div class="org-dash-section-header"><h4 class="heading-serif">Financials</h4></div>
-      <div class="org-dash-financials-grid">
-        <div class="org-dash-fin-card">
-          <span class="org-dash-fin-label">Balance</span>
-          <span class="org-dash-fin-value ${balanceCredits !== null && balanceCredits <= 0 ? 'low' : ''}">${balanceCredits !== null ? formatCredits(balanceCredits) : '—'}</span>
-        </div>
-        <div class="org-dash-fin-card">
-          <span class="org-dash-fin-label">Revenue Earned</span>
-          <span class="org-dash-fin-value earned">${formatCredits(revenue.earned)}</span>
-          ${revenue.pipeline > 0 ? `<span class="meta">+${formatCredits(revenue.pipeline)} in escrow</span>` : ''}
-        </div>
-        <div class="org-dash-fin-card">
-          <span class="org-dash-fin-label">Spend</span>
-          <span class="org-dash-fin-value spent">${formatCredits(spend.paid)}</span>
-          ${spend.pipeline > 0 ? `<span class="meta">+${formatCredits(spend.pipeline)} escrowed</span>` : ''}
-        </div>
-        <div class="org-dash-fin-card">
-          <span class="org-dash-fin-label">Net Flow</span>
-          <span class="org-dash-fin-value ${revenue.earned - spend.paid >= 0 ? 'earned' : 'spent'}">${revenue.earned - spend.paid >= 0 ? '+' : ''}${formatCredits(revenue.earned - spend.paid)}</span>
-        </div>
+      <div class="org-dash-balance-hero">
+        <span class="org-dash-balance-amount ${currentBalance !== null && currentBalance <= 0 ? 'low' : ''}">${escapeHtml(balanceDisplay)}</span>
+        <span class="org-dash-balance-label">current balance</span>
       </div>
+      <div class="org-dash-chart-container">
+        ${chartSvg}
+      </div>
+      ${statTiles}
     </div>
   `;
 }
 
-function formatCredits(n) {
-  if (n === 0) return '0';
-  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
-}
-
-// ─── Team ─────────────────────────────────────────────────────────────────────
-
-function renderTeamSection(db) {
-  const members = db.members || [];
-  const s = _store.get();
-
-  // Collect all agents across all workgroups for this org
-  const orgId = _currentOrgId;
-  const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
-  const allAgents = [];
-  for (const wg of wgs) {
-    const tree = s.data.treeData[wg.id];
-    if (tree?.agents) allAgents.push(...tree.agents);
+function renderLineChart(transactions) {
+  if (!transactions.length) {
+    return `<div class="org-dash-chart-empty">No transaction history</div>`;
   }
 
-  const memberRows = members.map(m => `
-    <div class="org-dash-member-row">
-      <span>${escapeHtml(m.name || m.email)}</span>
-      <span class="org-dash-role-badge ${m.role === 'owner' ? 'owner' : ''}">${escapeHtml(m.role)}</span>
-    </div>
-  `).join('') || '<p class="meta">No members.</p>';
+  // Sort by date ascending
+  const sorted = [...transactions].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
-  // Agent summary
-  const leads = allAgents.filter(a => a.is_lead);
-  const modelCounts = {};
-  for (const a of allAgents) {
-    const model = a.model || 'unknown';
-    const short = model.includes('opus') ? 'Opus' :
-                  model.includes('sonnet') ? 'Sonnet' :
-                  model.includes('haiku') ? 'Haiku' : model;
-    modelCounts[short] = (modelCounts[short] || 0) + 1;
+  // Build points array: {date, balance}
+  const points = sorted.map(tx => ({
+    date: new Date(tx.created_at),
+    balance: tx.balance_after_credits ?? 0,
+  }));
+
+  // SVG dimensions
+  const W = 600, H = 200;
+  const ML = 56, MR = 12, MT = 14, MB = 34;
+  const plotW = W - ML - MR;
+  const plotH = H - MT - MB;
+
+  const minDate = points[0].date.getTime();
+  const maxDate = points[points.length - 1].date.getTime();
+  const dateRange = maxDate - minDate || 1;
+
+  const balances = points.map(p => p.balance);
+  const minBal = Math.min(...balances);
+  const maxBal = Math.max(...balances);
+  const balPad = (maxBal - minBal) * 0.1 || 1;
+  const balLow = minBal - balPad;
+  const balHigh = maxBal + balPad;
+  const balRange = balHigh - balLow;
+
+  const toX = t => ML + ((t - minDate) / dateRange) * plotW;
+  const toY = b => MT + (1 - (b - balLow) / balRange) * plotH;
+
+  // Smooth line using cubic bezier control points
+  const smoothParts = [];
+  for (let i = 0; i < points.length; i++) {
+    const x = toX(points[i].date.getTime());
+    const y = toY(points[i].balance);
+    if (i === 0) {
+      smoothParts.push(`M ${x.toFixed(1)} ${y.toFixed(1)}`);
+    } else {
+      const px = toX(points[i - 1].date.getTime());
+      const py = toY(points[i - 1].balance);
+      const cpx = ((px + x) / 2).toFixed(1);
+      smoothParts.push(`C ${cpx} ${py.toFixed(1)}, ${cpx} ${y.toFixed(1)}, ${x.toFixed(1)} ${y.toFixed(1)}`);
+    }
   }
-  const modelSummary = Object.entries(modelCounts).map(([m, c]) => `${c} ${m}`).join(', ');
+  const linePath = smoothParts.join(' ');
 
-  const agentInfo = allAgents.length
-    ? `<p><strong>${allAgents.length}</strong> agent${allAgents.length !== 1 ? 's' : ''}${leads.length ? ` (${leads.length} lead${leads.length !== 1 ? 's' : ''})` : ''}</p>
-       ${modelSummary ? `<p class="meta">${escapeHtml(modelSummary)}</p>` : ''}`
-    : '<p class="meta">No agents.</p>';
+  // Area fill path (close back along x-axis)
+  const firstX = toX(points[0].date.getTime()).toFixed(1);
+  const lastX = toX(points[points.length - 1].date.getTime()).toFixed(1);
+  const bottomY = (MT + plotH).toFixed(1);
+  const areaPath = `${linePath} L ${lastX} ${bottomY} L ${firstX} ${bottomY} Z`;
 
-  // Pending invites
-  let inviteCount = 0;
-  for (const wg of wgs) {
-    const tree = s.data.treeData[wg.id];
-    if (tree?.invites) inviteCount += tree.invites.length;
+  // Y-axis ticks (4 ticks)
+  const yTicks = [];
+  for (let i = 0; i <= 4; i++) {
+    const val = balLow + (balRange * i) / 4;
+    const y = toY(val).toFixed(1);
+    const label = formatCredits(Math.round(val));
+    yTicks.push({ y, label });
   }
-  const inviteHtml = inviteCount > 0
-    ? `<p class="meta">${inviteCount} pending invite${inviteCount !== 1 ? 's' : ''}</p>`
-    : '';
+
+  // X-axis labels (~5 evenly spaced)
+  const xLabels = [];
+  const labelCount = Math.min(5, points.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.round((i / (labelCount - 1)) * (points.length - 1));
+    const p = points[Math.min(idx, points.length - 1)];
+    const x = toX(p.date.getTime()).toFixed(1);
+    const label = `${p.date.getMonth() + 1}/${p.date.getDate()}`;
+    xLabels.push({ x, label });
+  }
+
+  const gradId = 'fin-area-grad';
 
   return `
-    <div class="org-dash-section">
-      <div class="org-dash-section-header"><h4 class="heading-serif">Team</h4></div>
-      <div class="org-dash-team-grid">
-        <div>
-          <h5 class="org-dash-subsection-label">Members</h5>
-          ${memberRows}
-          ${inviteHtml}
-        </div>
-        <div>
-          <h5 class="org-dash-subsection-label">Agents</h5>
-          ${agentInfo}
-        </div>
-      </div>
+    <div class="org-dash-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="org-dash-svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="${gradId}" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="var(--tp-primary)" stop-opacity="0.18"/>
+            <stop offset="100%" stop-color="var(--tp-primary)" stop-opacity="0.02"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Grid lines and y-axis ticks -->
+        ${yTicks.map(t => `
+          <line x1="${ML}" y1="${t.y}" x2="${W - MR}" y2="${t.y}"
+                stroke="var(--tp-line-subtle)" stroke-width="1"/>
+          <text x="${ML - 6}" y="${t.y}" text-anchor="end" dominant-baseline="middle"
+                font-size="10" fill="var(--tp-muted)" font-family="inherit">${escapeHtml(t.label)}</text>
+        `).join('')}
+
+        <!-- Axis lines -->
+        <line x1="${ML}" y1="${MT}" x2="${ML}" y2="${MT + plotH}"
+              stroke="var(--tp-line)" stroke-width="1"/>
+        <line x1="${ML}" y1="${MT + plotH}" x2="${W - MR}" y2="${MT + plotH}"
+              stroke="var(--tp-line)" stroke-width="1"/>
+
+        <!-- Area fill -->
+        <path d="${areaPath}" fill="url(#${gradId})"/>
+
+        <!-- Line -->
+        <path d="${linePath}" fill="none" stroke="var(--tp-primary)" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+
+        <!-- X-axis labels -->
+        ${xLabels.map(l => `
+          <text x="${l.x}" y="${MT + plotH + 16}" text-anchor="middle"
+                font-size="10" fill="var(--tp-muted)" font-family="inherit">${escapeHtml(l.label)}</text>
+        `).join('')}
+
+        <!-- End dot -->
+        <circle cx="${toX(points[points.length - 1].date.getTime()).toFixed(1)}"
+                cy="${toY(points[points.length - 1].balance).toFixed(1)}"
+                r="3.5" fill="var(--tp-primary)"/>
+      </svg>
     </div>
   `;
 }
 
-// ─── Activity Feed ────────────────────────────────────────────────────────────
+// ─── Spend by Workgroup ─────────────────────────────────────────────────────
 
-function renderActivityFeed(db) {
-  const items = db.activity || [];
+function renderSpendByWorkgroup(db) {
+  const items = db.workgroupUsage || [];
+  const withCost = items.filter(i => i.usage && i.usage.estimated_cost_usd > 0);
 
-  if (!items.length) {
+  if (!withCost.length) {
     return `
       <div class="org-dash-section">
-        <div class="org-dash-section-header"><h4 class="heading-serif">Activity</h4></div>
-        <p class="meta">No recent activity.</p>
+        <div class="org-dash-section-header"><h4 class="heading-serif">Spend by Workgroup</h4></div>
+        <div class="org-dash-chart-container">
+          <div class="org-dash-chart-empty">No LLM usage recorded</div>
+        </div>
       </div>
     `;
   }
 
-  const rows = items.slice(0, 15).map(item => {
-    const time = formatRelativeTime(item.timestamp);
-    const typeIcon = item.type === 'message' ? 'msg' :
-                     item.type === 'job_completed' ? 'done' :
-                     item.type === 'job_cancelled' ? 'cancel' : '';
-    return `
-      <div class="activity-item ${item.conversation_id ? 'clickable' : ''}" ${item.conversation_id ? `data-conversation="${escapeHtml(item.conversation_id)}" data-workgroup="${escapeHtml(item.workgroup_id || '')}"` : ''}>
-        ${typeIcon === 'done' ? '<span class="org-dash-activity-icon done">&#10003;</span>' :
-          typeIcon === 'cancel' ? '<span class="org-dash-activity-icon cancel">&#10007;</span>' :
-          '<span class="org-dash-activity-icon msg">&#9679;</span>'}
-        <span class="activity-summary">${escapeHtml(item.summary || '')}</span>
-        <span class="activity-time meta">${escapeHtml(time)}</span>
+  // Sort by cost descending
+  withCost.sort((a, b) => b.usage.estimated_cost_usd - a.usage.estimated_cost_usd);
+  const totalCost = withCost.reduce((sum, i) => sum + i.usage.estimated_cost_usd, 0);
+  const totalCalls = withCost.reduce((sum, i) => sum + i.usage.api_calls, 0);
+
+  const chartSvg = renderSpendBars(withCost);
+
+  return `
+    <div class="org-dash-section">
+      <div class="org-dash-section-header"><h4 class="heading-serif">Spend by Workgroup</h4></div>
+      <div class="org-dash-chart-container">
+        ${chartSvg}
       </div>
+      <div class="org-dash-pipeline-meta">
+        <span class="meta"><strong>$${totalCost.toFixed(2)}</strong> total spend</span>
+        <span class="meta"><strong>${totalCalls.toLocaleString()}</strong> API calls</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSpendBars(items) {
+  const maxCost = items[0].usage.estimated_cost_usd;
+
+  // SVG dimensions — scale height to item count
+  const W = 600;
+  const rowH = 36;
+  const ML = 140; // left margin for labels
+  const MR = 60;  // right margin for values
+  const MT = 4;
+  const MB = 4;
+  const plotW = W - ML - MR;
+  const H = MT + items.length * rowH + MB;
+
+  // Palette — cycle through colors for each workgroup
+  const palette = [
+    'var(--tp-primary)',
+    'var(--tp-accent)',
+    'var(--tp-success)',
+    'var(--tp-warning)',
+    'var(--tp-error)',
+  ];
+
+  const bars = items.map((item, i) => {
+    const cost = item.usage.estimated_cost_usd;
+    const name = item.workgroup.name || 'Untitled';
+    const barW = Math.max(2, (cost / maxCost) * plotW);
+    const y = MT + i * rowH;
+    const barH = rowH * 0.6;
+    const barY = y + (rowH - barH) / 2;
+    const color = palette[i % palette.length];
+
+    return `
+      <g>
+        <text x="${ML - 8}" y="${y + rowH / 2}" text-anchor="end" dominant-baseline="middle"
+              font-size="12" fill="var(--tp-ink)" font-family="inherit"
+              style="font-weight: 500">${escapeHtml(name.length > 18 ? name.slice(0, 17) + '\u2026' : name)}</text>
+        <rect x="${ML}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}"
+              fill="${color}" opacity="0.85" rx="3"/>
+        <text x="${ML + barW + 6}" y="${y + rowH / 2}" text-anchor="start" dominant-baseline="middle"
+              font-size="11" fill="var(--tp-muted)" font-family="inherit"
+              style="font-weight: 600">$${cost.toFixed(2)}</text>
+      </g>
     `;
   }).join('');
 
   return `
-    <div class="org-dash-section">
-      <div class="org-dash-section-header"><h4 class="heading-serif">Activity</h4></div>
-      ${rows}
+    <div class="org-dash-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="org-dash-svg" aria-hidden="true">
+        ${bars}
+      </svg>
     </div>
   `;
 }
 
-function formatRelativeTime(iso) {
-  const diff = Date.now() - new Date(iso).getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
+// ─── Spend by Category ─────────────────────────────────────────────────────────
+
+function renderSpendByCategory(db) {
+  const data = db.spendingBreakdown;
+  const categories = data?.categories || [];
+  const totalCost = data?.total_cost_usd ?? 0;
+  const totalCalls = data?.total_api_calls ?? 0;
+
+  const chartSvg = renderDonutChart(categories, totalCost);
+
+  return `
+    <div class="org-dash-section">
+      <div class="org-dash-section-header"><h4 class="heading-serif">Spend by Category</h4></div>
+      <div class="org-dash-chart-container">
+        ${chartSvg}
+      </div>
+      <div class="org-dash-pipeline-meta">
+        <span class="meta"><strong>$${totalCost.toFixed(2)}</strong> total spend</span>
+        <span class="meta"><strong>${totalCalls.toLocaleString()}</strong> API calls</span>
+      </div>
+    </div>
+  `;
 }
 
-// ─── Engagements & Partners ───────────────────────────────────────────────────
+function renderDonutChart(categories, totalCost) {
+  const withCost = categories.filter(c => c.cost_usd > 0);
+  if (!withCost.length) {
+    return `<div class="org-dash-chart-empty">No LLM usage recorded</div>`;
+  }
 
-function renderEngagementsSection(orgId, db) {
+  // Color map
+  const colorMap = {
+    'Engagements': 'var(--tp-primary)',
+    'Administration': 'var(--tp-accent)',
+    'Projects': 'var(--tp-success)',
+    'Other': 'var(--tp-muted)',
+  };
+
+  const W = 600, H = 200;
+  const cx = 130, cy = 100, r = 70;
+  const circumference = 2 * Math.PI * r;
+
+  // Build slices
+  let offset = 0;
+  const slices = withCost.map(cat => {
+    const fraction = totalCost > 0 ? cat.cost_usd / totalCost : 0;
+    const dashLen = fraction * circumference;
+    const color = colorMap[cat.category] || 'var(--tp-muted)';
+    const slice = { cat, fraction, dashLen, offset, color };
+    offset += dashLen;
+    return slice;
+  });
+
+  const circles = slices.map(s => `
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="none"
+            stroke="${s.color}" stroke-width="28" opacity="0.85"
+            stroke-dasharray="${s.dashLen.toFixed(2)} ${(circumference - s.dashLen).toFixed(2)}"
+            stroke-dashoffset="${(-s.offset).toFixed(2)}"
+            transform="rotate(-90 ${cx} ${cy})"/>
+  `).join('');
+
+  // Center label
+  const centerLabel = `
+    <text x="${cx}" y="${cy - 8}" text-anchor="middle" dominant-baseline="middle"
+          font-size="18" font-weight="700" fill="var(--tp-ink)" font-family="inherit">$${totalCost.toFixed(2)}</text>
+    <text x="${cx}" y="${cy + 12}" text-anchor="middle" dominant-baseline="middle"
+          font-size="11" fill="var(--tp-muted)" font-family="inherit">total</text>
+  `;
+
+  // Legend on the right
+  const legendX = 280;
+  const legendStartY = 40;
+  const legendRowH = 36;
+
+  const legendItems = withCost.map((cat, i) => {
+    const color = colorMap[cat.category] || 'var(--tp-muted)';
+    const pct = totalCost > 0 ? ((cat.cost_usd / totalCost) * 100).toFixed(1) : '0.0';
+    const y = legendStartY + i * legendRowH;
+    return `
+      <g transform="translate(${legendX}, ${y})">
+        <rect x="0" y="0" width="10" height="10" rx="2" fill="${color}" opacity="0.85"/>
+        <text x="16" y="9" font-size="12" font-weight="600" fill="var(--tp-ink)" font-family="inherit">${escapeHtml(cat.category)}</text>
+        <text x="16" y="24" font-size="11" fill="var(--tp-muted)" font-family="inherit">$${cat.cost_usd.toFixed(2)} (${pct}%)</text>
+      </g>
+    `;
+  }).join('');
+
+  return `
+    <div class="org-dash-chart-wrap">
+      <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="org-dash-svg" aria-hidden="true">
+        ${circles}
+        ${centerLabel}
+        ${legendItems}
+      </svg>
+    </div>
+  `;
+}
+
+// ─── Engagement Pipeline ────────────────────────────────────────────────────
+
+function renderEngagementPipeline(db) {
   const s = _store.get();
   const partnerships = s.data.partnerships || [];
   const engagements = db.engagements || [];
 
-  // Pipeline counts
-  const pipeline = { proposed: 0, accepted: 0, in_progress: 0, completed: 0 };
+  const pipeline = { proposed: 0, negotiating: 0, in_progress: 0, completed: 0 };
+  let totalValue = 0;
+
   for (const eng of engagements) {
+    const price = eng.agreed_price_credits || 0;
+    if (price) totalValue += price;
+
     if (eng.status === 'proposed') pipeline.proposed++;
-    else if (eng.status === 'accepted') pipeline.accepted++;
+    else if (eng.status === 'accepted' || eng.status === 'negotiating') pipeline.negotiating++;
     else if (eng.status === 'in_progress') pipeline.in_progress++;
     else if (eng.status === 'completed' || eng.status === 'reviewed') pipeline.completed++;
   }
 
   const partnerCount = partnerships.filter(p => p.status === 'accepted').length;
+  const total = pipeline.proposed + pipeline.negotiating + pipeline.in_progress + pipeline.completed;
+
+  const barSvg = renderPipelineBar(pipeline, total);
+
+  const metaRow = `
+    <div class="org-dash-pipeline-meta">
+      <span class="meta"><strong>${partnerCount}</strong> partner${partnerCount !== 1 ? 's' : ''}</span>
+      <span class="meta"><strong>${total}</strong> engagement${total !== 1 ? 's' : ''}</span>
+      ${totalValue > 0 ? `<span class="meta"><strong>${formatCredits(totalValue)}</strong> total value</span>` : ''}
+    </div>
+  `;
 
   return `
     <div class="org-dash-section">
-      <button class="org-dash-collapse-toggle" aria-expanded="false" data-toggle="engagements-section">
-        <svg class="org-dash-collapse-chevron" viewBox="0 0 20 20" fill="none" width="12" height="12">
-          <path d="M5 7.5l5 5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <h4 class="heading-serif">Engagements &amp; Partners</h4>
-        <span class="home-badge">${engagements.length}</span>
-      </button>
-      <div class="org-dash-collapsible hidden" data-collapsible="engagements-section">
-        <div class="org-dash-engagement-stats">
-          <span class="meta"><strong>${partnerCount}</strong> partner${partnerCount !== 1 ? 's' : ''}</span>
-          <span class="meta"><strong>${pipeline.proposed}</strong> proposed</span>
-          <span class="meta"><strong>${pipeline.accepted + pipeline.in_progress}</strong> active</span>
-          <span class="meta"><strong>${pipeline.completed}</strong> completed</span>
-        </div>
+      <div class="org-dash-section-header"><h4 class="heading-serif">Engagement Pipeline</h4></div>
+      <div class="org-dash-chart-container">
+        ${barSvg}
       </div>
+      ${metaRow}
+    </div>
+  `;
+}
+
+function renderPipelineBar(pipeline, total) {
+  if (total === 0) {
+    return `<div class="org-dash-chart-empty">No engagements yet</div>`;
+  }
+
+  const W = 600, H = 52;
+  const ML = 0, MR = 0, barH = 32, barY = 10;
+
+  const segments = [
+    { key: 'proposed',    label: 'Proposed',    count: pipeline.proposed,    color: 'var(--tp-muted)' },
+    { key: 'negotiating', label: 'Negotiating', count: pipeline.negotiating, color: 'var(--tp-accent)' },
+    { key: 'in_progress', label: 'In Progress', count: pipeline.in_progress, color: 'var(--tp-primary)' },
+    { key: 'completed',   label: 'Completed',   count: pipeline.completed,   color: 'var(--tp-success)' },
+  ].filter(s => s.count > 0);
+
+  let xCursor = 0;
+  const rects = [];
+  const labels = [];
+  const MIN_LABEL_W = 40;
+
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    const segW = (seg.count / total) * W;
+    const rx = i === 0 ? 6 : 0;
+    const rxRight = i === segments.length - 1 ? 6 : 0;
+
+    // Build rounded rect path manually for left/right independent radii
+    const x = xCursor;
+    const y = barY;
+    const w = segW;
+    const h = barH;
+    const rTL = rx, rTR = rxRight, rBR = rxRight, rBL = rx;
+
+    const pathD = [
+      `M ${(x + rTL).toFixed(1)} ${y}`,
+      `H ${(x + w - rTR).toFixed(1)}`,
+      rTR ? `Q ${(x + w).toFixed(1)} ${y} ${(x + w).toFixed(1)} ${(y + rTR).toFixed(1)}` : '',
+      `V ${(y + h - rBR).toFixed(1)}`,
+      rBR ? `Q ${(x + w).toFixed(1)} ${(y + h).toFixed(1)} ${(x + w - rBR).toFixed(1)} ${(y + h).toFixed(1)}` : '',
+      `H ${(x + rBL).toFixed(1)}`,
+      rBL ? `Q ${x} ${(y + h).toFixed(1)} ${x} ${(y + h - rBL).toFixed(1)}` : '',
+      `V ${(y + rTL).toFixed(1)}`,
+      rTL ? `Q ${x} ${y} ${(x + rTL).toFixed(1)} ${y}` : '',
+      'Z',
+    ].filter(Boolean).join(' ');
+
+    rects.push(`<path d="${pathD}" fill="${seg.color}" opacity="0.9"/>`);
+
+    // Label inside segment if wide enough
+    if (segW >= MIN_LABEL_W) {
+      const cx = (xCursor + segW / 2).toFixed(1);
+      const cy = (barY + barH / 2).toFixed(1);
+      labels.push(`
+        <text x="${cx}" y="${cy}" text-anchor="middle" dominant-baseline="middle"
+              font-size="11" font-weight="600" fill="white" font-family="inherit"
+              style="text-shadow: 0 1px 2px rgba(0,0,0,0.3)">${seg.count}</text>
+      `);
+    }
+
+    xCursor += segW;
+  }
+
+  // Legend below bar
+  const legendItems = segments.map((seg, i) => {
+    const lx = (i * 130).toFixed(1);
+    return `
+      <g transform="translate(${lx}, 0)">
+        <rect x="0" y="0" width="8" height="8" rx="1" fill="${seg.color}" opacity="0.9"/>
+        <text x="12" y="7" font-size="10" fill="var(--tp-muted)" font-family="inherit">${seg.label} (${seg.count})</text>
+      </g>
+    `;
+  }).join('');
+
+  const legendH = 20;
+  const totalH = H + legendH;
+
+  return `
+    <div class="org-dash-chart-wrap">
+      <svg viewBox="0 0 ${W} ${totalH}" xmlns="http://www.w3.org/2000/svg" class="org-dash-svg" aria-hidden="true">
+        ${rects.join('')}
+        ${labels.join('')}
+        <g transform="translate(0, ${H})">
+          ${legendItems}
+        </g>
+      </svg>
     </div>
   `;
 }
@@ -481,32 +691,24 @@ function renderOwnerExtras(org) {
   `;
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function formatCredits(n) {
+  if (n === 0) return '0';
+  return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+}
+
+function formatRelativeTime(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return 'just now';
+  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
+  return Math.floor(diff / 86400000) + 'd ago';
+}
+
 // ─── Event Wiring ─────────────────────────────────────────────────────────────
 
 function wireEvents(container, orgId) {
-  // Workgroup card clicks → drill into workgroup
-  container.querySelectorAll('.org-dash-wg-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const wgId = card.dataset.workgroupId;
-      if (wgId) {
-        _store.update(s => { s.nav.activeWorkgroupId = wgId; });
-        _store.notify('nav.activeWorkgroupId');
-        bus.emit('nav:workgroup-selected', { workgroupId: wgId });
-      }
-    });
-  });
-
-  // Activity item clicks → navigate to conversation
-  container.querySelectorAll('.activity-item.clickable').forEach(item => {
-    item.addEventListener('click', () => {
-      const convId = item.dataset.conversation;
-      const wgId = item.dataset.workgroup;
-      if (convId && wgId) {
-        bus.emit('nav:conversation-selected', { workgroupId: wgId, conversationId: convId });
-      }
-    });
-  });
-
   // Collapsible toggles
   container.querySelectorAll('.org-dash-collapse-toggle').forEach(toggle => {
     toggle.addEventListener('click', () => {

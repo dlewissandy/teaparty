@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
+from teaparty_app.models import Agent, Conversation, Engagement, Job, LLMUsageEvent, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
 from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
@@ -288,8 +288,6 @@ def get_org_activity(
     if not wg_ids:
         return []
 
-    from teaparty_app.models import Conversation
-
     # Gather conversation IDs for all workgroups in this org
     conversations = session.exec(
         select(Conversation).where(Conversation.workgroup_id.in_(wg_ids))
@@ -338,6 +336,87 @@ def get_org_activity(
     # Sort combined list by timestamp descending and trim to limit
     activity_items.sort(key=lambda x: x["timestamp"], reverse=True)
     return activity_items[:limit]
+
+
+@router.get("/organizations/{org_id}/spending-breakdown")
+def get_org_spending_breakdown(
+    org_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    _require_org_access(session, org_id, user.id)
+
+    from teaparty_app.services.llm_usage import _estimate_cost
+
+    workgroups = session.exec(
+        select(Workgroup).where(Workgroup.organization_id == org_id)
+    ).all()
+    wg_ids = [wg.id for wg in workgroups]
+
+    # Fetch all usage events for conversations belonging to this org's workgroups
+    # OR directly associated with the org (e.g. project conversations).
+    if wg_ids:
+        rows = session.exec(
+            select(LLMUsageEvent)
+            .join(Conversation, LLMUsageEvent.conversation_id == Conversation.id)
+            .where(
+                or_(
+                    Conversation.workgroup_id.in_(wg_ids),
+                    Conversation.organization_id == org_id,
+                )
+            )
+        ).all()
+    else:
+        rows = session.exec(
+            select(LLMUsageEvent)
+            .join(Conversation, LLMUsageEvent.conversation_id == Conversation.id)
+            .where(Conversation.organization_id == org_id)
+        ).all()
+
+    # Build a map from conversation_id -> kind for categorisation.
+    conv_ids = list({r.conversation_id for r in rows})
+    conv_kind: dict[str, str] = {}
+    if conv_ids:
+        convs = session.exec(
+            select(Conversation).where(Conversation.id.in_(conv_ids))
+        ).all()
+        conv_kind = {c.id: c.kind for c in convs}
+
+    KIND_CATEGORY = {
+        "engagement": "Engagements",
+        "admin": "Administration",
+        "project": "Projects",
+    }
+
+    # Aggregate per category.
+    categories: dict[str, dict] = {}
+    for row in rows:
+        kind = conv_kind.get(row.conversation_id, "")
+        category = KIND_CATEGORY.get(kind, "Other")
+        bucket = categories.setdefault(
+            category,
+            {"category": category, "cost_usd": 0.0, "api_calls": 0, "input_tokens": 0, "output_tokens": 0},
+        )
+        bucket["cost_usd"] += _estimate_cost(row.model, row.input_tokens, row.output_tokens)
+        bucket["api_calls"] += 1
+        bucket["input_tokens"] += row.input_tokens
+        bucket["output_tokens"] += row.output_tokens
+
+    # Round costs and build the ordered list.
+    category_list = []
+    for bucket in categories.values():
+        bucket["cost_usd"] = round(bucket["cost_usd"], 6)
+        category_list.append(bucket)
+
+    total_cost_usd = round(sum(b["cost_usd"] for b in category_list), 6)
+    total_api_calls = sum(b["api_calls"] for b in category_list)
+
+    return {
+        "org_id": org_id,
+        "categories": category_list,
+        "total_cost_usd": total_cost_usd,
+        "total_api_calls": total_api_calls,
+    }
 
 
 @router.get("/organizations/{org_id}/members")
