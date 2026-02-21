@@ -713,6 +713,13 @@ def update_workgroup(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> WorkgroupRead:
+    has_team_config = (
+        payload.team_model is not None
+        or payload.team_permission_mode is not None
+        or payload.team_max_turns is not None
+        or payload.team_max_cost_usd is not None
+        or payload.team_max_time_seconds is not None
+    )
     files_only = (
         payload.files is not None
         and payload.name is None
@@ -720,6 +727,7 @@ def update_workgroup(
         and payload.service_description is None
         and payload.workspace_enabled is None
         and payload.organization_id is None
+        and not has_team_config
     )
     if files_only:
         require_workgroup_editor(session, workgroup_id, user.id)
@@ -737,6 +745,7 @@ def update_workgroup(
         and payload.service_description is None
         and payload.workspace_enabled is None
         and payload.organization_id is None
+        and not has_team_config
     ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No updates provided")
 
@@ -798,6 +807,17 @@ def update_workgroup(
         if not org:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Organization not found")
         workgroup.organization_id = org.id
+
+    if payload.team_model is not None:
+        workgroup.team_model = payload.team_model
+    if payload.team_permission_mode is not None:
+        workgroup.team_permission_mode = payload.team_permission_mode
+    if payload.team_max_turns is not None:
+        workgroup.team_max_turns = payload.team_max_turns
+    if payload.team_max_cost_usd is not None:
+        workgroup.team_max_cost_usd = payload.team_max_cost_usd
+    if payload.team_max_time_seconds is not None:
+        workgroup.team_max_time_seconds = payload.team_max_time_seconds
 
     if old_files is not None:
         new_files = _normalize_persisted_workgroup_files(workgroup.files)

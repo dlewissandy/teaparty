@@ -67,6 +67,8 @@ def init_db() -> None:
     _migrate_partnership_message()
     _migrate_notification_partnership_fk()
     _ensure_projects_table()
+    _migrate_workgroup_team_config()
+    _migrate_add_job_project_id()
     _run_seeds()
 
 
@@ -1152,6 +1154,34 @@ def _ensure_projects_table() -> None:
             "completed_at DATETIME"
             ")"
         ))
+
+
+def _migrate_add_job_project_id() -> None:
+    """Add project_id column to jobs table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("jobs")
+    if "project_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE jobs ADD COLUMN project_id TEXT REFERENCES projects(id)"))
+
+
+def _migrate_workgroup_team_config() -> None:
+    """Add team configuration columns to workgroups table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("workgroups")
+    with engine.begin() as conn:
+        if "team_model" not in cols:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'"))
+        if "team_permission_mode" not in cols:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits'"))
+        if "team_max_turns" not in cols:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_max_turns INTEGER NOT NULL DEFAULT 30"))
+        if "team_max_cost_usd" not in cols:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_max_cost_usd REAL"))
+        if "team_max_time_seconds" not in cols:
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_max_time_seconds INTEGER"))
 
 
 def get_session() -> Iterator[Session]:

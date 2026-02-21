@@ -62,6 +62,11 @@ class Workgroup(SQLModel, table=True):
     is_discoverable: bool = Field(default=False, index=True)
     service_description: str = Field(default="")
     workspace_enabled: bool = Field(default=False)
+    team_model: str = Field(default="claude-sonnet-4-6")
+    team_permission_mode: str = Field(default="acceptEdits")
+    team_max_turns: int = Field(default=30)
+    team_max_cost_usd: float | None = Field(default=None)
+    team_max_time_seconds: int | None = Field(default=None)
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -372,6 +377,7 @@ class Job(SQLModel, table=True):
     scope: str = Field(default="")
     status: str = Field(default="in_progress", index=True)  # in_progress | completed | cancelled
     engagement_id: str | None = Field(default=None, foreign_key="engagements.id", index=True)
+    project_id: str | None = Field(default=None, foreign_key="projects.id", index=True)
     workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
     created_by_agent_id: str | None = Field(default=None, foreign_key="agents.id", index=True)

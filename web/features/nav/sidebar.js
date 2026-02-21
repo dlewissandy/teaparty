@@ -70,10 +70,14 @@ export function initSidebar(store) {
     });
   }
 
-  // Settings button
+  // Settings button — context-sensitive: workgroup settings when drilled-in, else org settings
   document.getElementById('sidebar-settings-btn')?.addEventListener('click', () => {
     const orgId = _store.get().nav.activeOrgId;
-    if (orgId) bus.emit('nav:org-settings', { orgId });
+    if (_drilledWorkgroupId) {
+      bus.emit('nav:workgroup-settings', { workgroupId: _drilledWorkgroupId, orgId });
+    } else if (orgId) {
+      bus.emit('nav:org-settings', { orgId });
+    }
   });
 
   // Explicit workgroup drill-in

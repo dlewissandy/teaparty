@@ -2884,6 +2884,39 @@ body[data-theme="dark"] .qs-result-item.selected {
   gap: 8px;
 }
 
+/* Settings form fields */
+.settings-form {
+  padding: 16px 20px;
+}
+
+.settings-hint {
+  font-size: 0.8125rem;
+  color: var(--tp-muted);
+  margin: 0 0 16px;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.settings-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--tp-ink-secondary);
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--tp-line-subtle);
+}
+
 /* ==========================================================================
    14. BUTTONS
    ========================================================================== */

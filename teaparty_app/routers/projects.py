@@ -9,6 +9,7 @@ from teaparty_app.models import (
     Conversation,
     ConversationParticipant,
     Message,
+    Organization,
     OrgMembership,
     Project,
     User,
@@ -67,15 +68,26 @@ def create_project(
         if not wg or wg.organization_id != org_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid workgroup: {wg_id}")
 
-    first_wg_id = wg_ids[0]
+    # Resolve the operations workgroup — the project conversation lives there
+    # because the org lead (who coordinates the project) belongs to it.
+    org = session.get(Organization, org_id)
+    if not org or not org.operations_workgroup_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization has no operations workgroup",
+        )
+    ops_wg_id = org.operations_workgroup_id
 
-    # Create the project conversation in the first workgroup.
+    # Derive a project name from the prompt's first line.
+    project_name = (payload.prompt.split("\n")[0].strip()[:100]) or "Untitled Project"
+
+    # Create the project conversation in the operations workgroup.
     conversation = Conversation(
-        workgroup_id=first_wg_id,
+        workgroup_id=ops_wg_id,
         created_by_user_id=user.id,
         kind="project",
-        topic="Untitled Project",
-        name="Untitled Project",
+        topic=project_name,
+        name=project_name,
         description=payload.prompt[:200],
     )
     session.add(conversation)
@@ -86,6 +98,7 @@ def create_project(
 
     # Create the Project record.
     project = Project(
+        name=project_name,
         organization_id=org_id,
         conversation_id=conversation.id,
         created_by_user_id=user.id,
@@ -114,7 +127,7 @@ def create_project(
     session.refresh(project)
     session.refresh(message)
 
-    publish_sync_event(session, "workgroup", first_wg_id, "sync:tree_changed", {"workgroup_id": first_wg_id})
+    publish_sync_event(session, "workgroup", ops_wg_id, "sync:tree_changed", {"workgroup_id": ops_wg_id})
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 

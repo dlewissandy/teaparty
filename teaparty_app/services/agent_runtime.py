@@ -31,6 +31,7 @@ from teaparty_app.models import (
     Job,
     Message,
     Organization,
+    Project,
     Workgroup,
     utc_now,
 )
@@ -377,6 +378,19 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
                 if isinstance(round_count, int) and round_count > job.max_rounds:
                     return []
 
+    # Project conversations: hierarchical team with org lead + liaisons.
+    # Checked before _agents_for_auto_response since project teams don't use
+    # workgroup agents directly — they build ephemeral liaison definitions.
+    if conversation.kind == "project":
+        if trigger.sender_type != "user":
+            return []
+        project = session.exec(
+            select(Project).where(Project.conversation_id == conversation.id)
+        ).first()
+        if project:
+            return _run_project_team_response(session, conversation, trigger, project)
+        return []
+
     agents = _agents_for_auto_response(session, conversation)
     if not agents:
         return []
@@ -689,6 +703,116 @@ def _run_team_response(
             _clear_activity(conversation.id)
             # Fall back to single-agent sequential responses.
             return _run_single_agent_responses(session, conversation, trigger, candidates, permission_mode=permission_mode)
+
+    _clear_activity(conversation.id)
+    return created
+
+
+def _run_project_team_response(
+    session: Session,
+    conversation: Conversation,
+    trigger: Message,
+    project: Project,
+) -> list[Message]:
+    """Run a hierarchical project team: org lead + liaison agents.
+
+    Builds the project team agents (org lead + one liaison per workgroup),
+    then runs them as a standard TeamSession.  Liaisons relay tasks to
+    workgroup sub-teams via the ``relay-to-subteam`` CLI command.
+    """
+    from teaparty_app.services.agent_definition import build_project_team_agents
+    from teaparty_app.services.team_bridge import process_team_events_sync
+    from teaparty_app.services.team_registry import register_session
+    from teaparty_app.services.team_session import TeamSession
+
+    org = session.get(Organization, project.organization_id)
+    if not org:
+        logger.warning("Organization %s not found for project %s", project.organization_id, project.id)
+        return []
+
+    org_files = org.files if org else None
+
+    try:
+        agents_dict, lead_slug, slug_to_id = build_project_team_agents(
+            session, project, org_files=org_files,
+        )
+    except ValueError as e:
+        logger.warning("Cannot build project team for %s: %s", project.id, e)
+        return []
+
+    # Build env vars that liaison agents need for the relay CLI.
+    extra_env: dict[str, str] = {
+        "TEAPARTY_PROJECT_ID": project.id,
+        "TEAPARTY_ORG_ID": project.organization_id,
+    }
+    # Each liaison needs its own TEAPARTY_WORKGROUP_ID, but since all liaisons
+    # share the same process, we set it per-workgroup in the liaison prompt's
+    # Bash command template.  The CLI reads it from the environment at runtime.
+    # For the uber-team process, we set all workgroup IDs as a JSON list so
+    # liaisons can pick their own.
+    wg_id_map: dict[str, str] = {}
+    for slug, entity_id in slug_to_id.items():
+        if entity_id.startswith("liaison:"):
+            wg_id = entity_id.split(":", 1)[1]
+            wg_id_map[slug] = wg_id
+
+    # The liaison prompt instructs the agent to set TEAPARTY_WORKGROUP_ID
+    # when calling the relay CLI.  We also expose a mapping env var so the
+    # liaison knows its workgroup ID.
+    for slug, wg_id in wg_id_map.items():
+        env_key = f"TEAPARTY_WORKGROUP_ID_{slug.upper().replace('-', '_')}"
+        extra_env[env_key] = wg_id
+    # Also set a default for single-workgroup projects.
+    if len(wg_id_map) == 1:
+        extra_env["TEAPARTY_WORKGROUP_ID"] = next(iter(wg_id_map.values()))
+
+    # Resolve permission mode and max turns from project config.
+    permission_mode = project.permission_mode or "plan"
+    max_turns = project.max_turns or 30
+
+    # Use the operations workgroup's materialized files for the lead's context.
+    ops_wg = session.get(Workgroup, conversation.workgroup_id)
+    if not ops_wg:
+        return []
+
+    with materialized_files(session, ops_wg, conversation) as mat_ctx:
+        _set_activity(conversation.id, "project-lead", "Project Lead", "composing", "team")
+
+        try:
+            user_msg = build_user_message(session, conversation, trigger)
+
+            team = TeamSession(conversation.id, worktree_path=mat_ctx.dir_path)
+            register_session(conversation.id, team)
+
+            team.run(
+                agents_dict=agents_dict,
+                slug_to_id=slug_to_id,
+                user_message=user_msg,
+                lead_slug=lead_slug,
+                settings_json=mat_ctx.settings_json,
+                permission_mode=permission_mode,
+                extra_env=extra_env,
+                max_turns_override=max(10, max_turns),
+            )
+
+            created = process_team_events_sync(session, team, conversation, trigger)
+
+            if not created:
+                logger.warning(
+                    "Project team session for conversation %s produced no messages.",
+                    conversation.id,
+                )
+
+            # Record usage against the project lead.
+            record_llm_usage(
+                session, conversation.id, "project-lead", project.model or "claude-sonnet-4-6",
+                0, 0, "reply", int((time.time() - team.started_at) * 1000),
+            )
+
+        except Exception:
+            logger.exception("Project team session failed for conversation %s", conversation.id)
+            _clear_activity(conversation.id)
+            return []
 
     _clear_activity(conversation.id)
     return created

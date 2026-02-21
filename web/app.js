@@ -18,6 +18,7 @@ import { initUserMenu } from './features/auth/user-menu.js';
 
 import { initOrgRail } from './features/nav/org-rail.js';
 import { initSidebar } from './features/nav/sidebar.js';
+import { initWorkgroupSettings } from './features/nav/sidebar-workgroup.js';
 import { initQuickSwitcher } from './features/nav/quick-switcher.js';
 import { initDirectory } from './features/nav/directory.js';
 
@@ -132,6 +133,7 @@ async function init() {
   initUserMenu(store);
   initOrgRail(store);
   initSidebar(store);
+  initWorkgroupSettings(store);
   initQuickSwitcher(store);
   initDirectory(store);
   initChatPanel(store);

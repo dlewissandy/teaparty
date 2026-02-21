@@ -68,8 +68,8 @@ class TeamSession:
 
     def run(
         self,
-        agents: list[Agent],
-        user_message: str,
+        agents: list[Agent] | None = None,
+        user_message: str = "",
         workgroup: Workgroup | None = None,
         conversation_name: str = "",
         conversation_description: str = "",
@@ -79,38 +79,51 @@ class TeamSession:
         settings_json: str | None = None,
         permission_mode: str = "acceptEdits",
         org_files: list[dict] | None = None,
+        # Pre-built agents dict — bypasses internal build when provided.
+        agents_dict: dict[str, dict] | None = None,
+        slug_to_id: dict[str, str] | None = None,
+        extra_env: dict[str, str] | None = None,
+        max_turns_override: int | None = None,
     ) -> None:
         """Spawn ``claude -p``, pipe the message, and start reading events.
 
         The subprocess runs in prompt mode: the user message is written to
         stdin, stdin is closed, and stdout produces stream-json events until
         the process exits.  Events are read in a background thread.
+
+        When *agents_dict* and *slug_to_id* are provided (e.g. for project
+        teams with ephemeral liaison agents), the internal build from Agent
+        records is skipped entirely.
         """
-        from teaparty_app.models import Conversation
+        if agents_dict and slug_to_id:
+            # Use pre-built definitions (project teams, etc.)
+            self._agent_slugs = dict(slug_to_id)
+        else:
+            # Build from Agent records (standard team sessions).
+            from teaparty_app.models import Conversation
 
-        # Build a minimal Conversation for agent_definition to use
-        dummy_conv = Conversation(
-            id=self.conversation_id,
-            workgroup_id=workgroup.id if workgroup else "",
-            created_by_user_id="",
-            kind="job",
-            name=conversation_name,
-            description=conversation_description,
-        )
-
-        agents_dict: dict[str, dict] = {}
-        for agent in agents:
-            slug = slugify(agent.name)
-            is_lead = lead_slug and slug == lead_slug
-            agents_dict[slug] = build_agent_json(
-                agent, dummy_conv, workgroup,
-                files_context=files_context,
-                teammates=teammates if is_lead else None,
-                org_files=org_files,
+            dummy_conv = Conversation(
+                id=self.conversation_id,
+                workgroup_id=workgroup.id if workgroup else "",
+                created_by_user_id="",
+                kind="job",
+                name=conversation_name,
+                description=conversation_description,
             )
-            self._agent_slugs[slug] = agent.id
 
-        max_turns = max(6, 4 * len(agents))
+            agents_dict = {}
+            for agent in (agents or []):
+                slug = slugify(agent.name)
+                is_lead = lead_slug and slug == lead_slug
+                agents_dict[slug] = build_agent_json(
+                    agent, dummy_conv, workgroup,
+                    files_context=files_context,
+                    teammates=teammates if is_lead else None,
+                    org_files=org_files,
+                )
+                self._agent_slugs[slug] = agent.id
+
+        max_turns = max_turns_override or max(6, 4 * len(agents_dict))
 
         cmd: list[str] = [
             "claude",
@@ -134,13 +147,17 @@ class TeamSession:
             self.worktree_path,
         )
 
+        env = _clean_env()
+        if extra_env:
+            env.update(extra_env)
+
         self.process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=self.worktree_path,
-            env=_clean_env(),
+            env=env,
         )
         self.started_at = time.time()
         self.is_running = True

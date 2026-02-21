@@ -95,6 +95,11 @@ class WorkgroupUpdateRequest(BaseModel):
     service_description: str | None = None
     workspace_enabled: bool | None = None
     organization_id: str | None = None  # None means don't change; must be a valid org ID if set
+    team_model: str | None = None
+    team_permission_mode: str | None = None
+    team_max_turns: int | None = None
+    team_max_cost_usd: float | None = None
+    team_max_time_seconds: int | None = None
 
 
 class WorkgroupRead(ORMBaseModel):
@@ -107,6 +112,11 @@ class WorkgroupRead(ORMBaseModel):
     is_discoverable: bool = False
     service_description: str = ""
     workspace_enabled: bool = False
+    team_model: str = "claude-sonnet-4-6"
+    team_permission_mode: str = "acceptEdits"
+    team_max_turns: int = 30
+    team_max_cost_usd: float | None = None
+    team_max_time_seconds: int | None = None
     created_at: datetime
 
 
