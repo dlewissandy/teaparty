@@ -335,22 +335,6 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
 
 
 # ---------------------------------------------------------------------------
-# Claude model alias mapping
-# ---------------------------------------------------------------------------
-
-_MODEL_ALIASES: dict[str, str] = {
-    "claude-sonnet-4-5": "sonnet",
-    "claude-haiku-4-5": "haiku",
-    "claude-opus-4-6": "opus",
-}
-
-
-def _resolve_model_alias(model: str) -> str:
-    """Map an Anthropic model ID to a claude CLI alias (sonnet, haiku, opus)."""
-    return _MODEL_ALIASES.get(model, model)
-
-
-# ---------------------------------------------------------------------------
 # Core: run_agent_auto_responses
 # ---------------------------------------------------------------------------
 
@@ -719,7 +703,13 @@ def _run_project_team_response(
     Builds the project team agents (org lead + one liaison per workgroup),
     then runs them as a standard TeamSession.  Liaisons relay tasks to
     workgroup sub-teams via the ``relay-to-subteam`` CLI command.
+
+    Project conversations belong to the organization — no workgroup files
+    are materialized here.  The project team is coordination-only; actual
+    file work happens in the sub-teams (job teams in workgroups).
     """
+    import tempfile
+
     from teaparty_app.services.agent_definition import build_project_team_agents
     from teaparty_app.services.team_bridge import process_team_events_sync
     from teaparty_app.services.team_registry import register_session
@@ -748,17 +738,12 @@ def _run_project_team_response(
     # Each liaison needs its own TEAPARTY_WORKGROUP_ID, but since all liaisons
     # share the same process, we set it per-workgroup in the liaison prompt's
     # Bash command template.  The CLI reads it from the environment at runtime.
-    # For the uber-team process, we set all workgroup IDs as a JSON list so
-    # liaisons can pick their own.
     wg_id_map: dict[str, str] = {}
     for slug, entity_id in slug_to_id.items():
         if entity_id.startswith("liaison:"):
             wg_id = entity_id.split(":", 1)[1]
             wg_id_map[slug] = wg_id
 
-    # The liaison prompt instructs the agent to set TEAPARTY_WORKGROUP_ID
-    # when calling the relay CLI.  We also expose a mapping env var so the
-    # liaison knows its workgroup ID.
     for slug, wg_id in wg_id_map.items():
         env_key = f"TEAPARTY_WORKGROUP_ID_{slug.upper().replace('-', '_')}"
         extra_env[env_key] = wg_id
@@ -770,18 +755,14 @@ def _run_project_team_response(
     permission_mode = project.permission_mode or "plan"
     max_turns = project.max_turns or 30
 
-    # Use the operations workgroup's materialized files for the lead's context.
-    ops_wg = session.get(Workgroup, conversation.workgroup_id)
-    if not ops_wg:
-        return []
-
-    with materialized_files(session, ops_wg, conversation) as mat_ctx:
+    # Project team is coordination-only — use a temp dir as working directory.
+    with tempfile.TemporaryDirectory(prefix="teaparty-project-") as tmpdir:
         _set_activity(conversation.id, "project-lead", "Project Lead", "composing", "team")
 
         try:
             user_msg = build_user_message(session, conversation, trigger)
 
-            team = TeamSession(conversation.id, worktree_path=mat_ctx.dir_path)
+            team = TeamSession(conversation.id, worktree_path=tmpdir)
             register_session(conversation.id, team)
 
             team.run(
@@ -789,7 +770,6 @@ def _run_project_team_response(
                 slug_to_id=slug_to_id,
                 user_message=user_msg,
                 lead_slug=lead_slug,
-                settings_json=mat_ctx.settings_json,
                 permission_mode=permission_mode,
                 extra_env=extra_env,
                 max_turns_override=max(10, max_turns),
@@ -805,7 +785,7 @@ def _run_project_team_response(
 
             # Record usage against the project lead.
             record_llm_usage(
-                session, conversation.id, "project-lead", project.model or "claude-sonnet-4-6",
+                session, conversation.id, "project-lead", project.model or "sonnet",
                 0, 0, "reply", int((time.time() - team.started_at) * 1000),
             )
 

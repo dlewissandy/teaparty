@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 class TeamParams:
     """Merged team configuration from workgroup defaults + project overrides."""
 
-    model: str = "claude-sonnet-4-6"
+    model: str = "sonnet"
     permission_mode: str = "acceptEdits"
     max_turns: int = 30
     max_cost_usd: float | None = None
@@ -57,7 +57,7 @@ class TeamParams:
 def resolve_team_params(project: Project, workgroup: Workgroup) -> TeamParams:
     """Merge team parameters: project overrides > workgroup defaults."""
     return TeamParams(
-        model=project.model if project.model != "claude-sonnet-4-6" else workgroup.team_model,
+        model=project.model if project.model != "sonnet" else workgroup.team_model,
         permission_mode=(
             project.permission_mode
             if project.permission_mode != "plan"
@@ -161,8 +161,6 @@ def run_subteam(
 
     Blocks until the claude process exits. Stores agent messages in the DB.
     """
-    from teaparty_app.services.agent_definition import _resolve_model_alias
-
     # Build agent definitions
     lead = next((a for a in agents if a.is_lead), agents[0]) if agents else None
     if not lead:
@@ -194,7 +192,6 @@ def run_subteam(
         )
         slug_to_id[slug] = agent.id
 
-    model_alias = _resolve_model_alias(params.model)
     max_turns = max(6, 4 * len(agents), params.max_turns)
 
     # Build the claude command
@@ -216,10 +213,11 @@ def run_subteam(
         job.id, lead_slug, list(agents_dict.keys()), working_dir,
     )
 
-    # Clean environment
+    # Clean environment — match team_session._clean_env() pattern.
     env = {k: v for k, v in os.environ.items() if not k.startswith("TEAPARTY_")}
-    env["HOME"] = os.environ.get("HOME", "")
-    env["PATH"] = os.environ.get("PATH", "")
+    env.pop("CLAUDE_CODE_ENTRYPOINT", None)
+    env.pop("CLAUDECODE", None)
+    env["CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS"] = "1"
 
     timeout = params.max_time_seconds or 600  # default 10 min
 

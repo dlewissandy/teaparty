@@ -80,7 +80,7 @@ def _match_workflow_to_job(
         topic_text += f" -- {description}"
 
     try:
-        model = llm_client.resolve_model("cheap", "claude-haiku-4-5")
+        model = llm_client.resolve_model("cheap", "haiku")
         start = time.monotonic()
 
         response = llm_client.create_message(

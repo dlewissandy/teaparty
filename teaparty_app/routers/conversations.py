@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import engine, get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, AgentLearningEvent, Conversation, ConversationParticipant, Membership, Message, User, Workspace, Workgroup, utc_now
+from teaparty_app.models import Agent, AgentLearningEvent, Conversation, ConversationParticipant, Membership, Message, OrgMembership, User, Workspace, Workgroup, utc_now
 from teaparty_app.schemas import (
     ConversationCreateRequest,
     ConversationHistoryClearResponse,
@@ -66,7 +66,19 @@ def _conversation_for_user(session: Session, conversation_id: str, user_id: str)
     conversation = session.get(Conversation, conversation_id)
     if not conversation:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
-    require_workgroup_membership(session, conversation.workgroup_id, user_id)
+    if conversation.workgroup_id:
+        require_workgroup_membership(session, conversation.workgroup_id, user_id)
+    elif conversation.organization_id:
+        mem = session.exec(
+            select(OrgMembership).where(
+                OrgMembership.organization_id == conversation.organization_id,
+                OrgMembership.user_id == user_id,
+            )
+        ).first()
+        if not mem:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not an organization member")
+    else:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conversation has no scope")
     return conversation
 
 
@@ -397,10 +409,12 @@ def post_message(
     conversation = _conversation_for_user(session, conversation_id, user.id)
     if conversation.is_archived:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot post to an archived conversation")
-    membership = require_workgroup_membership(session, conversation.workgroup_id, user.id)
-    if conversation.kind == "admin" and membership.role != "owner":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner permissions required")
-    check_budget(membership)
+    # Org-level conversations (projects) don't have workgroup membership or budget.
+    if conversation.workgroup_id:
+        membership = require_workgroup_membership(session, conversation.workgroup_id, user.id)
+        if conversation.kind == "admin" and membership.role != "owner":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner permissions required")
+        check_budget(membership)
     content = payload.content.strip()
     if not content:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Message content cannot be empty")
@@ -422,7 +436,10 @@ def post_message(
     evaluate_message_match_todos(session, message)
 
     session.commit()
-    publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:message_posted", {"workgroup_id": conversation.workgroup_id, "conversation_id": conversation.id})
+    if conversation.workgroup_id:
+        publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:message_posted", {"workgroup_id": conversation.workgroup_id, "conversation_id": conversation.id})
+    elif conversation.organization_id:
+        publish_sync_event(session, "organization", conversation.organization_id, "sync:message_posted", {"organization_id": conversation.organization_id, "conversation_id": conversation.id})
     session.refresh(message)
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)

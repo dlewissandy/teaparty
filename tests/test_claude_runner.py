@@ -19,7 +19,7 @@ class ParseJsonOutputTests(unittest.TestCase):
     def test_parse_ndjson_with_result_event(self) -> None:
         """Standard stream-json output: multiple event lines, result at end."""
         lines = [
-            json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "model": "claude-sonnet-4-5"}),
+            json.dumps({"type": "system", "subtype": "init", "session_id": "s1", "model": "sonnet"}),
             json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": "Hi"}]}}),
             json.dumps({
                 "type": "result", "subtype": "success",
@@ -28,7 +28,7 @@ class ParseJsonOutputTests(unittest.TestCase):
                 "total_cost_usd": 0.02,
                 "num_turns": 1,
                 "session_id": "s1",
-                "model": "claude-sonnet-4-5",
+                "model": "sonnet",
                 "usage": {"input_tokens": 40, "output_tokens": 10},
             }),
         ]

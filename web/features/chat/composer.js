@@ -14,8 +14,34 @@ function startThinking(store, message) {
   const wgId = s.nav.activeWorkgroupId;
   const convId = s.nav.activeConversationId;
   const data = s.data.treeData[wgId];
-  const conversation = data?.jobs.find(c => c.id === convId) || data?.directs.find(c => c.id === convId);
-  if (!conversation || !data) return;
+
+  // Project conversations are org-level (no workgroup tree data).
+  // Use a synthetic agent ID so the thinking indicator still shows.
+  if (!data) {
+    const projects = s.data.projects || [];
+    const isProject = projects.some(p => p.conversation_id === convId);
+    if (!isProject) return;
+
+    const triggerCreatedAtMs = message.created_at
+      ? new Date(message.created_at).getTime()
+      : Date.now();
+
+    store.update(st => {
+      st.conversation.thinkingByConversation[convId] = {
+        triggerMessageId: message.id,
+        triggerCreatedAtMs,
+        startedAtMs: Date.now(),
+        lastActivityAtMs: Date.now(),
+        agentIds: ['project-lead'],
+        liveActivity: null,
+      };
+    });
+    store.notify('conversation.thinkingByConversation');
+    return;
+  }
+
+  const conversation = data.jobs.find(c => c.id === convId) || data.directs.find(c => c.id === convId);
+  if (!conversation) return;
 
   let agentIds = [];
   if (conversation.kind === 'direct' && conversation.topic.startsWith('dma:')) {

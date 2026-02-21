@@ -49,7 +49,7 @@ def create_agent(
         role=(payload.role.strip() or payload.description.strip()),
         personality=payload.personality.strip(),
         backstory=payload.backstory.strip(),
-        model=payload.model.strip() or "claude-sonnet-4-5",
+        model=payload.model.strip() or "sonnet",
         temperature=payload.temperature,
         verbosity=payload.verbosity,
         tool_names=payload.tool_names,

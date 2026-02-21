@@ -31,6 +31,14 @@ export function agentName(workgroupId, agentId) {
   const rosterAgent = s.conversation?.teamRoster?.agents?.find(a => a.id === agentId);
   if (rosterAgent) return rosterAgent.name;
 
+  // Ephemeral project team agents (not DB records)
+  if (agentId?.startsWith('project:')) return 'project-lead';
+  if (agentId?.startsWith('liaison:')) {
+    const wgId = agentId.slice(8);
+    const wg = (s.data.workgroups || []).find(w => w.id === wgId);
+    return wg ? `${wg.name} liaison` : 'liaison';
+  }
+
   return agentId?.slice(0, 8) || 'agent';
 }
 

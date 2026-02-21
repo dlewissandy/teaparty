@@ -90,9 +90,9 @@ def get_member_usage(session: Session, workgroup_id: str, user_id: str) -> dict:
 
 # Model pricing (USD per million tokens)
 MODEL_PRICING = {
-    "claude-sonnet-4-5": {"input": 3.0, "output": 15.0, "context": 200_000},
-    "claude-haiku-4-5": {"input": 0.80, "output": 4.0, "context": 200_000},
-    "claude-opus-4-6": {"input": 15.0, "output": 75.0, "context": 200_000},
+    "sonnet": {"input": 3.0, "output": 15.0, "context": 200_000},
+    "haiku": {"input": 0.80, "output": 4.0, "context": 200_000},
+    "opus": {"input": 15.0, "output": 75.0, "context": 200_000},
 }
 
 

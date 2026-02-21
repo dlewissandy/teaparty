@@ -28,7 +28,7 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
         role="assistant",
         personality="Friendly",
         backstory="Created for testing",
-        model="claude-sonnet-4-5",
+        model="sonnet",
         temperature=0.8,
         verbosity=0.6,
         tool_names=["Read", "Write"],
@@ -85,7 +85,7 @@ class CloneAgentSameWorkgroupTests(unittest.TestCase):
         self.assertEqual(result.role, "assistant")
         self.assertEqual(result.personality, "Friendly")
         self.assertEqual(result.backstory, "Created for testing")
-        self.assertEqual(result.model, "claude-sonnet-4-5")
+        self.assertEqual(result.model, "sonnet")
         self.assertEqual(result.temperature, 0.8)
         self.assertEqual(result.verbosity, 0.6)
         self.assertEqual(result.response_threshold, 0.7)

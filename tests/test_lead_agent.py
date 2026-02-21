@@ -42,7 +42,7 @@ def _make_agent(session, workgroup, user, name="Helper", agent_id="agent-1", is_
         name=name,
         description="",
         role="assistant",
-        model="claude-sonnet-4-5",
+        model="sonnet",
         tool_names=["Read", "Write"],
         is_lead=is_lead,
     )

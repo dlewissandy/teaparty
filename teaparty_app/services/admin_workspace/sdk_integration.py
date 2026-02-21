@@ -124,7 +124,7 @@ _ADMIN_TOOLS = [
                 "personality": {"type": "string", "description": "Agent personality text", "default": "Professional and concise"},
                 "role": {"type": "string", "description": "Agent role", "default": ""},
                 "backstory": {"type": "string", "description": "Agent backstory", "default": ""},
-                "model": {"type": "string", "description": "Model name", "default": "claude-sonnet-4-5"},
+                "model": {"type": "string", "description": "Model name", "default": "sonnet"},
                 "temperature": {"type": "number", "description": "Temperature (0.0-2.0)", "default": 0.7},
             },
             "required": ["agent_name"],
@@ -362,7 +362,7 @@ _GLOBAL_ADMIN_TOOLS = [
                 "role": {"type": "string", "description": "Agent role description", "default": ""},
                 "personality": {"type": "string", "description": "Agent personality text", "default": "Professional and concise"},
                 "backstory": {"type": "string", "description": "Agent backstory", "default": ""},
-                "model": {"type": "string", "description": "Model name", "default": "claude-sonnet-4-5"},
+                "model": {"type": "string", "description": "Model name", "default": "sonnet"},
                 "temperature": {"type": "number", "description": "Temperature (0.0-2.0)", "default": 0.7},
                 "tool_names": {
                     "type": "array",
@@ -678,7 +678,7 @@ def _handle_admin_message_with_sdk(
         "When adding jobs, include the description argument when the user provides one. "
         "When creating agents, include explicit role/backstory/model/temperature when provided. "
         "For add_agent, pass only the agent's short name in agent_name; put profile text into personality/role/backstory. "
-        "The default model for new agents is claude-sonnet-4-5. "
+        "The default model for new agents is sonnet. "
         "For add_file/edit_file, include full file content in the content argument when provided. "
         "Deleting a workgroup is destructive; require explicit confirmation before execution. "
         "Never claim an action succeeded unless a tool returned success text. "

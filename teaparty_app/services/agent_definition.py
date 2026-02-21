@@ -12,7 +12,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
-from teaparty_app.models import Agent, Conversation, Organization, Project, Workgroup
+from teaparty_app.models import Agent, Conversation, Project, Workgroup
 from teaparty_app.services.convention_resolver import extract_claude_md
 
 
@@ -44,7 +44,7 @@ def build_agent_json(
             agent, conversation, workgroup, files_context,
             teammates=teammates, org_files=org_files,
         ),
-        "model": _resolve_model_alias(agent.model),
+        "model": agent.model,
         "maxTurns": getattr(agent, "max_turns", 3) or 3,
     }
 
@@ -96,13 +96,71 @@ def build_liaison_json(
     one tool (``relay-to-subteam`` via Bash) and strict behavioral
     constraints: relay only, no code, no decisions.
     """
-    model = _resolve_model_alias(project.model or workgroup.team_model)
+    model = project.model or workgroup.team_model
     prompt = _build_liaison_prompt(workgroup, project, org_files)
     return {
-        "description": f"Liaison to {workgroup.name}",
+        "description": f"{workgroup.name} workgroup liaison",
         "prompt": prompt,
         "model": model,
         "maxTurns": 10,
+    }
+
+
+def build_project_lead_json(
+    project: Project,
+    liaison_roster: list[str],
+    org_files: list[dict] | None = None,
+) -> dict:
+    """Build an ephemeral project lead agent definition.
+
+    The project lead coordinates the project team.  It assigns tasks to
+    liaison agents and synthesizes results across workgroups.  Like liaisons,
+    the project lead is an ephemeral definition — not a persistent Agent record.
+    """
+    parts: list[str] = [
+        f"You are the project lead for: {project.name}",
+        "",
+    ]
+    if project.prompt:
+        parts.append(f"Project scope: {project.prompt[:500]}")
+        parts.append("")
+
+    # Organization-level CLAUDE.md
+    org_claude_md = extract_claude_md(org_files)
+    if org_claude_md:
+        parts.append("## Organization Instructions")
+        parts.append(org_claude_md)
+        parts.append("")
+
+    if liaison_roster:
+        parts.append("## Your Team")
+        parts.append("")
+        parts.append(
+            "You have the following teammates registered as custom agent types. "
+            "Delegate work to them using the Task tool with their name as the "
+            "`subagent_type` parameter. Example:"
+        )
+        parts.append("")
+        # Show a concrete example using the first liaison's slug
+        example_slug = liaison_roster[0].split(" — ")[0].lstrip("- ").strip()
+        parts.append("```")
+        parts.append(f'Task(subagent_type="{example_slug}", prompt="Your task description", description="Short label")')
+        parts.append("```")
+        parts.append("")
+        parts.append("Available teammates:")
+        parts.extend(liaison_roster)
+        parts.append("")
+        parts.append(
+            "Assign tasks to your teammates in parallel when possible. "
+            "Each teammate relays work to their workgroup's sub-team. "
+            "Synthesize their results to fulfill the project."
+        )
+
+    return {
+        "description": "Project lead — coordinates workgroup liaisons",
+        "prompt": "\n".join(parts),
+        "model": project.model,
+        "maxTurns": project.max_turns or 30,
     }
 
 
@@ -113,74 +171,38 @@ def build_project_team_agents(
 ) -> tuple[dict[str, dict], str, dict[str, str]]:
     """Build the full agents dict for a project team session.
 
+    The project team consists of:
+    - **Project lead**: ephemeral, coordinates the team.
+    - **Liaisons**: one per workgroup selected in the project.
+
     Returns ``(agents_dict, lead_slug, slug_to_id)`` where:
     - *agents_dict* maps slug -> agent definition (for ``--agents`` JSON)
-    - *lead_slug* is the org lead's slug (for ``--agent``)
+    - *lead_slug* is the project lead's slug (for ``--agent``)
     - *slug_to_id* maps slug -> agent/entity ID for message attribution
     """
-    org = session.get(Organization, project.organization_id)
-    if not org or not org.operations_workgroup_id:
-        raise ValueError(f"Organization {project.organization_id} has no operations workgroup")
+    # One liaison per workgroup selected in the project.
+    workgroups = [
+        session.get(Workgroup, wg_id)
+        for wg_id in (project.workgroup_ids or [])
+    ]
+    workgroups = [wg for wg in workgroups if wg is not None]
 
-    ops_wg = session.get(Workgroup, org.operations_workgroup_id)
-    if not ops_wg:
-        raise ValueError(f"Operations workgroup {org.operations_workgroup_id} not found")
-
-    # Find the org lead agent
-    org_lead = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == ops_wg.id,
-            Agent.is_lead == True,  # noqa: E712
-        )
-    ).first()
-    if not org_lead:
-        raise ValueError(f"No lead agent in operations workgroup {ops_wg.name}")
-
-    # Collect participating workgroups and build liaison definitions
-    workgroups: list[Workgroup] = []
-    for wg_id in project.workgroup_ids or []:
-        wg = session.get(Workgroup, wg_id)
-        if wg:
-            workgroups.append(wg)
-
-    # Build liaison teammate descriptors for the lead's roster
-    liaison_teammates: list[str] = []
+    # Build liaison definitions and teammate roster for the project lead.
+    liaison_roster: list[str] = []
     agents_dict: dict[str, dict] = {}
     slug_to_id: dict[str, str] = {}
 
+    # Build the project lead first so it's the first entry in slug_to_id.
+    lead_slug = "project-lead"
+
     for wg in workgroups:
-        liaison_slug = f"liaison-{slugify(wg.name)}"
-        agents_dict[liaison_slug] = build_liaison_json(wg, project, org_files)
-        slug_to_id[liaison_slug] = f"liaison:{wg.id}"
-        liaison_teammates.append(f"- {liaison_slug} — Liaison to {wg.name} workgroup")
+        wg_slug = f"{slugify(wg.name)}-liaison"
+        agents_dict[wg_slug] = build_liaison_json(wg, project, org_files)
+        slug_to_id[wg_slug] = f"liaison:{wg.id}"
+        liaison_roster.append(f"- {wg_slug} — {wg.name} workgroup liaison")
 
-    # Build the org lead definition with the liaison roster as teammates context
-    # We build a custom Conversation for the project context
-    conv = Conversation(
-        id="",
-        workgroup_id=ops_wg.id,
-        created_by_user_id="",
-        kind="project",
-        name=project.name,
-        description=project.prompt[:200] if project.prompt else "",
-    )
-
-    lead_json = build_agent_json(org_lead, conv, ops_wg, org_files=org_files)
-    # Append the liaison roster to the lead's prompt
-    if liaison_teammates:
-        lead_json["prompt"] += (
-            "\n\nTeammates (engage them using the Task tool):\n"
-            + "\n".join(liaison_teammates)
-        )
-    lead_json["prompt"] += (
-        "\n\nYou are leading a project team. Assign tasks to liaison agents, "
-        "who will relay them to their workgroup's sub-team. "
-        "Synthesize results from all workgroups to fulfill the project."
-    )
-
-    lead_slug = slugify(org_lead.name)
-    agents_dict[lead_slug] = lead_json
-    slug_to_id[lead_slug] = org_lead.id
+    agents_dict[lead_slug] = build_project_lead_json(project, liaison_roster, org_files)
+    slug_to_id[lead_slug] = f"project:{project.id}"
 
     return agents_dict, lead_slug, slug_to_id
 
@@ -191,8 +213,8 @@ def _build_liaison_prompt(
     org_files: list[dict] | None = None,
 ) -> str:
     """Build the prompt for a liaison agent."""
-    liaison_slug = f"liaison-{slugify(workgroup.name)}"
-    env_key = f"TEAPARTY_WORKGROUP_ID_{liaison_slug.upper().replace('-', '_')}"
+    wg_slug = f"{slugify(workgroup.name)}-liaison"
+    env_key = f"TEAPARTY_WORKGROUP_ID_{wg_slug.upper().replace('-', '_')}"
 
     parts: list[str] = [
         f"You are a liaison agent bridging the project team to the {workgroup.name} workgroup.",
@@ -247,18 +269,6 @@ The command outputs JSON with job_id, status, and a summary of the sub-team's wo
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-_MODEL_ALIASES: dict[str, str] = {
-    "claude-sonnet-4-5": "sonnet",
-    "claude-haiku-4-5": "haiku",
-    "claude-opus-4-6": "opus",
-}
-
-
-def _resolve_model_alias(model: str) -> str:
-    """Map an Anthropic model ID to a claude CLI alias (sonnet, haiku, opus)."""
-    return _MODEL_ALIASES.get(model, model)
-
 
 def _build_prompt_body(
     agent: Agent,

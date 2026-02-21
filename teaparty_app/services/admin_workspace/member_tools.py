@@ -93,7 +93,7 @@ def admin_tool_add_agent(
         and personality.strip() == "Professional and concise"
         and not role.strip()
         and not backstory.strip()
-        and (not model.strip() or model.strip() == "claude-sonnet-4-5")
+        and (not model.strip() or model.strip() == "sonnet")
         and abs(inferred_temperature - 0.7) <= 1e-9
     ):
         parsed_name, parsed = _parse_add_agent_payload(name)
@@ -126,7 +126,7 @@ def admin_tool_add_agent(
     role_text = role.strip()
     backstory_text = backstory.strip()
     personality_text = personality.strip() or "Professional and concise"
-    model_name = model.strip() or "claude-sonnet-4-5"
+    model_name = model.strip() or "sonnet"
     learning_state = {"engagement_bias": 0.0, "initiative_bias": 0.0, "confidence_bias": 0.0, "brevity_bias": 0.0}
     sentiment_state = {"valence": 0.0, "arousal": 0.0, "confidence": 0.0}
 

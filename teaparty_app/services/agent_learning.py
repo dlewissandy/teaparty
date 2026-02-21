@@ -69,7 +69,7 @@ def _runtime_model_candidates() -> list[str]:
     if override:
         return [override]
     candidates: list[str] = []
-    for model in [settings.admin_agent_model, "claude-sonnet-4-5", "claude-haiku-4-5"]:
+    for model in [settings.admin_agent_model, "sonnet", "haiku"]:
         normalized = (model or "").strip()
         if normalized and normalized not in candidates:
             candidates.append(normalized)

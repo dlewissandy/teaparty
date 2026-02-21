@@ -9,7 +9,6 @@ from teaparty_app.models import (
     Conversation,
     ConversationParticipant,
     Message,
-    Organization,
     OrgMembership,
     Project,
     User,
@@ -68,22 +67,12 @@ def create_project(
         if not wg or wg.organization_id != org_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid workgroup: {wg_id}")
 
-    # Resolve the operations workgroup — the project conversation lives there
-    # because the org lead (who coordinates the project) belongs to it.
-    org = session.get(Organization, org_id)
-    if not org or not org.operations_workgroup_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Organization has no operations workgroup",
-        )
-    ops_wg_id = org.operations_workgroup_id
-
     # Derive a project name from the prompt's first line.
     project_name = (payload.prompt.split("\n")[0].strip()[:100]) or "Untitled Project"
 
-    # Create the project conversation in the operations workgroup.
+    # Projects live at the organization level — not in any workgroup.
     conversation = Conversation(
-        workgroup_id=ops_wg_id,
+        organization_id=org_id,
         created_by_user_id=user.id,
         kind="project",
         topic=project_name,
@@ -127,7 +116,7 @@ def create_project(
     session.refresh(project)
     session.refresh(message)
 
-    publish_sync_event(session, "workgroup", ops_wg_id, "sync:tree_changed", {"workgroup_id": ops_wg_id})
+    publish_sync_event(session, "organization", org_id, "sync:project_created", {"organization_id": org_id})
 
     background_tasks.add_task(_process_auto_responses_in_background, conversation.id, message.id)
 

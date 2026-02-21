@@ -12,8 +12,8 @@ class Settings(BaseSettings):
     allow_dev_auth: bool = True
     session_expires_minutes: int = 24 * 60
     admin_agent_use_sdk: bool = True
-    admin_agent_model: str = "claude-sonnet-4-5"
-    intent_probe_model: str = "claude-haiku-4-5"
+    admin_agent_model: str = "sonnet"
+    intent_probe_model: str = "haiku"
     agent_chain_max: int = 8
     agent_sdk_max_turns: int = 6
     anthropic_api_key: str = Field(default="", validation_alias="ANTHROPIC_API_KEY")

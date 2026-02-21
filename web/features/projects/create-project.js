@@ -69,7 +69,7 @@ function showForm(orgId) {
 
   // Reset fields
   ELS.prompt.value = '';
-  ELS.model.value = 'claude-sonnet-4-6';
+  ELS.model.value = 'sonnet';
   ELS.turns.value = '30';
   ELS.perms.value = 'plan';
   ELS.cost.value = '';
@@ -164,9 +164,8 @@ async function handleSubmit() {
     bus.emit('data:refresh');
 
     if (project.conversation_id) {
-      const wgId = body.workgroup_ids[0];
       bus.emit('nav:conversation-selected', {
-        workgroupId: wgId,
+        workgroupId: null,
         conversationId: project.conversation_id,
       });
     }

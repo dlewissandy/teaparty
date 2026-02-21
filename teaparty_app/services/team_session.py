@@ -64,6 +64,7 @@ class TeamSession:
         self._stderr_lines: list[str] = []
         self.event_queue: queue.Queue[TeamEvent] = queue.Queue()
         self._agent_slugs: dict[str, str] = {}  # slug -> agent_id
+        self.lead_slug: str | None = None  # the lead agent's slug
         self._materialized_dir: str | None = None  # temp dir for cleanup
 
     def run(
@@ -95,6 +96,8 @@ class TeamSession:
         teams with ephemeral liaison agents), the internal build from Agent
         records is skipped entirely.
         """
+        self.lead_slug = lead_slug
+
         if agents_dict and slug_to_id:
             # Use pre-built definitions (project teams, etc.)
             self._agent_slugs = dict(slug_to_id)
@@ -339,6 +342,13 @@ class TeamSession:
             event_type, list(raw.keys()), json.dumps(raw, default=str),
         )
         return None
+
+    @property
+    def lead_agent_id(self) -> str | None:
+        """Return the lead agent's entity ID."""
+        if self.lead_slug:
+            return self._agent_slugs.get(self.lead_slug)
+        return next(iter(self._agent_slugs.values()), None)
 
     def get_agent_id(self, slug: str) -> str | None:
         """Map an agent slug back to its Agent.id."""

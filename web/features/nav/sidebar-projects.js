@@ -1,25 +1,16 @@
-// Sidebar Projects section: job conversations across all workgroups in the org.
+// Sidebar Projects section: actual Project records from the API.
 
 import { bus } from '../../core/bus.js';
-import { escapeHtml, jobDisplayName } from '../../core/utils.js';
+import { escapeHtml } from '../../core/utils.js';
 
 export function renderProjectSection(store, container, orgId, filter) {
   const s = store.get();
-  const workgroups = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
+  const projects = (s.data.projects || []).filter(p => p.organization_id === orgId);
   const filterLower = (filter || '').toLowerCase();
   const selection = s.nav.sidebarSelection;
 
-  const projects = [];
-  for (const wg of workgroups) {
-    const tree = s.data.treeData[wg.id];
-    if (!tree) continue;
-    for (const job of (tree.jobs || [])) {
-      projects.push({ job, workgroupId: wg.id, workgroupName: wg.name });
-    }
-  }
-
   const filtered = filterLower
-    ? projects.filter(({ job }) => jobDisplayName(job).toLowerCase().includes(filterLower))
+    ? projects.filter(p => p.name.toLowerCase().includes(filterLower))
     : projects;
 
   if (!filtered.length) {
@@ -27,27 +18,26 @@ export function renderProjectSection(store, container, orgId, filter) {
     return;
   }
 
-  container.innerHTML = filtered.map(({ job, workgroupId }) => {
-    const name = jobDisplayName(job);
-    const itemId = `project:${job.id}`;
+  container.innerHTML = filtered.map(p => {
+    const itemId = `project:${p.id}`;
     const isActive = selection === itemId;
     return `<button
       class="sidebar-nav-item sidebar-job-item${isActive ? ' active' : ''}"
       data-action="select-project"
       data-item-id="${escapeHtml(itemId)}"
-      data-workgroup-id="${escapeHtml(workgroupId)}"
-      data-conversation-id="${escapeHtml(job.id)}"
-      title="${escapeHtml(name)}"
-    ><span class="sidebar-nav-hash">#</span><span class="sidebar-nav-label">${escapeHtml(name)}</span></button>`;
+      data-conversation-id="${escapeHtml(p.conversation_id || '')}"
+      title="${escapeHtml(p.name)}"
+    ><span class="sidebar-nav-hash">#</span><span class="sidebar-nav-label">${escapeHtml(p.name)}</span></button>`;
   }).join('');
 
   container.querySelectorAll('[data-action="select-project"]').forEach(btn => {
     btn.addEventListener('click', () => {
       const itemId = btn.dataset.itemId;
-      const workgroupId = btn.dataset.workgroupId;
       const conversationId = btn.dataset.conversationId;
       store.update(s => { s.nav.sidebarSelection = itemId; });
-      bus.emit('nav:conversation-selected', { workgroupId, conversationId });
+      if (conversationId) {
+        bus.emit('nav:conversation-selected', { workgroupId: null, conversationId });
+      }
     });
   });
 }

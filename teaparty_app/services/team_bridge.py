@@ -101,7 +101,7 @@ def process_team_events_sync(
     created: list[Message] = []
 
     slug_to_id = dict(team._agent_slugs)
-    lead_id = next(iter(team._agent_slugs.values()), None)
+    lead_id = team.lead_agent_id
 
     # Track pending Task delegations: tool_use_id → sub_agent_hint
     pending_tasks: dict[str, str] = {}

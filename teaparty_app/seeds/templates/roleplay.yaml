@@ -103,7 +103,7 @@ agents:
     role: Session facilitator
     personality: "Energetic, playful, and supportive."
     backstory: ""
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.9
     max_turns: 1
     verbosity: 0.6
@@ -124,7 +124,7 @@ agents:
     role: Character specialist
     personality: "Imaginative and detail-oriented."
     backstory: ""
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.85
     max_turns: 1
     verbosity: 0.65

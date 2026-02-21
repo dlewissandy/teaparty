@@ -218,7 +218,7 @@ def global_add_agent(
     role = (tool_input.get("role") or "").strip()
     personality = (tool_input.get("personality") or "Professional and concise").strip()
     backstory = (tool_input.get("backstory") or "").strip()
-    model = (tool_input.get("model") or "claude-sonnet-4-5").strip()
+    model = (tool_input.get("model") or "sonnet").strip()
     temperature = tool_input.get("temperature", 0.7)
     tool_names = tool_input.get("tool_names") or []
 
@@ -444,7 +444,7 @@ def global_update_agent(
         updated_fields.append("backstory")
 
     if "model" in tool_input:
-        agent.model = (tool_input["model"] or "claude-sonnet-4-5").strip()
+        agent.model = (tool_input["model"] or "sonnet").strip()
         updated_fields.append("model")
 
     if "temperature" in tool_input:

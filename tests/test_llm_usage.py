@@ -42,11 +42,11 @@ class GetWorkgroupUsageTests(unittest.TestCase):
             session.add(conv1)
             session.add(conv2)
             session.add(LLMUsageEvent(
-                conversation_id="conv-1", model="claude-sonnet-4-5",
+                conversation_id="conv-1", model="sonnet",
                 input_tokens=100, output_tokens=50, purpose="reply", duration_ms=500,
             ))
             session.add(LLMUsageEvent(
-                conversation_id="conv-2", model="claude-sonnet-4-5",
+                conversation_id="conv-2", model="sonnet",
                 input_tokens=200, output_tokens=100, purpose="reply", duration_ms=700,
             ))
             session.commit()
@@ -70,11 +70,11 @@ class GetWorkgroupUsageTests(unittest.TestCase):
             session.add(conv1)
             session.add(conv_other)
             session.add(LLMUsageEvent(
-                conversation_id="conv-1", model="claude-sonnet-4-5",
+                conversation_id="conv-1", model="sonnet",
                 input_tokens=100, output_tokens=50, purpose="reply", duration_ms=500,
             ))
             session.add(LLMUsageEvent(
-                conversation_id="conv-other", model="claude-sonnet-4-5",
+                conversation_id="conv-other", model="sonnet",
                 input_tokens=9999, output_tokens=9999, purpose="reply", duration_ms=9999,
             ))
             session.commit()
@@ -91,15 +91,15 @@ class GetWorkgroupUsageTests(unittest.TestCase):
             conv = Conversation(id="conv-1", workgroup_id="wg-1", created_by_user_id="user-1", topic="t", name="t")
             session.add(conv)
             session.add(LLMUsageEvent(
-                conversation_id="conv-1", model="claude-sonnet-4-5",
+                conversation_id="conv-1", model="sonnet",
                 input_tokens=100, output_tokens=50, purpose="reply", duration_ms=300,
             ))
             session.add(LLMUsageEvent(
-                conversation_id="conv-1", model="claude-haiku-4-5",
+                conversation_id="conv-1", model="haiku",
                 input_tokens=200, output_tokens=80, purpose="reply", duration_ms=200,
             ))
             session.add(LLMUsageEvent(
-                conversation_id="conv-1", model="claude-sonnet-4-5",
+                conversation_id="conv-1", model="sonnet",
                 input_tokens=50, output_tokens=20, purpose="reply", duration_ms=100,
             ))
             session.commit()
@@ -108,15 +108,15 @@ class GetWorkgroupUsageTests(unittest.TestCase):
             result = get_workgroup_usage(session, "wg-1")
 
         by_model = result["by_model"]
-        self.assertIn("claude-sonnet-4-5", by_model)
-        self.assertIn("claude-haiku-4-5", by_model)
+        self.assertIn("sonnet", by_model)
+        self.assertIn("haiku", by_model)
 
-        sonnet = by_model["claude-sonnet-4-5"]
+        sonnet = by_model["sonnet"]
         self.assertEqual(sonnet["input_tokens"], 150)
         self.assertEqual(sonnet["output_tokens"], 70)
         self.assertEqual(sonnet["calls"], 2)
 
-        haiku = by_model["claude-haiku-4-5"]
+        haiku = by_model["haiku"]
         self.assertEqual(haiku["input_tokens"], 200)
         self.assertEqual(haiku["output_tokens"], 80)
         self.assertEqual(haiku["calls"], 1)

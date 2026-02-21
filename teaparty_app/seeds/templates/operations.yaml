@@ -73,7 +73,7 @@ agents:
     role: Engagement coordinator
     personality: "Professional, organized, and proactive. Breaks complex requests into clear, actionable jobs."
     backstory: ""
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.3
     max_turns: 10
     verbosity: 0.5

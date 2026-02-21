@@ -69,6 +69,8 @@ def init_db() -> None:
     _ensure_projects_table()
     _migrate_workgroup_team_config()
     _migrate_add_job_project_id()
+    _migrate_conversation_org_id()
+    _migrate_message_drop_agent_fk()
     _run_seeds()
 
 
@@ -236,7 +238,7 @@ def _run_lightweight_migrations() -> None:
         if "backstory" not in agent_columns:
             conn.execute(text("ALTER TABLE agents ADD COLUMN backstory TEXT DEFAULT '' NOT NULL"))
         if "model" not in agent_columns:
-            conn.execute(text("ALTER TABLE agents ADD COLUMN model TEXT DEFAULT 'claude-sonnet-4-5' NOT NULL"))
+            conn.execute(text("ALTER TABLE agents ADD COLUMN model TEXT DEFAULT 'sonnet' NOT NULL"))
         if "temperature" not in agent_columns:
             conn.execute(text("ALTER TABLE agents ADD COLUMN temperature FLOAT DEFAULT 0.7 NOT NULL"))
         if "verbosity" not in agent_columns:
@@ -268,7 +270,7 @@ def _run_lightweight_migrations() -> None:
         conn.execute(
             text(
                 "UPDATE agents "
-                "SET model = 'claude-sonnet-4-5' "
+                "SET model = 'sonnet' "
                 "WHERE model IS NULL OR model = '' OR model = 'gpt-4.1-mini' OR model = 'gpt-5-nano'"
             )
         )
@@ -1143,7 +1145,7 @@ def _ensure_projects_table() -> None:
             "name TEXT NOT NULL DEFAULT 'Untitled Project', "
             "prompt TEXT NOT NULL DEFAULT '', "
             "status TEXT NOT NULL DEFAULT 'pending', "
-            "model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', "
+            "model TEXT NOT NULL DEFAULT 'sonnet', "
             "max_turns INTEGER NOT NULL DEFAULT 30, "
             "permission_mode TEXT NOT NULL DEFAULT 'plan', "
             "max_cost_usd REAL, "
@@ -1166,6 +1168,93 @@ def _migrate_add_job_project_id() -> None:
             conn.execute(text("ALTER TABLE jobs ADD COLUMN project_id TEXT REFERENCES projects(id)"))
 
 
+def _migrate_conversation_org_id() -> None:
+    """Make conversations.workgroup_id nullable and add organization_id.
+
+    Project conversations belong to organizations, not workgroups.
+    SQLite doesn't support ALTER COLUMN, so we recreate the table.
+    """
+    if not settings.database_url.startswith("sqlite"):
+        return
+    cols = _sqlite_column_names("conversations")
+    if "organization_id" in cols:
+        return  # Already migrated.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE conversations_new ("
+            "id TEXT PRIMARY KEY, "
+            "workgroup_id TEXT REFERENCES workgroups(id), "
+            "organization_id TEXT REFERENCES organizations(id), "
+            "created_by_user_id TEXT NOT NULL REFERENCES users(id), "
+            "kind TEXT NOT NULL DEFAULT 'job', "
+            "topic TEXT NOT NULL DEFAULT 'general', "
+            "name TEXT NOT NULL DEFAULT 'general', "
+            "description TEXT NOT NULL DEFAULT '', "
+            "claude_session_id TEXT, "
+            "is_archived BOOLEAN NOT NULL DEFAULT 0, "
+            "archived_at DATETIME, "
+            "created_at DATETIME NOT NULL"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO conversations_new "
+            "(id, workgroup_id, organization_id, created_by_user_id, kind, topic, "
+            "name, description, claude_session_id, is_archived, archived_at, created_at) "
+            "SELECT id, workgroup_id, NULL, created_by_user_id, kind, topic, "
+            "name, description, claude_session_id, is_archived, archived_at, created_at "
+            "FROM conversations"
+        ))
+        conn.execute(text("DROP TABLE conversations"))
+        conn.execute(text("ALTER TABLE conversations_new RENAME TO conversations"))
+        # Recreate indexes.
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_workgroup_id ON conversations(workgroup_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_organization_id ON conversations(organization_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_created_by_user_id ON conversations(created_by_user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_kind ON conversations(kind)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_is_archived ON conversations(is_archived)"))
+
+
+def _migrate_message_drop_agent_fk() -> None:
+    """Drop the foreign key on messages.sender_agent_id.
+
+    Project team messages use ephemeral agent IDs (e.g. 'project:{id}',
+    'liaison:{wg_id}') that are not rows in the agents table.
+    SQLite doesn't support ALTER CONSTRAINT so we recreate the table.
+    """
+    if not settings.database_url.startswith("sqlite"):
+        return
+    with engine.connect() as conn:
+        schema = conn.execute(text(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
+        )).scalar() or ""
+    if "FOREIGN KEY(sender_agent_id)" not in schema:
+        return  # Already migrated or FK never existed.
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE messages_new ("
+            "id VARCHAR NOT NULL PRIMARY KEY, "
+            "conversation_id VARCHAR NOT NULL REFERENCES conversations(id), "
+            "sender_type VARCHAR NOT NULL, "
+            "sender_user_id VARCHAR REFERENCES users(id), "
+            "sender_agent_id VARCHAR, "
+            "content VARCHAR NOT NULL, "
+            "requires_response BOOLEAN NOT NULL, "
+            "response_to_message_id VARCHAR REFERENCES messages_new(id), "
+            "created_at DATETIME NOT NULL"
+            ")"
+        ))
+        conn.execute(text(
+            "INSERT INTO messages_new SELECT * FROM messages"
+        ))
+        conn.execute(text("DROP TABLE messages"))
+        conn.execute(text("ALTER TABLE messages_new RENAME TO messages"))
+        conn.execute(text("CREATE INDEX ix_messages_conversation_id ON messages(conversation_id)"))
+        conn.execute(text("CREATE INDEX ix_messages_sender_type ON messages(sender_type)"))
+        conn.execute(text("CREATE INDEX ix_messages_sender_user_id ON messages(sender_user_id)"))
+        conn.execute(text("CREATE INDEX ix_messages_sender_agent_id ON messages(sender_agent_id)"))
+        conn.execute(text("CREATE INDEX ix_messages_response_to_message_id ON messages(response_to_message_id)"))
+
+
 def _migrate_workgroup_team_config() -> None:
     """Add team configuration columns to workgroups table."""
     if not settings.database_url.startswith("sqlite"):
@@ -1173,7 +1262,7 @@ def _migrate_workgroup_team_config() -> None:
     cols = _sqlite_column_names("workgroups")
     with engine.begin() as conn:
         if "team_model" not in cols:
-            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'"))
+            conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_model TEXT NOT NULL DEFAULT 'sonnet'"))
         if "team_permission_mode" not in cols:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_permission_mode TEXT NOT NULL DEFAULT 'acceptEdits'"))
         if "team_max_turns" not in cols:

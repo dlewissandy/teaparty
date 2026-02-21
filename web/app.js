@@ -36,7 +36,7 @@ import { initCreateProject } from './features/projects/create-project.js';
 
 import {
   initDataLoading, loadWorkgroupTemplates,
-  loadMyInvites, loadPartnerships, startPolling, selectConversation,
+  loadMyInvites, loadPartnerships, loadProjects, startPolling, selectConversation,
 } from './features/data/data-loading.js';
 
 // ─── Nav persistence ─────────────────────────────────────────────────────────
@@ -246,6 +246,7 @@ async function init() {
       if (s.nav.activeOrgId) {
         savePreferences({ lastOrgId: s.nav.activeOrgId });
         loadPartnerships(s.nav.activeOrgId);
+        loadProjects(s.nav.activeOrgId);
       }
     }
   });
@@ -265,9 +266,10 @@ async function init() {
     const restoredNav = store.get().nav;
     if (restoredNav.activeOrgId) {
       loadPartnerships(restoredNav.activeOrgId);
+      loadProjects(restoredNav.activeOrgId);
     }
-    if (restoredNav.activeConversationId && restoredNav.activeWorkgroupId) {
-      await selectConversation(restoredNav.activeWorkgroupId, restoredNav.activeConversationId);
+    if (restoredNav.activeConversationId) {
+      await selectConversation(restoredNav.activeWorkgroupId || null, restoredNav.activeConversationId);
     }
   }
 }

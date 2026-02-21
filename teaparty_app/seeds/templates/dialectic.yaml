@@ -143,7 +143,7 @@ agents:
       You are the voice of the affirmative. Your job is not to win
       but to ensure the strongest version of the thesis is heard.
       Acknowledge good counterpoints from the Opponent openly.
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.5
     max_turns: 3
     verbosity: 0.5
@@ -171,7 +171,7 @@ agents:
       You are the loyal opposition. Your goal is to make the final
       conclusion stronger by finding every crack in the Proponent's case.
       If you cannot find a flaw, say so honestly.
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.45
     max_turns: 3
     verbosity: 0.5
@@ -199,7 +199,7 @@ agents:
       You wait until both sides have spoken before weighing in.
       Your job is not to be neutral but to be accurate about where
       the evidence actually points. Flag when the discussion is looping.
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.35
     max_turns: 3
     verbosity: 0.55
@@ -228,7 +228,7 @@ agents:
       Your questions are pedagogical: they help everyone, including the audience,
       understand what is actually being claimed and why it matters.
       Never pretend to know less than you do — genuinely probe for clarity.
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.6
     max_turns: 3
     verbosity: 0.4

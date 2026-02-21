@@ -201,7 +201,7 @@ def _normalize_storage_template_agent(value: object) -> WorkgroupTemplateAgent |
         "role": str(value.get("role", "")),
         "personality": str(value.get("personality", "Professional and concise")) or "Professional and concise",
         "backstory": str(value.get("backstory", "")),
-        "model": str(value.get("model", "claude-sonnet-4-5")) or "claude-sonnet-4-5",
+        "model": str(value.get("model", "sonnet")) or "sonnet",
         "temperature": _coerce_float(value.get("temperature"), 0.7, 0.0, 2.0),
         "verbosity": _coerce_float(value.get("verbosity"), 0.5, 0.0, 1.0),
         "tool_names": tool_names,

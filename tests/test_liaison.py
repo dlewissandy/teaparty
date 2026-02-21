@@ -14,6 +14,7 @@ from teaparty_app.models import (
 )
 from teaparty_app.services.agent_definition import (
     build_liaison_json,
+    build_project_lead_json,
     build_project_team_agents,
     slugify,
 )
@@ -34,7 +35,7 @@ def _make_agent(
     agent_id: str = "a1",
     name: str = "Implementer",
     role: str = "Implementation lead",
-    model: str = "claude-sonnet-4-6",
+    model: str = "sonnet",
     is_lead: bool = False,
     workgroup_id: str = "wg-1",
 ) -> Agent:
@@ -57,7 +58,7 @@ def _make_workgroup(
     workgroup_id: str = "wg-1",
     name: str = "Engineering",
     org_id: str = "org-1",
-    team_model: str = "claude-sonnet-4-6",
+    team_model: str = "sonnet",
     team_permission_mode: str = "acceptEdits",
     team_max_turns: int = 30,
     team_max_cost_usd: float | None = None,
@@ -85,7 +86,7 @@ def _make_project(
     name: str = "Test Project",
     prompt: str = "Build something amazing",
     workgroup_ids: list[str] | None = None,
-    model: str = "claude-sonnet-4-6",
+    model: str = "sonnet",
     permission_mode: str = "plan",
     max_turns: int = 30,
 ) -> Project:
@@ -105,13 +106,11 @@ def _make_project(
 def _make_organization(
     *,
     org_id: str = "org-1",
-    ops_wg_id: str = "ops-wg",
 ) -> Organization:
     return Organization(
         id=org_id,
         name="Test Org",
         created_by_user_id="user-1",
-        operations_workgroup_id=ops_wg_id,
     )
 
 
@@ -127,7 +126,7 @@ class BuildLiaisonJsonTests(unittest.TestCase):
         project = _make_project()
         result = build_liaison_json(wg, project)
 
-        self.assertEqual(result["description"], "Liaison to Engineering")
+        self.assertEqual(result["description"], "Engineering workgroup liaison")
         self.assertIn("model", result)
         self.assertEqual(result["maxTurns"], 10)
         self.assertIn("prompt", result)
@@ -157,12 +156,12 @@ class BuildLiaisonJsonTests(unittest.TestCase):
         self.assertIn("communication relay", result["prompt"].lower())
 
     def test_model_uses_project_or_workgroup(self) -> None:
-        wg = _make_workgroup(team_model="claude-haiku-4-5")
-        project = _make_project(model="claude-sonnet-4-6")
+        wg = _make_workgroup(team_model="haiku")
+        project = _make_project(model="sonnet")
         result = build_liaison_json(wg, project)
 
         # Model should resolve to a CLI alias
-        self.assertIn(result["model"], ["sonnet", "haiku", "opus", "claude-sonnet-4-6", "claude-haiku-4-5"])
+        self.assertIn(result["model"], ["sonnet", "haiku", "opus"])
 
     def test_workgroup_id_env_var_in_prompt(self) -> None:
         wg = _make_workgroup(name="Design")
@@ -177,89 +176,95 @@ class BuildLiaisonJsonTests(unittest.TestCase):
 # Tests: Project Team Agents Builder
 # ---------------------------------------------------------------------------
 
+class BuildProjectLeadJsonTests(unittest.TestCase):
+    """Test the ephemeral project lead agent definition."""
+
+    def test_basic_structure(self) -> None:
+        project = _make_project(name="Auth System", prompt="Build OAuth2")
+        result = build_project_lead_json(project, [])
+
+        self.assertIn("project lead", result["description"].lower())
+        self.assertIn("Auth System", result["prompt"])
+        self.assertIn("Build OAuth2", result["prompt"])
+        self.assertIn("model", result)
+        self.assertIn("maxTurns", result)
+
+    def test_includes_liaison_roster(self) -> None:
+        project = _make_project()
+        roster = [
+            "- engineering-liaison — Engineering workgroup liaison",
+            "- design-liaison — Design workgroup liaison",
+        ]
+        result = build_project_lead_json(project, roster)
+
+        self.assertIn("engineering-liaison", result["prompt"])
+        self.assertIn("design-liaison", result["prompt"])
+        self.assertIn("subagent_type", result["prompt"])
+        self.assertIn("Your Team", result["prompt"])
+
+    def test_includes_org_instructions(self) -> None:
+        project = _make_project()
+        org_files = [{"path": "CLAUDE.md", "content": "Always use TypeScript."}]
+        result = build_project_lead_json(project, [], org_files=org_files)
+
+        self.assertIn("Always use TypeScript", result["prompt"])
+
+
 class BuildProjectTeamAgentsTests(unittest.TestCase):
-    """Test project team agent definition builder."""
+    """Test project team agent definition builder.
+
+    The project team consists of an ephemeral project lead plus one liaison
+    for every non-Administration workgroup in the organization.
+    """
 
     def _setup_session_mocks(self, session_mock):
-        """Configure a mock session with org, workgroups, and agents."""
-        org = _make_organization()
-        ops_wg = _make_workgroup(workgroup_id="ops-wg", name="Administration", org_id="org-1")
+        """Configure a mock session with project workgroups."""
         wg1 = _make_workgroup(workgroup_id="wg-1", name="Engineering", org_id="org-1")
         wg2 = _make_workgroup(workgroup_id="wg-2", name="Design", org_id="org-1")
-        lead = _make_agent(agent_id="lead-1", name="Org Lead", role="Organization coordinator", is_lead=True, workgroup_id="ops-wg")
 
-        def mock_get(cls, id_val):
-            return {
-                ("org-1", Organization): org,
-                ("ops-wg", Workgroup): ops_wg,
-                ("wg-1", Workgroup): wg1,
-                ("wg-2", Workgroup): wg2,
-            }.get((id_val, cls) if not isinstance(id_val, type) else (id_val, cls))
+        # session.get() is called for each workgroup_id in the project.
+        session_mock.get.side_effect = lambda cls, id_val: {
+            ("wg-1",): wg1, ("wg-2",): wg2,
+        }.get((id_val,))
 
-        # session.get dispatching
-        def side_effect(cls, id_val):
-            mapping = {
-                (Organization, "org-1"): org,
-                (Workgroup, "ops-wg"): ops_wg,
-                (Workgroup, "wg-1"): wg1,
-                (Workgroup, "wg-2"): wg2,
-            }
-            return mapping.get((cls, id_val))
-
-        session_mock.get.side_effect = side_effect
-
-        # session.exec().first() for the org lead query
-        exec_result = MagicMock()
-        exec_result.first.return_value = lead
-        session_mock.exec.return_value = exec_result
-
-        return org, ops_wg, wg1, wg2, lead
+        return wg1, wg2
 
     def test_returns_lead_and_liaisons(self) -> None:
         session = MagicMock()
         self._setup_session_mocks(session)
-        project = _make_project(workgroup_ids=["wg-1", "wg-2"])
+        project = _make_project()
 
         agents_dict, lead_slug, slug_to_id = build_project_team_agents(session, project)
 
-        # Should have org lead + 2 liaisons
+        # Should have project-lead + 1 workgroup liaison per org workgroup
         self.assertEqual(len(agents_dict), 3)
-        self.assertEqual(lead_slug, "org-lead")
-        self.assertIn("org-lead", agents_dict)
-        self.assertIn("liaison-engineering", agents_dict)
-        self.assertIn("liaison-design", agents_dict)
+        self.assertEqual(lead_slug, "project-lead")
+        self.assertIn("project-lead", agents_dict)
+        self.assertIn("engineering-liaison", agents_dict)
+        self.assertIn("design-liaison", agents_dict)
 
     def test_lead_has_teammate_roster(self) -> None:
         session = MagicMock()
         self._setup_session_mocks(session)
-        project = _make_project(workgroup_ids=["wg-1", "wg-2"])
+        project = _make_project()
 
         agents_dict, lead_slug, slug_to_id = build_project_team_agents(session, project)
 
         lead_prompt = agents_dict[lead_slug]["prompt"]
-        self.assertIn("liaison-engineering", lead_prompt)
-        self.assertIn("liaison-design", lead_prompt)
-        self.assertIn("Teammates", lead_prompt)
+        self.assertIn("engineering-liaison", lead_prompt)
+        self.assertIn("design-liaison", lead_prompt)
+        self.assertIn("Your Team", lead_prompt)
 
     def test_slug_to_id_maps_correctly(self) -> None:
         session = MagicMock()
         self._setup_session_mocks(session)
-        project = _make_project(workgroup_ids=["wg-1", "wg-2"])
+        project = _make_project()
 
         agents_dict, lead_slug, slug_to_id = build_project_team_agents(session, project)
 
-        self.assertEqual(slug_to_id["org-lead"], "lead-1")
-        self.assertEqual(slug_to_id["liaison-engineering"], "liaison:wg-1")
-        self.assertEqual(slug_to_id["liaison-design"], "liaison:wg-2")
-
-    def test_raises_without_operations_workgroup(self) -> None:
-        session = MagicMock()
-        org = Organization(id="org-1", name="Test", created_by_user_id="u1", operations_workgroup_id=None)
-        session.get.return_value = org
-        project = _make_project()
-
-        with self.assertRaises(ValueError):
-            build_project_team_agents(session, project)
+        self.assertEqual(slug_to_id["project-lead"], "project:proj-1")
+        self.assertEqual(slug_to_id["engineering-liaison"], "liaison:wg-1")
+        self.assertEqual(slug_to_id["design-liaison"], "liaison:wg-2")
 
 
 # ---------------------------------------------------------------------------
@@ -271,12 +276,12 @@ class ResolveTeamParamsTests(unittest.TestCase):
 
     def test_workgroup_defaults_used(self) -> None:
         project = _make_project(
-            model="claude-sonnet-4-6",  # default value
+            model="sonnet",  # default value: triggers workgroup fallback
             permission_mode="plan",  # default value
             max_turns=30,  # default value
         )
         wg = _make_workgroup(
-            team_model="claude-haiku-4-5",
+            team_model="haiku",
             team_permission_mode="bypassPermissions",
             team_max_turns=50,
             team_max_cost_usd=5.0,
@@ -285,7 +290,7 @@ class ResolveTeamParamsTests(unittest.TestCase):
 
         params = resolve_team_params(project, wg)
 
-        self.assertEqual(params.model, "claude-haiku-4-5")
+        self.assertEqual(params.model, "haiku")
         self.assertEqual(params.permission_mode, "bypassPermissions")
         self.assertEqual(params.max_turns, 50)
         self.assertEqual(params.max_cost_usd, 5.0)
@@ -293,7 +298,7 @@ class ResolveTeamParamsTests(unittest.TestCase):
 
     def test_project_overrides(self) -> None:
         project = _make_project(
-            model="claude-opus-4-6",
+            model="opus",
             permission_mode="acceptEdits",
             max_turns=100,
         )
@@ -301,14 +306,14 @@ class ResolveTeamParamsTests(unittest.TestCase):
         project.max_time_seconds = 600
 
         wg = _make_workgroup(
-            team_model="claude-haiku-4-5",
+            team_model="haiku",
             team_permission_mode="bypassPermissions",
             team_max_turns=50,
         )
 
         params = resolve_team_params(project, wg)
 
-        self.assertEqual(params.model, "claude-opus-4-6")
+        self.assertEqual(params.model, "opus")
         self.assertEqual(params.permission_mode, "acceptEdits")
         self.assertEqual(params.max_turns, 100)
         self.assertEqual(params.max_cost_usd, 10.0)
@@ -317,7 +322,7 @@ class ResolveTeamParamsTests(unittest.TestCase):
     def test_defaults(self) -> None:
         params = TeamParams()
 
-        self.assertEqual(params.model, "claude-sonnet-4-6")
+        self.assertEqual(params.model, "sonnet")
         self.assertEqual(params.permission_mode, "acceptEdits")
         self.assertEqual(params.max_turns, 30)
         self.assertIsNone(params.max_cost_usd)
@@ -466,9 +471,9 @@ class TeamSessionPrebuiltAgentsTests(unittest.TestCase):
 
         agents_dict = {
             "lead": {"description": "Team lead", "prompt": "You are a lead", "model": "sonnet", "maxTurns": 5},
-            "liaison-eng": {"description": "Liaison to Engineering", "prompt": "Relay tasks", "model": "sonnet", "maxTurns": 10},
+            "engineering-liaison": {"description": "Engineering workgroup liaison", "prompt": "Relay tasks", "model": "sonnet", "maxTurns": 10},
         }
-        slug_to_id = {"lead": "agent-1", "liaison-eng": "liaison:wg-1"}
+        slug_to_id = {"lead": "agent-1", "engineering-liaison": "liaison:wg-1"}
 
         team.run(
             agents_dict=agents_dict,
@@ -477,9 +482,13 @@ class TeamSessionPrebuiltAgentsTests(unittest.TestCase):
             lead_slug="lead",
         )
 
+        # Verify lead_slug and lead_agent_id are set correctly
+        self.assertEqual(team.lead_slug, "lead")
+        self.assertEqual(team.lead_agent_id, "agent-1")
+
         # Verify agent slugs were set from slug_to_id
         self.assertEqual(team.get_agent_id("lead"), "agent-1")
-        self.assertEqual(team.get_agent_id("liaison-eng"), "liaison:wg-1")
+        self.assertEqual(team.get_agent_id("engineering-liaison"), "liaison:wg-1")
 
         # Verify the claude command was called with --agents
         call_args = mock_popen.call_args
@@ -488,7 +497,7 @@ class TeamSessionPrebuiltAgentsTests(unittest.TestCase):
         agents_idx = cmd.index("--agents")
         agents_json = json.loads(cmd[agents_idx + 1])
         self.assertIn("lead", agents_json)
-        self.assertIn("liaison-eng", agents_json)
+        self.assertIn("engineering-liaison", agents_json)
 
     @patch("teaparty_app.services.team_session.subprocess.Popen")
     def test_extra_env_merged(self, mock_popen) -> None:

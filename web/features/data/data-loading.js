@@ -34,7 +34,11 @@ export function initDataLoading(store) {
   _store = store;
 
   // Refresh data on bus events
-  bus.on('data:refresh', () => loadWorkgroups());
+  bus.on('data:refresh', () => {
+    loadWorkgroups();
+    const orgId = _store.get().nav?.activeOrgId;
+    if (orgId) loadProjects(orgId);
+  });
   bus.on('auth:signed-in', () => loadWorkgroups());
   bus.on('auth:signed-out', () => stopPolling());
 
@@ -49,6 +53,7 @@ export function initDataLoading(store) {
     wgs.forEach(wg => _debouncedTreeRefresh(wg.id));
   });
   bus.on('sync:org-updated', () => loadOrganizations());
+  bus.on('sync:project_created', ({ orgId }) => { if (orgId) loadProjects(orgId); });
   bus.on('sync:partnerships-changed', ({ orgId }) => {
     const activeOrg = (_store.get().data.organizations || []).find(o => o.id === orgId);
     if (activeOrg) loadPartnerships(orgId);
@@ -115,6 +120,18 @@ export async function loadPartnerships(orgId) {
     _store.notify('data.partnerships');
   } catch {
     _store.update(s => { s.data.partnerships = []; });
+  }
+}
+
+// ─── Projects ─────────────────────────────────────────────────────────────────
+
+export async function loadProjects(orgId) {
+  try {
+    const projects = await api(`/api/organizations/${orgId}/projects`);
+    _store.update(s => { s.data.projects = projects; });
+    _store.notify('data.projects');
+  } catch {
+    _store.update(s => { s.data.projects = []; });
   }
 }
 

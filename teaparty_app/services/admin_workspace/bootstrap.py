@@ -139,7 +139,7 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
         role="Team lead",
         personality="Organized and collaborative team coordinator",
         backstory="",
-        model="claude-sonnet-4-5",
+        model="sonnet",
         temperature=0.7,
         tool_names=claude_tool_names(),
         is_lead=True,

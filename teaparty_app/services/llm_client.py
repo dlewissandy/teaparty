@@ -31,11 +31,14 @@ logging.getLogger("LiteLLM").setLevel(logging.WARNING)
 # ---------------------------------------------------------------------------
 
 _ANTHROPIC_PREFIXES = ("claude-",)
+_ANTHROPIC_ALIASES = {"sonnet", "haiku", "opus"}
 
 
 def is_anthropic_model(model: str) -> bool:
     """Return True if the model string refers to a Claude/Anthropic model."""
     m = model.strip().lower()
+    if m in _ANTHROPIC_ALIASES:
+        return True
     return any(m.startswith(p) for p in _ANTHROPIC_PREFIXES)
 
 
@@ -72,17 +75,17 @@ def resolve_model(purpose: str = "reply", explicit_model: str = "") -> str:
             return cheap
         if override:
             return override
-        return settings.intent_probe_model or "claude-haiku-4-5"
+        return settings.intent_probe_model or "haiku"
 
     if purpose == "admin":
         if override:
             return override
-        return settings.admin_agent_model or "claude-sonnet-4-5"
+        return settings.admin_agent_model or "sonnet"
 
     # purpose == "reply"
     if override:
         return override
-    return settings.admin_agent_model or "claude-sonnet-4-5"
+    return settings.admin_agent_model or "sonnet"
 
 
 def llm_enabled() -> bool:

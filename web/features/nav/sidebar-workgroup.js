@@ -61,9 +61,9 @@ export function renderWorkgroupSections(store, container, orgId, filter) {
 // ─── Workgroup Team Config Settings ─────────────────────────────────────────
 
 const MODEL_OPTIONS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
-  { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+  { value: 'opus', label: 'Opus' },
 ];
 
 const PERMISSION_OPTIONS = [
@@ -78,7 +78,7 @@ function openWorkgroupTeamConfig(workgroupId) {
   const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
   if (!wg) return;
 
-  const model = wg.team_model || 'claude-sonnet-4-6';
+  const model = wg.team_model || 'sonnet';
   const permMode = wg.team_permission_mode || 'acceptEdits';
   const maxTurns = wg.team_max_turns ?? 30;
   const maxCost = wg.team_max_cost_usd ?? '';

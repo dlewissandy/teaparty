@@ -15,7 +15,7 @@ def _make_agent(
     role: str = "Implementation lead",
     personality: str = "Practical and concise",
     backstory: str = "",
-    model: str = "claude-sonnet-4-5",
+    model: str = "sonnet",
     max_turns: int = 3,
     is_lead: bool = False,
 ) -> Agent:
@@ -98,16 +98,16 @@ class BuildAgentJsonTests(unittest.TestCase):
         self.assertIn("Personality: Practical and concise", result["prompt"])
 
     def test_model_alias_mapping(self) -> None:
-        agent = _make_agent(model="claude-sonnet-4-5")
+        agent = _make_agent(model="sonnet")
         conversation = _make_conversation()
         result = build_agent_json(agent, conversation)
         self.assertEqual(result["model"], "sonnet")
 
-        agent2 = _make_agent(model="claude-haiku-4-5")
+        agent2 = _make_agent(model="haiku")
         result2 = build_agent_json(agent2, conversation)
         self.assertEqual(result2["model"], "haiku")
 
-        agent3 = _make_agent(model="claude-opus-4-6")
+        agent3 = _make_agent(model="opus")
         result3 = build_agent_json(agent3, conversation)
         self.assertEqual(result3["model"], "opus")
 

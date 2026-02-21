@@ -73,7 +73,7 @@ class WorkgroupTemplateAgentWrite(BaseModel):
     role: str = ""
     personality: str = "Professional and concise"
     backstory: str = ""
-    model: str = "claude-sonnet-4-5"
+    model: str = "sonnet"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
@@ -112,7 +112,7 @@ class WorkgroupRead(ORMBaseModel):
     is_discoverable: bool = False
     service_description: str = ""
     workspace_enabled: bool = False
-    team_model: str = "claude-sonnet-4-6"
+    team_model: str = "sonnet"
     team_permission_mode: str = "acceptEdits"
     team_max_turns: int = 30
     team_max_cost_usd: float | None = None
@@ -252,7 +252,7 @@ class AgentCreateRequest(BaseModel):
     role: str = ""
     personality: str = "Professional and concise"
     backstory: str = ""
-    model: str = "claude-sonnet-4-5"
+    model: str = "sonnet"
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     verbosity: float = Field(default=0.5, ge=0.0, le=1.0)
     tool_names: list[str] = Field(default_factory=list)
@@ -328,7 +328,8 @@ class ConversationUpdateRequest(BaseModel):
 
 class ConversationRead(ORMBaseModel):
     id: str
-    workgroup_id: str
+    workgroup_id: str | None = None
+    organization_id: str | None = None
     kind: str
     topic: str
     name: str
@@ -583,7 +584,7 @@ class JobDetailRead(JobRead):
 
 class ProjectCreateRequest(BaseModel):
     prompt: str = Field(min_length=1)
-    model: str = "claude-sonnet-4-6"
+    model: str = "sonnet"
     max_turns: int = 30
     permission_mode: str = "plan"
     max_cost_usd: float | None = None

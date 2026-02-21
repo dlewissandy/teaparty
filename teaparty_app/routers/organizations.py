@@ -66,7 +66,7 @@ def create_organization(
         role="Engagement coordinator",
         personality="Organized and collaborative engagement coordinator",
         backstory="",
-        model="claude-sonnet-4-5",
+        model="sonnet",
         temperature=0.7,
         tool_names=claude_tool_names(),
         is_lead=True,

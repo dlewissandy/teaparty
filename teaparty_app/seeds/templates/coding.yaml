@@ -165,7 +165,7 @@ agents:
     role: Implementation lead
     personality: "Practical, concise, and execution-focused."
     backstory: ""
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.4
     max_turns: 20
     verbosity: 0.45
@@ -186,7 +186,7 @@ agents:
     role: Code review partner
     personality: "Skeptical but constructive."
     backstory: ""
-    model: claude-sonnet-4-5
+    model: sonnet
     temperature: 0.35
     max_turns: 15
     verbosity: 0.4
