@@ -31,6 +31,7 @@ import { initNotifications } from './features/notifications/notifications.js';
 import { initHome } from './features/home/home.js';
 import { initEngagements } from './features/engagements/engagements.js';
 import { initPartnerships } from './features/partnerships/partnerships.js';
+import { initCreateProject } from './features/projects/create-project.js';
 
 import {
   initDataLoading, loadWorkgroupTemplates,
@@ -141,6 +142,7 @@ async function init() {
   initHome(store);
   initEngagements(store);
   initPartnerships(store);
+  initCreateProject(store);
   initDataLoading(store);
 
   // Wire up sidebar dev login form

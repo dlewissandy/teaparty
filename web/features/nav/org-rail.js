@@ -89,6 +89,9 @@ async function handleAddAction(action) {
     case 'new-skill':
       if (orgId) bus.emit('nav:create-skill', { orgId });
       break;
+    case 'new-project':
+      if (orgId) bus.emit('nav:create-project', { orgId });
+      break;
     case 'new-partner':
       bus.emit('nav:create-partner', { orgId });
       break;

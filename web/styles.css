@@ -1926,6 +1926,104 @@ pre code {
 }
 
 /* ==========================================================================
+   9b. CREATE PROJECT FORM
+   ========================================================================== */
+
+.create-project-form {
+  flex-shrink: 0;
+  margin-top: auto;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition:
+    max-height var(--tp-duration-slow) var(--tp-ease-out),
+    opacity var(--tp-duration-slow) var(--tp-ease-out);
+}
+
+.create-project-form.hidden {
+  display: none;
+}
+
+.create-project-form.visible {
+  max-height: 600px;
+  opacity: 1;
+}
+
+.create-project-inner {
+  padding: 14px 16px 12px;
+  border-top: 1px solid var(--tp-line-subtle);
+  background: var(--tp-panel);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.create-project-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.create-project-header h4 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--tp-ink);
+}
+
+.create-project-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.create-project-fields .textarea {
+  min-height: auto;
+  resize: none;
+}
+
+.create-project-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.create-project-form .tool-chip {
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--tp-duration-fast), border-color var(--tp-duration-fast), color var(--tp-duration-fast);
+}
+
+.create-project-form .tool-chip:hover {
+  border-color: rgba(26, 122, 109, 0.4);
+}
+
+.create-project-config-row {
+  display: flex;
+  gap: 10px;
+}
+
+.create-project-config-row .form-field-compact {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-field-compact .form-label {
+  font-size: 0.75rem;
+  color: var(--tp-ink-secondary);
+}
+
+.select {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23888' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  background-size: 10px;
+  padding-right: 26px;
+  cursor: pointer;
+}
+
+/* ==========================================================================
    10. COMPOSER
    ========================================================================== */
 

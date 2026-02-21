@@ -571,6 +571,36 @@ class JobDetailRead(JobRead):
     engagement_title: str = ""
 
 
+class ProjectCreateRequest(BaseModel):
+    prompt: str = Field(min_length=1)
+    model: str = "claude-sonnet-4-6"
+    max_turns: int = 30
+    permission_mode: str = "plan"
+    max_cost_usd: float | None = None
+    max_time_seconds: int | None = None
+    max_tokens: int | None = None
+    workgroup_ids: list[str] = Field(default_factory=list)
+
+
+class ProjectRead(ORMBaseModel):
+    id: str
+    organization_id: str
+    conversation_id: str | None = None
+    created_by_user_id: str
+    name: str
+    prompt: str
+    status: str
+    model: str
+    max_turns: int
+    permission_mode: str
+    max_cost_usd: float | None = None
+    max_time_seconds: int | None = None
+    max_tokens: int | None = None
+    workgroup_ids: list[str] = []
+    created_at: datetime
+    completed_at: datetime | None = None
+
+
 class JobCreateRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = ""

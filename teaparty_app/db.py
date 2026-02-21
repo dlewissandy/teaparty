@@ -66,6 +66,7 @@ def init_db() -> None:
     _backfill_org_memberships()
     _migrate_partnership_message()
     _migrate_notification_partnership_fk()
+    _ensure_projects_table()
     _run_seeds()
 
 
@@ -1126,6 +1127,31 @@ def _backfill_org_memberships() -> None:
                 "GROUP BY w.organization_id, m.user_id"
             )
         )
+
+
+def _ensure_projects_table() -> None:
+    """Create the projects table if it doesn't exist."""
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE IF NOT EXISTS projects ("
+            "id TEXT PRIMARY KEY, "
+            "organization_id TEXT NOT NULL REFERENCES organizations(id), "
+            "conversation_id TEXT REFERENCES conversations(id), "
+            "created_by_user_id TEXT NOT NULL REFERENCES users(id), "
+            "name TEXT NOT NULL DEFAULT 'Untitled Project', "
+            "prompt TEXT NOT NULL DEFAULT '', "
+            "status TEXT NOT NULL DEFAULT 'pending', "
+            "model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6', "
+            "max_turns INTEGER NOT NULL DEFAULT 30, "
+            "permission_mode TEXT NOT NULL DEFAULT 'plan', "
+            "max_cost_usd REAL, "
+            "max_time_seconds INTEGER, "
+            "max_tokens INTEGER, "
+            "workgroup_ids JSON NOT NULL DEFAULT '[]', "
+            "created_at DATETIME NOT NULL, "
+            "completed_at DATETIME"
+            ")"
+        ))
 
 
 def get_session() -> Iterator[Session]:

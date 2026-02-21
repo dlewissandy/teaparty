@@ -11,7 +11,7 @@ from starlette.responses import Response
 
 from teaparty_app.config import settings
 from teaparty_app.db import init_db
-from teaparty_app.routers import agent_tasks, agents, auth, balance, conversations, engagements, jobs, notifications, org_directory, org_members, organizations, partnerships, system, tasks, tools, workgroups, workspace
+from teaparty_app.routers import agent_tasks, agents, auth, balance, conversations, engagements, jobs, notifications, org_directory, org_members, organizations, partnerships, projects, system, tasks, tools, workgroups, workspace
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 WEB_DIR = BASE_DIR / "web"
@@ -61,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(org_members.router)
     app.include_router(balance.router)
     app.include_router(partnerships.router)
+    app.include_router(projects.router)
     app.include_router(notifications.router)
     app.include_router(system.router)
 

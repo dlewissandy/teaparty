@@ -383,6 +383,27 @@ class Job(SQLModel, table=True):
     permission_mode: str = Field(default="acceptEdits")
 
 
+class Project(SQLModel, table=True):
+    __tablename__ = "projects"
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    organization_id: str = Field(foreign_key="organizations.id", index=True)
+    conversation_id: str | None = Field(default=None, foreign_key="conversations.id", index=True)
+    created_by_user_id: str = Field(foreign_key="users.id", index=True)
+    name: str = Field(default="Untitled Project")
+    prompt: str = Field(default="")
+    status: str = Field(default="pending", index=True)  # pending | in_progress | completed | cancelled
+    model: str = Field(default="claude-sonnet-4-6")
+    max_turns: int = Field(default=30)
+    permission_mode: str = Field(default="plan")
+    max_cost_usd: float | None = Field(default=None)
+    max_time_seconds: int | None = Field(default=None)
+    max_tokens: int | None = Field(default=None)
+    workgroup_ids: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(default_factory=utc_now)
+    completed_at: datetime | None = Field(default=None)
+
+
 class AgentTask(SQLModel, table=True):
     __tablename__ = "agent_tasks"
 
