@@ -27,7 +27,20 @@ def get_balance(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> OrgBalanceRead:
-    _require_org_owner(session, org_id, user)
+    # Allow any org member to view balance (token economy transparency)
+    from teaparty_app.models import OrgMembership
+    org = session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if org.owner_id != user.id and not user.is_system_admin:
+        membership = session.exec(
+            select(OrgMembership).where(
+                OrgMembership.organization_id == org_id,
+                OrgMembership.user_id == user.id,
+            )
+        ).first()
+        if not membership:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this organization")
     balance = get_or_create_balance(session, org_id)
     session.commit()
     return OrgBalanceRead.model_validate(balance)

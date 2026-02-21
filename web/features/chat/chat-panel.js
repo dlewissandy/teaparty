@@ -20,10 +20,12 @@ function showChatView() {
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
+  const dashboardView = document.getElementById('org-dashboard-view');
   if (chatView) chatView.classList.remove('hidden');
   if (homeView) homeView.classList.add('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.add('hidden');
 }
 
 function showHomeView() {
@@ -31,10 +33,25 @@ function showHomeView() {
   const homeView = document.getElementById('home-view');
   const profileView = document.getElementById('agent-profile-view');
   const directoryView = document.getElementById('directory-view');
+  const dashboardView = document.getElementById('org-dashboard-view');
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
   if (profileView) profileView.classList.add('hidden');
   if (directoryView) directoryView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.add('hidden');
+}
+
+export function showOrgDashboardView() {
+  const chatView = document.getElementById('chat-view');
+  const homeView = document.getElementById('home-view');
+  const profileView = document.getElementById('agent-profile-view');
+  const directoryView = document.getElementById('directory-view');
+  const dashboardView = document.getElementById('org-dashboard-view');
+  if (chatView) chatView.classList.add('hidden');
+  if (homeView) homeView.classList.add('hidden');
+  if (profileView) profileView.classList.add('hidden');
+  if (directoryView) directoryView.classList.add('hidden');
+  if (dashboardView) dashboardView.classList.remove('hidden');
 }
 
 // ─── Conversation loading ──────────────────────────────────────────────────
@@ -183,9 +200,12 @@ export function initChatPanel(store) {
     if (convId) {
       showChatView();
     } else {
-      // Don't override the agent profile view if it's currently showing
+      // Don't override the agent profile or org dashboard views if showing
       const profileView = document.getElementById('agent-profile-view');
-      if (!profileView || profileView.classList.contains('hidden')) {
+      const dashboardView = document.getElementById('org-dashboard-view');
+      const profileShowing = profileView && !profileView.classList.contains('hidden');
+      const dashboardShowing = dashboardView && !dashboardView.classList.contains('hidden');
+      if (!profileShowing && !dashboardShowing) {
         showHomeView();
       }
     }

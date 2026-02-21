@@ -6,7 +6,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Organization, OrgMembership, User, Workgroup
+from teaparty_app.models import Agent, Engagement, Job, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
 from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
@@ -251,6 +251,13 @@ def get_org_summary(
     else:
         engagement_count = 0
 
+    # Project counts
+    projects = session.exec(
+        select(Project).where(Project.organization_id == org_id)
+    ).all()
+    active_projects = sum(1 for p in projects if p.status in ("pending", "in_progress"))
+    completed_projects = sum(1 for p in projects if p.status == "completed")
+
     return {
         "org_id": org_id,
         "org_name": org.name,
@@ -259,6 +266,8 @@ def get_org_summary(
         "active_jobs": active_jobs,
         "member_count": member_count,
         "engagement_count": engagement_count,
+        "active_projects": active_projects,
+        "completed_projects": completed_projects,
     }
 
 
@@ -393,6 +402,8 @@ def get_org_engagements(
             "status": eng.status,
             "source_workgroup": {"id": eng.source_workgroup_id, "name": src_wg.name if src_wg else ""},
             "target_workgroup": {"id": eng.target_workgroup_id, "name": tgt_wg.name if tgt_wg else ""},
+            "agreed_price_credits": eng.agreed_price_credits,
+            "payment_status": eng.payment_status,
             "created_at": eng.created_at.isoformat(),
         })
 

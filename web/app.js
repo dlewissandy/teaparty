@@ -33,6 +33,7 @@ import { initHome } from './features/home/home.js';
 import { initEngagements } from './features/engagements/engagements.js';
 import { initPartnerships } from './features/partnerships/partnerships.js';
 import { initCreateProject } from './features/projects/create-project.js';
+import { initOrgDashboard } from './features/dashboard/org-dashboard.js';
 
 import {
   initDataLoading, loadWorkgroupTemplates,
@@ -81,6 +82,7 @@ const store = createStore({
     templates: [],
     invites: [],
     partnerships: [],
+    orgDashboard: null,
   },
   panels: {
     rightPanelOpen: false,
@@ -145,6 +147,7 @@ async function init() {
   initEngagements(store);
   initPartnerships(store);
   initCreateProject(store);
+  initOrgDashboard(store);
   initDataLoading(store);
 
   // Wire up sidebar dev login form

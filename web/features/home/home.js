@@ -34,10 +34,12 @@ export function renderHome() {
   const homeView = document.getElementById('home-view');
   const dashboard = document.getElementById('home-dashboard');
   const directoryView = document.getElementById('directory-view');
+  const orgDashboardView = document.getElementById('org-dashboard-view');
 
   if (chatView) chatView.classList.add('hidden');
   if (homeView) homeView.classList.remove('hidden');
   if (directoryView) directoryView.classList.add('hidden');
+  if (orgDashboardView) orgDashboardView.classList.add('hidden');
 
   const s = _store.get();
   if (!s.auth.user) return;
