@@ -13,7 +13,6 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
     : (s.data.workgroups || []).filter(w => w.organization_id === orgId);
   const filterLower = (filter || '').toLowerCase();
   const selection = s.nav.sidebarSelection;
-  const thinkingMap = s.conversation.thinkingByConversation || {};
 
   const agentMap = new Map();
   for (const wg of workgroups) {
@@ -21,18 +20,7 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
     if (!tree) continue;
     for (const agent of (tree.agents || [])) {
       if (agentMap.has(agent.id)) continue;
-
-      // Check if this agent is thinking
-      const agentTaskConvIds = (tree.agentTasks || [])
-        .filter(t => t.agent_id === agent.id && t.conversation_id)
-        .map(t => t.conversation_id);
-      const agentDirect = (tree.directs || []).find(c => c.sender_agent_id === agent.id || c.target_agent_id === agent.id);
-      const allAgentConvIds = agentDirect
-        ? [...agentTaskConvIds, agentDirect.id]
-        : agentTaskConvIds;
-      const isThinking = allAgentConvIds.some(cid => thinkingMap[cid]);
-
-      agentMap.set(agent.id, { agent, workgroupId: wg.id, isThinking });
+      agentMap.set(agent.id, { agent, workgroupId: wg.id });
     }
   }
 
@@ -46,24 +34,21 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
     return;
   }
 
-  container.innerHTML = filtered.map(({ agent, workgroupId, isThinking }) => {
+  container.innerHTML = filtered.map(({ agent, workgroupId }) => {
     const itemId = `agent:${agent.id}`;
     const isActive = selection === itemId;
     const avatarSvg = generateBotSvg(agent.name);
-    const presenceClass = isThinking ? 'thinking' : 'idle';
-    const presenceTitle = isThinking ? 'Thinking...' : 'Idle';
-
     return `<button
       class="sidebar-nav-item sidebar-agent-item${isActive ? ' active' : ''}"
       data-action="select-agent"
       data-item-id="${escapeHtml(itemId)}"
       data-workgroup-id="${escapeHtml(workgroupId)}"
       data-agent-id="${escapeHtml(agent.id)}"
+      draggable="true"
       title="${escapeHtml(agent.name)}"
     >
       <span class="sidebar-agent-avatar-wrap">${avatarSvg}</span>
       <span class="sidebar-nav-label">${escapeHtml(agent.name)}</span>
-      <span class="sidebar-presence-dot ${presenceClass}" title="${presenceTitle}" aria-hidden="true"></span>
     </button>`;
   }).join('');
 
@@ -76,5 +61,14 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
         workgroupId: btn.dataset.workgroupId,
       });
     });
+    btn.addEventListener('dragstart', (e) => {
+      e.dataTransfer.setData('application/x-teaparty-agent', JSON.stringify({
+        agentId: btn.dataset.agentId,
+        workgroupId: btn.dataset.workgroupId,
+      }));
+      e.dataTransfer.effectAllowed = 'move';
+      btn.classList.add('dragging');
+    });
+    btn.addEventListener('dragend', () => btn.classList.remove('dragging'));
   });
 }
