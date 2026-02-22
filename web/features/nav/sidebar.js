@@ -9,7 +9,6 @@ import { flash } from '../../components/shared/flash.js';
 import { loadMyInvites } from '../data/data-loading.js';
 import { renderWorkgroupSections } from './sidebar-workgroup.js';
 import { renderAgentSection } from './sidebar-agents.js';
-import { renderJobSection } from './sidebar-jobs.js';
 import { renderPartnerSection } from './sidebar-partnerships.js';
 import { renderEngagementSection } from './sidebar-engagements.js';
 import { renderProjectSection } from './sidebar-projects.js';
@@ -19,7 +18,6 @@ import { renderMemberSection } from './sidebar-members.js';
 const STORAGE_KEY = 'teaparty_sidebar_collapsed';
 
 let _store = null;
-let _drilledWorkgroupId = '';  // only set by explicit workgroup drill-in
 
 function loadCollapsed() {
   try {
@@ -71,12 +69,10 @@ export function initSidebar(store) {
     });
   }
 
-  // Info button — context-sensitive: workgroup settings when drilled-in, else org dashboard
+  // Info button — shows org dashboard
   document.getElementById('sidebar-info-btn')?.addEventListener('click', () => {
     const orgId = _store.get().nav.activeOrgId;
-    if (_drilledWorkgroupId) {
-      bus.emit('nav:workgroup-settings', { workgroupId: _drilledWorkgroupId, orgId });
-    } else if (orgId) {
+    if (orgId) {
       bus.emit('nav:org-settings', { orgId });
     }
   });
@@ -89,25 +85,12 @@ export function initSidebar(store) {
     }
   });
 
-  // Explicit workgroup drill-in
-  bus.on('nav:workgroup-selected', ({ workgroupId }) => {
-    _drilledWorkgroupId = workgroupId || '';
-    refreshSidebar();
-  });
-
-  // Drill-out when navigating to org or home
-  bus.on('nav:org-selected', () => {
-    _drilledWorkgroupId = '';
-    refreshSidebar();
-  });
-  bus.on('nav:home', () => {
-    _drilledWorkgroupId = '';
-    refreshSidebar();
-  });
+  // Re-render when navigating to org or home
+  bus.on('nav:org-selected', () => refreshSidebar());
+  bus.on('nav:home', () => refreshSidebar());
 
   // Re-render when org selection changes
   store.on('nav.activeOrgId', (s) => {
-    _drilledWorkgroupId = '';
     const searchInput = document.getElementById('sidebar-search');
     const filter = searchInput?.value.trim() || '';
     renderSidebar(s.nav.activeOrgId, filter);
@@ -145,25 +128,9 @@ function renderSidebar(orgId, filter) {
   const invites = s.data.invites || [];
   const hasOrgsOrInvites = orgs.length || invites.length;
   const isHome = !orgId && s.auth.user && hasOrgsOrInvites;
-  const activeWgId = _drilledWorkgroupId;
 
   if (orgNameEl) {
-    if (orgId && activeWgId) {
-      const org = orgs.find(o => o.id === orgId);
-      const wg = (s.data.workgroups || []).find(w => w.id === activeWgId);
-      const orgName = org?.name || 'Org';
-      const wgName = wg?.name || 'Workgroup';
-      orgNameEl.innerHTML = `<span id="sidebar-breadcrumb-org" class="sidebar-breadcrumb-link">${escapeHtml(orgName)}</span> <span class="sidebar-breadcrumb-sep">&rsaquo;</span> ${escapeHtml(wgName)}`;
-      // Wire up org breadcrumb click
-      document.getElementById('sidebar-breadcrumb-org')?.addEventListener('click', () => {
-        _drilledWorkgroupId = '';
-        _store.update(s => {
-          s.nav.activeWorkgroupId = '';
-          s.nav.activeConversationId = '';
-          s.nav.sidebarSelection = '';
-        });
-      });
-    } else if (orgId) {
+    if (orgId) {
       const org = orgs.find(o => o.id === orgId);
       const invite = invites.find(inv => inv.organization_id === orgId);
       orgNameEl.textContent = org?.name || invite?.organization_name || 'TeaParty';
@@ -175,11 +142,11 @@ function renderSidebar(orgId, filter) {
   // Hide info button on home view
   if (settingsBtn) settingsBtn.style.display = isHome ? 'none' : '';
 
-  // Show config gear only at org level (not home, not workgroup) and only for owner
+  // Show config gear only at org level (not home) and only for owner
   if (configBtn) {
     const org = orgId ? orgs.find(o => o.id === orgId) : null;
     const isOrgOwner = org?.owner_id === s.auth.user?.id;
-    configBtn.style.display = (orgId && !activeWgId && isOrgOwner) ? '' : 'none';
+    configBtn.style.display = (orgId && isOrgOwner) ? '' : 'none';
   }
 
   if (!s.auth.user || !hasOrgsOrInvites) {
@@ -193,9 +160,9 @@ function renderSidebar(orgId, filter) {
 
   // All possible sidebar sections
   const allSections = [
-    'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
-    'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
-    'sidebar-administration', 'sidebar-members',
+    'sidebar-organizations', 'sidebar-partners', 'sidebar-workgroups',
+    'sidebar-agents', 'sidebar-administration', 'sidebar-engagements',
+    'sidebar-projects', 'sidebar-members',
   ];
 
   // Pending invite: show accept/decline banner instead of sections
@@ -216,18 +183,17 @@ function renderSidebar(orgId, filter) {
   hideInviteBanner();
 
   // Determine which mode we're in and which sections to show
-  const isWorkgroup = !!(orgId && activeWgId);
   let visibleSections;
 
   if (isHome) {
     visibleSections = ['sidebar-organizations', 'sidebar-partners', 'sidebar-engagements'];
-  } else if (isWorkgroup) {
-    visibleSections = ['sidebar-agents', 'sidebar-jobs', 'sidebar-members'];
   } else if (orgId) {
     const org = orgs.find(o => o.id === orgId);
     const isOrgOwner = org?.owner_id === s.auth.user?.id;
-    visibleSections = [...(isOrgOwner ? ['sidebar-administration'] : []),
-      'sidebar-workgroups', 'sidebar-agents', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects', 'sidebar-members'];
+    visibleSections = [
+      'sidebar-partners', 'sidebar-workgroups', 'sidebar-agents',
+      ...(isOrgOwner ? ['sidebar-administration'] : []),
+      'sidebar-engagements', 'sidebar-projects', 'sidebar-members'];
   } else {
     clearContainers();
     return;
@@ -248,18 +214,6 @@ function renderSidebar(orgId, filter) {
     if (orgContainer) renderOrganizations(_store, orgContainer, filter);
     if (partnerContainer) renderAllPartnerships(_store, partnerContainer, filter);
     if (engContainer) renderAllEngagements(_store, engContainer, filter);
-    return;
-  }
-
-  if (isWorkgroup) {
-    // Workgroup mode: agents, jobs, members scoped to this workgroup
-    const agentContainer = document.getElementById('sidebar-agents-list');
-    const jobContainer = document.getElementById('sidebar-jobs-list');
-    const memberContainer = document.getElementById('sidebar-members-list');
-
-    if (agentContainer) renderAgentSection(_store, agentContainer, orgId, filter, activeWgId);
-    if (jobContainer) renderJobSection(_store, jobContainer, activeWgId, filter);
-    if (memberContainer) renderMemberSection(_store, memberContainer, orgId, filter, activeWgId);
     return;
   }
 
@@ -286,9 +240,9 @@ function showNoOrgsPlaceholder() {
 
   // Hide all section headers
   const allSections = [
-    'sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents',
-    'sidebar-jobs', 'sidebar-partners', 'sidebar-engagements', 'sidebar-projects',
-    'sidebar-administration', 'sidebar-members',
+    'sidebar-organizations', 'sidebar-partners', 'sidebar-workgroups',
+    'sidebar-agents', 'sidebar-administration', 'sidebar-engagements',
+    'sidebar-projects', 'sidebar-members',
   ];
   for (const id of allSections) {
     const el = document.getElementById(id);

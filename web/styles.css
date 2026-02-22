@@ -4294,6 +4294,192 @@ body[data-theme="dark"] .qs-result-item.selected {
 }
 
 /* ==========================================================================
+   22b. WORKGROUP PROFILE VIEW
+   Reuses org-cfg design system for cards, fields, toggles, actions.
+   Only adds wg-* classes for unique elements (agent roster, job list).
+   ========================================================================== */
+
+.workgroup-profile-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.workgroup-profile-content {
+  max-width: 900px;
+  width: 100%;
+  padding: 48px 24px 96px;
+}
+
+/* Select styling for org-cfg (shared with workgroup and org forms) */
+
+.org-cfg select {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 10px 12px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-bg);
+  color: var(--tp-ink);
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color var(--tp-duration-fast), box-shadow var(--tp-duration-fast);
+}
+
+.org-cfg select:focus {
+  outline: none;
+  border-color: var(--tp-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tp-primary) 15%, transparent);
+}
+
+/* Read-only key-value grid (non-owner view) */
+
+.wg-readonly-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+  padding: 4px 22px 18px;
+}
+
+.wg-readonly-kv {
+  font-size: 0.875rem;
+  color: var(--tp-ink);
+}
+
+.wg-readonly-key {
+  font-weight: 600;
+  color: var(--tp-ink-secondary);
+  margin-right: 6px;
+}
+
+/* Agent roster */
+
+.wg-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 22px;
+}
+
+.wg-agent-row {
+  display: flex;
+  align-items: center;
+  border-radius: var(--tp-radius-sm);
+  transition: background var(--tp-duration-base);
+}
+
+.wg-agent-row:hover {
+  background: var(--tp-surface-hover);
+}
+
+.wg-agent-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--tp-ink);
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.wg-agent-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--tp-radius-sm);
+  overflow: hidden;
+}
+
+.wg-agent-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wg-agent-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wg-agent-remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.125rem;
+  color: var(--tp-muted);
+  padding: 4px 10px;
+  border-radius: var(--tp-radius-sm);
+  opacity: 0;
+  transition: opacity var(--tp-duration-base), color var(--tp-duration-base);
+}
+
+.wg-agent-row:hover .wg-agent-remove {
+  opacity: 1;
+}
+
+.wg-agent-remove:hover {
+  color: var(--tp-danger);
+}
+
+.wg-add-agent {
+  margin: 4px 22px 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--tp-line-subtle);
+}
+
+.wg-add-agent select {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 10px 12px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-bg);
+  color: var(--tp-ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Conversation list */
+
+.wg-job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 22px;
+}
+
+.wg-job-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--tp-ink);
+  font-size: 0.875rem;
+  text-align: left;
+  border-radius: var(--tp-radius-sm);
+  transition: background var(--tp-duration-base);
+}
+
+.wg-job-link:hover {
+  background: var(--tp-surface-hover);
+}
+
+.wg-job-hash {
+  color: var(--tp-muted);
+  font-weight: 600;
+}
+
+/* ==========================================================================
    22c. AGENT CONFIG FORM (right panel file viewer, agent .json files)
    ========================================================================== */
 

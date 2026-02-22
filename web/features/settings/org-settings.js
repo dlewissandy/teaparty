@@ -35,13 +35,9 @@ function showOrgSettings(orgId) {
 }
 
 function showOrgSettingsView() {
-  const views = ['chat-view', 'home-view', 'org-dashboard-view', 'agent-profile-view', 'directory-view', 'create-project-form'];
-  for (const id of views) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  }
-  const settingsView = document.getElementById('org-settings-view');
-  if (settingsView) settingsView.classList.remove('hidden');
+  const views = ['chat-view', 'home-view', 'org-dashboard-view', 'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('org-settings-view')?.classList.remove('hidden');
 }
 
 function renderSettings(org) {

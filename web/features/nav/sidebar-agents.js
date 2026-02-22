@@ -1,18 +1,16 @@
 // Sidebar Agents section: agents for the active org or workgroup.
-// When scopeWgId is provided, shows all agents for that workgroup.
-// Otherwise shows org-level coordinator agents (from the Administration workgroup).
+// When scopeWgId is provided, shows agents for that workgroup only.
+// Otherwise shows all agents across all workgroups in the org.
 
 import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { generateBotSvg } from '../../components/shared/avatar.js';
 
-const ORG_AGENT_NAMES = new Set(['engagements-lead', 'projects-lead']);
-
 export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
   const s = store.get();
   const workgroups = scopeWgId
     ? (s.data.workgroups || []).filter(w => w.id === scopeWgId)
-    : (s.data.workgroups || []).filter(w => w.organization_id === orgId && w.name === 'Administration');
+    : (s.data.workgroups || []).filter(w => w.organization_id === orgId);
   const filterLower = (filter || '').toLowerCase();
   const selection = s.nav.sidebarSelection;
   const thinkingMap = s.conversation.thinkingByConversation || {};
@@ -22,8 +20,6 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
     const tree = s.data.treeData[wg.id];
     if (!tree) continue;
     for (const agent of (tree.agents || [])) {
-      // In workgroup mode show all agents; in org mode show only org-level coordinators
-      if (!scopeWgId && !ORG_AGENT_NAMES.has(agent.name)) continue;
       if (agentMap.has(agent.id)) continue;
 
       // Check if this agent is thinking

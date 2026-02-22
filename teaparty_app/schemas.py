@@ -275,6 +275,7 @@ class AgentUpdateRequest(BaseModel):
     memory: str | None = None
     background: bool | None = None
     isolation: bool | None = None
+    workgroup_id: str | None = None
 
 
 class AgentCloneRequest(BaseModel):

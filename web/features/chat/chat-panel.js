@@ -16,48 +16,21 @@ let _store = null;
 // ─── View switching ────────────────────────────────────────────────────────
 
 function showChatView() {
-  const chatView = document.getElementById('chat-view');
-  const homeView = document.getElementById('home-view');
-  const profileView = document.getElementById('agent-profile-view');
-  const directoryView = document.getElementById('directory-view');
-  const dashboardView = document.getElementById('org-dashboard-view');
-  const settingsView = document.getElementById('org-settings-view');
-  if (chatView) chatView.classList.remove('hidden');
-  if (homeView) homeView.classList.add('hidden');
-  if (profileView) profileView.classList.add('hidden');
-  if (directoryView) directoryView.classList.add('hidden');
-  if (dashboardView) dashboardView.classList.add('hidden');
-  if (settingsView) settingsView.classList.add('hidden');
+  const views = ['home-view', 'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('chat-view')?.classList.remove('hidden');
 }
 
 function showHomeView() {
-  const chatView = document.getElementById('chat-view');
-  const homeView = document.getElementById('home-view');
-  const profileView = document.getElementById('agent-profile-view');
-  const directoryView = document.getElementById('directory-view');
-  const dashboardView = document.getElementById('org-dashboard-view');
-  const settingsView = document.getElementById('org-settings-view');
-  if (chatView) chatView.classList.add('hidden');
-  if (homeView) homeView.classList.remove('hidden');
-  if (profileView) profileView.classList.add('hidden');
-  if (directoryView) directoryView.classList.add('hidden');
-  if (dashboardView) dashboardView.classList.add('hidden');
-  if (settingsView) settingsView.classList.add('hidden');
+  const views = ['chat-view', 'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('home-view')?.classList.remove('hidden');
 }
 
 export function showOrgDashboardView() {
-  const chatView = document.getElementById('chat-view');
-  const homeView = document.getElementById('home-view');
-  const profileView = document.getElementById('agent-profile-view');
-  const directoryView = document.getElementById('directory-view');
-  const dashboardView = document.getElementById('org-dashboard-view');
-  const settingsView = document.getElementById('org-settings-view');
-  if (chatView) chatView.classList.add('hidden');
-  if (homeView) homeView.classList.add('hidden');
-  if (profileView) profileView.classList.add('hidden');
-  if (directoryView) directoryView.classList.add('hidden');
-  if (dashboardView) dashboardView.classList.remove('hidden');
-  if (settingsView) settingsView.classList.add('hidden');
+  const views = ['chat-view', 'home-view', 'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'org-settings-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('org-dashboard-view')?.classList.remove('hidden');
 }
 
 // ─── Conversation loading ──────────────────────────────────────────────────

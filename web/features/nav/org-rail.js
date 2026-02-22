@@ -92,10 +92,7 @@ async function handleAddAction(action) {
     case 'new-project':
       if (orgId) bus.emit('nav:create-project', { orgId });
       break;
-    case 'new-partner':
-      bus.emit('nav:create-partner', { orgId });
-      break;
-    case 'new-engagement':
+case 'new-engagement':
       bus.emit('nav:create-engagement', { orgId });
       break;
   }

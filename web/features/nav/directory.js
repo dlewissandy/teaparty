@@ -117,17 +117,9 @@ async function fetchData() {
 }
 
 async function showDirectoryView() {
-  const directoryView = document.getElementById('directory-view');
-  const chatView = document.getElementById('chat-view');
-  const homeView = document.getElementById('home-view');
-  const profileView = document.getElementById('agent-profile-view');
-  const settingsOrgView = document.getElementById('org-settings-view');
-
-  if (directoryView) directoryView.classList.remove('hidden');
-  if (chatView) chatView.classList.add('hidden');
-  if (homeView) homeView.classList.add('hidden');
-  if (profileView) profileView.classList.add('hidden');
-  if (settingsOrgView) settingsOrgView.classList.add('hidden');
+  const views = ['chat-view', 'home-view', 'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('directory-view')?.classList.remove('hidden');
   const input = document.getElementById('directory-input');
   if (input) {
     input.value = '';

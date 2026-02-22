@@ -18,13 +18,14 @@ import { initUserMenu } from './features/auth/user-menu.js';
 
 import { initOrgRail } from './features/nav/org-rail.js';
 import { initSidebar } from './features/nav/sidebar.js';
-import { initWorkgroupSettings } from './features/nav/sidebar-workgroup.js';
 import { initOrgSettings } from './features/settings/org-settings.js';
 import { initQuickSwitcher } from './features/nav/quick-switcher.js';
 import { initDirectory } from './features/nav/directory.js';
 
 import { initChatPanel } from './features/chat/chat-panel.js';
 import { initAgentProfile } from './features/agents/agent-profile.js';
+import { initPartnerProfile } from './features/partnerships/partner-profile.js';
+import { initWorkgroupProfile } from './features/workgroups/workgroup-profile.js';
 
 import { initRightPanel } from './features/files/right-panel.js';
 
@@ -136,12 +137,13 @@ async function init() {
   initUserMenu(store);
   initOrgRail(store);
   initSidebar(store);
-  initWorkgroupSettings(store);
   initOrgSettings(store);
   initQuickSwitcher(store);
   initDirectory(store);
   initChatPanel(store);
   initAgentProfile(store);
+  initPartnerProfile(store);
+  initWorkgroupProfile(store);
   initRightPanel(store);
   initSettings(store);
   initNotifications(store);
@@ -176,17 +178,6 @@ async function init() {
   // Wire up nav conversation selection
   bus.on('nav:conversation-selected', async ({ workgroupId, conversationId }) => {
     await selectConversation(workgroupId, conversationId);
-  });
-
-  // Wire up workgroup selection — navigate to first job conversation
-  bus.on('nav:workgroup-selected', async ({ workgroupId }) => {
-    const s = store.get();
-    const tree = s.data.treeData[workgroupId];
-    if (!tree) return;
-    const jobs = tree.jobs || [];
-    if (jobs.length) {
-      await selectConversation(workgroupId, jobs[0].id);
-    }
   });
 
   // Wire up right panel toggles from chat header

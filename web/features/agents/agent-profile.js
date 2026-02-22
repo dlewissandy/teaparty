@@ -10,18 +10,9 @@ let _currentAgentId = '';
 let _currentWorkgroupId = '';
 
 function showAgentProfile() {
-  const profileView = document.getElementById('agent-profile-view');
-  const chatView = document.getElementById('chat-view');
-  const homeView = document.getElementById('home-view');
-  const directoryView = document.getElementById('directory-view');
-  const dashboardView = document.getElementById('org-dashboard-view');
-  const settingsView = document.getElementById('org-settings-view');
-  if (profileView) profileView.classList.remove('hidden');
-  if (chatView) chatView.classList.add('hidden');
-  if (homeView) homeView.classList.add('hidden');
-  if (directoryView) directoryView.classList.add('hidden');
-  if (dashboardView) dashboardView.classList.add('hidden');
-  if (settingsView) settingsView.classList.add('hidden');
+  const views = ['chat-view', 'home-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form'];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('agent-profile-view')?.classList.remove('hidden');
 
   // Close the right panel so the profile gets the full content width
   if (_store) {

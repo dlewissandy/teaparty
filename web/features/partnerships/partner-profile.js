@@ -14,20 +14,11 @@ let _currentPartnerOrgId = '';
 
 function showPartnerProfile() {
   const views = [
-    'chat-view',
-    'home-view',
-    'agent-profile-view',
-    'directory-view',
-    'org-dashboard-view',
-    'org-settings-view',
-    'create-project-form',
+    'chat-view', 'home-view', 'agent-profile-view', 'workgroup-profile-view',
+    'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form',
   ];
-  for (const id of views) {
-    const el = document.getElementById(id);
-    if (el) el.classList.add('hidden');
-  }
-  const profileView = document.getElementById('partner-profile-view');
-  if (profileView) profileView.classList.remove('hidden');
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('partner-profile-view')?.classList.remove('hidden');
 
   if (_store) {
     const s = _store.get();

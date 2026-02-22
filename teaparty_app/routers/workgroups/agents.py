@@ -95,6 +95,20 @@ def update_agent(
     if not agent or agent.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
+    old_workgroup_id: str | None = None
+    if payload.workgroup_id is not None and payload.workgroup_id != workgroup_id:
+        if agent.is_lead:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot move the lead agent to another workgroup")
+        require_workgroup_owner(session, payload.workgroup_id, user.id)
+        source_workgroup = session.get(Workgroup, workgroup_id)
+        target_workgroup = session.get(Workgroup, payload.workgroup_id)
+        if not target_workgroup:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target workgroup not found")
+        if source_workgroup and source_workgroup.organization_id != target_workgroup.organization_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot move agent across organizations")
+        old_workgroup_id = workgroup_id
+        agent.workgroup_id = payload.workgroup_id
+
     if payload.tools is not None:
         agent.tools = payload.tools
 
@@ -131,9 +145,11 @@ def update_agent(
         agent.isolation = payload.isolation
 
     session.add(agent)
-    post_activity(session, workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
+    post_activity(session, agent.workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
     session.commit()
     publish_sync_event(session, "workgroup", agent.workgroup_id, "sync:agents_changed", {"workgroup_id": agent.workgroup_id})
+    if old_workgroup_id is not None:
+        publish_sync_event(session, "workgroup", old_workgroup_id, "sync:agents_changed", {"workgroup_id": old_workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(agent)
     return AgentRead.model_validate(agent)

@@ -1,0 +1,422 @@
+// Workgroup configuration view: inline form for configuring a Claude multiagent team.
+// Renders inside #workgroup-profile-view in main-content, following the org-cfg design system.
+
+import { bus } from '../../core/bus.js';
+import { api } from '../../core/api.js';
+import { escapeHtml, jobDisplayName } from '../../core/utils.js';
+import { flash } from '../../components/shared/flash.js';
+import { avatarColor, initialsFromName, generateBotSvg } from '../../components/shared/avatar.js';
+
+let _store = null;
+let _currentWorkgroupId = '';
+
+const MODEL_OPTIONS = [
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+  { value: 'opus', label: 'Opus' },
+];
+
+const PERMISSION_OPTIONS = [
+  { value: 'acceptEdits', label: 'Accept Edits' },
+  { value: 'plan', label: 'Plan (approval required)' },
+  { value: 'bypassPermissions', label: 'Bypass Permissions' },
+];
+
+function showView() {
+  const views = [
+    'chat-view', 'home-view', 'agent-profile-view', 'partner-profile-view',
+    'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form',
+  ];
+  for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
+  document.getElementById('workgroup-profile-view')?.classList.remove('hidden');
+}
+
+function hideView() {
+  document.getElementById('workgroup-profile-view')?.classList.add('hidden');
+  _currentWorkgroupId = '';
+}
+
+export function initWorkgroupProfile(store) {
+  _store = store;
+
+  bus.on('nav:workgroup-profile', ({ workgroupId }) => {
+    _currentWorkgroupId = workgroupId;
+    store.update(s => { s.nav.activeConversationId = ''; });
+    store.notify('nav.activeConversationId');
+    showView();
+    render(workgroupId);
+  });
+
+  bus.on('nav:org-selected', () => hideView());
+  bus.on('nav:home', () => hideView());
+
+  // Re-render when data changes (agents may have moved)
+  store.on('data.treeData', () => {
+    if (_currentWorkgroupId) render(_currentWorkgroupId);
+  });
+}
+
+function getOrgAgents(s, orgId) {
+  const agents = [];
+  const seen = new Set();
+  for (const wg of (s.data.workgroups || []).filter(w => w.organization_id === orgId)) {
+    const tree = s.data.treeData[wg.id];
+    if (!tree) continue;
+    for (const agent of (tree.agents || [])) {
+      if (seen.has(agent.id)) continue;
+      seen.add(agent.id);
+      agents.push({ ...agent, workgroup_id: wg.id, workgroup_name: wg.name });
+    }
+  }
+  return agents;
+}
+
+function selectOptions(options, currentValue) {
+  return options.map(o =>
+    `<option value="${o.value}"${o.value === currentValue ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+  ).join('');
+}
+
+function render(workgroupId) {
+  const s = _store.get();
+  const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
+  if (!wg) return;
+
+  const container = document.getElementById('workgroup-profile-content');
+  if (!container) return;
+
+  const org = (s.data.organizations || []).find(o => o.id === wg.organization_id);
+  const isOwner = org?.owner_id === s.auth.user?.id;
+  const tree = s.data.treeData[workgroupId];
+  const agents = tree?.agents || [];
+  const jobs = tree?.jobs || [];
+  const color = avatarColor(wg.name);
+  const initials = initialsFromName(wg.name);
+
+  const model = wg.team_model || 'sonnet';
+  const permMode = wg.team_permission_mode || 'acceptEdits';
+  const maxTurns = wg.team_max_turns ?? 30;
+  const maxCost = wg.team_max_cost_usd ?? '';
+  const maxTime = wg.team_max_time_seconds ?? '';
+  const workspaceEnabled = wg.workspace_enabled !== false;
+
+  // Agents in other workgroups (for add picker)
+  const allOrgAgents = wg.organization_id ? getOrgAgents(s, wg.organization_id) : [];
+  const otherAgents = allOrgAgents.filter(a => a.workgroup_id !== workgroupId && !a.is_lead);
+
+  // Build agent roster HTML
+  let agentRosterHtml = '';
+  if (agents.length) {
+    agentRosterHtml = '<div class="wg-agent-list">';
+    for (const agent of agents) {
+      const svg = generateBotSvg(agent.name);
+      const removable = isOwner && !agent.is_lead;
+      agentRosterHtml += `
+        <div class="wg-agent-row">
+          <button type="button" class="wg-agent-link" data-action="view-agent" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">
+            <span class="wg-agent-avatar">${svg}</span>
+            <span class="wg-agent-name">${escapeHtml(agent.name)}</span>
+          </button>
+          ${removable ? `<button type="button" class="wg-agent-remove" data-action="remove-agent" data-agent-id="${escapeHtml(agent.id)}" title="Remove from team">&times;</button>` : ''}
+        </div>`;
+    }
+    agentRosterHtml += '</div>';
+  } else {
+    agentRosterHtml = '<p class="org-cfg-card-desc" style="margin:0">No agents assigned to this team yet.</p>';
+  }
+
+  if (isOwner && otherAgents.length) {
+    agentRosterHtml += `
+      <div class="wg-add-agent">
+        <select id="wg-agent-picker">
+          <option value="">Add agent to team...</option>
+          ${otherAgents.map(a => `<option value="${escapeHtml(a.id)}" data-wg-id="${escapeHtml(a.workgroup_id)}">${escapeHtml(a.name)} (${escapeHtml(a.workgroup_name)})</option>`).join('')}
+        </select>
+      </div>`;
+  }
+
+  // Build jobs HTML
+  let jobsHtml = '';
+  if (jobs.length) {
+    jobsHtml = `
+      <div class="org-cfg-card">
+        <div class="org-cfg-card-header">
+          <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 8h6M7 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          <h4 class="org-cfg-card-title">Conversations</h4>
+        </div>
+        <div class="wg-job-list">`;
+    for (const job of jobs) {
+      const name = jobDisplayName(job);
+      jobsHtml += `
+          <button type="button" class="wg-job-link" data-action="open-job" data-conversation-id="${escapeHtml(job.id)}">
+            <span class="wg-job-hash">#</span>
+            <span>${escapeHtml(name)}</span>
+          </button>`;
+    }
+    jobsHtml += `
+        </div>
+      </div>`;
+  }
+
+  // Owner gets an editable form; non-owners see read-only
+  if (isOwner) {
+    container.innerHTML = `
+      <form id="wg-config-form" class="org-cfg">
+
+        <div class="org-cfg-hero">
+          <span class="org-cfg-avatar-initials" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span>
+          <div class="org-cfg-hero-text">
+            <h3 class="org-cfg-name">${escapeHtml(wg.name)}</h3>
+            <p class="org-cfg-meta">Agent Team Configuration</p>
+          </div>
+        </div>
+
+        <!-- Team Model -->
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <h4 class="org-cfg-card-title">Model &amp; Permissions</h4>
+          </div>
+
+          <div class="org-cfg-billing-grid">
+            <label class="org-cfg-field">
+              <span class="org-cfg-label">Model</span>
+              <select name="team_model">${selectOptions(MODEL_OPTIONS, model)}</select>
+            </label>
+            <label class="org-cfg-field">
+              <span class="org-cfg-label">Permission Mode</span>
+              <select name="team_permission_mode">${selectOptions(PERMISSION_OPTIONS, permMode)}</select>
+            </label>
+          </div>
+        </div>
+
+        <!-- Limits -->
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><path d="M10 3v7l4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.3"/></svg>
+            <h4 class="org-cfg-card-title">Limits</h4>
+          </div>
+          <p class="org-cfg-card-desc">Safety limits for agent team sessions.</p>
+
+          <div class="org-cfg-billing-grid" style="grid-template-columns: 1fr 1fr 1fr">
+            <label class="org-cfg-field">
+              <span class="org-cfg-label">Max Turns</span>
+              <div class="org-cfg-input-with-unit">
+                <input type="number" name="team_max_turns" value="${maxTurns}" min="1" max="500" />
+                <span class="org-cfg-input-unit">turns</span>
+              </div>
+            </label>
+            <label class="org-cfg-field">
+              <span class="org-cfg-label">Max Cost</span>
+              <div class="org-cfg-input-with-unit">
+                <input type="number" name="team_max_cost_usd" value="${escapeHtml(String(maxCost))}" min="0" step="0.01" placeholder="No limit" />
+                <span class="org-cfg-input-unit">USD</span>
+              </div>
+            </label>
+            <label class="org-cfg-field">
+              <span class="org-cfg-label">Max Time</span>
+              <div class="org-cfg-input-with-unit">
+                <input type="number" name="team_max_time_seconds" value="${escapeHtml(String(maxTime))}" min="0" step="1" placeholder="No limit" />
+                <span class="org-cfg-input-unit">sec</span>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <!-- Workspace -->
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><path d="M3 5a2 2 0 012-2h3l2 2h5a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V5z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>
+            <h4 class="org-cfg-card-title">Workspace</h4>
+          </div>
+
+          <div class="org-cfg-toggle-row">
+            <div>
+              <span class="org-cfg-toggle-label">Shared file workspace</span>
+              <span class="org-cfg-toggle-hint">Agents in this team share a file workspace for collaboration</span>
+            </div>
+            <label class="org-cfg-toggle">
+              <input type="checkbox" name="workspace_enabled" ${workspaceEnabled ? 'checked' : ''} />
+              <span class="org-cfg-toggle-track"></span>
+              <span class="org-cfg-toggle-thumb"></span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Agents -->
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><rect x="4" y="5" width="12" height="11" rx="3" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="10" r="1.2" fill="currentColor"/><circle cx="12" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 13.5q1.5 1 3 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="10" y1="5" x2="10" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="2" r="1" fill="currentColor"/></svg>
+            <h4 class="org-cfg-card-title">Agents</h4>
+          </div>
+          ${agentRosterHtml}
+        </div>
+
+        ${jobsHtml}
+
+        <!-- Actions -->
+        <div class="org-cfg-actions">
+          <button type="button" class="btn btn-ghost" id="wg-config-cancel">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="wg-config-save">Save Changes</button>
+        </div>
+      </form>
+    `;
+  } else {
+    // Read-only view for non-owners
+    const modelLabel = MODEL_OPTIONS.find(o => o.value === model)?.label || model;
+    const permLabel = PERMISSION_OPTIONS.find(o => o.value === permMode)?.label || permMode;
+
+    container.innerHTML = `
+      <div class="org-cfg">
+
+        <div class="org-cfg-hero">
+          <span class="org-cfg-avatar-initials" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span>
+          <div class="org-cfg-hero-text">
+            <h3 class="org-cfg-name">${escapeHtml(wg.name)}</h3>
+            <p class="org-cfg-meta">Agent Team</p>
+          </div>
+        </div>
+
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+            <h4 class="org-cfg-card-title">Configuration</h4>
+          </div>
+          <div class="wg-readonly-grid">
+            <span class="wg-readonly-kv"><span class="wg-readonly-key">Model</span>${escapeHtml(modelLabel)}</span>
+            <span class="wg-readonly-kv"><span class="wg-readonly-key">Permissions</span>${escapeHtml(permLabel)}</span>
+            <span class="wg-readonly-kv"><span class="wg-readonly-key">Max Turns</span>${maxTurns}</span>
+            ${maxCost ? `<span class="wg-readonly-kv"><span class="wg-readonly-key">Max Cost</span>$${escapeHtml(String(maxCost))}</span>` : ''}
+            ${maxTime ? `<span class="wg-readonly-kv"><span class="wg-readonly-key">Max Time</span>${escapeHtml(String(maxTime))}s</span>` : ''}
+            <span class="wg-readonly-kv"><span class="wg-readonly-key">Workspace</span>${workspaceEnabled ? 'Enabled' : 'Disabled'}</span>
+          </div>
+        </div>
+
+        <div class="org-cfg-card">
+          <div class="org-cfg-card-header">
+            <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><rect x="4" y="5" width="12" height="11" rx="3" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="10" r="1.2" fill="currentColor"/><circle cx="12" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 13.5q1.5 1 3 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="10" y1="5" x2="10" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="2" r="1" fill="currentColor"/></svg>
+            <h4 class="org-cfg-card-title">Agents</h4>
+          </div>
+          ${agentRosterHtml}
+        </div>
+
+        ${jobsHtml}
+      </div>
+    `;
+  }
+
+  wireEvents(workgroupId);
+}
+
+function wireEvents(workgroupId) {
+  const root = document.getElementById('workgroup-profile-content');
+
+  // Config form save
+  const form = document.getElementById('wg-config-form');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('wg-config-save');
+    if (btn) { btn.disabled = true; btn.textContent = 'Saving...'; }
+
+    const fd = new FormData(form);
+    const body = {
+      team_model: fd.get('team_model'),
+      team_permission_mode: fd.get('team_permission_mode'),
+      team_max_turns: parseInt(fd.get('team_max_turns'), 10) || 30,
+      workspace_enabled: fd.has('workspace_enabled'),
+    };
+    const costVal = fd.get('team_max_cost_usd');
+    body.team_max_cost_usd = costVal ? parseFloat(costVal) : null;
+    const timeVal = fd.get('team_max_time_seconds');
+    body.team_max_time_seconds = timeVal ? parseInt(timeVal, 10) : null;
+
+    try {
+      await api(`/api/workgroups/${workgroupId}`, { method: 'PATCH', body });
+      flash('Configuration saved', 'success');
+      bus.emit('data:refresh');
+    } catch (err) {
+      flash(err.message || 'Failed to save', 'error');
+    }
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+  });
+
+  // Cancel
+  document.getElementById('wg-config-cancel')?.addEventListener('click', () => {
+    const s = _store.get();
+    const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
+    if (wg) {
+      bus.emit('nav:org-selected', { orgId: wg.organization_id });
+    } else {
+      bus.emit('nav:home');
+    }
+  });
+
+  // View agent profile
+  root?.querySelectorAll('[data-action="view-agent"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _store.update(s => { s.nav.sidebarSelection = `agent:${btn.dataset.agentId}`; });
+      bus.emit('nav:agent-selected', {
+        agentId: btn.dataset.agentId,
+        workgroupId: btn.dataset.workgroupId,
+      });
+    });
+  });
+
+  // Remove agent from workgroup (move to Administration)
+  root?.querySelectorAll('[data-action="remove-agent"]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const agentId = btn.dataset.agentId;
+      const s = _store.get();
+      const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
+      if (!wg) return;
+      const adminWg = (s.data.workgroups || []).find(
+        w => w.organization_id === wg.organization_id && w.name === 'Administration'
+      );
+      if (!adminWg) { flash('No Administration workgroup found', 'error'); return; }
+
+      try {
+        await api(`/api/workgroups/${workgroupId}/agents/${agentId}`, {
+          method: 'PATCH',
+          body: { workgroup_id: adminWg.id },
+        });
+        flash('Agent removed from team', 'success');
+        bus.emit('data:refresh');
+      } catch (err) {
+        flash(err.message || 'Failed to remove agent', 'error');
+      }
+    });
+  });
+
+  // Add agent from picker
+  const picker = document.getElementById('wg-agent-picker');
+  picker?.addEventListener('change', async () => {
+    const agentId = picker.value;
+    if (!agentId) return;
+    const option = picker.selectedOptions[0];
+    const sourceWgId = option?.dataset.wgId;
+    if (!sourceWgId) return;
+
+    picker.disabled = true;
+    try {
+      await api(`/api/workgroups/${sourceWgId}/agents/${agentId}`, {
+        method: 'PATCH',
+        body: { workgroup_id: workgroupId },
+      });
+      flash('Agent added to team', 'success');
+      bus.emit('data:refresh');
+    } catch (err) {
+      flash(err.message || 'Failed to add agent', 'error');
+    }
+    picker.disabled = false;
+    picker.value = '';
+  });
+
+  // Open job conversation
+  root?.querySelectorAll('[data-action="open-job"]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const conversationId = btn.dataset.conversationId;
+      _store.update(s => { s.nav.sidebarSelection = `job:${conversationId}`; });
+      bus.emit('nav:conversation-selected', { workgroupId, conversationId });
+    });
+  });
+}
