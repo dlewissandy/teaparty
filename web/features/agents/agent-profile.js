@@ -1,10 +1,9 @@
 // Agent profile view: displays agent details in the main content area.
-// Listens for nav:agent-selected, renders a read-only profile with a Chat button.
+// Listens for nav:agent-selected, renders a read-only profile.
 
 import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { generateBotSvg } from '../../components/shared/avatar.js';
-import { openAgentConversation } from '../data/data-loading.js';
 
 let _store = null;
 let _currentAgentId = '';
@@ -34,13 +33,33 @@ function showAgentProfile() {
   }
 }
 
+/** SVG icons for card headers (matches the edit form). */
+const CARD_ICONS = {
+  prompt: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 8h6M7 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
+  config: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
+  tools: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M4 16l3.5-3.5M13.5 3a2.5 2.5 0 010 5H11L8.5 5.5A2.5 2.5 0 0113.5 3z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 4l4 4-4.5 4.5a1.5 1.5 0 002 2L10 10l4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  hooks: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M10 3v7l4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.3"/></svg>',
+};
+
+function cardHeader(title, iconKey) {
+  return `<div class="agent-profile-card-header"><span class="agent-profile-card-icon">${CARD_ICONS[iconKey] || ''}</span><h4 class="agent-profile-card-title">${escapeHtml(title)}</h4></div>`;
+}
+
+/** Human-friendly labels for select-style values. */
+const MODEL_LABELS = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
+const PERM_LABELS = { default: 'Default', acceptEdits: 'Accept Edits', dontAsk: "Don't Ask", plan: 'Plan' };
+
 function renderProfile(agent) {
   const avatarEl = document.getElementById('agent-profile-avatar');
   const nameEl = document.getElementById('agent-profile-name');
   const subtitleEl = document.getElementById('agent-profile-role');
   const bodyEl = document.getElementById('agent-profile-body');
 
-  if (avatarEl) avatarEl.innerHTML = generateBotSvg(agent.name);
+  if (avatarEl) {
+    avatarEl.innerHTML = agent.image
+      ? `<img src="${escapeHtml(agent.image)}" alt="" class="agent-profile-avatar-img" />`
+      : generateBotSvg(agent.name);
+  }
   if (nameEl) nameEl.textContent = agent.name;
   if (subtitleEl) subtitleEl.textContent = agent.description || '';
 
@@ -48,29 +67,33 @@ function renderProfile(agent) {
 
   let html = '';
 
+  // Prompt
   if (agent.prompt) {
     html += `
       <div class="agent-profile-card">
-        <h4 class="agent-profile-card-title">Prompt</h4>
-        <p class="agent-profile-text">${escapeHtml(agent.prompt)}</p>
+        ${cardHeader('Prompt', 'prompt')}
+        <div class="agent-profile-card-body">
+          <p class="agent-profile-text">${escapeHtml(agent.prompt)}</p>
+        </div>
       </div>`;
   }
 
   // Configuration
-  const configParts = [];
-  if (agent.model) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Model</span> ${escapeHtml(agent.model)}</span>`);
-  if (agent.permission_mode && agent.permission_mode !== 'default') configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Permissions</span> ${escapeHtml(agent.permission_mode)}</span>`);
-  if (agent.memory) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Memory</span> ${escapeHtml(agent.memory)}</span>`);
-  if (agent.background) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Background</span> yes</span>`);
-  if (agent.isolation === false) configParts.push(`<span class="agent-profile-kv"><span class="agent-profile-key">Isolation</span> off</span>`);
-
-  if (configParts.length) {
-    html += `
-      <div class="agent-profile-card">
-        <h4 class="agent-profile-card-title">Configuration</h4>
-        <div class="agent-profile-kvs">${configParts.join('')}</div>
-      </div>`;
-  }
+  const model = agent.model || 'sonnet';
+  const perm = agent.permission_mode || 'default';
+  html += `
+    <div class="agent-profile-card">
+      ${cardHeader('Configuration', 'config')}
+      <div class="agent-profile-card-body">
+        <div class="agent-profile-kvs">
+          <span class="agent-profile-kv"><span class="agent-profile-key">Model</span> ${escapeHtml(MODEL_LABELS[model] || model)}</span>
+          <span class="agent-profile-kv"><span class="agent-profile-key">Permissions</span> ${escapeHtml(PERM_LABELS[perm] || perm)}</span>
+          ${agent.memory ? `<span class="agent-profile-kv"><span class="agent-profile-key">Memory</span> ${escapeHtml(agent.memory)}</span>` : ''}
+          <span class="agent-profile-kv"><span class="agent-profile-key">Background</span> ${agent.background ? 'on' : 'off'}</span>
+          <span class="agent-profile-kv"><span class="agent-profile-key">Isolation</span> ${agent.isolation === false ? 'off' : 'on'}</span>
+        </div>
+      </div>
+    </div>`;
 
   // Tools
   const tools = agent.tools || [];
@@ -78,8 +101,22 @@ function renderProfile(agent) {
     const chips = tools.map(t => `<span class="tool-chip">${escapeHtml(t)}</span>`).join('');
     html += `
       <div class="agent-profile-card">
-        <h4 class="agent-profile-card-title">Tools</h4>
-        <div class="tool-chip-list">${chips}</div>
+        ${cardHeader('Tools', 'tools')}
+        <div class="agent-profile-card-body">
+          <div class="tool-chip-list">${chips}</div>
+        </div>
+      </div>`;
+  }
+
+  // Hooks
+  const hooks = agent.hooks;
+  if (hooks && typeof hooks === 'object' && Object.keys(hooks).length) {
+    html += `
+      <div class="agent-profile-card">
+        ${cardHeader('Hooks', 'hooks')}
+        <div class="agent-profile-card-body">
+          <pre class="agent-profile-text agent-profile-hooks-pre">${escapeHtml(JSON.stringify(hooks, null, 2))}</pre>
+        </div>
       </div>`;
   }
 
@@ -121,16 +158,4 @@ export function initAgentProfile(store) {
     showAgentProfile();
   });
 
-  const chatBtn = document.getElementById('agent-profile-chat-btn');
-  if (chatBtn) {
-    chatBtn.addEventListener('click', async () => {
-      if (!_currentAgentId || !_currentWorkgroupId) return;
-      chatBtn.disabled = true;
-      try {
-        await openAgentConversation(_currentWorkgroupId, _currentAgentId);
-      } finally {
-        chatBtn.disabled = false;
-      }
-    });
-  }
 }
