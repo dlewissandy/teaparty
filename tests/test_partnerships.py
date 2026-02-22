@@ -9,8 +9,19 @@ import unittest
 from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
 
-from teaparty_app.models import Organization, Partnership, User, utc_now
+from teaparty_app.models import (
+    Engagement,
+    Organization,
+    OrgMembership,
+    Partnership,
+    PaymentTransaction,
+    User,
+    Workgroup,
+    utc_now,
+)
 from teaparty_app.routers.partnerships import (
+    get_partner_engagements,
+    get_partner_transactions,
     list_partnerships,
     propose_partnership,
     revoke_partnership,
@@ -451,6 +462,270 @@ class PartnershipMessageTests(unittest.TestCase):
             session.refresh(p)
 
         self.assertEqual(p.message, "")
+
+
+def _make_workgroup(
+    session: Session,
+    wg_id: str,
+    owner_id: str,
+    org_id: str,
+    name: str = "Test WG",
+) -> Workgroup:
+    wg = Workgroup(id=wg_id, name=name, owner_id=owner_id, organization_id=org_id)
+    session.add(wg)
+    session.flush()
+    return wg
+
+
+def _make_engagement(
+    session: Session,
+    source_wg_id: str,
+    target_wg_id: str,
+    proposed_by: str,
+    title: str = "Test Engagement",
+    status: str = "proposed",
+    review_rating: str | None = None,
+    agreed_price_credits: float | None = None,
+    payment_status: str = "none",
+) -> Engagement:
+    eng = Engagement(
+        source_workgroup_id=source_wg_id,
+        target_workgroup_id=target_wg_id,
+        proposed_by_user_id=proposed_by,
+        title=title,
+        status=status,
+        review_rating=review_rating,
+        agreed_price_credits=agreed_price_credits,
+        payment_status=payment_status,
+    )
+    session.add(eng)
+    session.flush()
+    return eng
+
+
+def _make_transaction(
+    session: Session,
+    organization_id: str,
+    counterparty_org_id: str,
+    transaction_type: str = "escrow",
+    amount_credits: float = -100.0,
+    description: str = "",
+    engagement_id: str | None = None,
+) -> PaymentTransaction:
+    txn = PaymentTransaction(
+        organization_id=organization_id,
+        counterparty_org_id=counterparty_org_id,
+        transaction_type=transaction_type,
+        amount_credits=amount_credits,
+        description=description,
+        engagement_id=engagement_id,
+    )
+    session.add(txn)
+    session.flush()
+    return txn
+
+
+def _make_membership(session: Session, org_id: str, user_id: str) -> OrgMembership:
+    m = OrgMembership(organization_id=org_id, user_id=user_id, role="member")
+    session.add(m)
+    session.flush()
+    return m
+
+
+class PartnerTransactionsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = _make_engine()
+        with Session(self.engine) as session:
+            _make_user(session, "u-src", "src@example.com", "Source Owner")
+            _make_user(session, "u-tgt", "tgt@example.com", "Target Owner")
+            _make_user(session, "u-member", "member@example.com", "Member")
+            _make_user(session, "u-other", "other@example.com", "Outsider")
+            _make_org(session, "org-src", "u-src", "Source Org")
+            _make_org(session, "org-tgt", "u-tgt", "Target Org")
+            _make_org(session, "org-other", "u-other", "Other Org")
+            _make_partnership(session, "org-src", "org-tgt", "u-src", status="accepted")
+            session.commit()
+
+    def test_returns_transactions_with_partner(self) -> None:
+        with Session(self.engine) as session:
+            t1 = _make_transaction(session, "org-src", "org-tgt", "escrow", -50.0, "Escrow for job")
+            t2 = _make_transaction(session, "org-src", "org-tgt", "release", 30.0, "Released")
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            results = get_partner_transactions(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(len(results), 2)
+        # Ordered by created_at DESC — most recent first
+        self.assertEqual(results[0].description, "Released")
+        self.assertEqual(results[1].description, "Escrow for job")
+
+    def test_excludes_transactions_with_other_orgs(self) -> None:
+        with Session(self.engine) as session:
+            _make_transaction(session, "org-src", "org-tgt", "escrow", -50.0, "With partner")
+            _make_transaction(session, "org-src", "org-other", "escrow", -25.0, "With other")
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            results = get_partner_transactions(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].description, "With partner")
+
+    def test_requires_accepted_partnership(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-other")
+            with self.assertRaises(HTTPException) as ctx:
+                get_partner_transactions(org_id="org-tgt", session=session, user=user)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_partner_org_not_found(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            with self.assertRaises(HTTPException) as ctx:
+                get_partner_transactions(org_id="org-nonexistent", session=session, user=user)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_empty_when_no_transactions(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            results = get_partner_transactions(org_id="org-tgt", session=session, user=user)
+        self.assertEqual(len(results), 0)
+
+    def test_member_can_access_via_membership(self) -> None:
+        with Session(self.engine) as session:
+            _make_membership(session, "org-src", "u-member")
+            _make_transaction(session, "org-src", "org-tgt", "escrow", -100.0, "Member visible")
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-member")
+            results = get_partner_transactions(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].description, "Member visible")
+
+
+class PartnerEngagementsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.engine = _make_engine()
+        with Session(self.engine) as session:
+            _make_user(session, "u-src", "src@example.com", "Source Owner")
+            _make_user(session, "u-tgt", "tgt@example.com", "Target Owner")
+            _make_user(session, "u-other", "other@example.com", "Outsider")
+            _make_org(session, "org-src", "u-src", "Source Org")
+            _make_org(session, "org-tgt", "u-tgt", "Target Org")
+            _make_org(session, "org-other", "u-other", "Other Org")
+            _make_workgroup(session, "wg-src", "u-src", "org-src", "Source WG")
+            _make_workgroup(session, "wg-tgt", "u-tgt", "org-tgt", "Target WG")
+            _make_workgroup(session, "wg-other", "u-other", "org-other", "Other WG")
+            _make_partnership(session, "org-src", "org-tgt", "u-src", status="accepted")
+            session.commit()
+
+    def test_returns_engagements_both_directions(self) -> None:
+        """Outbound (we hired them) and inbound (they hired us) both appear."""
+        with Session(self.engine) as session:
+            _make_engagement(session, "wg-src", "wg-tgt", "u-src", title="Outbound job", status="completed")
+            _make_engagement(session, "wg-tgt", "wg-src", "u-tgt", title="Inbound job", status="in_progress")
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            result = get_partner_engagements(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(result.total, 2)
+        titles = {e.title for e in result.engagements}
+        self.assertEqual(titles, {"Outbound job", "Inbound job"})
+        directions = {e.title: e.direction for e in result.engagements}
+        self.assertEqual(directions["Outbound job"], "outbound")
+        self.assertEqual(directions["Inbound job"], "inbound")
+
+    def test_excludes_engagements_with_other_orgs(self) -> None:
+        with Session(self.engine) as session:
+            _make_engagement(session, "wg-src", "wg-tgt", "u-src", title="With partner")
+            _make_engagement(session, "wg-src", "wg-other", "u-src", title="With other")
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            result = get_partner_engagements(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(result.total, 1)
+        self.assertEqual(result.engagements[0].title, "With partner")
+
+    def test_summary_stats(self) -> None:
+        with Session(self.engine) as session:
+            _make_engagement(
+                session, "wg-src", "wg-tgt", "u-src",
+                title="Completed happy", status="reviewed",
+                review_rating="satisfied", agreed_price_credits=100.0,
+                payment_status="paid",
+            )
+            _make_engagement(
+                session, "wg-src", "wg-tgt", "u-src",
+                title="Completed unhappy", status="reviewed",
+                review_rating="dissatisfied", agreed_price_credits=50.0,
+                payment_status="paid",
+            )
+            _make_engagement(
+                session, "wg-tgt", "wg-src", "u-tgt",
+                title="Inbound completed", status="completed",
+                agreed_price_credits=200.0, payment_status="escrowed",
+            )
+            session.commit()
+
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            result = get_partner_engagements(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(result.total, 3)
+        self.assertEqual(result.completed, 3)
+        self.assertEqual(result.reviewed, 2)
+        self.assertEqual(result.satisfied, 1)
+        self.assertEqual(result.total_spend_credits, 150.0)  # 100 + 50 outbound
+        self.assertEqual(result.total_earned_credits, 200.0)  # inbound
+
+    def test_requires_accepted_partnership(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-other")
+            with self.assertRaises(HTTPException) as ctx:
+                get_partner_engagements(org_id="org-tgt", session=session, user=user)
+        self.assertEqual(ctx.exception.status_code, 403)
+
+    def test_partner_org_not_found(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            with self.assertRaises(HTTPException) as ctx:
+                get_partner_engagements(org_id="org-nonexistent", session=session, user=user)
+        self.assertEqual(ctx.exception.status_code, 404)
+
+    def test_empty_when_no_engagements(self) -> None:
+        with Session(self.engine) as session:
+            user = session.get(User, "u-src")
+            result = get_partner_engagements(org_id="org-tgt", session=session, user=user)
+
+        self.assertEqual(result.total, 0)
+        self.assertEqual(result.engagements, [])
+
+    def test_empty_when_no_workgroups(self) -> None:
+        """If either org has no workgroups, returns empty summary."""
+        engine = _make_engine()
+        with Session(engine) as session:
+            _make_user(session, "u-a", "a@example.com")
+            _make_user(session, "u-b", "b@example.com")
+            _make_org(session, "org-a", "u-a", "Org A")
+            _make_org(session, "org-b", "u-b", "Org B")
+            _make_partnership(session, "org-a", "org-b", "u-a", status="accepted")
+            # No workgroups created
+            session.commit()
+
+        with Session(engine) as session:
+            user = session.get(User, "u-a")
+            result = get_partner_engagements(org_id="org-b", session=session, user=user)
+
+        self.assertEqual(result.total, 0)
 
 
 if __name__ == "__main__":

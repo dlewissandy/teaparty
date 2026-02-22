@@ -553,6 +553,17 @@ class PartnershipProposalRead(ORMBaseModel):
     created_at: datetime
 
 
+class PartnerOrgProfileRead(ORMBaseModel):
+    id: str
+    name: str
+    description: str = ""
+    icon_url: str = ""
+    service_description: str = ""
+    engagement_base_fee: float = 0.0
+    engagement_markup_pct: float = 5.0
+    is_accepting_engagements: bool = False
+
+
 # --- Job schemas ---
 
 
@@ -832,6 +843,37 @@ class PaymentTransactionRead(ORMBaseModel):
     counterparty_org_id: str | None = None
     description: str
     created_at: datetime
+
+
+class PartnerTransactionRead(ORMBaseModel):
+    id: str
+    transaction_type: str
+    amount_credits: float
+    description: str
+    engagement_id: str | None = None
+    created_at: datetime
+
+
+class PartnerEngagementRead(ORMBaseModel):
+    id: str
+    title: str
+    status: str
+    review_rating: str | None = None
+    agreed_price_credits: float | None = None
+    payment_status: str = "none"
+    created_at: datetime
+    completed_at: datetime | None = None
+    direction: str = ""
+
+
+class PartnerEngagementSummaryRead(BaseModel):
+    total: int = 0
+    completed: int = 0
+    reviewed: int = 0
+    satisfied: int = 0
+    total_spend_credits: float = 0.0
+    total_earned_credits: float = 0.0
+    engagements: list[PartnerEngagementRead] = Field(default_factory=list)
 
 
 class EngagementPriceRequest(BaseModel):
