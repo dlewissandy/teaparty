@@ -13,10 +13,11 @@ export function initHome(store) {
   // Listen for home navigation
   bus.on('nav:home', () => renderHome());
 
-  // Re-render when home summary data changes
+  // Re-render when home summary data changes (but not if another content view is active)
   store.on('data.homeSummary', () => {
-    const s = store.get();
-    if (!s.nav.activeConversationId) renderHome();
+    const homeView = document.getElementById('home-view');
+    if (!homeView || homeView.classList.contains('hidden')) return;
+    renderHome();
   });
 }
 

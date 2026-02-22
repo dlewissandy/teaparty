@@ -6,10 +6,11 @@ from sqlmodel import Session, select
 
 from teaparty_app.db import get_session
 from teaparty_app.deps import get_current_user
-from teaparty_app.models import Agent, Conversation, Engagement, Job, LLMUsageEvent, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
-from teaparty_app.schemas import OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
+from teaparty_app.models import Agent, AgentWorkgroup, Conversation, Engagement, Job, LLMUsageEvent, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
+from teaparty_app.schemas import AgentRead, OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
+from teaparty_app.services.agent_workgroups import agent_read_with_workgroups, link_agent
 from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["organizations"])
@@ -59,30 +60,31 @@ def create_organization(
     # Create the engagements-lead as the lead agent for the Administration workgroup.
     from teaparty_app.services.claude_tools import claude_tool_names
     engagements_lead = Agent(
-        workgroup_id=admin_wg.id,
+        organization_id=org.id,
         created_by_user_id=user.id,
         name="engagements-lead",
         description="Engagement coordinator",
         prompt="Organized and collaborative engagement coordinator.",
         model="sonnet",
         tools=claude_tool_names(),
-        is_lead=True,
     )
     session.add(engagements_lead)
+    session.flush()
+    link_agent(session, engagements_lead.id, admin_wg.id, is_lead=True)
 
     # Create the projects-lead for cross-workgroup project coordination.
     projects_lead = Agent(
-        workgroup_id=admin_wg.id,
+        organization_id=org.id,
         created_by_user_id=user.id,
         name="projects-lead",
         description="Project coordinator",
         prompt="Strategic and collaborative project coordinator.",
         model="sonnet",
         tools=claude_tool_names(),
-        is_lead=True,
     )
     session.add(projects_lead)
     session.flush()
+    link_agent(session, projects_lead.id, admin_wg.id, is_lead=True)
 
     ensure_admin_workspace(session, admin_wg)
 
@@ -236,7 +238,9 @@ def get_org_summary(
         job_count = len(jobs)
         active_job_count = sum(1 for j in jobs if j.status == "in_progress")
         agent_count = session.exec(
-            select(Agent).where(Agent.workgroup_id == wg.id)
+            select(Agent)
+            .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+            .where(AgentWorkgroup.workgroup_id == wg.id)
         ).all()
         workgroup_summaries.append({
             "id": wg.id,
@@ -435,6 +439,69 @@ def get_org_spending_breakdown(
         "categories": category_list,
         "total_cost_usd": total_cost_usd,
         "total_api_calls": total_api_calls,
+    }
+
+
+@router.get("/organizations/{org_id}/unassigned-agents", response_model=list[AgentRead])
+def list_unassigned_agents(
+    org_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> list[AgentRead]:
+    """Return agents that belong to this org but have no workgroup."""
+    _require_org_access(session, org_id, user.id)
+    assigned_agent_ids = select(AgentWorkgroup.agent_id)
+    agents = session.exec(
+        select(Agent).where(
+            Agent.organization_id == org_id,
+            ~Agent.id.in_(assigned_agent_ids),
+        )
+    ).all()
+    return [AgentRead(**agent_read_with_workgroups(session, a)) for a in agents]
+
+
+@router.delete("/organizations/{org_id}/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_unassigned_agent(
+    org_id: str,
+    agent_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete an unassigned agent (one with no workgroup)."""
+    org = _require_org_access(session, org_id, user.id)
+    if org.owner_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the org owner can delete agents")
+
+    agent = session.get(Agent, agent_id)
+    has_workgroup = session.exec(
+        select(AgentWorkgroup).where(AgentWorkgroup.agent_id == agent_id)
+    ).first() is not None
+    if not agent or agent.organization_id != org_id or has_workgroup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unassigned agent not found")
+
+    from teaparty_app.models import AgentLearningEvent, AgentMemory
+    for row in session.exec(select(AgentLearningEvent).where(AgentLearningEvent.agent_id == agent.id)).all():
+        session.delete(row)
+    for row in session.exec(select(AgentMemory).where(AgentMemory.agent_id == agent.id)).all():
+        session.delete(row)
+
+    session.delete(agent)
+    session.commit()
+
+
+@router.get("/organizations/{org_id}/agent-usage")
+def get_org_agent_usage(
+    org_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    _require_org_access(session, org_id, user.id)
+    from teaparty_app.services.llm_usage import get_org_agent_usage
+    agents = get_org_agent_usage(session, org_id)
+    return {
+        "org_id": org_id,
+        "agents": agents,
+        "total_cost_usd": round(sum(a["cost_usd"] for a in agents), 6),
     }
 
 

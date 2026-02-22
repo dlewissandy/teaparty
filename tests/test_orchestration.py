@@ -6,6 +6,7 @@ from sqlmodel import SQLModel, Session, create_engine, select
 
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     Engagement,
     Job,
@@ -93,13 +94,16 @@ def _make_agent(
 ) -> Agent:
     agent = Agent(
         id=agent_id,
-        workgroup_id=workgroup.id,
+        organization_id=workgroup.organization_id,
         created_by_user_id=user.id,
         name=name,
         description=role,
         tools=[],
     )
     session.add(agent)
+    session.flush()
+    from teaparty_app.services.agent_workgroups import link_agent
+    link_agent(session, agent.id, workgroup.id)
     return agent
 
 

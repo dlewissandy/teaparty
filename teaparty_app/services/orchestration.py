@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Engagement,
@@ -21,6 +22,7 @@ from teaparty_app.models import (
     utc_now,
 )
 from teaparty_app.services.activity import post_activity
+from teaparty_app.services.agent_workgroups import agent_in_workgroup, workgroup_ids_for_agent
 from teaparty_app.services.payments import (
     InsufficientBalanceError,
     escrow_for_engagement,
@@ -74,8 +76,14 @@ def propose_engagement_by_agent(
     if not agent:
         return {"error": "Agent not found"}
 
-    # Find the agent's workgroup and org
-    workgroup = session.get(Workgroup, agent.workgroup_id)
+    # Find the agent's workgroup and org (use the first workgroup the agent belongs to)
+    wg_ids = workgroup_ids_for_agent(session, agent.id)
+    workgroup = None
+    for wg_id in wg_ids:
+        candidate = session.get(Workgroup, wg_id)
+        if candidate and candidate.organization_id:
+            workgroup = candidate
+            break
     if not workgroup or not workgroup.organization_id:
         return {"error": "Agent's workgroup has no organization"}
 
@@ -183,12 +191,18 @@ def respond_engagement_by_agent(
     if not engagement:
         return {"error": "Engagement not found"}
 
-    # Verify agent belongs to the target workgroup
-    if agent.workgroup_id != engagement.target_workgroup_id:
-        # Check if agent's workgroup is in the same org as the target workgroup
-        agent_wg = session.get(Workgroup, agent.workgroup_id)
+    # Verify agent belongs to the target workgroup (or same org)
+    if not agent_in_workgroup(session, agent.id, engagement.target_workgroup_id):
+        # Check if any of the agent's workgroups are in the same org as the target workgroup
         target_wg = session.get(Workgroup, engagement.target_workgroup_id)
-        if not agent_wg or not target_wg or agent_wg.organization_id != target_wg.organization_id:
+        agent_wg_ids = workgroup_ids_for_agent(session, agent.id)
+        same_org = False
+        for wg_id in agent_wg_ids:
+            agent_wg = session.get(Workgroup, wg_id)
+            if agent_wg and target_wg and agent_wg.organization_id == target_wg.organization_id:
+                same_org = True
+                break
+        if not same_org:
             return {"error": "Agent does not belong to the target organization"}
 
     if engagement.status not in ("proposed", "negotiating"):
@@ -288,7 +302,14 @@ def create_engagement_job(
     if not agent:
         return {"error": "Agent not found"}
 
-    agent_wg = session.get(Workgroup, agent.workgroup_id)
+    # Find the agent's workgroup that belongs to an organization
+    wg_ids = workgroup_ids_for_agent(session, agent.id)
+    agent_wg = None
+    for wg_id in wg_ids:
+        candidate = session.get(Workgroup, wg_id)
+        if candidate and candidate.organization_id:
+            agent_wg = candidate
+            break
     if not agent_wg or not agent_wg.organization_id:
         return {"error": "Agent's workgroup has no organization"}
 

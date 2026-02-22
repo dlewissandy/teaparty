@@ -19,6 +19,13 @@ from teaparty_app.services.admin_workspace import (
     clear_conversation_messages,
     direct_conversation_key_user_agent,
 )
+from teaparty_app.services.agent_workgroups import (
+    agent_in_workgroup,
+    agent_read_with_workgroups,
+    agents_for_workgroup,
+    lead_agent_for_workgroup,
+    link_agent,
+)
 from teaparty_app.services.permissions import require_workgroup_membership, require_workgroup_owner
 from teaparty_app.services.sync_events import publish_sync_event
 
@@ -40,8 +47,12 @@ def create_agent(
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
 
+    workgroup = session.get(Workgroup, workgroup_id)
+    if not workgroup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
+
     agent = Agent(
-        workgroup_id=workgroup_id,
+        organization_id=workgroup.organization_id,
         created_by_user_id=user.id,
         name=name,
         description=payload.description.strip(),
@@ -57,12 +68,13 @@ def create_agent(
     )
     session.add(agent)
     session.flush()
+    link_agent(session, agent.id, workgroup_id)
     post_activity(session, workgroup_id, "agent_created", agent.name, actor_user_id=user.id)
     session.commit()
-    publish_sync_event(session, "workgroup", agent.workgroup_id, "sync:agents_changed", {"workgroup_id": agent.workgroup_id})
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:agents_changed", {"workgroup_id": workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(agent)
-    return AgentRead.model_validate(agent)
+    return AgentRead(**agent_read_with_workgroups(session, agent))
 
 
 @router.get("/workgroups/{workgroup_id}/agents", response_model=list[AgentRead])
@@ -73,9 +85,8 @@ def list_agents(
     user: User = Depends(get_current_user),
 ) -> list[AgentRead]:
     require_workgroup_membership(session, workgroup_id, user.id)
-    query = select(Agent).where(Agent.workgroup_id == workgroup_id)
-    agents = session.exec(query.order_by(Agent.created_at.asc())).all()
-    return [AgentRead.model_validate(agent) for agent in agents]
+    agents = sorted(agents_for_workgroup(session, workgroup_id), key=lambda a: a.created_at)
+    return [AgentRead(**agent_read_with_workgroups(session, agent)) for agent in agents]
 
 
 @router.patch("/workgroups/{workgroup_id}/agents/{agent_id}", response_model=AgentRead)
@@ -89,22 +100,11 @@ def update_agent(
     require_workgroup_owner(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
-    old_workgroup_id: str | None = None
-    if payload.workgroup_id is not None and payload.workgroup_id != workgroup_id:
-        if agent.is_lead:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot move the lead agent to another workgroup")
-        require_workgroup_owner(session, payload.workgroup_id, user.id)
-        source_workgroup = session.get(Workgroup, workgroup_id)
-        target_workgroup = session.get(Workgroup, payload.workgroup_id)
-        if not target_workgroup:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target workgroup not found")
-        if source_workgroup and source_workgroup.organization_id != target_workgroup.organization_id:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot move agent across organizations")
-        old_workgroup_id = workgroup_id
-        agent.workgroup_id = payload.workgroup_id
+    is_lead = lead_agent_for_workgroup(session, workgroup_id)
+    agent_is_lead = is_lead is not None and is_lead.id == agent_id
 
     if payload.tools is not None:
         agent.tools = payload.tools
@@ -113,7 +113,7 @@ def update_agent(
         name = payload.name.strip()
         if not name:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
-        if agent.is_lead:
+        if agent_is_lead:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot rename the lead agent")
         agent.name = name
 
@@ -142,14 +142,12 @@ def update_agent(
         agent.isolation = payload.isolation
 
     session.add(agent)
-    post_activity(session, agent.workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
+    post_activity(session, workgroup_id, "agent_updated", agent.name, actor_user_id=user.id)
     session.commit()
-    publish_sync_event(session, "workgroup", agent.workgroup_id, "sync:agents_changed", {"workgroup_id": agent.workgroup_id})
-    if old_workgroup_id is not None:
-        publish_sync_event(session, "workgroup", old_workgroup_id, "sync:agents_changed", {"workgroup_id": old_workgroup_id})
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:agents_changed", {"workgroup_id": workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(agent)
-    return AgentRead.model_validate(agent)
+    return AgentRead(**agent_read_with_workgroups(session, agent))
 
 
 @router.delete("/workgroups/{workgroup_id}/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -162,9 +160,10 @@ def delete_agent(
     require_workgroup_owner(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if agent.is_lead:
+    lead = lead_agent_for_workgroup(session, workgroup_id)
+    if lead is not None and lead.id == agent_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the lead agent")
 
     agent_name = agent.name
@@ -184,7 +183,7 @@ def clear_agent_conversation(
     require_workgroup_owner(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     conversation = session.exec(
@@ -217,9 +216,10 @@ def clone_agent(
     require_workgroup_owner(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if agent.is_lead:
+    lead = lead_agent_for_workgroup(session, workgroup_id)
+    if lead is not None and lead.id == agent_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot clone the lead agent")
 
     target_workgroup_id = payload.target_workgroup_id or workgroup_id
@@ -228,13 +228,17 @@ def clone_agent(
         target_workgroup = session.get(Workgroup, target_workgroup_id)
         if not target_workgroup:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target workgroup not found")
+        clone_org_id = target_workgroup.organization_id
+    else:
+        source_workgroup = session.get(Workgroup, workgroup_id)
+        clone_org_id = source_workgroup.organization_id if source_workgroup else agent.organization_id
 
     name = payload.name.strip() if payload.name else f"{agent.name} (copy)"
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
 
     cloned = Agent(
-        workgroup_id=target_workgroup_id,
+        organization_id=clone_org_id,
         created_by_user_id=user.id,
         name=name,
         description=agent.description,
@@ -250,12 +254,13 @@ def clone_agent(
     )
     session.add(cloned)
     session.flush()
+    link_agent(session, cloned.id, target_workgroup_id)
     post_activity(session, target_workgroup_id, "agent_cloned", cloned.name, actor_user_id=user.id)
     session.commit()
     publish_sync_event(session, "workgroup", target_workgroup_id, "sync:agents_changed", {"workgroup_id": target_workgroup_id})
     _sync_workgroup_storage_for_user(session, user)
     session.refresh(cloned)
-    return AgentRead.model_validate(cloned)
+    return AgentRead(**agent_read_with_workgroups(session, cloned))
 
 
 @router.get("/workgroups/{workgroup_id}/agents/{agent_id}/learnings", response_model=AgentLearningsRead)
@@ -268,7 +273,7 @@ def get_agent_learnings(
     require_workgroup_membership(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
 
     memories = session.exec(

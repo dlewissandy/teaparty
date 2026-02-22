@@ -8,8 +8,10 @@ from contextlib import contextmanager
 
 from sqlmodel import Session, select
 
+from sqlalchemy import or_
+
 from teaparty_app.db import commit_with_retry
-from teaparty_app.models import Conversation, LLMUsageEvent, Membership
+from teaparty_app.models import Agent, Conversation, LLMUsageEvent, Membership, Workgroup
 
 logger = logging.getLogger(__name__)
 
@@ -183,3 +185,55 @@ def get_workgroup_usage(session: Session, workgroup_id: str) -> dict:
         "api_calls": len(rows),
         "by_model": by_model,
     }
+
+
+def get_org_agent_usage(session: Session, org_id: str) -> list[dict]:
+    """Aggregate LLM usage per agent across all workgroups in an organization."""
+    wg_ids = [wg.id for wg in session.exec(
+        select(Workgroup).where(Workgroup.organization_id == org_id)
+    ).all()]
+
+    if wg_ids:
+        rows = session.exec(
+            select(LLMUsageEvent)
+            .join(Conversation, LLMUsageEvent.conversation_id == Conversation.id)
+            .where(or_(
+                Conversation.workgroup_id.in_(wg_ids),
+                Conversation.organization_id == org_id,
+            ))
+        ).all()
+    else:
+        rows = session.exec(
+            select(LLMUsageEvent)
+            .join(Conversation, LLMUsageEvent.conversation_id == Conversation.id)
+            .where(Conversation.organization_id == org_id)
+        ).all()
+
+    # Group by agent_id
+    buckets: dict[str | None, dict] = {}
+    for row in rows:
+        key = row.agent_id
+        b = buckets.setdefault(key, {
+            "agent_id": key, "cost_usd": 0.0, "api_calls": 0,
+            "input_tokens": 0, "output_tokens": 0,
+        })
+        b["cost_usd"] += _estimate_cost(row.model, row.input_tokens, row.output_tokens)
+        b["api_calls"] += 1
+        b["input_tokens"] += row.input_tokens
+        b["output_tokens"] += row.output_tokens
+
+    # Resolve agent names
+    agent_ids = [k for k in buckets if k is not None]
+    agents = {a.id: a for a in session.exec(
+        select(Agent).where(Agent.id.in_(agent_ids))
+    ).all()} if agent_ids else {}
+
+    result = []
+    for b in buckets.values():
+        agent = agents.get(b["agent_id"])
+        b["cost_usd"] = round(b["cost_usd"], 6)
+        b["agent_name"] = agent.name if agent else "Unknown"
+        result.append(b)
+
+    result.sort(key=lambda x: x["cost_usd"], reverse=True)
+    return result

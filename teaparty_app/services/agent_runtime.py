@@ -26,6 +26,7 @@ from teaparty_app.config import settings
 from teaparty_app.db import commit_with_retry
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Job,
@@ -162,9 +163,14 @@ def _resolve_mentioned_agent(content: str, agents: list[Agent]) -> Agent | None:
     return None
 
 
-def _select_lead(candidates: list[Agent]) -> Agent:
+def _select_lead(candidates: list[Agent], session: Session | None = None, workgroup_id: str | None = None) -> Agent:
     """Return the lead agent from candidates, falling back to the first."""
-    return next((a for a in candidates if a.is_lead), candidates[0])
+    if session and workgroup_id:
+        from teaparty_app.services.agent_workgroups import lead_agent_for_workgroup
+        lead = lead_agent_for_workgroup(session, workgroup_id)
+        if lead and any(c.id == lead.id for c in candidates):
+            return next(c for c in candidates if c.id == lead.id)
+    return candidates[0]
 
 
 def _is_resumable_conversation(conversation: Conversation) -> bool:
@@ -218,8 +224,10 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
 
     if conversation.kind == "admin":
         return session.exec(
-            select(Agent).where(
-                Agent.workgroup_id == conversation.workgroup_id,
+            select(Agent)
+            .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+            .where(
+                AgentWorkgroup.workgroup_id == conversation.workgroup_id,
                 Agent.description == ADMIN_AGENT_SENTINEL,
             )
         ).all()
@@ -231,9 +239,10 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
         if agent_ids:
             return session.exec(
                 select(Agent)
+                .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
                 .where(
                     Agent.id.in_(agent_ids),
-                    Agent.workgroup_id == conversation.workgroup_id,
+                    AgentWorkgroup.workgroup_id == conversation.workgroup_id,
                     Agent.description != ADMIN_AGENT_SENTINEL,
                 )
                 .order_by(Agent.created_at.asc())
@@ -241,8 +250,9 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
         # Otherwise, all non-admin agents in the workgroup.
         return session.exec(
             select(Agent)
+            .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
             .where(
-                Agent.workgroup_id == conversation.workgroup_id,
+                AgentWorkgroup.workgroup_id == conversation.workgroup_id,
                 Agent.description != ADMIN_AGENT_SENTINEL,
             )
             .order_by(Agent.created_at.asc())
@@ -256,7 +266,8 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
 
     return session.exec(
         select(Agent)
-        .where(Agent.id.in_(agent_ids), Agent.workgroup_id == conversation.workgroup_id)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(Agent.id.in_(agent_ids), AgentWorkgroup.workgroup_id == conversation.workgroup_id)
         .order_by(Agent.created_at.asc())
     ).all()
 
@@ -438,21 +449,24 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
 
     # Engagement conversations: inject orchestration env vars for operations agents.
     if conversation.kind == "engagement":
-        extra_env = _build_orchestration_env(session, candidates[0]) if candidates else None
+        extra_env = _build_orchestration_env(session, candidates[0], conversation) if candidates else None
         return _run_single_agent_responses(session, conversation, trigger, candidates, extra_env=extra_env)
 
     # Direct conversations: single-agent path.
     return _run_single_agent_responses(session, conversation, trigger, candidates)
 
 
-def _build_orchestration_env(session: Session, agent: Agent) -> dict[str, str] | None:
+def _build_orchestration_env(session: Session, agent: Agent, conversation: Conversation) -> dict[str, str] | None:
     """Build env vars for coordinator agents in operations workgroups."""
-    workgroup = session.get(Workgroup, agent.workgroup_id)
+    workgroup_id = conversation.workgroup_id
+    if not workgroup_id:
+        return None
+    workgroup = session.get(Workgroup, workgroup_id)
     if not workgroup or not workgroup.organization_id:
         return None
     return {
         "TEAPARTY_AGENT_ID": agent.id,
-        "TEAPARTY_WORKGROUP_ID": agent.workgroup_id,
+        "TEAPARTY_WORKGROUP_ID": workgroup_id,
         "TEAPARTY_ORG_ID": workgroup.organization_id,
     }
 
@@ -628,7 +642,7 @@ def _run_team_response(
         return []
 
     org_files = _load_org_files(session, workgroup)
-    lead = _select_lead(candidates)
+    lead = _select_lead(candidates, session=session, workgroup_id=conversation.workgroup_id)
     others = [a for a in candidates if a.id != lead.id]
     lead_slug = slugify(lead.name)
 

@@ -6,7 +6,8 @@ from sqlmodel import Session, select
 
 from teaparty_app.deps import get_current_user
 from teaparty_app.db import get_session
-from teaparty_app.models import Agent, Conversation, Membership, Organization, User, Workgroup, utc_now
+from teaparty_app.models import Agent, AgentWorkgroup, Conversation, Membership, Organization, User, Workgroup, utc_now
+from teaparty_app.services.agent_workgroups import lead_agent_for_workgroup
 from teaparty_app.schemas import (
     AgentRead,
     ConversationRead,
@@ -195,8 +196,11 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
         .order_by(Workgroup.created_at.asc())
     ).all()
     wg_ids = {wg.id for wg in all_workgroups}
-    all_agents = session.exec(
-        select(Agent).where(Agent.workgroup_id.in_(wg_ids)).order_by(Agent.created_at.asc())
+    all_agent_rows = session.exec(
+        select(Agent, AgentWorkgroup)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(AgentWorkgroup.workgroup_id.in_(wg_ids))
+        .order_by(Agent.created_at.asc())
     ).all()
 
     wg_dicts = [
@@ -211,10 +215,10 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
         for wg in all_workgroups
     ]
     agents_by_wg: dict[str, list[dict]] = {}
-    for agent in all_agents:
+    for agent, aw in all_agent_rows:
         if agent.description == ADMIN_AGENT_SENTINEL:
             continue
-        agents_by_wg.setdefault(agent.workgroup_id, []).append(
+        agents_by_wg.setdefault(aw.workgroup_id, []).append(
             {
                 "id": agent.id,
                 "name": agent.name,
@@ -322,8 +326,11 @@ def _reconcile_org_administration_files(session: Session, admin_workgroup: Workg
         .order_by(Workgroup.created_at.asc())
     ).all()
     wg_ids = {wg.id for wg in all_workgroups}
-    all_agents = session.exec(
-        select(Agent).where(Agent.workgroup_id.in_(wg_ids)).order_by(Agent.created_at.asc())
+    all_agent_rows = session.exec(
+        select(Agent, AgentWorkgroup)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(AgentWorkgroup.workgroup_id.in_(wg_ids))
+        .order_by(Agent.created_at.asc())
     ).all()
 
     wg_dicts = [
@@ -338,10 +345,10 @@ def _reconcile_org_administration_files(session: Session, admin_workgroup: Workg
         for wg in all_workgroups
     ]
     agents_by_wg: dict[str, list[dict]] = {}
-    for agent in all_agents:
+    for agent, aw in all_agent_rows:
         if agent.description == ADMIN_AGENT_SENTINEL:
             continue
-        agents_by_wg.setdefault(agent.workgroup_id, []).append(
+        agents_by_wg.setdefault(aw.workgroup_id, []).append(
             {
                 "id": agent.id,
                 "name": agent.name,
@@ -730,9 +737,7 @@ def update_workgroup(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Workgroup name cannot be empty")
         workgroup.name = name
         # Rename the lead agent to match.
-        lead = session.exec(
-            select(Agent).where(Agent.workgroup_id == workgroup.id, Agent.is_lead == True)  # noqa: E712
-        ).first()
+        lead = lead_agent_for_workgroup(session, workgroup.id)
         if lead:
             lead.name = lead_agent_name(name)
             session.add(lead)
@@ -803,6 +808,29 @@ def update_workgroup(
     session.refresh(workgroup)
     result = WorkgroupRead.model_validate(workgroup)
     return _enrich_org_names(session, [result])[0]
+
+
+@router.delete("/workgroups/{workgroup_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_workgroup(
+    workgroup_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    require_workgroup_owner(session, workgroup_id, user.id)
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if not workgroup:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
+
+    org_id = workgroup.organization_id
+
+    from teaparty_app.services.admin_workspace.tools_common import delete_workgroup_data
+
+    delete_workgroup_data(session, workgroup_id)
+    session.commit()
+
+    if org_id:
+        publish_sync_event(session, "org", org_id, "sync:workgroups_changed", {"org_id": org_id})
 
 
 @router.get("/workgroups/{workgroup_id}/usage", response_model=WorkgroupUsageRead)

@@ -75,6 +75,8 @@ def init_db() -> None:
     _migrate_message_drop_agent_fk()
     _backfill_projects_lead()
     _migrate_agent_restructure()
+    _migrate_agent_nullable_workgroup_id()
+    _cleanup_orphaned_agents()
     _run_seeds()
 
 
@@ -581,6 +583,9 @@ def _ensure_agent_is_lead() -> None:
     if not settings.database_url.startswith("sqlite"):
         return
     agent_columns = _sqlite_column_names("agents")
+    # After M2M migration, is_lead lives in agent_workgroups — skip
+    if "workgroup_id" not in agent_columns:
+        return
     if "is_lead" not in agent_columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE agents ADD COLUMN is_lead BOOLEAN DEFAULT 0 NOT NULL"))
@@ -598,6 +603,11 @@ def _ensure_conversation_session_id() -> None:
 def _backfill_lead_agents() -> None:
     """For workgroups that have non-admin agents but no lead, set the first non-admin agent as lead."""
     if not settings.database_url.startswith("sqlite"):
+        return
+    agent_columns = _sqlite_column_names("agents")
+    # After M2M migration, is_lead lives in agent_workgroups — use that table
+    if "workgroup_id" not in agent_columns:
+        _backfill_lead_agents_m2m()
         return
     with engine.begin() as conn:
         # Find workgroups that have non-admin agents but no is_lead=1 agent.
@@ -620,6 +630,34 @@ def _backfill_lead_agents() -> None:
                 conn.execute(text(
                     "UPDATE agents SET is_lead = 1 WHERE id = :id"
                 ), {"id": first[0]})
+
+
+def _backfill_lead_agents_m2m() -> None:
+    """Backfill lead agents using the agent_workgroups join table."""
+    with engine.begin() as conn:
+        # Find workgroups with non-admin agents but no lead in agent_workgroups
+        rows = conn.execute(text(
+            "SELECT DISTINCT aw.workgroup_id FROM agent_workgroups aw "
+            "JOIN agents a ON a.id = aw.agent_id "
+            "WHERE (a.description IS NULL OR a.description != '__system_admin_agent__') "
+            "AND aw.workgroup_id NOT IN ("
+            "  SELECT aw2.workgroup_id FROM agent_workgroups aw2 WHERE aw2.is_lead = 1"
+            ")"
+        )).fetchall()
+        for row in rows:
+            wg_id = row[0]
+            first = conn.execute(text(
+                "SELECT aw.agent_id FROM agent_workgroups aw "
+                "JOIN agents a ON a.id = aw.agent_id "
+                "WHERE aw.workgroup_id = :wg_id "
+                "AND (a.description IS NULL OR a.description != '__system_admin_agent__') "
+                "ORDER BY a.created_at ASC LIMIT 1"
+            ), {"wg_id": wg_id}).first()
+            if first:
+                conn.execute(text(
+                    "UPDATE agent_workgroups SET is_lead = 1 "
+                    "WHERE agent_id = :agent_id AND workgroup_id = :wg_id"
+                ), {"agent_id": first[0], "wg_id": wg_id})
 
 
 def _ensure_org_operations_field() -> None:
@@ -1267,6 +1305,11 @@ def _backfill_projects_lead() -> None:
     tools_json = _json.dumps(claude_tool_names())
     cols = _sqlite_column_names("agents")
 
+    # Post-M2M migration: workgroup_id is gone, use agent_workgroups
+    if "workgroup_id" not in cols:
+        _backfill_projects_lead_m2m(tools_json)
+        return
+
     # Determine column names (may be pre- or post-restructure)
     tools_col = "tools" if "tools" in cols else "tool_names"
     image_col = "image" if "image" in cols else "icon"
@@ -1306,6 +1349,37 @@ def _backfill_projects_lead() -> None:
                     f"'Strategic and collaborative project coordinator', '', 'sonnet', 0.7, :tools, "
                     f"3, 1, '', datetime('now'))"
                 ), {"id": agent_id, "wg_id": wg_id, "owner_id": owner_id, "tools": tools_json})
+
+
+def _backfill_projects_lead_m2m(tools_json: str) -> None:
+    """Backfill projects-lead using agent_workgroups join table."""
+    with engine.begin() as conn:
+        rows = conn.execute(text(
+            "SELECT w.id, w.owner_id, w.organization_id FROM workgroups w "
+            "WHERE w.name = 'Administration' AND w.organization_id IS NOT NULL "
+            "AND w.id NOT IN ("
+            "  SELECT aw.workgroup_id FROM agent_workgroups aw "
+            "  JOIN agents a ON a.id = aw.agent_id "
+            "  WHERE a.name = 'projects-lead'"
+            ")"
+        )).fetchall()
+
+        for row in rows:
+            wg_id, owner_id, org_id = row[0], row[1], row[2]
+            agent_id = str(uuid4())
+            link_id = str(uuid4())
+            conn.execute(text(
+                "INSERT INTO agents "
+                "(id, organization_id, created_by_user_id, name, description, prompt, "
+                "model, tools, image, created_at) "
+                "VALUES (:id, :org_id, :owner_id, 'projects-lead', "
+                "'Project coordinator', 'Strategic and collaborative project coordinator.', "
+                "'sonnet', :tools, '', datetime('now'))"
+            ), {"id": agent_id, "org_id": org_id, "owner_id": owner_id, "tools": tools_json})
+            conn.execute(text(
+                "INSERT INTO agent_workgroups (id, agent_id, workgroup_id, is_lead, created_at) "
+                "VALUES (:link_id, :agent_id, :wg_id, 1, datetime('now'))"
+            ), {"link_id": link_id, "agent_id": agent_id, "wg_id": wg_id})
 
 
 def _migrate_agent_restructure() -> None:
@@ -1393,6 +1467,127 @@ def _migrate_workgroup_team_config() -> None:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_max_cost_usd REAL"))
         if "team_max_time_seconds" not in cols:
             conn.execute(text("ALTER TABLE workgroups ADD COLUMN team_max_time_seconds INTEGER"))
+
+
+def _migrate_agent_nullable_workgroup_id() -> None:
+    """Migrate agents to many-to-many workgroup relationship via agent_workgroups table."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    cols = _sqlite_column_names("agents")
+
+    # Nothing to do if workgroup_id is already gone (migration already ran)
+    if "workgroup_id" not in cols:
+        return
+
+    # Step 1: Add organization_id to agents if missing
+    if "organization_id" not in cols:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE agents ADD COLUMN organization_id TEXT"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agents_organization_id ON agents (organization_id)"))
+            conn.execute(text(
+                "UPDATE agents SET organization_id = ("
+                "  SELECT w.organization_id FROM workgroups w WHERE w.id = agents.workgroup_id"
+                ") WHERE organization_id IS NULL AND workgroup_id IS NOT NULL"
+            ))
+
+    # Step 2: Create agent_workgroups join table and backfill
+    existing_tables = set()
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+        existing_tables = {r[0] for r in rows}
+
+    if "agent_workgroups" not in existing_tables:
+        with engine.begin() as conn:
+            conn.execute(text("""
+                CREATE TABLE agent_workgroups (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    workgroup_id TEXT NOT NULL,
+                    is_lead BOOLEAN NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (agent_id, workgroup_id)
+                )
+            """))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_workgroups_agent_id ON agent_workgroups (agent_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agent_workgroups_workgroup_id ON agent_workgroups (workgroup_id)"))
+
+            # Backfill from agents.workgroup_id
+            is_lead_col = "is_lead" if "is_lead" in cols else "0"
+            conn.execute(text(f"""
+                INSERT INTO agent_workgroups (id, agent_id, workgroup_id, is_lead, created_at)
+                SELECT lower(hex(randomblob(16))), id, workgroup_id, {is_lead_col}, created_at
+                FROM agents
+                WHERE workgroup_id IS NOT NULL AND workgroup_id != ''
+            """))
+
+    # Step 3: Recreate agents table without workgroup_id and is_lead
+    # (full recreation avoids SQLite FK constraint issue with DROP COLUMN)
+    with engine.connect() as conn:
+        info = conn.execute(text("PRAGMA table_info(agents)")).mappings().all()
+
+    # Columns to keep (everything except workgroup_id and is_lead)
+    keep_cols = [c["name"] for c in info if c["name"] not in ("workgroup_id", "is_lead")]
+
+    if not keep_cols or "workgroup_id" not in [c["name"] for c in info]:
+        return  # Already migrated
+
+    # Build CREATE TABLE for the new schema
+    col_defs = []
+    for c in info:
+        if c["name"] in ("workgroup_id", "is_lead"):
+            continue
+        name = c["name"]
+        col_type = c["type"] or "TEXT"
+        parts = [name, col_type]
+        if name == "id":
+            parts.append("PRIMARY KEY")
+        else:
+            if c["notnull"]:
+                parts.append("NOT NULL")
+            if c["dflt_value"] is not None:
+                parts.append(f"DEFAULT {c['dflt_value']}")
+        col_defs.append(" ".join(parts))
+
+    col_list = ", ".join(keep_cols)
+    create_sql = f"CREATE TABLE agents_new ({', '.join(col_defs)})"
+
+    with engine.begin() as conn:
+        conn.execute(text(create_sql))
+        conn.execute(text(f"INSERT INTO agents_new ({col_list}) SELECT {col_list} FROM agents"))
+        conn.execute(text("DROP TABLE agents"))
+        conn.execute(text("ALTER TABLE agents_new RENAME TO agents"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agents_organization_id ON agents (organization_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agents_created_by_user_id ON agents (created_by_user_id)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS ix_agents_name ON agents (name)"))
+
+
+def _cleanup_orphaned_agents() -> None:
+    """Delete orphaned agents that have no agent_workgroups links
+    and where a linked agent with the same name exists in the same org."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    existing_tables = set()
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()
+        existing_tables = {r[0] for r in rows}
+
+    if "agent_workgroups" not in existing_tables:
+        return
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            DELETE FROM agents WHERE id IN (
+                SELECT a.id FROM agents a
+                WHERE a.id NOT IN (SELECT aw.agent_id FROM agent_workgroups aw)
+                AND EXISTS (
+                    SELECT 1 FROM agents a2
+                    JOIN agent_workgroups aw2 ON aw2.agent_id = a2.id
+                    WHERE a2.name = a.name AND a2.organization_id = a.organization_id
+                )
+            )
+        """))
 
 
 def get_session() -> Iterator[Session]:

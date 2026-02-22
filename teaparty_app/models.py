@@ -159,7 +159,7 @@ class Agent(SQLModel, table=True):
     __tablename__ = "agents"
 
     id: str = Field(default_factory=new_id, primary_key=True)
-    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
+    organization_id: str | None = Field(default=None, foreign_key="organizations.id", index=True)
     created_by_user_id: str = Field(foreign_key="users.id", index=True)
     name: str = Field(index=True)
     image: str = Field(default="")
@@ -172,6 +172,16 @@ class Agent(SQLModel, table=True):
     memory: str = Field(default="")
     background: bool = Field(default=False)
     isolation: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentWorkgroup(SQLModel, table=True):
+    __tablename__ = "agent_workgroups"
+    __table_args__ = (UniqueConstraint("agent_id", "workgroup_id", name="uq_agent_workgroup"),)
+
+    id: str = Field(default_factory=new_id, primary_key=True)
+    agent_id: str = Field(foreign_key="agents.id", index=True)
+    workgroup_id: str = Field(foreign_key="workgroups.id", index=True)
     is_lead: bool = Field(default=False)
     created_at: datetime = Field(default_factory=utc_now)
 

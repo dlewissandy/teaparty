@@ -150,6 +150,21 @@ export async function loadWorkgroups() {
   await Promise.all(workgroups.map(wg => refreshWorkgroupTree(wg)));
   _store.notify('data.treeData');
   _store.notify('data.workgroups');
+
+  // Load unassigned agents for each org
+  const orgs = _store.get().data.organizations || [];
+  await loadUnassignedAgents(orgs.map(o => o.id));
+}
+
+export async function loadUnassignedAgents(orgIds) {
+  const results = await Promise.all(
+    orgIds.map(id => api(`/api/organizations/${id}/unassigned-agents`).catch(() => []))
+  );
+  _store.update(s => {
+    s.data.unassignedAgents = {};
+    orgIds.forEach((id, i) => { s.data.unassignedAgents[id] = results[i]; });
+  });
+  _store.notify('data.unassignedAgents');
 }
 
 export async function refreshWorkgroupTree(workgroup) {

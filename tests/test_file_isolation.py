@@ -10,6 +10,8 @@ from uuid import uuid4
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from teaparty_app.models import (
+    Agent,
+    AgentWorkgroup,
     Conversation,
     Engagement,
     Job,
@@ -242,7 +244,7 @@ class EngagementFileLifecycleTests(unittest.TestCase):
 
     def setUp(self):
         with Session(self.engine) as session:
-            for model in [Job, Engagement, Conversation, Membership, Organization, Workgroup, User]:
+            for model in [AgentWorkgroup, Agent, Job, Engagement, Conversation, Membership, Organization, Workgroup, User]:
                 for row in session.exec(select(model)).all():
                     session.delete(row)
             session.commit()
@@ -352,13 +354,14 @@ class EngagementFileLifecycleTests(unittest.TestCase):
             session.flush()
 
             # Create an agent in the ops workgroup (the coordinator)
-            from teaparty_app.models import Agent
+            from teaparty_app.services.agent_workgroups import link_agent
             agent = Agent(
-                id="agent-coord", workgroup_id="wg-ops",
+                id="agent-coord", organization_id="org-1",
                 created_by_user_id=user.id, name="Coordinator",
             )
             session.add(agent)
             session.flush()
+            link_agent(session, agent.id, "wg-ops")
 
             eng = _make_engagement(
                 eng_id="eng-fork", source_wg="wg-ops", target_wg="wg-dev",

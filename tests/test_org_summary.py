@@ -6,6 +6,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Engagement,
@@ -64,14 +65,11 @@ class OrgSummaryTest(unittest.TestCase):
         with Session(self.engine) as session:
             user, org, wg1, wg2 = _seed_base(session)
 
-            agent = Agent(
-                id="ag1",
-                workgroup_id="wg1",
-                created_by_user_id="u1",
-                name="Helper",
-                tools=[],
-            )
+            agent = Agent(id="ag1", created_by_user_id="u1", name="Helper", tools=[])
             session.add(agent)
+            session.flush()
+            from teaparty_app.services.agent_workgroups import link_agent
+            link_agent(session, agent.id, "wg1")
 
             conv = Conversation(id="conv1", workgroup_id="wg1", created_by_user_id="u1", kind="job", topic="t", name="Job1")
             session.add(conv)
@@ -413,14 +411,11 @@ class HomeSummaryTest(unittest.TestCase):
         with Session(self.engine) as session:
             user, org, wg1, wg2 = _seed_base(session)
 
-            agent = Agent(
-                id="ag1",
-                workgroup_id="wg1",
-                created_by_user_id="u1",
-                name="Helper",
-                tools=[],
-            )
+            agent = Agent(id="ag1", created_by_user_id="u1", name="Helper", tools=[])
             session.add(agent)
+            session.flush()
+            from teaparty_app.services.agent_workgroups import link_agent
+            link_agent(session, agent.id, "wg1")
 
             conv = Conversation(id="conv1", workgroup_id="wg1", created_by_user_id="u1", kind="job", topic="t", name="J1")
             session.add(conv)
@@ -496,17 +491,11 @@ class ConversationParticipantsTest(unittest.TestCase):
         with Session(self.engine) as session:
             user, wg, conv = self._seed(session)
 
-            agent = Agent(
-                id="ag1",
-                workgroup_id="wg1",
-                created_by_user_id="u1",
-                name="Helper",
-                description="Coder",
-                is_lead=True,
-                tools=[],
-            )
+            agent = Agent(id="ag1", created_by_user_id="u1", name="Helper", description="Coder", tools=[])
             session.add(agent)
             session.flush()
+            from teaparty_app.services.agent_workgroups import link_agent
+            link_agent(session, agent.id, "wg1", is_lead=True)
 
             session.add(ConversationParticipant(conversation_id="conv1", user_id="u1"))
             session.add(ConversationParticipant(conversation_id="conv1", agent_id="ag1"))

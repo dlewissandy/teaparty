@@ -102,6 +102,7 @@ export function initSidebar(store) {
   store.on('data.treeData', () => refreshSidebar());
   store.on('data.partnerships', () => refreshSidebar());
   store.on('data.projects', () => refreshSidebar());
+  store.on('data.unassignedAgents', () => refreshSidebar());
   store.on('data.invites', () => refreshSidebar());
   store.on('conversation.thinkingByConversation', () => refreshSidebar());
   store.on('nav.activeConversationId', () => refreshSidebar());

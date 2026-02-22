@@ -23,6 +23,7 @@ from teaparty_app.schemas import (
     AgentTaskUpdateRequest,
 )
 from teaparty_app.services.agent_runtime import get_conversation_activity
+from teaparty_app.services.agent_workgroups import agent_in_workgroup
 from teaparty_app.services.permissions import require_workgroup_membership
 from teaparty_app.services.sync_events import publish_sync_event
 
@@ -62,7 +63,7 @@ def create_agent_task(
     require_workgroup_membership(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found in this workgroup",
@@ -136,7 +137,7 @@ def list_agent_tasks(
     require_workgroup_membership(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found in this workgroup",

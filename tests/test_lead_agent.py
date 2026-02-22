@@ -3,7 +3,7 @@ import unittest
 from fastapi import HTTPException
 from sqlmodel import SQLModel, Session, create_engine, select
 
-from teaparty_app.models import Agent, Membership, Organization, User, Workgroup
+from teaparty_app.models import Agent, AgentWorkgroup, Membership, Organization, User, Workgroup
 from teaparty_app.services.activity import ensure_activity_conversation
 from teaparty_app.services.admin_workspace import ADMIN_AGENT_SENTINEL
 from teaparty_app.services.admin_workspace.bootstrap import (
@@ -11,6 +11,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     is_lead_agent,
     lead_agent_name,
 )
+from teaparty_app.services.agent_workgroups import lead_agent_for_workgroup, link_agent
 
 
 def _make_engine():
@@ -37,16 +38,16 @@ def _make_workgroup(session, user, name="Core", wg_id="wg-1", org_id=None):
 def _make_agent(session, workgroup, user, name="Helper", agent_id="agent-1", is_lead=False):
     agent = Agent(
         id=agent_id,
-        workgroup_id=workgroup.id,
+        organization_id=workgroup.organization_id,
         created_by_user_id=user.id,
         name=name,
         description="",
         model="sonnet",
         tools=["Read", "Write"],
-        is_lead=is_lead,
     )
     session.add(agent)
     session.flush()
+    link_agent(session, agent.id, workgroup.id, is_lead=is_lead)
     return agent
 
 
@@ -66,7 +67,7 @@ class IsLeadAgentTests(unittest.TestCase):
             session.commit()
         with Session(engine) as session:
             agent = session.get(Agent, "agent-1")
-            self.assertTrue(is_lead_agent(agent))
+            self.assertTrue(is_lead_agent(session, agent, "wg-1"))
 
     def test_is_lead_false_by_default(self):
         engine = _make_engine()
@@ -77,7 +78,7 @@ class IsLeadAgentTests(unittest.TestCase):
             session.commit()
         with Session(engine) as session:
             agent = session.get(Agent, "agent-1")
-            self.assertFalse(is_lead_agent(agent))
+            self.assertFalse(is_lead_agent(session, agent, "wg-1"))
 
 
 class IsLeadPersistsTests(unittest.TestCase):
@@ -89,8 +90,13 @@ class IsLeadPersistsTests(unittest.TestCase):
             agent = _make_agent(session, wg, user, is_lead=True)
             session.commit()
         with Session(engine) as session:
-            reloaded = session.get(Agent, "agent-1")
-            self.assertTrue(reloaded.is_lead)
+            link = session.exec(
+                select(AgentWorkgroup).where(
+                    AgentWorkgroup.agent_id == "agent-1",
+                    AgentWorkgroup.is_lead == True,  # noqa: E712
+                )
+            ).first()
+            self.assertIsNotNone(link)
 
     def test_is_lead_defaults_false(self):
         engine = _make_engine()
@@ -99,15 +105,19 @@ class IsLeadPersistsTests(unittest.TestCase):
             wg = _make_workgroup(session, user)
             agent = Agent(
                 id="agent-x",
-                workgroup_id=wg.id,
+                organization_id=wg.organization_id,
                 created_by_user_id=user.id,
                 name="NoLead",
             )
             session.add(agent)
+            session.flush()
+            link_agent(session, agent.id, wg.id)
             session.commit()
         with Session(engine) as session:
-            reloaded = session.get(Agent, "agent-x")
-            self.assertFalse(reloaded.is_lead)
+            link = session.exec(
+                select(AgentWorkgroup).where(AgentWorkgroup.agent_id == "agent-x")
+            ).first()
+            self.assertFalse(link.is_lead)
 
 
 class EnsureLeadAgentTests(unittest.TestCase):
@@ -123,7 +133,8 @@ class EnsureLeadAgentTests(unittest.TestCase):
             session.commit()
             self.assertTrue(created)
             self.assertEqual(agent.name, "Design-lead")
-            self.assertTrue(agent.is_lead)
+            self.assertIsNotNone(lead_agent_for_workgroup(session, "wg-1"))
+            self.assertEqual(lead_agent_for_workgroup(session, "wg-1").id, agent.id)
 
     def test_idempotent(self):
         engine = _make_engine()
@@ -184,6 +195,7 @@ class EnsureLeadAgentTests(unittest.TestCase):
 class SelectLeadTests(unittest.TestCase):
     def test_select_lead_picks_is_lead(self):
         from teaparty_app.services.agent_runtime import _select_lead
+        from teaparty_app.services.agent_workgroups import agents_for_workgroup
 
         engine = _make_engine()
         with Session(engine) as session:
@@ -194,14 +206,13 @@ class SelectLeadTests(unittest.TestCase):
             session.commit()
 
         with Session(engine) as session:
-            candidates = session.exec(
-                select(Agent).where(Agent.workgroup_id == "wg-1").order_by(Agent.created_at.asc())
-            ).all()
-            lead = _select_lead(candidates)
+            candidates = sorted(agents_for_workgroup(session, "wg-1"), key=lambda a: a.created_at)
+            lead = _select_lead(candidates, session=session, workgroup_id="wg-1")
             self.assertEqual(lead.id, "a2")
 
     def test_select_lead_falls_back_to_first(self):
         from teaparty_app.services.agent_runtime import _select_lead
+        from teaparty_app.services.agent_workgroups import agents_for_workgroup
 
         engine = _make_engine()
         with Session(engine) as session:
@@ -212,10 +223,8 @@ class SelectLeadTests(unittest.TestCase):
             session.commit()
 
         with Session(engine) as session:
-            candidates = session.exec(
-                select(Agent).where(Agent.workgroup_id == "wg-1").order_by(Agent.created_at.asc())
-            ).all()
-            lead = _select_lead(candidates)
+            candidates = sorted(agents_for_workgroup(session, "wg-1"), key=lambda a: a.created_at)
+            lead = _select_lead(candidates, session=session, workgroup_id="wg-1")
             self.assertEqual(lead.id, "a1")
 
 

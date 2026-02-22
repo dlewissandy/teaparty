@@ -275,7 +275,6 @@ class AgentUpdateRequest(BaseModel):
     memory: str | None = None
     background: bool | None = None
     isolation: bool | None = None
-    workgroup_id: str | None = None
 
 
 class AgentCloneRequest(BaseModel):
@@ -285,7 +284,8 @@ class AgentCloneRequest(BaseModel):
 
 class AgentRead(ORMBaseModel):
     id: str
-    workgroup_id: str
+    organization_id: str | None = None
+    workgroup_ids: list[str] = Field(default_factory=list)
     name: str
     image: str = ""
     description: str

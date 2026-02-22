@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from teaparty_app.config import settings
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Membership,
@@ -108,9 +109,16 @@ def lead_agent_name(workgroup_name: str) -> str:
     return f"{workgroup_name}-lead"
 
 
-def is_lead_agent(agent: Agent) -> bool:
-    """Return True if the agent is a workgroup lead."""
-    return agent.is_lead
+def is_lead_agent(session: Session, agent: Agent, workgroup_id: str) -> bool:
+    """Return True if the agent is the lead for the given workgroup."""
+    link = session.exec(
+        select(AgentWorkgroup).where(
+            AgentWorkgroup.agent_id == agent.id,
+            AgentWorkgroup.workgroup_id == workgroup_id,
+            AgentWorkgroup.is_lead == True,  # noqa: E712
+        )
+    ).first()
+    return link is not None
 
 
 def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bool]:
@@ -119,29 +127,24 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
     Returns (agent, created) where created is True if a new agent was made.
     """
     from teaparty_app.services.claude_tools import claude_tool_names
+    from teaparty_app.services.agent_workgroups import lead_agent_for_workgroup, link_agent
 
-    existing = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup.id,
-            Agent.is_lead == True,  # noqa: E712
-        )
-    ).first()
-
+    existing = lead_agent_for_workgroup(session, workgroup.id)
     if existing:
         return existing, False
 
     agent = Agent(
-        workgroup_id=workgroup.id,
+        organization_id=workgroup.organization_id,
         created_by_user_id=workgroup.owner_id,
         name=lead_agent_name(workgroup.name),
         description="",
         prompt="",
         model="sonnet",
         tools=claude_tool_names(),
-        is_lead=True,
     )
     session.add(agent)
     session.flush()
+    link_agent(session, agent.id, workgroup.id, is_lead=True)
     return agent, True
 
 
@@ -160,7 +163,9 @@ def is_admin_agent(agent: Agent) -> bool:
 
 def find_admin_agent(session: Session, workgroup_id: str) -> Agent | None:
     return session.exec(
-        select(Agent).where(Agent.workgroup_id == workgroup_id, Agent.description == ADMIN_AGENT_SENTINEL)
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(AgentWorkgroup.workgroup_id == workgroup_id, Agent.description == ADMIN_AGENT_SENTINEL)
     ).first()
 
 
@@ -177,12 +182,14 @@ def ensure_admin_workspace(
     session: Session,
     workgroup: Workgroup,
 ) -> tuple[Agent, Conversation, bool]:
+    from teaparty_app.services.agent_workgroups import link_agent
+
     changed = False
     expected_admin_name = admin_agent_name(workgroup)
     admin_agent = find_admin_agent(session, workgroup.id)
     if not admin_agent:
         admin_agent = Agent(
-            workgroup_id=workgroup.id,
+            organization_id=workgroup.organization_id,
             created_by_user_id=workgroup.owner_id,
             name=expected_admin_name,
             description=ADMIN_AGENT_SENTINEL,
@@ -192,6 +199,7 @@ def ensure_admin_workspace(
         )
         session.add(admin_agent)
         session.flush()
+        link_agent(session, admin_agent.id, workgroup.id)
         changed = True
     else:
         admin_changed = False
@@ -344,8 +352,9 @@ def ensure_direct_conversation_with_agent(
     if not requester_membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a workgroup member")
 
+    from teaparty_app.services.agent_workgroups import agent_in_workgroup
     agent = session.get(Agent, agent_id)
-    if not agent or agent.workgroup_id != workgroup_id:
+    if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not in workgroup")
 
     topic_key = direct_conversation_key_user_agent(requester_user_id, agent_id)

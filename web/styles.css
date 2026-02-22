@@ -1175,7 +1175,9 @@ pre code {
   cursor: default;
 }
 
-.sidebar-partner-select {
+.sidebar-partner-select,
+.sidebar-wg-select,
+.sidebar-agent-select {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1241,7 +1243,9 @@ pre code {
 
 .sidebar-member-item:hover .sidebar-member-remove,
 .sidebar-partner-item:hover .sidebar-member-remove,
-.sidebar-pending-item:hover .sidebar-member-remove {
+.sidebar-pending-item:hover .sidebar-member-remove,
+.sidebar-wg-item:hover .sidebar-member-remove,
+.sidebar-agent-item:hover .sidebar-member-remove {
   display: flex;
 }
 
@@ -4293,6 +4297,149 @@ body[data-theme="dark"] .qs-result-item.selected {
   overflow-x: auto;
 }
 
+/* Agent profile — workgroup pills */
+
+.ap-wg-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 22px;
+  align-items: center;
+  min-height: 32px;
+}
+
+.ap-wg-pills-empty {
+  font-size: 0.8125rem;
+  color: var(--tp-muted);
+  font-style: italic;
+}
+
+.ap-wg-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  background: var(--tp-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--tp-primary) 20%, transparent);
+  border-radius: var(--tp-radius-full);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  animation: wg-pill-in var(--tp-duration-base) var(--tp-ease-spring) both;
+  transition: transform var(--tp-duration-fast) var(--tp-ease-out),
+              box-shadow var(--tp-duration-fast),
+              opacity var(--tp-duration-fast);
+}
+
+.ap-wg-pill:hover {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--tp-primary) 18%, transparent);
+  transform: translateY(-1px);
+}
+
+.ap-wg-pill--removing {
+  animation: wg-pill-out var(--tp-duration-base) var(--tp-ease-out) forwards;
+  pointer-events: none;
+}
+
+.ap-wg-pill-avatar {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.ap-wg-pill-name {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0 2px;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--tp-ink);
+  line-height: 1;
+}
+
+.ap-wg-pill-name:hover {
+  color: var(--tp-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ap-wg-pill-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.875rem;
+  color: var(--tp-muted);
+  opacity: 0;
+  transition: opacity var(--tp-duration-fast), background var(--tp-duration-fast), color var(--tp-duration-fast);
+  margin-left: -2px;
+}
+
+.ap-wg-pill:hover .ap-wg-pill-x {
+  opacity: 0.7;
+}
+
+.ap-wg-pill-x:hover {
+  opacity: 1 !important;
+  background: color-mix(in srgb, var(--tp-error) 14%, transparent);
+  color: var(--tp-error);
+}
+
+.ap-wg-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 4px 22px 16px;
+  padding: 14px 16px;
+  border: 2px dashed var(--tp-line);
+  border-radius: var(--tp-radius);
+  color: var(--tp-muted);
+  font-size: 0.8125rem;
+  transition: border-color var(--tp-duration-fast),
+              background var(--tp-duration-fast),
+              color var(--tp-duration-fast),
+              transform var(--tp-duration-fast) var(--tp-ease-out);
+}
+
+.ap-wg-dropzone svg {
+  opacity: 0.5;
+  transition: opacity var(--tp-duration-fast), transform var(--tp-duration-fast) var(--tp-ease-spring);
+}
+
+.ap-wg-dropzone--over {
+  border-color: var(--tp-primary);
+  background: var(--tp-primary-soft);
+  color: var(--tp-primary);
+  transform: scale(1.02);
+}
+
+.ap-wg-dropzone--over svg {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.ap-wg-dropzone--loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 /* ==========================================================================
    22b. WORKGROUP PROFILE VIEW
    Reuses org-cfg design system for cards, fields, toggles, actions.
@@ -4353,97 +4500,176 @@ body[data-theme="dark"] .qs-result-item.selected {
   margin-right: 6px;
 }
 
-/* Agent roster */
+/* Agent pill roster */
 
-.wg-agent-list {
+.wg-agent-pills {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 8px 22px;
-}
-
-.wg-agent-row {
-  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 22px;
   align-items: center;
-  border-radius: var(--tp-radius-sm);
-  transition: background var(--tp-duration-base);
+  min-height: 32px;
 }
 
-.wg-agent-row:hover {
-  background: var(--tp-surface-hover);
+.wg-agent-pills-empty {
+  font-size: 0.8125rem;
+  color: var(--tp-muted);
+  font-style: italic;
 }
 
-.wg-agent-link {
-  display: flex;
+.wg-agent-pill {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  flex: 1;
-  min-width: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--tp-ink);
-  font-size: 0.875rem;
-  text-align: left;
+  gap: 6px;
+  padding: 4px 6px 4px 4px;
+  background: var(--tp-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--tp-primary) 20%, transparent);
+  border-radius: var(--tp-radius-full);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  animation: wg-pill-in var(--tp-duration-base) var(--tp-ease-spring) both;
+  transition: transform var(--tp-duration-fast) var(--tp-ease-out),
+              box-shadow var(--tp-duration-fast),
+              opacity var(--tp-duration-fast);
 }
 
-.wg-agent-avatar {
-  width: 28px;
-  height: 28px;
+.wg-agent-pill:hover {
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--tp-primary) 18%, transparent);
+  transform: translateY(-1px);
+}
+
+.wg-agent-pill--lead {
+  background: var(--tp-accent-soft);
+  border-color: color-mix(in srgb, var(--tp-accent) 25%, transparent);
+}
+
+.wg-agent-pill--removing {
+  animation: wg-pill-out var(--tp-duration-base) var(--tp-ease-out) forwards;
+  pointer-events: none;
+}
+
+@keyframes wg-pill-in {
+  from { opacity: 0; transform: scale(0.7); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes wg-pill-out {
+  to { opacity: 0; transform: scale(0.7); }
+}
+
+.wg-agent-pill-avatar {
+  width: 22px;
+  height: 22px;
   flex-shrink: 0;
-  border-radius: var(--tp-radius-sm);
+  border-radius: 50%;
   overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.wg-agent-avatar svg {
+.wg-agent-pill-avatar svg {
   width: 100%;
   height: 100%;
   display: block;
 }
 
-.wg-agent-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.wg-agent-remove {
+.wg-agent-pill-name {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 1.125rem;
-  color: var(--tp-muted);
-  padding: 4px 10px;
-  border-radius: var(--tp-radius-sm);
-  opacity: 0;
-  transition: opacity var(--tp-duration-base), color var(--tp-duration-base);
-}
-
-.wg-agent-row:hover .wg-agent-remove {
-  opacity: 1;
-}
-
-.wg-agent-remove:hover {
-  color: var(--tp-danger);
-}
-
-.wg-add-agent {
-  margin: 4px 22px 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--tp-line-subtle);
-}
-
-.wg-add-agent select {
+  padding: 0 2px;
   font: inherit;
-  font-size: 0.875rem;
-  padding: 10px 12px;
-  border: 1px solid var(--tp-line);
-  border-radius: var(--tp-radius-sm);
-  background: var(--tp-bg);
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--tp-ink);
-  width: 100%;
-  box-sizing: border-box;
+  line-height: 1;
+}
+
+.wg-agent-pill-name:hover {
+  color: var(--tp-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.wg-agent-pill-x {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.875rem;
+  color: var(--tp-muted);
+  opacity: 0;
+  transition: opacity var(--tp-duration-fast), background var(--tp-duration-fast), color var(--tp-duration-fast);
+  margin-left: -2px;
+}
+
+.wg-agent-pill:hover .wg-agent-pill-x {
+  opacity: 0.7;
+}
+
+.wg-agent-pill-x:hover {
+  opacity: 1 !important;
+  background: color-mix(in srgb, var(--tp-error) 14%, transparent);
+  color: var(--tp-error);
+}
+
+/* Drop zone */
+
+.wg-agent-dropzone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 4px 22px 16px;
+  padding: 14px 16px;
+  border: 2px dashed var(--tp-line);
+  border-radius: var(--tp-radius);
+  color: var(--tp-muted);
+  font-size: 0.8125rem;
+  transition: border-color var(--tp-duration-fast),
+              background var(--tp-duration-fast),
+              color var(--tp-duration-fast),
+              transform var(--tp-duration-fast) var(--tp-ease-out);
+}
+
+.wg-agent-dropzone svg {
+  opacity: 0.5;
+  transition: opacity var(--tp-duration-fast), transform var(--tp-duration-fast) var(--tp-ease-spring);
+}
+
+.wg-agent-dropzone--over {
+  border-color: var(--tp-primary);
+  background: var(--tp-primary-soft);
+  color: var(--tp-primary);
+  transform: scale(1.02);
+}
+
+.wg-agent-dropzone--over svg {
+  opacity: 1;
+  transform: rotate(90deg);
+}
+
+.wg-agent-dropzone--loading {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+/* Sidebar drag state */
+
+.sidebar-agent-select[draggable="true"] {
+  cursor: grab;
+}
+
+.sidebar-agent-item.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
 }
 
 /* Conversation list */

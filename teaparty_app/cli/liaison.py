@@ -17,10 +17,11 @@ import os
 import shutil
 import sys
 
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from teaparty_app.db import engine
-from teaparty_app.models import Agent, Conversation, Job, Organization, Project, Workgroup
+from teaparty_app.models import Conversation, Job, Organization, Project, Workgroup
+from teaparty_app.services.agent_workgroups import agents_for_workgroup
 from teaparty_app.services.liaison import (
     create_subteam_job,
     materialize_workgroup_files_sync,
@@ -85,12 +86,9 @@ def cmd_relay_to_subteam(args: argparse.Namespace) -> None:
             session.refresh(conversation)
 
         # Get workgroup agents (non-admin)
-        agents = session.exec(
-            select(Agent).where(
-                Agent.workgroup_id == workgroup_id,
-                Agent.description != ADMIN_AGENT_SENTINEL,
-            ).order_by(Agent.created_at)
-        ).all()
+        all_agents = agents_for_workgroup(session, workgroup_id)
+        agents = [a for a in all_agents if a.description != ADMIN_AGENT_SENTINEL]
+        agents.sort(key=lambda a: a.created_at)
 
         if not agents:
             print(json.dumps({

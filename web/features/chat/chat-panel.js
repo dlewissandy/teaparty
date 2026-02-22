@@ -179,12 +179,16 @@ export function initChatPanel(store) {
     if (convId) {
       showChatView();
     } else {
-      // Don't override the agent profile or org dashboard views if showing
-      const profileView = document.getElementById('agent-profile-view');
-      const dashboardView = document.getElementById('org-dashboard-view');
-      const profileShowing = profileView && !profileView.classList.contains('hidden');
-      const dashboardShowing = dashboardView && !dashboardView.classList.contains('hidden');
-      if (!profileShowing && !dashboardShowing) {
+      // Don't override other content views (profile, dashboard, etc.)
+      const contentViews = [
+        'agent-profile-view', 'partner-profile-view', 'workgroup-profile-view',
+        'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form',
+      ];
+      const anyShowing = contentViews.some(id => {
+        const el = document.getElementById(id);
+        return el && !el.classList.contains('hidden');
+      });
+      if (!anyShowing) {
         showHomeView();
       }
     }

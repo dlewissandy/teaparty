@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import (
     Agent,
+    AgentWorkgroup,
     Conversation,
     Membership,
     Organization,
@@ -176,8 +177,10 @@ def global_list_workgroups(
     lines = [f"Workgroups{scope} (count={len(workgroups)}):"]
     for wg in workgroups:
         agents_count = session.exec(
-            select(func.count(Agent.id)).where(
-                Agent.workgroup_id == wg.id,
+            select(func.count(Agent.id))
+            .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+            .where(
+                AgentWorkgroup.workgroup_id == wg.id,
                 Agent.description != ADMIN_AGENT_SENTINEL,
             )
         ).one()
@@ -206,8 +209,10 @@ def global_add_agent(
 
     # Check for duplicate agent name
     existing = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup.id,
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup.id,
             func.lower(Agent.name) == agent_name.lower(),
             Agent.description != ADMIN_AGENT_SENTINEL,
         )
@@ -223,8 +228,9 @@ def global_add_agent(
     if isinstance(tool_names, str):
         tool_names = [t.strip() for t in tool_names.split(",") if t.strip()]
 
+    from teaparty_app.services.agent_workgroups import link_agent
     agent = Agent(
-        workgroup_id=workgroup.id,
+        organization_id=workgroup.organization_id,
         created_by_user_id=requester_user_id,
         name=agent_name,
         description=description,
@@ -234,6 +240,7 @@ def global_add_agent(
     )
     session.add(agent)
     session.flush()
+    link_agent(session, agent.id, workgroup.id)
     return (
         f"Created agent '{agent.name}' in '{workgroup.name}' (id={agent.id}). "
         f"model={agent.model}, prompt={agent.prompt[:40] or '(none)'}."
@@ -252,10 +259,13 @@ def global_list_agents(
         return f"Workgroup '{workgroup_name}' not found."
 
     agents = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup.id,
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup.id,
             Agent.description != ADMIN_AGENT_SENTINEL,
-        ).order_by(Agent.created_at.asc())
+        )
+        .order_by(Agent.created_at.asc())
     ).all()
 
     if not agents:
@@ -405,8 +415,10 @@ def global_update_agent(
         return f"Workgroup '{workgroup_name}' not found."
 
     agent = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup.id,
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup.id,
             func.lower(Agent.name) == agent_name.lower(),
             Agent.description != ADMIN_AGENT_SENTINEL,
         )

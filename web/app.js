@@ -84,6 +84,7 @@ const store = createStore({
     templates: [],
     invites: [],
     partnerships: [],
+    unassignedAgents: {},
     orgDashboard: null,
   },
   panels: {

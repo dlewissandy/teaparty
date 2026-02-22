@@ -9,6 +9,7 @@ from sqlmodel import Session, SQLModel, create_engine, select
 from teaparty_app.models import (
     Agent,
     AgentTask,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Membership,
@@ -39,7 +40,6 @@ def _seed(session: Session, *, admin: bool = False) -> tuple[User, Workgroup, Ag
     membership = Membership(workgroup_id=workgroup.id, user_id=user.id, role="owner")
     agent = Agent(
         id="agent-1",
-        workgroup_id=workgroup.id,
         created_by_user_id=user.id,
         name="Helper",
         description="__system_admin_agent__" if admin else "A helpful agent",
@@ -48,6 +48,9 @@ def _seed(session: Session, *, admin: bool = False) -> tuple[User, Workgroup, Ag
     session.add(workgroup)
     session.add(membership)
     session.add(agent)
+    session.flush()
+    from teaparty_app.services.agent_workgroups import link_agent
+    link_agent(session, agent.id, workgroup.id)
     session.commit()
     return user, workgroup, agent
 
@@ -62,13 +65,14 @@ def _seed_non_member(session: Session) -> User:
 def _add_second_agent(session: Session) -> Agent:
     agent2 = Agent(
         id="agent-2",
-        workgroup_id="wg-1",
         created_by_user_id="user-1",
         name="Other",
         description="Other agent",
     )
     session.add(agent2)
     session.flush()
+    from teaparty_app.services.agent_workgroups import link_agent
+    link_agent(session, agent2.id, "wg-1")
     return agent2
 
 
@@ -373,12 +377,15 @@ class BulkListAgentTasksTests(unittest.TestCase):
             _seed(session)
             wg2 = Workgroup(id="wg-2", name="Other WG", owner_id="user-1", files=[])
             agent2 = Agent(
-                id="agent-2", workgroup_id="wg-2", created_by_user_id="user-1",
+                id="agent-2", created_by_user_id="user-1",
                 name="Remote", description="",
             )
             session.add(wg2)
             session.add(agent2)
             session.add(Membership(workgroup_id="wg-2", user_id="user-1", role="owner"))
+            session.flush()
+            from teaparty_app.services.agent_workgroups import link_agent
+            link_agent(session, agent2.id, "wg-2")
             _insert_task(session, "t0", "agent-1", "WG1 task")
             # Manually add a task in wg-2
             task2 = AgentTask(

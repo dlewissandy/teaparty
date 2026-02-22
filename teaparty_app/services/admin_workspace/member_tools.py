@@ -12,6 +12,7 @@ from teaparty_app.models import (
     Agent,
     AgentLearningEvent,
     AgentMemory,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     Invite,
@@ -50,7 +51,8 @@ def admin_tool_list_members(
     human_members = _list_members_query(session, workgroup_id)
     agent_members = session.exec(
         select(Agent)
-        .where(Agent.workgroup_id == workgroup_id)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(AgentWorkgroup.workgroup_id == workgroup_id)
         .order_by(func.lower(Agent.name).asc(), Agent.created_at.asc())
     ).all()
 
@@ -99,8 +101,10 @@ def admin_tool_add_agent(
         return "Usage: add agent <name> [prompt=<text>] [model=<name>]"
 
     existing = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup_id,
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup_id,
             func.lower(Agent.name) == cleaned_name.lower(),
             Agent.description != ADMIN_AGENT_SENTINEL,
         )
@@ -112,8 +116,9 @@ def admin_tool_add_agent(
     description_text = description.strip()
     model_name = model.strip() or "sonnet"
 
+    workgroup = session.get(Workgroup, workgroup_id)
     agent = Agent(
-        workgroup_id=workgroup_id,
+        organization_id=workgroup.organization_id if workgroup else None,
         created_by_user_id=requester_user_id,
         name=cleaned_name,
         description=description_text,
@@ -123,6 +128,9 @@ def admin_tool_add_agent(
     )
     session.add(agent)
     session.flush()
+
+    from teaparty_app.services.agent_workgroups import link_agent
+    link_agent(session, agent.id, workgroup_id)
 
     return (
         f"Created agent '{agent.name}' with id={agent.id}. "
@@ -250,7 +258,14 @@ def admin_tool_remove_member(
         return "Unable to resolve member details."
     if is_admin_agent(agent):
         return "Cannot remove the hidden admin agent."
-    if agent.is_lead:
+    lead_link = session.exec(
+        select(AgentWorkgroup).where(
+            AgentWorkgroup.agent_id == agent.id,
+            AgentWorkgroup.workgroup_id == workgroup_id,
+            AgentWorkgroup.is_lead == True,  # noqa: E712
+        )
+    ).first()
+    if lead_link:
         return "Cannot remove the workgroup lead agent."
 
     counts = {
@@ -296,8 +311,13 @@ def admin_tool_remove_member(
     for row in memory_rows:
         session.delete(row)
 
-    session.delete(agent)
-    counts["agents"] += 1
+    # Unlink from this workgroup; delete agent only if it has no other workgroup memberships
+    from teaparty_app.services.agent_workgroups import unlink_agent, workgroup_ids_for_agent
+    remaining_wg_ids = [wid for wid in workgroup_ids_for_agent(session, agent.id) if wid != workgroup_id]
+    unlink_agent(session, agent.id, workgroup_id)
+    if not remaining_wg_ids:
+        session.delete(agent)
+        counts["agents"] += 1
     return (
         f"Removed member [agent] {agent.name} (id={agent.id}). "
         f"Deleted direct conversations={len(direct_ids)}, messages={counts['messages']}."

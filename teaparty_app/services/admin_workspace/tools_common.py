@@ -12,6 +12,7 @@ from teaparty_app.models import (
     AgentLearningEvent,
     AgentMemory,
     AgentTodoItem,
+    AgentWorkgroup,
     Conversation,
     ConversationParticipant,
     CrossGroupTask,
@@ -33,6 +34,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
 from teaparty_app.services.admin_workspace.parsing import (
     _normalize_member_selector,
 )
+from teaparty_app.services.agent_workgroups import lead_agent_for_workgroup
 
 
 @dataclass
@@ -306,19 +308,29 @@ def delete_workgroup_data(session: Session, workgroup_id: str) -> dict[str, int]
         session.delete(membership)
     counts["memberships"] += len(memberships)
 
-    agents = session.exec(select(Agent).where(Agent.workgroup_id == workgroup_id)).all()
-    for agent in agents:
-        learning_rows = session.exec(select(AgentLearningEvent).where(AgentLearningEvent.agent_id == agent.id)).all()
+    # Find the lead agent before removing links (only the lead is deleted)
+    lead_agent = lead_agent_for_workgroup(session, workgroup_id)
+
+    # Delete all AgentWorkgroup links for this workgroup
+    aw_links = session.exec(select(AgentWorkgroup).where(AgentWorkgroup.workgroup_id == workgroup_id)).all()
+    for link in aw_links:
+        session.delete(link)
+
+    # Delete only the lead agent (non-lead agents survive workgroup deletion)
+    if lead_agent:
+        learning_rows = session.exec(
+            select(AgentLearningEvent).where(AgentLearningEvent.agent_id == lead_agent.id)
+        ).all()
         for row in learning_rows:
             session.delete(row)
         counts["learning_events"] += len(learning_rows)
 
-        memory_rows = session.exec(select(AgentMemory).where(AgentMemory.agent_id == agent.id)).all()
+        memory_rows = session.exec(select(AgentMemory).where(AgentMemory.agent_id == lead_agent.id)).all()
         for row in memory_rows:
             session.delete(row)
 
-        session.delete(agent)
-    counts["agents"] += len(agents)
+        session.delete(lead_agent)
+        counts["agents"] += 1
 
     session.delete(workgroup)
     counts["workgroups"] += 1
@@ -375,8 +387,10 @@ def _resolve_member_targets(session: Session, workgroup_id: str, selector: str) 
         add_human(membership, user)
 
     agent_rows = session.exec(
-        select(Agent).where(
-            Agent.workgroup_id == workgroup_id,
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup_id,
             Agent.description != ADMIN_AGENT_SENTINEL,
             or_(
                 Agent.id == normalized,

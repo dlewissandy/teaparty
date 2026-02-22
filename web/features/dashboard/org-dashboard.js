@@ -62,9 +62,10 @@ async function loadDashboardData(orgId) {
       if (err?.status === 403) return { forbidden: true };
       return null;
     }),
+    api(`/api/organizations/${orgId}/agent-usage`).catch(() => null),
   ];
 
-  const [summary, spendingBreakdown, members, projects, engagements, balance, transactions] = await Promise.all(calls);
+  const [summary, spendingBreakdown, members, projects, engagements, balance, transactions, agentUsage] = await Promise.all(calls);
 
   // Guard against stale responses
   if (_currentOrgId !== orgId) return;
@@ -80,7 +81,7 @@ async function loadDashboardData(orgId) {
   if (_currentOrgId !== orgId) return;
 
   _store.update(s => {
-    s.data.orgDashboard = { summary, spendingBreakdown, members, projects, engagements, balance, transactions, workgroupUsage };
+    s.data.orgDashboard = { summary, spendingBreakdown, members, projects, engagements, balance, transactions, workgroupUsage, agentUsage };
   });
   _store.notify('data.orgDashboard');
 }
@@ -103,6 +104,7 @@ function renderDashboard(orgId) {
     renderSummaryBar(orgId, db),
     renderFinancialsGraph(orgId, db),
     renderSpendByWorkgroup(db),
+    renderSpendByAgent(db),
     renderSpendByCategory(db),
     renderEngagementPipeline(db),
     isOwner ? renderOwnerExtras(org) : '',
@@ -437,6 +439,48 @@ function renderSpendBars(items) {
       <svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" class="org-dash-svg" aria-hidden="true">
         ${bars}
       </svg>
+    </div>
+  `;
+}
+
+// ─── Spend by Agent ──────────────────────────────────────────────────────────
+
+function renderSpendByAgent(db) {
+  const data = db.agentUsage;
+  const agents = (data?.agents || []).filter(a => a.cost_usd > 0);
+
+  if (!agents.length) {
+    return `
+      <div class="org-dash-section">
+        <div class="org-dash-section-header"><h4 class="heading-serif">Spend by Agent</h4></div>
+        <div class="org-dash-chart-container">
+          <div class="org-dash-chart-empty">No agent usage recorded</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // Map agent data into the shape renderSpendBars expects
+  const items = agents.map(a => ({
+    workgroup: { name: a.agent_name },
+    usage: { estimated_cost_usd: a.cost_usd, api_calls: a.api_calls },
+  }));
+
+  const totalCost = agents.reduce((sum, a) => sum + a.cost_usd, 0);
+  const totalCalls = agents.reduce((sum, a) => sum + a.api_calls, 0);
+
+  const chartSvg = renderSpendBars(items);
+
+  return `
+    <div class="org-dash-section">
+      <div class="org-dash-section-header"><h4 class="heading-serif">Spend by Agent</h4></div>
+      <div class="org-dash-chart-container">
+        ${chartSvg}
+      </div>
+      <div class="org-dash-pipeline-meta">
+        <span class="meta"><strong>$${totalCost.toFixed(2)}</strong> total spend</span>
+        <span class="meta"><strong>${totalCalls.toLocaleString()}</strong> API calls</span>
+      </div>
     </div>
   `;
 }

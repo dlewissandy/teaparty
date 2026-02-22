@@ -33,6 +33,7 @@ from teaparty_app.services.admin_workspace import (
     ensure_direct_conversation,
     ensure_direct_conversation_with_agent,
 )
+from teaparty_app.services.agent_workgroups import agent_in_workgroup
 from teaparty_app.services.permissions import check_budget, require_workgroup_editor, require_workgroup_membership, require_workgroup_owner
 from teaparty_app.services.sync_events import publish_sync_event
 
@@ -134,7 +135,7 @@ def create_conversation(
 
     for participant_agent_id in payload.participant_agent_ids:
         agent = session.get(Agent, participant_agent_id)
-        if not agent or agent.workgroup_id != workgroup_id:
+        if not agent or not agent_in_workgroup(session, participant_agent_id, workgroup_id):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Agent {participant_agent_id} is not in this workgroup",
@@ -551,7 +552,15 @@ def get_conversation_participants(
         elif p.agent_id:
             agent = session.get(Agent, p.agent_id)
             if agent:
-                agents_out.append({"id": agent.id, "name": agent.name, "description": agent.description, "is_lead": agent.is_lead})
+                from teaparty_app.models import AgentWorkgroup
+                is_lead = session.exec(
+                    select(AgentWorkgroup).where(
+                        AgentWorkgroup.agent_id == agent.id,
+                        AgentWorkgroup.workgroup_id == conversation.workgroup_id,
+                        AgentWorkgroup.is_lead == True,  # noqa: E712
+                    )
+                ).first() is not None
+                agents_out.append({"id": agent.id, "name": agent.name, "description": agent.description, "is_lead": is_lead})
 
     return {"users": users_out, "agents": agents_out}
 

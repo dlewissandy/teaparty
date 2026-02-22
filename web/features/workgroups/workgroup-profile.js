@@ -422,16 +422,18 @@ function wireEvents(workgroupId) {
       try { data = JSON.parse(raw); } catch { return; }
 
       // Don't add if already in this workgroup
-      if (data.workgroupId === workgroupId) {
+      const s = _store.get();
+      const tree = s.data.treeData[workgroupId];
+      const alreadyInTeam = (tree?.agents || []).some(a => a.id === data.agentId);
+      if (alreadyInTeam) {
         flash('Agent is already in this team', 'info');
         return;
       }
 
       dropzone.classList.add('wg-agent-dropzone--loading');
       try {
-        await api(`/api/workgroups/${data.workgroupId}/agents/${data.agentId}`, {
-          method: 'PATCH',
-          body: { workgroup_id: workgroupId },
+        await api(`/api/agents/${data.agentId}/workgroups/${workgroupId}`, {
+          method: 'POST',
         });
         flash('Agent added to team', 'success');
         bus.emit('data:refresh');

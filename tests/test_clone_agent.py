@@ -2,7 +2,7 @@ import unittest
 
 from sqlmodel import SQLModel, Session, create_engine
 
-from teaparty_app.models import Agent, Membership, User, Workgroup
+from teaparty_app.models import Agent, AgentWorkgroup, Membership, User, Workgroup
 from teaparty_app.services.activity import ensure_activity_conversation
 from teaparty_app.routers.workgroups import clone_agent
 from teaparty_app.schemas import AgentCloneRequest, AgentRead
@@ -20,7 +20,6 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
     membership = Membership(workgroup_id=workgroup.id, user_id=user.id, role="owner")
     agent = Agent(
         id="agent-1",
-        workgroup_id=workgroup.id,
         created_by_user_id=user.id,
         name="Helper",
         description="A helpful agent",
@@ -34,6 +33,9 @@ def _seed(session: Session) -> tuple[User, Workgroup, Agent]:
     session.add(workgroup)
     session.add(membership)
     session.add(agent)
+    session.flush()
+    from teaparty_app.services.agent_workgroups import link_agent
+    link_agent(session, agent.id, workgroup.id)
     ensure_activity_conversation(session, workgroup)
     session.commit()
     return user, workgroup, agent
@@ -58,7 +60,7 @@ class CloneAgentSameWorkgroupTests(unittest.TestCase):
 
         self.assertEqual(result.name, "Helper (copy)")
         self.assertNotEqual(result.id, "agent-1")
-        self.assertEqual(result.workgroup_id, "wg-1")
+        self.assertIn("wg-1", result.workgroup_ids)
 
     def test_clone_copies_config_fields(self) -> None:
         with Session(self.engine) as session:
