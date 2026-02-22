@@ -4185,11 +4185,16 @@ body[data-theme="dark"] .qs-result-item.selected {
   width: 72px;
   height: 72px;
   flex-shrink: 0;
+  border-radius: var(--tp-radius);
+  overflow: hidden;
 }
 
-.agent-profile-avatar svg {
+.agent-profile-avatar svg,
+.agent-profile-avatar-img {
   width: 100%;
   height: 100%;
+  display: block;
+  object-fit: cover;
 }
 
 .agent-profile-name {
@@ -4225,11 +4230,32 @@ body[data-theme="dark"] .qs-result-item.selected {
   border-color: var(--tp-line);
 }
 
+.agent-profile-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 22px 10px;
+  border-bottom: 1px solid var(--tp-line-subtle);
+}
+
+.agent-profile-card-icon {
+  color: var(--tp-primary);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
 .agent-profile-card-title {
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   color: var(--tp-ink);
-  margin: 0 0 12px;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-profile-card-body {
+  padding: 16px 22px;
 }
 
 .agent-profile-text {
@@ -4255,6 +4281,436 @@ body[data-theme="dark"] .qs-result-item.selected {
   font-weight: 600;
   color: var(--tp-ink-secondary);
   margin-right: 6px;
+}
+
+.agent-profile-hooks-pre {
+  background: var(--tp-surface-inset);
+  border: 1px solid var(--tp-line-subtle);
+  border-radius: var(--tp-radius-sm);
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8125rem;
+  overflow-x: auto;
+}
+
+/* ==========================================================================
+   22c. AGENT CONFIG FORM (right panel file viewer, agent .json files)
+   ========================================================================== */
+
+/* Root wrapper — visually transparent, just provides the json-section structure */
+
+.cfg-agent-root {
+  border: none !important;
+  background: none !important;
+  padding: 0 !important;
+}
+
+.cfg-agent-summary-hidden {
+  display: none;
+}
+
+.cfg-agent-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Proxy fields are invisible collection anchors */
+
+.cfg-agent-proxy-field {
+  display: none;
+}
+
+/* ---- Hero ---- */
+
+.cfg-agent-hero {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid var(--tp-line-subtle);
+  margin-bottom: 4px;
+}
+
+.cfg-agent-avatar {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: var(--tp-radius);
+  overflow: hidden;
+}
+
+.cfg-agent-avatar svg,
+.cfg-agent-avatar-img {
+  width: 56px;
+  height: 56px;
+  display: block;
+}
+
+.cfg-agent-hero-text {
+  min-width: 0;
+}
+
+.cfg-agent-name {
+  font-family: 'Source Serif 4', Georgia, serif;
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--tp-ink);
+  margin: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cfg-agent-meta {
+  font-size: 0.75rem;
+  color: var(--tp-muted);
+  margin: 3px 0 0;
+}
+
+/* ---- Cards ---- */
+
+.cfg-agent-card {
+  background: var(--tp-panel);
+  border: 1px solid var(--tp-line-subtle);
+  border-radius: var(--tp-radius);
+  overflow: hidden;
+  transition: border-color var(--tp-duration-base);
+}
+
+.cfg-agent-card:hover {
+  border-color: var(--tp-line);
+}
+
+.cfg-agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 10px;
+  border-bottom: 1px solid var(--tp-line-subtle);
+}
+
+.cfg-agent-card-icon {
+  color: var(--tp-primary);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.cfg-agent-card-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--tp-ink);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cfg-agent-card-body {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---- Form fields ---- */
+
+.cfg-agent-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cfg-agent-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--tp-ink-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cfg-agent-input,
+.cfg-agent-textarea {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 9px 11px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-bg);
+  color: var(--tp-ink);
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color var(--tp-duration-fast), box-shadow var(--tp-duration-fast);
+}
+
+.cfg-agent-input:focus,
+.cfg-agent-textarea:focus {
+  outline: none;
+  border-color: var(--tp-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tp-primary) 15%, transparent);
+}
+
+.cfg-agent-input:disabled,
+.cfg-agent-textarea:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cfg-agent-textarea {
+  resize: vertical;
+  min-height: 72px;
+  line-height: 1.5;
+}
+
+/* ---- Select dropdown ---- */
+
+.cfg-agent-select-wrap {
+  position: relative;
+}
+
+.cfg-agent-select {
+  font: inherit;
+  font-size: 0.875rem;
+  padding: 9px 32px 9px 11px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-sm);
+  background: var(--tp-bg);
+  color: var(--tp-ink);
+  width: 100%;
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  transition: border-color var(--tp-duration-fast), box-shadow var(--tp-duration-fast);
+}
+
+.cfg-agent-select:focus {
+  outline: none;
+  border-color: var(--tp-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--tp-primary) 15%, transparent);
+}
+
+.cfg-agent-select:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.cfg-agent-select-chevron {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--tp-muted);
+  display: flex;
+  align-items: center;
+}
+
+/* ---- Behavior toggle rows ---- */
+
+.cfg-agent-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0;
+}
+
+.cfg-agent-toggle-row + .cfg-agent-toggle-row {
+  border-top: 1px solid var(--tp-line-subtle);
+  padding-top: 12px;
+  margin-top: -2px;
+}
+
+.cfg-agent-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cfg-agent-toggle-label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--tp-ink);
+}
+
+.cfg-agent-toggle-hint {
+  font-size: 0.75rem;
+  color: var(--tp-muted);
+  line-height: 1.4;
+}
+
+/* Toggle switch (mirrors org-cfg-toggle) */
+
+.cfg-agent-toggle {
+  position: relative;
+  width: 42px;
+  height: 24px;
+  flex-shrink: 0;
+  cursor: pointer;
+  display: block;
+}
+
+.cfg-agent-toggle input {
+  opacity: 0;
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.cfg-agent-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--tp-line);
+  border-radius: var(--tp-radius-full);
+  transition: background var(--tp-duration-base);
+}
+
+.cfg-agent-toggle input:checked + .cfg-agent-toggle-track {
+  background: var(--tp-primary);
+}
+
+.cfg-agent-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--tp-shadow-sm);
+  transition: transform var(--tp-duration-base) var(--tp-ease-spring);
+}
+
+.cfg-agent-toggle input:checked ~ .cfg-agent-toggle-thumb {
+  transform: translateX(18px);
+}
+
+.cfg-agent-toggle input:disabled + .cfg-agent-toggle-track {
+  opacity: 0.5;
+}
+
+/* ---- Tool pills ---- */
+
+.cfg-agent-tools-body {
+  display: none; /* hidden — collection only */
+}
+
+.cfg-agent-tool-section {
+  /* Suppress the default json-section appearance */
+  border: none !important;
+  background: none !important;
+  padding: 0 !important;
+}
+
+.cfg-agent-pill-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.cfg-agent-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 11px;
+  background: var(--tp-primary-soft);
+  border: 1px solid color-mix(in srgb, var(--tp-primary) 25%, transparent);
+  border-radius: var(--tp-radius-full);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--tp-primary);
+  white-space: nowrap;
+}
+
+.cfg-agent-pill-text {
+  line-height: 1;
+}
+
+.cfg-agent-pill-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  color: var(--tp-primary);
+  opacity: 0.6;
+  transition: opacity var(--tp-duration-fast), background var(--tp-duration-fast), color var(--tp-duration-fast);
+}
+
+.cfg-agent-pill-remove:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--tp-error) 12%, transparent);
+  color: var(--tp-error);
+}
+
+/* Add-tool row */
+
+.cfg-agent-add-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  margin-top: 2px;
+}
+
+.cfg-agent-add-input {
+  font: inherit;
+  font-size: 0.8125rem;
+  padding: 5px 10px;
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius-full);
+  background: var(--tp-bg);
+  color: var(--tp-ink);
+  flex: 1;
+  min-width: 0;
+  transition: border-color var(--tp-duration-fast), box-shadow var(--tp-duration-fast);
+}
+
+.cfg-agent-add-input::placeholder {
+  color: var(--tp-muted);
+}
+
+.cfg-agent-add-input:focus {
+  outline: none;
+  border-color: var(--tp-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--tp-primary) 15%, transparent);
+}
+
+.cfg-agent-add-btn {
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--tp-primary) 40%, transparent);
+  border-radius: var(--tp-radius-full);
+  background: var(--tp-primary-soft);
+  color: var(--tp-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--tp-duration-fast), border-color var(--tp-duration-fast);
+}
+
+.cfg-agent-add-btn:hover {
+  background: color-mix(in srgb, var(--tp-primary) 18%, transparent);
+  border-color: color-mix(in srgb, var(--tp-primary) 55%, transparent);
+}
+
+/* ---- Hooks section ---- */
+
+.cfg-agent-hooks-section {
+  border: 1px solid var(--tp-line-subtle) !important;
+  border-radius: var(--tp-radius-sm) !important;
+  background: var(--tp-surface-inset) !important;
+  font-size: 0.8125rem;
 }
 
 /* ==========================================================================
