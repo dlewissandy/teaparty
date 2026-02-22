@@ -555,7 +555,6 @@ def create_workgroup_with_template(
         )
 
     ensure_lead_agent(session, group)
-    ensure_admin_workspace(session, group)
     ensure_activity_conversation(session, group)
     session.flush()
     return group
@@ -615,7 +614,6 @@ def create_workgroup(
             )
 
         ensure_lead_agent(session, group)
-        ensure_admin_workspace(session, group)
         ensure_activity_conversation(session, group)
     else:
         org = session.get(Organization, payload.organization_id)
@@ -654,13 +652,12 @@ def list_workgroups(
     groups_changed = False
     for workgroup in rows:
         _lead_agent, lead_created = ensure_lead_agent(session, workgroup)
-        _admin_agent, _admin_conversation, group_changed = ensure_admin_workspace(session, workgroup)
         _activity_conversation, activity_changed = ensure_activity_conversation(session, workgroup)
         groups_changed = groups_changed or lead_created
         if workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id:
             org_changed = _reconcile_org_administration_files(session, workgroup)
             groups_changed = groups_changed or org_changed
-        groups_changed = groups_changed or group_changed or activity_changed
+        groups_changed = groups_changed or activity_changed
     if changed or groups_changed:
         session.commit()
 

@@ -4,7 +4,6 @@ from sqlmodel import SQLModel, Session, create_engine
 
 from teaparty_app.models import Agent, Membership, User, Workgroup
 from teaparty_app.services.activity import ensure_activity_conversation
-from teaparty_app.services.admin_workspace import ADMIN_AGENT_SENTINEL
 from teaparty_app.routers.workgroups import clone_agent
 from teaparty_app.schemas import AgentCloneRequest, AgentRead
 
@@ -101,41 +100,3 @@ class CloneAgentCustomNameTests(unittest.TestCase):
             )
 
         self.assertEqual(result.name, "My Custom Agent")
-
-
-
-class CloneAgentAdminBlockedTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.engine = _make_engine()
-
-    def test_cannot_clone_admin_agent(self) -> None:
-        with Session(self.engine) as session:
-            user = User(id="user-1", email="owner@example.com", name="Owner")
-            workgroup = Workgroup(id="wg-1", name="Core", owner_id=user.id, files=[])
-            membership = Membership(workgroup_id=workgroup.id, user_id=user.id, role="owner")
-            admin_agent = Agent(
-                id="admin-1",
-                workgroup_id=workgroup.id,
-                created_by_user_id=user.id,
-                name="Admin",
-                description=ADMIN_AGENT_SENTINEL,
-            )
-            session.add(user)
-            session.add(workgroup)
-            session.add(membership)
-            session.add(admin_agent)
-            ensure_activity_conversation(session, workgroup)
-            session.commit()
-
-        from fastapi import HTTPException
-
-        with Session(self.engine) as session:
-            with self.assertRaises(HTTPException) as ctx:
-                clone_agent(
-                    workgroup_id="wg-1",
-                    agent_id="admin-1",
-                    payload=AgentCloneRequest(),
-                    session=session,
-                    user=session.get(User, "user-1"),
-                )
-            self.assertEqual(ctx.exception.status_code, 400)

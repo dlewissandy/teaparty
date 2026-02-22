@@ -30,7 +30,6 @@ from teaparty_app.services.agent_runtime import (
 from teaparty_app.services.activity import ensure_activity_conversation_for_workgroup_id
 from teaparty_app.services.admin_workspace import (
     clear_conversation_messages,
-    ensure_admin_workspace_for_workgroup_id,
     ensure_direct_conversation,
     ensure_direct_conversation_with_agent,
 )
@@ -216,9 +215,8 @@ def list_conversations(
 ) -> list[ConversationRead]:
     membership = require_workgroup_membership(session, workgroup_id, user.id)
     is_owner = membership.role == "owner"
-    _agent, _conversation, admin_changed = ensure_admin_workspace_for_workgroup_id(session, workgroup_id)
     _activity_conversation, activity_changed = ensure_activity_conversation_for_workgroup_id(session, workgroup_id)
-    if admin_changed or activity_changed:
+    if activity_changed:
         session.commit()
     query = select(Conversation).where(Conversation.workgroup_id == workgroup_id)
     if not include_archived:

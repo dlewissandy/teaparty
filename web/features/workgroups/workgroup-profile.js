@@ -9,6 +9,7 @@ import { avatarColor, initialsFromName, generateBotSvg } from '../../components/
 
 let _store = null;
 let _currentWorkgroupId = '';
+let _lastRenderFingerprint = '';
 
 const MODEL_OPTIONS = [
   { value: 'sonnet', label: 'Sonnet' },
@@ -34,6 +35,7 @@ function showView() {
 function hideView() {
   document.getElementById('workgroup-profile-view')?.classList.add('hidden');
   _currentWorkgroupId = '';
+  _lastRenderFingerprint = '';
 }
 
 export function initWorkgroupProfile(store) {
@@ -52,23 +54,70 @@ export function initWorkgroupProfile(store) {
 
   // Re-render when data changes (agents may have moved)
   store.on('data.treeData', () => {
-    if (_currentWorkgroupId) render(_currentWorkgroupId);
+    if (!_currentWorkgroupId) return;
+    const fp = _fingerprint(_currentWorkgroupId);
+    if (fp === _lastRenderFingerprint) return;
+    render(_currentWorkgroupId);
   });
+
+  // Delegated click handlers — survive re-renders
+  const root = document.getElementById('workgroup-profile-content');
+  if (root) {
+    root.addEventListener('click', (e) => {
+      const viewBtn = e.target.closest('[data-action="view-agent"]');
+      if (viewBtn) {
+        store.update(s => { s.nav.sidebarSelection = `agent:${viewBtn.dataset.agentId}`; });
+        bus.emit('nav:agent-selected', {
+          agentId: viewBtn.dataset.agentId,
+          workgroupId: viewBtn.dataset.workgroupId,
+        });
+        return;
+      }
+
+      const removeBtn = e.target.closest('[data-action="remove-agent"]');
+      if (removeBtn) {
+        _handleRemoveAgent(removeBtn);
+        return;
+      }
+
+      const jobBtn = e.target.closest('[data-action="open-job"]');
+      if (jobBtn) {
+        store.update(s => { s.nav.sidebarSelection = `job:${jobBtn.dataset.conversationId}`; });
+        bus.emit('nav:conversation-selected', {
+          workgroupId: _currentWorkgroupId,
+          conversationId: jobBtn.dataset.conversationId,
+        });
+      }
+    });
+  }
 }
 
-function getOrgAgents(s, orgId) {
-  const agents = [];
-  const seen = new Set();
-  for (const wg of (s.data.workgroups || []).filter(w => w.organization_id === orgId)) {
-    const tree = s.data.treeData[wg.id];
-    if (!tree) continue;
-    for (const agent of (tree.agents || [])) {
-      if (seen.has(agent.id)) continue;
-      seen.add(agent.id);
-      agents.push({ ...agent, workgroup_id: wg.id, workgroup_name: wg.name });
-    }
+async function _handleRemoveAgent(btn) {
+  const agentId = btn.dataset.agentId;
+  const pill = btn.closest('.wg-agent-pill');
+
+  if (pill) { pill.classList.add('wg-agent-pill--removing'); }
+  try {
+    await api(`/api/workgroups/${_currentWorkgroupId}/agents/${agentId}`, {
+      method: 'DELETE',
+    });
+    if (pill) pill.remove();
+    flash('Agent removed', 'success');
+    bus.emit('data:refresh');
+  } catch (err) {
+    if (pill) { pill.classList.remove('wg-agent-pill--removing'); }
+    flash(err.message || 'Failed to remove agent', 'error');
   }
-  return agents;
+}
+
+function _fingerprint(workgroupId) {
+  const s = _store.get();
+  const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
+  if (!wg) return '';
+  const tree = s.data.treeData[workgroupId];
+  const agentIds = (tree?.agents || []).map(a => `${a.id}:${a.name}:${a.is_lead}`).join(',');
+  const jobIds = (tree?.jobs || []).map(j => j.id).join(',');
+  return `${wg.team_model}|${wg.team_permission_mode}|${wg.team_max_turns}|${wg.team_max_cost_usd}|${wg.team_max_time_seconds}|${wg.workspace_enabled}|${agentIds}|${jobIds}`;
 }
 
 function selectOptions(options, currentValue) {
@@ -100,38 +149,27 @@ function render(workgroupId) {
   const maxTime = wg.team_max_time_seconds ?? '';
   const workspaceEnabled = wg.workspace_enabled !== false;
 
-  // Agents in other workgroups (for add picker)
-  const allOrgAgents = wg.organization_id ? getOrgAgents(s, wg.organization_id) : [];
-  const otherAgents = allOrgAgents.filter(a => a.workgroup_id !== workgroupId && !a.is_lead);
-
-  // Build agent roster HTML
-  let agentRosterHtml = '';
-  if (agents.length) {
-    agentRosterHtml = '<div class="wg-agent-list">';
-    for (const agent of agents) {
-      const svg = generateBotSvg(agent.name);
-      const removable = isOwner && !agent.is_lead;
-      agentRosterHtml += `
-        <div class="wg-agent-row">
-          <button type="button" class="wg-agent-link" data-action="view-agent" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">
-            <span class="wg-agent-avatar">${svg}</span>
-            <span class="wg-agent-name">${escapeHtml(agent.name)}</span>
-          </button>
-          ${removable ? `<button type="button" class="wg-agent-remove" data-action="remove-agent" data-agent-id="${escapeHtml(agent.id)}" title="Remove from team">&times;</button>` : ''}
-        </div>`;
-    }
-    agentRosterHtml += '</div>';
-  } else {
-    agentRosterHtml = '<p class="org-cfg-card-desc" style="margin:0">No agents assigned to this team yet.</p>';
-  }
-
-  if (isOwner && otherAgents.length) {
+  // Build agent roster HTML — pill layout with drag-and-drop
+  let agentRosterHtml = '<div class="wg-agent-pills" id="wg-agent-pills">';
+  for (const agent of agents) {
+    const svg = generateBotSvg(agent.name);
+    const removable = isOwner && !agent.is_lead;
     agentRosterHtml += `
-      <div class="wg-add-agent">
-        <select id="wg-agent-picker">
-          <option value="">Add agent to team...</option>
-          ${otherAgents.map(a => `<option value="${escapeHtml(a.id)}" data-wg-id="${escapeHtml(a.workgroup_id)}">${escapeHtml(a.name)} (${escapeHtml(a.workgroup_name)})</option>`).join('')}
-        </select>
+      <span class="wg-agent-pill${agent.is_lead ? ' wg-agent-pill--lead' : ''}" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">
+        <span class="wg-agent-pill-avatar">${svg}</span>
+        <button type="button" class="wg-agent-pill-name" data-action="view-agent" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">${escapeHtml(agent.name)}</button>${removable ? `<button type="button" class="wg-agent-pill-x" data-action="remove-agent" data-agent-id="${escapeHtml(agent.id)}" title="Remove from team" aria-label="Remove ${escapeHtml(agent.name)}">&times;</button>` : ''}
+      </span>`;
+  }
+  if (!agents.length) {
+    agentRosterHtml += '<span class="wg-agent-pills-empty">No agents yet</span>';
+  }
+  agentRosterHtml += '</div>';
+
+  if (isOwner) {
+    agentRosterHtml += `
+      <div class="wg-agent-dropzone" id="wg-agent-dropzone">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <span>Drag an agent here from the sidebar</span>
       </div>`;
   }
 
@@ -297,7 +335,16 @@ function render(workgroupId) {
             <svg class="org-cfg-card-icon" viewBox="0 0 20 20" fill="none" width="20" height="20"><rect x="4" y="5" width="12" height="11" rx="3" stroke="currentColor" stroke-width="1.4"/><circle cx="8" cy="10" r="1.2" fill="currentColor"/><circle cx="12" cy="10" r="1.2" fill="currentColor"/><path d="M8.5 13.5q1.5 1 3 0" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="10" y1="5" x2="10" y2="2.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><circle cx="10" cy="2" r="1" fill="currentColor"/></svg>
             <h4 class="org-cfg-card-title">Agents</h4>
           </div>
-          ${agentRosterHtml}
+          <div class="wg-agent-pills" style="padding:12px 22px">
+            ${agents.map(agent => {
+              const svg = generateBotSvg(agent.name);
+              return `<span class="wg-agent-pill${agent.is_lead ? ' wg-agent-pill--lead' : ''}" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">
+                <span class="wg-agent-pill-avatar">${svg}</span>
+                <button type="button" class="wg-agent-pill-name" data-action="view-agent" data-agent-id="${escapeHtml(agent.id)}" data-workgroup-id="${escapeHtml(workgroupId)}">${escapeHtml(agent.name)}</button>
+              </span>`;
+            }).join('')}
+            ${!agents.length ? '<span class="wg-agent-pills-empty">No agents</span>' : ''}
+          </div>
         </div>
 
         ${jobsHtml}
@@ -305,6 +352,7 @@ function render(workgroupId) {
     `;
   }
 
+  _lastRenderFingerprint = _fingerprint(workgroupId);
   wireEvents(workgroupId);
 }
 
@@ -351,72 +399,47 @@ function wireEvents(workgroupId) {
     }
   });
 
-  // View agent profile
-  root?.querySelectorAll('[data-action="view-agent"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      _store.update(s => { s.nav.sidebarSelection = `agent:${btn.dataset.agentId}`; });
-      bus.emit('nav:agent-selected', {
-        agentId: btn.dataset.agentId,
-        workgroupId: btn.dataset.workgroupId,
-      });
+  // Drop zone — accept agents dragged from sidebar
+  const dropzone = document.getElementById('wg-agent-dropzone');
+  if (dropzone) {
+    dropzone.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer.types.includes('application/x-teaparty-agent')) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      dropzone.classList.add('wg-agent-dropzone--over');
     });
-  });
-
-  // Remove agent from workgroup (move to Administration)
-  root?.querySelectorAll('[data-action="remove-agent"]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const agentId = btn.dataset.agentId;
-      const s = _store.get();
-      const wg = (s.data.workgroups || []).find(w => w.id === workgroupId);
-      if (!wg) return;
-      const adminWg = (s.data.workgroups || []).find(
-        w => w.organization_id === wg.organization_id && w.name === 'Administration'
-      );
-      if (!adminWg) { flash('No Administration workgroup found', 'error'); return; }
-
-      try {
-        await api(`/api/workgroups/${workgroupId}/agents/${agentId}`, {
-          method: 'PATCH',
-          body: { workgroup_id: adminWg.id },
-        });
-        flash('Agent removed from team', 'success');
-        bus.emit('data:refresh');
-      } catch (err) {
-        flash(err.message || 'Failed to remove agent', 'error');
+    dropzone.addEventListener('dragleave', (e) => {
+      if (!dropzone.contains(e.relatedTarget)) {
+        dropzone.classList.remove('wg-agent-dropzone--over');
       }
     });
-  });
+    dropzone.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('wg-agent-dropzone--over');
+      const raw = e.dataTransfer.getData('application/x-teaparty-agent');
+      if (!raw) return;
+      let data;
+      try { data = JSON.parse(raw); } catch { return; }
 
-  // Add agent from picker
-  const picker = document.getElementById('wg-agent-picker');
-  picker?.addEventListener('change', async () => {
-    const agentId = picker.value;
-    if (!agentId) return;
-    const option = picker.selectedOptions[0];
-    const sourceWgId = option?.dataset.wgId;
-    if (!sourceWgId) return;
+      // Don't add if already in this workgroup
+      if (data.workgroupId === workgroupId) {
+        flash('Agent is already in this team', 'info');
+        return;
+      }
 
-    picker.disabled = true;
-    try {
-      await api(`/api/workgroups/${sourceWgId}/agents/${agentId}`, {
-        method: 'PATCH',
-        body: { workgroup_id: workgroupId },
-      });
-      flash('Agent added to team', 'success');
-      bus.emit('data:refresh');
-    } catch (err) {
-      flash(err.message || 'Failed to add agent', 'error');
-    }
-    picker.disabled = false;
-    picker.value = '';
-  });
-
-  // Open job conversation
-  root?.querySelectorAll('[data-action="open-job"]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const conversationId = btn.dataset.conversationId;
-      _store.update(s => { s.nav.sidebarSelection = `job:${conversationId}`; });
-      bus.emit('nav:conversation-selected', { workgroupId, conversationId });
+      dropzone.classList.add('wg-agent-dropzone--loading');
+      try {
+        await api(`/api/workgroups/${data.workgroupId}/agents/${data.agentId}`, {
+          method: 'PATCH',
+          body: { workgroup_id: workgroupId },
+        });
+        flash('Agent added to team', 'success');
+        bus.emit('data:refresh');
+      } catch (err) {
+        flash(err.message || 'Failed to add agent', 'error');
+      }
+      dropzone.classList.remove('wg-agent-dropzone--loading');
     });
-  });
+  }
+
 }

@@ -234,10 +234,8 @@ def _create_workgroup_from_template(
 
     session.flush()
 
-    from teaparty_app.services.admin_workspace.bootstrap import ensure_admin_workspace
     from teaparty_app.services.activity import ensure_activity_conversation
 
-    ensure_admin_workspace(session, workgroup)
     ensure_activity_conversation(session, workgroup)
 
     session.add(SeedRecord(

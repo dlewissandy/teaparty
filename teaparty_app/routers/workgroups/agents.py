@@ -16,7 +16,6 @@ from teaparty_app.schemas import (
 )
 from teaparty_app.services.activity import post_activity
 from teaparty_app.services.admin_workspace import (
-    ADMIN_AGENT_SENTINEL,
     clear_conversation_messages,
     direct_conversation_key_user_agent,
 )
@@ -75,8 +74,6 @@ def list_agents(
 ) -> list[AgentRead]:
     require_workgroup_membership(session, workgroup_id, user.id)
     query = select(Agent).where(Agent.workgroup_id == workgroup_id)
-    if not include_hidden:
-        query = query.where(Agent.description != ADMIN_AGENT_SENTINEL)
     agents = session.exec(query.order_by(Agent.created_at.asc())).all()
     return [AgentRead.model_validate(agent) for agent in agents]
 
@@ -155,6 +152,28 @@ def update_agent(
     return AgentRead.model_validate(agent)
 
 
+@router.delete("/workgroups/{workgroup_id}/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_agent(
+    workgroup_id: str,
+    agent_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    require_workgroup_owner(session, workgroup_id, user.id)
+
+    agent = session.get(Agent, agent_id)
+    if not agent or agent.workgroup_id != workgroup_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if agent.is_lead:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the lead agent")
+
+    agent_name = agent.name
+    session.delete(agent)
+    post_activity(session, workgroup_id, "agent_removed", agent_name, actor_user_id=user.id)
+    session.commit()
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:agents_changed", {"workgroup_id": workgroup_id})
+
+
 @router.post("/workgroups/{workgroup_id}/agents/{agent_id}/clear-conversation", response_model=AgentConversationClearRead)
 def clear_agent_conversation(
     workgroup_id: str,
@@ -200,8 +219,6 @@ def clone_agent(
     agent = session.get(Agent, agent_id)
     if not agent or agent.workgroup_id != workgroup_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    if agent.description == ADMIN_AGENT_SENTINEL:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot clone the admin agent")
     if agent.is_lead:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot clone the lead agent")
 
