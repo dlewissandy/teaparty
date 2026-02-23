@@ -46,6 +46,21 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     GLOBAL_TOOL_LIST_WORKGROUPS,
     GLOBAL_TOOL_NAMES,
     GLOBAL_TOOL_UPDATE_AGENT,
+    GLOBAL_TOOL_EDIT_WORKGROUP,
+    GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP,
+    GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP,
+    GLOBAL_TOOL_LIST_PARTNERS,
+    GLOBAL_TOOL_FIND_ORGANIZATION,
+    GLOBAL_TOOL_ADD_PARTNER,
+    GLOBAL_TOOL_DELETE_PARTNER,
+    GLOBAL_TOOL_FIND_AGENT,
+    GLOBAL_TOOL_DELETE_AGENT,
+    GLOBAL_TOOL_ADD_TOOL_TO_AGENT,
+    GLOBAL_TOOL_REMOVE_TOOL_FROM_AGENT,
+    GLOBAL_TOOL_LIST_WORKFLOWS,
+    GLOBAL_TOOL_CREATE_WORKFLOW,
+    GLOBAL_TOOL_DELETE_WORKFLOW,
+    GLOBAL_TOOL_FIND_WORKFLOW,
 )
 from teaparty_app.services.admin_workspace.parsing import _help_text
 from teaparty_app.services.admin_workspace.member_tools import (
@@ -458,6 +473,199 @@ _GLOBAL_ADMIN_TOOLS = [
             "required": ["workgroup_name", "agent_name"],
         },
     },
+    # -- CRUD tools (clean names) --
+    {
+        "name": GLOBAL_TOOL_EDIT_WORKGROUP,
+        "description": "Update workgroup name, service description, or discoverability.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Current workgroup name"},
+                "new_name": {"type": "string", "description": "New name for the workgroup"},
+                "service_description": {"type": "string", "description": "New service description"},
+                "is_discoverable": {"type": "boolean", "description": "Whether the workgroup is discoverable"},
+            },
+            "required": ["workgroup_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP,
+        "description": "Link an existing organization agent to a workgroup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Target workgroup name"},
+                "agent_name": {"type": "string", "description": "Name of the agent to add"},
+            },
+            "required": ["workgroup_name", "agent_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP,
+        "description": "Unlink an agent from a workgroup (does not delete the agent).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Target workgroup name"},
+                "agent_name": {"type": "string", "description": "Name of the agent to remove"},
+            },
+            "required": ["workgroup_name", "agent_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_LIST_PARTNERS,
+        "description": "List an organization's partnerships.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "organization_name": {"type": "string", "description": "Organization name"},
+                "status": {"type": "string", "description": "Filter by status: accepted, revoked, or all", "default": "accepted"},
+            },
+            "required": ["organization_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_FIND_ORGANIZATION,
+        "description": "Search organizations by name (owned and discoverable).",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query for organization name"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_ADD_PARTNER,
+        "description": "Create a partnership between two organizations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_organization_name": {"type": "string", "description": "Source organization name (must be owned by you)"},
+                "target_organization_name": {"type": "string", "description": "Target organization name"},
+                "direction": {"type": "string", "description": "Partnership direction: bidirectional, source_to_target, or target_to_source", "default": "bidirectional"},
+            },
+            "required": ["source_organization_name", "target_organization_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_DELETE_PARTNER,
+        "description": "Revoke a partnership between two organizations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "source_organization_name": {"type": "string", "description": "Source organization name"},
+                "target_organization_name": {"type": "string", "description": "Target organization name"},
+            },
+            "required": ["source_organization_name", "target_organization_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_FIND_AGENT,
+        "description": "Search agents by name across workgroups.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "agent_name": {"type": "string", "description": "Agent name to search for"},
+                "organization_name": {"type": "string", "description": "Limit search to this organization"},
+            },
+            "required": ["agent_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_DELETE_AGENT,
+        "description": "Delete an agent entirely from a workgroup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup containing the agent"},
+                "agent_name": {"type": "string", "description": "Name of the agent to delete"},
+            },
+            "required": ["workgroup_name", "agent_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_ADD_TOOL_TO_AGENT,
+        "description": "Add tools to an agent's tool list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup containing the agent"},
+                "agent_name": {"type": "string", "description": "Name of the agent"},
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tools to add to the agent",
+                },
+            },
+            "required": ["workgroup_name", "agent_name", "tools"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_REMOVE_TOOL_FROM_AGENT,
+        "description": "Remove tools from an agent's tool list.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup containing the agent"},
+                "agent_name": {"type": "string", "description": "Name of the agent"},
+                "tools": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Tools to remove from the agent",
+                },
+            },
+            "required": ["workgroup_name", "agent_name", "tools"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_LIST_WORKFLOWS,
+        "description": "List workflow .md files in a workgroup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup name"},
+            },
+            "required": ["workgroup_name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_CREATE_WORKFLOW,
+        "description": "Create a new workflow markdown file in a workgroup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup name"},
+                "name": {"type": "string", "description": "Workflow name (auto-normalized to workflows/<name>.md)"},
+                "content": {"type": "string", "description": "Workflow markdown content"},
+            },
+            "required": ["workgroup_name", "name", "content"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_DELETE_WORKFLOW,
+        "description": "Delete a workflow file from a workgroup.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup name"},
+                "name": {"type": "string", "description": "Workflow name"},
+            },
+            "required": ["workgroup_name", "name"],
+        },
+    },
+    {
+        "name": GLOBAL_TOOL_FIND_WORKFLOW,
+        "description": "Read a workflow file's content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "workgroup_name": {"type": "string", "description": "Workgroup name"},
+                "name": {"type": "string", "description": "Workflow name"},
+            },
+            "required": ["workgroup_name", "name"],
+        },
+    },
 ]
 
 
@@ -500,6 +708,21 @@ def _dispatch_global_tool(
         global_list_jobs,
         global_list_workgroups,
         global_update_agent,
+        edit_workgroup,
+        add_agent_to_workgroup,
+        remove_agent_from_workgroup,
+        list_partners,
+        find_organization,
+        add_partner,
+        delete_partner,
+        find_agent,
+        delete_agent,
+        add_tool_to_agent,
+        remove_tool_from_agent,
+        list_workflows,
+        create_workflow,
+        delete_workflow,
+        find_workflow,
     )
 
     dispatch = {
@@ -515,6 +738,21 @@ def _dispatch_global_tool(
         GLOBAL_TOOL_LIST_TEMPLATES: global_list_templates,
         GLOBAL_TOOL_LIST_AVAILABLE_TOOLS: global_list_available_tools,
         GLOBAL_TOOL_UPDATE_AGENT: global_update_agent,
+        GLOBAL_TOOL_EDIT_WORKGROUP: edit_workgroup,
+        GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP: add_agent_to_workgroup,
+        GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP: remove_agent_from_workgroup,
+        GLOBAL_TOOL_LIST_PARTNERS: list_partners,
+        GLOBAL_TOOL_FIND_ORGANIZATION: find_organization,
+        GLOBAL_TOOL_ADD_PARTNER: add_partner,
+        GLOBAL_TOOL_DELETE_PARTNER: delete_partner,
+        GLOBAL_TOOL_FIND_AGENT: find_agent,
+        GLOBAL_TOOL_DELETE_AGENT: delete_agent,
+        GLOBAL_TOOL_ADD_TOOL_TO_AGENT: add_tool_to_agent,
+        GLOBAL_TOOL_REMOVE_TOOL_FROM_AGENT: remove_tool_from_agent,
+        GLOBAL_TOOL_LIST_WORKFLOWS: list_workflows,
+        GLOBAL_TOOL_CREATE_WORKFLOW: create_workflow,
+        GLOBAL_TOOL_DELETE_WORKFLOW: delete_workflow,
+        GLOBAL_TOOL_FIND_WORKFLOW: find_workflow,
     }
     handler = dispatch.get(tool_name)
     if not handler:

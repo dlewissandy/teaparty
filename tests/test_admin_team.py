@@ -174,11 +174,11 @@ class AdminTeamToolAssignmentTests(unittest.TestCase):
                 f"Lead tool '{tool}' is not a list/read tool",
             )
 
-    def test_agents_with_empty_tools_are_valid(self):
-        """partner-admin and workflow-admin have empty tools (LLM-only agents)."""
+    def test_specialist_agents_have_tools(self):
+        """partner-admin and workflow-admin have their CRUD tools assigned."""
         for spec in ADMIN_TEAM_SPECS:
             if spec["name"] in ("partner-admin", "workflow-admin"):
-                self.assertEqual(spec["tools"], [], f"{spec['name']} should have empty tools")
+                self.assertTrue(len(spec["tools"]) > 0, f"{spec['name']} should have tools")
 
 
 class AdminTeamDetectionTests(unittest.TestCase):

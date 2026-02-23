@@ -127,6 +127,11 @@ ADMIN_TEAM_SPECS: list[dict] = [
             "global_add_file",
             "global_list_templates", "global_list_available_tools",
             "global_update_agent",
+            # CRUD tools
+            "edit_workgroup",
+            "add_agent_to_workgroup", "remove_agent_from_workgroup",
+            "find_agent", "delete_agent",
+            "add_tool_to_agent", "remove_tool_from_agent",
         ],
         "is_lead": False,
     },
@@ -140,6 +145,7 @@ ADMIN_TEAM_SPECS: list[dict] = [
         "tools": [
             # Global org tools (resolved at runtime)
             "global_create_organization", "global_list_organizations",
+            "find_organization",
         ],
         "is_lead": False,
     },
@@ -150,7 +156,10 @@ ADMIN_TEAM_SPECS: list[dict] = [
             "Partnership administrator. You handle partner relationships — finding, "
             "adding, and removing organizational partners."
         ),
-        "tools": [],
+        "tools": [
+            "list_partners", "find_organization",
+            "add_partner", "delete_partner",
+        ],
         "is_lead": False,
     },
     {
@@ -160,7 +169,10 @@ ADMIN_TEAM_SPECS: list[dict] = [
             "Workflow administrator. You handle workflow management — creating, modifying, "
             "and managing team workflows."
         ),
-        "tools": [],
+        "tools": [
+            "list_workflows", "create_workflow",
+            "delete_workflow", "find_workflow",
+        ],
         "is_lead": False,
     },
 ]
@@ -180,6 +192,26 @@ GLOBAL_TOOL_LIST_TEMPLATES = "global_list_templates"
 GLOBAL_TOOL_LIST_AVAILABLE_TOOLS = "global_list_available_tools"
 GLOBAL_TOOL_UPDATE_AGENT = "global_update_agent"
 
+# CRUD tools (clean names, no global_ prefix)
+GLOBAL_TOOL_EDIT_WORKGROUP = "edit_workgroup"
+GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP = "add_agent_to_workgroup"
+GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP = "remove_agent_from_workgroup"
+
+GLOBAL_TOOL_LIST_PARTNERS = "list_partners"
+GLOBAL_TOOL_FIND_ORGANIZATION = "find_organization"
+GLOBAL_TOOL_ADD_PARTNER = "add_partner"
+GLOBAL_TOOL_DELETE_PARTNER = "delete_partner"
+
+GLOBAL_TOOL_FIND_AGENT = "find_agent"
+GLOBAL_TOOL_DELETE_AGENT = "delete_agent"
+GLOBAL_TOOL_ADD_TOOL_TO_AGENT = "add_tool_to_agent"
+GLOBAL_TOOL_REMOVE_TOOL_FROM_AGENT = "remove_tool_from_agent"
+
+GLOBAL_TOOL_LIST_WORKFLOWS = "list_workflows"
+GLOBAL_TOOL_CREATE_WORKFLOW = "create_workflow"
+GLOBAL_TOOL_DELETE_WORKFLOW = "delete_workflow"
+GLOBAL_TOOL_FIND_WORKFLOW = "find_workflow"
+
 GLOBAL_TOOL_NAMES = [
     GLOBAL_TOOL_CREATE_ORGANIZATION,
     GLOBAL_TOOL_LIST_ORGANIZATIONS,
@@ -193,6 +225,21 @@ GLOBAL_TOOL_NAMES = [
     GLOBAL_TOOL_LIST_TEMPLATES,
     GLOBAL_TOOL_LIST_AVAILABLE_TOOLS,
     GLOBAL_TOOL_UPDATE_AGENT,
+    GLOBAL_TOOL_EDIT_WORKGROUP,
+    GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP,
+    GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP,
+    GLOBAL_TOOL_LIST_PARTNERS,
+    GLOBAL_TOOL_FIND_ORGANIZATION,
+    GLOBAL_TOOL_ADD_PARTNER,
+    GLOBAL_TOOL_DELETE_PARTNER,
+    GLOBAL_TOOL_FIND_AGENT,
+    GLOBAL_TOOL_DELETE_AGENT,
+    GLOBAL_TOOL_ADD_TOOL_TO_AGENT,
+    GLOBAL_TOOL_REMOVE_TOOL_FROM_AGENT,
+    GLOBAL_TOOL_LIST_WORKFLOWS,
+    GLOBAL_TOOL_CREATE_WORKFLOW,
+    GLOBAL_TOOL_DELETE_WORKFLOW,
+    GLOBAL_TOOL_FIND_WORKFLOW,
 ]
 
 SESSION_DELETE_WORKGROUP_KEY = "delete_workgroup_after_response"
