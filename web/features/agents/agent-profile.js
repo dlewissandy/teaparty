@@ -237,6 +237,29 @@ function renderProfile(agent) {
   wireProfileEvents(agent);
 }
 
+/** Look up an agent by ID from store data (tree data then unassigned). */
+function _findAgent(store, agentId, workgroupId) {
+  const s = store.get();
+  let agent = null;
+  if (workgroupId) {
+    const tree = s.data.treeData[workgroupId];
+    agent = (tree?.agents || []).find(a => a.id === agentId) || null;
+  }
+  if (!agent) {
+    for (const agents of Object.values(s.data.unassignedAgents || {})) {
+      agent = agents.find(a => a.id === agentId) || null;
+      if (agent) break;
+    }
+  }
+  if (!agent) {
+    for (const tree of Object.values(s.data.treeData || {})) {
+      agent = (tree?.agents || []).find(a => a.id === agentId) || null;
+      if (agent) break;
+    }
+  }
+  return agent;
+}
+
 export function initAgentProfile(store) {
   _store = store;
 
@@ -256,29 +279,7 @@ export function initAgentProfile(store) {
   });
 
   bus.on('nav:agent-selected', ({ agentId, workgroupId }) => {
-    const s = store.get();
-
-    // Look up agent from workgroup tree data, or fall back to unassigned agents
-    // and all workgroup trees (agent may be in a different workgroup than the one passed)
-    let agent = null;
-    if (workgroupId) {
-      const tree = s.data.treeData[workgroupId];
-      agent = (tree?.agents || []).find(a => a.id === agentId) || null;
-    }
-    if (!agent) {
-      // Search unassigned agents across all orgs
-      for (const agents of Object.values(s.data.unassignedAgents || {})) {
-        agent = agents.find(a => a.id === agentId) || null;
-        if (agent) break;
-      }
-    }
-    if (!agent) {
-      // Search all workgroup trees as last resort
-      for (const tree of Object.values(s.data.treeData || {})) {
-        agent = (tree?.agents || []).find(a => a.id === agentId) || null;
-        if (agent) break;
-      }
-    }
+    const agent = _findAgent(store, agentId, workgroupId);
     if (!agent) return;
 
     _currentAgentId = agentId;
@@ -292,4 +293,13 @@ export function initAgentProfile(store) {
     showAgentProfile();
   });
 
+  // Re-render profile when underlying data changes (e.g. workgroup add/remove)
+  function refreshIfVisible() {
+    if (!_currentAgentId) return;
+    const agent = _findAgent(store, _currentAgentId, _currentWorkgroupId);
+    if (!agent) return;
+    renderProfile(agent);
+  }
+  store.on('data.treeData', refreshIfVisible);
+  store.on('data.unassignedAgents', refreshIfVisible);
 }
