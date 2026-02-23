@@ -4,6 +4,7 @@ import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { flash } from '../../components/shared/flash.js';
+import { agentName, memberName } from '../../components/shared/identity.js';
 
 let _store = null;
 
@@ -236,8 +237,14 @@ export function initComposer(store) {
     handleSubmit(store, form);
   });
 
-  // Update send button state when conversation changes
-  store.on('nav.activeConversationId', () => updateSendState(store, textarea, sendBtn));
+  // Update send button state and placeholder when conversation changes
+  store.on('nav.activeConversationId', () => {
+    updateSendState(store, textarea, sendBtn);
+    updatePlaceholder(store, textarea);
+  });
+  store.on('nav.activeWorkgroupId', () => updatePlaceholder(store, textarea));
+  store.on('nav.sidebarSelection', () => updatePlaceholder(store, textarea));
+  store.on('data.treeData', () => updatePlaceholder(store, textarea));
 
   // File context banner clear button
   document.getElementById('composer-file-context')?.addEventListener('click', e => {
@@ -248,6 +255,7 @@ export function initComposer(store) {
 
   // Initial state
   updateSendState(store, textarea, sendBtn);
+  updatePlaceholder(store, textarea);
 }
 
 function updateSendState(store, textarea, sendBtn) {
@@ -256,4 +264,58 @@ function updateSendState(store, textarea, sendBtn) {
   const hasConversation = Boolean(s.nav.activeConversationId);
   const hasContent = Boolean(textarea?.value.trim());
   sendBtn.disabled = !hasConversation || !hasContent;
+}
+
+function updatePlaceholder(store, textarea) {
+  if (!textarea) return;
+  const s = store.get();
+  const wgId = s.nav.activeWorkgroupId;
+  const convId = s.nav.activeConversationId;
+  const selection = s.nav.sidebarSelection || '';
+
+  let target = 'Administration';
+
+  // Sidebar selection takes priority: member or agent selected
+  if (selection.startsWith('member:')) {
+    const userId = selection.slice(7);
+    target = findMemberName(s, userId);
+  } else if (selection.startsWith('agent:')) {
+    const agentId = selection.slice(6);
+    target = findAgentName(s, agentId);
+  } else if (convId && wgId) {
+    const data = s.data.treeData[wgId];
+
+    // Check if this is a direct message conversation
+    const direct = data?.directs?.find(c => c.id === convId);
+    if (direct) {
+      if (direct.topic.startsWith('dma:')) {
+        const agId = direct.topic.split(':')[2] || '';
+        target = agentName(wgId, agId);
+      } else {
+        const parts = direct.topic.split(':');
+        const userId = s.auth.user?.id;
+        const otherUserId = parts.find(p => p !== 'dm' && p !== userId) || '';
+        target = memberName(wgId, otherUserId);
+      }
+    } else if (data?.workgroup?.name) {
+      target = data.workgroup.name;
+    }
+  }
+  textarea.placeholder = `Type a message to ${target}...`;
+}
+
+function findMemberName(s, userId) {
+  for (const data of Object.values(s.data.treeData || {})) {
+    const member = (data.members || []).find(m => m.user_id === userId);
+    if (member) return member.name || member.email;
+  }
+  return userId.slice(0, 8);
+}
+
+function findAgentName(s, agentId) {
+  for (const data of Object.values(s.data.treeData || {})) {
+    const agent = (data.agents || []).find(a => a.id === agentId);
+    if (agent) return agent.name || agent.id.slice(0, 8);
+  }
+  return agentId.slice(0, 8);
 }

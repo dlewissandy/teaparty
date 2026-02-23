@@ -31,11 +31,13 @@ export function renderWorkgroupSections(store, container, orgId, filter) {
     return;
   }
 
+  const SYSTEM_WORKGROUPS = new Set(['Administration', 'Project Management', 'Engagement']);
+
   container.innerHTML = filtered.map(wg => {
     const color = avatarColor(wg.name);
     const initials = initialsFromName(wg.name);
     const isActive = selection === `workgroup:${wg.id}`;
-    const removeBtn = isOwner
+    const removeBtn = (isOwner && !SYSTEM_WORKGROUPS.has(wg.name))
       ? `<button class="sidebar-member-remove" data-action="delete-workgroup" data-workgroup-id="${escapeHtml(wg.id)}" data-workgroup-name="${escapeHtml(wg.name)}" title="Delete workgroup" aria-label="Delete ${escapeHtml(wg.name)}">${removeSvg}</button>`
       : '';
     return `<div class="sidebar-nav-item sidebar-wg-item${isActive ? ' active' : ''}">
