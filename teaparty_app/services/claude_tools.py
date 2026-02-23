@@ -18,6 +18,24 @@ CLAUDE_TOOLS: list[dict[str, str]] = [
     {"name": "WebFetch", "description": "Fetch and analyze web pages."},
 ]
 
+CLAUDE_TOOLSETS: list[dict] = [
+    {
+        "name": "File tools",
+        "description": "Read, write, edit, and search files.",
+        "tools": ["Read", "Write", "Edit", "Glob", "Grep"],
+    },
+    {
+        "name": "System",
+        "description": "Shell commands and sub-agent delegation.",
+        "tools": ["Bash", "Task"],
+    },
+    {
+        "name": "Web",
+        "description": "Search the web and fetch pages.",
+        "tools": ["WebSearch", "WebFetch"],
+    },
+]
+
 
 def claude_tool_names() -> list[str]:
     """Return the list of Claude native tool names."""

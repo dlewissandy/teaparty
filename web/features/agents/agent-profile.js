@@ -11,6 +11,10 @@ let _store = null;
 let _currentAgentId = '';
 let _currentWorkgroupId = '';
 
+function _dismissPopover() {
+  document.getElementById('ap-tool-popover')?.remove();
+}
+
 function showAgentProfile() {
   const views = ['chat-view', 'home-view', 'partner-profile-view', 'workgroup-profile-view', 'directory-view', 'org-dashboard-view', 'org-settings-view', 'create-project-form'];
   for (const id of views) { document.getElementById(id)?.classList.add('hidden'); }
@@ -43,9 +47,167 @@ function cardHeader(title, iconKey) {
 const MODEL_LABELS = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
 const PERM_LABELS = { default: 'Default', acceptEdits: 'Accept Edits', dontAsk: "Don't Ask", plan: 'Plan' };
 
+/** Resolve the workgroup ID to use for PATCH calls. */
+function _agentWorkgroupId(agent) {
+  return _currentWorkgroupId || (agent.workgroup_ids || [])[0] || '';
+}
+
+/** Remove a tool from the agent (direct DOM removal, like workgroup pills). */
+async function _removeTool(agent, toolName) {
+  const chip = document.querySelector(`.tool-chip[data-tool="${CSS.escape(toolName)}"]`);
+  if (chip) chip.classList.add('tool-chip--removing');
+
+  const wgId = _agentWorkgroupId(agent);
+  if (!wgId) return;
+
+  try {
+    const newTools = (agent.tools || []).filter(t => t !== toolName);
+    await api(`/api/workgroups/${wgId}/agents/${agent.id}`, {
+      method: 'PATCH',
+      body: { tools: newTools },
+    });
+    agent.tools = newTools;
+    if (chip) chip.remove();
+    flash(`Removed ${toolName}`, 'success');
+  } catch (err) {
+    if (chip) chip.classList.remove('tool-chip--removing');
+    flash(err.message || 'Failed to remove tool', 'error');
+  }
+}
+
+/** Create a tool chip DOM element with its remove handler wired up. */
+function _makeToolChip(agent, toolName) {
+  const chip = document.createElement('span');
+  chip.className = 'tool-chip';
+  chip.dataset.tool = toolName;
+  chip.innerHTML = `${escapeHtml(toolName)}<button type="button" class="tool-chip-remove" title="Remove ${escapeHtml(toolName)}" aria-label="Remove ${escapeHtml(toolName)}"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
+  chip.querySelector('.tool-chip-remove').addEventListener('click', () => _removeTool(agent, toolName));
+  return chip;
+}
+
+/** Fetch toolsets and show the add-toolset popover. */
+async function _showAddToolPopover(agent, anchorBtn) {
+  // Close any existing popover
+  document.getElementById('ap-tool-popover')?.remove();
+
+  const wgId = _agentWorkgroupId(agent);
+  if (!wgId) return;
+
+  let toolsets;
+  try {
+    toolsets = await api(`/api/workgroups/${wgId}/toolsets`);
+  } catch {
+    flash('Failed to load toolsets', 'error');
+    return;
+  }
+
+  const currentTools = new Set(agent.tools || []);
+
+  // Filter to toolsets that have at least one tool not yet added
+  const available = toolsets.filter(ts =>
+    ts.tools.some(t => !currentTools.has(t))
+  );
+
+  if (!available.length) {
+    flash('All available tools are already added', 'info');
+    return;
+  }
+
+  // Build popover
+  const popover = document.createElement('div');
+  popover.id = 'ap-tool-popover';
+  popover.className = 'ap-tool-popover';
+
+  const header = document.createElement('div');
+  header.className = 'ap-tool-popover-header';
+  header.textContent = 'Add toolset';
+  popover.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'ap-tool-popover-list';
+
+  for (const ts of available) {
+    const missing = ts.tools.filter(t => !currentTools.has(t));
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = 'ap-tool-popover-item';
+    row.innerHTML = `
+      <span class="ap-tool-popover-name">${escapeHtml(ts.name)}</span>
+      <span class="ap-tool-popover-desc">${escapeHtml(ts.description)}</span>
+      <span class="ap-tool-popover-tools">${missing.map(t => `<span class="ap-tool-popover-tool-tag">+ ${escapeHtml(t)}</span>`).join('')}</span>`;
+    row.addEventListener('click', async () => {
+      row.disabled = true;
+      row.classList.add('ap-tool-popover-item--adding');
+      try {
+        const newTools = [...(agent.tools || []), ...missing];
+        await api(`/api/workgroups/${wgId}/agents/${agent.id}`, {
+          method: 'PATCH',
+          body: { tools: newTools },
+        });
+        agent.tools = newTools;
+        // Insert new chips before the add button
+        const chipList = document.getElementById('ap-tool-chips');
+        if (chipList) {
+          for (const toolName of missing) {
+            chipList.insertBefore(_makeToolChip(agent, toolName), anchorBtn);
+          }
+        }
+        flash(`Added ${ts.name}`, 'success');
+        popover.remove();
+      } catch (err) {
+        row.disabled = false;
+        row.classList.remove('ap-tool-popover-item--adding');
+        flash(err.message || 'Failed to add toolset', 'error');
+      }
+    });
+    list.appendChild(row);
+  }
+  popover.appendChild(list);
+
+  // Position relative to the anchor button
+  const rect = anchorBtn.getBoundingClientRect();
+  popover.style.position = 'fixed';
+  popover.style.top = `${rect.bottom + 6}px`;
+  popover.style.left = `${rect.left}px`;
+  document.body.appendChild(popover);
+
+  // Reposition if it overflows
+  requestAnimationFrame(() => {
+    const pr = popover.getBoundingClientRect();
+    if (pr.right > window.innerWidth - 12) {
+      popover.style.left = `${window.innerWidth - pr.width - 12}px`;
+    }
+    if (pr.bottom > window.innerHeight - 12) {
+      popover.style.top = `${rect.top - pr.height - 6}px`;
+    }
+  });
+
+  // Dismiss on outside click
+  function dismiss(e) {
+    if (!popover.contains(e.target) && e.target !== anchorBtn) {
+      popover.remove();
+      document.removeEventListener('pointerdown', dismiss, true);
+    }
+  }
+  requestAnimationFrame(() => {
+    document.addEventListener('pointerdown', dismiss, true);
+  });
+}
+
 function wireProfileEvents(agent) {
   const bodyEl = document.getElementById('agent-profile-body');
   if (!bodyEl) return;
+
+  // Remove tool (chips rendered from innerHTML)
+  bodyEl.querySelectorAll('.tool-chip-remove[data-tool]').forEach(btn => {
+    btn.addEventListener('click', () => _removeTool(agent, btn.dataset.tool));
+  });
+
+  // Add tool button
+  const addBtn = document.getElementById('ap-tool-add-btn');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => _showAddToolPopover(agent, addBtn));
+  }
 
   // View workgroup
   bodyEl.querySelectorAll('[data-action="view-workgroup"]').forEach(btn => {
@@ -210,16 +372,19 @@ function renderProfile(agent) {
 
   // Tools
   const tools = agent.tools || [];
-  if (tools.length) {
-    const chips = tools.map(t => `<span class="tool-chip">${escapeHtml(t)}</span>`).join('');
-    html += `
-      <div class="agent-profile-card">
-        ${cardHeader('Tools', 'tools')}
-        <div class="agent-profile-card-body">
-          <div class="tool-chip-list">${chips}</div>
-        </div>
-      </div>`;
+  let toolsBody = '<div class="tool-chip-list" id="ap-tool-chips">';
+  for (const t of tools) {
+    toolsBody += `<span class="tool-chip" data-tool="${escapeHtml(t)}">${escapeHtml(t)}<button type="button" class="tool-chip-remove" data-action="remove-tool" data-tool="${escapeHtml(t)}" title="Remove ${escapeHtml(t)}" aria-label="Remove ${escapeHtml(t)}"><svg viewBox="0 0 10 10"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></span>`;
   }
+  toolsBody += `<button type="button" class="ap-tool-add-btn" id="ap-tool-add-btn" title="Add tool" aria-label="Add tool"><svg viewBox="0 0 16 16" fill="none" width="14" height="14"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button>`;
+  toolsBody += '</div>';
+  html += `
+    <div class="agent-profile-card">
+      ${cardHeader('Tools', 'tools')}
+      <div class="agent-profile-card-body">
+        ${toolsBody}
+      </div>
+    </div>`;
 
   // Hooks
   const hooks = agent.hooks;
@@ -265,6 +430,7 @@ export function initAgentProfile(store) {
 
   // Hide profile when navigating away to an org or home
   bus.on('nav:org-selected', () => {
+    _dismissPopover();
     const profileView = document.getElementById('agent-profile-view');
     if (profileView) profileView.classList.add('hidden');
     _currentAgentId = '';
@@ -272,6 +438,7 @@ export function initAgentProfile(store) {
   });
 
   bus.on('nav:home', () => {
+    _dismissPopover();
     const profileView = document.getElementById('agent-profile-view');
     if (profileView) profileView.classList.add('hidden');
     _currentAgentId = '';

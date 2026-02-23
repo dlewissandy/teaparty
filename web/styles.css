@@ -4107,6 +4107,7 @@ body[data-theme="dark"] .qs-result-item.selected {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  align-items: center;
 }
 
 .tool-chip {
@@ -4140,10 +4141,19 @@ body[data-theme="dark"] .qs-result-item.selected {
   place-items: center;
   cursor: pointer;
   padding: 0;
-  transition: background var(--tp-duration-fast), color var(--tp-duration-fast);
+  opacity: 0;
+  margin-left: -2px;
+  transition: opacity var(--tp-duration-fast),
+              background var(--tp-duration-fast),
+              color var(--tp-duration-fast);
+}
+
+.tool-chip:hover .tool-chip-remove {
+  opacity: 0.7;
 }
 
 .tool-chip-remove:hover {
+  opacity: 1 !important;
   background: rgba(192, 57, 43, 0.12);
   color: var(--tp-error);
 }
@@ -4151,6 +4161,139 @@ body[data-theme="dark"] .qs-result-item.selected {
 .tool-chip-remove svg {
   width: 10px;
   height: 10px;
+}
+
+.tool-chip--removing {
+  animation: tool-chip-out var(--tp-duration-base) var(--tp-ease-out) forwards;
+  pointer-events: none;
+}
+
+@keyframes tool-chip-out {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.7); }
+}
+
+/* Add-tool button (inline with chips) */
+.ap-tool-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--tp-radius-full);
+  border: 1.5px dashed var(--tp-line);
+  background: transparent;
+  color: var(--tp-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: border-color var(--tp-duration-fast),
+              color var(--tp-duration-fast),
+              background var(--tp-duration-fast),
+              transform var(--tp-duration-fast) var(--tp-ease-spring);
+}
+
+.ap-tool-add-btn:hover {
+  border-color: var(--tp-primary);
+  color: var(--tp-primary);
+  background: var(--tp-primary-soft);
+  transform: scale(1.08);
+}
+
+.ap-tool-add-btn:active {
+  transform: scale(0.95);
+}
+
+/* Add-tool popover */
+.ap-tool-popover {
+  z-index: 1200;
+  background: var(--tp-panel);
+  border: 1px solid var(--tp-line);
+  border-radius: var(--tp-radius);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12),
+              0 2px 8px rgba(0, 0, 0, 0.06);
+  min-width: 220px;
+  max-width: 320px;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  animation: ap-popover-in var(--tp-duration-fast) var(--tp-ease-spring) both;
+}
+
+@keyframes ap-popover-in {
+  0%   { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.ap-tool-popover-header {
+  padding: 10px 14px 8px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--tp-muted);
+  border-bottom: 1px solid var(--tp-line-subtle);
+}
+
+.ap-tool-popover-list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.ap-tool-popover-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: var(--tp-radius-sm);
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--tp-duration-fast);
+}
+
+.ap-tool-popover-item:hover {
+  background: var(--tp-primary-soft);
+}
+
+.ap-tool-popover-item--adding {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.ap-tool-popover-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--tp-ink);
+}
+
+.ap-tool-popover-desc {
+  font-size: 0.75rem;
+  color: var(--tp-muted);
+  line-height: 1.3;
+}
+
+.ap-tool-popover-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.ap-tool-popover-tool-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--tp-radius-full);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  background: var(--tp-surface-inset);
+  color: var(--tp-ink-secondary);
+}
+
+.ap-tool-popover-item:hover .ap-tool-popover-tool-tag {
+  background: color-mix(in srgb, var(--tp-primary) 12%, transparent);
+  color: var(--tp-primary);
 }
 
 /* ==========================================================================
@@ -4268,6 +4411,10 @@ body[data-theme="dark"] .qs-result-item.selected {
   line-height: 1.6;
   color: var(--tp-ink);
   white-space: pre-wrap;
+}
+.agent-profile-text--empty {
+  color: var(--tp-ink-faint, #999);
+  font-style: italic;
 }
 
 .agent-profile-kvs {

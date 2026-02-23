@@ -656,21 +656,7 @@ def list_workgroups(
         .order_by(Workgroup.created_at.desc())
     ).all()
 
-    groups_changed = False
-    for workgroup in rows:
-        if workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id:
-            # Org-level Administration: admin team handles the lead agent.
-            # Call ensure_admin_workspace (idempotent) so the lead exists
-            # before ensure_lead_agent checks for it.
-            _admin_agent, _admin_conv, admin_ws_changed = ensure_admin_workspace(session, workgroup)
-            groups_changed = groups_changed or admin_ws_changed
-            org_changed = _reconcile_org_administration_files(session, workgroup)
-            groups_changed = groups_changed or org_changed
-        _lead_agent, lead_created = ensure_lead_agent(session, workgroup)
-        _activity_conversation, activity_changed = ensure_activity_conversation(session, workgroup)
-        groups_changed = groups_changed or lead_created
-        groups_changed = groups_changed or activity_changed
-    if changed or groups_changed:
+    if changed:
         session.commit()
 
     results = [WorkgroupRead.model_validate(item) for item in rows]

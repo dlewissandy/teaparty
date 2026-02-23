@@ -80,104 +80,12 @@ ADMIN_TOOL_NAMES = [
     ADMIN_TOOL_COMPLETE_TASK,
 ]
 
-# ---------------------------------------------------------------------------
-# Fixed admin agent team (org-level Administration workgroups only)
-# ---------------------------------------------------------------------------
-
-# NOTE: GLOBAL_TOOL_* constants are defined below ADMIN_TEAM_SPECS.
-# Agents whose tools include global tool names will have those tools resolved
-# at runtime in sdk_integration.py.  The tools lists here may include both
-# admin tool names and global tool name *strings* (forward-referenced).
-
-ADMIN_TEAM_SPECS: list[dict] = [
-    {
-        "name": "administration-lead",
-        "description": "Administration lead",
-        "prompt": (
-            "Administration lead. You triage requests, delegate to specialist agents "
-            "within the admin team, and provide organizational oversight."
-        ),
-        "tools": [
-            ADMIN_TOOL_LIST_JOBS, ADMIN_TOOL_LIST_MEMBERS,
-            ADMIN_TOOL_LIST_FILES, ADMIN_TOOL_LIST_TASKS,
-        ],
-        "is_lead": True,
-    },
-    {
-        "name": "workgroup-admin",
-        "description": ADMIN_AGENT_SENTINEL,
-        "prompt": (
-            "Workgroup administrator. You handle workgroup lifecycle — creating, editing, "
-            "and deleting workgroups, and managing their content (jobs, files, agents, members)."
-        ),
-        "tools": [
-            ADMIN_TOOL_ADD_JOB, ADMIN_TOOL_ARCHIVE_JOB, ADMIN_TOOL_UNARCHIVE_JOB,
-            ADMIN_TOOL_REMOVE_JOB, ADMIN_TOOL_CLEAR_JOB_MESSAGES,
-            ADMIN_TOOL_ADD_FILE, ADMIN_TOOL_EDIT_FILE, ADMIN_TOOL_RENAME_FILE,
-            ADMIN_TOOL_DELETE_FILE,
-            ADMIN_TOOL_ADD_AGENT, ADMIN_TOOL_ADD_USER, ADMIN_TOOL_REMOVE_MEMBER,
-            ADMIN_TOOL_DELETE_WORKGROUP,
-            ADMIN_TOOL_LIST_JOBS, ADMIN_TOOL_LIST_MEMBERS, ADMIN_TOOL_LIST_FILES,
-            ADMIN_TOOL_LIST_TASKS, ADMIN_TOOL_ACCEPT_TASK,
-            ADMIN_TOOL_DECLINE_TASK, ADMIN_TOOL_COMPLETE_TASK,
-            # Global workgroup tools (resolved at runtime)
-            "global_create_workgroup", "global_list_workgroups",
-            "global_add_agent", "global_list_agents",
-            "global_add_job", "global_list_jobs",
-            "global_add_file",
-            "global_list_templates", "global_list_available_tools",
-            "global_update_agent",
-            # CRUD tools
-            "edit_workgroup",
-            "add_agent_to_workgroup", "remove_agent_from_workgroup",
-            "find_agent", "delete_agent",
-            "add_tool_to_agent", "remove_tool_from_agent",
-        ],
-        "is_lead": False,
-    },
-    {
-        "name": "organization-admin",
-        "description": ADMIN_AGENT_SENTINEL,
-        "prompt": (
-            "Organization administrator. You handle organization lifecycle — creating, "
-            "editing, and managing organizations."
-        ),
-        "tools": [
-            # Global org tools (resolved at runtime)
-            "global_create_organization", "global_list_organizations",
-            "find_organization",
-        ],
-        "is_lead": False,
-    },
-    {
-        "name": "partner-admin",
-        "description": ADMIN_AGENT_SENTINEL,
-        "prompt": (
-            "Partnership administrator. You handle partner relationships — finding, "
-            "adding, and removing organizational partners."
-        ),
-        "tools": [
-            "list_partners", "find_organization",
-            "add_partner", "delete_partner",
-        ],
-        "is_lead": False,
-    },
-    {
-        "name": "workflow-admin",
-        "description": ADMIN_AGENT_SENTINEL,
-        "prompt": (
-            "Workflow administrator. You handle workflow management — creating, modifying, "
-            "and managing team workflows."
-        ),
-        "tools": [
-            "list_workflows", "create_workflow",
-            "delete_workflow", "find_workflow",
-        ],
-        "is_lead": False,
-    },
-]
-
-ADMIN_TEAM_NAMES = frozenset(spec["name"] for spec in ADMIN_TEAM_SPECS)
+# Admin team agent names — used for runtime identification of admin agents.
+# Agent creation is driven by seeds/defaults/organization.yaml via org_defaults.py.
+ADMIN_TEAM_NAMES = frozenset({
+    "administration-lead", "workgroup-admin", "organization-admin",
+    "partner-admin", "workflow-admin",
+})
 
 GLOBAL_TOOL_CREATE_ORGANIZATION = "global_create_organization"
 GLOBAL_TOOL_LIST_ORGANIZATIONS = "global_list_organizations"
@@ -335,7 +243,7 @@ def find_admin_agents(session: Session, workgroup_id: str) -> list[Agent]:
     ).all())
 
 
-_ADMIN_TEAM_LEAD_NAME = next(s["name"] for s in ADMIN_TEAM_SPECS if s["is_lead"])
+_ADMIN_TEAM_LEAD_NAME = "administration-lead"
 
 
 def find_admin_agent(session: Session, workgroup_id: str) -> Agent | None:
@@ -357,48 +265,6 @@ def find_admin_conversation(session: Session, workgroup_id: str) -> Conversation
     ).first()
 
 
-def _ensure_admin_team_member(
-    session: Session,
-    workgroup: Workgroup,
-    spec: dict,
-) -> tuple[Agent, bool]:
-    """Ensure a single admin team member exists and matches the spec.
-
-    Returns (agent, changed).
-    """
-    from teaparty_app.services.agent_workgroups import link_agent
-
-    agent = _find_admin_team_member(session, workgroup.id, spec["name"])
-    if not agent:
-        agent = Agent(
-            organization_id=workgroup.organization_id,
-            created_by_user_id=workgroup.owner_id,
-            name=spec["name"],
-            description=spec["description"],
-            prompt=spec["prompt"],
-            model=settings.admin_agent_model,
-            tools=list(spec["tools"]),
-        )
-        session.add(agent)
-        session.flush()
-        link_agent(session, agent.id, workgroup.id, is_lead=spec["is_lead"])
-        return agent, True
-
-    agent_changed = False
-    if agent.description != spec["description"]:
-        agent.description = spec["description"]
-        agent_changed = True
-    if sorted(agent.tools or []) != sorted(spec["tools"]):
-        agent.tools = list(spec["tools"])
-        agent_changed = True
-    if (agent.model or "").strip() != settings.admin_agent_model:
-        agent.model = settings.admin_agent_model
-        agent_changed = True
-    if agent_changed:
-        session.add(agent)
-    return agent, agent_changed
-
-
 def ensure_admin_workspace(
     session: Session,
     workgroup: Workgroup,
@@ -409,15 +275,9 @@ def ensure_admin_workspace(
     is_org_admin = (workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id)
 
     if is_org_admin:
-        # Org-level Administration: create the full admin team.
-        lead_agent = None
-        for spec in ADMIN_TEAM_SPECS:
-            agent, agent_changed = _ensure_admin_team_member(session, workgroup, spec)
-            if agent_changed:
-                changed = True
-            if spec["is_lead"]:
-                lead_agent = agent
-        admin_agent = lead_agent
+        # Org-level Administration: agents are created by org_defaults.py at org
+        # creation time.  Just find the lead agent for conversation linking.
+        admin_agent = find_admin_agent(session, workgroup.id)
     else:
         # Non-org workgroups: single admin agent with all tools.
         expected_admin_name = admin_agent_name(workgroup)
@@ -446,9 +306,7 @@ def ensure_admin_workspace(
             if admin_agent.description != admin_description:
                 admin_agent.description = admin_description
                 admin_changed = True
-            if sorted(admin_agent.tools or []) != sorted(ADMIN_TOOL_NAMES):
-                admin_agent.tools = list(ADMIN_TOOL_NAMES)
-                admin_changed = True
+            # Don't overwrite tools — they may have been manually customized.
             if (admin_agent.model or "").strip() != settings.admin_agent_model:
                 admin_agent.model = settings.admin_agent_model
                 admin_changed = True
@@ -486,20 +344,21 @@ def ensure_admin_workspace(
         )
         changed = True
 
-    agent_participant = session.exec(
-        select(ConversationParticipant).where(
-            ConversationParticipant.conversation_id == admin_conversation.id,
-            ConversationParticipant.agent_id == admin_agent.id,
-        )
-    ).first()
-    if not agent_participant:
-        session.add(
-            ConversationParticipant(
-                conversation_id=admin_conversation.id,
-                agent_id=admin_agent.id,
+    if admin_agent:
+        agent_participant = session.exec(
+            select(ConversationParticipant).where(
+                ConversationParticipant.conversation_id == admin_conversation.id,
+                ConversationParticipant.agent_id == admin_agent.id,
             )
-        )
-        changed = True
+        ).first()
+        if not agent_participant:
+            session.add(
+                ConversationParticipant(
+                    conversation_id=admin_conversation.id,
+                    agent_id=admin_agent.id,
+                )
+            )
+            changed = True
 
     return admin_agent, admin_conversation, changed
 

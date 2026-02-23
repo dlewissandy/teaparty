@@ -9,8 +9,9 @@ from teaparty_app.deps import get_current_user
 from teaparty_app.models import Agent, AgentWorkgroup, Conversation, Engagement, Job, LLMUsageEvent, Membership, Message, Organization, OrgMembership, Project, User, Workgroup
 from teaparty_app.schemas import AgentRead, OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
-from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME, SYSTEM_WORKGROUP_NAMES
-from teaparty_app.services.agent_workgroups import agent_is_lead, agent_read_with_workgroups, link_agent
+from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
+from teaparty_app.services.agent_workgroups import agent_is_lead, agent_read_with_workgroups
+from teaparty_app.services.org_defaults import create_system_workgroups
 from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["organizations"])
@@ -46,41 +47,8 @@ def create_organization(
     session.flush()
     session.add(OrgMembership(organization_id=org.id, user_id=user.id, role="owner"))
 
-    # Create the three mandatory system workgroups
-    from teaparty_app.services.claude_tools import claude_tool_names
-
-    system_wgs = {}
-    for wg_name in SYSTEM_WORKGROUP_NAMES:
-        wg = Workgroup(name=wg_name, files=[], owner_id=user.id, organization_id=org.id)
-        session.add(wg)
-        session.flush()
-        session.add(Membership(workgroup_id=wg.id, user_id=user.id, role="owner"))
-        system_wgs[wg_name] = wg
-
-    # Project Management lead agent
-    projects_lead = Agent(
-        organization_id=org.id, created_by_user_id=user.id,
-        name="projects-lead", description="Project coordinator",
-        prompt="Strategic and collaborative project coordinator.",
-        model="sonnet", tools=claude_tool_names(),
-    )
-    session.add(projects_lead)
-    session.flush()
-    link_agent(session, projects_lead.id, system_wgs["Project Management"].id, is_lead=True)
-
-    # Engagement lead agent
-    engagements_lead = Agent(
-        organization_id=org.id, created_by_user_id=user.id,
-        name="engagements-lead", description="Engagement coordinator",
-        prompt="Organized and collaborative engagement coordinator.",
-        model="sonnet", tools=claude_tool_names(),
-    )
-    session.add(engagements_lead)
-    session.flush()
-    link_agent(session, engagements_lead.id, system_wgs["Engagement"].id, is_lead=True)
-
-    # Administration: ensure_admin_workspace creates the administrator agent as lead
-    ensure_admin_workspace(session, system_wgs["Administration"])
+    # Create system workgroups and agents from the org template
+    create_system_workgroups(session, org, user)
 
     session.commit()
     session.refresh(org)

@@ -12,7 +12,6 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_AGENT_SENTINEL,
     ADMIN_CONVERSATION_NAME,
     ADMIN_TEAM_NAMES,
-    ADMIN_TEAM_SPECS,
     ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,

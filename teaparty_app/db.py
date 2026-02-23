@@ -1707,104 +1707,10 @@ def _migrate_system_workgroups() -> None:
 
 
 def _migrate_admin_agent_team() -> None:
-    """Create/update admin team specialist agents for existing org-level Administration workgroups."""
-    if not settings.database_url.startswith("sqlite"):
-        return
-
-    import json as _json
-    from teaparty_app.services.admin_workspace.bootstrap import (
-        ADMIN_TEAM_NAMES,
-        ADMIN_TEAM_SPECS,
-    )
-
-    with engine.connect() as conn:
-        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
-    if "agent_workgroups" not in tables:
-        return
-
-    with engine.begin() as conn:
-        # Find all org-level Administration workgroups
-        admin_wgs = conn.execute(text(
-            "SELECT id, owner_id, organization_id FROM workgroups "
-            "WHERE name = 'Administration' AND organization_id IS NOT NULL"
-        )).fetchall()
-
-        for wg_id, owner_id, org_id in admin_wgs:
-            # Rename "administrator" → "administration-lead" if needed
-            old_admin = conn.execute(text(
-                "SELECT a.id FROM agents a "
-                "JOIN agent_workgroups aw ON aw.agent_id = a.id "
-                "WHERE a.name = 'administrator' AND aw.workgroup_id = :wg_id"
-            ), {"wg_id": wg_id}).first()
-            if old_admin:
-                conn.execute(text(
-                    "UPDATE agents SET name = 'administration-lead' WHERE id = :id"
-                ), {"id": old_admin[0]})
-
-            # Remove old team members that aren't in the current spec
-            old_members = conn.execute(text(
-                "SELECT a.id, a.name FROM agents a "
-                "JOIN agent_workgroups aw ON aw.agent_id = a.id "
-                "WHERE aw.workgroup_id = :wg_id "
-                "AND a.description = '__system_admin_agent__'"
-            ), {"wg_id": wg_id}).fetchall()
-            for agent_id, agent_name in old_members:
-                if agent_name not in ADMIN_TEAM_NAMES:
-                    conn.execute(text(
-                        "DELETE FROM agent_workgroups WHERE agent_id = :aid AND workgroup_id = :wg_id"
-                    ), {"aid": agent_id, "wg_id": wg_id})
-                    # Delete the agent if it has no other workgroup links
-                    remaining = conn.execute(text(
-                        "SELECT COUNT(*) FROM agent_workgroups WHERE agent_id = :aid"
-                    ), {"aid": agent_id}).scalar()
-                    if remaining == 0:
-                        conn.execute(text("DELETE FROM agents WHERE id = :aid"), {"aid": agent_id})
-
-            # Create/update team members per spec
-            for spec in ADMIN_TEAM_SPECS:
-                existing = conn.execute(text(
-                    "SELECT a.id FROM agents a "
-                    "JOIN agent_workgroups aw ON aw.agent_id = a.id "
-                    "WHERE a.name = :name AND aw.workgroup_id = :wg_id"
-                ), {"name": spec["name"], "wg_id": wg_id}).first()
-
-                if existing:
-                    conn.execute(text(
-                        "UPDATE agents SET tools = :tools, description = :desc, prompt = :prompt "
-                        "WHERE id = :id"
-                    ), {
-                        "tools": _json.dumps(spec["tools"]),
-                        "desc": spec["description"],
-                        "prompt": spec["prompt"],
-                        "id": existing[0],
-                    })
-                else:
-                    agent_id = str(uuid4())
-                    link_id = str(uuid4())
-                    conn.execute(text(
-                        "INSERT INTO agents "
-                        "(id, organization_id, created_by_user_id, name, description, prompt, "
-                        "model, tools, image, created_at) "
-                        "VALUES (:id, :org_id, :owner_id, :name, :description, :prompt, "
-                        "'haiku', :tools, '', datetime('now'))"
-                    ), {
-                        "id": agent_id,
-                        "org_id": org_id,
-                        "owner_id": owner_id,
-                        "name": spec["name"],
-                        "description": spec["description"],
-                        "prompt": spec["prompt"],
-                        "tools": _json.dumps(spec["tools"]),
-                    })
-                    conn.execute(text(
-                        "INSERT INTO agent_workgroups (id, agent_id, workgroup_id, is_lead, created_at) "
-                        "VALUES (:link_id, :agent_id, :wg_id, :is_lead, datetime('now'))"
-                    ), {
-                        "link_id": link_id,
-                        "agent_id": agent_id,
-                        "wg_id": wg_id,
-                        "is_lead": 1 if spec["is_lead"] else 0,
-                    })
+    """No-op — retired.  Admin agent creation is now handled by org_defaults.py
+    at organization creation time.  This migration has already run on all
+    existing databases so there is nothing left to do."""
+    pass
 
 
 def _cleanup_duplicate_lead_agents() -> None:
