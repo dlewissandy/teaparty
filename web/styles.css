@@ -1249,6 +1249,11 @@ pre code {
   display: flex;
 }
 
+.sidebar-job-item:hover .sidebar-member-remove,
+.sidebar-dm-item:hover .sidebar-member-remove {
+  display: flex;
+}
+
 .sidebar-member-remove:hover {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.15);

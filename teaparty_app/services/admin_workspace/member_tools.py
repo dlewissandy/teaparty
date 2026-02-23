@@ -25,6 +25,7 @@ from teaparty_app.models import (
 from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_AGENT_SENTINEL,
     is_admin_agent,
+    is_system_workgroup,
     list_members as _list_members_query,
 )
 from teaparty_app.services.admin_workspace.parsing import (
@@ -82,6 +83,10 @@ def admin_tool_add_agent(
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
         return "Owner permissions required to add agents."
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if workgroup and is_system_workgroup(workgroup.name):
+        return f"Cannot add agents to system workgroup '{workgroup.name}'."
 
     # Safety net for SDK calls that pass a full free-form profile in `agent_name`.
     if (
@@ -197,6 +202,10 @@ def admin_tool_remove_member(
 ) -> str:
     if not _has_role(session, workgroup_id, requester_user_id, min_role="owner"):
         return "Owner permissions required to remove members."
+
+    workgroup = session.get(Workgroup, workgroup_id)
+    if workgroup and is_system_workgroup(workgroup.name):
+        return f"Cannot remove agents from system workgroup '{workgroup.name}'."
 
     selector = _normalize_member_selector(member_selector)
     if not selector:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -287,30 +288,28 @@ def _load_org_files(session: Session, workgroup: Workgroup) -> list[dict] | None
 
 
 # ---------------------------------------------------------------------------
-# Admin agent (unchanged)
+# Admin agent
 # ---------------------------------------------------------------------------
 
-def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> str:
+def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conversation, trigger: Message) -> tuple[str, str]:
+    """Build an admin agent reply via run_claude. Returns (text, slug).
+
+    Builds the full admin team (lead + sub-agents) so the lead can
+    delegate to specialists via the Task tool.
+    """
     if trigger.sender_type != "user" or not trigger.sender_user_id:
-        return "I only process admin commands from user messages."
+        return "I only process admin commands from user messages.", ""
 
-    # Fast path: deterministic regex for structured commands (no LLM needed).
-    from teaparty_app.services.admin_workspace import _handle_admin_message_deterministic
-    allowed_tools = set(agent.tools) if agent.tools else None
-    deterministic = _handle_admin_message_deterministic(
-        session=session,
-        workgroup_id=conversation.workgroup_id,
-        requester_user_id=trigger.sender_user_id,
-        content=trigger.content,
-        allowed_tools=allowed_tools,
-    )
-    if deterministic is not None:
-        return deterministic
-
-    # Conversational path: use claude CLI like every other agent.
     workgroup = session.get(Workgroup, conversation.workgroup_id)
     if not workgroup:
-        return "Workgroup not found."
+        return "(Admin agent error: workgroup not found.)", ""
+
+    org_files = _load_org_files(session, workgroup)
+
+    # Find all admin agents so the lead can delegate to sub-agents.
+    from teaparty_app.services.admin_workspace import find_admin_agents
+    all_admin_agents = find_admin_agents(session, workgroup.id)
+    sub_agents = [a for a in all_admin_agents if a.id != agent.id]
 
     with materialized_files(session, workgroup, conversation) as mat_ctx:
         files_context = (
@@ -318,35 +317,64 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
             "Use Read, Edit, Write, Glob, and Grep."
         )
 
+        # Build lead definition with team roster.
+        lead_def = build_agent_json(
+            agent, conversation, workgroup,
+            files_context=files_context,
+            org_files=org_files,
+            teammates=sub_agents,
+        )
+        lead_slug = slugify(agent.name)
+
+        # Build sub-agent definitions (they get admin CLI docs via their prompts).
+        agents_dict = {lead_slug: lead_def}
+        for sub in sub_agents:
+            sub_def = build_agent_json(
+                sub, conversation, workgroup,
+                files_context=files_context,
+                org_files=org_files,
+            )
+            agents_dict[slugify(sub.name)] = sub_def
+
+        agents_json = json.dumps(agents_dict)
+
         user_msg = build_user_message(session, conversation, trigger)
 
-        org_files = _load_org_files(session, workgroup)
-        agent_def = build_agent_json(agent, conversation, workgroup, files_context=files_context, org_files=org_files)
-        slug = slugify(agent.name)
-        agents_json_str = json.dumps({slug: agent_def})
+        extra_env: dict[str, str] = {
+            "TEAPARTY_USER_ID": trigger.sender_user_id,
+            "TEAPARTY_WORKGROUP_ID": conversation.workgroup_id,
+        }
+        if workgroup.organization_id:
+            extra_env["TEAPARTY_ORG_ID"] = workgroup.organization_id
 
-        result = asyncio.run(run_claude(
-            user_message=user_msg,
-            agent_name=slug,
-            agents_json=agents_json_str,
-            max_turns=1,
-            cwd=mat_ctx.dir_path,
-            settings_json=mat_ctx.settings_json,
-        ))
+        try:
+            result = asyncio.run(run_claude(
+                user_message=user_msg,
+                agent_name=lead_slug,
+                agents_json=agents_json,
+                permission_mode="acceptEdits",
+                allowed_tools=["Bash", "Read", "Write", "Edit", "Glob", "Grep", "Task"],
+                max_turns=25,
+                cwd=mat_ctx.dir_path,
+                settings_json=mat_ctx.settings_json,
+                conversation_id=conversation.id,
+                extra_env=extra_env,
+            ))
+        except Exception:
+            logger.exception("Admin agent %s reply failed for conversation %s", agent.name, conversation.id)
+            return "(Admin agent encountered an error.)", ""
 
-    if result.is_error:
-        logger.warning("Admin agent claude CLI failed: %s", result.error)
-        from teaparty_app.services.admin_workspace.parsing import _help_text
-        return f"I wasn't able to process that. {_help_text()}"
+        record_llm_usage(
+            session, conversation.id, agent.id, result.model or agent.model,
+            result.input_tokens, result.output_tokens,
+            "reply", result.duration_ms,
+        )
 
-    # Record usage.
-    record_llm_usage(
-        session, conversation.id, agent.id, result.model or agent.model,
-        result.input_tokens, result.output_tokens,
-        "admin", result.duration_ms,
-    )
+        if result.is_error:
+            logger.warning("Admin agent %s error: %s", agent.name, result.error)
+            return "(Admin agent encountered an error.)", ""
 
-    return result.text
+        return result.text, result.slug
 
 
 # ---------------------------------------------------------------------------
@@ -407,12 +435,12 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         else:
             admin_agent = admin_agents[0]
         _set_activity(conversation.id, admin_agent.id, admin_agent.name, "composing")
+        session_slug = ""
         try:
-            content = build_admin_agent_reply(session, admin_agent, conversation, trigger)
+            content, session_slug = build_admin_agent_reply(session, admin_agent, conversation, trigger)
         except Exception:
             logger.exception("Admin agent reply failed for conversation %s", conversation.id)
-            from teaparty_app.services.admin_workspace.parsing import _help_text
-            content = f"I wasn't able to process that. {_help_text()}"
+            content = "Something went wrong processing that request. Please try again."
         finally:
             _clear_activity(conversation.id, admin_agent.id)
         agent_message = Message(
@@ -429,6 +457,11 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
         if queued_delete_workgroup_id and queued_delete_workgroup_id == conversation.workgroup_id:
             delete_workgroup_data(session, queued_delete_workgroup_id)
             return []
+
+        # Auto-title admin conversations from the Claude session slug.
+        if conversation.kind == "admin" and session_slug:
+            _apply_session_title(session, conversation, session_slug)
+
         return [agent_message]
 
     candidates = [agent for agent in agents if not is_admin_agent(agent)]
@@ -463,6 +496,34 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
 
     # Direct conversations: single-agent path.
     return _run_single_agent_responses(session, conversation, trigger, candidates)
+
+
+def _apply_session_title(
+    session: Session,
+    conversation: Conversation,
+    slug: str,
+) -> None:
+    """Update an admin conversation's name from the Claude session slug."""
+    from teaparty_app.services.sync_events import publish_sync_event
+
+    # Only auto-title conversations that still have a generic/placeholder name.
+    name = (conversation.name or "").strip()
+    if name and name != "Administration" and not name.startswith("Admin session") and name != "New session":
+        return
+
+    conversation.name = slug
+    session.add(conversation)
+    try:
+        commit_with_retry(session)
+    except Exception:
+        logger.debug("Failed to persist session slug as conversation title", exc_info=True)
+        return
+
+    if conversation.workgroup_id:
+        publish_sync_event(
+            session, "workgroup", conversation.workgroup_id,
+            "sync:tree_changed", {"workgroup_id": conversation.workgroup_id},
+        )
 
 
 def _build_orchestration_env(session: Session, agent: Agent, conversation: Conversation) -> dict[str, str] | None:

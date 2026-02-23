@@ -56,6 +56,7 @@ class ClaudeResult:
     duration_ms: int = 0
     model: str = ""
     session_id: str = ""
+    slug: str = ""
     num_turns: int = 0
     is_error: bool = False
     error: str | None = None
@@ -220,6 +221,7 @@ def _parse_json_output(raw: str, elapsed_ms: int) -> ClaudeResult:
         duration_ms=elapsed_ms,
         model=result_entry.get("model", ""),
         session_id=result_entry.get("session_id", ""),
+        slug=result_entry.get("slug", ""),
         num_turns=result_entry.get("num_turns", 0),
         is_error=bool(result_entry.get("is_error")),
         error=result_entry.get("result") if result_entry.get("is_error") else None,

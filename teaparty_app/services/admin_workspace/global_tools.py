@@ -23,6 +23,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_AGENT_SENTINEL,
     ADMIN_TEAM_NAMES,
     ADMINISTRATION_WORKGROUP_NAME,
+    is_system_workgroup,
 )
 from teaparty_app.services.claude_tools import all_tool_names, claude_tool_names
 from teaparty_app.services.workgroup_templates import list_workgroup_templates
@@ -209,6 +210,9 @@ def create_agent(
     workgroup = _resolve_workgroup_by_name(session, requester_user_id, workgroup_name)
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
+
+    if is_system_workgroup(workgroup.name):
+        return f"Cannot add agents to system workgroup '{workgroup.name}'."
 
     # Check for duplicate agent name
     existing = session.exec(
@@ -512,6 +516,9 @@ def add_agent_to_workgroup(
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
 
+    if is_system_workgroup(workgroup.name):
+        return f"Cannot add agents to system workgroup '{workgroup.name}'."
+
     # Find agent by name in the same organization
     query = select(Agent).where(
         func.lower(Agent.name) == agent_name.lower(),
@@ -552,6 +559,9 @@ def remove_agent_from_workgroup(
     workgroup = _resolve_workgroup_by_name(session, requester_user_id, workgroup_name)
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
+
+    if is_system_workgroup(workgroup.name):
+        return f"Cannot remove agents from system workgroup '{workgroup.name}'."
 
     agent = _resolve_agent_in_workgroup(session, workgroup, agent_name)
     if not agent:
@@ -788,6 +798,9 @@ def delete_agent(
     workgroup = _resolve_workgroup_by_name(session, requester_user_id, workgroup_name)
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
+
+    if is_system_workgroup(workgroup.name):
+        return f"Cannot delete agents from system workgroup '{workgroup.name}'."
 
     agent = _resolve_agent_in_workgroup(session, workgroup, agent_name)
     if not agent:

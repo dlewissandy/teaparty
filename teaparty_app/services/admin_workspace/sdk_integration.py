@@ -50,7 +50,6 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     GLOBAL_TOOL_DELETE_WORKFLOW,
     GLOBAL_TOOL_FIND_WORKFLOW,
 )
-from teaparty_app.services.admin_workspace.parsing import _help_text
 from teaparty_app.services.admin_workspace.member_tools import (
     admin_tool_add_agent,
     admin_tool_add_user,
@@ -702,7 +701,7 @@ def _handle_admin_message_with_sdk(
 ) -> str:
     message = content.strip()
     if not message:
-        return _help_text()
+        return "I wasn't able to generate a response."
 
     resolved_model = llm_client.resolve_model("admin", settings.admin_agent_model)
 
@@ -791,12 +790,12 @@ def _handle_admin_message_with_sdk(
         if response.stop_reason == "end_turn":
             text_parts = [block.text for block in response.content if block.type == "text"]
             output = " ".join(text_parts).strip()
-            return output or _help_text()
+            return output or "I wasn't able to generate a response."
 
         if response.stop_reason != "tool_use":
             text_parts = [block.text for block in response.content if block.type == "text"]
             output = " ".join(text_parts).strip()
-            return output or _help_text()
+            return output or "I wasn't able to generate a response."
 
         messages.append({"role": "assistant", "content": response.content})
 
@@ -820,5 +819,5 @@ def _handle_admin_message_with_sdk(
     if response is not None:
         text_parts = [block.text for block in response.content if block.type == "text"]
         output = " ".join(text_parts).strip()
-        return output or _help_text()
-    return _help_text()
+        return output or "I wasn't able to generate a response."
+    return "I wasn't able to generate a response."

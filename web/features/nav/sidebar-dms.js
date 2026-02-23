@@ -1,8 +1,12 @@
 // Sidebar DMs section: direct message conversations for the active org.
 
+import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { generateBotSvg, generateHumanSvg } from '../../components/shared/avatar.js';
+import { flash } from '../../components/shared/flash.js';
+
+const removeSvg = `<svg viewBox="0 0 20 20" fill="none" width="12" height="12"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 
 export function renderDMSection(store, container, orgId, filter) {
   const s = store.get();
@@ -72,17 +76,14 @@ export function renderDMSection(store, container, orgId, filter) {
 
   container.innerHTML = filtered.map(({ conv, name, avatarHtml, unread, workgroupId }) => {
     const isActive = conv.id === activeConvId;
-    return `<button
-      class="sidebar-nav-item sidebar-dm-item${isActive ? ' active' : ''}"
-      data-action="open-dm"
-      data-workgroup-id="${escapeHtml(workgroupId)}"
-      data-conversation-id="${escapeHtml(conv.id)}"
-      title="${escapeHtml(name)}"
-    >
-      <span class="sidebar-dm-avatar-wrap">${avatarHtml}</span>
-      <span class="sidebar-nav-label">${escapeHtml(name)}</span>
-      ${unread ? '<span class="sidebar-unread-dot" aria-hidden="true"></span>' : ''}
-    </button>`;
+    return `<div class="sidebar-nav-item sidebar-dm-item${isActive ? ' active' : ''}">
+      <button class="sidebar-wg-select" data-action="open-dm" data-workgroup-id="${escapeHtml(workgroupId)}" data-conversation-id="${escapeHtml(conv.id)}" title="${escapeHtml(name)}">
+        <span class="sidebar-dm-avatar-wrap">${avatarHtml}</span>
+        <span class="sidebar-nav-label">${escapeHtml(name)}</span>
+        ${unread ? '<span class="sidebar-unread-dot" aria-hidden="true"></span>' : ''}
+      </button>
+      <button class="sidebar-member-remove" data-action="delete-dm" data-conversation-id="${escapeHtml(conv.id)}" data-workgroup-id="${escapeHtml(workgroupId)}" title="Delete conversation" aria-label="Delete ${escapeHtml(name)}">${removeSvg}</button>
+    </div>`;
   }).join('');
 
   container.querySelectorAll('[data-action="open-dm"]').forEach(btn => {
@@ -94,6 +95,21 @@ export function renderDMSection(store, container, orgId, filter) {
         s.nav.activeConversationId = conversationId;
       });
       bus.emit('nav:conversation-selected', { workgroupId, conversationId });
+    });
+  });
+
+  container.querySelectorAll('[data-action="delete-dm"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const conversationId = btn.dataset.conversationId;
+      const workgroupId = btn.dataset.workgroupId;
+      if (!confirm('Delete this session?')) return;
+      try {
+        await api(`/api/workgroups/${workgroupId}/conversations/${conversationId}`, { method: 'DELETE' });
+        btn.closest('.sidebar-nav-item')?.remove();
+      } catch (err) {
+        flash(err.message || 'Failed to delete session', 'error');
+      }
     });
   });
 }

@@ -1,6 +1,8 @@
 """Tests for the admin agent team in org-level Administration workgroups."""
 
+import json
 import unittest
+import unittest.mock
 
 from sqlmodel import SQLModel, Session, create_engine, select
 
@@ -294,51 +296,6 @@ class AdminTeamDetectionTests(unittest.TestCase):
             self.assertEqual(lead.name, "administration-lead")
 
 
-class AdminTeamRoutingTests(unittest.TestCase):
-    """Test deterministic tool filtering by allowed_tools."""
-
-    def setUp(self):
-        self.engine = _make_engine()
-
-    def test_allowed_tools_filters_commands(self):
-        from teaparty_app.services.admin_workspace import _handle_admin_message_deterministic
-
-        with Session(self.engine) as session:
-            user = _make_user(session)
-            org = _make_org(session, user)
-            wg = _make_workgroup(session, user, org=org, name="Administration")
-            session.flush()
-
-            # workgroup-admin can list files but NOT list members (if restricted)
-            result = _handle_admin_message_deterministic(
-                session, wg.id, user.id, "list files",
-                allowed_tools={"add_agent", "list_files"},
-            )
-            self.assertIsNotNone(result)
-
-            result = _handle_admin_message_deterministic(
-                session, wg.id, user.id, "list members",
-                allowed_tools={"add_agent", "list_files"},
-            )
-            self.assertIsNone(result)
-
-    def test_no_allowed_tools_allows_all(self):
-        from teaparty_app.services.admin_workspace import _handle_admin_message_deterministic
-
-        with Session(self.engine) as session:
-            user = _make_user(session)
-            org = _make_org(session, user)
-            wg = _make_workgroup(session, user, org=org, name="Administration")
-            session.flush()
-
-            # No filter: all commands work
-            result = _handle_admin_message_deterministic(
-                session, wg.id, user.id, "list files",
-                allowed_tools=None,
-            )
-            self.assertIsNotNone(result)
-
-
 class AdminTeamNamesConstantTests(unittest.TestCase):
     """Test the ADMIN_TEAM_NAMES frozenset."""
 
@@ -353,3 +310,130 @@ class AdminTeamNamesConstantTests(unittest.TestCase):
 
     def test_lead_name_constant(self):
         self.assertEqual(_ADMIN_TEAM_LEAD_NAME, "administration-lead")
+
+
+class AdminAgentReplyDelegationTests(unittest.TestCase):
+    """Test that build_admin_agent_reply calls run_claude correctly."""
+
+    def setUp(self):
+        self.engine = _make_engine()
+
+    def _make_claude_result(self, text: str, session_id: str = "sess-abc", slug: str = ""):
+        from teaparty_app.services.claude_runner import ClaudeResult
+        return ClaudeResult(
+            text=text,
+            session_id=session_id,
+            slug=slug,
+            is_error=False,
+            error=None,
+            model="claude-sonnet-4-6",
+            input_tokens=10,
+            output_tokens=20,
+            duration_ms=500,
+        )
+
+    @unittest.mock.patch("teaparty_app.services.agent_runtime.run_claude", new_callable=unittest.mock.AsyncMock)
+    def test_admin_conv_calls_run_claude(self, mock_run_claude):
+        """For admin conversations, build_admin_agent_reply delegates to run_claude."""
+        mock_run_claude.return_value = self._make_claude_result("Done.", session_id="s1", slug="list-agents")
+
+        from teaparty_app.services.agent_runtime import build_admin_agent_reply
+
+        with Session(self.engine) as session:
+            user = _make_user(session)
+            org = _make_org(session, user)
+
+            created = create_system_workgroups(session, org, user)
+            session.flush()
+
+            admin_wg = created["Administration"]
+            admin_agent = find_admin_agent(session, admin_wg.id)
+            user_id = user.id
+            admin_wg_id = admin_wg.id
+
+            conv = session.exec(
+                select(Conversation).where(
+                    Conversation.workgroup_id == admin_wg.id,
+                    Conversation.kind == "admin",
+                )
+            ).first()
+
+            trigger = Message(
+                conversation_id=conv.id,
+                sender_type="user",
+                sender_user_id=user_id,
+                content="list agents",
+            )
+
+            result_text, result_slug = build_admin_agent_reply(
+                session, admin_agent, conv, trigger
+            )
+
+        self.assertEqual(result_text, "Done.")
+        self.assertEqual(result_slug, "list-agents")
+        mock_run_claude.assert_called_once()
+        call_kwargs = mock_run_claude.call_args.kwargs
+        self.assertEqual(call_kwargs["permission_mode"], "acceptEdits")
+        self.assertIn("Bash", call_kwargs["allowed_tools"])
+        self.assertEqual(call_kwargs["max_turns"], 25)
+        # Lead agent should be the --agent, with full team in --agents.
+        self.assertEqual(call_kwargs["agent_name"], "administration-lead")
+        agents_dict = json.loads(call_kwargs["agents_json"])
+        self.assertIn("administration-lead", agents_dict)
+        self.assertIn("workgroup-admin", agents_dict)
+        self.assertIn("organization-admin", agents_dict)
+        self.assertIn("partner-admin", agents_dict)
+        self.assertIn("workflow-admin", agents_dict)
+        extra_env = call_kwargs["extra_env"]
+        self.assertEqual(extra_env["TEAPARTY_USER_ID"], user_id)
+        self.assertEqual(extra_env["TEAPARTY_WORKGROUP_ID"], admin_wg_id)
+
+    @unittest.mock.patch("teaparty_app.services.agent_runtime.run_claude", new_callable=unittest.mock.AsyncMock)
+    def test_direct_conv_calls_run_claude(self, mock_run_claude):
+        """For direct conversations, build_admin_agent_reply also delegates to run_claude."""
+        mock_run_claude.return_value = self._make_claude_result("Agent handled it.", session_id="s2", slug="add-agent-coder")
+
+        from teaparty_app.services.agent_runtime import build_admin_agent_reply
+
+        with Session(self.engine) as session:
+            user = _make_user(session)
+            org = _make_org(session, user)
+
+            created = create_system_workgroups(session, org, user)
+            session.flush()
+
+            admin_wg = created["Administration"]
+            admin_agent = find_admin_agent(session, admin_wg.id)
+            user_id = user.id
+            admin_wg_id = admin_wg.id
+
+            direct_conv = Conversation(
+                workgroup_id=admin_wg.id,
+                created_by_user_id=user_id,
+                kind="direct",
+                name="dm-with-admin",
+            )
+            session.add(direct_conv)
+            session.flush()
+
+            trigger = Message(
+                conversation_id=direct_conv.id,
+                sender_type="user",
+                sender_user_id=user_id,
+                content="add agent coder",
+            )
+
+            result_text, result_slug = build_admin_agent_reply(
+                session, admin_agent, direct_conv, trigger
+            )
+
+        self.assertEqual(result_text, "Agent handled it.")
+        self.assertEqual(result_slug, "add-agent-coder")
+        mock_run_claude.assert_called_once()
+        call_kwargs = mock_run_claude.call_args.kwargs
+        self.assertEqual(call_kwargs["permission_mode"], "acceptEdits")
+        self.assertIn("Bash", call_kwargs["allowed_tools"])
+        self.assertEqual(call_kwargs["max_turns"], 25)
+        extra_env = call_kwargs["extra_env"]
+        self.assertEqual(extra_env["TEAPARTY_USER_ID"], user_id)
+        self.assertEqual(extra_env["TEAPARTY_WORKGROUP_ID"], admin_wg_id)

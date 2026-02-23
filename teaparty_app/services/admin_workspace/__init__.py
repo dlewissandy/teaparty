@@ -106,110 +106,6 @@ from teaparty_app.services.admin_workspace.file_tools import (  # noqa: F401
     admin_tool_list_files,
     admin_tool_rename_file,
 )
-def _handle_admin_message_deterministic(
-    session: Session,
-    workgroup_id: str,
-    requester_user_id: str,
-    content: str,
-    allowed_tools: set[str] | None = None,
-) -> str | None:
-    message = _normalize_admin_message_for_matching(content)
-    if not message:
-        return None
-
-    def _tool_allowed(tool_name: str) -> bool:
-        return allowed_tools is None or tool_name in allowed_tools
-
-    delete_workgroup_match = DELETE_WORKGROUP_RE.match(message)
-    if delete_workgroup_match and _tool_allowed(ADMIN_TOOL_DELETE_WORKGROUP):
-        return admin_tool_delete_workgroup(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            confirmed=_is_confirmed_word(delete_workgroup_match.group(1)),
-        )
-
-    add_agent_match = ADD_AGENT_RE.match(message)
-    if add_agent_match and _tool_allowed(ADMIN_TOOL_ADD_AGENT):
-        name, parsed = _parse_add_agent_payload(add_agent_match.group(1))
-        if not name:
-            return "Usage: add agent <name> [prompt=<text>] [model=<name>]"
-        return admin_tool_add_agent(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            name=name,
-            prompt=parsed["prompt"],
-            model=parsed["model"],
-        )
-
-    add_user_match = ADD_USER_RE.match(message)
-    if add_user_match and _tool_allowed(ADMIN_TOOL_ADD_USER):
-        return admin_tool_add_user(session, workgroup_id, requester_user_id, add_user_match.group(1))
-
-    rename_file_match = RENAME_FILE_RE.match(message)
-    if rename_file_match and _tool_allowed(ADMIN_TOOL_RENAME_FILE):
-        return admin_tool_rename_file(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            source_path=rename_file_match.group(1),
-            destination_path=rename_file_match.group(2),
-        )
-
-    delete_file_match = DELETE_FILE_RE.match(message)
-    if delete_file_match and _tool_allowed(ADMIN_TOOL_DELETE_FILE):
-        return admin_tool_delete_file(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            path=delete_file_match.group(1),
-        )
-
-    edit_file_match = EDIT_FILE_RE.match(message)
-    if edit_file_match and _tool_allowed(ADMIN_TOOL_EDIT_FILE):
-        file_path, file_content, has_content = _parse_file_payload(edit_file_match.group(1))
-        if not has_content:
-            return "Usage: edit file <path> content=<text>"
-        return admin_tool_edit_file(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            path=file_path,
-            content=file_content,
-        )
-
-    add_file_match = ADD_FILE_RE.match(message)
-    if add_file_match and _tool_allowed(ADMIN_TOOL_ADD_FILE):
-        file_path, file_content, _has_content = _parse_file_payload(add_file_match.group(1))
-        return admin_tool_add_file(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            path=file_path,
-            content=file_content,
-        )
-
-    remove_member_match = REMOVE_MEMBER_RE.match(message)
-    if remove_member_match and _tool_allowed(ADMIN_TOOL_REMOVE_MEMBER):
-        return admin_tool_remove_member(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            member_selector=remove_member_match.group(1),
-        )
-
-    list_files_match = LIST_FILES_RE.match(message)
-    if list_files_match and _tool_allowed(ADMIN_TOOL_LIST_FILES):
-        return admin_tool_list_files(session, workgroup_id)
-
-    list_members_match = LIST_MEMBERS_RE.match(message)
-    if list_members_match and _tool_allowed(ADMIN_TOOL_LIST_MEMBERS):
-        return admin_tool_list_members(session, workgroup_id)
-
-    return None
-
-
 def handle_admin_message(
     session: Session,
     workgroup_id: str,
@@ -218,36 +114,20 @@ def handle_admin_message(
     conversation_id: str | None = None,
     agent: "Agent | None" = None,
 ) -> str:
+    """Route an admin message through the LLM with admin tools."""
     from teaparty_app.services.admin_workspace.sdk_integration import (
         _handle_admin_message_with_sdk,
         _sdk_enabled,
     )
 
-    allowed_tools = set(agent.tools) if agent and agent.tools else None
+    if not _sdk_enabled():
+        return "Admin agents require an LLM to be configured."
 
-    # Primary path: LLM-driven agentic loop.
-    if _sdk_enabled():
-        try:
-            return _handle_admin_message_with_sdk(
-                session=session,
-                workgroup_id=workgroup_id,
-                requester_user_id=requester_user_id,
-                content=content,
-                conversation_id=conversation_id,
-                agent=agent,
-            )
-        except Exception:
-            logger.exception("Admin SDK handler failed, falling back to deterministic parsing")
-
-    # Fallback: deterministic regex dispatch (no API key needed).
-    deterministic = _handle_admin_message_deterministic(
+    return _handle_admin_message_with_sdk(
         session=session,
         workgroup_id=workgroup_id,
         requester_user_id=requester_user_id,
         content=content,
-        allowed_tools=allowed_tools,
+        conversation_id=conversation_id,
+        agent=agent,
     )
-    if deterministic is not None:
-        return deterministic
-
-    return _help_text()

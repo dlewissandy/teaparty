@@ -125,16 +125,54 @@ function autoResizeTextarea(textarea) {
 
 async function handleSubmit(store, form) {
   const s = store.get();
-  const convId = s.nav.activeConversationId;
-
-  if (!convId) {
-    flash('Select a conversation first', 'error');
-    return;
-  }
+  let convId = s.nav.activeConversationId;
 
   const textarea = document.getElementById('message-content');
   const content = textarea?.value.trim() || '';
   if (!content) return;
+
+  // If no active conversation, create a new admin session, post, then navigate
+  if (!convId) {
+    const orgId = s.nav.activeOrgId;
+    if (!orgId) {
+      flash('Select an organization first', 'error');
+      return;
+    }
+
+    // Clear textarea immediately for responsiveness
+    if (textarea) textarea.value = '';
+    if (textarea) autoResizeTextarea(textarea);
+
+    try {
+      const result = await api(`/api/organizations/${orgId}/admin-sessions`, {
+        method: 'POST',
+        body: { name: 'New session' },
+      });
+
+      // Post the message before navigating (avoids race with loadMessages)
+      await api(`/api/conversations/${result.conversation_id}/messages`, {
+        method: 'POST',
+        body: { content },
+        headers: { 'X-Idempotency-Key': crypto.randomUUID() },
+      });
+
+      // Select the new session in the sidebar and navigate to it
+      store.update(st => {
+        st.nav.sidebarSelection = `admin:${result.conversation_id}`;
+      });
+      bus.emit('nav:conversation-selected', {
+        workgroupId: result.workgroup_id,
+        conversationId: result.conversation_id,
+      });
+
+      // Refresh sidebar to show the new session
+      bus.emit('data:refresh');
+    } catch (err) {
+      if (textarea) textarea.value = content;
+      flash(err.message || 'Failed to create admin session', 'error');
+    }
+    return;
+  }
 
   // Build full content (no file context wiring here — panels feature handles that)
   const fullContent = content;
@@ -190,6 +228,9 @@ async function handleSubmit(store, form) {
       bus.emit('chat:message-sent', { convId, message: posted });
     }
 
+    // Refresh the sidebar tree so the new session appears
+    bus.emit('data:refresh');
+
   } catch (err) {
     // Rollback optimistic message
     store.update(st => {
@@ -237,8 +278,12 @@ export function initComposer(store) {
     handleSubmit(store, form);
   });
 
-  // Update send button state and placeholder when conversation changes
+  // Update send button state and placeholder when conversation/org changes
   store.on('nav.activeConversationId', () => {
+    updateSendState(store, textarea, sendBtn);
+    updatePlaceholder(store, textarea);
+  });
+  store.on('nav.activeOrgId', () => {
     updateSendState(store, textarea, sendBtn);
     updatePlaceholder(store, textarea);
   });
@@ -262,8 +307,10 @@ function updateSendState(store, textarea, sendBtn) {
   if (!sendBtn) return;
   const s = store.get();
   const hasConversation = Boolean(s.nav.activeConversationId);
+  const hasOrg = Boolean(s.nav.activeOrgId);
   const hasContent = Boolean(textarea?.value.trim());
-  sendBtn.disabled = !hasConversation || !hasContent;
+  // Allow sending with an active conversation OR an active org (creates new admin session)
+  sendBtn.disabled = !(hasConversation || hasOrg) || !hasContent;
 }
 
 function updatePlaceholder(store, textarea) {

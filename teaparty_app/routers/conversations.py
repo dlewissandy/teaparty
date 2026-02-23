@@ -9,7 +9,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func
 from sqlmodel import Session, select
 
-from teaparty_app.db import engine, get_session
+from teaparty_app.db import commit_with_retry, engine, get_session
 from teaparty_app.deps import get_current_user
 from teaparty_app.models import Agent, AgentLearningEvent, Conversation, ConversationParticipant, Membership, Message, OrgMembership, User, Workspace, Workgroup, utc_now
 from teaparty_app.schemas import (
@@ -326,6 +326,54 @@ def update_topic_conversation(
     publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:tree_changed", {"workgroup_id": conversation.workgroup_id})
     session.refresh(conversation)
     return ConversationRead.model_validate(conversation)
+
+
+def _cleanup_claude_session(session_id: str) -> None:
+    """Remove Claude CLI session files for the given session ID."""
+    import glob
+    import os
+    home = os.path.expanduser("~")
+    for path in glob.glob(f"{home}/.claude/projects/*/{session_id}.jsonl"):
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+
+@router.delete(
+    "/workgroups/{workgroup_id}/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def delete_conversation(
+    workgroup_id: str,
+    conversation_id: str,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> None:
+    """Delete a conversation and all its data, including Claude session files."""
+    require_workgroup_membership(session, workgroup_id, user.id)
+
+    conversation = session.get(Conversation, conversation_id)
+    if not conversation or conversation.workgroup_id != workgroup_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+
+    from teaparty_app.services.agent_runtime import cancel_conversation
+    cancel_conversation(conversation_id)
+
+    # Clean up Claude session file
+    if conversation.claude_session_id:
+        _cleanup_claude_session(conversation.claude_session_id)
+
+    # Delete messages, participants, learning events
+    clear_conversation_messages(session, conversation_id)
+    for cp in session.exec(
+        select(ConversationParticipant).where(ConversationParticipant.conversation_id == conversation_id)
+    ).all():
+        session.delete(cp)
+
+    session.delete(conversation)
+    commit_with_retry(session)
+    publish_sync_event(session, "workgroup", workgroup_id, "sync:tree_changed", {"workgroup_id": workgroup_id})
 
 
 @router.delete(

@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.models import Agent, Conversation, Project, Workgroup
 from teaparty_app.services.convention_resolver import extract_claude_md
+from teaparty_app.services.admin_workspace.bootstrap import ADMIN_AGENT_SENTINEL, ADMIN_TEAM_NAMES
 
 
 def build_agent_json(
@@ -326,6 +327,11 @@ def _build_prompt_body(
         parts.append("")
         parts.append(_ORCHESTRATION_DOCS)
 
+    # Administration CLI docs for admin agents
+    if _is_admin_agent_for_prompt(agent):
+        parts.append("")
+        parts.append(_ADMIN_CLI_DOCS)
+
     # Embedded workgroup files (for non-filesystem agents)
     if files_context:
         parts.append("")
@@ -352,6 +358,126 @@ def _is_operations_coordinator(agent: Agent, workgroup: Workgroup | None) -> boo
     # Check if agent description or prompt mentions coordination/engagement
     check_text = (agent.description or "").lower() + " " + (agent.prompt or "").lower()
     return "coordinator" in check_text or "engagement" in check_text
+
+
+def _is_admin_agent_for_prompt(agent: Agent) -> bool:
+    """Return True if this agent should receive admin CLI docs in its prompt.
+
+    The lead agent delegates via Task — it does NOT get CLI docs.
+    Only sub-agents (workgroup-admin, organization-admin, etc.) get them.
+    """
+    if agent.name == "administration-lead":
+        return False
+    return agent.description == ADMIN_AGENT_SENTINEL or agent.name in ADMIN_TEAM_NAMES
+
+
+_ADMIN_CLI_DOCS = """\
+## Administration Tools
+
+You have access to administration commands via Bash. Environment variables \
+TEAPARTY_USER_ID, TEAPARTY_WORKGROUP_ID, and TEAPARTY_ORG_ID are set for you.
+
+### Workgroup Management
+
+```bash
+# Create a new workgroup in an organization
+python -m teaparty_app.cli.admin create-workgroup --name "Editorial" --org "Acme Publishing"
+
+# List workgroups (optionally in an organization)
+python -m teaparty_app.cli.admin list-workgroups --org "Acme Publishing"
+
+# Edit workgroup settings
+python -m teaparty_app.cli.admin edit-workgroup --name "Editorial" --service-description "Manuscript editing"
+
+# List available workgroup templates
+python -m teaparty_app.cli.admin list-templates
+```
+
+### Agent Management
+
+```bash
+# Create an agent in a workgroup
+python -m teaparty_app.cli.admin create-agent --workgroup "Editorial" --name "copy-editor" \\
+  --prompt "Copy editor with a sharp eye for language." --model sonnet \\
+  --tools "Read,Write,Edit,Glob,Grep,WebSearch,WebFetch"
+
+# List agents in a workgroup
+python -m teaparty_app.cli.admin list-agents --workgroup "Editorial"
+
+# Update an existing agent
+python -m teaparty_app.cli.admin update-agent --workgroup "Editorial" --name "copy-editor" \\
+  --model opus --prompt "Senior copy editor."
+
+# Find agents by name across workgroups
+python -m teaparty_app.cli.admin find-agent --name "editor"
+
+# Delete an agent from a workgroup
+python -m teaparty_app.cli.admin delete-agent --workgroup "Editorial" --name "copy-editor"
+
+# Move/link an agent to another workgroup
+python -m teaparty_app.cli.admin add-agent-to-workgroup --workgroup "Design" --agent "copy-editor"
+python -m teaparty_app.cli.admin remove-agent-from-workgroup --workgroup "Editorial" --agent "copy-editor"
+
+# Manage agent tools
+python -m teaparty_app.cli.admin add-tool-to-agent --workgroup "Editorial" --agent "copy-editor" --tools "Bash,Task"
+python -m teaparty_app.cli.admin remove-tool-from-agent --workgroup "Editorial" --agent "copy-editor" --tools "Bash"
+
+# List all available tools
+python -m teaparty_app.cli.admin list-available-tools --workgroup "Editorial"
+```
+
+### Organization Management
+
+```bash
+# Create a new organization
+python -m teaparty_app.cli.admin create-organization --name "Acme Publishing" --description "Book publisher"
+
+# List organizations
+python -m teaparty_app.cli.admin list-organizations
+
+# Search organizations by name
+python -m teaparty_app.cli.admin find-organization --query "Acme"
+```
+
+### Partnership Management
+
+```bash
+python -m teaparty_app.cli.admin list-partners --org "Acme Publishing"
+python -m teaparty_app.cli.admin add-partner --source "Acme Publishing" --target "Partner Corp"
+python -m teaparty_app.cli.admin delete-partner --source "Acme Publishing" --target "Partner Corp"
+```
+
+### Workflow Management
+
+```bash
+python -m teaparty_app.cli.admin list-workflows --workgroup "Editorial"
+python -m teaparty_app.cli.admin create-workflow --workgroup "Editorial" --name "review-process" \\
+  --content "# Review Process\\n1. First draft review\\n2. Copy edit\\n3. Final proof"
+python -m teaparty_app.cli.admin delete-workflow --workgroup "Editorial" --name "review-process"
+```
+
+### Local Workgroup Tools (operate on current workgroup)
+
+```bash
+# Add/manage members in current workgroup
+python -m teaparty_app.cli.admin add-agent --name "reviewer" --prompt "Code reviewer" --model haiku
+python -m teaparty_app.cli.admin add-user --email "user@example.com"
+python -m teaparty_app.cli.admin remove-member --selector "reviewer"
+python -m teaparty_app.cli.admin list-members
+python -m teaparty_app.cli.admin list-files
+
+# File operations in current workgroup
+python -m teaparty_app.cli.admin add-file --path "docs/guide.md" --content "# Guide"
+python -m teaparty_app.cli.admin edit-file --path "docs/guide.md" --content "# Updated Guide"
+python -m teaparty_app.cli.admin rename-file --source "docs/guide.md" --dest "docs/manual.md"
+python -m teaparty_app.cli.admin delete-file --path "docs/guide.md"
+
+# Delete workgroup (requires --confirm)
+python -m teaparty_app.cli.admin delete-workgroup --confirm
+```
+
+All commands output text results. Use these to manage the organization's workgroups, agents, and resources.\
+"""
 
 
 _ORCHESTRATION_DOCS = """\

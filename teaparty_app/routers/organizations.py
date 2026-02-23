@@ -158,6 +158,63 @@ def ensure_org_admin_conversation(
     }
 
 
+@router.post("/organizations/{org_id}/admin-sessions")
+def create_admin_session(
+    org_id: str,
+    payload: dict,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+) -> dict:
+    """Create a new admin conversation session in the org's Administration workgroup."""
+    from teaparty_app.models import ConversationParticipant
+    from teaparty_app.services.admin_workspace.bootstrap import find_admin_agents
+
+    org = session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
+    if org.owner_id != user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the organization owner can create admin sessions")
+
+    # Find the Administration workgroup
+    admin_wg = session.exec(
+        select(Workgroup).where(
+            Workgroup.organization_id == org_id,
+            Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
+        )
+    ).first()
+    if not admin_wg:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Administration workgroup not found")
+
+    # Create a new admin conversation
+    name = (payload.get("name") or "Admin session").strip()[:80]
+    conversation = Conversation(
+        workgroup_id=admin_wg.id,
+        created_by_user_id=user.id,
+        kind="admin",
+        topic="admin-session",
+        name=name,
+        description="",
+        is_archived=False,
+    )
+    session.add(conversation)
+    session.flush()
+
+    # Add user as participant
+    session.add(ConversationParticipant(conversation_id=conversation.id, user_id=user.id))
+
+    # Add all admin agents as participants
+    admin_agents = find_admin_agents(session, admin_wg.id)
+    for agent in admin_agents:
+        session.add(ConversationParticipant(conversation_id=conversation.id, agent_id=agent.id))
+
+    session.commit()
+
+    return {
+        "workgroup_id": admin_wg.id,
+        "conversation_id": conversation.id,
+    }
+
+
 def _require_org_access(session: Session, org_id: str, user_id: str) -> Organization:
     """Return the org if the user has an OrgMembership record for it."""
     org = session.get(Organization, org_id)
