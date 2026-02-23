@@ -1,0 +1,35 @@
+# Tool catalog — defines the tools and toolsets available to agents.
+#
+# Tools are the individual capabilities; toolsets group them for the UI toolbar.
+# Add new tools or toolsets here to make them available platform-wide.
+
+tools:
+  - name: Read
+    description: "Read files from the workspace."
+  - name: Write
+    description: "Create or overwrite files."
+  - name: Edit
+    description: "Make targeted edits to existing files."
+  - name: Glob
+    description: "Find files by pattern matching."
+  - name: Grep
+    description: "Search file contents with regex."
+  - name: Bash
+    description: "Run shell commands."
+  - name: Task
+    description: "Delegate work to sub-agents."
+  - name: WebSearch
+    description: "Search the web for information."
+  - name: WebFetch
+    description: "Fetch and analyze web pages."
+
+toolsets:
+  - name: File tools
+    description: "Read, write, edit, and search files."
+    tools: [Read, Write, Edit, Glob, Grep]
+  - name: System
+    description: "Shell commands and sub-agent delegation."
+    tools: [Bash, Task]
+  - name: Web
+    description: "Search the web and fetch pages."
+    tools: [WebSearch, WebFetch]
