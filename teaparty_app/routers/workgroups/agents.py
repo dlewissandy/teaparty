@@ -21,6 +21,7 @@ from teaparty_app.services.admin_workspace import (
 )
 from teaparty_app.services.agent_workgroups import (
     agent_in_workgroup,
+    agent_is_lead,
     agent_read_with_workgroups,
     agents_for_workgroup,
     lead_agent_for_workgroup,
@@ -162,9 +163,8 @@ def delete_agent(
     agent = session.get(Agent, agent_id)
     if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    lead = lead_agent_for_workgroup(session, workgroup_id)
-    if lead is not None and lead.id == agent_id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the lead agent")
+    if agent_is_lead(session, agent_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete a lead agent")
 
     agent_name = agent.name
     session.delete(agent)

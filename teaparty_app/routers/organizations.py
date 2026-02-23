@@ -10,7 +10,7 @@ from teaparty_app.models import Agent, AgentWorkgroup, Conversation, Engagement,
 from teaparty_app.schemas import AgentRead, OrganizationCreateRequest, OrganizationRead, OrganizationUpdateRequest
 from teaparty_app.services.admin_workspace import ensure_admin_workspace
 from teaparty_app.services.admin_workspace.bootstrap import ADMINISTRATION_WORKGROUP_NAME
-from teaparty_app.services.agent_workgroups import agent_read_with_workgroups, link_agent
+from teaparty_app.services.agent_workgroups import agent_is_lead, agent_read_with_workgroups, link_agent
 from teaparty_app.services.sync_events import publish_sync_event
 
 router = APIRouter(prefix="/api", tags=["organizations"])
@@ -478,6 +478,8 @@ def delete_unassigned_agent(
     ).first() is not None
     if not agent or agent.organization_id != org_id or has_workgroup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unassigned agent not found")
+    if agent_is_lead(session, agent_id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete a lead agent")
 
     from teaparty_app.models import AgentLearningEvent, AgentMemory
     for row in session.exec(select(AgentLearningEvent).where(AgentLearningEvent.agent_id == agent.id)).all():

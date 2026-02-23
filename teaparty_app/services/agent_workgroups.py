@@ -54,6 +54,16 @@ def agent_in_workgroup(session: Session, agent_id: str, workgroup_id: str) -> bo
     ).first() is not None
 
 
+def agent_is_lead(session: Session, agent_id: str) -> bool:
+    """Check if an agent is a lead in any workgroup."""
+    return session.exec(
+        select(AgentWorkgroup).where(
+            AgentWorkgroup.agent_id == agent_id,
+            AgentWorkgroup.is_lead == True,  # noqa: E712
+        )
+    ).first() is not None
+
+
 def lead_agent_for_workgroup(session: Session, workgroup_id: str) -> Agent | None:
     """Return the lead agent for a workgroup, or None."""
     return session.exec(
