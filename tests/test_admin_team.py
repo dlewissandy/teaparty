@@ -260,7 +260,7 @@ class AdminTeamDetectionTests(unittest.TestCase):
         agent = Agent(
             created_by_user_id="u-1", name="administration-lead",
             description="Administration lead",
-            tools=["list_members", "list_files", "list_tasks"],
+            tools=["list_members", "list_files"],
         )
         self.assertTrue(is_admin_agent(agent))
 

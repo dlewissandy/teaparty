@@ -42,22 +42,6 @@ DELETE_WORKGROUP_RE = re.compile(
     r"^(?:remove|delete)\s+(?:(?:this|the|a)\s+)?workgroup(?:\s+(confirm|yes|delete))?(?:\s+please)?\s*$",
     re.IGNORECASE,
 )
-LIST_TASKS_RE = re.compile(
-    r"^list\s+(?:(incoming|outgoing|all)\s+)?tasks?\s*$",
-    re.IGNORECASE,
-)
-ACCEPT_TASK_RE = re.compile(
-    r"^accept\s+task\s+(.+?)\s*$",
-    re.IGNORECASE,
-)
-DECLINE_TASK_RE = re.compile(
-    r"^decline\s+task\s+(.+?)\s*$",
-    re.IGNORECASE,
-)
-COMPLETE_TASK_RE = re.compile(
-    r"^complete\s+task\s+(.+?)\s*$",
-    re.IGNORECASE,
-)
 _NAME_INTRODUCER_RE = re.compile(r"\b(?:called|named|titled)\s+", re.IGNORECASE)
 LEADING_POLITE_RE = re.compile(r"^\s*(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?", re.IGNORECASE)
 PROMPT_SPLIT_RE = re.compile(r"\s+(?:with\s+)?prompt\s*(?:[:=]\s*|\s+)(.+)$", re.IGNORECASE)
@@ -87,9 +71,7 @@ def _help_text() -> str:
         "`add file <path> [content=<text>]`, `edit file <path> content=<text>`, "
         "`rename file <path> to <new-path>`, `delete file <path>`, "
         "`remove member <id|email|name>`, "
-        "`list members`, `list files`, `delete workgroup confirm`, "
-        "`list tasks [incoming|outgoing|all]`, `accept task <id|title>`, "
-        "`decline task <id|title>`, `complete task <id|title>`."
+        "`list members`, `list files`, `delete workgroup confirm`."
     )
 
 
@@ -292,10 +274,6 @@ def _normalize_workgroup_files_for_tool(workgroup) -> list[dict[str, str]]:
         normalized.append({"id": file_id or str(uuid4()), "path": path, "content": content, "topic_id": topic_id})
         seen_paths.add(path)
     return normalized
-
-
-def _normalize_task_selector(raw_selector: str) -> str:
-    return _unquote(raw_selector.strip())
 
 
 def _normalize_member_selector(raw_selector: str) -> str:

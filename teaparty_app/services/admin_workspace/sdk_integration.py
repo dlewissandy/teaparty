@@ -13,18 +13,14 @@ from teaparty_app.models import Agent, Message, Workgroup
 from teaparty_app.services.llm_usage import record_llm_usage
 from teaparty_app.services.admin_workspace.bootstrap import (
     ADMINISTRATION_WORKGROUP_NAME,
-    ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,
     ADMIN_TOOL_ADD_USER,
-    ADMIN_TOOL_COMPLETE_TASK,
-    ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_DELETE_FILE,
     ADMIN_TOOL_DELETE_WORKGROUP,
     ADMIN_TOOL_EDIT_FILE,
     ADMIN_TOOL_LIST_FILES,
     ADMIN_TOOL_LIST_MEMBERS,
-    ADMIN_TOOL_LIST_TASKS,
     ADMIN_TOOL_REMOVE_MEMBER,
     ADMIN_TOOL_RENAME_FILE,
     GLOBAL_TOOL_ADD_AGENT,
@@ -69,13 +65,6 @@ from teaparty_app.services.admin_workspace.file_tools import (
     admin_tool_list_files,
     admin_tool_rename_file,
 )
-from teaparty_app.services.admin_workspace.task_tools import (
-    admin_tool_accept_task,
-    admin_tool_complete_task,
-    admin_tool_decline_task,
-    admin_tool_list_tasks,
-)
-
 logger = logging.getLogger(__name__)
 
 _ADMIN_TOOLS = [
@@ -186,53 +175,6 @@ _ADMIN_TOOLS = [
             "properties": {
                 "confirmed": {"type": "boolean", "description": "Must be true to confirm deletion", "default": False},
             },
-        },
-    },
-    {
-        "name": ADMIN_TOOL_LIST_TASKS,
-        "description": "List tasks (engagements) for this workgroup.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "direction": {
-                    "type": "string",
-                    "description": "Filter: incoming, outgoing, or all",
-                    "default": "all",
-                },
-            },
-        },
-    },
-    {
-        "name": ADMIN_TOOL_ACCEPT_TASK,
-        "description": "Accept an incoming task by its id or title.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_selector": {"type": "string", "description": "Task id or title"},
-            },
-            "required": ["task_selector"],
-        },
-    },
-    {
-        "name": ADMIN_TOOL_DECLINE_TASK,
-        "description": "Decline an incoming task by its id or title.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_selector": {"type": "string", "description": "Task id or title"},
-            },
-            "required": ["task_selector"],
-        },
-    },
-    {
-        "name": ADMIN_TOOL_COMPLETE_TASK,
-        "description": "Mark a task as complete by its id or title.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "task_selector": {"type": "string", "description": "Task id or title"},
-            },
-            "required": ["task_selector"],
         },
     },
 ]
@@ -682,14 +624,6 @@ def _dispatch_admin_tool(
         return admin_tool_remove_member(session, workgroup_id, requester_user_id, tool_input["member_selector"])
     if tool_name == ADMIN_TOOL_DELETE_WORKGROUP:
         return admin_tool_delete_workgroup(session, workgroup_id, requester_user_id, confirmed=tool_input.get("confirmed", False))
-    if tool_name == ADMIN_TOOL_LIST_TASKS:
-        return admin_tool_list_tasks(session, workgroup_id, direction=tool_input.get("direction", "all"))
-    if tool_name == ADMIN_TOOL_ACCEPT_TASK:
-        return admin_tool_accept_task(session, workgroup_id, requester_user_id, selector=tool_input["task_selector"])
-    if tool_name == ADMIN_TOOL_DECLINE_TASK:
-        return admin_tool_decline_task(session, workgroup_id, requester_user_id, selector=tool_input["task_selector"])
-    if tool_name == ADMIN_TOOL_COMPLETE_TASK:
-        return admin_tool_complete_task(session, workgroup_id, requester_user_id, selector=tool_input["task_selector"])
     if tool_name in GLOBAL_TOOL_NAMES:
         return _dispatch_global_tool(session, requester_user_id, tool_name, tool_input)
     return f"Unknown tool: {tool_name}"

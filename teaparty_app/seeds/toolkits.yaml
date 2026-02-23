@@ -69,18 +69,6 @@ tools:
   - name: delete_workgroup
     type: admin
     description: "Delete the current workgroup and all its data."
-  - name: list_tasks
-    type: admin
-    description: "List tasks (engagements) for this workgroup."
-  - name: accept_task
-    type: admin
-    description: "Accept an incoming task."
-  - name: decline_task
-    type: admin
-    description: "Decline an incoming task."
-  - name: complete_task
-    type: admin
-    description: "Mark a task as complete."
 
   # ── Global workgroup management ────────────────────────────────────
   - name: global_create_workgroup
@@ -206,10 +194,6 @@ toolsets:
       - list_members
       - list_files
       - delete_workgroup
-      - list_tasks
-      - accept_task
-      - decline_task
-      - complete_task
 
   - name: Organization admin
     description: "Create and manage organizations."

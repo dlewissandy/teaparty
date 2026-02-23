@@ -12,18 +12,14 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_AGENT_SENTINEL,
     ADMIN_CONVERSATION_NAME,
     ADMIN_TEAM_NAMES,
-    ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,
     ADMIN_TOOL_ADD_USER,
-    ADMIN_TOOL_COMPLETE_TASK,
-    ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_DELETE_FILE,
     ADMIN_TOOL_DELETE_WORKGROUP,
     ADMIN_TOOL_EDIT_FILE,
     ADMIN_TOOL_LIST_FILES,
     ADMIN_TOOL_LIST_MEMBERS,
-    ADMIN_TOOL_LIST_TASKS,
     ADMIN_TOOL_NAMES,
     ADMIN_TOOL_REMOVE_MEMBER,
     ADMIN_TOOL_RENAME_FILE,
@@ -71,25 +67,20 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     list_members,
 )
 from teaparty_app.services.admin_workspace.parsing import (  # noqa: F401
-    ACCEPT_TASK_RE,
     ADD_AGENT_RE,
     ADD_FILE_RE,
     ADD_USER_RE,
-    COMPLETE_TASK_RE,
-    DECLINE_TASK_RE,
     DELETE_FILE_RE,
     DELETE_WORKGROUP_RE,
     EDIT_FILE_RE,
     LIST_FILES_RE,
     LIST_MEMBERS_RE,
-    LIST_TASKS_RE,
     REMOVE_MEMBER_RE,
     RENAME_FILE_RE,
     _help_text,
     _is_confirmed_word,
     _normalize_admin_message_for_matching,
     _normalize_file_content,
-    _normalize_task_selector,
     _parse_add_agent_payload,
     _parse_file_payload,
     _parse_temperature,
@@ -115,14 +106,6 @@ from teaparty_app.services.admin_workspace.file_tools import (  # noqa: F401
     admin_tool_list_files,
     admin_tool_rename_file,
 )
-from teaparty_app.services.admin_workspace.task_tools import (  # noqa: F401
-    admin_tool_accept_task,
-    admin_tool_complete_task,
-    admin_tool_decline_task,
-    admin_tool_list_tasks,
-)
-
-
 def _handle_admin_message_deterministic(
     session: Session,
     workgroup_id: str,
@@ -223,38 +206,6 @@ def _handle_admin_message_deterministic(
     list_members_match = LIST_MEMBERS_RE.match(message)
     if list_members_match and _tool_allowed(ADMIN_TOOL_LIST_MEMBERS):
         return admin_tool_list_members(session, workgroup_id)
-
-    list_tasks_match = LIST_TASKS_RE.match(message)
-    if list_tasks_match and _tool_allowed(ADMIN_TOOL_LIST_TASKS):
-        direction = list_tasks_match.group(1) or "all"
-        return admin_tool_list_tasks(session, workgroup_id, direction=direction)
-
-    accept_task_match = ACCEPT_TASK_RE.match(message)
-    if accept_task_match and _tool_allowed(ADMIN_TOOL_ACCEPT_TASK):
-        return admin_tool_accept_task(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            selector=accept_task_match.group(1),
-        )
-
-    decline_task_match = DECLINE_TASK_RE.match(message)
-    if decline_task_match and _tool_allowed(ADMIN_TOOL_DECLINE_TASK):
-        return admin_tool_decline_task(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            selector=decline_task_match.group(1),
-        )
-
-    complete_task_match = COMPLETE_TASK_RE.match(message)
-    if complete_task_match and _tool_allowed(ADMIN_TOOL_COMPLETE_TASK):
-        return admin_tool_complete_task(
-            session=session,
-            workgroup_id=workgroup_id,
-            requester_user_id=requester_user_id,
-            selector=complete_task_match.group(1),
-        )
 
     return None
 

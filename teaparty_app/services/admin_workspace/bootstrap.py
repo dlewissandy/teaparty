@@ -46,10 +46,6 @@ ADMIN_TOOL_EDIT_FILE = "edit_file"
 ADMIN_TOOL_RENAME_FILE = "rename_file"
 ADMIN_TOOL_DELETE_FILE = "delete_file"
 ADMIN_TOOL_DELETE_WORKGROUP = "delete_workgroup"
-ADMIN_TOOL_LIST_TASKS = "list_tasks"
-ADMIN_TOOL_ACCEPT_TASK = "accept_task"
-ADMIN_TOOL_DECLINE_TASK = "decline_task"
-ADMIN_TOOL_COMPLETE_TASK = "complete_task"
 
 ADMIN_TOOL_NAMES = [
     ADMIN_TOOL_ADD_AGENT,
@@ -62,10 +58,6 @@ ADMIN_TOOL_NAMES = [
     ADMIN_TOOL_RENAME_FILE,
     ADMIN_TOOL_DELETE_FILE,
     ADMIN_TOOL_DELETE_WORKGROUP,
-    ADMIN_TOOL_LIST_TASKS,
-    ADMIN_TOOL_ACCEPT_TASK,
-    ADMIN_TOOL_DECLINE_TASK,
-    ADMIN_TOOL_COMPLETE_TASK,
 ]
 
 # Admin team agent names — used for runtime identification of admin agents.

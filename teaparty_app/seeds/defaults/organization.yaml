@@ -17,7 +17,6 @@ system_workgroups:
         tools:
           - list_members
           - list_files
-          - list_tasks
 
       - name: workgroup-admin
         description: "__system_admin_agent__"

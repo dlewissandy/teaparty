@@ -81,6 +81,7 @@ def init_db() -> None:
     _migrate_system_workgroups()
     _migrate_admin_agent_team()
     _cleanup_duplicate_lead_agents()
+    _migrate_strip_job_tools()
     _run_seeds()
 
 
@@ -1786,6 +1787,45 @@ def _cleanup_duplicate_lead_agents() -> None:
             "  SELECT DISTINCT agent_id FROM conversation_participants WHERE agent_id IS NOT NULL"
             ")"
         ))
+
+
+def _migrate_strip_job_tools() -> None:
+    """Remove retired job and task management tools from all agents."""
+    import json as _json
+
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    cols = _sqlite_column_names("agents")
+    if "tools" not in cols:
+        return
+
+    retired = {
+        # Job tools
+        "add_job", "archive_job", "unarchive_job", "remove_job",
+        "clear_job_messages", "list_jobs", "global_add_job", "global_list_jobs",
+        # Task tools
+        "list_tasks", "accept_task", "decline_task", "complete_task",
+    }
+
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, tools FROM agents")).fetchall()
+        for row in rows:
+            raw = row[1]
+            if not raw:
+                continue
+            try:
+                names = _json.loads(raw) if isinstance(raw, str) else raw
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(names, list):
+                continue
+            cleaned = [n for n in names if n not in retired]
+            if len(cleaned) != len(names):
+                conn.execute(
+                    text("UPDATE agents SET tools = :tools WHERE id = :id"),
+                    {"tools": _json.dumps(cleaned), "id": row[0]},
+                )
 
 
 def get_session() -> Iterator[Session]:
