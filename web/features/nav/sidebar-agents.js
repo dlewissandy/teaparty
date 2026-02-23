@@ -8,7 +8,6 @@ import { bus } from '../../core/bus.js';
 import { escapeHtml } from '../../core/utils.js';
 import { generateBotSvg } from '../../components/shared/avatar.js';
 import { flash } from '../../components/shared/flash.js';
-import { loadWorkgroups } from '../data/data-loading.js';
 
 const removeSvg = `<svg viewBox="0 0 20 20" fill="none" width="12" height="12"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
 
@@ -59,7 +58,7 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
     const isActive = selection === itemId;
     const avatarSvg = generateBotSvg(agent.name);
     const removeBtn = (isOwner && !agent.is_lead)
-      ? `<button class="sidebar-member-remove" data-action="delete-agent" data-workgroup-id="${escapeHtml(workgroupId)}" data-org-id="${escapeHtml(orgId)}" data-agent-id="${escapeHtml(agent.id)}" data-agent-name="${escapeHtml(agent.name)}" title="Delete agent" aria-label="Delete ${escapeHtml(agent.name)}">${removeSvg}</button>`
+      ? `<button class="sidebar-member-remove" data-action="delete-agent" data-workgroup-id="${escapeHtml(workgroupId)}" data-org-id="${escapeHtml(orgId)}" data-agent-id="${escapeHtml(agent.id)}" data-agent-name="${escapeHtml(agent.name)}" title="${workgroupId ? 'Remove from workgroup' : 'Delete agent'}" aria-label="Remove ${escapeHtml(agent.name)}">${removeSvg}</button>`
       : '';
     return `<div class="sidebar-nav-item sidebar-agent-item${isActive ? ' active' : ''}">
       <button class="sidebar-agent-select" data-action="select-agent" data-item-id="${escapeHtml(itemId)}" data-workgroup-id="${escapeHtml(workgroupId)}" data-agent-id="${escapeHtml(agent.id)}" draggable="true" title="${escapeHtml(agent.name)}">
@@ -96,7 +95,8 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
       const workgroupId = btn.dataset.workgroupId;
       const agentId = btn.dataset.agentId;
       const name = btn.dataset.agentName;
-      if (!confirm(`Delete agent "${name}"?`)) return;
+      const action = workgroupId ? 'Remove' : 'Delete';
+      if (!confirm(`${action} agent "${name}"?`)) return;
       try {
         if (workgroupId) {
           await api(`/api/workgroups/${workgroupId}/agents/${agentId}`, { method: 'DELETE' });
@@ -104,8 +104,8 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
           const oId = btn.dataset.orgId;
           await api(`/api/organizations/${oId}/agents/${agentId}`, { method: 'DELETE' });
         }
-        flash(`Agent "${name}" deleted`, 'success');
-        loadWorkgroups();
+        flash(`Agent "${name}" ${workgroupId ? 'removed' : 'deleted'}`, 'success');
+        btn.closest('.sidebar-nav-item')?.remove();
       } catch (err) {
         flash(err.message || 'Failed to delete agent', 'error');
       }

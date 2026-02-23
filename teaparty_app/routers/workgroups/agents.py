@@ -152,23 +152,33 @@ def update_agent(
 
 
 @router.delete("/workgroups/{workgroup_id}/agents/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_agent(
+def remove_agent_from_workgroup(
     workgroup_id: str,
     agent_id: str,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> None:
+    """Remove an agent from a workgroup (unlink only, does not delete the agent)."""
+    from teaparty_app.models import AgentWorkgroup
+
     require_workgroup_owner(session, workgroup_id, user.id)
 
     agent = session.get(Agent, agent_id)
     if not agent or not agent_in_workgroup(session, agent_id, workgroup_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
     if agent_is_lead(session, agent_id):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete a lead agent")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot remove a lead agent")
 
-    agent_name = agent.name
-    session.delete(agent)
-    post_activity(session, workgroup_id, "agent_removed", agent_name, actor_user_id=user.id)
+    link = session.exec(
+        select(AgentWorkgroup).where(
+            AgentWorkgroup.agent_id == agent_id,
+            AgentWorkgroup.workgroup_id == workgroup_id,
+        )
+    ).first()
+    if link:
+        session.delete(link)
+
+    post_activity(session, workgroup_id, "agent_removed", agent.name, actor_user_id=user.id)
     session.commit()
     publish_sync_event(session, "workgroup", workgroup_id, "sync:agents_changed", {"workgroup_id": workgroup_id})
 
