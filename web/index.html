@@ -49,7 +49,7 @@
 
         <!-- Authenticated sidebar content -->
         <div id="sidebar-content" class="sidebar-content hidden">
-        <div class="sidebar-header">
+        <div class="sidebar-header" id="sidebar-header">
           <h2 id="sidebar-org-name" class="sidebar-org-name">TeaParty</h2>
           <button id="sidebar-directory-btn" class="sidebar-icon-btn" aria-label="Directory" title="Directory">
             <svg viewBox="0 0 20 20" fill="none" width="16" height="16"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 4v12" stroke="currentColor" stroke-width="1.3"/><path d="M10 8h4M10 11h3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
@@ -62,6 +62,7 @@
           </button>
         </div>
 
+        <div class="sidebar-sections">
         <!-- Organizations section (home view) -->
         <div id="sidebar-organizations" class="sidebar-section" style="display:none">
           <button class="sidebar-section-header" aria-expanded="true" data-section="organizations">
@@ -142,6 +143,7 @@
           <div id="sidebar-members-list" class="sidebar-section-body">
           </div>
         </div>
+        </div><!-- /sidebar-sections -->
         </div><!-- /sidebar-content -->
       </aside>
 
