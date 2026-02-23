@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 
 from teaparty_app.config import settings
 from teaparty_app.services import llm_client
-from teaparty_app.models import Message, Workgroup
+from teaparty_app.models import Agent, Message, Workgroup
 from teaparty_app.services.llm_usage import record_llm_usage
 from teaparty_app.services.admin_workspace.bootstrap import (
     ADMINISTRATION_WORKGROUP_NAME,
@@ -649,6 +649,7 @@ def _handle_admin_message_with_sdk(
     requester_user_id: str,
     content: str,
     conversation_id: str | None = None,
+    agent: Agent | None = None,
 ) -> str:
     message = content.strip()
     if not message:
@@ -699,7 +700,23 @@ def _handle_admin_message_with_sdk(
             "For operations on this Administration workgroup itself, use the non-global tools."
         )
 
-    tools = _ADMIN_TOOLS + (_GLOBAL_ADMIN_TOOLS if (is_global or org_name) else [])
+    # Filter tools by the responding agent's tool set.
+    agent_tool_set = set(agent.tools) if agent and agent.tools else None
+    if agent_tool_set is not None:
+        admin_tools = [t for t in _ADMIN_TOOLS if t["name"] in agent_tool_set]
+    else:
+        admin_tools = list(_ADMIN_TOOLS)
+
+    # Global tools filtered by agent's tool set (when in org/global context).
+    if is_global or org_name:
+        if agent_tool_set is not None:
+            global_tools = [t for t in _GLOBAL_ADMIN_TOOLS if t["name"] in agent_tool_set]
+        else:
+            global_tools = list(_GLOBAL_ADMIN_TOOLS)
+    else:
+        global_tools = []
+
+    tools = admin_tools + global_tools
 
     llm_input = _build_admin_llm_input(session=session, conversation_id=conversation_id, message=message)
     messages = [{"role": "user", "content": llm_input}]

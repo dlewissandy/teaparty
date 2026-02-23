@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_AGENT_SENTINEL,
     ADMIN_CONVERSATION_NAME,
+    ADMIN_TEAM_NAMES,
+    ADMIN_TEAM_SPECS,
     ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,
@@ -55,6 +57,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ensure_direct_conversation_with_agent,
     ensure_lead_agent,
     find_admin_agent,
+    find_admin_agents,
     find_admin_conversation,
     is_admin_agent,
     is_lead_agent,
@@ -136,13 +139,17 @@ def _handle_admin_message_deterministic(
     workgroup_id: str,
     requester_user_id: str,
     content: str,
+    allowed_tools: set[str] | None = None,
 ) -> str | None:
     message = _normalize_admin_message_for_matching(content)
     if not message:
         return None
 
+    def _tool_allowed(tool_name: str) -> bool:
+        return allowed_tools is None or tool_name in allowed_tools
+
     delete_workgroup_match = DELETE_WORKGROUP_RE.match(message)
-    if delete_workgroup_match:
+    if delete_workgroup_match and _tool_allowed(ADMIN_TOOL_DELETE_WORKGROUP):
         return admin_tool_delete_workgroup(
             session=session,
             workgroup_id=workgroup_id,
@@ -151,15 +158,15 @@ def _handle_admin_message_deterministic(
         )
 
     unarchive_match = UNARCHIVE_JOB_RE.match(message)
-    if unarchive_match:
+    if unarchive_match and _tool_allowed(ADMIN_TOOL_UNARCHIVE_JOB):
         return admin_tool_unarchive_job(session, workgroup_id, requester_user_id, unarchive_match.group(1))
 
     archive_match = ARCHIVE_JOB_RE.match(message)
-    if archive_match:
+    if archive_match and _tool_allowed(ADMIN_TOOL_ARCHIVE_JOB):
         return admin_tool_archive_job(session, workgroup_id, requester_user_id, archive_match.group(1))
 
     remove_job_match = REMOVE_JOB_RE.match(message)
-    if remove_job_match:
+    if remove_job_match and _tool_allowed(ADMIN_TOOL_REMOVE_JOB):
         return admin_tool_remove_job(
             session=session,
             workgroup_id=workgroup_id,
@@ -168,7 +175,7 @@ def _handle_admin_message_deterministic(
         )
 
     clear_job_match = CLEAR_JOB_MESSAGES_RE.match(message)
-    if clear_job_match:
+    if clear_job_match and _tool_allowed(ADMIN_TOOL_CLEAR_JOB_MESSAGES):
         return admin_tool_clear_job_messages(
             session=session,
             workgroup_id=workgroup_id,
@@ -177,7 +184,7 @@ def _handle_admin_message_deterministic(
         )
 
     add_job_match = ADD_JOB_RE.match(message)
-    if add_job_match:
+    if add_job_match and _tool_allowed(ADMIN_TOOL_ADD_JOB):
         job_name, job_description = _parse_add_job_payload(add_job_match.group(1))
         return admin_tool_add_job(
             session=session,
@@ -188,7 +195,7 @@ def _handle_admin_message_deterministic(
         )
 
     add_agent_match = ADD_AGENT_RE.match(message)
-    if add_agent_match:
+    if add_agent_match and _tool_allowed(ADMIN_TOOL_ADD_AGENT):
         name, parsed = _parse_add_agent_payload(add_agent_match.group(1))
         if not name:
             return "Usage: add agent <name> [prompt=<text>] [model=<name>]"
@@ -202,11 +209,11 @@ def _handle_admin_message_deterministic(
         )
 
     add_user_match = ADD_USER_RE.match(message)
-    if add_user_match:
+    if add_user_match and _tool_allowed(ADMIN_TOOL_ADD_USER):
         return admin_tool_add_user(session, workgroup_id, requester_user_id, add_user_match.group(1))
 
     rename_file_match = RENAME_FILE_RE.match(message)
-    if rename_file_match:
+    if rename_file_match and _tool_allowed(ADMIN_TOOL_RENAME_FILE):
         return admin_tool_rename_file(
             session=session,
             workgroup_id=workgroup_id,
@@ -216,7 +223,7 @@ def _handle_admin_message_deterministic(
         )
 
     delete_file_match = DELETE_FILE_RE.match(message)
-    if delete_file_match:
+    if delete_file_match and _tool_allowed(ADMIN_TOOL_DELETE_FILE):
         return admin_tool_delete_file(
             session=session,
             workgroup_id=workgroup_id,
@@ -225,7 +232,7 @@ def _handle_admin_message_deterministic(
         )
 
     edit_file_match = EDIT_FILE_RE.match(message)
-    if edit_file_match:
+    if edit_file_match and _tool_allowed(ADMIN_TOOL_EDIT_FILE):
         file_path, file_content, has_content = _parse_file_payload(edit_file_match.group(1))
         if not has_content:
             return "Usage: edit file <path> content=<text>"
@@ -238,7 +245,7 @@ def _handle_admin_message_deterministic(
         )
 
     add_file_match = ADD_FILE_RE.match(message)
-    if add_file_match:
+    if add_file_match and _tool_allowed(ADMIN_TOOL_ADD_FILE):
         file_path, file_content, _has_content = _parse_file_payload(add_file_match.group(1))
         return admin_tool_add_file(
             session=session,
@@ -249,7 +256,7 @@ def _handle_admin_message_deterministic(
         )
 
     remove_member_match = REMOVE_MEMBER_RE.match(message)
-    if remove_member_match:
+    if remove_member_match and _tool_allowed(ADMIN_TOOL_REMOVE_MEMBER):
         return admin_tool_remove_member(
             session=session,
             workgroup_id=workgroup_id,
@@ -258,25 +265,25 @@ def _handle_admin_message_deterministic(
         )
 
     list_jobs_match = LIST_JOBS_RE.match(message)
-    if list_jobs_match:
+    if list_jobs_match and _tool_allowed(ADMIN_TOOL_LIST_JOBS):
         status_selector = list_jobs_match.group(1) or list_jobs_match.group(2) or "open"
         return admin_tool_list_jobs(session, workgroup_id, status=status_selector)
 
     list_files_match = LIST_FILES_RE.match(message)
-    if list_files_match:
+    if list_files_match and _tool_allowed(ADMIN_TOOL_LIST_FILES):
         return admin_tool_list_files(session, workgroup_id)
 
     list_members_match = LIST_MEMBERS_RE.match(message)
-    if list_members_match:
+    if list_members_match and _tool_allowed(ADMIN_TOOL_LIST_MEMBERS):
         return admin_tool_list_members(session, workgroup_id)
 
     list_tasks_match = LIST_TASKS_RE.match(message)
-    if list_tasks_match:
+    if list_tasks_match and _tool_allowed(ADMIN_TOOL_LIST_TASKS):
         direction = list_tasks_match.group(1) or "all"
         return admin_tool_list_tasks(session, workgroup_id, direction=direction)
 
     accept_task_match = ACCEPT_TASK_RE.match(message)
-    if accept_task_match:
+    if accept_task_match and _tool_allowed(ADMIN_TOOL_ACCEPT_TASK):
         return admin_tool_accept_task(
             session=session,
             workgroup_id=workgroup_id,
@@ -285,7 +292,7 @@ def _handle_admin_message_deterministic(
         )
 
     decline_task_match = DECLINE_TASK_RE.match(message)
-    if decline_task_match:
+    if decline_task_match and _tool_allowed(ADMIN_TOOL_DECLINE_TASK):
         return admin_tool_decline_task(
             session=session,
             workgroup_id=workgroup_id,
@@ -294,7 +301,7 @@ def _handle_admin_message_deterministic(
         )
 
     complete_task_match = COMPLETE_TASK_RE.match(message)
-    if complete_task_match:
+    if complete_task_match and _tool_allowed(ADMIN_TOOL_COMPLETE_TASK):
         return admin_tool_complete_task(
             session=session,
             workgroup_id=workgroup_id,
@@ -311,11 +318,14 @@ def handle_admin_message(
     requester_user_id: str,
     content: str,
     conversation_id: str | None = None,
+    agent: "Agent | None" = None,
 ) -> str:
     from teaparty_app.services.admin_workspace.sdk_integration import (
         _handle_admin_message_with_sdk,
         _sdk_enabled,
     )
+
+    allowed_tools = set(agent.tools) if agent and agent.tools else None
 
     # Primary path: LLM-driven agentic loop.
     if _sdk_enabled():
@@ -326,6 +336,7 @@ def handle_admin_message(
                 requester_user_id=requester_user_id,
                 content=content,
                 conversation_id=conversation_id,
+                agent=agent,
             )
         except Exception:
             logger.exception("Admin SDK handler failed, falling back to deterministic parsing")
@@ -336,6 +347,7 @@ def handle_admin_message(
         workgroup_id=workgroup_id,
         requester_user_id=requester_user_id,
         content=content,
+        allowed_tools=allowed_tools,
     )
     if deterministic is not None:
         return deterministic

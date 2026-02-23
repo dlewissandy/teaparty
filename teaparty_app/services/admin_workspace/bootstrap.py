@@ -29,10 +29,10 @@ def is_system_workgroup(name: str) -> bool:
 
 
 def admin_agent_name(workgroup: "Workgroup") -> str:
-    """Return the display name for a workgroup's admin agent."""
+    """Return the display name for a workgroup's admin agent (non-org workgroups only)."""
     if workgroup.name == ADMINISTRATION_WORKGROUP_NAME:
         if workgroup.organization_id:
-            return "administrator"
+            return _ADMIN_TEAM_LEAD_NAME
         return "system-admin"
     return "workgroup-admin"
 
@@ -79,6 +79,93 @@ ADMIN_TOOL_NAMES = [
     ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_COMPLETE_TASK,
 ]
+
+# ---------------------------------------------------------------------------
+# Fixed admin agent team (org-level Administration workgroups only)
+# ---------------------------------------------------------------------------
+
+# NOTE: GLOBAL_TOOL_* constants are defined below ADMIN_TEAM_SPECS.
+# Agents whose tools include global tool names will have those tools resolved
+# at runtime in sdk_integration.py.  The tools lists here may include both
+# admin tool names and global tool name *strings* (forward-referenced).
+
+ADMIN_TEAM_SPECS: list[dict] = [
+    {
+        "name": "administration-lead",
+        "description": "Administration lead",
+        "prompt": (
+            "Administration lead. You triage requests, delegate to specialist agents "
+            "within the admin team, and provide organizational oversight."
+        ),
+        "tools": [
+            ADMIN_TOOL_LIST_JOBS, ADMIN_TOOL_LIST_MEMBERS,
+            ADMIN_TOOL_LIST_FILES, ADMIN_TOOL_LIST_TASKS,
+        ],
+        "is_lead": True,
+    },
+    {
+        "name": "workgroup-admin",
+        "description": ADMIN_AGENT_SENTINEL,
+        "prompt": (
+            "Workgroup administrator. You handle workgroup lifecycle — creating, editing, "
+            "and deleting workgroups, and managing their content (jobs, files, agents, members)."
+        ),
+        "tools": [
+            ADMIN_TOOL_ADD_JOB, ADMIN_TOOL_ARCHIVE_JOB, ADMIN_TOOL_UNARCHIVE_JOB,
+            ADMIN_TOOL_REMOVE_JOB, ADMIN_TOOL_CLEAR_JOB_MESSAGES,
+            ADMIN_TOOL_ADD_FILE, ADMIN_TOOL_EDIT_FILE, ADMIN_TOOL_RENAME_FILE,
+            ADMIN_TOOL_DELETE_FILE,
+            ADMIN_TOOL_ADD_AGENT, ADMIN_TOOL_ADD_USER, ADMIN_TOOL_REMOVE_MEMBER,
+            ADMIN_TOOL_DELETE_WORKGROUP,
+            ADMIN_TOOL_LIST_JOBS, ADMIN_TOOL_LIST_MEMBERS, ADMIN_TOOL_LIST_FILES,
+            ADMIN_TOOL_LIST_TASKS, ADMIN_TOOL_ACCEPT_TASK,
+            ADMIN_TOOL_DECLINE_TASK, ADMIN_TOOL_COMPLETE_TASK,
+            # Global workgroup tools (resolved at runtime)
+            "global_create_workgroup", "global_list_workgroups",
+            "global_add_agent", "global_list_agents",
+            "global_add_job", "global_list_jobs",
+            "global_add_file",
+            "global_list_templates", "global_list_available_tools",
+            "global_update_agent",
+        ],
+        "is_lead": False,
+    },
+    {
+        "name": "organization-admin",
+        "description": ADMIN_AGENT_SENTINEL,
+        "prompt": (
+            "Organization administrator. You handle organization lifecycle — creating, "
+            "editing, and managing organizations."
+        ),
+        "tools": [
+            # Global org tools (resolved at runtime)
+            "global_create_organization", "global_list_organizations",
+        ],
+        "is_lead": False,
+    },
+    {
+        "name": "partner-admin",
+        "description": ADMIN_AGENT_SENTINEL,
+        "prompt": (
+            "Partnership administrator. You handle partner relationships — finding, "
+            "adding, and removing organizational partners."
+        ),
+        "tools": [],
+        "is_lead": False,
+    },
+    {
+        "name": "workflow-admin",
+        "description": ADMIN_AGENT_SENTINEL,
+        "prompt": (
+            "Workflow administrator. You handle workflow management — creating, modifying, "
+            "and managing team workflows."
+        ),
+        "tools": [],
+        "is_lead": False,
+    },
+]
+
+ADMIN_TEAM_NAMES = frozenset(spec["name"] for spec in ADMIN_TEAM_SPECS)
 
 GLOBAL_TOOL_CREATE_ORGANIZATION = "global_create_organization"
 GLOBAL_TOOL_LIST_ORGANIZATIONS = "global_list_organizations"
@@ -165,25 +252,53 @@ def direct_conversation_key_user_agent(user_id: str, agent_id: str) -> str:
 
 
 def is_admin_agent(agent: Agent) -> bool:
-    """Return True if the agent is an admin agent (sentinel-based or org-level administrator)."""
+    """Return True if the agent is an admin team agent (sentinel-based or by team name + admin tool subset)."""
     if agent.description == ADMIN_AGENT_SENTINEL:
         return True
-    # Org-level administrator: has exactly the admin tool set
-    agent_tools = set(agent.tools or [])
-    return bool(agent_tools) and agent_tools == set(ADMIN_TOOL_NAMES)
+    # Recognize admin team members by name + admin/global tool subset
+    if agent.name in ADMIN_TEAM_NAMES:
+        agent_tools = set(agent.tools or [])
+        all_admin_tools = set(ADMIN_TOOL_NAMES) | set(GLOBAL_TOOL_NAMES)
+        return not agent_tools or agent_tools <= all_admin_tools
+    return False
 
 
-def find_admin_agent(session: Session, workgroup_id: str) -> Agent | None:
-    """Find the admin agent for a workgroup (sentinel-based or by name)."""
-    from sqlalchemy import or_
+def _find_admin_team_member(session: Session, workgroup_id: str, name: str) -> Agent | None:
+    """Find an admin team member by name in a workgroup."""
     return session.exec(
         select(Agent)
         .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
         .where(
             AgentWorkgroup.workgroup_id == workgroup_id,
-            or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name == "administrator"),
+            Agent.name == name,
         )
     ).first()
+
+
+def find_admin_agents(session: Session, workgroup_id: str) -> list[Agent]:
+    """Find all admin team agents for a workgroup."""
+    from sqlalchemy import or_
+    return list(session.exec(
+        select(Agent)
+        .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup_id,
+            or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name.in_(ADMIN_TEAM_NAMES)),
+        )
+    ).all())
+
+
+_ADMIN_TEAM_LEAD_NAME = next(s["name"] for s in ADMIN_TEAM_SPECS if s["is_lead"])
+
+
+def find_admin_agent(session: Session, workgroup_id: str) -> Agent | None:
+    """Find the admin lead agent for a workgroup."""
+    agents = find_admin_agents(session, workgroup_id)
+    # Prefer the lead agent
+    for agent in agents:
+        if agent.name == _ADMIN_TEAM_LEAD_NAME:
+            return agent
+    return agents[0] if agents else None
 
 
 def find_admin_conversation(session: Session, workgroup_id: str) -> Conversation | None:
@@ -195,6 +310,48 @@ def find_admin_conversation(session: Session, workgroup_id: str) -> Conversation
     ).first()
 
 
+def _ensure_admin_team_member(
+    session: Session,
+    workgroup: Workgroup,
+    spec: dict,
+) -> tuple[Agent, bool]:
+    """Ensure a single admin team member exists and matches the spec.
+
+    Returns (agent, changed).
+    """
+    from teaparty_app.services.agent_workgroups import link_agent
+
+    agent = _find_admin_team_member(session, workgroup.id, spec["name"])
+    if not agent:
+        agent = Agent(
+            organization_id=workgroup.organization_id,
+            created_by_user_id=workgroup.owner_id,
+            name=spec["name"],
+            description=spec["description"],
+            prompt=spec["prompt"],
+            model=settings.admin_agent_model,
+            tools=list(spec["tools"]),
+        )
+        session.add(agent)
+        session.flush()
+        link_agent(session, agent.id, workgroup.id, is_lead=spec["is_lead"])
+        return agent, True
+
+    agent_changed = False
+    if agent.description != spec["description"]:
+        agent.description = spec["description"]
+        agent_changed = True
+    if sorted(agent.tools or []) != sorted(spec["tools"]):
+        agent.tools = list(spec["tools"])
+        agent_changed = True
+    if (agent.model or "").strip() != settings.admin_agent_model:
+        agent.model = settings.admin_agent_model
+        agent_changed = True
+    if agent_changed:
+        session.add(agent)
+    return agent, agent_changed
+
+
 def ensure_admin_workspace(
     session: Session,
     workgroup: Workgroup,
@@ -202,42 +359,55 @@ def ensure_admin_workspace(
     from teaparty_app.services.agent_workgroups import link_agent
 
     changed = False
-    expected_admin_name = admin_agent_name(workgroup)
     is_org_admin = (workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id)
-    admin_description = "Organization administrator" if is_org_admin else ADMIN_AGENT_SENTINEL
 
-    admin_agent = find_admin_agent(session, workgroup.id)
-    if not admin_agent:
-        admin_agent = Agent(
-            organization_id=workgroup.organization_id,
-            created_by_user_id=workgroup.owner_id,
-            name=expected_admin_name,
-            description=admin_description,
-            prompt="Workgroup administrator. You maintain this workspace and enforce ownership and safety constraints.",
-            model=settings.admin_agent_model,
-            tools=list(ADMIN_TOOL_NAMES),
-        )
-        session.add(admin_agent)
-        session.flush()
-        link_agent(session, admin_agent.id, workgroup.id, is_lead=is_org_admin)
-        changed = True
+    if is_org_admin:
+        # Org-level Administration: create the full admin team.
+        lead_agent = None
+        for spec in ADMIN_TEAM_SPECS:
+            agent, agent_changed = _ensure_admin_team_member(session, workgroup, spec)
+            if agent_changed:
+                changed = True
+            if spec["is_lead"]:
+                lead_agent = agent
+        admin_agent = lead_agent
     else:
-        admin_changed = False
-        if admin_agent.name != expected_admin_name:
-            admin_agent.name = expected_admin_name
-            admin_changed = True
-        if admin_agent.description != admin_description:
-            admin_agent.description = admin_description
-            admin_changed = True
-        if sorted(admin_agent.tools or []) != sorted(ADMIN_TOOL_NAMES):
-            admin_agent.tools = list(ADMIN_TOOL_NAMES)
-            admin_changed = True
-        if (admin_agent.model or "").strip() != settings.admin_agent_model:
-            admin_agent.model = settings.admin_agent_model
-            admin_changed = True
-        if admin_changed:
+        # Non-org workgroups: single admin agent with all tools.
+        expected_admin_name = admin_agent_name(workgroup)
+        admin_description = ADMIN_AGENT_SENTINEL
+
+        admin_agent = find_admin_agent(session, workgroup.id)
+        if not admin_agent:
+            admin_agent = Agent(
+                organization_id=workgroup.organization_id,
+                created_by_user_id=workgroup.owner_id,
+                name=expected_admin_name,
+                description=admin_description,
+                prompt="Workgroup administrator. You maintain this workspace and enforce ownership and safety constraints.",
+                model=settings.admin_agent_model,
+                tools=list(ADMIN_TOOL_NAMES),
+            )
             session.add(admin_agent)
+            session.flush()
+            link_agent(session, admin_agent.id, workgroup.id, is_lead=False)
             changed = True
+        else:
+            admin_changed = False
+            if admin_agent.name != expected_admin_name:
+                admin_agent.name = expected_admin_name
+                admin_changed = True
+            if admin_agent.description != admin_description:
+                admin_agent.description = admin_description
+                admin_changed = True
+            if sorted(admin_agent.tools or []) != sorted(ADMIN_TOOL_NAMES):
+                admin_agent.tools = list(ADMIN_TOOL_NAMES)
+                admin_changed = True
+            if (admin_agent.model or "").strip() != settings.admin_agent_model:
+                admin_agent.model = settings.admin_agent_model
+                admin_changed = True
+            if admin_changed:
+                session.add(admin_agent)
+                changed = True
 
     admin_conversation = find_admin_conversation(session, workgroup.id)
     if not admin_conversation:

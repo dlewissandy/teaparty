@@ -38,6 +38,7 @@ from teaparty_app.models import (
 )
 from teaparty_app.services.admin_workspace import (
     ADMIN_AGENT_SENTINEL,
+    ADMIN_TEAM_NAMES,
     consume_queued_workgroup_deletion,
     delete_workgroup_data,
     is_admin_agent,
@@ -229,7 +230,7 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
             .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
             .where(
                 AgentWorkgroup.workgroup_id == conversation.workgroup_id,
-                or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name == "administrator"),
+                or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name.in_(ADMIN_TEAM_NAMES)),
             )
         ).all()
 
@@ -295,11 +296,13 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
 
     # Fast path: deterministic regex for structured commands (no LLM needed).
     from teaparty_app.services.admin_workspace import _handle_admin_message_deterministic
+    allowed_tools = set(agent.tools) if agent.tools else None
     deterministic = _handle_admin_message_deterministic(
         session=session,
         workgroup_id=conversation.workgroup_id,
         requester_user_id=trigger.sender_user_id,
         content=trigger.content,
+        allowed_tools=allowed_tools,
     )
     if deterministic is not None:
         return deterministic
@@ -391,13 +394,18 @@ def run_agent_auto_responses(session: Session, conversation: Conversation, trigg
     if not agents:
         return []
 
-    # Admin conversations are still single-agent command handlers.
+    # Admin agents respond in admin and direct conversations.
     admin_agents = [agent for agent in agents if is_admin_agent(agent)]
     if admin_agents:
-        if conversation.kind != "admin" or trigger.sender_type != "user":
+        if conversation.kind not in ("admin", "direct") or trigger.sender_type != "user":
             return []
 
-        admin_agent = admin_agents[0]
+        # For admin conversations, prefer the lead; for DMs, use the participant.
+        if conversation.kind == "admin":
+            from teaparty_app.services.admin_workspace.bootstrap import _ADMIN_TEAM_LEAD_NAME
+            admin_agent = next((a for a in admin_agents if a.name == _ADMIN_TEAM_LEAD_NAME), admin_agents[0])
+        else:
+            admin_agent = admin_agents[0]
         _set_activity(conversation.id, admin_agent.id, admin_agent.name, "composing")
         try:
             content = build_admin_agent_reply(session, admin_agent, conversation, trigger)
