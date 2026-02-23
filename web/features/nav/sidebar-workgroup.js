@@ -19,13 +19,12 @@ export function renderWorkgroupSections(store, container, orgId, filter) {
   const org = (s.data.organizations || []).find(o => o.id === orgId);
   const isOwner = org?.owner_id === currentUserId;
 
-  // Filter out the auto-created Administration workgroup
-  const visible = workgroups.filter(wg => wg.name !== 'Administration');
+  const sorted = [...workgroups].sort((a, b) => a.name.localeCompare(b.name));
 
   const filterLower = (filter || '').toLowerCase();
   const filtered = filterLower
-    ? visible.filter(wg => wg.name.toLowerCase().includes(filterLower))
-    : visible;
+    ? sorted.filter(wg => wg.name.toLowerCase().includes(filterLower))
+    : sorted;
 
   if (!filtered.length) {
     container.innerHTML = '<span class="sidebar-empty-inline">No workgroups</span>';

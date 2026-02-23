@@ -337,6 +337,10 @@ def admin_tool_delete_workgroup(
     if not workgroup:
         return "Workgroup not found."
 
+    from teaparty_app.services.admin_workspace.bootstrap import is_system_workgroup
+    if is_system_workgroup(workgroup.name):
+        return f"Cannot delete system workgroup '{workgroup.name}'."
+
     if not confirmed:
         return (
             f"This will permanently delete workgroup '{workgroup.name}' (id={workgroup.id}) "

@@ -822,6 +822,10 @@ def delete_workgroup(
     if not workgroup:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workgroup not found")
 
+    from teaparty_app.services.admin_workspace.bootstrap import is_system_workgroup
+    if is_system_workgroup(workgroup.name):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Cannot delete system workgroup '{workgroup.name}'")
+
     org_id = workgroup.organization_id
 
     from teaparty_app.services.admin_workspace.tools_common import delete_workgroup_data

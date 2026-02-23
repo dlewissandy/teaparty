@@ -223,12 +223,13 @@ def _agents_for_auto_response(session: Session, conversation: Conversation) -> l
         return []
 
     if conversation.kind == "admin":
+        from sqlalchemy import or_
         return session.exec(
             select(Agent)
             .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
             .where(
                 AgentWorkgroup.workgroup_id == conversation.workgroup_id,
-                Agent.description == ADMIN_AGENT_SENTINEL,
+                or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name == "administrator"),
             )
         ).all()
 

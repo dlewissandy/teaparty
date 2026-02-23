@@ -47,7 +47,7 @@ function startThinking(store, message) {
   if (conversation.kind === 'direct' && conversation.topic.startsWith('dma:')) {
     agentIds = [conversation.topic.split(':')[2]].filter(Boolean);
   } else if (conversation.kind === 'admin') {
-    agentIds = (data.agents || []).filter(a => a.description === '__system_admin_agent__').map(a => a.id);
+    agentIds = (data.agents || []).filter(a => a.description === '__system_admin_agent__' || a.name === 'administrator').map(a => a.id);
   } else if (conversation.kind === 'job' || conversation.kind === 'engagement') {
     // Show the lead agent thinking, or first non-admin agent
     const jobAgents = (data.agents || []).filter(a => a.description !== '__system_admin_agent__');

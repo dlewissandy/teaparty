@@ -33,6 +33,8 @@ from teaparty_app.services.admin_workspace.bootstrap import (  # noqa: F401
     ADMIN_TOOL_RENAME_FILE,
     ADMIN_TOOL_UNARCHIVE_JOB,
     ADMINISTRATION_WORKGROUP_NAME,
+    SYSTEM_WORKGROUP_NAMES,
+    is_system_workgroup,
     GLOBAL_TOOL_ADD_AGENT,
     GLOBAL_TOOL_ADD_FILE,
     GLOBAL_TOOL_ADD_JOB,

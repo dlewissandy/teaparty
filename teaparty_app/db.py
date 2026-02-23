@@ -77,6 +77,7 @@ def init_db() -> None:
     _migrate_agent_restructure()
     _migrate_agent_nullable_workgroup_id()
     _cleanup_orphaned_agents()
+    _migrate_system_workgroups()
     _run_seeds()
 
 
@@ -1588,6 +1589,115 @@ def _cleanup_orphaned_agents() -> None:
                 )
             )
         """))
+
+
+def _migrate_system_workgroups() -> None:
+    """Ensure each org has three system workgroups (Administration, Project Management, Engagement)
+    with the correct lead agents. Moves agents out of Administration into their own workgroups."""
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    with engine.connect() as conn:
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
+    if "agent_workgroups" not in tables:
+        return
+
+    with engine.begin() as conn:
+        # Find all org-level Administration workgroups
+        admin_wgs = conn.execute(text(
+            "SELECT id, owner_id, organization_id FROM workgroups "
+            "WHERE name = 'Administration' AND organization_id IS NOT NULL"
+        )).fetchall()
+
+        for admin_wg_id, owner_id, org_id in admin_wgs:
+            # --- Project Management workgroup ---
+            row = conn.execute(text(
+                "SELECT id FROM workgroups WHERE name = 'Project Management' AND organization_id = :org_id"
+            ), {"org_id": org_id}).first()
+            if not row:
+                pm_id = str(uuid4())
+                conn.execute(text(
+                    "INSERT INTO workgroups (id, name, files, owner_id, organization_id, created_at) "
+                    "VALUES (:id, 'Project Management', '[]', :owner_id, :org_id, datetime('now'))"
+                ), {"id": pm_id, "owner_id": owner_id, "org_id": org_id})
+                conn.execute(text(
+                    "INSERT INTO memberships (id, workgroup_id, user_id, role, created_at) "
+                    "VALUES (:id, :wg_id, :uid, 'owner', datetime('now'))"
+                ), {"id": str(uuid4()), "wg_id": pm_id, "uid": owner_id})
+            else:
+                pm_id = row[0]
+
+            # Move projects-lead from Administration → Project Management
+            pl = conn.execute(text(
+                "SELECT a.id FROM agents a "
+                "JOIN agent_workgroups aw ON aw.agent_id = a.id "
+                "WHERE a.name = 'projects-lead' AND aw.workgroup_id = :wg_id"
+            ), {"wg_id": admin_wg_id}).first()
+            if pl:
+                conn.execute(text(
+                    "DELETE FROM agent_workgroups WHERE agent_id = :aid AND workgroup_id = :wg_id"
+                ), {"aid": pl[0], "wg_id": admin_wg_id})
+                exists = conn.execute(text(
+                    "SELECT id FROM agent_workgroups WHERE agent_id = :aid AND workgroup_id = :wg_id"
+                ), {"aid": pl[0], "wg_id": pm_id}).first()
+                if not exists:
+                    conn.execute(text(
+                        "INSERT INTO agent_workgroups (id, agent_id, workgroup_id, is_lead, created_at) "
+                        "VALUES (:id, :aid, :wg_id, 1, datetime('now'))"
+                    ), {"id": str(uuid4()), "aid": pl[0], "wg_id": pm_id})
+
+            # --- Engagement workgroup ---
+            row = conn.execute(text(
+                "SELECT id FROM workgroups WHERE name = 'Engagement' AND organization_id = :org_id"
+            ), {"org_id": org_id}).first()
+            if not row:
+                eng_id = str(uuid4())
+                conn.execute(text(
+                    "INSERT INTO workgroups (id, name, files, owner_id, organization_id, created_at) "
+                    "VALUES (:id, 'Engagement', '[]', :owner_id, :org_id, datetime('now'))"
+                ), {"id": eng_id, "owner_id": owner_id, "org_id": org_id})
+                conn.execute(text(
+                    "INSERT INTO memberships (id, workgroup_id, user_id, role, created_at) "
+                    "VALUES (:id, :wg_id, :uid, 'owner', datetime('now'))"
+                ), {"id": str(uuid4()), "wg_id": eng_id, "uid": owner_id})
+            else:
+                eng_id = row[0]
+
+            # Move engagements-lead from Administration → Engagement
+            el = conn.execute(text(
+                "SELECT a.id FROM agents a "
+                "JOIN agent_workgroups aw ON aw.agent_id = a.id "
+                "WHERE a.name = 'engagements-lead' AND aw.workgroup_id = :wg_id"
+            ), {"wg_id": admin_wg_id}).first()
+            if el:
+                conn.execute(text(
+                    "DELETE FROM agent_workgroups WHERE agent_id = :aid AND workgroup_id = :wg_id"
+                ), {"aid": el[0], "wg_id": admin_wg_id})
+                exists = conn.execute(text(
+                    "SELECT id FROM agent_workgroups WHERE agent_id = :aid AND workgroup_id = :wg_id"
+                ), {"aid": el[0], "wg_id": eng_id}).first()
+                if not exists:
+                    conn.execute(text(
+                        "INSERT INTO agent_workgroups (id, agent_id, workgroup_id, is_lead, created_at) "
+                        "VALUES (:id, :aid, :wg_id, 1, datetime('now'))"
+                    ), {"id": str(uuid4()), "aid": el[0], "wg_id": eng_id})
+
+            # --- Rename organization-admin → administrator ---
+            admin = conn.execute(text(
+                "SELECT a.id FROM agents a "
+                "JOIN agent_workgroups aw ON aw.agent_id = a.id "
+                "WHERE a.name = 'organization-admin' AND aw.workgroup_id = :wg_id"
+            ), {"wg_id": admin_wg_id}).first()
+            if admin:
+                conn.execute(text(
+                    "UPDATE agents SET name = 'administrator', "
+                    "description = 'Organization administrator' "
+                    "WHERE id = :id"
+                ), {"id": admin[0]})
+                conn.execute(text(
+                    "UPDATE agent_workgroups SET is_lead = 1 "
+                    "WHERE agent_id = :aid AND workgroup_id = :wg_id"
+                ), {"aid": admin[0], "wg_id": admin_wg_id})
 
 
 def get_session() -> Iterator[Session]:

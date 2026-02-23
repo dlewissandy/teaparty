@@ -44,6 +44,7 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
   }
 
   const agents = Array.from(agentMap.values());
+  agents.sort((a, b) => a.agent.name.localeCompare(b.agent.name));
   const filtered = filterLower
     ? agents.filter(({ agent }) => agent.name.toLowerCase().includes(filterLower))
     : agents;

@@ -20,12 +20,19 @@ ADMIN_AGENT_SENTINEL = "__system_admin_agent__"
 ADMIN_CONVERSATION_NAME = "Administration"
 ADMINISTRATION_WORKGROUP_NAME = "Administration"
 
+SYSTEM_WORKGROUP_NAMES = frozenset({"Administration", "Project Management", "Engagement"})
+
+
+def is_system_workgroup(name: str) -> bool:
+    """Return True if this is a mandatory system workgroup name."""
+    return name in SYSTEM_WORKGROUP_NAMES
+
 
 def admin_agent_name(workgroup: "Workgroup") -> str:
     """Return the display name for a workgroup's admin agent."""
     if workgroup.name == ADMINISTRATION_WORKGROUP_NAME:
         if workgroup.organization_id:
-            return "organization-admin"
+            return "administrator"
         return "system-admin"
     return "workgroup-admin"
 
@@ -158,14 +165,24 @@ def direct_conversation_key_user_agent(user_id: str, agent_id: str) -> str:
 
 
 def is_admin_agent(agent: Agent) -> bool:
-    return agent.description == ADMIN_AGENT_SENTINEL
+    """Return True if the agent is an admin agent (sentinel-based or org-level administrator)."""
+    if agent.description == ADMIN_AGENT_SENTINEL:
+        return True
+    # Org-level administrator: has exactly the admin tool set
+    agent_tools = set(agent.tools or [])
+    return bool(agent_tools) and agent_tools == set(ADMIN_TOOL_NAMES)
 
 
 def find_admin_agent(session: Session, workgroup_id: str) -> Agent | None:
+    """Find the admin agent for a workgroup (sentinel-based or by name)."""
+    from sqlalchemy import or_
     return session.exec(
         select(Agent)
         .join(AgentWorkgroup, AgentWorkgroup.agent_id == Agent.id)
-        .where(AgentWorkgroup.workgroup_id == workgroup_id, Agent.description == ADMIN_AGENT_SENTINEL)
+        .where(
+            AgentWorkgroup.workgroup_id == workgroup_id,
+            or_(Agent.description == ADMIN_AGENT_SENTINEL, Agent.name == "administrator"),
+        )
     ).first()
 
 
@@ -186,25 +203,31 @@ def ensure_admin_workspace(
 
     changed = False
     expected_admin_name = admin_agent_name(workgroup)
+    is_org_admin = (workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id)
+    admin_description = "Organization administrator" if is_org_admin else ADMIN_AGENT_SENTINEL
+
     admin_agent = find_admin_agent(session, workgroup.id)
     if not admin_agent:
         admin_agent = Agent(
             organization_id=workgroup.organization_id,
             created_by_user_id=workgroup.owner_id,
             name=expected_admin_name,
-            description=ADMIN_AGENT_SENTINEL,
+            description=admin_description,
             prompt="Workgroup administrator. You maintain this workspace and enforce ownership and safety constraints.",
             model=settings.admin_agent_model,
             tools=list(ADMIN_TOOL_NAMES),
         )
         session.add(admin_agent)
         session.flush()
-        link_agent(session, admin_agent.id, workgroup.id)
+        link_agent(session, admin_agent.id, workgroup.id, is_lead=is_org_admin)
         changed = True
     else:
         admin_changed = False
         if admin_agent.name != expected_admin_name:
             admin_agent.name = expected_admin_name
+            admin_changed = True
+        if admin_agent.description != admin_description:
+            admin_agent.description = admin_description
             admin_changed = True
         if sorted(admin_agent.tools or []) != sorted(ADMIN_TOOL_NAMES):
             admin_agent.tools = list(ADMIN_TOOL_NAMES)
