@@ -73,12 +73,14 @@ def init_db() -> None:
     _migrate_conversation_org_id()
     _migrate_org_config_fields()
     _migrate_message_drop_agent_fk()
-    _backfill_projects_lead()
+    # _backfill_projects_lead() — retired: create_organization handles new orgs,
+    # _migrate_system_workgroups handles existing DBs.
     _migrate_agent_restructure()
     _migrate_agent_nullable_workgroup_id()
     _cleanup_orphaned_agents()
     _migrate_system_workgroups()
     _migrate_admin_agent_team()
+    _cleanup_duplicate_lead_agents()
     _run_seeds()
 
 
@@ -1684,10 +1686,13 @@ def _migrate_system_workgroups() -> None:
                     ), {"id": str(uuid4()), "aid": el[0], "wg_id": eng_id})
 
             # --- Rename organization-admin → administrator ---
+            # Only rename the OLD admin agent (not the admin team member which
+            # also uses the name "organization-admin" but has the sentinel description).
             admin = conn.execute(text(
                 "SELECT a.id FROM agents a "
                 "JOIN agent_workgroups aw ON aw.agent_id = a.id "
-                "WHERE a.name = 'organization-admin' AND aw.workgroup_id = :wg_id"
+                "WHERE a.name = 'organization-admin' AND aw.workgroup_id = :wg_id "
+                "AND a.description != '__system_admin_agent__'"
             ), {"wg_id": admin_wg_id}).first()
             if admin:
                 conn.execute(text(
@@ -1800,6 +1805,81 @@ def _migrate_admin_agent_team() -> None:
                         "wg_id": wg_id,
                         "is_lead": 1 if spec["is_lead"] else 0,
                     })
+
+
+def _cleanup_duplicate_lead_agents() -> None:
+    """Remove duplicate agents with the same name in the same workgroup.
+
+    Previous migration bugs caused multiple agents with identical names to
+    accumulate in a single workgroup (e.g. 4x projects-lead, 2x
+    administration-lead).  Keep the oldest agent per (name, workgroup) and
+    delete the rest.  Also remove spurious "X-lead" agents created by
+    ensure_lead_agent when the canonical agent already exists.
+    """
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    with engine.connect() as conn:
+        tables = {r[0] for r in conn.execute(text("SELECT name FROM sqlite_master WHERE type='table'")).fetchall()}
+    if "agent_workgroups" not in tables:
+        return
+
+    with engine.begin() as conn:
+        # 1. Deduplicate: keep oldest agent per (name, workgroup_id), remove extras
+        dupes = conn.execute(text(
+            "SELECT aw.agent_id "
+            "FROM agents a "
+            "JOIN agent_workgroups aw ON aw.agent_id = a.id "
+            "WHERE a.id NOT IN ("
+            "  SELECT MIN(a2.id) FROM agents a2 "
+            "  JOIN agent_workgroups aw2 ON aw2.agent_id = a2.id "
+            "  GROUP BY a2.name, aw2.workgroup_id"
+            ")"
+        )).fetchall()
+        for (agent_id,) in dupes:
+            conn.execute(text("DELETE FROM agent_workgroups WHERE agent_id = :aid"), {"aid": agent_id})
+            remaining = conn.execute(text(
+                "SELECT COUNT(*) FROM agent_workgroups WHERE agent_id = :aid"
+            ), {"aid": agent_id}).scalar()
+            if remaining == 0:
+                conn.execute(text("DELETE FROM agents WHERE id = :aid"), {"aid": agent_id})
+
+        # 2. Remove spurious "X-lead" agents created by ensure_lead_agent
+        #    when the canonical agent already exists in the same workgroup.
+        CANONICAL_TO_SPURIOUS = {
+            "projects-lead": "Project Management-lead",
+            "engagements-lead": "Engagement-lead",
+            "administration-lead": "Administration-lead",
+        }
+        for canonical_name, spurious_name in CANONICAL_TO_SPURIOUS.items():
+            bad = conn.execute(text(
+                "SELECT aw_bad.agent_id "
+                "FROM agents a_bad "
+                "JOIN agent_workgroups aw_bad ON aw_bad.agent_id = a_bad.id "
+                "WHERE a_bad.name = :spurious "
+                "AND EXISTS ("
+                "  SELECT 1 FROM agents a_good "
+                "  JOIN agent_workgroups aw_good ON aw_good.agent_id = a_good.id "
+                "  WHERE a_good.name = :canonical "
+                "  AND aw_good.workgroup_id = aw_bad.workgroup_id"
+                ")"
+            ), {"spurious": spurious_name, "canonical": canonical_name}).fetchall()
+            for (agent_id,) in bad:
+                conn.execute(text("DELETE FROM agent_workgroups WHERE agent_id = :aid"), {"aid": agent_id})
+                remaining = conn.execute(text(
+                    "SELECT COUNT(*) FROM agent_workgroups WHERE agent_id = :aid"
+                ), {"aid": agent_id}).scalar()
+                if remaining == 0:
+                    conn.execute(text("DELETE FROM agents WHERE id = :aid"), {"aid": agent_id})
+
+        # 3. Clean up orphaned agents (no workgroup links, no conversations)
+        conn.execute(text(
+            "DELETE FROM agents WHERE id NOT IN ("
+            "  SELECT agent_id FROM agent_workgroups"
+            ") AND id NOT IN ("
+            "  SELECT DISTINCT agent_id FROM conversation_participants WHERE agent_id IS NOT NULL"
+            ")"
+        ))
 
 
 def get_session() -> Iterator[Session]:
