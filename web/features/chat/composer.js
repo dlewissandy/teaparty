@@ -165,8 +165,12 @@ async function handleSubmit(store, form) {
         conversationId: result.conversation_id,
       });
 
-      // Refresh sidebar to show the new session
-      bus.emit('data:refresh');
+      // Insert the new session into the admin section (no full sidebar refresh).
+      bus.emit('sidebar:admin-session-added', {
+        conversationId: result.conversation_id,
+        workgroupId: result.workgroup_id,
+        name: 'New session',
+      });
     } catch (err) {
       if (textarea) textarea.value = content;
       flash(err.message || 'Failed to create admin session', 'error');
@@ -227,9 +231,6 @@ async function handleSubmit(store, form) {
       startThinking(store, posted);
       bus.emit('chat:message-sent', { convId, message: posted });
     }
-
-    // Refresh the sidebar tree so the new session appears
-    bus.emit('data:refresh');
 
   } catch (err) {
     // Rollback optimistic message
