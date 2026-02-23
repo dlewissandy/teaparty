@@ -2,28 +2,195 @@
 #
 # Tools are the individual capabilities; toolsets group them for the UI toolbar.
 # Add new tools or toolsets here to make them available platform-wide.
+#
+# Tool types:
+#   claude  — Claude Code native tools (available to all agents)
+#   admin   — Workgroup management tools (used by admin specialist agents)
 
 tools:
+
+  # ── Claude Code native tools ───────────────────────────────────────
   - name: Read
+    type: claude
     description: "Read files from the workspace."
   - name: Write
+    type: claude
     description: "Create or overwrite files."
   - name: Edit
+    type: claude
     description: "Make targeted edits to existing files."
   - name: Glob
+    type: claude
     description: "Find files by pattern matching."
   - name: Grep
+    type: claude
     description: "Search file contents with regex."
   - name: Bash
+    type: claude
     description: "Run shell commands."
   - name: Task
+    type: claude
     description: "Delegate work to sub-agents."
   - name: WebSearch
+    type: claude
     description: "Search the web for information."
   - name: WebFetch
+    type: claude
     description: "Fetch and analyze web pages."
 
+  # ── Workgroup management (local scope) ─────────────────────────────
+  - name: add_job
+    type: admin
+    description: "Add a new job conversation in the current workgroup."
+  - name: archive_job
+    type: admin
+    description: "Archive a job conversation by name or id."
+  - name: unarchive_job
+    type: admin
+    description: "Unarchive a job conversation by name or id."
+  - name: remove_job
+    type: admin
+    description: "Permanently remove a job conversation."
+  - name: clear_job_messages
+    type: admin
+    description: "Delete all messages in a job conversation."
+  - name: add_agent
+    type: admin
+    description: "Create a new AI agent in the workgroup."
+  - name: add_user
+    type: admin
+    description: "Add a user to the workgroup by email."
+  - name: remove_member
+    type: admin
+    description: "Remove a member or non-admin agent from the workgroup."
+  - name: add_file
+    type: admin
+    description: "Add a file to the current workgroup."
+  - name: edit_file
+    type: admin
+    description: "Update file contents for an existing workgroup file."
+  - name: rename_file
+    type: admin
+    description: "Rename a workgroup file."
+  - name: delete_file
+    type: admin
+    description: "Delete a workgroup file."
+  - name: list_jobs
+    type: admin
+    description: "List job conversations by status."
+  - name: list_members
+    type: admin
+    description: "List workgroup members, including users and agents."
+  - name: list_files
+    type: admin
+    description: "List workgroup files and paths."
+  - name: delete_workgroup
+    type: admin
+    description: "Delete the current workgroup and all its data."
+  - name: list_tasks
+    type: admin
+    description: "List tasks (engagements) for this workgroup."
+  - name: accept_task
+    type: admin
+    description: "Accept an incoming task."
+  - name: decline_task
+    type: admin
+    description: "Decline an incoming task."
+  - name: complete_task
+    type: admin
+    description: "Mark a task as complete."
+
+  # ── Global workgroup management ────────────────────────────────────
+  - name: global_create_workgroup
+    type: admin
+    description: "Create a new workgroup, optionally from a template and in an organization."
+  - name: global_list_workgroups
+    type: admin
+    description: "List workgroups, optionally filtered by organization."
+  - name: edit_workgroup
+    type: admin
+    description: "Update workgroup name, service description, or discoverability."
+  - name: global_add_agent
+    type: admin
+    description: "Add an AI agent to any workgroup by workgroup name."
+  - name: global_list_agents
+    type: admin
+    description: "List agents in a workgroup by workgroup name."
+  - name: global_update_agent
+    type: admin
+    description: "Update an existing agent's settings in any workgroup."
+  - name: find_agent
+    type: admin
+    description: "Search agents by name across workgroups."
+  - name: delete_agent
+    type: admin
+    description: "Delete an agent from a workgroup."
+  - name: add_agent_to_workgroup
+    type: admin
+    description: "Link an existing organization agent to a workgroup."
+  - name: remove_agent_from_workgroup
+    type: admin
+    description: "Unlink an agent from a workgroup."
+  - name: add_tool_to_agent
+    type: admin
+    description: "Add tools to an agent's tool list."
+  - name: remove_tool_from_agent
+    type: admin
+    description: "Remove tools from an agent's tool list."
+  - name: global_add_job
+    type: admin
+    description: "Add a job conversation to any workgroup by workgroup name."
+  - name: global_list_jobs
+    type: admin
+    description: "List jobs in a workgroup by workgroup name."
+  - name: global_add_file
+    type: admin
+    description: "Add a file to any workgroup by workgroup name."
+  - name: global_list_templates
+    type: admin
+    description: "List available workgroup templates."
+  - name: global_list_available_tools
+    type: admin
+    description: "List all available tools that can be assigned to agents."
+
+  # ── Organization management ────────────────────────────────────────
+  - name: global_create_organization
+    type: admin
+    description: "Create a new organization to group workgroups together."
+  - name: global_list_organizations
+    type: admin
+    description: "List all organizations owned by the current user."
+  - name: find_organization
+    type: admin
+    description: "Search organizations by name."
+
+  # ── Partnership management ─────────────────────────────────────────
+  - name: list_partners
+    type: admin
+    description: "List an organization's partnerships."
+  - name: add_partner
+    type: admin
+    description: "Create a partnership between two organizations."
+  - name: delete_partner
+    type: admin
+    description: "Revoke a partnership between two organizations."
+
+  # ── Workflow management ────────────────────────────────────────────
+  - name: list_workflows
+    type: admin
+    description: "List workflow files in a workgroup."
+  - name: create_workflow
+    type: admin
+    description: "Create a new workflow markdown file in a workgroup."
+  - name: delete_workflow
+    type: admin
+    description: "Delete a workflow file from a workgroup."
+  - name: find_workflow
+    type: admin
+    description: "Read a workflow file's content."
+
 toolsets:
+  # ── Claude Code native ─────────────────────────────────────────────
   - name: File tools
     description: "Read, write, edit, and search files."
     tools: [Read, Write, Edit, Glob, Grep]
@@ -33,3 +200,68 @@ toolsets:
   - name: Web
     description: "Search the web and fetch pages."
     tools: [WebSearch, WebFetch]
+
+  # ── Workgroup management ───────────────────────────────────────────
+  - name: Workgroup admin
+    description: "Manage workgroups, agents, jobs, files, and members."
+    tools:
+      - global_create_workgroup
+      - global_list_workgroups
+      - edit_workgroup
+      - global_add_agent
+      - global_list_agents
+      - global_update_agent
+      - find_agent
+      - delete_agent
+      - add_agent_to_workgroup
+      - remove_agent_from_workgroup
+      - add_tool_to_agent
+      - remove_tool_from_agent
+      - global_add_job
+      - global_list_jobs
+      - global_add_file
+      - global_list_templates
+      - global_list_available_tools
+      - add_job
+      - archive_job
+      - unarchive_job
+      - remove_job
+      - clear_job_messages
+      - add_agent
+      - add_user
+      - remove_member
+      - add_file
+      - edit_file
+      - rename_file
+      - delete_file
+      - list_jobs
+      - list_members
+      - list_files
+      - delete_workgroup
+      - list_tasks
+      - accept_task
+      - decline_task
+      - complete_task
+
+  - name: Organization admin
+    description: "Create and manage organizations."
+    tools:
+      - global_create_organization
+      - global_list_organizations
+      - find_organization
+
+  - name: Partnership admin
+    description: "Manage organizational partnerships."
+    tools:
+      - list_partners
+      - find_organization
+      - add_partner
+      - delete_partner
+
+  - name: Workflow admin
+    description: "Create and manage team workflows."
+    tools:
+      - list_workflows
+      - create_workflow
+      - delete_workflow
+      - find_workflow

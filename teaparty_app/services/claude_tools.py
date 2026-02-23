@@ -54,6 +54,7 @@ def _load_toolkits() -> tuple[list[dict[str, str]], list[dict]]:
             seen.add(name)
             tools.append({
                 "name": name,
+                "type": str(entry.get("type", "claude")),
                 "description": str(entry.get("description", "")),
             })
 
@@ -80,10 +81,12 @@ def _load_toolkits() -> tuple[list[dict[str, str]], list[dict]]:
     return tools, toolsets
 
 
-def get_tools() -> list[dict[str, str]]:
-    """Return the full tool catalog."""
+def get_tools(tool_type: str | None = None) -> list[dict[str, str]]:
+    """Return the tool catalog, optionally filtered by type."""
     tools, _ = _load_toolkits()
-    return list(tools)
+    if tool_type is None:
+        return list(tools)
+    return [t for t in tools if t.get("type") == tool_type]
 
 
 def get_toolsets() -> list[dict]:
@@ -92,12 +95,17 @@ def get_toolsets() -> list[dict]:
     return list(toolsets)
 
 
-def claude_tool_names() -> list[str]:
-    """Return the list of tool names."""
+def all_tool_names() -> list[str]:
+    """Return names of every tool in the catalog."""
     tools, _ = _load_toolkits()
     return [t["name"] for t in tools]
 
 
-# Backwards-compatible aliases
-CLAUDE_TOOLS = get_tools()
+def claude_tool_names() -> list[str]:
+    """Return names of Claude Code native tools only."""
+    return [t["name"] for t in get_tools("claude")]
+
+
+# Backwards-compatible aliases (Claude native tools only)
+CLAUDE_TOOLS = get_tools("claude")
 CLAUDE_TOOLSETS = get_toolsets()

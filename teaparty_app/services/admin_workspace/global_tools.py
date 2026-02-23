@@ -24,7 +24,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_TEAM_NAMES,
     ADMINISTRATION_WORKGROUP_NAME,
 )
-from teaparty_app.services.claude_tools import claude_tool_names
+from teaparty_app.services.claude_tools import all_tool_names, claude_tool_names
 from teaparty_app.services.workgroup_templates import list_workgroup_templates
 
 logger = logging.getLogger(__name__)
@@ -394,7 +394,7 @@ def global_list_available_tools(
     if not workgroup:
         return f"Workgroup '{workgroup_name}' not found."
 
-    tools = claude_tool_names()
+    tools = all_tool_names()
 
     lines = [f"Available tools for '{workgroup.name}' (count={len(tools)}):"]
     for t in tools:
