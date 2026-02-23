@@ -36,16 +36,10 @@ def admin_agent_name(workgroup: "Workgroup") -> str:
         return "system-admin"
     return "workgroup-admin"
 
-ADMIN_TOOL_ADD_JOB = "add_job"
-ADMIN_TOOL_ARCHIVE_JOB = "archive_job"
-ADMIN_TOOL_UNARCHIVE_JOB = "unarchive_job"
 ADMIN_TOOL_ADD_AGENT = "add_agent"
 ADMIN_TOOL_ADD_USER = "add_user"
-ADMIN_TOOL_LIST_JOBS = "list_jobs"
 ADMIN_TOOL_LIST_MEMBERS = "list_members"
 ADMIN_TOOL_LIST_FILES = "list_files"
-ADMIN_TOOL_CLEAR_JOB_MESSAGES = "clear_job_messages"
-ADMIN_TOOL_REMOVE_JOB = "remove_job"
 ADMIN_TOOL_REMOVE_MEMBER = "remove_member"
 ADMIN_TOOL_ADD_FILE = "add_file"
 ADMIN_TOOL_EDIT_FILE = "edit_file"
@@ -58,16 +52,10 @@ ADMIN_TOOL_DECLINE_TASK = "decline_task"
 ADMIN_TOOL_COMPLETE_TASK = "complete_task"
 
 ADMIN_TOOL_NAMES = [
-    ADMIN_TOOL_ADD_JOB,
-    ADMIN_TOOL_ARCHIVE_JOB,
-    ADMIN_TOOL_UNARCHIVE_JOB,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_USER,
-    ADMIN_TOOL_LIST_JOBS,
     ADMIN_TOOL_LIST_MEMBERS,
     ADMIN_TOOL_LIST_FILES,
-    ADMIN_TOOL_CLEAR_JOB_MESSAGES,
-    ADMIN_TOOL_REMOVE_JOB,
     ADMIN_TOOL_REMOVE_MEMBER,
     ADMIN_TOOL_ADD_FILE,
     ADMIN_TOOL_EDIT_FILE,
@@ -93,8 +81,6 @@ GLOBAL_TOOL_CREATE_WORKGROUP = "global_create_workgroup"
 GLOBAL_TOOL_LIST_WORKGROUPS = "global_list_workgroups"
 GLOBAL_TOOL_ADD_AGENT = "global_add_agent"
 GLOBAL_TOOL_LIST_AGENTS = "global_list_agents"
-GLOBAL_TOOL_ADD_JOB = "global_add_job"
-GLOBAL_TOOL_LIST_JOBS = "global_list_jobs"
 GLOBAL_TOOL_ADD_FILE = "global_add_file"
 GLOBAL_TOOL_LIST_TEMPLATES = "global_list_templates"
 GLOBAL_TOOL_LIST_AVAILABLE_TOOLS = "global_list_available_tools"
@@ -127,8 +113,6 @@ GLOBAL_TOOL_NAMES = [
     GLOBAL_TOOL_LIST_WORKGROUPS,
     GLOBAL_TOOL_ADD_AGENT,
     GLOBAL_TOOL_LIST_AGENTS,
-    GLOBAL_TOOL_ADD_JOB,
-    GLOBAL_TOOL_LIST_JOBS,
     GLOBAL_TOOL_ADD_FILE,
     GLOBAL_TOOL_LIST_TEMPLATES,
     GLOBAL_TOOL_LIST_AVAILABLE_TOOLS,

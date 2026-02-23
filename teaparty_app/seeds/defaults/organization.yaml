@@ -15,7 +15,6 @@ system_workgroups:
           agents within the admin team, and provide organizational oversight.
         model: haiku
         tools:
-          - list_jobs
           - list_members
           - list_files
           - list_tasks
@@ -28,11 +27,6 @@ system_workgroups:
           (jobs, files, agents, members).
         model: haiku
         tools:
-          - add_job
-          - archive_job
-          - unarchive_job
-          - remove_job
-          - clear_job_messages
           - add_file
           - edit_file
           - rename_file
@@ -41,7 +35,6 @@ system_workgroups:
           - add_user
           - remove_member
           - delete_workgroup
-          - list_jobs
           - list_members
           - list_files
           - list_tasks
@@ -52,8 +45,6 @@ system_workgroups:
           - global_list_workgroups
           - global_add_agent
           - global_list_agents
-          - global_add_job
-          - global_list_jobs
           - global_add_file
           - global_list_templates
           - global_list_available_tools

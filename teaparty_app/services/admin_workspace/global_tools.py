@@ -284,56 +284,6 @@ def global_list_agents(
     return "\n".join(lines)
 
 
-def global_add_job(
-    session: Session, requester_user_id: str, tool_input: dict
-) -> str:
-    from teaparty_app.services.admin_workspace.job_tools import admin_tool_add_job
-
-    workgroup_name = (tool_input.get("workgroup_name") or "").strip()
-    if not workgroup_name:
-        return "Workgroup name is required."
-
-    job_name = (tool_input.get("job_name") or "").strip()
-    if not job_name:
-        return "Job name is required."
-
-    description = (tool_input.get("description") or "").strip()
-
-    workgroup = _resolve_workgroup_by_name(session, requester_user_id, workgroup_name)
-    if not workgroup:
-        return f"Workgroup '{workgroup_name}' not found."
-
-    result = admin_tool_add_job(
-        session=session,
-        workgroup_id=workgroup.id,
-        requester_user_id=requester_user_id,
-        topic_name=job_name,
-        description=description,
-    )
-    return f"[{workgroup.name}] {result}"
-
-
-def global_list_jobs(
-    session: Session, requester_user_id: str, tool_input: dict
-) -> str:
-    from teaparty_app.services.admin_workspace.job_tools import admin_tool_list_jobs
-
-    workgroup_name = (tool_input.get("workgroup_name") or "").strip()
-    if not workgroup_name:
-        return "Workgroup name is required."
-
-    workgroup = _resolve_workgroup_by_name(session, requester_user_id, workgroup_name)
-    if not workgroup:
-        return f"Workgroup '{workgroup_name}' not found."
-
-    result = admin_tool_list_jobs(
-        session=session,
-        workgroup_id=workgroup.id,
-        status=tool_input.get("status", "open"),
-    )
-    return f"[{workgroup.name}] {result}"
-
-
 def global_add_file(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:

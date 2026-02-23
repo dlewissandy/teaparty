@@ -16,10 +16,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_TOOL_ACCEPT_TASK,
     ADMIN_TOOL_ADD_AGENT,
     ADMIN_TOOL_ADD_FILE,
-    ADMIN_TOOL_ADD_JOB,
     ADMIN_TOOL_ADD_USER,
-    ADMIN_TOOL_ARCHIVE_JOB,
-    ADMIN_TOOL_CLEAR_JOB_MESSAGES,
     ADMIN_TOOL_COMPLETE_TASK,
     ADMIN_TOOL_DECLINE_TASK,
     ADMIN_TOOL_DELETE_FILE,
@@ -28,21 +25,16 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_TOOL_LIST_FILES,
     ADMIN_TOOL_LIST_MEMBERS,
     ADMIN_TOOL_LIST_TASKS,
-    ADMIN_TOOL_LIST_JOBS,
     ADMIN_TOOL_REMOVE_MEMBER,
-    ADMIN_TOOL_REMOVE_JOB,
     ADMIN_TOOL_RENAME_FILE,
-    ADMIN_TOOL_UNARCHIVE_JOB,
     GLOBAL_TOOL_ADD_AGENT,
     GLOBAL_TOOL_ADD_FILE,
-    GLOBAL_TOOL_ADD_JOB,
     GLOBAL_TOOL_CREATE_ORGANIZATION,
     GLOBAL_TOOL_CREATE_WORKGROUP,
     GLOBAL_TOOL_LIST_AGENTS,
     GLOBAL_TOOL_LIST_AVAILABLE_TOOLS,
     GLOBAL_TOOL_LIST_ORGANIZATIONS,
     GLOBAL_TOOL_LIST_TEMPLATES,
-    GLOBAL_TOOL_LIST_JOBS,
     GLOBAL_TOOL_LIST_WORKGROUPS,
     GLOBAL_TOOL_NAMES,
     GLOBAL_TOOL_UPDATE_AGENT,
@@ -77,14 +69,6 @@ from teaparty_app.services.admin_workspace.file_tools import (
     admin_tool_list_files,
     admin_tool_rename_file,
 )
-from teaparty_app.services.admin_workspace.job_tools import (
-    admin_tool_add_job,
-    admin_tool_archive_job,
-    admin_tool_clear_job_messages,
-    admin_tool_list_jobs,
-    admin_tool_remove_job,
-    admin_tool_unarchive_job,
-)
 from teaparty_app.services.admin_workspace.task_tools import (
     admin_tool_accept_task,
     admin_tool_complete_task,
@@ -95,40 +79,6 @@ from teaparty_app.services.admin_workspace.task_tools import (
 logger = logging.getLogger(__name__)
 
 _ADMIN_TOOLS = [
-    {
-        "name": ADMIN_TOOL_ADD_JOB,
-        "description": "Add a new job conversation in the current workgroup with optional description.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_name": {"type": "string", "description": "Name of the new job"},
-                "description": {"type": "string", "description": "Optional job description", "default": ""},
-            },
-            "required": ["job_name"],
-        },
-    },
-    {
-        "name": ADMIN_TOOL_ARCHIVE_JOB,
-        "description": "Archive a job conversation by job name or job conversation id.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_selector": {"type": "string", "description": "Job name or id to archive"},
-            },
-            "required": ["job_selector"],
-        },
-    },
-    {
-        "name": ADMIN_TOOL_UNARCHIVE_JOB,
-        "description": "Unarchive a job conversation by job name or job conversation id.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_selector": {"type": "string", "description": "Job name or id to unarchive"},
-            },
-            "required": ["job_selector"],
-        },
-    },
     {
         "name": ADMIN_TOOL_ADD_AGENT,
         "description": "Create a new AI agent in the workgroup (owner-only). Supports prompt and model.",
@@ -202,16 +152,6 @@ _ADMIN_TOOLS = [
         },
     },
     {
-        "name": ADMIN_TOOL_LIST_JOBS,
-        "description": "List job conversations by status: open, archived, or both.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "status": {"type": "string", "description": "Filter: open, archived, or both", "default": "open"},
-            },
-        },
-    },
-    {
         "name": ADMIN_TOOL_LIST_MEMBERS,
         "description": "List workgroup members, including human users and agents.",
         "input_schema": {
@@ -225,28 +165,6 @@ _ADMIN_TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {},
-        },
-    },
-    {
-        "name": ADMIN_TOOL_REMOVE_JOB,
-        "description": "Permanently remove a job conversation by job name or id (owner-only action).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_selector": {"type": "string", "description": "Job name or id to remove"},
-            },
-            "required": ["job_selector"],
-        },
-    },
-    {
-        "name": ADMIN_TOOL_CLEAR_JOB_MESSAGES,
-        "description": "Delete all messages in a job conversation by job name or id (owner-only action).",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "job_selector": {"type": "string", "description": "Job name or id"},
-            },
-            "required": ["job_selector"],
         },
     },
     {
@@ -392,31 +310,6 @@ _GLOBAL_ADMIN_TOOLS = [
             "type": "object",
             "properties": {
                 "workgroup_name": {"type": "string", "description": "Workgroup name"},
-            },
-            "required": ["workgroup_name"],
-        },
-    },
-    {
-        "name": GLOBAL_TOOL_ADD_JOB,
-        "description": "Add a job conversation to any workgroup by workgroup name.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "workgroup_name": {"type": "string", "description": "Target workgroup name"},
-                "job_name": {"type": "string", "description": "Name of the new job"},
-                "description": {"type": "string", "description": "Job description", "default": ""},
-            },
-            "required": ["workgroup_name", "job_name"],
-        },
-    },
-    {
-        "name": GLOBAL_TOOL_LIST_JOBS,
-        "description": "List jobs in a workgroup by workgroup name.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "workgroup_name": {"type": "string", "description": "Workgroup name"},
-                "status": {"type": "string", "description": "Filter: open, archived, or both", "default": "open"},
             },
             "required": ["workgroup_name"],
         },
@@ -698,14 +591,12 @@ def _dispatch_global_tool(
     from teaparty_app.services.admin_workspace.global_tools import (
         global_add_agent,
         global_add_file,
-        global_add_job,
         global_create_organization,
         global_create_workgroup,
         global_list_agents,
         global_list_available_tools,
         global_list_organizations,
         global_list_templates,
-        global_list_jobs,
         global_list_workgroups,
         global_update_agent,
         edit_workgroup,
@@ -732,8 +623,6 @@ def _dispatch_global_tool(
         GLOBAL_TOOL_LIST_WORKGROUPS: global_list_workgroups,
         GLOBAL_TOOL_ADD_AGENT: global_add_agent,
         GLOBAL_TOOL_LIST_AGENTS: global_list_agents,
-        GLOBAL_TOOL_ADD_JOB: global_add_job,
-        GLOBAL_TOOL_LIST_JOBS: global_list_jobs,
         GLOBAL_TOOL_ADD_FILE: global_add_file,
         GLOBAL_TOOL_LIST_TEMPLATES: global_list_templates,
         GLOBAL_TOOL_LIST_AVAILABLE_TOOLS: global_list_available_tools,
@@ -767,12 +656,6 @@ def _dispatch_admin_tool(
     tool_name: str,
     tool_input: dict,
 ) -> str:
-    if tool_name == ADMIN_TOOL_ADD_JOB:
-        return admin_tool_add_job(session, workgroup_id, requester_user_id, tool_input["job_name"], tool_input.get("description", ""))
-    if tool_name == ADMIN_TOOL_ARCHIVE_JOB:
-        return admin_tool_archive_job(session, workgroup_id, requester_user_id, tool_input["job_selector"])
-    if tool_name == ADMIN_TOOL_UNARCHIVE_JOB:
-        return admin_tool_unarchive_job(session, workgroup_id, requester_user_id, tool_input["job_selector"])
     if tool_name == ADMIN_TOOL_ADD_AGENT:
         return admin_tool_add_agent(
             session, workgroup_id, requester_user_id,
@@ -791,16 +674,10 @@ def _dispatch_admin_tool(
         return admin_tool_rename_file(session, workgroup_id, requester_user_id, tool_input["source_path"], tool_input["destination_path"])
     if tool_name == ADMIN_TOOL_DELETE_FILE:
         return admin_tool_delete_file(session, workgroup_id, requester_user_id, tool_input["path"])
-    if tool_name == ADMIN_TOOL_LIST_JOBS:
-        return admin_tool_list_jobs(session, workgroup_id, status=tool_input.get("status", "open"))
     if tool_name == ADMIN_TOOL_LIST_MEMBERS:
         return admin_tool_list_members(session, workgroup_id)
     if tool_name == ADMIN_TOOL_LIST_FILES:
         return admin_tool_list_files(session, workgroup_id)
-    if tool_name == ADMIN_TOOL_REMOVE_JOB:
-        return admin_tool_remove_job(session, workgroup_id, requester_user_id, tool_input["job_selector"])
-    if tool_name == ADMIN_TOOL_CLEAR_JOB_MESSAGES:
-        return admin_tool_clear_job_messages(session, workgroup_id, requester_user_id, tool_input["job_selector"])
     if tool_name == ADMIN_TOOL_REMOVE_MEMBER:
         return admin_tool_remove_member(session, workgroup_id, requester_user_id, tool_input["member_selector"])
     if tool_name == ADMIN_TOOL_DELETE_WORKGROUP:
@@ -901,12 +778,11 @@ def _handle_admin_message_with_sdk(
     system_instructions = (
         "You are the administration agent for a workgroup chat application. "
         "Use tools for every state-changing request. "
-        "If the user asks to add/archive/unarchive/clear/remove job, add user, add agent, remove member, "
-        "add/edit/rename/delete file, list jobs, list members, list files, or delete workgroup, "
+        "If the user asks to add user, add agent, remove member, "
+        "add/edit/rename/delete file, list members, list files, or delete workgroup, "
         "call the matching tool. "
-        "When extracting names for tools (job_name, agent_name, etc.), pass only the actual name — "
+        "When extracting names for tools (agent_name, etc.), pass only the actual name — "
         "strip any surrounding context like 'to this workgroup' or 'in this group'. "
-        "When adding jobs, include the description argument when the user provides one. "
         "When creating agents, include explicit prompt/model when provided. "
         "For add_agent, pass only the agent's short name in agent_name; put profile text into prompt. "
         "The default model for new agents is sonnet. "
@@ -920,7 +796,7 @@ def _handle_admin_message_with_sdk(
     if is_global:
         system_instructions += (
             "\n\nYou are the global administration agent. You can manage organizations, create workgroups, "
-            "add agents/jobs/files to any workgroup, and apply templates. When creating a complex "
+            "add agents/files to any workgroup, and apply templates. When creating a complex "
             "structure (like a company), plan the steps then execute them one by one using tools. "
             "Use global_list_templates to see available templates before creating workgroups. "
             "When adding agents, choose appropriate tools from the available tools list. "
@@ -930,7 +806,7 @@ def _handle_admin_message_with_sdk(
     elif org_name:
         system_instructions += (
             f"\n\nYou are the organization administration agent for '{org_name}'. "
-            "You manage this organization's workgroups, agents, jobs, and files. "
+            "You manage this organization's workgroups, agents, and files. "
             "Use the global_* tools to create workgroups, add agents, and manage resources "
             "across workgroups within this organization. "
             "Use global_list_templates to see available templates before creating workgroups. "

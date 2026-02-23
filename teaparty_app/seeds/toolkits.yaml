@@ -39,21 +39,6 @@ tools:
     description: "Fetch and analyze web pages."
 
   # ── Workgroup management (local scope) ─────────────────────────────
-  - name: add_job
-    type: admin
-    description: "Add a new job conversation in the current workgroup."
-  - name: archive_job
-    type: admin
-    description: "Archive a job conversation by name or id."
-  - name: unarchive_job
-    type: admin
-    description: "Unarchive a job conversation by name or id."
-  - name: remove_job
-    type: admin
-    description: "Permanently remove a job conversation."
-  - name: clear_job_messages
-    type: admin
-    description: "Delete all messages in a job conversation."
   - name: add_agent
     type: admin
     description: "Create a new AI agent in the workgroup."
@@ -75,9 +60,6 @@ tools:
   - name: delete_file
     type: admin
     description: "Delete a workgroup file."
-  - name: list_jobs
-    type: admin
-    description: "List job conversations by status."
   - name: list_members
     type: admin
     description: "List workgroup members, including users and agents."
@@ -137,12 +119,6 @@ tools:
   - name: remove_tool_from_agent
     type: admin
     description: "Remove tools from an agent's tool list."
-  - name: global_add_job
-    type: admin
-    description: "Add a job conversation to any workgroup by workgroup name."
-  - name: global_list_jobs
-    type: admin
-    description: "List jobs in a workgroup by workgroup name."
   - name: global_add_file
     type: admin
     description: "Add a file to any workgroup by workgroup name."
@@ -217,16 +193,9 @@ toolsets:
       - remove_agent_from_workgroup
       - add_tool_to_agent
       - remove_tool_from_agent
-      - global_add_job
-      - global_list_jobs
       - global_add_file
       - global_list_templates
       - global_list_available_tools
-      - add_job
-      - archive_job
-      - unarchive_job
-      - remove_job
-      - clear_job_messages
       - add_agent
       - add_user
       - remove_member
@@ -234,7 +203,6 @@ toolsets:
       - edit_file
       - rename_file
       - delete_file
-      - list_jobs
       - list_members
       - list_files
       - delete_workgroup

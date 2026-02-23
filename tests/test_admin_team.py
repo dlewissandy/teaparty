@@ -19,9 +19,7 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     ADMIN_AGENT_SENTINEL,
     ADMIN_TEAM_NAMES,
     ADMIN_TOOL_ADD_AGENT,
-    ADMIN_TOOL_ADD_JOB,
     ADMIN_TOOL_LIST_FILES,
-    ADMIN_TOOL_LIST_JOBS,
     ADMIN_TOOL_LIST_MEMBERS,
     ADMIN_TOOL_NAMES,
     GLOBAL_TOOL_NAMES,
@@ -254,7 +252,7 @@ class AdminTeamDetectionTests(unittest.TestCase):
     def test_is_admin_agent_by_sentinel(self):
         agent = Agent(
             created_by_user_id="u-1", name="workgroup-admin",
-            description=ADMIN_AGENT_SENTINEL, tools=["add_job"],
+            description=ADMIN_AGENT_SENTINEL, tools=["add_agent"],
         )
         self.assertTrue(is_admin_agent(agent))
 
@@ -262,7 +260,7 @@ class AdminTeamDetectionTests(unittest.TestCase):
         agent = Agent(
             created_by_user_id="u-1", name="administration-lead",
             description="Administration lead",
-            tools=["list_jobs", "list_members", "list_files", "list_tasks"],
+            tools=["list_members", "list_files", "list_tasks"],
         )
         self.assertTrue(is_admin_agent(agent))
 
@@ -309,16 +307,16 @@ class AdminTeamRoutingTests(unittest.TestCase):
             wg = _make_workgroup(session, user, org=org, name="Administration")
             session.flush()
 
-            # workgroup-admin can list jobs but NOT list members (if restricted)
+            # workgroup-admin can list files but NOT list members (if restricted)
             result = _handle_admin_message_deterministic(
-                session, wg.id, user.id, "list jobs",
-                allowed_tools={"add_job", "list_jobs", "list_files"},
+                session, wg.id, user.id, "list files",
+                allowed_tools={"add_agent", "list_files"},
             )
             self.assertIsNotNone(result)
 
             result = _handle_admin_message_deterministic(
                 session, wg.id, user.id, "list members",
-                allowed_tools={"add_job", "list_jobs", "list_files"},
+                allowed_tools={"add_agent", "list_files"},
             )
             self.assertIsNone(result)
 
@@ -333,7 +331,7 @@ class AdminTeamRoutingTests(unittest.TestCase):
 
             # No filter: all commands work
             result = _handle_admin_message_deterministic(
-                session, wg.id, user.id, "list jobs",
+                session, wg.id, user.id, "list files",
                 allowed_tools=None,
             )
             self.assertIsNotNone(result)

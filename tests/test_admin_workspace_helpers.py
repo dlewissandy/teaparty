@@ -3,10 +3,7 @@ import unittest
 from teaparty_app.services.admin_workspace import (
     _is_confirmed_word,
     _normalize_file_content,
-    _normalize_list_jobs_status,
-    _normalize_job_selector,
     _parse_add_agent_payload,
-    _parse_add_job_payload,
     _parse_file_payload,
     _parse_temperature,
     direct_conversation_key,
@@ -18,13 +15,6 @@ class AdminWorkspaceHelperTests(unittest.TestCase):
     def test_direct_conversation_keys(self) -> None:
         self.assertEqual(direct_conversation_key("user-b", "user-a"), "dm:user-a:user-b")
         self.assertEqual(direct_conversation_key_user_agent("user-1", "agent-9"), "dma:user-1:agent-9")
-
-    def test_normalize_list_jobs_status(self) -> None:
-        self.assertEqual(_normalize_list_jobs_status(None), ("open", None))
-        self.assertEqual(_normalize_list_jobs_status("all"), ("both", None))
-        status_value, error = _normalize_list_jobs_status("invalid")
-        self.assertIsNone(status_value)
-        self.assertEqual(error, "Status must be one of: open, archived, both.")
 
     def test_parse_add_agent_payload_with_explicit_options(self) -> None:
         name, parsed = _parse_add_agent_payload(
@@ -50,10 +40,6 @@ class AdminWorkspaceHelperTests(unittest.TestCase):
         self.assertEqual(_parse_temperature("oops"), (0.7, "Temperature must be a number between 0.0 and 2.0."))
         self.assertEqual(_parse_temperature(3.0), (0.7, "Temperature must be between 0.0 and 2.0."))
 
-    def test_parse_add_job_payload(self) -> None:
-        self.assertEqual(_parse_add_job_payload('Roadmap description="Q2 priorities"'), ("Roadmap", "Q2 priorities"))
-        self.assertEqual(_parse_add_job_payload("Backlog"), ("Backlog", ""))
-
     def test_file_content_and_file_payload_parsing(self) -> None:
         content, error = _normalize_file_content(123)  # type: ignore[arg-type]
         self.assertEqual(content, "123")
@@ -73,9 +59,7 @@ class AdminWorkspaceHelperTests(unittest.TestCase):
         self.assertEqual(empty_content, "")
         self.assertFalse(has_content_flag)
 
-    def test_job_selector_and_confirmation_words(self) -> None:
-        self.assertEqual(_normalize_job_selector("#general"), "general")
-        self.assertEqual(_normalize_job_selector('"#team-planning"'), "team-planning")
+    def test_confirmation_words(self) -> None:
         self.assertTrue(_is_confirmed_word("YES"))
         self.assertTrue(_is_confirmed_word("confirm"))
         self.assertFalse(_is_confirmed_word("no"))
