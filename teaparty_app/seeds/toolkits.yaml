@@ -70,23 +70,23 @@ tools:
     type: admin
     description: "Delete the current workgroup and all its data."
 
-  # ── Global workgroup management ────────────────────────────────────
-  - name: global_create_workgroup
+  # ── Cross-workgroup management ────────────────────────────────────
+  - name: create_workgroup
     type: admin
     description: "Create a new workgroup, optionally from a template and in an organization."
-  - name: global_list_workgroups
+  - name: list_workgroups
     type: admin
     description: "List workgroups, optionally filtered by organization."
   - name: edit_workgroup
     type: admin
     description: "Update workgroup name, service description, or discoverability."
-  - name: global_add_agent
+  - name: create_agent
     type: admin
     description: "Add an AI agent to any workgroup by workgroup name."
-  - name: global_list_agents
+  - name: list_agents
     type: admin
     description: "List agents in a workgroup by workgroup name."
-  - name: global_update_agent
+  - name: update_agent
     type: admin
     description: "Update an existing agent's settings in any workgroup."
   - name: find_agent
@@ -107,21 +107,21 @@ tools:
   - name: remove_tool_from_agent
     type: admin
     description: "Remove tools from an agent's tool list."
-  - name: global_add_file
+  - name: create_file
     type: admin
     description: "Add a file to any workgroup by workgroup name."
-  - name: global_list_templates
+  - name: list_templates
     type: admin
     description: "List available workgroup templates."
-  - name: global_list_available_tools
+  - name: list_available_tools
     type: admin
     description: "List all available tools that can be assigned to agents."
 
   # ── Organization management ────────────────────────────────────────
-  - name: global_create_organization
+  - name: create_organization
     type: admin
     description: "Create a new organization to group workgroups together."
-  - name: global_list_organizations
+  - name: list_organizations
     type: admin
     description: "List all organizations owned by the current user."
   - name: find_organization
@@ -167,39 +167,37 @@ toolsets:
 
   # ── Workgroup management ───────────────────────────────────────────
   - name: Workgroup admin
-    description: "Manage workgroups, agents, jobs, files, and members."
+    description: "Manage workgroups configuration and workgroup's agents."
     tools:
-      - global_create_workgroup
-      - global_list_workgroups
+      - create_workgroup
+      - list_workgroups
       - edit_workgroup
-      - global_add_agent
-      - global_list_agents
-      - global_update_agent
+      - create_agent
+      - list_agents
+      - update_agent
       - find_agent
       - delete_agent
       - add_agent_to_workgroup
       - remove_agent_from_workgroup
       - add_tool_to_agent
       - remove_tool_from_agent
-      - global_add_file
-      - global_list_templates
-      - global_list_available_tools
+      - create_file
+      - list_templates
+      - list_available_tools
       - add_agent
       - add_user
-      - remove_member
       - add_file
       - edit_file
       - rename_file
       - delete_file
-      - list_members
       - list_files
       - delete_workgroup
 
   - name: Organization admin
     description: "Create and manage organizations."
     tools:
-      - global_create_organization
-      - global_list_organizations
+      - create_organization
+      - list_organizations
       - find_organization
 
   - name: Partnership admin

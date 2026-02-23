@@ -60,7 +60,7 @@ def _resolve_workgroup_by_name(
     ).first()
 
 
-def global_create_organization(
+def create_organization(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     name = (tool_input.get("name") or "").strip()
@@ -83,7 +83,7 @@ def global_create_organization(
     return f"Created organization '{org.name}' (id={org.id})."
 
 
-def global_list_organizations(
+def list_organizations(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     orgs = session.exec(
@@ -93,7 +93,7 @@ def global_list_organizations(
     ).all()
 
     if not orgs:
-        return "No organizations found. Use global_create_organization to create one."
+        return "No organizations found. Use create_organization to create one."
 
     lines = [f"Organizations (count={len(orgs)}):"]
     for org in orgs:
@@ -102,7 +102,7 @@ def global_list_organizations(
     return "\n".join(lines)
 
 
-def global_create_workgroup(
+def create_workgroup(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     from teaparty_app.routers.workgroups import (
@@ -121,7 +121,7 @@ def global_create_workgroup(
 
     org = _resolve_organization_by_name(session, requester_user_id, organization_name)
     if not org:
-        return f"Organization '{organization_name}' not found. Create it first with global_create_organization."
+        return f"Organization '{organization_name}' not found. Create it first with create_organization."
     organization_id = org.id
 
     # Check for existing workgroup with same name
@@ -153,7 +153,7 @@ def global_create_workgroup(
     return f"Created workgroup '{group.name}' (id={group.id}){template_note}{org_note}."
 
 
-def global_list_workgroups(
+def list_workgroups(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     organization_name = (tool_input.get("organization_name") or "").strip()
@@ -195,7 +195,7 @@ def global_list_workgroups(
     return "\n".join(lines)
 
 
-def global_add_agent(
+def create_agent(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
@@ -250,7 +250,7 @@ def global_add_agent(
     )
 
 
-def global_list_agents(
+def list_agents(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
@@ -284,7 +284,7 @@ def global_list_agents(
     return "\n".join(lines)
 
 
-def global_add_file(
+def create_file(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     from teaparty_app.services.admin_workspace.file_tools import admin_tool_add_file
@@ -313,7 +313,7 @@ def global_add_file(
     return f"[{workgroup.name}] {result}"
 
 
-def global_list_templates(
+def list_templates(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     templates = list_workgroup_templates()
@@ -333,7 +333,7 @@ def global_list_templates(
     return "\n".join(lines)
 
 
-def global_list_available_tools(
+def list_available_tools(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()
@@ -352,7 +352,7 @@ def global_list_available_tools(
     return "\n".join(lines)
 
 
-def global_update_agent(
+def update_agent(
     session: Session, requester_user_id: str, tool_input: dict
 ) -> str:
     workgroup_name = (tool_input.get("workgroup_name") or "").strip()

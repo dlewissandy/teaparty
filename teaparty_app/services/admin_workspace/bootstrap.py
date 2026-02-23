@@ -67,16 +67,16 @@ ADMIN_TEAM_NAMES = frozenset({
     "partner-admin", "workflow-admin",
 })
 
-GLOBAL_TOOL_CREATE_ORGANIZATION = "global_create_organization"
-GLOBAL_TOOL_LIST_ORGANIZATIONS = "global_list_organizations"
-GLOBAL_TOOL_CREATE_WORKGROUP = "global_create_workgroup"
-GLOBAL_TOOL_LIST_WORKGROUPS = "global_list_workgroups"
-GLOBAL_TOOL_ADD_AGENT = "global_add_agent"
-GLOBAL_TOOL_LIST_AGENTS = "global_list_agents"
-GLOBAL_TOOL_ADD_FILE = "global_add_file"
-GLOBAL_TOOL_LIST_TEMPLATES = "global_list_templates"
-GLOBAL_TOOL_LIST_AVAILABLE_TOOLS = "global_list_available_tools"
-GLOBAL_TOOL_UPDATE_AGENT = "global_update_agent"
+GLOBAL_TOOL_CREATE_ORGANIZATION = "create_organization"
+GLOBAL_TOOL_LIST_ORGANIZATIONS = "list_organizations"
+GLOBAL_TOOL_CREATE_WORKGROUP = "create_workgroup"
+GLOBAL_TOOL_LIST_WORKGROUPS = "list_workgroups"
+GLOBAL_TOOL_ADD_AGENT = "create_agent"
+GLOBAL_TOOL_LIST_AGENTS = "list_agents"
+GLOBAL_TOOL_ADD_FILE = "create_file"
+GLOBAL_TOOL_LIST_TEMPLATES = "list_templates"
+GLOBAL_TOOL_LIST_AVAILABLE_TOOLS = "list_available_tools"
+GLOBAL_TOOL_UPDATE_AGENT = "update_agent"
 
 # CRUD tools (clean names, no global_ prefix)
 GLOBAL_TOOL_EDIT_WORKGROUP = "edit_workgroup"

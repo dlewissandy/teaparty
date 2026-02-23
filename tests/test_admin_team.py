@@ -231,15 +231,17 @@ class AdminTeamToolAssignmentTests(unittest.TestCase):
                     f"Tool mismatch for {agent_spec['name']}",
                 )
 
-    def test_lead_has_only_read_tools(self):
-        """The lead agent should only have read/list tools, not write tools."""
+    def test_lead_has_only_triage_tools(self):
+        """The lead agent should only have read/list/delegation tools, not write tools."""
+        allowed_prefixes = ("list_",)
+        allowed_names = {"Task"}
         specs = load_org_defaults()
         admin_spec = next(s for s in specs if s["name"] == "Administration")
         lead_spec = next(a for a in admin_spec["agents"] if a.get("is_lead"))
         for tool in lead_spec["tools"]:
             self.assertTrue(
-                tool.startswith("list_"),
-                f"Lead tool '{tool}' is not a list/read tool",
+                tool in allowed_names or any(tool.startswith(p) for p in allowed_prefixes),
+                f"Lead tool '{tool}' is not a triage tool",
             )
 
 

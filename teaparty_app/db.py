@@ -82,6 +82,7 @@ def init_db() -> None:
     _migrate_admin_agent_team()
     _cleanup_duplicate_lead_agents()
     _migrate_strip_job_tools()
+    _migrate_rename_global_tools()
     _run_seeds()
 
 
@@ -1825,6 +1826,50 @@ def _migrate_strip_job_tools() -> None:
                 conn.execute(
                     text("UPDATE agents SET tools = :tools WHERE id = :id"),
                     {"tools": _json.dumps(cleaned), "id": row[0]},
+                )
+
+
+def _migrate_rename_global_tools() -> None:
+    """Rename global_* admin tools to clean names in all agents."""
+    import json as _json
+
+    if not settings.database_url.startswith("sqlite"):
+        return
+
+    cols = _sqlite_column_names("agents")
+    if "tools" not in cols:
+        return
+
+    rename_map = {
+        "global_create_organization": "create_organization",
+        "global_list_organizations": "list_organizations",
+        "global_create_workgroup": "create_workgroup",
+        "global_list_workgroups": "list_workgroups",
+        "global_add_agent": "create_agent",
+        "global_list_agents": "list_agents",
+        "global_add_file": "create_file",
+        "global_list_templates": "list_templates",
+        "global_list_available_tools": "list_available_tools",
+        "global_update_agent": "update_agent",
+    }
+
+    with engine.begin() as conn:
+        rows = conn.execute(text("SELECT id, tools FROM agents")).fetchall()
+        for row in rows:
+            raw = row[1]
+            if not raw:
+                continue
+            try:
+                names = _json.loads(raw) if isinstance(raw, str) else raw
+            except (ValueError, TypeError):
+                continue
+            if not isinstance(names, list):
+                continue
+            renamed = [rename_map.get(n, n) for n in names]
+            if renamed != names:
+                conn.execute(
+                    text("UPDATE agents SET tools = :tools WHERE id = :id"),
+                    {"tools": _json.dumps(renamed), "id": row[0]},
                 )
 
 

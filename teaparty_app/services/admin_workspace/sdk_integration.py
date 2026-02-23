@@ -209,7 +209,7 @@ _GLOBAL_ADMIN_TOOLS = [
             "properties": {
                 "workgroup_name": {"type": "string", "description": "Name for the new workgroup"},
                 "organization_name": {"type": "string", "description": "Organization to add it to (optional)", "default": ""},
-                "template_key": {"type": "string", "description": "Template key to use (optional, use global_list_templates to see available)", "default": ""},
+                "template_key": {"type": "string", "description": "Template key to use (optional, use list_templates to see available)", "default": ""},
             },
             "required": ["workgroup_name"],
         },
@@ -238,7 +238,7 @@ _GLOBAL_ADMIN_TOOLS = [
                 "tools": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "List of tool names to assign (use global_list_available_tools to see options)",
+                    "description": "List of tool names to assign (use list_available_tools to see options)",
                     "default": [],
                 },
             },
@@ -531,16 +531,16 @@ def _dispatch_global_tool(
     tool_input: dict,
 ) -> str:
     from teaparty_app.services.admin_workspace.global_tools import (
-        global_add_agent,
-        global_add_file,
-        global_create_organization,
-        global_create_workgroup,
-        global_list_agents,
-        global_list_available_tools,
-        global_list_organizations,
-        global_list_templates,
-        global_list_workgroups,
-        global_update_agent,
+        create_agent,
+        create_file,
+        create_organization,
+        create_workgroup,
+        list_agents,
+        list_available_tools,
+        list_organizations,
+        list_templates,
+        list_workgroups,
+        update_agent,
         edit_workgroup,
         add_agent_to_workgroup,
         remove_agent_from_workgroup,
@@ -559,16 +559,16 @@ def _dispatch_global_tool(
     )
 
     dispatch = {
-        GLOBAL_TOOL_CREATE_ORGANIZATION: global_create_organization,
-        GLOBAL_TOOL_LIST_ORGANIZATIONS: global_list_organizations,
-        GLOBAL_TOOL_CREATE_WORKGROUP: global_create_workgroup,
-        GLOBAL_TOOL_LIST_WORKGROUPS: global_list_workgroups,
-        GLOBAL_TOOL_ADD_AGENT: global_add_agent,
-        GLOBAL_TOOL_LIST_AGENTS: global_list_agents,
-        GLOBAL_TOOL_ADD_FILE: global_add_file,
-        GLOBAL_TOOL_LIST_TEMPLATES: global_list_templates,
-        GLOBAL_TOOL_LIST_AVAILABLE_TOOLS: global_list_available_tools,
-        GLOBAL_TOOL_UPDATE_AGENT: global_update_agent,
+        GLOBAL_TOOL_CREATE_ORGANIZATION: create_organization,
+        GLOBAL_TOOL_LIST_ORGANIZATIONS: list_organizations,
+        GLOBAL_TOOL_CREATE_WORKGROUP: create_workgroup,
+        GLOBAL_TOOL_LIST_WORKGROUPS: list_workgroups,
+        GLOBAL_TOOL_ADD_AGENT: create_agent,
+        GLOBAL_TOOL_LIST_AGENTS: list_agents,
+        GLOBAL_TOOL_ADD_FILE: create_file,
+        GLOBAL_TOOL_LIST_TEMPLATES: list_templates,
+        GLOBAL_TOOL_LIST_AVAILABLE_TOOLS: list_available_tools,
+        GLOBAL_TOOL_UPDATE_AGENT: update_agent,
         GLOBAL_TOOL_EDIT_WORKGROUP: edit_workgroup,
         GLOBAL_TOOL_ADD_AGENT_TO_WORKGROUP: add_agent_to_workgroup,
         GLOBAL_TOOL_REMOVE_AGENT_FROM_WORKGROUP: remove_agent_from_workgroup,
@@ -732,20 +732,20 @@ def _handle_admin_message_with_sdk(
             "\n\nYou are the global administration agent. You can manage organizations, create workgroups, "
             "add agents/files to any workgroup, and apply templates. When creating a complex "
             "structure (like a company), plan the steps then execute them one by one using tools. "
-            "Use global_list_templates to see available templates before creating workgroups. "
+            "Use list_templates to see available templates before creating workgroups. "
             "When adding agents, choose appropriate tools from the available tools list. "
-            "For cross-workgroup operations, use the global_* tools (they take workgroup_name). "
-            "For operations on the current Administration workgroup itself, use the non-global tools."
+            "For cross-workgroup operations, use the organization-level tools (they take workgroup_name). "
+            "For operations on the current Administration workgroup itself, use the local tools."
         )
     elif org_name:
         system_instructions += (
             f"\n\nYou are the organization administration agent for '{org_name}'. "
             "You manage this organization's workgroups, agents, and files. "
-            "Use the global_* tools to create workgroups, add agents, and manage resources "
+            "Use the organization-level tools to create workgroups, add agents, and manage resources "
             "across workgroups within this organization. "
-            "Use global_list_templates to see available templates before creating workgroups. "
+            "Use list_templates to see available templates before creating workgroups. "
             "When adding agents, choose appropriate tools from the available tools list. "
-            "For operations on this Administration workgroup itself, use the non-global tools."
+            "For operations on this Administration workgroup itself, use the local tools."
         )
 
     # Filter tools by the responding agent's tool set.

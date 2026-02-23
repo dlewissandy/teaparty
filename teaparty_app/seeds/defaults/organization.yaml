@@ -15,8 +15,7 @@ system_workgroups:
           agents within the admin team, and provide organizational oversight.
         model: haiku
         tools:
-          - list_members
-          - list_files
+          - Task
 
       - name: workgroup-admin
         description: "__system_admin_agent__"
@@ -34,26 +33,16 @@ system_workgroups:
           - add_user
           - remove_member
           - delete_workgroup
-          - list_members
           - list_files
           - list_tasks
-          - accept_task
-          - decline_task
-          - complete_task
-          - global_create_workgroup
-          - global_list_workgroups
-          - global_add_agent
-          - global_list_agents
-          - global_add_file
-          - global_list_templates
-          - global_list_available_tools
-          - global_update_agent
+          - create_workgroup
+          - list_workgroups
+          - create_file
+          - update_agent
           - edit_workgroup
           - add_agent_to_workgroup
           - remove_agent_from_workgroup
           - find_agent
-          - delete_agent
-          - add_tool_to_agent
           - remove_tool_from_agent
 
       - name: organization-admin
@@ -63,8 +52,8 @@ system_workgroups:
           creating, editing, and managing organizations.
         model: haiku
         tools:
-          - global_create_organization
-          - global_list_organizations
+          - create_organization
+          - list_organizations
           - find_organization
 
       - name: partner-admin
