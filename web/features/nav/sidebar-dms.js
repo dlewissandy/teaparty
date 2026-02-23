@@ -107,6 +107,14 @@ export function renderDMSection(store, container, orgId, filter) {
       try {
         await api(`/api/workgroups/${workgroupId}/conversations/${conversationId}`, { method: 'DELETE' });
         btn.closest('.sidebar-nav-item')?.remove();
+        if (store.get().nav.activeConversationId === conversationId) {
+          store.update(st => {
+            st.nav.activeConversationId = '';
+            st.nav.sidebarSelection = '';
+            st.conversation.messages = [];
+          });
+          store.notify('nav.activeConversationId');
+        }
       } catch (err) {
         flash(err.message || 'Failed to delete session', 'error');
       }

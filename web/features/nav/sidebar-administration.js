@@ -83,11 +83,24 @@ function _wireItemHandlers(container, store, adminWgId) {
       try {
         await api(`/api/workgroups/${workgroupId}/conversations/${conversationId}`, { method: 'DELETE' });
         btn.closest('.sidebar-nav-item')?.remove();
+        _clearIfActive(store, conversationId);
       } catch (err) {
         flash(err.message || 'Failed to delete session', 'error');
       }
     });
   });
+}
+
+function _clearIfActive(store, conversationId) {
+  const s = store.get();
+  if (s.nav.activeConversationId === conversationId) {
+    store.update(st => {
+      st.nav.activeConversationId = '';
+      st.nav.sidebarSelection = '';
+      st.conversation.messages = [];
+    });
+    store.notify('nav.activeConversationId');
+  }
 }
 
 // Insert a single new admin session into the sidebar without a full refresh.

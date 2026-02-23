@@ -364,13 +364,14 @@ export function startPolling() {
       try { await api('/api/agents/tick', { method: 'POST', retries: 0, timeout: 10000 }); }
       catch { /* tick failure must not block polling */ }
 
-      // Poll messages
-      if (s.nav.activeConversationId) {
+      // Poll messages (re-read store in case conversation was deleted during tick)
+      const convId = _store.get().nav.activeConversationId;
+      if (convId) {
         const existing = s.conversation.messages.filter(m => !m.id.startsWith('local-'));
         const sinceId = existing.length ? existing[existing.length - 1].id : '';
         const url = sinceId
-          ? `/api/conversations/${s.nav.activeConversationId}/messages?since_id=${encodeURIComponent(sinceId)}`
-          : `/api/conversations/${s.nav.activeConversationId}/messages`;
+          ? `/api/conversations/${convId}/messages?since_id=${encodeURIComponent(sinceId)}`
+          : `/api/conversations/${convId}/messages`;
 
         const newMsgs = await api(url, { retries: 0, timeout: 10000 });
         if (newMsgs.length) {
@@ -385,17 +386,17 @@ export function startPolling() {
         _usagePollCounter++;
         if (_usagePollCounter >= 8) {
           _usagePollCounter = 0;
-          loadConversationUsage(s.nav.activeConversationId);
+          loadConversationUsage(convId);
         }
 
         // Keep lastRead current
         const latestMsg = s.conversation.messages[s.conversation.messages.length - 1];
         if (latestMsg && latestMsg.sender_user_id !== s.auth.user?.id) {
           const prefs = s.auth.user?.preferences || {};
-          const curRead = prefs.conversationLastRead?.[s.nav.activeConversationId];
+          const curRead = prefs.conversationLastRead?.[convId];
           const msgTime = parseAsUTC(latestMsg.created_at);
           if (!curRead || msgTime > parseAsUTC(curRead)) {
-            const lastRead = { ...(prefs.conversationLastRead || {}), [s.nav.activeConversationId]: new Date().toISOString() };
+            const lastRead = { ...(prefs.conversationLastRead || {}), [convId]: new Date().toISOString() };
             savePreferences({ conversationLastRead: lastRead });
           }
         }
