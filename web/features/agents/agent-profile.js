@@ -33,6 +33,7 @@ function showAgentProfile() {
 
 /** SVG icons for card headers (matches the edit form). */
 const CARD_ICONS = {
+  description: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M10 3a7 7 0 100 14 7 7 0 000-14z" stroke="currentColor" stroke-width="1.3"/><path d="M10 9v4M10 7h.01" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   prompt: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M4 4h12a1 1 0 011 1v10a1 1 0 01-1 1H4a1 1 0 01-1-1V5a1 1 0 011-1z" stroke="currentColor" stroke-width="1.3"/><path d="M7 8h6M7 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>',
   config: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><circle cx="10" cy="10" r="2" fill="currentColor"/><path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.22 4.22l1.42 1.42M14.36 14.36l1.42 1.42M4.22 15.78l1.42-1.42M14.36 5.64l1.42-1.42" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>',
   tools: '<svg viewBox="0 0 20 20" fill="none" width="18" height="18"><path d="M4 16l3.5-3.5M13.5 3a2.5 2.5 0 010 5H11L8.5 5.5A2.5 2.5 0 0113.5 3z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 4l4 4-4.5 4.5a1.5 1.5 0 002 2L10 10l4 4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -299,16 +300,23 @@ function renderProfile(agent) {
 
   let html = '';
 
+  // Description
+  html += `
+    <div class="agent-profile-card">
+      ${cardHeader('Description', 'description')}
+      <div class="agent-profile-card-body">
+        <p class="agent-profile-text">${agent.description ? escapeHtml(agent.description) : '<span class="agent-profile-text--empty">No description</span>'}</p>
+      </div>
+    </div>`;
+
   // Prompt
-  if (agent.prompt) {
-    html += `
-      <div class="agent-profile-card">
-        ${cardHeader('Prompt', 'prompt')}
-        <div class="agent-profile-card-body">
-          <p class="agent-profile-text">${escapeHtml(agent.prompt)}</p>
-        </div>
-      </div>`;
-  }
+  html += `
+    <div class="agent-profile-card">
+      ${cardHeader('Prompt', 'prompt')}
+      <div class="agent-profile-card-body">
+        <p class="agent-profile-text">${agent.prompt ? escapeHtml(agent.prompt) : '<span class="agent-profile-text--empty">No prompt</span>'}</p>
+      </div>
+    </div>`;
 
   // Configuration
   const model = agent.model || 'sonnet';

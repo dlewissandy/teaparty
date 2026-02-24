@@ -252,7 +252,7 @@ class OrgMemberRead(BaseModel):
 class AgentCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     image: str = ""
-    description: str = ""
+    description: str = Field(min_length=1)
     prompt: str = ""
     model: str = "sonnet"
     tools: list[str] = Field(default_factory=list)

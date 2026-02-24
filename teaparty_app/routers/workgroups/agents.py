@@ -47,6 +47,8 @@ def create_agent(
     name = payload.name.strip()
     if not name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent name cannot be empty")
+    if not payload.description.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent description cannot be empty")
 
     workgroup = session.get(Workgroup, workgroup_id)
     if not workgroup:
@@ -119,7 +121,10 @@ def update_agent(
         agent.name = name
 
     if payload.description is not None:
-        agent.description = payload.description.strip()
+        desc = payload.description.strip()
+        if not desc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Agent description cannot be empty")
+        agent.description = desc
     if payload.prompt is not None:
         agent.prompt = payload.prompt.strip()
 

@@ -73,6 +73,8 @@ export function initSidebar(store) {
   document.getElementById('sidebar-info-btn')?.addEventListener('click', () => {
     const orgId = _store.get().nav.activeOrgId;
     if (orgId) {
+      _store.update(s => { s.nav.sidebarSelection = ''; });
+      _store.notify('nav.sidebarSelection');
       bus.emit('nav:org-settings', { orgId });
     }
   });
@@ -81,6 +83,8 @@ export function initSidebar(store) {
   document.getElementById('sidebar-config-btn')?.addEventListener('click', () => {
     const orgId = _store.get().nav.activeOrgId;
     if (orgId) {
+      _store.update(s => { s.nav.sidebarSelection = ''; });
+      _store.notify('nav.sidebarSelection');
       bus.emit('nav:org-config', { orgId });
     }
   });

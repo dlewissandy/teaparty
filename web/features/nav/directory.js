@@ -21,7 +21,11 @@ export function initDirectory(store) {
   _store = store;
 
   const btn = document.getElementById('sidebar-directory-btn');
-  if (btn) btn.addEventListener('click', () => showDirectoryView());
+  if (btn) btn.addEventListener('click', () => {
+    _store.update(s => { s.nav.sidebarSelection = ''; });
+    _store.notify('nav.sidebarSelection');
+    showDirectoryView();
+  });
 
   const input = document.getElementById('directory-input');
   if (input) input.addEventListener('input', () => renderResults(input.value.trim()));

@@ -1,0 +1,236 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
+  <defs>
+    <!-- Deep space background -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#050510"/>
+      <stop offset="100%" stop-color="#0a0a1e"/>
+    </linearGradient>
+
+    <!-- Glow filter for all bodies -->
+    <filter id="bodyGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Earth atmosphere glow -->
+    <filter id="earthAtmo" x="-80%" y="-80%" width="260%" height="260%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Pluto gradient: gray-pink icy surface -->
+    <radialGradient id="plutoGrad" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#ddd0c8"/>
+      <stop offset="50%" stop-color="#c4b5a0"/>
+      <stop offset="100%" stop-color="#9a8a78"/>
+    </radialGradient>
+
+    <!-- Moon gradient: gray with subtle crater shading -->
+    <radialGradient id="moonGrad" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#cccccc"/>
+      <stop offset="50%" stop-color="#aaaaaa"/>
+      <stop offset="100%" stop-color="#787878"/>
+    </radialGradient>
+
+    <!-- Mercury gradient: medium gray, slightly warmer -->
+    <radialGradient id="mercuryGrad" cx="38%" cy="35%" r="62%">
+      <stop offset="0%" stop-color="#c0c0c0"/>
+      <stop offset="50%" stop-color="#9d9d9d"/>
+      <stop offset="100%" stop-color="#6e6e6e"/>
+    </radialGradient>
+
+    <!-- Mars gradient: rust red -->
+    <radialGradient id="marsGrad" cx="38%" cy="35%" r="62%">
+      <stop offset="0%" stop-color="#e8603a"/>
+      <stop offset="50%" stop-color="#c1440e"/>
+      <stop offset="100%" stop-color="#7a2800"/>
+    </radialGradient>
+
+    <!-- Venus gradient: pale yellowish-white thick clouds -->
+    <radialGradient id="venusGrad" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#f5ecd0"/>
+      <stop offset="40%" stop-color="#e8d5a3"/>
+      <stop offset="80%" stop-color="#c8a860"/>
+      <stop offset="100%" stop-color="#a08040"/>
+    </radialGradient>
+
+    <!-- Earth gradient: blue ocean with green continent suggestion -->
+    <radialGradient id="earthGrad" cx="40%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#7dcfff"/>
+      <stop offset="30%" stop-color="#1e6eb5"/>
+      <stop offset="65%" stop-color="#1a5c9a"/>
+      <stop offset="100%" stop-color="#0d3d6a"/>
+    </radialGradient>
+
+    <!-- Earth continent overlay gradient -->
+    <radialGradient id="continentGrad" cx="55%" cy="45%" r="55%">
+      <stop offset="0%" stop-color="#3a9a3a" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#228b22" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#186018" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- Clip paths for each body -->
+    <clipPath id="earthClip"><circle cx="0" cy="0" r="50"/></clipPath>
+    <clipPath id="venusClip"><circle cx="0" cy="0" r="47"/></clipPath>
+    <clipPath id="marsClip"><circle cx="0" cy="0" r="27"/></clipPath>
+    <clipPath id="mercuryClip"><circle cx="0" cy="0" r="19"/></clipPath>
+    <clipPath id="moonClip"><circle cx="0" cy="0" r="14"/></clipPath>
+    <clipPath id="plutoClip"><circle cx="0" cy="0" r="6"/></clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="600" fill="url(#bgGrad)"/>
+
+  <!-- Star field -->
+  <g opacity="0.75">
+    <circle cx="30" cy="20" r="0.7" fill="#ffffff" opacity="0.8"/>
+    <circle cx="88" cy="45" r="0.5" fill="#cce0ff" opacity="0.6"/>
+    <circle cx="155" cy="18" r="1.0" fill="#ffffff" opacity="0.7"/>
+    <circle cx="220" cy="68" r="0.6" fill="#ffffff" opacity="0.5"/>
+    <circle cx="300" cy="30" r="0.8" fill="#cce0ff" opacity="0.7"/>
+    <circle cx="380" cy="15" r="1.1" fill="#ffffff" opacity="0.9"/>
+    <circle cx="450" cy="55" r="0.5" fill="#ffffff" opacity="0.6"/>
+    <circle cx="520" cy="22" r="0.8" fill="#cce0ff" opacity="0.7"/>
+    <circle cx="600" cy="42" r="1.0" fill="#ffffff" opacity="0.8"/>
+    <circle cx="680" cy="12" r="0.6" fill="#ffffff" opacity="0.5"/>
+    <circle cx="750" cy="70" r="0.9" fill="#cce0ff" opacity="0.7"/>
+    <circle cx="22" cy="100" r="0.5" fill="#ffffff" opacity="0.6"/>
+    <circle cx="770" cy="120" r="0.8" fill="#ffffff" opacity="0.7"/>
+    <circle cx="15" cy="200" r="0.7" fill="#cce0ff" opacity="0.5"/>
+    <circle cx="785" cy="280" r="0.6" fill="#ffffff" opacity="0.6"/>
+    <circle cx="10" cy="380" r="1.0" fill="#ffffff" opacity="0.7"/>
+    <circle cx="790" cy="450" r="0.8" fill="#cce0ff" opacity="0.6"/>
+    <circle cx="25" cy="520" r="0.5" fill="#ffffff" opacity="0.8"/>
+    <circle cx="760" cy="560" r="0.7" fill="#ffffff" opacity="0.5"/>
+    <circle cx="110" cy="560" r="0.9" fill="#cce0ff" opacity="0.6"/>
+    <circle cx="200" cy="575" r="0.5" fill="#ffffff" opacity="0.7"/>
+    <circle cx="350" cy="580" r="0.8" fill="#ffffff" opacity="0.6"/>
+    <circle cx="470" cy="565" r="0.6" fill="#cce0ff" opacity="0.5"/>
+    <circle cx="590" cy="575" r="1.0" fill="#ffffff" opacity="0.8"/>
+    <circle cx="680" cy="545" r="0.5" fill="#ffffff" opacity="0.6"/>
+    <circle cx="130" cy="120" r="0.6" fill="#ffffff" opacity="0.5"/>
+    <circle cx="640" cy="110" r="0.8" fill="#cce0ff" opacity="0.7"/>
+    <circle cx="420" cy="135" r="0.5" fill="#ffffff" opacity="0.6"/>
+  </g>
+
+  <!-- Faint baseline -->
+  <line x1="50" y1="430" x2="750" y2="430" stroke="rgba(150,160,200,0.18)" stroke-width="0.8" stroke-dasharray="3,6"/>
+
+  <!-- ===== BODY POSITIONS =====
+    Layout: spaced from left to right, baseline at y=430 (bottom of each body)
+    Pluto:   r=6,  center_y=424, center_x=80
+    Moon:    r=14, center_y=416, center_x=160
+    Mercury: r=19, center_y=411, center_x=255
+    Mars:    r=27, center_y=403, center_x=365
+    Venus:   r=47, center_y=383, center_x=510
+    Earth:   r=50, center_y=380, center_x=670
+  -->
+
+  <!-- ===== PLUTO ===== -->
+  <g transform="translate(80, 424)" filter="url(#bodyGlow)">
+    <circle cx="0" cy="0" r="6" fill="url(#plutoGrad)"/>
+    <!-- heart-like lighter patch — Tombaugh Regio hint -->
+    <ellipse cx="1" cy="1" rx="2.5" ry="2" fill="rgba(240,230,220,0.5)"/>
+  </g>
+  <!-- Pluto label -->
+  <text x="80" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Pluto*</text>
+  <text x="80" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">2,376 km</text>
+
+  <!-- ===== MOON ===== -->
+  <g transform="translate(160, 416)" filter="url(#bodyGlow)">
+    <circle cx="0" cy="0" r="14" fill="url(#moonGrad)"/>
+    <!-- Crater suggestions -->
+    <circle cx="-4" cy="-4" r="3" fill="none" stroke="rgba(80,80,80,0.4)" stroke-width="0.7"/>
+    <circle cx="5" cy="4" r="2" fill="none" stroke="rgba(80,80,80,0.35)" stroke-width="0.6"/>
+    <circle cx="-6" cy="6" r="1.5" fill="none" stroke="rgba(80,80,80,0.3)" stroke-width="0.5"/>
+  </g>
+  <text x="160" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Moon</text>
+  <text x="160" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">3,474 km</text>
+
+  <!-- ===== MERCURY ===== -->
+  <g transform="translate(255, 411)" filter="url(#bodyGlow)">
+    <circle cx="0" cy="0" r="19" fill="url(#mercuryGrad)"/>
+    <!-- Crater details -->
+    <circle cx="-6" cy="-6" r="4" fill="none" stroke="rgba(60,60,60,0.35)" stroke-width="0.8"/>
+    <circle cx="6" cy="5" r="3" fill="none" stroke="rgba(60,60,60,0.30)" stroke-width="0.7"/>
+    <circle cx="-8" cy="7" r="2" fill="none" stroke="rgba(60,60,60,0.25)" stroke-width="0.6"/>
+    <circle cx="3" cy="-10" r="2.5" fill="none" stroke="rgba(60,60,60,0.28)" stroke-width="0.6"/>
+  </g>
+  <text x="255" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Mercury</text>
+  <text x="255" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">4,879 km</text>
+
+  <!-- ===== MARS ===== -->
+  <g transform="translate(365, 403)" filter="url(#bodyGlow)">
+    <circle cx="0" cy="0" r="27" fill="url(#marsGrad)"/>
+    <!-- Polar ice cap hints -->
+    <ellipse cx="0" cy="-22" rx="8" ry="4" fill="rgba(240,230,220,0.45)"/>
+    <ellipse cx="0" cy="22" rx="5" ry="2.5" fill="rgba(220,210,200,0.25)"/>
+    <!-- Valles Marineris hint — dark streak -->
+    <line x1="-15" y1="2" x2="12" y2="4" stroke="rgba(80,30,10,0.5)" stroke-width="1.5"/>
+    <!-- Olympus Mons hint — dark circle -->
+    <circle cx="-8" cy="-4" r="4" fill="rgba(100,40,10,0.35)"/>
+  </g>
+  <text x="365" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Mars</text>
+  <text x="365" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">6,779 km</text>
+
+  <!-- ===== VENUS ===== -->
+  <g transform="translate(510, 383)" filter="url(#bodyGlow)">
+    <circle cx="0" cy="0" r="47" fill="url(#venusGrad)"/>
+    <!-- Cloud swirl patterns -->
+    <ellipse cx="-8" cy="-10" rx="20" ry="8" fill="none" stroke="rgba(200,180,120,0.25)" stroke-width="2" transform="rotate(-20)"/>
+    <ellipse cx="10" cy="8" rx="18" ry="6" fill="none" stroke="rgba(200,180,120,0.20)" stroke-width="1.5" transform="rotate(15)"/>
+    <ellipse cx="-5" cy="15" rx="22" ry="5" fill="none" stroke="rgba(200,180,120,0.18)" stroke-width="1.5" transform="rotate(-10)"/>
+  </g>
+  <text x="510" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Venus</text>
+  <text x="510" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">12,104 km</text>
+
+  <!-- ===== EARTH ===== -->
+  <g transform="translate(670, 380)" filter="url(#earthAtmo)">
+    <!-- Atmosphere outer glow -->
+    <circle cx="0" cy="0" r="56" fill="rgba(100,180,255,0.10)"/>
+    <circle cx="0" cy="0" r="53" fill="rgba(80,160,255,0.08)"/>
+    <!-- Earth base ocean -->
+    <circle cx="0" cy="0" r="50" fill="url(#earthGrad)"/>
+    <!-- Continent patches clipped to sphere -->
+    <g clip-path="url(#earthClip)">
+      <!-- Americas rough shape -->
+      <path d="M-15,-35 Q-5,-40 5,-30 Q12,-15 8,5 Q5,20 0,35 Q-8,40 -18,30 Q-22,15 -20,-5 Q-18,-20 -15,-35Z" fill="rgba(50,140,50,0.55)"/>
+      <!-- Europe/Africa rough shape -->
+      <path d="M10,-30 Q22,-25 26,-10 Q25,5 18,18 Q10,35 5,42 Q-2,38 0,20 Q2,8 6,-5 Q8,-18 10,-30Z" fill="rgba(45,130,45,0.50)"/>
+      <!-- Asia rough shape -->
+      <path d="M18,-38 Q35,-30 42,-12 Q40,5 30,10 Q18,8 12,-5 Q14,-22 18,-38Z" fill="rgba(48,138,48,0.48)"/>
+      <!-- Antarctica hint -->
+      <ellipse cx="0" cy="45" rx="18" ry="7" fill="rgba(240,250,255,0.5)"/>
+    </g>
+    <!-- Thin atmosphere haze -->
+    <circle cx="0" cy="0" r="51" fill="none" stroke="rgba(150,210,255,0.35)" stroke-width="2"/>
+  </g>
+  <text x="670" y="450" font-family="Arial" font-size="10.5" fill="#e0e0e0" text-anchor="middle" font-weight="bold">Earth</text>
+  <text x="670" y="463" font-family="Arial" font-size="9" fill="#aaaaaa" text-anchor="middle">12,742 km</text>
+
+  <!-- ===== SCALE BAR ===== -->
+  <g transform="translate(590, 510)">
+    <!-- Scale line representing 5,000 km -->
+    <line x1="0" y1="0" x2="78" y2="0" stroke="#e0e0e0" stroke-width="1.5"/>
+    <line x1="0" y1="-5" x2="0" y2="5" stroke="#e0e0e0" stroke-width="1.5"/>
+    <line x1="78" y1="-5" x2="78" y2="5" stroke="#e0e0e0" stroke-width="1.5"/>
+    <text x="39" y="-9" font-family="Arial" font-size="10" fill="#e0e0e0" text-anchor="middle">5,000 km</text>
+    <text x="39" y="18" font-family="Arial" font-size="8" fill="#aaaaaa" text-anchor="middle">(relative to Earth)</text>
+  </g>
+
+  <!-- Pluto asterisk note -->
+  <text x="80" y="530" font-family="Arial" font-size="8.5" fill="#888888" text-anchor="middle">* dwarf planet</text>
+
+  <!-- ===== TITLE ===== -->
+  <text x="400" y="35" font-family="Arial" font-size="19" font-weight="bold" fill="#ffffff" text-anchor="middle" letter-spacing="0.5">Inner Solar System: Size Comparison</text>
+  <line x1="120" y1="42" x2="680" y2="42" stroke="rgba(255,255,255,0.18)" stroke-width="0.6"/>
+
+  <!-- Subtitle / note -->
+  <text x="400" y="58" font-family="Arial" font-size="10.5" fill="#888888" text-anchor="middle">Bodies shown to scale relative to each other</text>
+</svg>

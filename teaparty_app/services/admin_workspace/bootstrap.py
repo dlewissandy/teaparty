@@ -160,7 +160,7 @@ def ensure_lead_agent(session: Session, workgroup: Workgroup) -> tuple[Agent, bo
         organization_id=workgroup.organization_id,
         created_by_user_id=workgroup.owner_id,
         name=lead_agent_name(workgroup.name),
-        description="",
+        description="Lead agent for this workgroup",
         prompt="",
         model="sonnet",
         tools=claude_tool_names(),
