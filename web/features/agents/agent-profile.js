@@ -10,6 +10,7 @@ import { flash } from '../../components/shared/flash.js';
 let _store = null;
 let _currentAgentId = '';
 let _currentWorkgroupId = '';
+let _lastWorkgroupIds = '';
 
 function _dismissPopover() {
   document.getElementById('ap-tool-popover')?.remove();
@@ -435,6 +436,7 @@ export function initAgentProfile(store) {
     if (profileView) profileView.classList.add('hidden');
     _currentAgentId = '';
     _currentWorkgroupId = '';
+    _lastWorkgroupIds = '';
   });
 
   bus.on('nav:home', () => {
@@ -443,6 +445,7 @@ export function initAgentProfile(store) {
     if (profileView) profileView.classList.add('hidden');
     _currentAgentId = '';
     _currentWorkgroupId = '';
+    _lastWorkgroupIds = '';
   });
 
   bus.on('nav:agent-selected', ({ agentId, workgroupId }) => {
@@ -451,6 +454,7 @@ export function initAgentProfile(store) {
 
     _currentAgentId = agentId;
     _currentWorkgroupId = workgroupId;
+    _lastWorkgroupIds = (agent.workgroup_ids || []).join(',');
 
     // Clear active conversation so store-driven view toggle doesn't fight us
     store.update(st => { st.nav.activeConversationId = ''; });
@@ -460,11 +464,14 @@ export function initAgentProfile(store) {
     showAgentProfile();
   });
 
-  // Re-render profile when underlying data changes (e.g. workgroup add/remove)
+  // Re-render profile only when the agent's workgroup memberships change.
   function refreshIfVisible() {
     if (!_currentAgentId) return;
     const agent = _findAgent(store, _currentAgentId, _currentWorkgroupId);
     if (!agent) return;
+    const wgIds = (agent.workgroup_ids || []).join(',');
+    if (wgIds === _lastWorkgroupIds) return;
+    _lastWorkgroupIds = wgIds;
     renderProfile(agent);
   }
   store.on('data.treeData', refreshIfVisible);
