@@ -20,11 +20,21 @@ export function renderAgentSection(store, container, orgId, filter, scopeWgId) {
   const selection = s.nav.sidebarSelection;
 
   const currentUserId = s.auth.user?.id;
-  const org = (s.data.organizations || []).find(o => o.id === orgId);
-  const isOwner = org?.owner_id === currentUserId;
+  let isOwner;
+  if (orgId) {
+    const org = (s.data.organizations || []).find(o => o.id === orgId);
+    isOwner = org?.owner_id === currentUserId;
+  } else if (scopeWgId) {
+    const wg = (s.data.workgroups || []).find(w => w.id === scopeWgId);
+    isOwner = wg?.owner_id === currentUserId;
+  } else {
+    isOwner = false;
+  }
 
   const agentMap = new Map();
   for (const wg of workgroups) {
+    // In org mode, skip the Administration workgroup (system-level concern)
+    if (orgId && wg.name === 'Administration') continue;
     const tree = s.data.treeData[wg.id];
     if (!tree) continue;
     for (const agent of (tree.agents || [])) {

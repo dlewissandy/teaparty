@@ -175,6 +175,8 @@ function renderSidebar(orgId, filter) {
       const el = document.getElementById(id);
       if (el) el.style.display = 'none';
     }
+    const engDividerInv = document.getElementById('sidebar-engagements-divider');
+    if (engDividerInv) engDividerInv.style.display = 'none';
     clearContainers();
     showInviteBanner(pendingInvite);
     if (settingsBtn) settingsBtn.style.display = 'none';
@@ -187,13 +189,10 @@ function renderSidebar(orgId, filter) {
   let visibleSections;
 
   if (isHome) {
-    visibleSections = ['sidebar-organizations'];
+    visibleSections = ['sidebar-organizations', 'sidebar-workgroups', 'sidebar-agents', 'sidebar-administration'];
   } else if (orgId) {
-    const org = orgs.find(o => o.id === orgId);
-    const isOrgOwner = org?.owner_id === s.auth.user?.id;
     visibleSections = [
       'sidebar-partners', 'sidebar-workgroups', 'sidebar-agents',
-      ...(isOrgOwner ? ['sidebar-administration'] : []),
       'sidebar-engagements', 'sidebar-projects', 'sidebar-members'];
   } else {
     clearContainers();
@@ -207,6 +206,10 @@ function renderSidebar(orgId, filter) {
     if (el) el.style.display = visibleSet.has(id) ? '' : 'none';
   }
 
+  // Engagements divider: only visible when engagements section is shown
+  const engDivider = document.getElementById('sidebar-engagements-divider');
+  if (engDivider) engDivider.style.display = visibleSet.has('sidebar-engagements') ? '' : 'none';
+
   if (isHome) {
     const orgContainer = document.getElementById('sidebar-organizations-list');
     const partnerContainer = document.getElementById('sidebar-partners-list');
@@ -215,6 +218,17 @@ function renderSidebar(orgId, filter) {
     if (orgContainer) renderOrganizations(_store, orgContainer, filter);
     if (partnerContainer) renderAllPartnerships(_store, partnerContainer, filter);
     if (engContainer) renderAllEngagements(_store, engContainer, filter);
+
+    // System-level workgroups (Administration)
+    const wgContainer = document.getElementById('sidebar-workgroups-list');
+    if (wgContainer) renderWorkgroupSections(_store, wgContainer, null, filter);
+
+    const systemWg = (s.data.workgroups || []).find(w => !w.organization_id && w.name === 'Administration');
+    const systemWgId = systemWg?.id;
+    const agentContainer = document.getElementById('sidebar-agents-list');
+    if (agentContainer) renderAgentSection(_store, agentContainer, null, filter, systemWgId);
+    const adminContainer = document.getElementById('sidebar-administration-list');
+    if (adminContainer) renderAdministrationSection(_store, adminContainer, null, filter);
     return;
   }
 
@@ -231,8 +245,6 @@ function renderSidebar(orgId, filter) {
   if (partnerContainer) renderPartnerSection(_store, partnerContainer, orgId, filter);
   if (engContainer) renderEngagementSection(_store, engContainer, orgId, filter);
   if (projContainer) renderProjectSection(_store, projContainer, orgId, filter);
-  const adminContainer = document.getElementById('sidebar-administration-list');
-  if (adminContainer) renderAdministrationSection(_store, adminContainer, orgId, filter);
   if (memberContainer) renderMemberSection(_store, memberContainer, orgId, filter);
 }
 

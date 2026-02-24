@@ -1,9 +1,11 @@
-"""Tests for the admin agent team in org-level Administration workgroups."""
+"""Tests for the admin agent team in system Administration workgroups."""
 
 import json
 import unittest
 import unittest.mock
+from pathlib import Path
 
+import yaml
 from sqlmodel import SQLModel, Session, create_engine, select
 
 from teaparty_app.models import (
@@ -32,6 +34,15 @@ from teaparty_app.services.admin_workspace.bootstrap import (
     is_admin_agent,
 )
 from teaparty_app.services.org_defaults import create_system_workgroups, load_org_defaults
+
+
+_SYSTEM_ADMIN_YAML = Path(__file__).resolve().parent.parent / "teaparty_app" / "seeds" / "defaults" / "system-administration.yaml"
+
+
+def _load_system_admin_specs():
+    """Load agent specs from the system-administration.yaml seed."""
+    with open(_SYSTEM_ADMIN_YAML) as fh:
+        return (yaml.safe_load(fh) or {}).get("agents", [])
 
 
 def _make_engine():
@@ -67,13 +78,21 @@ def _make_workgroup(session, user, org=None, wg_id="wg-1", name="Administration"
     return wg
 
 
+def _make_system_admin_wg(session, user):
+    """Create a system Administration workgroup and seed the full admin team."""
+    wg = _make_workgroup(session, user, org=None, name="Administration")
+    ensure_admin_workspace(session, wg)
+    session.flush()
+    return wg
+
+
 class OrgDefaultsCreationTests(unittest.TestCase):
-    """Test that create_system_workgroups creates all workgroups and agents from YAML."""
+    """Test that create_system_workgroups creates workgroups from YAML (no Administration)."""
 
     def setUp(self):
         self.engine = _make_engine()
 
-    def test_creates_three_workgroups(self):
+    def test_creates_two_workgroups(self):
         with Session(self.engine) as session:
             user = _make_user(session)
             org = _make_org(session, user)
@@ -81,40 +100,7 @@ class OrgDefaultsCreationTests(unittest.TestCase):
             created = create_system_workgroups(session, org, user)
             session.flush()
 
-            self.assertEqual(set(created.keys()), {"Administration", "Project Management", "Engagement"})
-
-    def test_admin_workgroup_has_five_agents(self):
-        with Session(self.engine) as session:
-            user = _make_user(session)
-            org = _make_org(session, user)
-
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            agents = find_admin_agents(session, admin_wg.id)
-            names = {a.name for a in agents}
-            self.assertEqual(names, {
-                "administration-lead", "workgroup-admin",
-                "organization-admin", "partner-admin", "workflow-admin",
-            })
-
-    def test_admin_conversation_created(self):
-        with Session(self.engine) as session:
-            user = _make_user(session)
-            org = _make_org(session, user)
-
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            conv = session.exec(
-                select(Conversation).where(
-                    Conversation.workgroup_id == admin_wg.id,
-                    Conversation.kind == "admin",
-                )
-            ).first()
-            self.assertIsNotNone(conv)
+            self.assertEqual(set(created.keys()), {"Project Management", "Engagement"})
 
     def test_lead_agents_in_each_workgroup(self):
         with Session(self.engine) as session:
@@ -137,13 +123,13 @@ class OrgDefaultsCreationTests(unittest.TestCase):
 
 
 class AdminTeamCreationTests(unittest.TestCase):
-    """Test ensure_admin_workspace behaviour after org_defaults creates agents."""
+    """Test ensure_admin_workspace behaviour for system Administration workgroup."""
 
     def setUp(self):
         self.engine = _make_engine()
 
-    def test_non_org_admin_creates_single_agent(self):
-        """Non-org workgroups still get a single admin agent with all tools."""
+    def test_system_admin_creates_full_team(self):
+        """System Administration workgroup gets the full admin team from seed."""
         with Session(self.engine) as session:
             user = _make_user(session)
             wg = _make_workgroup(session, user, org=None, name="Administration")
@@ -153,25 +139,8 @@ class AdminTeamCreationTests(unittest.TestCase):
 
             self.assertTrue(changed)
             agents = find_admin_agents(session, wg.id)
-            self.assertEqual(len(agents), 1)
-            self.assertEqual(sorted(agents[0].tools), sorted(ADMIN_TOOL_NAMES))
-
-    def test_org_admin_finds_existing_lead(self):
-        """For org workgroups, ensure_admin_workspace finds the pre-created lead."""
-        with Session(self.engine) as session:
-            user = _make_user(session)
-            org = _make_org(session, user)
-
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            lead, conv, changed = ensure_admin_workspace(session, admin_wg)
-
-            self.assertIsNotNone(lead)
+            self.assertEqual(len(agents), 5)
             self.assertEqual(lead.name, "administration-lead")
-            # Conversation already exists from create_system_workgroups
-            self.assertIsNotNone(conv)
 
 
 class AdminTeamIdempotencyTests(unittest.TestCase):
@@ -183,50 +152,40 @@ class AdminTeamIdempotencyTests(unittest.TestCase):
     def test_second_call_no_change(self):
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            _, _, changed = ensure_admin_workspace(session, admin_wg)
+            _, _, changed = ensure_admin_workspace(session, wg)
             self.assertFalse(changed)
 
     def test_agent_count_stable(self):
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-            ensure_admin_workspace(session, created["Administration"])
+            ensure_admin_workspace(session, wg)
             session.flush()
 
-            agents = find_admin_agents(session, created["Administration"].id)
+            agents = find_admin_agents(session, wg.id)
             self.assertEqual(len(agents), 5)
 
 
 class AdminTeamToolAssignmentTests(unittest.TestCase):
-    """Test that each agent gets the correct tool subset from the YAML template."""
+    """Test that each agent gets the correct tool subset from the system YAML."""
 
     def setUp(self):
         self.engine = _make_engine()
 
     def test_tool_subsets_match_yaml(self):
-        specs = load_org_defaults()
-        admin_spec = next(s for s in specs if s["name"] == "Administration")
+        specs = _load_system_admin_specs()
 
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            agents = find_admin_agents(session, created["Administration"].id)
+            agents = find_admin_agents(session, wg.id)
             by_name = {a.name: a for a in agents}
 
-            for agent_spec in admin_spec["agents"]:
+            for agent_spec in specs:
                 agent = by_name[agent_spec["name"]]
                 self.assertEqual(
                     sorted(agent.tools), sorted(agent_spec["tools"]),
@@ -237,9 +196,8 @@ class AdminTeamToolAssignmentTests(unittest.TestCase):
         """The lead agent should only have read/list/delegation tools, not write tools."""
         allowed_prefixes = ("list_",)
         allowed_names = {"Task"}
-        specs = load_org_defaults()
-        admin_spec = next(s for s in specs if s["name"] == "Administration")
-        lead_spec = next(a for a in admin_spec["agents"] if a.get("is_lead"))
+        specs = _load_system_admin_specs()
+        lead_spec = next(a for a in specs if a.get("is_lead"))
         for tool in lead_spec["tools"]:
             self.assertTrue(
                 tool in allowed_names or any(tool.startswith(p) for p in allowed_prefixes),
@@ -286,12 +244,9 @@ class AdminTeamDetectionTests(unittest.TestCase):
     def test_find_admin_agent_returns_lead(self):
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            lead = find_admin_agent(session, created["Administration"].id)
+            lead = find_admin_agent(session, wg.id)
             self.assertIsNotNone(lead)
             self.assertEqual(lead.name, "administration-lead")
 
@@ -300,9 +255,8 @@ class AdminTeamNamesConstantTests(unittest.TestCase):
     """Test the ADMIN_TEAM_NAMES frozenset."""
 
     def test_contains_all_yaml_names(self):
-        specs = load_org_defaults()
-        admin_spec = next(s for s in specs if s["name"] == "Administration")
-        expected = {a["name"] for a in admin_spec["agents"]}
+        specs = _load_system_admin_specs()
+        expected = {a["name"] for a in specs}
         self.assertEqual(ADMIN_TEAM_NAMES, expected)
 
     def test_exactly_five_members(self):
@@ -341,19 +295,15 @@ class AdminAgentReplyDelegationTests(unittest.TestCase):
 
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            admin_agent = find_admin_agent(session, admin_wg.id)
+            admin_agent = find_admin_agent(session, wg.id)
             user_id = user.id
-            admin_wg_id = admin_wg.id
+            admin_wg_id = wg.id
 
             conv = session.exec(
                 select(Conversation).where(
-                    Conversation.workgroup_id == admin_wg.id,
+                    Conversation.workgroup_id == wg.id,
                     Conversation.kind == "admin",
                 )
             ).first()
@@ -397,18 +347,14 @@ class AdminAgentReplyDelegationTests(unittest.TestCase):
 
         with Session(self.engine) as session:
             user = _make_user(session)
-            org = _make_org(session, user)
+            wg = _make_system_admin_wg(session, user)
 
-            created = create_system_workgroups(session, org, user)
-            session.flush()
-
-            admin_wg = created["Administration"]
-            admin_agent = find_admin_agent(session, admin_wg.id)
+            admin_agent = find_admin_agent(session, wg.id)
             user_id = user.id
-            admin_wg_id = admin_wg.id
+            admin_wg_id = wg.id
 
             direct_conv = Conversation(
-                workgroup_id=admin_wg.id,
+                workgroup_id=wg.id,
                 created_by_user_id=user_id,
                 kind="direct",
                 name="dm-with-admin",

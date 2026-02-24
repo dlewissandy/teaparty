@@ -267,10 +267,10 @@ def _reconcile_administration_workgroup_files(session: Session, admin_workgroup:
 
 
 def _ensure_administration_workgroup(session: Session, user: User) -> tuple[Workgroup, bool]:
+    # Shared system Administration workgroup — one for all users.
     workgroup = session.exec(
         select(Workgroup)
         .where(
-            Workgroup.owner_id == user.id,
             Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
             Workgroup.organization_id.is_(None),
         )
@@ -296,7 +296,8 @@ def _ensure_administration_workgroup(session: Session, user: User) -> tuple[Work
             )
         ).first()
         if not membership:
-            session.add(Membership(workgroup_id=workgroup.id, user_id=user.id, role="owner"))
+            role = "owner" if workgroup.owner_id == user.id else "member"
+            session.add(Membership(workgroup_id=workgroup.id, user_id=user.id, role=role))
             changed = True
 
         existing_files = _normalize_persisted_workgroup_files(workgroup.files)
@@ -438,7 +439,6 @@ def _sync_workgroup_storage_for_user(session: Session, user: User) -> None:
     admin_wg = session.exec(
         select(Workgroup)
         .where(
-            Workgroup.owner_id == user.id,
             Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
             Workgroup.organization_id.is_(None),
         )

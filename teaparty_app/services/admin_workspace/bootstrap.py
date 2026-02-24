@@ -29,10 +29,8 @@ def is_system_workgroup(name: str) -> bool:
 
 
 def admin_agent_name(workgroup: "Workgroup") -> str:
-    """Return the display name for a workgroup's admin agent (non-org workgroups only)."""
+    """Return the display name for a workgroup's admin agent."""
     if workgroup.name == ADMINISTRATION_WORKGROUP_NAME:
-        if workgroup.organization_id:
-            return _ADMIN_TEAM_LEAD_NAME
         return "system-admin"
     return "workgroup-admin"
 
@@ -241,6 +239,51 @@ def find_admin_conversation(session: Session, workgroup_id: str) -> Conversation
     ).first()
 
 
+def _ensure_system_admin_team(session: Session, workgroup: Workgroup) -> tuple[Agent | None, bool]:
+    """Seed the full admin agent team for the shared system Administration workgroup."""
+    from pathlib import Path
+
+    import yaml
+
+    from teaparty_app.services.agent_workgroups import link_agent
+
+    seed_path = Path(__file__).parent.parent.parent / "seeds" / "defaults" / "system-administration.yaml"
+    with open(seed_path) as fh:
+        specs = (yaml.safe_load(fh) or {}).get("agents", [])
+
+    changed = False
+    lead_agent = None
+    existing = find_admin_agents(session, workgroup.id)
+    existing_by_name = {a.name: a for a in existing}
+
+    for spec in specs:
+        name = spec["name"]
+        if name in existing_by_name:
+            if spec.get("is_lead"):
+                lead_agent = existing_by_name[name]
+            continue
+        agent = Agent(
+            organization_id=None,
+            created_by_user_id=workgroup.owner_id,
+            name=name,
+            description=spec.get("description", ""),
+            prompt=spec.get("prompt", "").strip(),
+            model=spec.get("model", "sonnet"),
+            tools=list(spec.get("tools", [])),
+        )
+        session.add(agent)
+        session.flush()
+        is_lead = spec.get("is_lead", False)
+        link_agent(session, agent.id, workgroup.id, is_lead=is_lead)
+        if is_lead:
+            lead_agent = agent
+        changed = True
+
+    if not lead_agent:
+        lead_agent = find_admin_agent(session, workgroup.id)
+    return lead_agent, changed
+
+
 def ensure_admin_workspace(
     session: Session,
     workgroup: Workgroup,
@@ -248,12 +291,12 @@ def ensure_admin_workspace(
     from teaparty_app.services.agent_workgroups import link_agent
 
     changed = False
-    is_org_admin = (workgroup.name == ADMINISTRATION_WORKGROUP_NAME and workgroup.organization_id)
+    is_system_admin = (workgroup.name == ADMINISTRATION_WORKGROUP_NAME and not workgroup.organization_id)
 
-    if is_org_admin:
-        # Org-level Administration: agents are created by org_defaults.py at org
-        # creation time.  Just find the lead agent for conversation linking.
-        admin_agent = find_admin_agent(session, workgroup.id)
+    if is_system_admin:
+        # System-level Administration: seed the full admin team from YAML.
+        admin_agent, team_changed = _ensure_system_admin_team(session, workgroup)
+        changed = changed or team_changed
     else:
         # Non-org workgroups: single admin agent with all tools.
         expected_admin_name = admin_agent_name(workgroup)

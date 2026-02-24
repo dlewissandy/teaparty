@@ -115,28 +115,21 @@ def ensure_org_admin_conversation(
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
+    """Redirect to the system Administration workgroup for org admin actions."""
     org = session.get(Organization, org_id)
     if not org:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
 
-    # Find or create the org's Administration workgroup
+    # Find the system-level Administration workgroup (no org)
     admin_wg = session.exec(
         select(Workgroup).where(
-            Workgroup.organization_id == org_id,
             Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
+            Workgroup.organization_id.is_(None),
         )
     ).first()
 
     if not admin_wg:
-        admin_wg = Workgroup(
-            name=ADMINISTRATION_WORKGROUP_NAME,
-            files=[],
-            owner_id=org.owner_id,
-            organization_id=org.id,
-        )
-        session.add(admin_wg)
-        session.flush()
-        session.add(Membership(workgroup_id=admin_wg.id, user_id=org.owner_id, role="owner"))
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System administration workgroup not found")
 
     # Ensure the requesting user has membership
     membership = session.exec(
@@ -158,34 +151,28 @@ def ensure_org_admin_conversation(
     }
 
 
-@router.post("/organizations/{org_id}/admin-sessions")
-def create_admin_session(
-    org_id: str,
+@router.post("/admin-sessions")
+def create_system_admin_session(
     payload: dict,
     session: Session = Depends(get_session),
     user: User = Depends(get_current_user),
 ) -> dict:
-    """Create a new admin conversation session in the org's Administration workgroup."""
+    """Create a new admin conversation in the user's system Administration workgroup."""
     from teaparty_app.models import ConversationParticipant
     from teaparty_app.services.admin_workspace.bootstrap import find_admin_agents
 
-    org = session.get(Organization, org_id)
-    if not org:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Organization not found")
-    if org.owner_id != user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the organization owner can create admin sessions")
-
-    # Find the Administration workgroup
     admin_wg = session.exec(
         select(Workgroup).where(
-            Workgroup.organization_id == org_id,
             Workgroup.name == ADMINISTRATION_WORKGROUP_NAME,
+            Workgroup.organization_id.is_(None),
         )
     ).first()
     if not admin_wg:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Administration workgroup not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="System administration workgroup not found")
 
-    # Create a new admin conversation
+    # Ensure admin agent exists
+    ensure_admin_workspace(session, admin_wg)
+
     name = (payload.get("name") or "Admin session").strip()[:80]
     conversation = Conversation(
         workgroup_id=admin_wg.id,
@@ -199,10 +186,8 @@ def create_admin_session(
     session.add(conversation)
     session.flush()
 
-    # Add user as participant
     session.add(ConversationParticipant(conversation_id=conversation.id, user_id=user.id))
 
-    # Add all admin agents as participants
     admin_agents = find_admin_agents(session, admin_wg.id)
     for agent in admin_agents:
         session.add(ConversationParticipant(conversation_id=conversation.id, agent_id=agent.id))

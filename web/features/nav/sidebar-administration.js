@@ -1,4 +1,4 @@
-// Sidebar Administration section: admin workspace conversations for the org.
+// Sidebar Administration section: system-level admin workspace conversations.
 
 import { api } from '../../core/api.js';
 import { bus } from '../../core/bus.js';
@@ -15,14 +15,11 @@ export function renderAdministrationSection(store, container, orgId, filter) {
   _store = store;
   const s = store.get();
   const currentUserId = s.auth.user?.id;
-  const org = (s.data.organizations || []).find(o => o.id === orgId);
-  if (!org || org.owner_id !== currentUserId) { container.innerHTML = ''; return; }
-
   const treeData = s.data.treeData || {};
 
-  // Find the Administration workgroup for this org
+  // Always use the system Administration workgroup (no org)
   const adminWg = (s.data.workgroups || []).find(
-    w => w.organization_id === orgId && w.name === 'Administration'
+    w => !w.organization_id && w.name === 'Administration'
   );
   if (!adminWg) { container.innerHTML = ''; return; }
   _adminWgId = adminWg.id;

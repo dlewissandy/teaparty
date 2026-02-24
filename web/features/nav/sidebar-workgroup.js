@@ -12,7 +12,9 @@ const removeSvg = `<svg viewBox="0 0 20 20" fill="none" width="12" height="12"><
 
 export function renderWorkgroupSections(store, container, orgId, filter) {
   const s = store.get();
-  const workgroups = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
+  const workgroups = (s.data.workgroups || []).filter(w =>
+    w.organization_id === orgId && !(orgId && w.name === 'Administration')
+  );
   const selection = s.nav.sidebarSelection;
 
   const currentUserId = s.auth.user?.id;

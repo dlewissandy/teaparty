@@ -664,6 +664,12 @@ pre code {
 }
 
 /* Sidebar section */
+.sidebar-divider {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin: 8px 12px;
+}
+
 .sidebar-section {
   margin-bottom: 4px;
 }

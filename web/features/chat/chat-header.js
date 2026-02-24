@@ -18,11 +18,8 @@ function conversationLabel(store, workgroupId, conversationId) {
   const jobConv = data.jobs?.find(c => c.id === conversationId);
   if (jobConv) {
     if (jobConv.kind === 'admin') {
-      if (data.workgroup.name === 'Administration' && !data.workgroup.organization_id) {
-        return 'System Administration';
-      }
-      if (data.workgroup.name === 'Administration' && data.workgroup.organization_name) {
-        return `Org Admin - ${data.workgroup.organization_name}`;
+      if (data.workgroup.name === 'Administration') {
+        return 'Administration';
       }
       return `Admin - ${data.workgroup.name}`;
     }

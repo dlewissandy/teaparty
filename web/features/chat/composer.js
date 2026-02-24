@@ -134,17 +134,13 @@ async function handleSubmit(store, form) {
   // If no active conversation, create a new admin session, post, then navigate
   if (!convId) {
     const orgId = s.nav.activeOrgId;
-    if (!orgId) {
-      flash('Select an organization first', 'error');
-      return;
-    }
 
     // Clear textarea immediately for responsiveness
     if (textarea) textarea.value = '';
     if (textarea) autoResizeTextarea(textarea);
 
     try {
-      const result = await api(`/api/organizations/${orgId}/admin-sessions`, {
+      const result = await api('/api/admin-sessions', {
         method: 'POST',
         body: { name: 'New session' },
       });
@@ -309,9 +305,10 @@ function updateSendState(store, textarea, sendBtn) {
   const s = store.get();
   const hasConversation = Boolean(s.nav.activeConversationId);
   const hasOrg = Boolean(s.nav.activeOrgId);
+  const isHome = !hasOrg && Boolean(s.auth.user);
   const hasContent = Boolean(textarea?.value.trim());
-  // Allow sending with an active conversation OR an active org (creates new admin session)
-  sendBtn.disabled = !(hasConversation || hasOrg) || !hasContent;
+  // Allow sending with an active conversation, active org, or home screen (creates admin session)
+  sendBtn.disabled = !(hasConversation || hasOrg || isHome) || !hasContent;
 }
 
 function updatePlaceholder(store, textarea) {
