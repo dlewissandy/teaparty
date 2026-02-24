@@ -49,7 +49,7 @@ export function initOrgDashboard(store) {
   });
 }
 
-async function loadDashboardData(orgId) {
+export async function loadDashboardDataForOrg(orgId) {
   const calls = [
     api(`/api/organizations/${orgId}/summary`).catch(() => null),
     api(`/api/organizations/${orgId}/spending-breakdown`).catch(() => null),
@@ -58,7 +58,6 @@ async function loadDashboardData(orgId) {
     api(`/api/organizations/${orgId}/engagements`).catch(() => []),
     api(`/api/organizations/${orgId}/balance`).catch(() => null),
     api(`/api/organizations/${orgId}/transactions`).catch(err => {
-      // 403 = not owner; gracefully return a sentinel
       if (err?.status === 403) return { forbidden: true };
       return null;
     }),
@@ -67,10 +66,6 @@ async function loadDashboardData(orgId) {
 
   const [summary, spendingBreakdown, members, projects, engagements, balance, transactions, agentUsage] = await Promise.all(calls);
 
-  // Guard against stale responses
-  if (_currentOrgId !== orgId) return;
-
-  // Fetch per-workgroup LLM usage for spend breakdown
   const s = _store.get();
   const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
   const usageCalls = wgs.map(wg =>
@@ -78,11 +73,13 @@ async function loadDashboardData(orgId) {
   );
   const workgroupUsage = await Promise.all(usageCalls);
 
-  if (_currentOrgId !== orgId) return;
+  return { summary, spendingBreakdown, members, projects, engagements, balance, transactions, workgroupUsage, agentUsage };
+}
 
-  _store.update(s => {
-    s.data.orgDashboard = { summary, spendingBreakdown, members, projects, engagements, balance, transactions, workgroupUsage, agentUsage };
-  });
+async function loadDashboardData(orgId) {
+  const db = await loadDashboardDataForOrg(orgId);
+  if (_currentOrgId !== orgId) return;
+  _store.update(s => { s.data.orgDashboard = db; });
   _store.notify('data.orgDashboard');
 }
 
@@ -116,7 +113,7 @@ function renderDashboard(orgId) {
 
 // ─── Summary Bar ──────────────────────────────────────────────────────────────
 
-function renderSummaryBar(orgId, db) {
+export function renderSummaryBar(orgId, db) {
   const s = _store.get();
   const summary = db.summary;
   const wgs = (s.data.workgroups || []).filter(w => w.organization_id === orgId);
@@ -161,7 +158,7 @@ function renderSummaryBar(orgId, db) {
 
 // ─── Financials: Balance Over Time ────────────────────────────────────────────
 
-function renderFinancialsGraph(orgId, db) {
+export function renderFinancialsGraph(orgId, db) {
   const txData = db.transactions;
 
   // Owner access required
@@ -303,7 +300,7 @@ function renderLineChart(transactions) {
     xLabels.push({ x, label });
   }
 
-  const gradId = 'fin-area-grad';
+  const gradId = `fin-area-grad-${orgId.slice(0, 8)}`;
 
   return `
     <div class="org-dash-chart-wrap">
@@ -353,7 +350,7 @@ function renderLineChart(transactions) {
 
 // ─── Spend by Workgroup ─────────────────────────────────────────────────────
 
-function renderSpendByWorkgroup(db) {
+export function renderSpendByWorkgroup(db) {
   const items = db.workgroupUsage || [];
   const withCost = items.filter(i => i.usage && i.usage.estimated_cost_usd > 0);
 
@@ -445,7 +442,7 @@ function renderSpendBars(items) {
 
 // ─── Spend by Agent ──────────────────────────────────────────────────────────
 
-function renderSpendByAgent(db) {
+export function renderSpendByAgent(db) {
   const data = db.agentUsage;
   const agents = (data?.agents || []).filter(a => a.cost_usd > 0);
 
@@ -487,7 +484,7 @@ function renderSpendByAgent(db) {
 
 // ─── Spend by Category ─────────────────────────────────────────────────────────
 
-function renderSpendByCategory(db) {
+export function renderSpendByCategory(db) {
   const data = db.spendingBreakdown;
   const categories = data?.categories || [];
   const totalCost = data?.total_cost_usd ?? 0;
@@ -585,7 +582,7 @@ function renderDonutChart(categories, totalCost) {
 
 // ─── Engagement Pipeline ────────────────────────────────────────────────────
 
-function renderEngagementPipeline(db) {
+export function renderEngagementPipeline(db) {
   const s = _store.get();
   const partnerships = s.data.partnerships || [];
   const engagements = db.engagements || [];
@@ -737,7 +734,7 @@ function renderOwnerExtras(org) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatCredits(n) {
+export function formatCredits(n) {
   if (n === 0) return '0';
   return n.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }

@@ -340,9 +340,12 @@ function hideInviteBanner() {
 
 // ─── Home mode: cross-org renderers ──────────────────────────────────────────
 
+const orgRemoveSvg = `<svg viewBox="0 0 20 20" fill="none" width="12" height="12"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+
 function renderOrganizations(store, container, filter) {
   const s = store.get();
   const orgs = s.data.organizations || [];
+  const currentUserId = s.auth.user?.id;
   const filterLower = (filter || '').toLowerCase();
   const selection = s.nav.sidebarSelection;
 
@@ -359,12 +362,16 @@ function renderOrganizations(store, container, filter) {
     const color = avatarColor(org.name);
     const initials = initialsFromName(org.name);
     const isActive = selection === `org:${org.id}`;
-    return `<button
-      class="sidebar-nav-item sidebar-wg-item${isActive ? ' active' : ''}"
-      data-action="select-org"
-      data-org-id="${escapeHtml(org.id)}"
-      title="${escapeHtml(org.name)}"
-    ><span class="sidebar-wg-avatar" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span><span class="sidebar-nav-label">${escapeHtml(org.name)}</span></button>`;
+    const isOwner = org.owner_id === currentUserId;
+    const removeBtn = isOwner
+      ? `<button class="sidebar-member-remove" data-action="delete-org" data-org-id="${escapeHtml(org.id)}" data-org-name="${escapeHtml(org.name)}" title="Delete organization" aria-label="Delete ${escapeHtml(org.name)}">${orgRemoveSvg}</button>`
+      : '';
+    return `<div class="sidebar-nav-item sidebar-wg-item${isActive ? ' active' : ''}">
+      <button class="sidebar-wg-select" data-action="select-org" data-org-id="${escapeHtml(org.id)}" title="${escapeHtml(org.name)}">
+        <span class="sidebar-wg-avatar" style="background:${escapeHtml(color)}">${escapeHtml(initials)}</span><span class="sidebar-nav-label">${escapeHtml(org.name)}</span>
+      </button>
+      ${removeBtn}
+    </div>`;
   }).join('');
 
   container.querySelectorAll('[data-action="select-org"]').forEach(btn => {
@@ -375,6 +382,23 @@ function renderOrganizations(store, container, filter) {
         s.nav.sidebarSelection = '';
       });
       bus.emit('nav:org-selected', { orgId });
+    });
+  });
+
+  container.querySelectorAll('[data-action="delete-org"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const orgId = btn.dataset.orgId;
+      const name = btn.dataset.orgName;
+      if (!confirm(`Delete organization "${name}"? This will remove all its workgroups, agents, and data.`)) return;
+      try {
+        await api(`/api/organizations/${orgId}`, { method: 'DELETE' });
+        flash(`Organization "${name}" deleted`, 'success');
+        btn.closest('.sidebar-nav-item')?.remove();
+        bus.emit('data:refresh');
+      } catch (err) {
+        flash(err.message || 'Failed to delete organization', 'error');
+      }
     });
   });
 }

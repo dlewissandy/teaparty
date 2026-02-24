@@ -86,6 +86,7 @@ const store = createStore({
     partnerships: [],
     unassignedAgents: {},
     orgDashboard: null,
+    homeDashboards: {},
   },
   panels: {
     rightPanelOpen: false,

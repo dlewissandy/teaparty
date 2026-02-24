@@ -5744,6 +5744,40 @@ body[data-theme="dark"] .status-badge-declined { background: rgba(239, 68, 68, 0
   color: var(--tp-warning);
 }
 
+.home-rollup-section {
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--tp-line);
+}
+
+.home-org-dashboard {
+  margin-bottom: 32px;
+  padding-bottom: 32px;
+  border-bottom: 1px solid var(--tp-line);
+}
+
+.home-org-dashboard:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.home-org-dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: none;
+  padding: 0 0 12px 0;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.home-org-dashboard-header:hover h3 {
+  color: var(--tp-primary);
+}
+
 .activity-item {
   display: flex;
   align-items: center;
