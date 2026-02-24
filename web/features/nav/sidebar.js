@@ -187,7 +187,7 @@ function renderSidebar(orgId, filter) {
   let visibleSections;
 
   if (isHome) {
-    visibleSections = ['sidebar-organizations', 'sidebar-partners', 'sidebar-engagements'];
+    visibleSections = ['sidebar-organizations'];
   } else if (orgId) {
     const org = orgs.find(o => o.id === orgId);
     const isOrgOwner = org?.owner_id === s.auth.user?.id;
