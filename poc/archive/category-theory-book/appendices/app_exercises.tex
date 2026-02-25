@@ -1,0 +1,162 @@
+\chapter{Selected Solutions and Hints}
+\label{app:exercises}
+
+This appendix provides hints and selected solutions to the starred exercises from each chapter.
+
+\section*{Chapter 2: Categories}
+
+\begin{exercise}[2.$\star$: Preorders as categories]
+A preorder $(P, \leq)$ gives a category $\cat{P}$ with $\cat{P}(a,b) = \emptyset$ or $\{*\}$ according to $a \leq b$ or not. The category axioms correspond exactly to:
+\begin{itemize}
+  \item Identity: reflexivity ($a \leq a$).
+  \item Composition: transitivity (if $a \leq b$ and $b \leq c$, then $a \leq c$).
+  \item Uniqueness of the morphism: automatically satisfied since each hom-set has at most one element.
+\end{itemize}
+A poset additionally satisfies antisymmetry: if $a \leq b$ and $b \leq a$, then $a = b$. Categorically, this means that if $\cat{P}(a,b) \neq \emptyset$ and $\cat{P}(b,a) \neq \emptyset$ (i.e., there is a morphism in each direction), then $a = b$. A preorder differs from a poset in that two distinct objects may be isomorphic.
+\end{exercise}
+
+\begin{exercise}[2.$\star$: Arrow category]
+Define $\cat{C}^{\to}$ with:
+\begin{itemize}
+  \item Objects: morphisms $f: a \to b$ in $\cat{C}$.
+  \item Morphisms from $f: a \to b$ to $g: c \to d$: pairs $(u: a \to c, v: b \to d)$ in $\cat{C}$ with $v \circ f = g \circ u$.
+\end{itemize}
+
+\noindent\textit{Identification as $[\mathbf{2}, \cat{C}]$.} The category $\mathbf{2}$ has two objects $\{0,1\}$ and one non-identity morphism $\iota: 0 \to 1$. A functor $F: \mathbf{2} \to \cat{C}$ is determined by $F(0)$, $F(1)$, and $F(\iota): F(0) \to F(1)$—i.e., by a morphism in $\cat{C}$. A natural transformation $\alpha: F \Rightarrow G$ consists of components $\alpha_0: F(0) \to G(0)$ and $\alpha_1: F(1) \to G(1)$ with $G(\iota) \circ \alpha_0 = \alpha_1 \circ F(\iota)$, which is exactly a morphism in $\cat{C}^{\to}$.
+\end{exercise}
+
+\begin{exercise}[2.$\star\star$: Relations]
+The category $\mathbf{Rel}$ has:
+\begin{itemize}
+  \item Objects: sets.
+  \item Morphisms $A \to B$: subsets $R \subseteq A \times B$.
+  \item Composition: $(R: A \to B, S: B \to C)$ composes to $S \circ R = \{(a,c) \in A \times C \mid \exists b \in B, (a,b) \in R \text{ and } (b,c) \in S\}$.
+  \item Identity: $\Delta_A = \{(a,a) \mid a \in A\} \subseteq A \times A$.
+\end{itemize}
+The isomorphisms in $\mathbf{Rel}$ are the relations $R: A \to B$ such that $R^{-1} \circ R = \Delta_A$ and $R \circ R^{-1} = \Delta_B$—these are exactly the bijections (functions that are both injective and surjective, viewed as their graphs).
+
+The functor $\Set \to \mathbf{Rel}$ sends $f: A \to B$ to its graph $\Gamma_f = \{(a, f(a)) \mid a \in A\}$.
+\end{exercise}
+
+\section*{Chapter 3: Functors}
+
+\begin{exercise}[3.$\star$: $G$-sets]
+A group $G$ viewed as a category $\mathbf{B}G$ has one object $\bullet$ with $\mathbf{B}G(\bullet,\bullet) = G$. A functor $F: \mathbf{B}G \to \Set$ consists of a set $X = F(\bullet)$ and, for each $g \in G$, a function $F(g): X \to X$, satisfying $F(gh) = F(g) \circ F(h)$ and $F(e) = \id_X$. This is exactly a (left) $G$-set (a set $X$ with a group action $G \times X \to X$, $g \cdot x = F(g)(x)$).
+
+A natural transformation $\alpha: F \Rightarrow G'$ between two $G$-sets $F, G'$ has a single component $\alpha_\bullet: X \to Y$ satisfying $G'(g)(\alpha_\bullet(x)) = \alpha_\bullet(F(g)(x))$ for all $g \in G, x \in X$—this is exactly a $G$-equivariant map.
+
+So $[\mathbf{B}G, \Set] \cong G$-$\Set$ (the category of $G$-sets and equivariant maps).
+\end{exercise}
+
+\begin{exercise}[3.$\star\star$: Categorical Cayley Theorem]
+Let $\cat{C} = \mathbf{B}G$. The Yoneda embedding $\yo: \mathbf{B}G \to [\mathbf{B}G\op, \Set]$ sends the single object $\bullet$ to the presheaf $\mathbf{B}G(-,\bullet) = G$ viewed as a right $G$-set (action by right multiplication). The Yoneda embedding is fully faithful, hence $G$ embeds into the automorphism group of the functor $\yo(\bullet)$, which is the group of natural automorphisms of $G$ as a $G$-set. These natural automorphisms are exactly the left multiplications by elements of $G$. So $G$ embeds into $\mathrm{Aut}(G\text{-set}) \cong G$ (left translations)—recovering Cayley's theorem ($G$ embeds into $\mathrm{Sym}(G)$).
+\end{exercise}
+
+\section*{Chapter 4: Natural Transformations}
+
+\begin{exercise}[4.$\star\star$: Free cocompletion]
+We sketch the proof. Given $F: \cat{C} \to \cat{D}$ with $\cat{D}$ cocomplete, define $\bar{F}: [\cat{C}\op,\Set] \to \cat{D}$ by $\bar{F}(H) = \Lan_\yo F(H)$, the left Kan extension of $F$ along the Yoneda embedding. By the pointwise formula:
+\[
+  \bar{F}(H) = \colim_{(c, \yo(c) \to H) \in \int H} F(c),
+\]
+where $\int H$ is the category of elements of $H$. Since $\bar{F}$ is defined as a colimit, it preserves colimits (left adjoints preserve colimits; alternatively, $\bar{F}$ is a left Kan extension along a fully faithful functor and hence is the unique cocontinuous extension).
+
+For uniqueness: if $G: [\cat{C}\op,\Set] \to \cat{D}$ preserves colimits and $G \circ \yo \cong F$, then $G(H) = G(\colim_{\int H} \yo(c)) \cong \colim_{\int H} G(\yo(c)) \cong \colim_{\int H} F(c) = \bar{F}(H)$, using the fact that $H \cong \colim_{\int H} \yo(c)$ (the co-Yoneda lemma).
+\end{exercise}
+
+\section*{Chapter 5: Limits and Colimits}
+
+\begin{exercise}[5.$\star\star$: Filtered colimits commute with finite limits in $\Set$]
+We prove that for filtered $\cat{J}$ and finite $\cat{K}$, $\colim_j \lim_k D(j,k) \cong \lim_k \colim_j D(j,k)$ in $\Set$.
+
+Elements of $\colim_j \lim_k D(j,k)$ are equivalence classes $[(j, (x_k)_{k \in \cat{K}})]$ where $(x_k)_{k \in \cat{K}} \in \lim_k D(j,k)$. Elements of $\lim_k \colim_j D(j,k)$ are families $([j_k, y_k])_{k \in \cat{K}}$ in $\prod_k \colim_j D(j,k)$, compatible with the morphisms in $\cat{K}$.
+
+Construct the natural map $\phi: \colim_j \lim_k \to \lim_k \colim_j$ by $[(j, (x_k))] \mapsto ([(j, x_k)])_k$.
+
+Injectivity: If $\phi([(j, (x_k))]) = \phi([(j', (x'_k))$ then for each $k$, $[(j, x_k)] = [(j', x'_k)]$ in $\colim_j D(-,k)$, so there exist $j_k$ and morphisms $j \to j_k \leftarrow j'$ with $D_{j \to j_k}(x_k) = D_{j' \to j_k}(x'_k)$. Since $\cat{K}$ is finite and $\cat{J}$ is filtered, we can find a single $j''$ dominating all $j_k$, and then $[(j,(x_k))] = [(j', (x'_k))]$ in $\colim_j \lim_k$.
+
+Surjectivity: Given a compatible family $[(j_k, y_k)]_k$, use filteredness of $\cat{J}$ to find $j''$ dominating all $j_k$, then use compatibility and finiteness of $\cat{K}$ to find a single element in $\lim_k D(j'',k)$ mapping to the given family.
+\end{exercise}
+
+\section*{Chapter 6: Adjoint Functors}
+
+\begin{exercise}[6.$\star$: Reflective subcategories and limits]
+Let $i: \cat{D} \hookrightarrow \cat{C}$ be a reflective subcategory with $L \dashv i$. We show $\cat{D}$ is closed under limits in $\cat{C}$.
+
+Let $D: \cat{J} \to \cat{D} \hookrightarrow \cat{C}$ be a diagram with limit $(\ell, \pi)$ in $\cat{C}$. The unit $\eta_\ell: \ell \to i(L\ell)$ is a morphism in $\cat{C}$. Since $i$ preserves limits (it's a right adjoint), $i(L\ell)$ is the limit of $iLD$ in $\cat{C}$... Actually we argue directly: consider the cone $(\ell, \pi_j: \ell \to D(j) = i(D'(j)))$ in $\cat{C}$. The unit gives $\eta_\ell: \ell \to iL\ell$; composing with projections gives a cone from $iL\ell$ to $D$. Since $L\dashv i$, maps $L\ell \to D'(j)$ in $\cat{D}$ correspond to maps $\ell \to i(D'(j))$ in $\cat{C}$. The limit condition in $\cat{C}$ and the adjunction bijection show $L\ell$ is the limit of $D'$ in $\cat{D}$. But then $i(L\ell) \cong \ell$ (since $\ell$ is the limit in $\cat{C}$ and $i$ creates limits for reflective inclusions), so $\ell \in \cat{D}$.
+
+For colimits: $\cat{D}$ is not necessarily closed under colimits in $\cat{C}$ (the colimit in $\cat{C}$ may not be a $\cat{D}$-object). But the reflector $L$ can be applied: the colimit in $\cat{D}$ is $L(\colim_\cat{C} D)$.
+\end{exercise}
+
+\begin{exercise}[6.$\star\star$: GAFT]
+\textit{Construction of the left adjoint.}
+
+Given $G: \cat{C} \to \cat{D}$ limit-preserving with solution sets $\{d \to G(c_i)\}_{i \in I_d}$ for each $d$, we construct $Fd \in \cat{C}$ as follows.
+
+Form the small category $\mathcal{S}_d$ whose objects are the solution set pairs $(i, c)$ where $c \in \cat{C}$ and the morphism $d \to G(c_i) \to G(c)$ factors through $G$. More precisely, $\mathcal{S}_d$ is the full subcategory of the comma category $(d \downarrow G)$ generated by the solution set. Let $Fd = \lim_{\mathcal{S}_d\op} \pi$ where $\pi: \mathcal{S}_d \to \cat{C}$ is the projection. The limit exists by completeness of $\cat{C}$.
+
+The canonical cone from $d$ to $G(Fd) = G(\lim) \cong \lim G$ (using $G$ preserves limits) together with the solution set property shows $Fd$ is the desired initial object in $(d \downarrow G)$, and the collection $d \mapsto Fd$ assembles into the left adjoint functor $F$.
+\end{exercise}
+
+\section*{Chapter 7: Monads}
+
+\begin{exercise}[7.$\star\star$: Beck's theorem, one direction]
+\textit{Assuming the adjunction is monadic (K is an equivalence), show U reflects isomorphisms.}
+
+Let $f: d \to d'$ be a morphism in $\cat{D}$ such that $Uf$ is an isomorphism in $\cat{C}$. Since $K: \cat{D} \to \cat{C}^T$ is an equivalence and $U^T \circ K = U$, we have $U^T(K(f))$ is an isomorphism. Since $U^T$ creates isomorphisms (algebras maps that are isomorphisms on underlying objects are isomorphisms of algebras), $K(f)$ is an isomorphism in $\cat{C}^T$. Since $K$ is an equivalence (hence reflects isomorphisms), $f$ is an isomorphism in $\cat{D}$.
+
+\textit{Existence of coequalizers of U-split pairs.} Given $f, g: d \to d'$ in $\cat{D}$ with sections $s, t$ in $\cat{C}$ as in the definition of a $U$-split coequalizer, transport the coequalizer along $K$: the corresponding data in $\cat{C}^T$ gives a coequalizer there (since $\cat{C}^T$ has all reflexive coequalizers: the coequalizer of a $T$-algebra map pair that is split as a $\cat{C}$-map always exists). Pulling back along $K$ gives the coequalizer in $\cat{D}$.
+\end{exercise}
+
+\section*{Chapter 8: Kan Extensions}
+
+\begin{exercise}[8.$\star$: Density theorem for Yoneda]
+By the co-Yoneda lemma, for any presheaf $F: \cat{C}\op \to \Set$:
+\[
+  F \cong \int^c F(c) \cdot \yo(c) = \colim_{(c, x) \in \int F} \yo(c),
+\]
+where $\int F$ is the \textbf{category of elements} of $F$: objects are pairs $(c, x)$ with $x \in Fc$; morphisms $(c,x) \to (c',x')$ are morphisms $f: c \to c'$ in $\cat{C}$ with $(Ff)(x') = x$ (note the contravariancy).
+
+The colimit is over the canonical diagram $\int F \to [\cat{C}\op,\Set]$, $(c,x) \mapsto \yo(c)$. The colimiting cocone is given by the Yoneda-corresponding maps: for each $(c,x) \in \int F$, the element $x \in Fc$ corresponds (by Yoneda) to a natural transformation $\yo(c) \Rightarrow F$; these are compatible with morphisms in $\int F$, giving a cocone over $F$ that is universal.
+\end{exercise}
+
+\begin{exercise}[8.$\star\star$: Absolute Kan extensions from adjoints]
+Let $F \dashv G$ with $F: \cat{C} \to \cat{D}$, $G: \cat{D} \to \cat{C}$, and $H: \cat{D} \to \cat{E}$.
+
+Claim: $\Ran_F H \cong HG$ (absolutely, i.e., for any functor applied to the result).
+
+Proof: $\Nat(L, \Ran_F H) \cong \Nat(LF, H)$ by the universal property of $\Ran_F$. We have $\Nat(LF, H) \cong \Nat(L, HG)$ by the adjunction $F \dashv G$ (since morphisms of functors $LF \Rightarrow H$ correspond to morphisms $L \Rightarrow HG$ via: $\alpha \mapsto (H\varepsilon \circ \alpha F)$, where the bijection uses the unit/counit). By Yoneda, $\Ran_F H \cong HG$.
+
+The counit of this Kan extension is $\varepsilon: HGF \Rightarrow H$ (compose the counit of the adjunction with $H$). This is absolute because the bijection $\Nat(L, HG) \cong \Nat(LF, H)$ is natural in $H$: for any $K: \cat{E} \to \cat{E}'$, $\Nat(L, KHG) \cong \Nat(LF, KH)$ trivially, showing $K(HG) = (KH)G \cong \Ran_F(KH)$.
+\end{exercise}
+
+\section*{Chapter 9: Enriched Category Theory}
+
+\begin{exercise}[9.$\star\star$: Enriched Yoneda Lemma]
+Let $(\cat{V}, \otimes, I)$ be a closed symmetric monoidal category with internal hom $[-,-]: \cat{V}\op \times \cat{V} \to \cat{V}$. Let $\cat{C}$ be a $\cat{V}$-category and $a \in \cat{C}$.
+
+The enriched Yoneda lemma states: for any $\cat{V}$-functor $F: \cat{C} \to \cat{V}$,
+\[
+  [\cat{C}, \cat{V}](\cat{C}(a,-), F) \cong Fa \quad \text{in } \cat{V},
+\]
+naturally in $a$ and $F$. The left side is the $\cat{V}$-object of $\cat{V}$-natural transformations, defined as:
+\[
+  [\cat{C},\cat{V}](F,G) = \int_c [Fc, Gc] \quad (\text{an end in } \cat{V}).
+\]
+
+Proof sketch: The natural bijection (on global elements $I \to [\cat{C},\cat{V}](\cat{C}(a,-),F)$, i.e., ordinary natural transformations $\cat{C}(a,-) \Rightarrow F$) is exactly the ordinary Yoneda lemma at the level of global elements. The full enriched statement follows by an enriched version of the same argument using the closed structure of $\cat{V}$.
+
+When $\cat{V} = \Set$ and $I = \{*\}$, global elements are just elements, and $[\cat{C},\Set](\cat{C}(a,-), F) = \Nat(\cat{C}(a,-), F)$ is exactly the ordinary set of natural transformations, recovering Theorem~\ref{thm:yoneda}.
+\end{exercise}
+
+\section*{Chapter 10: Topos Theory}
+
+\begin{exercise}[10.$\star\star$: LT topologies and Grothendieck topologies]
+A Grothendieck topology on $\cat{C}$ is a function $J$ assigning to each $c \in \cat{C}$ a collection $J(c)$ of sieves on $c$ (called \textbf{covering sieves}), satisfying the maximality, stability, and transitivity axioms.
+
+Given a Lawvere-Tierney operator $j: \Omega \to \Omega$ on $[\cat{C}\op, \Set]$ (where $\Omega(c) = \{$ sieves on $c \}$), define $J(c) = \{S \in \Omega(c) \mid j_c(S) = \text{max sieve on } c\}$—the covering sieves are those sent to the maximal sieve by $j$. The idempotence, unit, and meet-preservation of $j$ translate to the axioms of a Grothendieck topology.
+
+Conversely, a Grothendieck topology $J$ gives a LT operator $j: \Omega \to \Omega$ by $j_c(S) = \{f: d \to c \mid f^*(S) \in J(d)\}$ (the ``$J$-closure'' of $S$). One verifies this satisfies the LT axioms.
+
+These constructions are inverse, giving a bijection between LT topologies on $[\cat{C}\op,\Set]$ and Grothendieck topologies on $\cat{C}$.
+\end{exercise}

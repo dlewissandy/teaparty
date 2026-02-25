@@ -1,0 +1,399 @@
+\chapter{Categories}
+\label{ch:categories}
+
+\section{The Definition of a Category}
+
+We begin with the central definition of the subject.
+
+\begin{definition}[Category]
+A \textbf{category} $\cat{C}$ consists of:
+\begin{enumerate}
+  \item A collection $\ob(\cat{C})$, whose elements are called \textbf{objects}.
+  \item For each pair of objects $a, b \in \ob(\cat{C})$, a set $\cat{C}(a,b)$, called the \textbf{hom-set} from $a$ to $b$. Elements of $\cat{C}(a,b)$ are called \textbf{morphisms} (or \textbf{arrows}) from $a$ to $b$, and we write $f: a \to b$ to indicate $f \in \cat{C}(a,b)$.
+  \item For each triple of objects $a, b, c \in \ob(\cat{C})$, a function
+  \[
+    \circ \;:\; \cat{C}(b,c) \times \cat{C}(a,b) \;\longrightarrow\; \cat{C}(a,c),
+  \]
+  called \textbf{composition}. The composite of $f: a \to b$ and $g: b \to c$ is written $g \circ f: a \to c$.
+  \item For each object $a \in \ob(\cat{C})$, a morphism $\id_a \in \cat{C}(a,a)$, called the \textbf{identity morphism} on $a$.
+\end{enumerate}
+These data are required to satisfy:
+\begin{description}
+  \item[Associativity.] For all $f: a \to b$, $g: b \to c$, $h: c \to d$:
+  \[
+    h \circ (g \circ f) = (h \circ g) \circ f.
+  \]
+  \item[Unit laws.] For all $f: a \to b$:
+  \[
+    f \circ \id_a = f \qquad \text{and} \qquad \id_b \circ f = f.
+  \]
+\end{description}
+\end{definition}
+
+\begin{remark}
+We sometimes write $\Hom_{\cat{C}}(a,b)$ for $\cat{C}(a,b)$, especially when the category must be made explicit.  We also write $a \in \cat{C}$ to mean $a \in \ob(\cat{C})$ when no confusion arises.
+\end{remark}
+
+The definition looks sparse, but it encodes a great deal. Note that morphisms need not be functions; objects need not be sets. The definition is a purely formal structure. Its power comes entirely from how many mathematical situations it captures.
+
+\begin{remark}[Diagrammatic vs.\ classical order]
+Some authors write composition in diagrammatic order: if $f: a \to b$ and $g: b \to c$, then $f;g$ or $f \cdot g$ denotes the composite ``first $f$, then $g$.'' We use the classical (algebraic) order $g \circ f$ throughout, consistent with function composition notation.
+\end{remark}
+
+\section{First Examples}
+\label{sec:cat-examples}
+
+The best way to absorb the definition is through examples.
+
+\begin{example}[$\Set$]
+The category $\Set$ has sets as objects and functions as morphisms. Composition is ordinary function composition, and identities are identity functions. This is the prototypical example; much of category theory is modeled on—and later abstracted from—the category of sets.
+\end{example}
+
+\begin{example}[$\Grp$, $\Ab$, $\Ring$]
+The category $\Grp$ has groups as objects and group homomorphisms as morphisms. Similarly:
+\begin{itemize}
+  \item $\Ab$: abelian groups and group homomorphisms.
+  \item $\Ring$: rings (with unity) and ring homomorphisms preserving unity.
+  \item $\Vect_k$: vector spaces over a field $k$ and $k$-linear maps.
+  \item $\mathbf{Mod}_R$: left $R$-modules over a ring $R$ and $R$-module homomorphisms.
+\end{itemize}
+In each case, composition is composition of the underlying functions, and identities are identity functions (which are automatically homomorphisms).
+\end{example}
+
+\begin{example}[$\Top$]
+The category $\Top$ has topological spaces as objects and continuous maps as morphisms. The category $\mathbf{hTop}$ (the \emph{homotopy category}) has topological spaces as objects but morphisms are homotopy classes of continuous maps. Composition is well-defined because the composite of homotopic maps is homotopic.
+\end{example}
+
+\begin{example}[Posets as categories]
+\label{ex:poset-category}
+Let $(P, \leq)$ be a partially ordered set. We define a category $\cat{P}$ as follows:
+\begin{itemize}
+  \item Objects: elements of $P$.
+  \item Morphisms: $\cat{P}(a,b) = \{*\}$ (a one-element set, i.e., exactly one morphism) if $a \leq b$, and $\cat{P}(a,b) = \emptyset$ otherwise.
+  \item Composition: if $a \leq b$ and $b \leq c$, transitivity gives $a \leq c$, providing the unique composite.
+  \item Identities: reflexivity gives $a \leq a$, providing the identity morphism.
+\end{itemize}
+The categorical axioms then encode exactly the axioms of a partial order: reflexivity (identities), transitivity (composition), and the unit/associativity laws hold automatically since all hom-sets have at most one element. Category theory thus generalizes order theory.
+\end{example}
+
+\begin{example}[Monoids as categories]
+\label{ex:monoid-category}
+Let $(M, \cdot, e)$ be a monoid. We define a category $\mathbf{B}M$ (the \emph{delooping} of $M$) with:
+\begin{itemize}
+  \item One object, denoted $\bullet$.
+  \item Morphisms: $\mathbf{B}M(\bullet, \bullet) = M$.
+  \item Composition: the monoid operation $\cdot$.
+  \item Identity: the monoid unit $e$.
+\end{itemize}
+The category axioms for $\mathbf{B}M$ are exactly the monoid axioms for $M$. A monoid is therefore a \emph{one-object category}. Groups correspond to one-object categories in which every morphism is an isomorphism (see Section~\ref{sec:special-morphisms}).
+\end{example}
+
+\begin{example}[Discrete categories]
+For any set $S$, the \textbf{discrete category} on $S$ has $S$ as its object set and only identity morphisms: $\cat{C}(a,b) = \emptyset$ for $a \neq b$, and $\cat{C}(a,a) = \{\id_a\}$. Discrete categories are in bijection with sets.
+\end{example}
+
+\begin{example}[The terminal category $\mathbf{1}$]
+The category $\mathbf{1}$ has a single object $\bullet$ and only the identity morphism $\id_\bullet$. It is the terminal object in $\Cat$.
+\end{example}
+
+\begin{example}[The arrow category $\mathbf{2}$]
+The category $\mathbf{2}$ has two objects $0$ and $1$, identity morphisms on each, and a single non-identity morphism $f: 0 \to 1$.
+\end{example}
+
+\begin{example}[Matrix categories]
+Fix a commutative ring $R$. Define a category $\mathbf{Mat}_R$ with:
+\begin{itemize}
+  \item Objects: natural numbers $0, 1, 2, \ldots$
+  \item Morphisms: $\mathbf{Mat}_R(m, n)$ is the set of $n \times m$ matrices over $R$.
+  \item Composition: matrix multiplication.
+  \item Identity: the $n \times n$ identity matrix.
+\end{itemize}
+This category is equivalent to the category of finitely generated free $R$-modules.
+\end{example}
+
+\begin{example}[The fundamental groupoid]
+Let $X$ be a topological space. The \textbf{fundamental groupoid} $\Pi_1(X)$ has:
+\begin{itemize}
+  \item Objects: points of $X$.
+  \item Morphisms $x \to y$: homotopy classes (rel endpoints) of paths from $x$ to $y$.
+  \item Composition: concatenation of paths (homotopy classes thereof).
+  \item Identity at $x$: the constant path at $x$.
+\end{itemize}
+When $X$ is path-connected and a basepoint $x_0$ is chosen, $\Pi_1(X)(x_0, x_0) = \pi_1(X, x_0)$, the fundamental group.
+\end{example}
+
+\section{The Category of Categories}
+
+Small categories themselves form a category.
+
+\begin{definition}
+A category $\cat{C}$ is \textbf{small} if $\ob(\cat{C})$ is a set (not a proper class) and each hom-set $\cat{C}(a,b)$ is a set. It is \textbf{locally small} if each hom-set is a set, even if $\ob(\cat{C})$ is a proper class.
+\end{definition}
+
+The categories $\Set$, $\Grp$, $\Top$, etc., are locally small but not small. The category $\Cat$ of all small categories and functors between them is locally small but not small.
+
+\begin{definition}[Functor—preliminary definition]
+A \textbf{functor} $F: \cat{C} \to \cat{D}$ is a structure-preserving map between categories. (We give the full definition in Chapter~\ref{ch:functors}.)
+\end{definition}
+
+\begin{definition}[$\Cat$]
+The category $\Cat$ has small categories as objects and functors as morphisms. Composition is composition of functors, and identities are identity functors.
+\end{definition}
+
+\section{Opposite Category}
+
+Every category gives rise to a ``mirror image'' category by reversing all arrows.
+
+\begin{definition}[Opposite category]
+Let $\cat{C}$ be a category. The \textbf{opposite category} (or \textbf{dual category}) $\cat{C}\op$ is defined by:
+\begin{itemize}
+  \item $\ob(\cat{C}\op) = \ob(\cat{C})$.
+  \item $\cat{C}\op(a,b) = \cat{C}(b,a)$ (morphisms are reversed).
+  \item Composition: the composite of $f: a \to b$ and $g: b \to c$ in $\cat{C}\op$ is $f \circ g$ (computed in $\cat{C}$).
+  \item Identities: same as in $\cat{C}$.
+\end{itemize}
+\end{definition}
+
+The opposite category is a powerful conceptual tool: every theorem about categories has a dual theorem about $\cat{C}\op$, obtained by reversing all arrows. This is the \textbf{duality principle}. When we prove a result about limits, we automatically get the dual result about colimits ``for free.''
+
+\begin{remark}
+Note that $(\cat{C}\op)\op = \cat{C}$. The operation $(-)^\mathrm{op}$ is an involution on categories.
+\end{remark}
+
+\section{Product Categories}
+
+\begin{definition}[Product category]
+Given categories $\cat{C}$ and $\cat{D}$, their \textbf{product category} $\cat{C} \times \cat{D}$ has:
+\begin{itemize}
+  \item Objects: pairs $(c, d)$ with $c \in \cat{C}$ and $d \in \cat{D}$.
+  \item Morphisms: $(f,g): (c,d) \to (c',d')$ where $f: c \to c'$ in $\cat{C}$ and $g: d \to d'$ in $\cat{D}$.
+  \item Composition: $(f', g') \circ (f, g) = (f' \circ f,\, g' \circ g)$.
+  \item Identities: $(\id_c, \id_d)$.
+\end{itemize}
+\end{definition}
+
+Product categories are used to express the notion of a \emph{bifunctor}—a functor of two variables—which will be central when we discuss the hom-functor and tensor products.
+
+\section{Slice and Coslice Categories}
+
+Slice and coslice categories are ways of viewing a category ``from the perspective of a fixed object.''
+
+\begin{definition}[Slice category]
+Let $\cat{C}$ be a category and $c \in \cat{C}$ an object. The \textbf{slice category} $\cat{C}/c$ (read: ``$\cat{C}$ over $c$'') has:
+\begin{itemize}
+  \item Objects: pairs $(a, f)$ where $a \in \cat{C}$ and $f: a \to c$.
+  \item Morphisms $(a, f) \to (a', f')$: morphisms $h: a \to a'$ in $\cat{C}$ such that $f' \circ h = f$, i.e., the triangle
+  \[
+    \begin{tikzcd}
+      a \arrow[rr, "h"] \arrow[dr, "f"'] & & a' \arrow[dl, "f'"] \\
+      & c &
+    \end{tikzcd}
+  \]
+  commutes.
+  \item Composition and identities: inherited from $\cat{C}$.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Coslice category]
+The \textbf{coslice category} $c/\cat{C}$ (read: ``$c$ under $\cat{C}$'') has:
+\begin{itemize}
+  \item Objects: pairs $(f, a)$ where $f: c \to a$.
+  \item Morphisms $(f, a) \to (f', a')$: morphisms $h: a \to a'$ such that $h \circ f = f'$.
+\end{itemize}
+\end{definition}
+
+\begin{example}
+The category $\Set_*$ of \emph{pointed sets} (sets with a chosen basepoint) is the coslice $\{*\}/\Set$, where $\{*\}$ is a one-element set and morphisms are basepoint-preserving functions.
+\end{example}
+
+\section{Comma Categories}
+
+Comma categories generalize slice categories and serve as the natural habitat for many universal properties.
+
+\begin{definition}[Comma category]
+Let $F: \cat{A} \to \cat{C}$ and $G: \cat{B} \to \cat{C}$ be functors. The \textbf{comma category} $(F \downarrow G)$ has:
+\begin{itemize}
+  \item Objects: triples $(a, b, h)$ where $a \in \cat{A}$, $b \in \cat{B}$, and $h: Fa \to Gb$ in $\cat{C}$.
+  \item Morphisms $(a,b,h) \to (a',b',h')$: pairs $(f: a \to a', g: b \to b')$ such that the square
+  \[
+    \begin{tikzcd}
+      Fa \arrow[r, "h"] \arrow[d, "Ff"'] & Gb \arrow[d, "Gg"] \\
+      Fa' \arrow[r, "h'"'] & Gb'
+    \end{tikzcd}
+  \]
+  commutes in $\cat{C}$.
+  \item Composition and identities: componentwise.
+\end{itemize}
+\end{definition}
+
+\begin{example}
+When $F = \Id_{\cat{C}}: \cat{C} \to \cat{C}$ is the identity and $G$ is the constant functor at $c$, the comma category $(\Id_{\cat{C}} \downarrow G)$ is the slice category $\cat{C}/c$.
+\end{example}
+
+Comma categories will reappear prominently when we formulate adjunctions and Kan extensions.
+
+\section{Subcategories}
+
+\begin{definition}[Subcategory]
+A category $\cat{D}$ is a \textbf{subcategory} of $\cat{C}$ if:
+\begin{itemize}
+  \item $\ob(\cat{D}) \subseteq \ob(\cat{C})$.
+  \item For all $a, b \in \cat{D}$, $\cat{D}(a,b) \subseteq \cat{C}(a,b)$.
+  \item $\cat{D}$ is closed under composition and contains all identity morphisms of its objects.
+\end{itemize}
+$\cat{D}$ is a \textbf{full subcategory} if $\cat{D}(a,b) = \cat{C}(a,b)$ for all $a, b \in \cat{D}$ (all morphisms between objects of $\cat{D}$ are included). It is a \textbf{wide subcategory} if $\ob(\cat{D}) = \ob(\cat{C})$ (all objects are included).
+\end{definition}
+
+\begin{example}
+$\Ab$ is a full subcategory of $\Grp$. The category of bijections is a wide subcategory of $\Set$ (same objects, only bijections as morphisms). The category of finite sets $\mathbf{FinSet}$ is a full subcategory of $\Set$.
+\end{example}
+
+\section{Special Morphisms}
+\label{sec:special-morphisms}
+
+Just as in algebra we distinguish invertible elements, injective functions, and surjective functions, in category theory we have categorical analogues.
+
+\begin{definition}[Isomorphism]
+A morphism $f: a \to b$ in a category $\cat{C}$ is an \textbf{isomorphism} if there exists a morphism $g: b \to a$ such that $g \circ f = \id_a$ and $f \circ g = \id_b$. Such $g$ is unique and is called the \textbf{inverse} of $f$, written $f^{-1}$.
+
+Objects $a$ and $b$ are \textbf{isomorphic}, written $a \cong b$, if there exists an isomorphism between them.
+\end{definition}
+
+\begin{example}
+In $\Set$, isomorphisms are bijections. In $\Grp$, they are group isomorphisms. In $\Top$, they are homeomorphisms. In a poset (Example~\ref{ex:poset-category}), $a \cong b$ iff $a \leq b$ and $b \leq a$, i.e., $a = b$ (since $\leq$ is antisymmetric).
+\end{example}
+
+\begin{definition}[Monomorphism]
+A morphism $f: a \to b$ is a \textbf{monomorphism} (or \textbf{mono}) if for all objects $c$ and all $g, h: c \to a$,
+\[
+  f \circ g = f \circ h \implies g = h.
+\]
+\end{definition}
+
+\begin{definition}[Epimorphism]
+A morphism $f: a \to b$ is an \textbf{epimorphism} (or \textbf{epi}) if for all objects $c$ and all $g, h: b \to c$,
+\[
+  g \circ f = h \circ f \implies g = h.
+\]
+\end{definition}
+
+\begin{remark}
+In $\Set$, monomorphisms are injections and epimorphisms are surjections. In $\Grp$, monomorphisms are injective homomorphisms, but epimorphisms need not be surjective! The inclusion $\mathbb{Z} \hookrightarrow \mathbb{Q}$ is an epimorphism in $\Ring$ (since any two ring homomorphisms $\mathbb{Q} \to R$ agreeing on $\mathbb{Z}$ must agree on all of $\mathbb{Q}$), even though it is not surjective.
+\end{remark}
+
+\begin{proposition}
+Every isomorphism is both a monomorphism and an epimorphism. The converse fails in general.
+\end{proposition}
+
+\begin{proof}
+Let $f: a \to b$ be an isomorphism with inverse $f^{-1}$. If $f \circ g = f \circ h$, then $f^{-1} \circ f \circ g = f^{-1} \circ f \circ h$, so $g = h$; thus $f$ is mono. Dually, $f$ is epi. The converse fails: in $\Ring$, the inclusion $\mathbb{Z} \hookrightarrow \mathbb{Q}$ is mono and epi but not an isomorphism.
+\end{proof}
+
+\begin{definition}[Section and retraction]
+A morphism $s: a \to b$ is a \textbf{section} (or \textbf{split monomorphism}) if there exists $r: b \to a$ with $r \circ s = \id_a$. We call $r$ a \textbf{retraction} (or \textbf{split epimorphism}) of $b$ onto $a$. Every section is a monomorphism; every retraction is an epimorphism.
+\end{definition}
+
+\begin{definition}[Endomorphism, automorphism]
+A morphism $f: a \to a$ is an \textbf{endomorphism} of $a$. An invertible endomorphism is an \textbf{automorphism}. The set $\End(a) = \cat{C}(a,a)$ forms a monoid under composition; the automorphisms $\Aut(a) \subseteq \End(a)$ form a group.
+\end{definition}
+
+\section{Distinguished Objects}
+
+\begin{definition}[Initial and terminal objects]
+An object $0 \in \cat{C}$ is \textbf{initial} if for every object $c \in \cat{C}$ there is a unique morphism $0 \to c$.
+
+An object $1 \in \cat{C}$ is \textbf{terminal} (or \textbf{final}) if for every object $c \in \cat{C}$ there is a unique morphism $c \to 1$.
+\end{definition}
+
+\begin{proposition}
+Initial objects are unique up to unique isomorphism. Dually, terminal objects are unique up to unique isomorphism.
+\end{proposition}
+
+\begin{proof}
+Suppose $0$ and $0'$ are both initial. Then there exist unique morphisms $f: 0 \to 0'$ and $g: 0' \to 0$. The composite $g \circ f: 0 \to 0$ is a morphism from $0$ to $0$; since $0$ is initial, this composite must equal $\id_0$. Similarly $f \circ g = \id_{0'}$. So $f$ is an isomorphism. The isomorphism is unique because each of $f$ and $g$ is the unique morphism between the respective objects.
+\end{proof}
+
+\begin{example}
+\leavevmode
+\begin{itemize}
+  \item In $\Set$: the empty set $\emptyset$ is initial; any one-element set $\{*\}$ is terminal.
+  \item In $\Grp$: the trivial group $\{e\}$ is both initial and terminal (a \emph{zero object}).
+  \item In $\Ring$: the ring $\mathbb{Z}$ is initial (there is a unique ring homomorphism $\mathbb{Z} \to R$ for any ring $R$); the zero ring $\{0\}$ is terminal.
+  \item In a poset category (Example~\ref{ex:poset-category}): initial objects are least elements; terminal objects are greatest elements.
+  \item In $\Top$: the empty space is initial; any one-point space is terminal.
+\end{itemize}
+\end{example}
+
+\begin{definition}[Zero object]
+An object that is both initial and terminal is called a \textbf{zero object}. Categories with zero objects include $\Grp$, $\Ab$, $\Vect_k$, and $\mathbf{Mod}_R$.
+\end{definition}
+
+When a zero object $0$ exists, for any objects $a, b$ there is a canonical morphism $a \to 0 \to b$ called the \textbf{zero morphism} from $a$ to $b$.
+
+\section{Groupoids}
+
+\begin{definition}[Groupoid]
+A \textbf{groupoid} is a category in which every morphism is an isomorphism.
+\end{definition}
+
+\begin{example}
+\leavevmode
+\begin{itemize}
+  \item Any group $G$ gives a one-object groupoid $\mathbf{B}G$ (the delooping of $G$).
+  \item The fundamental groupoid $\Pi_1(X)$ of a topological space.
+  \item A set $S$ gives a discrete groupoid (only identity morphisms, each of which is trivially its own inverse).
+  \item The \emph{pair groupoid} on a set $S$ has $\ob = S$ and a unique isomorphism $s \to t$ for every pair $s, t \in S$.
+\end{itemize}
+\end{example}
+
+Groupoids unify the notions of groups (one-object case) and equivalence relations (when each hom-set has at most one element). They play an important role in algebraic topology and homotopy theory.
+
+\section{The Homotopy Hypothesis and Higher Categories}
+
+\begin{remark}[Looking ahead]
+The categories studied in this book are ordinary (``1-'') categories. But the structural perspective of category theory naturally leads to higher-dimensional generalizations. A \textbf{2-category} has objects, morphisms, and \emph{2-morphisms} (morphisms between morphisms). The category $\Cat$ itself carries a 2-categorical structure: functors are the morphisms, and natural transformations (Chapter~\ref{ch:nattrans}) are the 2-morphisms.
+
+The \textbf{homotopy hypothesis} of Grothendieck states that (weak) $\infty$-groupoids (where morphisms at every level are invertible) model homotopy types of spaces. This motivates the modern field of $(\infty,1)$-category theory. We touch on 2-categories in Chapter~\ref{ch:nattrans} but leave the higher theory for other texts.
+\end{remark}
+
+\section{Exercises}
+
+\begin{exercise}
+Verify that the fundamental groupoid $\Pi_1(X)$ (Example) satisfies the category axioms. Where do you use the axioms of path homotopy?
+\end{exercise}
+
+\begin{exercise}
+Show that in any category, the identity morphism $\id_a$ is the unique morphism satisfying both unit laws.
+\end{exercise}
+
+\begin{exercise}
+Let $\cat{C}$ be a category and $f: a \to b$ an isomorphism. Show that $f^{-1}$ is unique.
+\end{exercise}
+
+\begin{exercise}
+Show that the inclusion $\mathbb{Z} \hookrightarrow \mathbb{Q}$ is an epimorphism in $\Ring$. \emph{Hint:} Show that any ring homomorphism $\mathbb{Q} \to R$ is determined by its values on $\mathbb{Z}$.
+\end{exercise}
+
+\begin{exercise}
+Describe all initial and terminal objects in the category of fields $\mathbf{Field}$ (with field homomorphisms). What goes wrong?
+\end{exercise}
+
+\begin{exercise}
+Let $\cat{C}$ be a category with a terminal object $1$. Show that the slice category $\cat{C}/1$ is isomorphic to $\cat{C}$.
+\end{exercise}
+
+\begin{exercise}
+Prove that if $\cat{C}$ has a zero object $0$, then for any $a,b \in \cat{C}$, the zero morphism $0_{a,b}: a \to 0 \to b$ is the unique morphism factoring through $0$.
+\end{exercise}
+
+\begin{exercise}[$\star$]
+A \textbf{preorder} is a set $P$ with a relation $\leq$ that is reflexive and transitive (but not necessarily antisymmetric). Show that preorders correspond to categories in which there is at most one morphism between any two objects. How does a poset differ from a preorder, categorically?
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Define the \textbf{arrow category} $\cat{C}^{\to}$ of a category $\cat{C}$: its objects are the morphisms of $\cat{C}$, and a morphism from $f: a \to b$ to $g: c \to d$ is a commutative square. Show this is indeed a category, and identify it as a functor category $[\mathbf{2}, \cat{C}]$ (see Chapter~\ref{ch:nattrans}).
+\end{exercise}
+
+\begin{exercise}[$\star\star$]
+Show that the category of relations $\mathbf{Rel}$ (objects: sets; morphisms $A \to B$: subsets $R \subseteq A \times B$; composition: relational composition) is a category. Identify the isomorphisms in $\mathbf{Rel}$. Show there is a functor $\Set \to \mathbf{Rel}$ sending each function to its graph.
+\end{exercise}

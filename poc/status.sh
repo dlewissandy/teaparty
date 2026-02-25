@@ -11,21 +11,23 @@ echo ""
 
 # ── Running processes ──
 echo "── Processes ──"
-PROJECT_PIDS=$(pgrep -f 'claude.*-p.*--agents.*project-lead' 2>/dev/null || true)
+UBER_PIDS=$(pgrep -f 'claude.*-p.*--agent.*project-lead' 2>/dev/null || true)
 ART_PIDS=$(pgrep -f 'claude.*-p.*--agents.*art-lead' 2>/dev/null || true)
 WRITING_PIDS=$(pgrep -f 'claude.*-p.*--agents.*writing-lead' 2>/dev/null || true)
 EDITORIAL_PIDS=$(pgrep -f 'claude.*-p.*--agents.*editorial-lead' 2>/dev/null || true)
-RELAY_PIDS=$(pgrep -f 'relay\.sh' 2>/dev/null || true)
+RELAY_PIDS=$(ps -eo pid,args 2>/dev/null \
+  | awk '/bash.*\/relay\.sh --team/ && !/plan-execute/ && !/claude -p/ {print $1}' \
+  || true)
 
-if [[ -n "$PROJECT_PIDS" ]]; then
-  for pid in $PROJECT_PIDS; do
+if [[ -n "$UBER_PIDS" ]]; then
+  for pid in $UBER_PIDS; do
     elapsed=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
     cpu=$(ps -o %cpu= -p "$pid" 2>/dev/null | tr -d ' ')
     mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.0fMB", $1/1024}')
-    echo "  PROJECT TEAM   PID=$pid  elapsed=$elapsed  cpu=${cpu}%  mem=$mem"
+    echo "  UBER TEAM      PID=$pid  elapsed=$elapsed  cpu=${cpu}%  mem=$mem"
   done
 else
-  echo "  PROJECT TEAM   not running"
+  echo "  UBER TEAM      not running"
 fi
 
 if [[ -n "$ART_PIDS" ]]; then
@@ -67,6 +69,67 @@ fi
 
 echo ""
 
+# ── Agent teams (from ~/.claude/teams/) ──
+echo "── Agent Teams ──"
+TEAMS_DIR="$HOME/.claude/teams"
+if [[ -d "$TEAMS_DIR" ]]; then
+  python3 -c "
+import json, os, glob, sys
+
+poc_dir = '$SCRIPT_DIR'
+teams_dir = os.path.expanduser('~/.claude/teams')
+tasks_dir = os.path.expanduser('~/.claude/tasks')
+found = 0
+
+for config_path in sorted(glob.glob(os.path.join(teams_dir, '*/config.json'))):
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        continue
+
+    # Check if this team is POC-related (any member cwd under poc dir)
+    members = cfg.get('members', [])
+    cwds = [m.get('cwd', '') for m in members]
+    if not any(poc_dir in cwd for cwd in cwds):
+        continue
+
+    team_name = cfg.get('name', os.path.basename(os.path.dirname(config_path)))
+    member_names = [m.get('name', '?') for m in members]
+
+    # Count tasks
+    team_dir_name = os.path.basename(os.path.dirname(config_path))
+    task_dir = os.path.join(tasks_dir, team_dir_name)
+    task_count = 0
+    if os.path.isdir(task_dir):
+        task_count = len([f for f in os.listdir(task_dir) if f.endswith('.json')])
+
+    created = cfg.get('createdAt', 0)
+    # Format as relative time if recent
+    import time
+    age_s = time.time() - (created / 1000) if created else 0
+    if age_s < 60:
+        age = f'{int(age_s)}s ago'
+    elif age_s < 3600:
+        age = f'{int(age_s/60)}m ago'
+    elif age_s < 86400:
+        age = f'{int(age_s/3600)}h ago'
+    else:
+        age = f'{int(age_s/86400)}d ago'
+
+    print(f'  {team_name} ({len(members)} members, {task_count} tasks, {age})')
+    print(f'    members: {', '.join(member_names)}')
+    found += 1
+
+if found == 0:
+    print('  No POC-related teams found')
+" 2>/dev/null || echo "  (could not read team files)"
+else
+  echo "  No teams directory found"
+fi
+
+echo ""
+
 # ── Stream output (tee temp file) ──
 echo "── Stream Activity ──"
 # run.sh writes the temp file path to output/.stream-file
@@ -82,12 +145,13 @@ if [[ -n "$TMPFILE" && -f "$TMPFILE" ]]; then
   echo "  Stream file: $TMPFILE ($LINES events, $SIZE)"
   echo ""
 
-  # Count event types
+  # Count event types and team activity
   echo "  Event breakdown:"
   python3 -c "
 import json, sys
 from collections import Counter
 counts = Counter()
+team_activity = Counter()
 errors = []
 last_agent_text = ''
 with open('$TMPFILE') as f:
@@ -106,11 +170,36 @@ with open('$TMPFILE') as f:
         elif t == 'assistant':
             content = ev.get('message',{}).get('content',[])
             for b in content:
-                if isinstance(b, dict) and b.get('type') == 'text' and b.get('text','').strip():
+                if not isinstance(b, dict): continue
+                bt = b.get('type','')
+                if bt == 'text' and b.get('text','').strip():
                     last_agent_text = b['text'][:150]
+                elif bt == 'tool_use':
+                    name = b.get('name','')
+                    if name == 'TeamCreate':
+                        team_activity['TeamCreate'] += 1
+                    elif name == 'SendMessage':
+                        msg_type = b.get('input',{}).get('type','message')
+                        if msg_type == 'broadcast':
+                            team_activity['SendMessage (broadcast)'] += 1
+                        elif msg_type in ('shutdown_request', 'shutdown_response'):
+                            team_activity[f'SendMessage ({msg_type})'] += 1
+                        else:
+                            team_activity['SendMessage (DM)'] += 1
+                    elif name == 'TeamDelete':
+                        team_activity['TeamDelete'] += 1
+                    elif name == 'Task':
+                        team_activity['Task (dispatch)'] += 1
 
 for k, v in sorted(counts.items()):
     print(f'    {k}: {v}')
+
+if team_activity:
+    print()
+    print('  Team coordination:')
+    for k, v in sorted(team_activity.items()):
+        print(f'    {k}: {v}')
+
 if errors:
     print()
     print('  Errors:')
@@ -156,18 +245,18 @@ fi
 echo ""
 echo "── Summary ──"
 RUNNING=0
-[[ -n "$PROJECT_PIDS" ]] && RUNNING=$((RUNNING + 1))
+[[ -n "$UBER_PIDS" ]] && RUNNING=$((RUNNING + 1))
 [[ -n "$ART_PIDS" ]] && RUNNING=$((RUNNING + 1))
 [[ -n "$WRITING_PIDS" ]] && RUNNING=$((RUNNING + 1))
 [[ -n "$EDITORIAL_PIDS" ]] && RUNNING=$((RUNNING + 1))
 
 if [[ $RUNNING -eq 0 ]]; then
   echo "  Status: IDLE (no team processes running)"
-elif [[ $RUNNING -eq 1 && -n "$PROJECT_PIDS" ]]; then
+elif [[ $RUNNING -eq 1 && -n "$UBER_PIDS" ]]; then
   if [[ -n "$RELAY_PIDS" ]]; then
-    echo "  Status: DISPATCHING (project team active, relay in progress)"
+    echo "  Status: TEAM ACTIVE (uber team running, relay in progress)"
   else
-    echo "  Status: COORDINATING (project team active, no subteams spawned yet)"
+    echo "  Status: TEAM ACTIVE (uber team running, coordinating)"
   fi
 else
   echo "  Status: ACTIVE ($RUNNING team processes running)"

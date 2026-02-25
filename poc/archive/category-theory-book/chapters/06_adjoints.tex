@@ -1,0 +1,262 @@
+\chapter{Adjoint Functors}
+\label{ch:adjoints}
+
+\section{Motivation}
+
+Adjoint functors appear everywhere in mathematics. Free groups, tensor products, sheafification, compactification, localization—all are expressed most cleanly as adjoints. Mac Lane wrote that adjoint functors ``arise everywhere.'' Understanding them is perhaps the single most important goal of an introductory category theory course.
+
+The idea is simple: two functors $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$ are \emph{adjoint} ($F$ left adjoint to $G$, $G$ right adjoint to $F$) if there is a natural bijection between morphisms $Fc \to d$ and morphisms $c \to Gd$. This says that ``maps out of $Fc$'' correspond naturally to ``maps into $Gd$''—the left adjoint $F$ is the ``free'' or ``most efficient'' way to get from $\cat{C}$ to $\cat{D}$, and $G$ is the corresponding ``forgetful'' functor.
+
+\section{The Hom-Set Definition}
+
+\begin{definition}[Adjunction, hom-set version]
+Let $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$ be functors. An \textbf{adjunction} $F \dashv G$ (read: ``$F$ is left adjoint to $G$,'' or ``$G$ is right adjoint to $F$'') is a natural bijection
+\[
+  \phi_{c,d}:\; \cat{D}(Fc, d) \;\xrightarrow{\;\sim\;}\; \cat{C}(c, Gd),
+\]
+natural in $c \in \cat{C}$ and $d \in \cat{D}$.
+
+Naturality in $c$: for $h: c' \to c$ and $f: Fc \to d$, $\phi_{c',d}(f \circ Fh) = \phi_{c,d}(f) \circ h$.
+Naturality in $d$: for $k: d \to d'$ and $f: Fc \to d$, $\phi_{c,d'}(k \circ f) = Gk \circ \phi_{c,d}(f)$.
+\end{definition}
+
+\section{Unit and Counit}
+
+Every adjunction gives rise to canonical natural transformations, the \emph{unit} and \emph{counit}, which encode the adjunction in a particularly transparent way.
+
+\begin{definition}[Unit and counit]
+Given an adjunction $F \dashv G$ with natural bijection $\phi$, define:
+\begin{itemize}
+  \item The \textbf{unit} $\eta: \Id_{\cat{C}} \Rightarrow GF$: the component $\eta_c: c \to GFc$ is $\phi_{c,Fc}(\id_{Fc})$.
+  \item The \textbf{counit} $\varepsilon: FG \Rightarrow \Id_{\cat{D}}$: the component $\varepsilon_d: FGd \to d$ is $\phi^{-1}_{Gd,d}(\id_{Gd})$.
+\end{itemize}
+\end{definition}
+
+\begin{theorem}[Triangle identities]
+\label{thm:triangle-identities}
+The unit and counit of an adjunction $F \dashv G$ satisfy the \textbf{triangle identities}:
+\[
+  (\varepsilon F) \circ (F\eta) = \id_F \qquad \text{and} \qquad (G\varepsilon) \circ (\eta G) = \id_G.
+\]
+Componentwise: $\varepsilon_{Fc} \circ F(\eta_c) = \id_{Fc}$ and $G(\varepsilon_d) \circ \eta_{Gd} = \id_{Gd}$.
+\[
+  \begin{tikzcd}
+    Fc \arrow[r, "F\eta_c"] \arrow[dr, "\id_{Fc}"'] & FGFc \arrow[d, "\varepsilon_{Fc}"] \\
+    & Fc
+  \end{tikzcd}
+  \qquad
+  \begin{tikzcd}
+    Gd \arrow[r, "\eta_{Gd}"] \arrow[dr, "\id_{Gd}"'] & GFGd \arrow[d, "G\varepsilon_d"] \\
+    & Gd
+  \end{tikzcd}
+\]
+\end{theorem}
+
+\begin{proof}
+For the first identity: $\varepsilon_{Fc} \circ F(\eta_c) = \phi^{-1}(\id_{GFc}) \circ F(\phi(\id_{Fc}))$. By naturality of $\phi$ in $c$ applied to $\eta_c: c \to GFc$, we have $\phi(\varepsilon_{Fc} \circ F\eta_c) = G(\varepsilon_{Fc}) \circ \phi(F\eta_c) = G(\varepsilon_{Fc}) \circ \eta_{GFc} \circ \eta_c$... (we omit the technical verification and refer to \cite{MacLane1998}, Chapter IV).
+\end{proof}
+
+\section{The Unit-Counit Definition}
+
+The triangle identities characterize adjunctions entirely in terms of the unit and counit, without reference to the hom-set bijection.
+
+\begin{theorem}[Adjunction, unit-counit version]
+A pair of functors $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$ together with natural transformations $\eta: \Id_{\cat{C}} \Rightarrow GF$ and $\varepsilon: FG \Rightarrow \Id_{\cat{D}}$ satisfying the triangle identities constitutes an adjunction $F \dashv G$.
+
+The hom-set bijection is recovered by:
+\[
+  \phi_{c,d}(f) = Gf \circ \eta_c, \qquad \phi^{-1}_{c,d}(g) = \varepsilon_d \circ Fg.
+\]
+\end{theorem}
+
+\begin{proof}
+We verify $\phi$ and $\phi^{-1}$ are inverse: $\phi^{-1}(\phi(f)) = \varepsilon_d \circ F(Gf \circ \eta_c) = \varepsilon_d \circ FGf \circ F\eta_c$. By naturality of $\varepsilon$ at $f: Fc \to d$: $\varepsilon_d \circ FGf = f \circ \varepsilon_{Fc}$. So we get $f \circ \varepsilon_{Fc} \circ F\eta_c = f \circ \id_{Fc} = f$ (using the first triangle identity). The other direction is dual.
+\end{proof}
+
+\section{Equivalent Formulations of Adjunctions}
+
+There are (at least) four equivalent ways to define an adjunction. Each illuminates a different aspect.
+
+\begin{theorem}[Four equivalent definitions]
+The following are equivalent for functors $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$:
+\begin{enumerate}
+  \item[(i)] A natural bijection $\cat{D}(Fc,d) \cong \cat{C}(c, Gd)$.
+  \item[(ii)] Natural transformations $\eta: \Id_{\cat{C}} \Rightarrow GF$ and $\varepsilon: FG \Rightarrow \Id_{\cat{D}}$ satisfying the triangle identities.
+  \item[(iii)] A natural transformation $\eta: \Id_{\cat{C}} \Rightarrow GF$ such that for every $c \in \cat{C}$, $d \in \cat{D}$, and $f: c \to Gd$, there is a unique $\bar{f}: Fc \to d$ with $G\bar{f} \circ \eta_c = f$. (Universality of the unit.)
+  \item[(iv)] A representation for each functor $\cat{D}(F-,d): \cat{C}\op \to \Set$ by $Gd$ (and, dually, each $\cat{C}(c,G-)$).
+\end{enumerate}
+\end{theorem}
+
+Formulation (iii) says: $\eta_c: c \to GFc$ is the \emph{universal arrow} from $c$ to $G$.
+
+\section{Examples of Adjunctions}
+
+\begin{example}[Free-forgetful adjunction]
+Let $U: \Grp \to \Set$ be the forgetful functor and $F: \Set \to \Grp$ the free group functor. Then $F \dashv U$. The unit $\eta_S: S \to UF(S)$ is the inclusion of the set $S$ into the free group $F(S)$ as generators. The universal property says: any set-function $f: S \to UG$ extends uniquely to a group homomorphism $\bar{f}: F(S) \to G$. The counit $\varepsilon_G: FU(G) \to G$ is the unique homomorphism extending $\id: UG \to UG$, sending each generator to itself.
+
+The same pattern applies to free monoids, free rings, free $k$-algebras, free $R$-modules, etc.
+\end{example}
+
+\begin{example}[Product-diagonal-coproduct]
+The diagonal functor $\Delta: \cat{C} \to \cat{C} \times \cat{C}$, $c \mapsto (c,c)$, sits in a chain of adjunctions:
+\[
+  \coprod \;\dashv\; \Delta \;\dashv\; \prod.
+\]
+That is, $\cat{C} \times \cat{C}((a,b), \Delta c) \cong \cat{C}(a,c) \times \cat{C}(b,c) \cong \cat{C}(c, a \times b)$ (when products exist), and $\cat{C}(\Delta c, (a,b)) \cong \cat{C}(c,a) \times \cat{C}(c,b)$... Actually more precisely: $a \sqcup b \dashv \Delta \dashv a \times b$ in the sense that coproduct is left adjoint and product is right adjoint to the diagonal.
+\end{example}
+
+\begin{example}[Currying: Tensor-Hom adjunction]
+For a ring $R$ and a fixed right $R$-module $M$, there is an adjunction:
+\[
+  M \otimes_R - \;\dashv\; \Hom_R(M,-),
+\]
+between the categories of left $R$-modules. The natural bijection is:
+\[
+  \Hom_R(M \otimes_R N, P) \;\cong\; \Hom_R(N, \Hom_R(M, P)).
+\]
+In the case $R = k$ (a field), this specializes to the tensor-hom adjunction $V \otimes_k - \;\dashv\; \Hom_k(V, -)$ for vector spaces. In $\Set$ (with Cartesian product), the corresponding statement is $A \times - \;\dashv\; A \to -$ (currying/exponential adjunction): $\Set(A \times B, C) \cong \Set(B, C^A)$.
+\end{example}
+
+\begin{example}[Sheafification]
+The inclusion $i: \mathbf{Sh}(X) \hookrightarrow \mathbf{PSh}(X)$ of sheaves into presheaves on a topological space $X$ has a left adjoint, the sheafification functor $a: \mathbf{PSh}(X) \to \mathbf{Sh}(X)$:
+\[
+  a \;\dashv\; i.
+\]
+The unit $\eta_P: P \to i(aP)$ is the natural map from a presheaf to its sheafification.
+\end{example}
+
+\begin{example}[Stone-Čech compactification]
+The inclusion $i: \mathbf{KHaus} \hookrightarrow \Top$ of compact Hausdorff spaces has a left adjoint, the Stone-Čech compactification $\beta: \Top \to \mathbf{KHaus}$: $\beta \dashv i$ in the sense that $\Top(X, iK) \cong \mathbf{KHaus}(\beta X, K)$.
+\end{example}
+
+\begin{example}[Galois connections]
+Let $(P, \leq)$ and $(Q, \leq)$ be posets, viewed as categories. A functor $F: P \to Q$ is simply an order-preserving map. An adjunction $F \dashv G$ between poset-categories is precisely a \textbf{Galois connection}: for all $p \in P$ and $q \in Q$,
+\[
+  Fp \leq q \;\iff\; p \leq Gq.
+\]
+The triangle identities become $p \leq G(Fp)$ (unit) and $F(Gq) \leq q$ (counit). Galois connections pervade order theory, Galois theory, topology (interior/closure), and logic (proof/model).
+\end{example}
+
+\begin{example}[Reflective subcategories]
+A full subcategory $\cat{D} \hookrightarrow \cat{C}$ is \textbf{reflective} if the inclusion has a left adjoint (the \emph{reflector}). Examples:
+\begin{itemize}
+  \item Abelian groups in groups: the reflector is abelianization $G \mapsto G/[G,G]$.
+  \item Complete metric spaces in metric spaces: the reflector is completion.
+  \item Sheaves in presheaves: the reflector is sheafification.
+  \item $T_0$, $T_1$, $T_2$ spaces within $\Top$: various separation-quotient reflectors.
+\end{itemize}
+\end{example}
+
+\section{Adjunctions and Limits}
+
+The most important structural fact about adjunctions is how they interact with limits and colimits.
+
+\begin{theorem}[RAPL and LAPC]
+\label{thm:rapl-lapc}
+Let $F \dashv G$ be an adjunction with $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$.
+\begin{enumerate}
+  \item[(RAPL)] \textbf{Right Adjoints Preserve Limits:} $G$ preserves all limits that exist in $\cat{D}$.
+  \item[(LAPC)] \textbf{Left Adjoints Preserve Colimits:} $F$ preserves all colimits that exist in $\cat{C}$.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}
+We prove RAPL; LAPC is dual. Let $D: \cat{J} \to \cat{D}$ be a diagram with limit $(L, \pi)$. We show $(GL, G\pi)$ is a limit of $GD$ in $\cat{C}$.
+
+For any cone $(c, \lambda)$ over $GD$—i.e., morphisms $\lambda_j: c \to GD(j)$ natural in $j$—we need a unique $u: c \to GL$ with $G\pi_j \circ u = \lambda_j$.
+
+By the adjunction bijection, each $\lambda_j: c \to GD(j)$ corresponds to $\bar\lambda_j: Fc \to D(j)$, and the naturality of $\lambda$ implies the $\bar\lambda_j$ form a cone over $D$. By universality of $(L, \pi)$, there is a unique $\bar u: Fc \to L$ with $\pi_j \circ \bar u = \bar\lambda_j$. Applying $\phi^{-1}$, this corresponds to a unique $u: c \to GL$ with the required property.
+
+More elegantly: using representability, $\cat{C}(c, G\lim D) \cong \cat{D}(Fc, \lim D) \cong \lim_j \cat{D}(Fc, D(j)) \cong \lim_j \cat{C}(c, GD(j))$, naturally in $c$, which shows $\lim_j GD(j) \cong G \lim_j D(j)$.
+\end{proof}
+
+\begin{example}[Consequences]
+\begin{itemize}
+  \item The forgetful functor $U: \Grp \to \Set$ preserves limits (products, equalizers, etc.) because it has a left adjoint (free group).
+  \item The functor $A \times -: \Set \to \Set$ preserves colimits (disjoint unions, coequalizers, pushouts) because it has a right adjoint $(-)^A$.
+  \item Sheafification preserves colimits.
+  \item Stone-Čech compactification preserves finite coproducts (a less obvious fact).
+\end{itemize}
+\end{example}
+
+\section{Uniqueness of Adjoints}
+
+\begin{theorem}
+Right adjoints are unique up to unique natural isomorphism: if $F \dashv G$ and $F \dashv G'$, then $G \cong G'$ by a unique natural isomorphism. Similarly, left adjoints are unique up to unique natural isomorphism.
+\end{theorem}
+
+\begin{proof}
+$\cat{C}(c, Gd) \cong \cat{D}(Fc,d) \cong \cat{C}(c, G'd)$ naturally in $c$ and $d$. By the Yoneda lemma (applied to each $d$), the bijection $\cat{C}(c,Gd) \cong \cat{C}(c,G'd)$ natural in $c$ gives a unique isomorphism $Gd \cong G'd$ for each $d$; naturality in $d$ makes this a natural isomorphism.
+\end{proof}
+
+\section{Adjoint Functor Theorems}
+
+The adjoint functor theorems give general conditions under which a functor has a left or right adjoint.
+
+\begin{theorem}[General Adjoint Functor Theorem, GAFT]
+\label{thm:gaft}
+Let $\cat{C}$ be a complete, locally small category, and $G: \cat{C} \to \cat{D}$ a functor. Then $G$ has a left adjoint if and only if $G$ preserves all small limits and satisfies the \textbf{solution set condition}: for each $d \in \cat{D}$, there exists a set $\{f_i: d \to G(c_i)\}_{i \in I}$ (a \emph{solution set}) such that every morphism $f: d \to Gc$ factors as $f = Gg \circ f_i$ for some $i$ and some $g: c_i \to c$.
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+For each $d \in \cat{D}$, we seek an initial object in the comma category $(d \downarrow G)$. The solution set ensures we can form a small limit over the solution set to construct this initial object. Completeness of $\cat{C}$ (together with $G$ preserving limits) ensures this limit exists and has the right properties.
+\end{proof}
+
+\begin{theorem}[Special Adjoint Functor Theorem, SAFT]
+\label{thm:saft}
+Let $\cat{C}$ be a complete, locally small, and \textbf{well-powered} category (every object has a set of subobjects) that has a \textbf{cogenerating set} (a set $S \subseteq \ob(\cat{C})$ such that morphisms are detected by maps into elements of $S$). Then any limit-preserving functor $G: \cat{C} \to \cat{D}$ has a left adjoint.
+\end{theorem}
+
+\begin{example}
+$\Set$ has a cogenerating set $\{2\}$ (the two-element set): maps $f, g: A \to B$ agree iff $h \circ f = h \circ g$ for all $h: B \to 2$. So any limit-preserving functor from $\Set$ has a left adjoint. Similarly, $\Grp$ and $\Ab$ satisfy the hypotheses of SAFT.
+\end{example}
+
+\begin{theorem}[Freyd's Adjoint Functor Theorem]
+Let $\cat{C}$ be a locally small category with all small limits. A functor $G: \cat{C} \to \cat{D}$ has a left adjoint if and only if for every $d \in \cat{D}$, the comma category $(d \downarrow G)$ has an initial object.
+\end{theorem}
+
+This is a tautological reformulation, but it is useful: it reduces the existence of adjoints to finding initial objects in comma categories, which can sometimes be checked directly.
+
+\section{Equivalences as Adjunctions}
+
+\begin{proposition}
+An equivalence of categories $F: \cat{C} \simeq \cat{D}$ consists of two adjunctions $F \dashv G$ and $G \dashv F$, where $\eta$ and $\varepsilon$ are natural isomorphisms. Such an adjunction is called an \textbf{adjoint equivalence}.
+\end{proposition}
+
+\begin{proposition}
+Any equivalence can be promoted to an adjoint equivalence: if $F \dashv G$ with unit and counit that are natural isomorphisms, then it is already an adjoint equivalence.
+\end{proposition}
+
+\section{Exercises}
+
+\begin{exercise}
+Verify that the free-forgetful adjunction $F \dashv U: \Grp \to \Set$ satisfies the triangle identities.
+\end{exercise}
+
+\begin{exercise}
+Show that if $F \dashv G$, then $F$ preserves all epimorphisms and $G$ preserves all monomorphisms.
+\end{exercise}
+
+\begin{exercise}
+Let $F \dashv G$ and $F' \dashv G'$ with $F: \cat{C} \to \cat{D}$ and $F': \cat{D} \to \cat{E}$. Show that $F'F \dashv GG'$.
+\end{exercise}
+
+\begin{exercise}
+Prove that the solution set condition is necessary for the existence of a left adjoint: if $G$ has a left adjoint $F$, then for each $d \in \cat{D}$, the singleton $\{\eta_d: d \to GFd\}$ is a solution set.
+\end{exercise}
+
+\begin{exercise}
+Describe the Galois connection between the power sets $\mathcal{P}(A)$ and $\mathcal{P}(B)$ induced by a relation $R \subseteq A \times B$. How does this relate to the Galois connection in classical Galois theory?
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Prove that a reflective subcategory $i: \cat{D} \hookrightarrow \cat{C}$ with reflector $L \dashv i$ is \textbf{closed under limits} in $\cat{C}$ (limits of diagrams in $\cat{D}$, taken in $\cat{C}$, lie in $\cat{D}$). Is $\cat{D}$ closed under colimits?
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Prove that any functor $F: \cat{C} \to \cat{D}$ with $\cat{C}$ small and $\cat{D}$ locally small gives a functor $\Lan_F: [\cat{C}, \Set] \to [\cat{D},\Set]$ left adjoint to $F^*: [\cat{D},\Set] \to [\cat{C},\Set]$ (restriction). (This is a preview of Chapter~\ref{ch:kan}.)
+\end{exercise}
+
+\begin{exercise}[$\star\star$]
+Prove the General Adjoint Functor Theorem in detail, constructing the left adjoint explicitly using the limit of the comma category (d ↓ G) over its solution set.
+\end{exercise}

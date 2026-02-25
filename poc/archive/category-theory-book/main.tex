@@ -1,0 +1,85 @@
+\documentclass{amsbook}
+
+%% Load the shared preamble (packages, macros, theorem environments)
+\input{preamble}
+
+%% ============================================================
+%% BOOK METADATA
+%% ============================================================
+
+\title{Category Theory:\\A Structural Approach}
+\author{Anonymous}
+\date{2026}
+
+\begin{document}
+
+\frontmatter
+
+\maketitle
+
+%% ---- Dedication ------------------------------------------
+\cleardoublepage
+\thispagestyle{empty}
+\vspace*{3in}
+\begin{center}
+  \itshape
+  For everyone who wondered why mathematics looks the same everywhere.
+\end{center}
+
+%% ---- Preface ---------------------------------------------
+\chapter*{Preface}
+\addcontentsline{toc}{chapter}{Preface}
+
+This book is an introduction to category theory at the level of a beginning graduate student in mathematics or a mathematically mature advanced undergraduate. Our goal is significant depth: we prove the major theorems in full (or near-full) detail, provide a wide range of examples, and connect the abstract theory to its concrete mathematical origins.
+
+The subject matter divides into two parts. The first six chapters cover the classical core: categories, functors, natural transformations, limits and colimits, and adjoint functors. These topics are essential for anyone who reads modern mathematics, and we treat them with corresponding care. The final four chapters—monads, Kan extensions, enriched category theory, and topos theory—are somewhat more advanced, but are included because they are indispensable for understanding the modern mathematical landscape.
+
+Readers are assumed to be comfortable with proof-writing and to have seen some abstract algebra and topology. No prior category theory is assumed.
+
+We have tried throughout to follow the principle articulated by Mac Lane: show the ideas, not just the proofs. Every major definition is motivated; every major theorem is situated in its broader context. Exercises range from routine verifications to research-adjacent problems.
+
+\bigskip
+\noindent\textit{How to use this book.} The first six chapters should be read in order. Chapters 7–10 can be read more selectively: Chapter~7 (Monads) depends on Chapters 5 and 6; Chapter~8 (Kan extensions) depends on Chapters 5 and 6; Chapters 9 and 10 are largely independent of each other and of Chapters 7–8.
+
+\bigskip
+\noindent\textit{A note on foundations.} We use set theory informally throughout. Appendix~\ref{app:foundations} discusses the foundational issues (proper classes vs.\ universes) for readers who want precision.
+
+\bigskip
+\noindent\textit{Acknowledgments.} The standard references are Mac Lane \cite{MacLane1998}, Riehl \cite{Riehl2016}, Awodey \cite{Awodey2010}, and Leinster \cite{Leinster2014}. Our exposition is deeply indebted to all of these.
+
+%% ---- Table of Contents -----------------------------------
+\tableofcontents
+
+%% ============================================================
+\mainmatter
+%% ============================================================
+
+\include{chapters/01_introduction}
+\include{chapters/02_categories}
+\include{chapters/03_functors}
+\include{chapters/04_natural_transformations}
+\include{chapters/05_limits_colimits}
+\include{chapters/06_adjoints}
+\include{chapters/07_monads}
+\include{chapters/08_kan_extensions}
+\include{chapters/09_enriched_categories}
+\include{chapters/10_topos_theory}
+
+%% ============================================================
+\appendix
+%% ============================================================
+
+\include{appendices/app_foundations}
+\include{appendices/app_exercises}
+
+%% ============================================================
+\backmatter
+%% ============================================================
+
+%% ---- Bibliography ----------------------------------------
+\printbibliography[heading=bibintoc, title={Bibliography}]
+
+%% ---- Index (optional) ------------------------------------
+%% \printindex
+
+\end{document}

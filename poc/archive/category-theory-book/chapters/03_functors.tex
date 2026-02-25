@@ -1,0 +1,301 @@
+\chapter{Functors}
+\label{ch:functors}
+
+\section{Definition and First Examples}
+
+If categories are the objects of our study, then functors are the morphisms between them. A functor is a map between categories that preserves the categorical structure: it sends objects to objects, morphisms to morphisms, and respects composition and identities.
+
+\begin{definition}[Functor]
+Let $\cat{C}$ and $\cat{D}$ be categories. A \textbf{functor} $F: \cat{C} \to \cat{D}$ consists of:
+\begin{enumerate}
+  \item A function $F: \ob(\cat{C}) \to \ob(\cat{D})$ (we write $Fa$ or $F(a)$).
+  \item For each pair $a, b \in \cat{C}$, a function $F_{a,b}: \cat{C}(a,b) \to \cat{D}(Fa, Fb)$ (we write $Ff$ or $F(f)$).
+\end{enumerate}
+These must satisfy:
+\begin{description}
+  \item[Preservation of identities.] $F(\id_a) = \id_{Fa}$ for all $a \in \cat{C}$.
+  \item[Preservation of composition.] $F(g \circ f) = Fg \circ Ff$ for all composable $f, g$ in $\cat{C}$.
+\end{description}
+\end{definition}
+
+\begin{remark}
+The subscripts on $F_{a,b}$ are usually suppressed; context makes the source and target clear. Note that functors preserve the \emph{domain} and \emph{codomain}: if $f: a \to b$, then $Ff: Fa \to Fb$.
+\end{remark}
+
+\begin{example}[Identity functor]
+For any category $\cat{C}$, the \textbf{identity functor} $\Id_{\cat{C}}: \cat{C} \to \cat{C}$ sends every object and morphism to itself.
+\end{example}
+
+\begin{example}[Forgetful functors]
+Many functors ``forget'' structure:
+\begin{itemize}
+  \item $U: \Grp \to \Set$ sends each group to its underlying set and each homomorphism to the underlying function. This is the prototypical \emph{forgetful functor}.
+  \item Similarly, there are forgetful functors $\Ring \to \Grp$ (forgetting multiplicative structure), $\Top \to \Set$ (forgetting topology), $\Vect_k \to \Ab$ (forgetting scalar multiplication).
+  \item In general, any time a structure consists of a set (or more structured object) with additional data, there is a forgetful functor to the underlying category.
+\end{itemize}
+\end{example}
+
+\begin{example}[Free functors]
+Free functors are in some sense ``the most efficient way to impose structure.''
+\begin{itemize}
+  \item $F: \Set \to \Grp$ sends a set $S$ to the free group $F(S)$ on $S$, and a function $f: S \to T$ to the unique group homomorphism $F(f): F(S) \to F(T)$ extending $f$.
+  \item $F: \Set \to \Vect_k$ sends $S$ to the free vector space $k^{(S)}$ (formal finite $k$-linear combinations of elements of $S$).
+  \item Free functors are always left adjoint to the corresponding forgetful functor (Chapter~\ref{ch:adjoints}).
+\end{itemize}
+\end{example}
+
+\begin{example}[Power-set functor]
+The covariant power-set functor $\mathcal{P}: \Set \to \Set$ sends:
+\begin{itemize}
+  \item Each set $X$ to its power set $\mathcal{P}(X)$.
+  \item Each function $f: X \to Y$ to the direct image function $\mathcal{P}(f): \mathcal{P}(X) \to \mathcal{P}(Y)$, $A \mapsto f(A)$.
+\end{itemize}
+We will see in Chapter~\ref{ch:monads} that $\mathcal{P}$ carries a monad structure.
+\end{example}
+
+\begin{example}[Fundamental group functor]
+The assignment $X \mapsto \pi_1(X, x_0)$ (fundamental group at a basepoint) is not quite a functor from $\Top$ to $\Grp$ because basepoints must be preserved. However, $\pi_1: \Top_* \to \Grp$ (pointed spaces and basepoint-preserving continuous maps) is a functor: a continuous map $f: (X, x_0) \to (Y, y_0)$ induces a group homomorphism $f_*: \pi_1(X,x_0) \to \pi_1(Y, y_0)$.
+\end{example}
+
+\begin{example}[Homology functors]
+For each $n \geq 0$, the $n$-th singular homology group defines a functor $H_n: \Top \to \Ab$. The naturality of the long exact sequence of a pair is the statement that certain natural transformations (Chapter~\ref{ch:nattrans}) exist.
+\end{example}
+
+\begin{example}[Constant functor]
+For any category $\cat{C}$ and object $d \in \cat{D}$, the \textbf{constant functor} $\Delta_d: \cat{C} \to \cat{D}$ sends every object of $\cat{C}$ to $d$ and every morphism to $\id_d$. We will use this extensively when defining limits and colimits (Chapter~\ref{ch:limits}).
+\end{example}
+
+\begin{example}[Diagonal functor]
+For a category $\cat{C}$, the \textbf{diagonal functor} $\Delta: \cat{C} \to \cat{C} \times \cat{C}$ sends $c \mapsto (c,c)$ and $f \mapsto (f,f)$.
+\end{example}
+
+\section{Contravariant Functors}
+
+\begin{definition}[Contravariant functor]
+A \textbf{contravariant functor} $F: \cat{C} \to \cat{D}$ consists of the same data as a functor, except that morphisms are reversed: for $f: a \to b$ in $\cat{C}$, we get $Ff: Fb \to Fa$ in $\cat{D}$. Composition is reversed: $F(g \circ f) = Ff \circ Fg$.
+\end{definition}
+
+A contravariant functor $\cat{C} \to \cat{D}$ is equivalently a covariant functor $\cat{C}\op \to \cat{D}$, or a covariant functor $\cat{C} \to \cat{D}\op$. We generally prefer the covariant-functor-on-opposite-category language.
+
+\begin{example}[Contravariant power-set functor]
+The contravariant power-set functor $\mathcal{P}: \Set\op \to \Set$ sends $X \mapsto \mathcal{P}(X)$ and $f: X \to Y$ to the preimage function $f^{-1}: \mathcal{P}(Y) \to \mathcal{P}(X)$.
+\end{example}
+
+\begin{example}[Dual vector space]
+The functor $(-)^*: \Vect_k\op \to \Vect_k$, $V \mapsto V^* = \Hom_k(V, k)$, is a contravariant functor. For a linear map $T: V \to W$, the transpose $T^*: W^* \to V^*$ is defined by $T^*(\phi) = \phi \circ T$.
+\end{example}
+
+\begin{example}[Cohomology]
+Singular cohomology $H^n: \Top\op \to \Ab$ is a contravariant functor: a continuous map $f: X \to Y$ induces $f^*: H^n(Y) \to H^n(X)$.
+\end{example}
+
+\section{Properties of Functors}
+
+\begin{definition}[Full, faithful, essentially surjective]
+Let $F: \cat{C} \to \cat{D}$ be a functor.
+\begin{itemize}
+  \item $F$ is \textbf{full} if each function $F_{a,b}: \cat{C}(a,b) \to \cat{D}(Fa, Fb)$ is surjective.
+  \item $F$ is \textbf{faithful} if each function $F_{a,b}$ is injective.
+  \item $F$ is \textbf{essentially surjective} (or \textbf{surjective on objects up to isomorphism}) if for every $d \in \cat{D}$, there exists $c \in \cat{C}$ with $Fc \cong d$.
+  \item $F$ is a \textbf{fully faithful} if it is both full and faithful.
+\end{itemize}
+\end{definition}
+
+\begin{remark}
+A functor being ``faithful'' does not mean it is injective on objects—two different objects of $\cat{C}$ might map to the same object of $\cat{D}$. Faithfulness only concerns the action on hom-sets.
+\end{remark}
+
+\begin{proposition}
+A fully faithful functor reflects isomorphisms: if $Ff$ is an isomorphism in $\cat{D}$, then $f$ is an isomorphism in $\cat{C}$.
+\end{proposition}
+
+\begin{proof}
+If $Ff: Fa \to Fb$ is an isomorphism, let $g' = (Ff)^{-1}: Fb \to Fa$. Since $F$ is full, there exists $g: b \to a$ with $Fg = g'$. Then $F(g \circ f) = Fg \circ Ff = g' \circ Ff = \id_{Fa} = F(\id_a)$. Since $F$ is faithful, $g \circ f = \id_a$. Similarly $f \circ g = \id_b$.
+\end{proof}
+
+\begin{definition}[Equivalence of categories]
+An \textbf{equivalence of categories} between $\cat{C}$ and $\cat{D}$ is a functor $F: \cat{C} \to \cat{D}$ such that there exist a functor $G: \cat{D} \to \cat{C}$ and natural isomorphisms $GF \cong \Id_{\cat{C}}$ and $FG \cong \Id_{\cat{D}}$. We write $\cat{C} \simeq \cat{D}$ and say $\cat{C}$ and $\cat{D}$ are \textbf{equivalent}.
+\end{definition}
+
+\begin{theorem}
+A functor $F: \cat{C} \to \cat{D}$ is an equivalence of categories if and only if it is fully faithful and essentially surjective.
+\end{theorem}
+
+We defer the proof to after we have defined natural transformations and natural isomorphisms (Chapter~\ref{ch:nattrans}).
+
+\begin{example}
+The category of finite-dimensional $k$-vector spaces $\mathbf{FDVect}_k$ is equivalent to the category $\mathbf{Mat}_k$ of matrices over $k$. An equivalence sends each finite-dimensional space to a natural number (its dimension) and uses the fact that every finite-dimensional space is isomorphic to $k^n$. This example shows that equivalent categories can look very different while having the same categorical structure.
+\end{example}
+
+\section{The Hom-Functors}
+\label{sec:hom-functors}
+
+One of the most important functors associated to a locally small category $\cat{C}$ is the hom-functor, which encodes all morphisms in $\cat{C}$.
+
+\begin{definition}[Covariant hom-functor]
+For a fixed object $a \in \cat{C}$, define the functor
+\[
+  \cat{C}(a, -): \cat{C} \longrightarrow \Set
+\]
+by:
+\begin{itemize}
+  \item On objects: $b \mapsto \cat{C}(a, b)$.
+  \item On morphisms: for $f: b \to c$, post-composition gives $f_* = \cat{C}(a,f): \cat{C}(a,b) \to \cat{C}(a,c)$, $g \mapsto f \circ g$.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Contravariant hom-functor]
+For a fixed object $b \in \cat{C}$, define the functor
+\[
+  \cat{C}(-, b): \cat{C}\op \longrightarrow \Set
+\]
+by:
+\begin{itemize}
+  \item On objects: $a \mapsto \cat{C}(a, b)$.
+  \item On morphisms: for $f: a \to a'$, pre-composition gives $f^* = \cat{C}(f,b): \cat{C}(a',b) \to \cat{C}(a,b)$, $g \mapsto g \circ f$.
+\end{itemize}
+\end{definition}
+
+\begin{definition}[Bifunctor hom]
+Together, the two variables combine into the \textbf{hom-bifunctor}:
+\[
+  \cat{C}(-,-): \cat{C}\op \times \cat{C} \longrightarrow \Set,
+\]
+sending $(a, b) \mapsto \cat{C}(a,b)$ and $(f: a' \to a,\, g: b \to b') \mapsto (h \mapsto g \circ h \circ f)$.
+\end{definition}
+
+\section{Representable Functors}
+\label{sec:representable}
+
+\begin{definition}[Representable functor]
+A functor $F: \cat{C} \to \Set$ is \textbf{representable} if there exists an object $r \in \cat{C}$ and a natural isomorphism $\alpha: \cat{C}(r, -) \xrightarrow{\sim} F$. The pair $(r, \alpha)$ is called a \textbf{representation} of $F$, and $r$ is called the \textbf{representing object}.
+
+Similarly, a contravariant functor $F: \cat{C}\op \to \Set$ is representable if $F \cong \cat{C}(-,r)$ for some $r$.
+\end{definition}
+
+\begin{example}[Universal properties as representability]
+The notion of a product $a \times b$ in a category $\cat{C}$ can be expressed as representability: the functor
+\[
+  c \;\mapsto\; \cat{C}(c, a) \times \cat{C}(c, b)
+\]
+is (contravariantly) representable by $a \times b$ when the latter exists. The representing object $a \times b$ comes with a natural bijection $\cat{C}(c, a\times b) \cong \cat{C}(c,a) \times \cat{C}(c,b)$, which is precisely the universal property of the product.
+\end{example}
+
+\begin{example}[Tensor product as representability]
+For $R$-modules, the tensor product $M \otimes_R N$ represents the functor $\Hom_R(M, \Hom_R(N, -))$... actually, it represents $\text{Bilinear}(M \times N, -)$. More precisely, the adjunction $M \otimes_R - \dashv \Hom_R(M,-)$ is a statement of representability.
+\end{example}
+
+\section{The Yoneda Lemma}
+\label{sec:yoneda-lemma}
+
+The Yoneda lemma is arguably the most important theorem in category theory. It says that an object $a$ of a locally small category $\cat{C}$ is completely determined by the functor $\cat{C}(a, -)$ it represents.
+
+\begin{theorem}[Yoneda Lemma]
+\label{thm:yoneda}
+Let $\cat{C}$ be a locally small category, $a \in \cat{C}$, and $F: \cat{C} \to \Set$ a functor. Then there is a bijection
+\[
+  \Nat(\cat{C}(a,-),\, F) \;\cong\; Fa,
+\]
+natural in both $a$ and $F$. Explicitly, the bijection sends a natural transformation $\alpha: \cat{C}(a,-) \Rightarrow F$ to the element $\alpha_a(\id_a) \in Fa$.
+\end{theorem}
+
+\begin{proof}
+Define $\Phi: \Nat(\cat{C}(a,-), F) \to Fa$ by $\Phi(\alpha) = \alpha_a(\id_a)$.
+
+We construct an inverse $\Psi: Fa \to \Nat(\cat{C}(a,-), F)$. Given $x \in Fa$, define for each $b \in \cat{C}$ the function $\Psi(x)_b: \cat{C}(a,b) \to Fb$ by
+\[
+  \Psi(x)_b(f) = Ff(x).
+\]
+We must verify that $\Psi(x)$ is a natural transformation, i.e., that for any $g: b \to c$ in $\cat{C}$, the square
+\[
+  \begin{tikzcd}
+    \cat{C}(a,b) \arrow[r, "\Psi(x)_b"] \arrow[d, "g_*"'] & Fb \arrow[d, "Fg"] \\
+    \cat{C}(a,c) \arrow[r, "\Psi(x)_c"'] & Fc
+  \end{tikzcd}
+\]
+commutes. For $f \in \cat{C}(a,b)$: going right-then-down gives $Fg(Ff(x)) = F(g \circ f)(x)$ (by functoriality of $F$); going down-then-right gives $\Psi(x)_c(g \circ f) = F(g \circ f)(x)$. These are equal.
+
+Now we verify $\Phi$ and $\Psi$ are inverse. First, $\Phi(\Psi(x)) = \Psi(x)_a(\id_a) = F(\id_a)(x) = \id_{Fa}(x) = x$, so $\Phi \circ \Psi = \id$.
+
+Second, let $\alpha: \cat{C}(a,-) \Rightarrow F$ be a natural transformation and let $x = \alpha_a(\id_a)$. We claim $\Psi(x) = \alpha$, i.e., for all $b$ and $f: a \to b$, $\Psi(x)_b(f) = \alpha_b(f)$. Indeed, since $\alpha$ is natural, the square
+\[
+  \begin{tikzcd}
+    \cat{C}(a,a) \arrow[r, "\alpha_a"] \arrow[d, "f_*"'] & Fa \arrow[d, "Ff"] \\
+    \cat{C}(a,b) \arrow[r, "\alpha_b"'] & Fb
+  \end{tikzcd}
+\]
+commutes. Evaluating at $\id_a$: $\alpha_b(f_*(\id_a)) = Ff(\alpha_a(\id_a))$, i.e., $\alpha_b(f) = Ff(x) = \Psi(x)_b(f)$.
+
+Naturality in $a$ and $F$ is a direct verification we leave as an exercise.
+\end{proof}
+
+\begin{corollary}[Yoneda embedding]
+\label{cor:yoneda-embedding}
+The functor
+\[
+  \yo: \cat{C} \longrightarrow [\cat{C}\op, \Set], \qquad a \mapsto \cat{C}(-, a)
+\]
+(where $[\cat{C}\op, \Set]$ is the functor category of presheaves on $\cat{C}$) is fully faithful. It is called the \textbf{Yoneda embedding}.
+\end{corollary}
+
+\begin{proof}
+By the Yoneda lemma applied to the contravariant version, natural transformations $\cat{C}(-,a) \Rightarrow \cat{C}(-,b)$ are in bijection with $\cat{C}(-,b)$ evaluated at $a$, which is $\cat{C}(a,b)$. Hence $\yo$ induces a bijection $\cat{C}(a,b) \cong [\cat{C}\op,\Set](\yo(a), \yo(b))$, proving full faithfulness.
+\end{proof}
+
+The Yoneda embedding shows that every category embeds fully faithfully into a presheaf category, and presheaf categories have very good properties (they are complete and cocomplete, they are toposes, etc.). This is the starting point for many sheaf-theoretic constructions.
+
+\begin{corollary}[Yoneda principle]
+Two objects $a, b \in \cat{C}$ are isomorphic if and only if $\cat{C}(-, a) \cong \cat{C}(-, b)$ as functors $\cat{C}\op \to \Set$.
+\end{corollary}
+
+\begin{proof}
+Immediate from the fact that $\yo$ is fully faithful: an isomorphism in $[\cat{C}\op,\Set]$ between $\yo(a)$ and $\yo(b)$ corresponds to an isomorphism in $\cat{C}$ between $a$ and $b$.
+\end{proof}
+
+This is the categorical incarnation of the idea that an object is determined by its ``external behavior''—by how other objects map into it.
+
+\section{Composition of Functors}
+
+\begin{definition}
+Given functors $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{E}$, their composite $G \circ F: \cat{C} \to \cat{E}$ (also written $GF$) is defined by $(G \circ F)(a) = G(Fa)$ and $(G \circ F)(f) = G(Ff)$.
+\end{definition}
+
+Composition of functors is associative and admits identity functors as identities. This makes $\Cat$ into a category (and, as we shall see, a 2-category).
+
+\section{Exercises}
+
+\begin{exercise}
+Verify the functor axioms for the covariant power-set functor $\mathcal{P}: \Set \to \Set$.
+\end{exercise}
+
+\begin{exercise}
+Show that a functor $F: \cat{C} \to \cat{D}$ preserves isomorphisms: if $f: a \to b$ is an isomorphism, then $Ff: Fa \to Fb$ is an isomorphism.
+\end{exercise}
+
+\begin{exercise}
+Let $F: \cat{C} \to \Set$ be a representable functor with representing object $r$. Show that $r$ is unique up to unique isomorphism.
+\end{exercise}
+
+\begin{exercise}
+Explicitly describe the natural transformation $\alpha: \cat{C}(r,-) \Rightarrow F$ corresponding (under the Yoneda lemma) to a universal element $u \in Fr$.
+\end{exercise}
+
+\begin{exercise}
+Prove naturality in $a$ and $F$ for the Yoneda bijection (Theorem~\ref{thm:yoneda}).
+\end{exercise}
+
+\begin{exercise}
+Show that the assignment $a \mapsto \cat{C}(a,-)$ defines a contravariant functor from $\cat{C}$ to the category $[\cat{C},\Set]$ of functors $\cat{C} \to \Set$. State and prove the corresponding version of the Yoneda embedding.
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Let $G$ be a group, viewed as a one-object category $\mathbf{B}G$. Describe the functor category $[\mathbf{B}G, \Set]$. What are its objects and morphisms? (These are called \emph{$G$-sets}.)
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Show that any equivalence of categories is fully faithful and essentially surjective. (The other direction requires the axiom of choice and naturality arguments—prove it after reading Chapter~\ref{ch:nattrans}.)
+\end{exercise}
+
+\begin{exercise}[$\star\star$]
+The \textbf{Cayley theorem} for groups states that every group embeds in a symmetric group. Prove the categorical analogue: every small category $\cat{C}$ embeds fully faithfully in $[\cat{C}\op, \Set]$ (the Yoneda embedding). Discuss in what sense this generalizes Cayley's theorem (take $\cat{C} = \mathbf{B}G$).
+\end{exercise}

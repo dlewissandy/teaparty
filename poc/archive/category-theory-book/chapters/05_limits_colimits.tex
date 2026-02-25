@@ -1,0 +1,286 @@
+\chapter{Limits and Colimits}
+\label{ch:limits}
+
+\section{Motivation}
+
+Many standard constructions in mathematics—products, intersections, preimages, completions, and more—share a common formal structure: they are defined by a universal property. Category theory provides a unified framework for all such constructions through the concept of \emph{limit} and its dual, \emph{colimit}.
+
+Informally, a limit of a diagram is the ``best approximation from outside'' to the diagram, while a colimit is the ``best approximation from inside.'' We will make these ideas precise using the language of cones and universal properties.
+
+\section{Diagrams}
+
+\begin{definition}[Diagram]
+A \textbf{diagram} of shape $\cat{J}$ in a category $\cat{C}$ is a functor $D: \cat{J} \to \cat{C}$. The category $\cat{J}$ is called the \textbf{index category} (or \textbf{shape}) of the diagram. We often refer to the diagram by specifying the objects $D(j)$ for $j \in \cat{J}$ and the morphisms $D(f): D(j) \to D(k)$ for $f: j \to k$ in $\cat{J}$.
+\end{definition}
+
+\begin{example}[Discrete diagram]
+When $\cat{J}$ is a discrete category on objects $\{1, \ldots, n\}$ (only identity morphisms), a diagram $D: \cat{J} \to \cat{C}$ is simply a collection of $n$ objects $D_1, \ldots, D_n$ in $\cat{C}$. The limit of such a diagram is a product.
+\end{example}
+
+\begin{example}[Parallel pair diagram]
+Let $\cat{J}$ be the category with two objects $0, 1$ and two morphisms $f, g: 0 \to 1$ (plus identities). A diagram $D: \cat{J} \to \cat{C}$ picks out two objects $A = D(0)$, $B = D(1)$, and two morphisms $Df, Dg: A \to B$. The limit of this diagram is an equalizer.
+\end{example}
+
+\section{Cones}
+
+\begin{definition}[Cone]
+Let $D: \cat{J} \to \cat{C}$ be a diagram. A \textbf{cone} over $D$ with \textbf{apex} $c \in \cat{C}$ is a natural transformation $\lambda: \Delta_c \Rightarrow D$, where $\Delta_c: \cat{J} \to \cat{C}$ is the constant functor at $c$.
+
+Explicitly, a cone consists of morphisms $\lambda_j: c \to D(j)$ for each $j \in \cat{J}$, such that for every morphism $f: j \to k$ in $\cat{J}$:
+\[
+  D(f) \circ \lambda_j = \lambda_k.
+\]
+\end{definition}
+
+\begin{definition}[Cocone]
+A \textbf{cocone} under $D$ with \textbf{nadir} $c$ is a natural transformation $\lambda: D \Rightarrow \Delta_c$, consisting of morphisms $\lambda_j: D(j) \to c$ such that $\lambda_k \circ D(f) = \lambda_j$ for all $f: j \to k$.
+\end{definition}
+
+\section{Limits}
+
+\begin{definition}[Limit]
+Let $D: \cat{J} \to \cat{C}$ be a diagram. A \textbf{limit} of $D$ is a cone $(\lim D,\, \pi)$ (where $\pi_j: \lim D \to D(j)$) such that for every cone $(c, \lambda)$ over $D$, there is a \emph{unique} morphism $u: c \to \lim D$ in $\cat{C}$ making all triangles commute:
+\[
+  \pi_j \circ u = \lambda_j \qquad \text{for all } j \in \cat{J}.
+\]
+Equivalently, $\lim D$ represents the functor $\mathrm{Cone}(-, D): \cat{C}\op \to \Set$, where $\mathrm{Cone}(c,D) = \Nat(\Delta_c, D)$.
+\end{definition}
+
+\begin{proposition}
+If a limit of $D$ exists, it is unique up to unique isomorphism.
+\end{proposition}
+
+\begin{proof}
+Suppose $(L, \pi)$ and $(L', \pi')$ are both limits. By universality of $(L, \pi)$ applied to $(L', \pi')$, there is a unique $u: L' \to L$ with $\pi_j \circ u = \pi'_j$. By universality of $(L', \pi')$ applied to $(L, \pi)$, there is a unique $v: L \to L'$ with $\pi'_j \circ v = \pi_j$. Then $u \circ v: L \to L$ satisfies $\pi_j \circ (u \circ v) = \pi_j = \pi_j \circ \id_L$; by uniqueness, $u \circ v = \id_L$. Similarly $v \circ u = \id_{L'}$.
+\end{proof}
+
+\section{Key Examples of Limits}
+
+\subsection{Products}
+
+\begin{definition}[Product]
+The \textbf{product} of objects $\{A_i\}_{i \in I}$ in $\cat{C}$ is the limit of the discrete diagram $D: I \to \cat{C}$, $i \mapsto A_i$. It is written $\prod_{i \in I} A_i$, with \textbf{projection morphisms} $\pi_i: \prod_j A_j \to A_i$.
+
+The universal property: for any $c$ and morphisms $f_i: c \to A_i$, there is a unique morphism $\langle f_i \rangle: c \to \prod_j A_j$ with $\pi_i \circ \langle f_i \rangle = f_i$.
+
+For two objects: $A \times B$ is the binary product.
+\end{definition}
+
+\begin{example}
+In $\Set$, the product is the Cartesian product. In $\Grp$, it is the direct product. In $\Top$, it is the product topology. In a poset, the product of $a$ and $b$ is $\inf(a,b)$ (the greatest lower bound).
+\end{example}
+
+\subsection{Equalizers}
+
+\begin{definition}[Equalizer]
+The \textbf{equalizer} of two morphisms $f, g: A \to B$ is the limit of the parallel pair diagram. It consists of an object $E$ and a morphism $e: E \to A$ such that:
+\begin{itemize}
+  \item $f \circ e = g \circ e$.
+  \item Universal property: for any $h: X \to A$ with $f \circ h = g \circ h$, there is a unique $u: X \to E$ with $e \circ u = h$.
+\end{itemize}
+\end{definition}
+
+\begin{example}
+In $\Set$, the equalizer of $f, g: A \to B$ is $\{a \in A \mid f(a) = g(a)\} \hookrightarrow A$. In $\Grp$, it is the kernel of $f \cdot g^{-1}$ (preimage of the identity under $f \cdot g^{-1}: A \to B$). In $\Top$, it carries the subspace topology.
+\end{example}
+
+\begin{proposition}
+Equalizers are monomorphisms.
+\end{proposition}
+
+\begin{proof}
+Let $e: E \to A$ be the equalizer of $f, g$. Suppose $e \circ u = e \circ v$ for $u, v: X \to E$. Then $f \circ (e \circ u) = g \circ (e \circ u)$, so by uniqueness in the universal property, $u = v$.
+\end{proof}
+
+\subsection{Pullbacks}
+
+\begin{definition}[Pullback]
+Let $f: A \to C$ and $g: B \to C$. The \textbf{pullback} (or \textbf{fibered product}) $A \times_C B$ is the limit of the cospan diagram:
+\[
+  \begin{tikzcd}
+    & A \arrow[d, "f"] \\
+    B \arrow[r, "g"'] & C
+  \end{tikzcd}
+\]
+It comes with morphisms $p_A: A \times_C B \to A$ and $p_B: A \times_C B \to B$ such that $f \circ p_A = g \circ p_B$, and is universal with this property.
+\end{definition}
+
+\begin{example}
+In $\Set$, $A \times_C B = \{(a,b) \in A \times B \mid f(a) = g(b)\}$. Pullbacks in $\Top$ carry the subspace topology of $A \times B$. In $\Grp$, the pullback of $f: H \to G$ and $g: K \to G$ is $\{(h,k) \in H \times K \mid f(h) = g(k)\}$.
+\end{example}
+
+\begin{proposition}
+Pullback of a monomorphism is a monomorphism.
+\end{proposition}
+
+\begin{proof}
+Let $m: A \to C$ be mono, and form the pullback $P = B \times_C A$ with projections $p: P \to B$, $q: P \to A$. Suppose $p \circ u = p \circ v$ for $u, v: X \to P$. Then $q \circ u$ and $q \circ v$ both satisfy $m \circ (q \circ u) = g \circ p \circ u = g \circ p \circ v = m \circ (q \circ v)$. Since $m$ is mono, $q \circ u = q \circ v$. Now $p \circ u = p \circ v$ and $q \circ u = q \circ v$ imply $u = v$ by the universal property of the pullback.
+\end{proof}
+
+\section{Colimits}
+
+Colimits are the dual notion, obtained by reversing all arrows.
+
+\begin{definition}[Colimit]
+The \textbf{colimit} of $D: \cat{J} \to \cat{C}$ is a cocone $(\colim D, \iota)$ (with $\iota_j: D(j) \to \colim D$) that is universal: for every cocone $(c, \lambda)$, there is a unique $u: \colim D \to c$ with $u \circ \iota_j = \lambda_j$.
+\end{definition}
+
+\subsection{Coproducts}
+
+\begin{definition}[Coproduct]
+The \textbf{coproduct} $\coprod_{i \in I} A_i$ is the colimit of the discrete diagram $i \mapsto A_i$, with \textbf{inclusion morphisms} $\iota_i: A_i \to \coprod_j A_j$.
+\end{definition}
+
+\begin{example}
+In $\Set$, the coproduct is the disjoint union. In $\Grp$, it is the free product. In $\Ab$ and $\Vect_k$, it is the direct sum (also the product for finite index sets). In $\Top$, it is the disjoint union with the coproduct topology. In a poset, coproduct is the join (least upper bound).
+\end{example}
+
+\subsection{Coequalizers}
+
+\begin{definition}[Coequalizer]
+The \textbf{coequalizer} of $f, g: A \to B$ is an object $Q$ with a morphism $q: B \to Q$ such that $q \circ f = q \circ g$, universal with this property.
+\end{definition}
+
+\begin{example}
+In $\Set$, the coequalizer of $f, g: A \to B$ is the quotient $B / {\sim}$, where $\sim$ is the equivalence relation generated by $f(a) \sim g(a)$ for all $a \in A$.
+\end{example}
+
+\begin{proposition}
+Coequalizers are epimorphisms.
+\end{proposition}
+
+\subsection{Pushouts}
+
+\begin{definition}[Pushout]
+The \textbf{pushout} of $f: C \to A$ and $g: C \to B$ (a span diagram) is the colimit, written $A \sqcup_C B$, with inclusions $i_A: A \to A \sqcup_C B$ and $i_B: B \to A \sqcup_C B$ such that $i_A \circ f = i_B \circ g$.
+\end{definition}
+
+\begin{example}
+In $\Set$, the pushout is $(A \sqcup B) / \sim$ where $f(c) \sim g(c)$ for all $c \in C$. In $\Top$, pushouts are used to define CW-complex attachments. In $\Grp$, the pushout is the amalgamated free product $A *_C B$. In $\mathbf{CommRing}$, the pushout is the tensor product $A \otimes_C B$.
+\end{example}
+
+\section{Existence of Limits}
+
+\begin{definition}[Complete and cocomplete categories]
+A category is \textbf{complete} if it has all small limits (i.e., limits of all diagrams indexed by small categories). It is \textbf{cocomplete} if it has all small colimits.
+\end{definition}
+
+\begin{theorem}[Construction from products and equalizers]
+A category has all finite limits if and only if it has all finite products and all equalizers.
+\end{theorem}
+
+\begin{proof}
+($\Rightarrow$) Products and equalizers are special limits.
+
+($\Leftarrow$) Given a finite diagram $D: \cat{J} \to \cat{C}$, we construct its limit as an equalizer of two maps between products. Specifically, form:
+\[
+  \prod_{j \in \cat{J}} D(j) \;\underset{g}{\overset{f}{\rightrightarrows}}\; \prod_{f: j \to k \text{ in } \cat{J}} D(k)
+\]
+where $f$ is defined using the component maps $D(f)$ and $g$ uses the projections. The equalizer of $f$ and $g$ is the limit of $D$.
+
+More explicitly, let $E = \text{Eq}(s,t)$ where:
+\[
+  s\left((x_j)\right)_{(f: j \to k)} = D(f)(x_j), \quad t\left((x_j)\right)_{(f:j\to k)} = x_k.
+\]
+Then $E \cong \lim D$.
+\end{proof}
+
+\begin{corollary}
+A category has all small limits if and only if it has all small products and all equalizers.
+\end{corollary}
+
+\begin{theorem}
+The categories $\Set$, $\Grp$, $\Ab$, $\Vect_k$, $\Ring$, $\Top$ are complete and cocomplete.
+\end{theorem}
+
+\section{Limits and Colimits in Functor Categories}
+
+\begin{theorem}
+Let $\cat{C}$ be a small category and $\cat{D}$ a complete (resp.\ cocomplete) category. Then the functor category $[\cat{C}, \cat{D}]$ is complete (resp.\ cocomplete), with limits and colimits computed pointwise: $(\lim F)_c = \lim(F_c)$ for each $c \in \cat{C}$.
+\end{theorem}
+
+\begin{corollary}
+The presheaf category $[\cat{C}\op, \Set]$ is complete and cocomplete for any small $\cat{C}$.
+\end{corollary}
+
+\section{Filtered Colimits and Flat Functors}
+
+\begin{definition}[Filtered category]
+A category $\cat{J}$ is \textbf{filtered} if:
+\begin{enumerate}
+  \item It is nonempty.
+  \item For any two objects $j, k \in \cat{J}$, there exist an object $l$ and morphisms $j \to l$ and $k \to l$.
+  \item For any two parallel morphisms $f, g: j \to k$, there exists a morphism $h: k \to l$ with $h \circ f = h \circ g$.
+\end{enumerate}
+A \textbf{filtered colimit} is the colimit of a diagram $D: \cat{J} \to \cat{C}$ with $\cat{J}$ filtered.
+\end{definition}
+
+\begin{example}
+Directed systems (in algebra) index filtered colimits. The colimit is the \emph{direct limit}. For example, the field of fractions $k(x)$ is the filtered colimit of polynomial rings $k[x, f^{-1}]$ as $f$ ranges over nonzero polynomials.
+\end{example}
+
+\begin{theorem}[Filtered colimits commute with finite limits in $\Set$]
+In $\Set$, filtered colimits commute with finite limits: for a filtered diagram $D: \cat{J} \to [\cat{K}, \Set]$ (with $\cat{K}$ finite),
+\[
+  \colim_{\cat{J}} \lim_{\cat{K}} D \;\cong\; \lim_{\cat{K}} \colim_{\cat{J}} D.
+\]
+\end{theorem}
+
+\section{Preservation, Reflection, and Creation}
+
+\begin{definition}
+Let $F: \cat{C} \to \cat{D}$ be a functor and $D: \cat{J} \to \cat{C}$ a diagram.
+\begin{itemize}
+  \item $F$ \textbf{preserves} limits of shape $\cat{J}$ if: whenever $(\ell, \pi)$ is a limit of $D$, $(F\ell, F\pi)$ is a limit of $FD$.
+  \item $F$ \textbf{reflects} limits of shape $\cat{J}$ if: whenever $(c, \lambda)$ is a cone and $(Fc, F\lambda)$ is a limit of $FD$, then $(c, \lambda)$ is a limit of $D$.
+  \item $F$ \textbf{creates} limits of shape $\cat{J}$ if: for every limit $(d, \mu)$ of $FD$, there exists a unique cone $(c, \lambda)$ over $D$ with $Fc = d$ and $F\lambda = \mu$, and this cone is a limit.
+\end{itemize}
+\end{definition}
+
+The most important case is that right adjoints preserve limits and left adjoints preserve colimits—this is the content of the next chapter.
+
+\begin{theorem}[Representables preserve limits]
+For any $a \in \cat{C}$, the covariant hom-functor $\cat{C}(a,-): \cat{C} \to \Set$ preserves all limits.
+\end{theorem}
+
+\begin{proof}
+A cone $(c, \lambda)$ over $D: \cat{J} \to \cat{C}$ corresponds, by the universal property of $\lim D$, to a unique morphism $c \to \lim D$. Applying $\cat{C}(a,-)$: a natural transformation from $\Delta_{\cat{C}(a,a')}$ to $\cat{C}(a, D(-))$ consists of maps $\cat{C}(a, D(j))$ forming a cone, corresponding to a map $a \to \lim D$, i.e., an element of $\cat{C}(a, \lim D)$. This bijection is natural, proving $\cat{C}(a, \lim D) \cong \lim \cat{C}(a, D(-))$.
+\end{proof}
+
+\section{Exercises}
+
+\begin{exercise}
+Show that the pullback of $f: A \to C$ and $g: B \to C$ in $\Set$ is $\{(a,b) \in A \times B \mid f(a) = g(b)\}$.
+\end{exercise}
+
+\begin{exercise}
+Show that terminal objects are limits of empty diagrams ($\cat{J} = \emptyset$), and initial objects are colimits of empty diagrams.
+\end{exercise}
+
+\begin{exercise}
+Prove that the colimit of a diagram $D: \cat{J} \to \cat{C}$ can be computed as the coequalizer of two maps between coproducts, dualizing the construction in the proof of the finite-limits theorem.
+\end{exercise}
+
+\begin{exercise}
+Show that in $\Ab$, finite products and finite coproducts coincide (both are given by the direct sum). Show this fails for infinite index sets.
+\end{exercise}
+
+\begin{exercise}
+In $\Top$, describe the pushout of two inclusions $A \hookleftarrow C \hookrightarrow B$. How does this relate to the construction of CW complexes?
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Prove that if $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{E}$ both preserve limits of shape $\cat{J}$, then $G \circ F$ also preserves limits of shape $\cat{J}$.
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Show that limits in $[\cat{C}, \cat{D}]$ are computed pointwise: $(\lim_i F_i)_c \cong \lim_i (F_i(c))$, when $\cat{D}$ has the required limits. Dualize for colimits.
+\end{exercise}
+
+\begin{exercise}[$\star$]
+A functor $F: \cat{C} \to \cat{D}$ is called \textbf{continuous} if it preserves all small limits, and \textbf{cocontinuous} if it preserves all small colimits. Show that representable functors $\cat{C}(a,-)$ are continuous, and corepresentable functors $\cat{C}(-,b)$ are contravariant-continuous (send colimits to limits).
+\end{exercise}
+
+\begin{exercise}[$\star\star$]
+Prove that filtered colimits commute with finite limits in $\Set$.
+\end{exercise}

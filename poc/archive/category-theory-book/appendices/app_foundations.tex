@@ -1,0 +1,132 @@
+\chapter{Set-Theoretic Foundations}
+\label{app:foundations}
+
+Category theory, like all of mathematics, requires some set-theoretic foundation. The main text uses set theory informally, appealing to intuition and the reader's common sense. This appendix discusses the foundational issues that arise when categories become ``large,'' and presents two standard resolutions: the von Neumann-Bernays-Gödel (NBG) approach using classes, and Grothendieck's universe approach.
+
+\section{Naive Set Theory and Its Limits}
+
+In naive set theory, one works with sets freely, forming them by comprehension: $\{x \mid \phi(x)\}$ for any property $\phi$. Russell's paradox (1901) shows this is inconsistent: let $R = \{x \mid x \notin x\}$; then $R \in R \iff R \notin R$.
+
+Zermelo-Fraenkel set theory with Choice (ZFC) avoids this paradox by restricting comprehension and laying down explicit axioms.
+
+\begin{definition}[The axioms of ZFC (informal)]
+\leavevmode
+\begin{enumerate}
+  \item \textbf{Extensionality.} Sets with the same elements are equal: $\forall z(z \in x \iff z \in y) \Rightarrow x = y$.
+  \item \textbf{Empty set.} There exists a set with no elements: $\exists x \forall y (y \notin x)$.
+  \item \textbf{Pairing.} For any $a, b$, the set $\{a,b\}$ exists.
+  \item \textbf{Union.} For any set $\mathcal{A}$, the union $\bigcup \mathcal{A}$ exists.
+  \item \textbf{Power set.} For any set $x$, the power set $\mathcal{P}(x) = \{y \mid y \subseteq x\}$ exists.
+  \item \textbf{Separation (Restricted Comprehension).} For any set $x$ and formula $\phi$, $\{y \in x \mid \phi(y)\}$ exists.
+  \item \textbf{Replacement.} If $\phi(x,y)$ defines a function on a set, the image is a set.
+  \item \textbf{Infinity.} There exists an infinite set (containing $\emptyset$ and closed under $x \mapsto x \cup \{x\}$).
+  \item \textbf{Foundation (Regularity).} Every nonempty set $x$ has an element disjoint from $x$. (No infinite descending $\in$-chains.)
+  \item \textbf{Choice (AC).} Every family of nonempty sets has a choice function.
+\end{enumerate}
+\end{definition}
+
+In ZFC, all mathematical objects are encoded as sets. The natural numbers are $0 = \emptyset$, $1 = \{\emptyset\}$, $2 = \{\emptyset, \{\emptyset\}\}$, etc.\ (von Neumann ordinals). Ordered pairs are Kuratowski pairs: $(a,b) = \{\{a\}, \{a,b\}\}$. Functions are sets of ordered pairs.
+
+\section{The Size Problem in Category Theory}
+
+A fundamental problem arises: the collection of all sets is not a set (Russell's paradox applies). Therefore $\Set$ does not have an object set—it is a \emph{large} category. Similarly, $\Grp$, $\Top$, etc.\ are large.
+
+But the main concern for category theory is: can we form the collection of all small categories? Can we form the functor category $[\cat{C}\op, \Set]$ when $\cat{C}$ is small? Can we compose large functors?
+
+Two standard approaches resolve this.
+
+\section{Classes: The NBG and MK Approach}
+
+\textbf{von Neumann-Bernays-Gödel set theory (NBG)} and \textbf{Morse-Kelley set theory (MK)} extend ZFC by a primitive notion of \textbf{class}: a class is any collection, and a class that is itself an element of another class is called a \textbf{set}. Classes that are not sets are \textbf{proper classes}.
+
+\begin{itemize}
+  \item In NBG/MK, $V$ (the class of all sets) and $\mathbf{On}$ (the class of all ordinals) are proper classes.
+  \item The ``class of all groups'' $\text{ob}(\Grp)$ is a proper class; the hom-set $\Grp(G,H)$ is a set.
+  \item A \textbf{large category} has a proper class of objects; a \textbf{small category} has a set of objects (and a set of morphisms). A \textbf{locally small} category has a set of morphisms between any two objects.
+\end{itemize}
+
+The drawback: in NBG, you cannot form the ``class of all classes'' (there is no class of all large categories). This means $\mathbf{CAT}$ (the category of all large categories) is not well-defined in NBG.
+
+\section{Universes: The Grothendieck Approach}
+
+Grothendieck introduced a cleaner solution using \textbf{universes}.
+
+\begin{definition}[Grothendieck universe]
+A \textbf{Grothendieck universe} is a set $\mathcal{U}$ satisfying:
+\begin{enumerate}
+  \item $x \in \mathcal{U}$ and $y \in x$ implies $y \in \mathcal{U}$ (transitivity).
+  \item $x, y \in \mathcal{U}$ implies $\{x,y\} \in \mathcal{U}$ (pairing).
+  \item $x \in \mathcal{U}$ implies $\mathcal{P}(x) \in \mathcal{U}$ (power set).
+  \item If $I \in \mathcal{U}$ and $\{x_i\}_{i \in I}$ is a family with all $x_i \in \mathcal{U}$, then $\bigcup_i x_i \in \mathcal{U}$ (union).
+  \item $\omega \in \mathcal{U}$ (the natural numbers are in $\mathcal{U}$).
+\end{enumerate}
+A set $x$ is \textbf{$\mathcal{U}$-small} if $x \in \mathcal{U}$.
+\end{definition}
+
+\begin{remark}
+A Grothendieck universe is essentially a model of ZFC inside ZFC. The existence of a Grothendieck universe is equivalent (over ZFC) to the existence of an \textbf{inaccessible cardinal}: an uncountable cardinal $\kappa$ that is a limit cardinal and regular ($\text{cf}(\kappa) = \kappa$). The existence of inaccessible cardinals cannot be proved in ZFC (by Gödel's incompleteness theorems).
+\end{remark}
+
+\textbf{The universe axiom} (Grothendieck's convention) asserts: every set is contained in some Grothendieck universe.
+
+With this axiom (or with a fixed universe $\mathcal{U}_0 \in \mathcal{U}_1 \in \mathcal{U}_2 \in \cdots$), we can:
+\begin{itemize}
+  \item Call a category \textbf{small} if its objects and morphisms are $\mathcal{U}_0$-small.
+  \item Call a category \textbf{large} (or \textbf{locally small}) if its hom-sets are $\mathcal{U}_0$-small.
+  \item Form the ``category of all small categories'' $\Cat$ (which is $\mathcal{U}_1$-small).
+  \item Form functor categories $[\cat{C}\op, \Set]$ for small $\cat{C}$, which are locally small.
+\end{itemize}
+
+Grothendieck's universe approach is now standard in algebraic geometry and topos theory.
+
+\section{The Axiom of Choice}
+
+The Axiom of Choice (AC) is used extensively in category theory:
+\begin{itemize}
+  \item Choosing skeleta of categories (one representative from each isomorphism class).
+  \item Showing that a fully faithful essentially surjective functor is an equivalence (requires choosing the equivalence inverse).
+  \item The General Adjoint Functor Theorem (GAFT).
+  \item The existence of enough injectives and projectives.
+\end{itemize}
+
+The connection between AC and category theory is deep: many categorical theorems are equivalent to AC or weaker choice principles. In constructive mathematics and intuitionistic logic (as in topos theory), AC is not assumed, and many results require reformulation.
+
+\section{Cardinal Arithmetic}
+
+We collect some basic facts about cardinals used in the text.
+
+\begin{definition}
+A \textbf{cardinal} is an ordinal that cannot be put in bijection with any smaller ordinal. For a set $X$, $|X|$ denotes the cardinality (the unique cardinal in bijection with $X$, assuming AC).
+
+\begin{itemize}
+  \item $\aleph_0 = |\mathbb{N}|$ (countably infinite).
+  \item $\aleph_1$ = the first uncountable cardinal.
+  \item $\mathfrak{c} = 2^{\aleph_0} = |\mathbb{R}|$ (the continuum).
+\end{itemize}
+
+A set is \textbf{finite} if $|X| < \aleph_0$, \textbf{countable} if $|X| \leq \aleph_0$, \textbf{uncountable} otherwise.
+\end{definition}
+
+\begin{theorem}[Cantor]
+$|X| < |\mathcal{P}(X)|$ for all sets $X$. In particular, there is no ``largest'' cardinal.
+\end{theorem}
+
+\begin{definition}
+A cardinal $\kappa$ is \textbf{regular} if it cannot be expressed as a sum $\sum_{i < \lambda} \kappa_i$ with $\lambda < \kappa$ and each $\kappa_i < \kappa$. $\aleph_0$ and every successor cardinal $\aleph_{\alpha+1}$ are regular; limit cardinals may or may not be.
+
+A cardinal $\kappa > \aleph_0$ is \textbf{(strongly) inaccessible} if it is regular and $2^\lambda < \kappa$ for all $\lambda < \kappa$.
+\end{definition}
+
+Every Grothendieck universe $\mathcal{U}$ corresponds to an inaccessible cardinal $\kappa = |\mathcal{U}|$, and $\mathcal{U} = V_\kappa$ (the $\kappa$-th stage of the cumulative hierarchy).
+
+\section{Summary of Conventions}
+
+Throughout this book, we use the following conventions:
+\begin{itemize}
+  \item \textbf{Small category}: objects and morphisms form sets.
+  \item \textbf{Locally small category}: each hom-class is a set.
+  \item \textbf{Large category}: objects may form a proper class (or a set outside $\mathcal{U}_0$).
+  \item We assume a suitable universe axiom so that all functor categories we form are legitimate.
+  \item We use the Axiom of Choice without explicit mention.
+  \item Set-theoretic subtleties beyond local smallness are noted but not belabored.
+\end{itemize}

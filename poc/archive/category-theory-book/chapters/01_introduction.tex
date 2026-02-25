@@ -1,0 +1,72 @@
+\chapter{Introduction}
+
+\section{What Is Category Theory?}
+
+Category theory is the study of mathematical structure at its most abstract. Where algebra studies sets equipped with operations, and topology studies sets equipped with notions of proximity, category theory steps back further still and asks: what do these mathematical endeavors have in common? What is the bare minimum structure needed to speak of \emph{objects}, \emph{maps between objects}, and \emph{composition of maps}?
+
+The answer is a \emph{category}: a collection of objects, a collection of morphisms between them, and a rule for composing morphisms that is associative and admits identities. That is all. From this sparse beginning, a surprisingly rich theory unfolds—one that has reshaped large parts of algebra, topology, logic, and theoretical computer science.
+
+To a newcomer, category theory can feel like abstraction for its own sake. Why introduce yet another layer of abstraction when we are already comfortable with groups, rings, topological spaces, and so on? The answer is that categorical thinking is not mere abstraction: it is a \emph{precision instrument} for isolating structural content. When a theorem in group theory and an analogous theorem in ring theory have identical proofs, category theory tells us why—both are instances of a single categorical fact. When two constructions in different fields are "the same in some sense," that sense can almost always be made precise as a functor, a natural transformation, or an adjunction.
+
+Category theory also has a distinctive philosophical character. Rather than studying individual objects in isolation, it insists that objects can only be understood through their relationships to other objects—through the morphisms that connect them. An object is, in a precise sense, determined by what maps into it and what maps out of it. This is the spirit of the Yoneda lemma, perhaps the single most important result in elementary category theory.
+
+\section{A Brief History}
+
+Category theory was born in 1945 with the paper \emph{General Theory of Natural Equivalences} by Samuel Eilenberg and Saunders Mac Lane \cite{EilenbergMacLane1945}. Eilenberg and Mac Lane introduced categories and functors not as the primary objects of study, but as scaffolding for a precise definition of \emph{natural transformation}—a concept they needed to articulate the sense in which a construction in algebraic topology was ``natural.'' The famous quip attributed to Mac Lane was that categories were introduced so that functors could be defined, and functors were introduced so that natural transformations could be defined.
+
+The language spread rapidly. By the 1950s, it had been adopted by the Grothendieck school in algebraic geometry. Alexandre Grothendieck's reformulation of algebraic geometry in categorical terms—introducing schemes, toposes, derived categories, and the yoga of six functors—stands as one of the most ambitious programs in twentieth-century mathematics. His work demonstrated that categorical language was not merely convenient but \emph{necessary} for certain questions.
+
+In the 1960s, F.\ William Lawvere brought category theory into contact with logic and foundations, showing that categories could serve as an alternative foundation for mathematics (elementary topos theory) and that universal algebra could be reformulated in categorical terms (algebraic theories). Daniel Kan introduced adjoint functors and Kan extensions. Saunders Mac Lane's landmark textbook \emph{Categories for the Working Mathematician} \cite{MacLane1998}, first published in 1971, consolidated the foundations of the subject.
+
+Since then, category theory has expanded enormously. Enriched category theory, 2-categories and higher categories, monoidal categories, operads, $(\infty,1)$-categories (quasi-categories and complete Segal spaces)—these developments continue to the present day. Applications have spread to theoretical computer science (domain theory, type theory, the categorical semantics of programming languages), quantum physics (topological quantum field theories and categorical quantum mechanics), linguistics, and beyond.
+
+This book focuses on the classical foundations: categories, functors, natural transformations, limits, adjunctions, monads, Kan extensions, enriched categories, and toposes. Mastery of these concepts provides the vocabulary and intuition needed to engage with the modern literature.
+
+\section{How to Read This Book}
+
+\textbf{Prerequisites.} We assume mathematical maturity at the level of a senior undergraduate: comfort with proof writing, basic abstract algebra (groups, rings, modules), and elementary topology. No prior category theory is assumed. Set-theoretic foundations are discussed in Appendix~\ref{app:foundations}; readers may consult that appendix as needed.
+
+\textbf{Notation.} We use the following conventions throughout.
+\begin{itemize}
+  \item Categories are denoted by bold letters: $\cat{C}$, $\cat{D}$, $\cat{E}$.
+  \item Standard categories have fixed names: $\Set$, $\Grp$, $\Top$, $\Vect_k$, $\Ring$, $\Ab$, $\Cat$.
+  \item Functors are denoted by Roman letters: $F$, $G$, $H$.
+  \item Natural transformations are denoted by lowercase Greek letters: $\alpha$, $\beta$, $\eta$, $\varepsilon$.
+  \item For a category $\cat{C}$, we write $\ob(\cat{C})$ for its collection of objects and $\cat{C}(a,b)$ (also written $\Hom_{\cat{C}}(a,b)$) for the set of morphisms from $a$ to $b$.
+  \item Composition of $f: a \to b$ and $g: b \to c$ is written $g \circ f: a \to c$ (diagrammatic order: first $f$, then $g$).
+  \item We write $F \dashv G$ to indicate that $F$ is left adjoint to $G$.
+\end{itemize}
+
+\textbf{Exercises.} Each chapter ends with exercises ranging from routine verifications to more challenging problems. Harder exercises are marked with a star ($\star$). Particularly demanding research-adjacent exercises carry two stars ($\star\star$). Selected problems are collected in Appendix~\ref{app:exercises}.
+
+\textbf{Diagrams.} Commutative diagrams are used extensively. A diagram is said to \emph{commute} if all directed paths with the same source and target yield equal composites. Commutativity of a diagram is often the most efficient way to express a naturality or universal property condition.
+
+\section{Foundational Remarks}
+
+A recurring issue in category theory is set-theoretic size. If we try to form the ``category of all sets,'' its collection of objects is a proper class, not a set. Similarly, the collection of all groups forms a proper class. This creates potential foundational difficulties.
+
+We handle these issues informally throughout the main text, using the words ``small'' and ``large'' as needed, and relying on the reader's good sense to identify when a construction might require care. The reader who wants a more precise treatment should consult Appendix~\ref{app:foundations}, where we discuss the universe axiom (Grothendieck universes) and its role in making precise the notion of ``locally small category.''
+
+The basic stance of this book is that category theory is best learned in close contact with examples, and examples must be concrete enough to be illuminating. We err on the side of mathematical richness over set-theoretic pedantry.
+
+\section{Chapter Overview}
+
+\begin{description}
+  \item[Chapter~\ref{ch:categories} — Categories.] We introduce the central definition and populate it with a wide range of examples: sets, groups, topological spaces, posets, monoids. We study special morphisms (isomorphisms, monomorphisms, epimorphisms), distinguished objects (initial, terminal, zero objects), and the basic constructions of slice categories, comma categories, and opposite categories.
+
+  \item[Chapter~\ref{ch:functors} — Functors.] Functors are structure-preserving maps between categories. We study the Yoneda lemma—the assertion that a category embeds fully faithfully into its own presheaf category—and develop the theory of representable functors and universal properties in categorical language.
+
+  \item[Chapter~\ref{ch:nattrans} — Natural Transformations.] We define natural transformations as morphisms between functors, and show that functors between two fixed categories form a category $[\cat{C}, \cat{D}]$. This leads to the 2-categorical structure of $\Cat$ and the full proof of the Yoneda lemma.
+
+  \item[Chapter~\ref{ch:limits} — Limits and Colimits.] Limits and colimits are the categorical abstractions of ``constructions defined by universal properties.'' Products, equalizers, pullbacks, and their colimit duals are all special cases. We prove that a category with all finite limits is already determined by its terminal object, products, and equalizers.
+
+  \item[Chapter~\ref{ch:adjoints} — Adjoint Functors.] Adjoints are one of the most pervasive structures in mathematics. We give four equivalent definitions, prove the adjoint functor theorem, and show that right adjoints preserve limits and left adjoints preserve colimits.
+
+  \item[Chapter~\ref{ch:monads} — Monads.] Every adjunction gives rise to a monad. Conversely, every monad comes from adjunctions in (at least) two canonical ways: the Kleisli and Eilenberg-Moore constructions. Beck's monadicity theorem characterizes precisely which adjunctions arise from their own induced monad.
+
+  \item[Chapter~\ref{ch:kan} — Kan Extensions.] Kan extensions answer the question: given a functor $F: \cat{C} \to \cat{E}$ and $K: \cat{C} \to \cat{D}$, can we ``extend'' $F$ through $K$ to get a functor $\cat{D} \to \cat{E}$? As Mac Lane famously wrote, ``The notion of Kan extensions subsumes all the other fundamental concepts of category theory.''
+
+  \item[Chapter~\ref{ch:enriched} — Enriched Category Theory.] When the hom-sets of a category are themselves objects of some monoidal category $\cat{V}$, we get a $\cat{V}$-enriched category. This framework unifies preadditive categories, metric spaces (Lawvere), simplicial categories, and more.
+
+  \item[Chapter~\ref{ch:topos} — Topos Theory.] Toposes are categories that behave like categories of sets. They arise naturally as categories of sheaves and as the classifying categories for geometric theories. Their internal logic is intuitionistic, reflecting the constructive nature of sheaf semantics.
+\end{description}

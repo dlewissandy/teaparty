@@ -1,0 +1,272 @@
+\chapter{Monads}
+\label{ch:monads}
+
+\section{From Adjunctions to Monads}
+
+Every adjunction $F \dashv G$ with $F: \cat{C} \to \cat{D}$ and $G: \cat{D} \to \cat{C}$ gives rise to an endofunctor $T = GF: \cat{C} \to \cat{C}$ together with two natural transformations:
+\begin{itemize}
+  \item The \textbf{unit} $\eta: \Id_{\cat{C}} \Rightarrow GF = T$.
+  \item The \textbf{multiplication} $\mu: T^2 = GFGF \Rightarrow GF = T$, defined as $\mu = G\varepsilon F$ (whiskering the counit by $G$ and $F$).
+\end{itemize}
+
+These data satisfy axioms analogous to those of a monoid (with $T$ in the role of the set, $\eta$ in the role of unit, and $\mu$ in the role of multiplication), giving the definition of a monad.
+
+\section{Definition of a Monad}
+
+\begin{definition}[Monad]
+A \textbf{monad} on a category $\cat{C}$ is a triple $(T, \eta, \mu)$ where $T: \cat{C} \to \cat{C}$ is an endofunctor, $\eta: \Id_{\cat{C}} \Rightarrow T$ and $\mu: T^2 \Rightarrow T$ are natural transformations, satisfying:
+\begin{description}
+  \item[Associativity.] $\mu \circ T\mu = \mu \circ \mu T$ (as natural transformations $T^3 \Rightarrow T$).
+  \item[Unit laws.] $\mu \circ T\eta = \id_T = \mu \circ \eta T$.
+\end{description}
+Componentwise, for each $c \in \cat{C}$:
+\[
+  \mu_c \circ T(\mu_c) = \mu_c \circ \mu_{Tc}, \quad
+  \mu_c \circ T(\eta_c) = \id_{Tc} = \mu_c \circ \eta_{Tc}.
+\]
+\end{definition}
+
+The axioms say that $(T, \eta, \mu)$ is a \emph{monoid in the monoidal category of endofunctors} of $\cat{C}$ (with monoidal product given by functor composition and unit $\Id_{\cat{C}}$).
+
+\begin{remark}[Comonad]
+A \textbf{comonad} $(S, \varepsilon, \delta)$ is the dual: an endofunctor with $\varepsilon: S \Rightarrow \Id$ (counit) and $\delta: S \Rightarrow S^2$ (comultiplication) satisfying the co-associativity and co-unit laws. Every adjunction gives both a monad on $\cat{C}$ and a comonad on $\cat{D}$.
+\end{remark}
+
+\section{Examples of Monads}
+
+\begin{example}[The list monad]
+On $\Set$: $T(X) = X^* = \bigsqcup_{n \geq 0} X^n$ (the set of finite lists over $X$). The unit $\eta_X: X \to X^*$ sends $x$ to the singleton list $[x]$. The multiplication $\mu_X: (X^*)^* \to X^*$ flattens a list of lists into a list (concatenation). This monad captures the idea of ``nondeterministic computation.''
+\end{example}
+
+\begin{example}[The maybe monad]
+On $\Set$: $T(X) = X + \{*\}$ (add a distinguished element ``nothing''). $\eta_X: X \to X + \{*\}$ is the inclusion. $\mu_X: X + \{*\} + \{*\} \to X + \{*\}$ collapses both $\{*\}$'s. Used in programming for partial/exceptional computations.
+\end{example}
+
+\begin{example}[The power-set monad]
+On $\Set$: $T(X) = \mathcal{P}(X)$. $\eta_X(x) = \{x\}$ (singleton). $\mu_X: \mathcal{P}(\mathcal{P}(X)) \to \mathcal{P}(X)$, $\mathcal{A} \mapsto \bigcup \mathcal{A}$. This is the monad arising from the adjunction between $\Set$ and $\mathbf{Rel}$.
+\end{example}
+
+\begin{example}[The free-algebra monads]
+For any algebraic theory (groups, rings, modules, etc.), the composite $GF$ of the free functor $F$ and forgetful functor $G$ gives a monad on $\Set$:
+\begin{itemize}
+  \item Free group monad: $T(X) = $ free group on $X$.
+  \item Free monoid monad: $T(X) = X^*$ (lists—the list monad above).
+  \item Free $k$-vector space monad: $T(X) = k^{(X)}$.
+  \item Free commutative ring monad: $T(X) = \mathbb{Z}[X]$ (polynomial ring).
+\end{itemize}
+\end{example}
+
+\begin{example}[The state monad]
+For a fixed set $S$ (``state''), on $\Set$: $T(X) = (X \times S)^S$ (functions from $S$ to $X \times S$). This monad encapsulates stateful computations.
+\end{example}
+
+\begin{example}[The continuation monad]
+For a fixed set $R$ (``result type''): $T(X) = R^{R^X}$ (double-dualization with respect to $R$). Unit: $\eta_X(x) = (\phi \mapsto \phi(x))$. This monad encapsulates continuation-passing style.
+\end{example}
+
+\section{Kleisli Category}
+
+Given a monad $(T, \eta, \mu)$ on $\cat{C}$, we can construct a new category whose morphisms are ``$T$-computations.''
+
+\begin{definition}[Kleisli category]
+The \textbf{Kleisli category} $\cat{C}_T$ of a monad $(T, \eta, \mu)$ has:
+\begin{itemize}
+  \item Objects: the same as $\cat{C}$.
+  \item Morphisms: $\cat{C}_T(a,b) = \cat{C}(a, Tb)$ (a ``Kleisli arrow'' from $a$ to $b$ is a morphism $a \to Tb$ in $\cat{C}$).
+  \item Composition: Given $f: a \to Tb$ and $g: b \to Tc$ in $\cat{C}$, their Kleisli composite is
+  \[
+    g \star f = \mu_c \circ Tg \circ f: a \to Tb \to T^2c \to Tc.
+  \]
+  \item Identities: $\id^T_a = \eta_a: a \to Ta$.
+\end{itemize}
+\end{definition}
+
+\begin{proposition}
+$\cat{C}_T$ is a category: composition is associative and the Kleisli identities are units.
+\end{proposition}
+
+\begin{proof}
+Associativity of $\star$ follows from the monad associativity axiom $\mu \circ T\mu = \mu \circ \mu T$. The unit laws follow from $\mu \circ T\eta = \id_T = \mu \circ \eta T$.
+\end{proof}
+
+\begin{proposition}[Kleisli adjunction]
+There is an adjunction $F_T \dashv U_T$ where:
+\begin{itemize}
+  \item $F_T: \cat{C} \to \cat{C}_T$: identity on objects, sends $f: a \to b$ to $\eta_b \circ f: a \to Tb$.
+  \item $U_T: \cat{C}_T \to \cat{C}$: sends an object $a$ to $Ta$; sends $f: a \to Tb$ (a Kleisli morphism) to $\mu_b \circ Tf: Ta \to T^2b \to Tb$.
+\end{itemize}
+The monad induced by $F_T \dashv U_T$ is $(T, \eta, \mu)$.
+\end{proposition}
+
+\begin{example}
+For the list monad, $\cat{C}_T$ has sets as objects and a Kleisli arrow $f: X \to Y$ is a function $f: X \to Y^*$ (a nondeterministic function assigning to each $x \in X$ a list of possible outputs). Kleisli composition is nondeterministic composition.
+\end{example}
+
+\section{Eilenberg-Moore Category}
+
+The Kleisli construction gives the ``smallest'' adjunction inducing a given monad. The Eilenberg-Moore construction gives the ``largest.''
+
+\begin{definition}[$T$-algebra]
+Let $(T, \eta, \mu)$ be a monad on $\cat{C}$. A \textbf{$T$-algebra} (or \textbf{algebra for $T$}) is a pair $(a, \theta)$ where $a \in \cat{C}$ and $\theta: Ta \to a$ is a morphism in $\cat{C}$, such that:
+\[
+  \theta \circ \eta_a = \id_a \qquad \text{(unit law)}
+\]
+\[
+  \theta \circ \mu_a = \theta \circ T\theta \qquad \text{(associativity law)}.
+\]
+The first says $\theta$ is a left inverse of $\eta_a$; the second says:
+\[
+  \begin{tikzcd}
+    T^2 a \arrow[r, "T\theta"] \arrow[d, "\mu_a"'] & Ta \arrow[d, "\theta"] \\
+    Ta \arrow[r, "\theta"'] & a
+  \end{tikzcd}
+  \quad \text{commutes.}
+\]
+\end{definition}
+
+\begin{example}
+For the free-group monad $T$ on $\Set$, a $T$-algebra $(A, \theta)$ is a set $A$ with a map $\theta: F(A) \to A$ from the free group on $A$ to $A$, satisfying the two axioms. This is precisely a group: $\theta$ defines the group structure (multiplication of words in $A$ is determined by $\theta$). The unit law says the identity element maps to the neutral element of $A$, and the associativity law says the group multiplication is associative.
+\end{example}
+
+\begin{definition}[Eilenberg-Moore category]
+The \textbf{Eilenberg-Moore category} $\cat{C}^T$ has:
+\begin{itemize}
+  \item Objects: $T$-algebras $(a, \theta)$.
+  \item Morphisms: A morphism of $T$-algebras $h: (a, \theta) \to (a', \theta')$ is a morphism $h: a \to a'$ in $\cat{C}$ with $\theta' \circ Th = h \circ \theta$.
+  \item Composition and identities: inherited from $\cat{C}$.
+\end{itemize}
+\end{definition}
+
+\begin{proposition}[Eilenberg-Moore adjunction]
+There is an adjunction $F^T \dashv U^T$ where:
+\begin{itemize}
+  \item $U^T: \cat{C}^T \to \cat{C}$: forgets the algebra structure, $(a,\theta) \mapsto a$.
+  \item $F^T: \cat{C} \to \cat{C}^T$: sends $a$ to the \textbf{free $T$-algebra} $(Ta, \mu_a)$.
+\end{itemize}
+The monad induced by $F^T \dashv U^T$ is $(T, \eta, \mu)$.
+\end{proposition}
+
+\begin{proof}
+The hom-set bijection: $\cat{C}^T(F^T a, (b, \theta)) = \cat{C}^T((Ta, \mu_a), (b, \theta))$ consists of algebra maps $h: Ta \to b$ with $\theta \circ Th = h \circ \mu_a$. These correspond bijectively to morphisms $\hat{h} = h \circ \eta_a: a \to b$ in $\cat{C}$ via $h \mapsto h \circ \eta_a$ (inverse: $\hat{h} \mapsto \theta \circ T\hat{h}$).
+\end{proof}
+
+\section{Comparison Functor and Monadic Adjunctions}
+
+Given any adjunction $F \dashv G$ with induced monad $T = GF$, there is a canonical comparison functor to the Eilenberg-Moore category.
+
+\begin{definition}[Comparison functor]
+Given $F \dashv G$ (with $F: \cat{C} \to \cat{D}$, $G: \cat{D} \to \cat{C}$, monad $T = GF$), define the \textbf{comparison functor} $K: \cat{D} \to \cat{C}^T$ by
+\[
+  K(d) = (Gd, G\varepsilon_d), \quad K(f: d \to d') = Gf.
+\]
+One verifies $(Gd, G\varepsilon_d)$ is indeed a $T$-algebra: $G\varepsilon_d \circ \eta_{Gd} = G\varepsilon_d \circ G(F\eta_d \circ \eta_d)... $; actually $G\varepsilon_d \circ \eta_{Gd} = \id_{Gd}$ by the triangle identity.
+\end{definition}
+
+\begin{definition}[Monadic adjunction]
+The adjunction $F \dashv G$ is \textbf{monadic} if the comparison functor $K: \cat{D} \to \cat{C}^T$ is an equivalence of categories.
+\end{definition}
+
+\begin{example}
+The free-forgetful adjunction for groups is monadic: $\cat{D} = \Grp$ and $\cat{C}^T = \Grp$ (algebras for the free-group monad are exactly groups). Similarly for rings, modules, etc. The free-forgetful adjunction for topological spaces is NOT monadic: topological spaces are not determined by an algebraic structure on their underlying set.
+\end{example}
+
+\section{Beck's Monadicity Theorem}
+
+Beck's monadicity theorem gives a precise characterization of when an adjunction is monadic.
+
+\begin{definition}[$U$-split coequalizer]
+A coequalizer diagram
+\[
+  \begin{tikzcd}
+    a \arrow[r, bend left, "f"] \arrow[r, bend right, "g"'] & b \arrow[r, "q"] & c
+  \end{tikzcd}
+\]
+is a \textbf{$U$-split coequalizer} (for $U: \cat{D} \to \cat{C}$) if $U$ applied to the diagram is a split coequalizer in $\cat{C}$: there exist sections $s: Uc \to Ub$ and $t: Ub \to Ua$ such that $Uq \circ s = \id_{Uc}$, $Uf \circ t = \id_{Ub}$, and $Ug \circ t = s \circ Uq$.
+\end{definition}
+
+\begin{theorem}[Beck's Monadicity Theorem]
+\label{thm:beck}
+Let $F \dashv U$ be an adjunction with $F: \cat{C} \to \cat{D}$ and $U: \cat{D} \to \cat{C}$. The following are equivalent:
+\begin{enumerate}
+  \item The adjunction is monadic.
+  \item $U$ reflects isomorphisms, and $\cat{D}$ has, and $U$ preserves, coequalizers of $U$-split pairs.
+\end{enumerate}
+\end{theorem}
+
+\begin{proof}[Proof sketch]
+($1 \Rightarrow 2$): If $K: \cat{D} \to \cat{C}^T$ is an equivalence, then $U = U^T \circ K$ reflects isomorphisms (equivalences reflect isos, and $U^T$ creates isos). One shows $\cat{D}$ has coequalizers of $U$-split pairs by transporting them from $\cat{C}^T$.
+
+($2 \Rightarrow 1$): We show $K: \cat{D} \to \cat{C}^T$ is an equivalence. Faithfulness and fullness of $K$ follow from $U$ reflecting isomorphisms and the universal properties. For essential surjectivity, given a $T$-algebra $(a, \theta)$, form the $U$-split coequalizer
+\[
+  FUFa \;\underset{F\theta}{\overset{\varepsilon_{Fa}}{\rightrightarrows}}\; Fa
+\]
+(where the splitting is via $\eta_{UFa}$ and $\eta_{Fa}$). The coequalizer $d$ of this diagram in $\cat{D}$ (which exists by hypothesis) satisfies $K(d) \cong (a, \theta)$.
+\end{proof}
+
+\begin{example}[Applications of Beck's theorem]
+\begin{itemize}
+  \item The forgetful functor $\Ab \to \Set$ is monadic (free abelian groups).
+  \item Compact Hausdorff spaces over $\Set$: the adjunction $\beta \dashv i$ (Stone-Čech) is monadic: $\mathbf{KHaus}$ is equivalent to algebras for the ultrafilter monad.
+  \item Descent theory: Beck's theorem is the categorical foundation for descent theory in algebraic geometry.
+\end{itemize}
+\end{example}
+
+\section{Distributive Laws}
+
+Monads can sometimes be composed using distributive laws.
+
+\begin{definition}[Distributive law]
+Let $(S, \eta^S, \mu^S)$ and $(T, \eta^T, \mu^T)$ be monads on $\cat{C}$. A \textbf{distributive law} of $S$ over $T$ is a natural transformation $\lambda: ST \Rightarrow TS$ satisfying four coherence conditions (compatibility with units and multiplications of both monads).
+\end{definition}
+
+\begin{theorem}
+Given a distributive law $\lambda: ST \Rightarrow TS$, the composite $TS$ carries the structure of a monad on $\cat{C}$, with unit $\eta^T \eta^S$ and multiplication built from $\mu^T$, $\mu^S$, and $\lambda$.
+\end{theorem}
+
+\begin{example}
+The distributive law $\lambda: \mathcal{P}\mathcal{P}' \Rightarrow \mathcal{P}'\mathcal{P}$ (where $\mathcal{P}$ is nondeterminism/power set and $\mathcal{P}'$ some other monad) models combinations of computational effects.
+\end{example}
+
+\section{Monads in 2-Categories}
+
+The definition of a monad generalizes immediately from $\Cat$ to any 2-category.
+
+\begin{definition}[Monad in a 2-category]
+Let $\mathcal{K}$ be a 2-category and $C$ an object of $\mathcal{K}$. A \textbf{monad} on $C$ in $\mathcal{K}$ is a 1-cell $T: C \to C$ together with 2-cells $\eta: \Id_C \Rightarrow T$ and $\mu: T \circ T \Rightarrow T$ satisfying the monad axioms.
+\end{definition}
+
+In $\Cat$, this recovers the usual notion. In the 2-category of rings, bimodules, and bimodule maps, a monad on a ring $R$ is an $R$-algebra. This level of generality unifies many constructions.
+
+\section{Exercises}
+
+\begin{exercise}
+Verify the monad axioms for the list monad on $\Set$.
+\end{exercise}
+
+\begin{exercise}
+Show that the Kleisli composition $g \star f = \mu_c \circ Tg \circ f$ is associative using the monad axioms.
+\end{exercise}
+
+\begin{exercise}
+Describe the Eilenberg-Moore algebras for the power-set monad $\mathcal{P}$. What kind of structure do they capture? (They are \emph{complete semilattices}.)
+\end{exercise}
+
+\begin{exercise}
+Let $(T, \eta, \mu)$ be a monad on $\cat{C}$. Show that $\cat{C}_T$ (Kleisli) and $\cat{C}^T$ (Eilenberg-Moore) both induce the monad $T$ on $\cat{C}$. In what sense are these the ``initial'' and ``terminal'' adjunctions inducing $T$?
+\end{exercise}
+
+\begin{exercise}
+Show that there is a functor $L: \cat{C}_T \to \cat{C}^T$ sending a Kleisli object $a$ to the free algebra $(Ta, \mu_a)$, and identify this as the composition $\cat{C}_T \to \cat{C} \xrightarrow{F^T} \cat{C}^T$.
+\end{exercise}
+
+\begin{exercise}[$\star$]
+Prove that the comparison functor $K: \cat{D} \to \cat{C}^T$ commutes with the forgetful functors: $U^T \circ K = G$ (not just up to isomorphism, but on the nose).
+\end{exercise}
+
+\begin{exercise}[$\star$]
+A monad $(T, \eta, \mu)$ is called \textbf{idempotent} if $\mu$ is a natural isomorphism. Show that for an idempotent monad, the comparison functor $K$ is fully faithful (so monadic adjunctions for idempotent monads are reflective subcategory inclusions).
+\end{exercise}
+
+\begin{exercise}[$\star\star$]
+Prove one direction of Beck's monadicity theorem: assuming the adjunction is monadic (comparison functor is an equivalence), deduce that $U$ reflects isomorphisms and that $\cat{D}$ has coequalizers of $U$-split pairs preserved by $U$.
+\end{exercise}
