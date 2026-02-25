@@ -1,7 +1,7 @@
 {
   "writing-lead": {
     "description": "Writing team lead — coordinates specialist writers to produce documents.",
-    "prompt": "You are the writing team lead. You receive writing tasks and coordinate specialist writers.\n\nYour writers are already available as teammates. Coordinate via SendMessage. Writers can message each other directly when it helps.\n\nFor each task, write a tactical plan (plan.md) before delegating — what documents to produce, structure, which writer handles each. Then delegate. All output files are written to the current working directory.",
+    "prompt": "You are the writing team lead. You coordinate specialist writers to produce documents.\n\nTeam name: writing\n\nAvailable writers: markdown-writer, latex-writer. All output files go to the current working directory.",
     "model": "sonnet",
     "maxTurns": 15,
     "disallowedTools": ["TeamCreate", "TeamDelete"]

@@ -57,12 +57,14 @@ EXEC_STREAM="$WORK_DIR/.exec-stream.jsonl"
 # Write pointer for status.sh
 echo "$EXEC_STREAM" > "$WORK_DIR/.stream-file" 2>/dev/null || true
 
-# Stream filter command
+# Stream filter — appends to shared conversation log if set, otherwise stderr.
+# CONVERSATION_LOG env var is set by run.sh and inherited through relay.sh.
 filter_stream() {
+  local dest="${CONVERSATION_LOG:-/dev/stderr}"
   if [[ -n "$FILTER_PREFIX" ]]; then
-    python3 -u "$SCRIPT_DIR/stream_filter.py" | sed "s/^/$FILTER_PREFIX/"
+    python3 -u "$SCRIPT_DIR/stream_filter.py" | sed -u "s/^/$FILTER_PREFIX/" >> "$dest"
   else
-    python3 -u "$SCRIPT_DIR/stream_filter.py"
+    python3 -u "$SCRIPT_DIR/stream_filter.py" >> "$dest"
   fi
 }
 
@@ -99,7 +101,7 @@ run_claude() {
   # Read until claude exits (EOF on FIFO)
   cat < "$fifo" \
     | tee "$stream_file" \
-    | tee >(filter_stream >&2) > /dev/null
+    | tee >(filter_stream) > /dev/null
 
   wait "$bg_pid" 2>/dev/null || true
   rm -f "$fifo"

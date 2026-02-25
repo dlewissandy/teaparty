@@ -8,11 +8,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TASK="${1:?Usage: run.sh '<task description>'}"
 
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS="${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-128000}"
 
 # Create output directories for subteams
 mkdir -p "$SCRIPT_DIR/output/art"
 mkdir -p "$SCRIPT_DIR/output/writing"
 mkdir -p "$SCRIPT_DIR/output/editorial"
+
+# Shared conversation log — all levels (uber + subteams) append here.
+# Subteam output is indented via --filter-prefix in relay.sh.
+export CONVERSATION_LOG="$SCRIPT_DIR/output/.conversation"
+> "$CONVERSATION_LOG"
+
+# Tail the conversation log in the background so it streams to the terminal
+tail -f "$CONVERSATION_LOG" &
+TAIL_PID=$!
 
 # Substitute __POC_DIR__ with absolute path in agent definitions
 AGENTS_JSON=$(sed "s|__POC_DIR__|$SCRIPT_DIR|g" \
@@ -20,7 +30,7 @@ AGENTS_JSON=$(sed "s|__POC_DIR__|$SCRIPT_DIR|g" \
 
 # Self-contained settings: pre-approve relay.sh
 SETTINGS_FILE=$(mktemp)
-trap "rm -f $SETTINGS_FILE" EXIT
+trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE" EXIT
 
 SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
 import json, os, sys
@@ -43,6 +53,10 @@ echo ""
   --plan-turns 15 \
   --exec-turns 30 \
   "$TASK"
+
+# Stop the tail
+kill "$TAIL_PID" 2>/dev/null || true
+wait "$TAIL_PID" 2>/dev/null || true
 
 echo ""
 echo "=== Output files ==="

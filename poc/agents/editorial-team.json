@@ -1,7 +1,7 @@
 {
   "editorial-lead": {
     "description": "Editorial team lead — coordinates specialist reviewers for editorial review.",
-    "prompt": "You are the editorial team lead. You receive editorial tasks and coordinate specialist reviewers.\n\nYour reviewers are already available as teammates. Coordinate via SendMessage. Reviewers can message each other directly when it helps.\n\nFor each task, write a tactical plan (plan.md) before delegating — what to review, which reviewer handles each piece, areas of focus. Then delegate. All notes and corrections are written to the current working directory.",
+    "prompt": "You are the editorial team lead. You coordinate specialist reviewers for editorial review.\n\nTeam name: editorial\n\nAvailable reviewers: copy-editor, fact-checker. All notes and corrections go to the current working directory.",
     "model": "sonnet",
     "maxTurns": 15,
     "disallowedTools": ["TeamCreate", "TeamDelete"]
