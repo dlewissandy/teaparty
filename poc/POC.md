@@ -18,7 +18,7 @@ subteams (separate claude -p processes, one per relay dispatch)
 └── workers     — produce files
 ```
 
-The specific teams (art, writing, editorial) are an implementation detail. The architecture is the two levels and the communication paths between them.
+The specific teams (art, writing, editorial, research) are an implementation detail. The architecture is the two levels and the communication paths between them.
 
 **Why liaisons?** Why not put subteam leads directly in the uber team?
 
@@ -104,6 +104,61 @@ Workers (writers, artists, editors) have no Bash. They produce files and return 
 
 `.plan-stream.jsonl` and `.exec-stream.jsonl` persist in each team's output directory. `stream_filter.py` shows conversations and decisions, suppresses internal machinery. The shared `CONVERSATION_LOG` unifies output across all levels, with subteam output indented via `--filter-prefix`.
 
+## Memory Hierarchy
+
+Each run is isolated in a timestamped session directory. Persistent learnings accumulate across sessions.
+
+### Directory Layout
+
+```
+poc/output/
+  MEMORY.md                              # cross-session learnings (persists across runs)
+  20260226-143052/                       # session directory (timestamped)
+    MEMORY.md                            # session-level learnings (uber lead curates)
+    art/
+      MEMORY.md                          # art team learnings (art lead curates)
+      *.svg, *.dot, *.tex               # art deliverables
+    writing/
+      MEMORY.md                          # writing team learnings
+      *.md, *.tex                        # writing deliverables
+    editorial/
+      MEMORY.md                          # editorial team learnings
+      *.md                               # editorial notes
+    research/
+      MEMORY.md                          # research team learnings
+      *.md                               # research briefs
+    .conversation                        # unified conversation log
+    .plan-stream.jsonl                   # uber plan stream
+    .exec-stream.jsonl                   # uber exec stream
+    art/.plan-stream.jsonl               # team-level streams
+    art/.exec-stream.jsonl
+    ...
+```
+
+### Access Model
+
+Access control is advisory (prompt-based), not enforced. Agents are told what to write where — not prevented from writing elsewhere.
+
+| Level | Who writes | Who reads |
+|-------|-----------|-----------|
+| `output/MEMORY.md` | uber lead only | everyone |
+| `<session>/MEMORY.md` | uber lead only | everyone |
+| `<session>/<team>/MEMORY.md` | team lead only | everyone |
+| `<session>/<team>/*` (deliverables) | team lead + workers | everyone |
+
+### Memory Curation Flow
+
+1. **Workers** produce deliverables. They read team MEMORY.md for context but don't write to it.
+2. **Team leads** curate their team's MEMORY.md — recording decisions, conventions, and patterns discovered during the session.
+3. **Uber lead** reads team MEMORY.md files and its own session MEMORY.md. At session end, it promotes durable insights to the cross-session `output/MEMORY.md`.
+4. **Cross-session memory** persists across runs. The uber lead reads it at startup for accumulated learnings, and appends to it at session end.
+
+No scripted extraction step. Agents are agents — they decide what's worth remembering.
+
+### Session Isolation
+
+Each `run.sh` invocation creates a new timestamped session directory under `output/`. Sessions never clobber each other. The cross-session `output/MEMORY.md` is the only file shared between runs (append-only by convention).
+
 ## Stream-JSON Parsing
 
 `claude -p --output-format stream-json` emits one JSON object per line. Each event has a `type` field and optionally a `subtype`. Here's what matters for observing agent behavior.
@@ -171,21 +226,29 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 
 | File | Purpose |
 |------|---------|
-| `run.sh` | Entry point. Sets env, builds agents JSON, calls plan-execute.sh. |
+| `run.sh` | Entry point. Sets env, builds agents JSON, creates session dir, calls plan-execute.sh. |
 | `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. |
 | `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process. |
 | `agents/*.json` | Static team definitions. One file per team level. |
 | `stream_filter.py` | Filters stream-json to human-readable conversation output. |
-| `status.sh` | Dashboard: processes, teams, stream activity, output files. |
+| `status.sh` | Dashboard: processes, teams, stream activity, output files. Session-aware. |
 | `shutdown.sh` | Graceful shutdown and team artifact cleanup. |
+| `output/MEMORY.md` | Cross-session learnings. Persists across runs. Uber lead appends. |
+| `output/<session>/` | Session directory (timestamped YYYYMMDD-HHMMSS). One per run. |
+| `output/<session>/MEMORY.md` | Session-level learnings. Uber lead's working journal. |
+| `output/<session>/<team>/MEMORY.md` | Team-level learnings. Team lead curates. |
 
 ## Usage
 
 ```bash
 ./poc/run.sh "Create a handbook about dimensional travel"   # run
 ./poc/status.sh                                             # monitor
-tail -f $(cat poc/output/.stream-file)                      # live stream
 ./poc/shutdown.sh                                           # stop
+
+ls poc/output/                                              # list sessions
+cat poc/output/MEMORY.md                                    # cross-session learnings
+cat poc/output/20260226-143052/MEMORY.md                    # session learnings
+cat poc/output/20260226-143052/writing/MEMORY.md            # team learnings
 ```
 
 ## CLI Flags
@@ -212,7 +275,9 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 |----------|--------|---------|
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | `run.sh` | Enables agent teams. Required for SendMessage, shared inboxes, and team coordination. Without this, agents are plain subagents that only report results back. |
 | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `run.sh` | Maximum output tokens per response. Defaults to 128000. SVG and LaTeX output can be verbose — the 32k default is too low for art agents. |
-| `CONVERSATION_LOG` | `run.sh` | Shared log file path. All levels append filtered conversation output here. `run.sh` creates it and tails it for live terminal output. Subteam output is indented via `--filter-prefix`. |
+| `CONVERSATION_LOG` | `run.sh` | Shared log file path. All levels append filtered conversation output here. Lives in the session directory. `run.sh` tails it for live terminal output. Subteam output is indented via `--filter-prefix`. |
+| `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains cross-session MEMORY.md and session directories. |
+| `POC_SESSION_DIR` | `run.sh` | Current session directory (`poc/output/YYYYMMDD-HHMMSS/`). Each run gets a unique timestamped directory. Propagated to subteams via settings file. |
 
 ## Agent/Team Lifecycle
 
@@ -264,3 +329,5 @@ The stream-json output contains `task_progress` events while background agents w
 - Subteams never communicate with each other (only through uber team).
 - No bespoke intra-team messaging (use Claude's built-in agent teams).
 - No prompt engineering for structural behavior (use tool restrictions and plan mode).
+- Memory curation is advisory (prompt-based), not enforced. Agents are told what to write where, but nothing prevents an agent from writing to the wrong MEMORY.md.
+- Access control is by convention — agents are told what to read and write, not restricted by file permissions.

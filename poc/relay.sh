@@ -22,11 +22,17 @@ done
 [[ -z "$TEAM" ]] && { echo '{"error":"--team required"}'; exit 1; }
 [[ -z "$TASK" ]] && { echo '{"error":"--task required"}'; exit 1; }
 
-OUTPUT_DIR="$SCRIPT_DIR/output/$TEAM"
+# Use session directory if set (from run.sh), fall back to flat output/ for standalone use
+if [[ -n "${POC_SESSION_DIR:-}" ]]; then
+  OUTPUT_DIR="$POC_SESSION_DIR/$TEAM"
+else
+  OUTPUT_DIR="$SCRIPT_DIR/output/$TEAM"
+fi
 mkdir -p "$OUTPUT_DIR"
 
-# Read agent definitions and substitute the POC directory path
-AGENTS_JSON=$(sed "s|__POC_DIR__|$SCRIPT_DIR|g" \
+# Read agent definitions and substitute placeholders with absolute paths
+AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
+                  -e "s|__SESSION_DIR__|${POC_SESSION_DIR:-$SCRIPT_DIR/output}|g" \
   "$SCRIPT_DIR/agents/${TEAM}-team.json")
 
 # Determine lead agent slug
@@ -34,12 +40,28 @@ case "$TEAM" in
   art)       LEAD="art-lead" ;;
   writing)   LEAD="writing-lead" ;;
   editorial) LEAD="editorial-lead" ;;
+  research)  LEAD="research-lead" ;;
   *)         echo "{\"error\":\"unknown team: $TEAM\"}"; exit 1 ;;
 esac
 
 # Clean environment for child process (mirrors team_session.py:_clean_env)
 unset CLAUDECODE
 unset CLAUDE_CODE_ENTRYPOINT
+
+# Settings file: pre-approve tools subteams need
+SETTINGS_FILE=$(mktemp)
+trap "rm -f $SETTINGS_FILE" EXIT
+python3 -c "
+import json, os, sys
+d = os.environ.get('SCRIPT_DIR', '.')
+rules = [
+    'Bash(' + d + '/relay.sh:*)',
+    'Bash(' + d + '/yt-transcript.sh:*)',
+    'WebFetch',
+    'WebSearch',
+]
+json.dump({'permissions': {'allow': rules}}, sys.stdout)
+" > "$SETTINGS_FILE"
 
 echo "[RELAY] >>> Dispatching to $TEAM team (lead: $LEAD)" >&2
 echo "[RELAY]     Task: ${TASK:0:100}..." >&2
@@ -49,6 +71,7 @@ RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
   --agents "$AGENTS_JSON" \
   --agent "$LEAD" \
   --auto-approve \
+  --settings "$SETTINGS_FILE" \
   --cwd "$OUTPUT_DIR" \
   --filter-prefix "  [$TEAM] " \
   --plan-turns 10 \
@@ -61,6 +84,10 @@ echo "[RELAY] <<< $TEAM team finished" >&2
 OUTPUT_FILES=$(ls "$OUTPUT_DIR" 2>/dev/null | grep -v '^\.' | paste -sd ',' - || echo "")
 echo "[RELAY]     Files: ${OUTPUT_FILES:-none}" >&2
 
+# Check if team produced a MEMORY.md
+HAS_MEMORY="false"
+[[ -s "$OUTPUT_DIR/MEMORY.md" ]] && HAS_MEMORY="true"
+
 # Build JSON summary
 jq -n \
   --arg team "$TEAM" \
@@ -68,4 +95,5 @@ jq -n \
   --arg summary "$RESULT" \
   --arg output_files "$OUTPUT_FILES" \
   --arg output_dir "$OUTPUT_DIR" \
-  '{team: $team, status: $status, summary: $summary, output_files: $output_files, output_dir: $output_dir}'
+  --argjson has_memory "$HAS_MEMORY" \
+  '{team: $team, status: $status, summary: $summary, output_files: $output_files, output_dir: $output_dir, has_memory: $has_memory}'

@@ -15,6 +15,7 @@ UBER_PIDS=$(pgrep -f 'claude.*-p.*--agent.*project-lead' 2>/dev/null || true)
 ART_PIDS=$(pgrep -f 'claude.*-p.*--agents.*art-lead' 2>/dev/null || true)
 WRITING_PIDS=$(pgrep -f 'claude.*-p.*--agents.*writing-lead' 2>/dev/null || true)
 EDITORIAL_PIDS=$(pgrep -f 'claude.*-p.*--agents.*editorial-lead' 2>/dev/null || true)
+RESEARCH_PIDS=$(pgrep -f 'claude.*-p.*--agents.*research-lead' 2>/dev/null || true)
 RELAY_PIDS=$(ps -eo pid,args 2>/dev/null \
   | awk '/bash.*\/relay\.sh --team/ && !/plan-execute/ && !/claude -p/ {print $1}' \
   || true)
@@ -55,6 +56,15 @@ if [[ -n "$EDITORIAL_PIDS" ]]; then
   done
 else
   echo "  EDITORIAL TEAM not running"
+fi
+
+if [[ -n "$RESEARCH_PIDS" ]]; then
+  for pid in $RESEARCH_PIDS; do
+    elapsed=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
+    echo "  RESEARCH TEAM  PID=$pid  elapsed=$elapsed"
+  done
+else
+  echo "  RESEARCH TEAM  not running"
 fi
 
 if [[ -n "$RELAY_PIDS" ]]; then
@@ -132,11 +142,26 @@ echo ""
 
 # ── Stream output (tee temp file) ──
 echo "── Stream Activity ──"
-# run.sh writes the temp file path to output/.stream-file
-STREAM_POINTER="$SCRIPT_DIR/output/.stream-file"
+# Find latest session directory (timestamped)
+LATEST_SESSION=$(ls -td "$SCRIPT_DIR/output"/[0-9]*/ 2>/dev/null | head -1)
+
+# Look for stream file in latest session, fall back to old location
 TMPFILE=""
-if [[ -f "$STREAM_POINTER" ]]; then
-  TMPFILE=$(cat "$STREAM_POINTER" 2>/dev/null)
+if [[ -n "$LATEST_SESSION" ]]; then
+  # New layout: streams are inside session dir
+  for sf in "$LATEST_SESSION/.exec-stream.jsonl" "$LATEST_SESSION/.plan-stream.jsonl"; do
+    if [[ -f "$sf" ]]; then
+      TMPFILE="$sf"
+      break
+    fi
+  done
+fi
+# Fall back to old-style pointer
+if [[ -z "$TMPFILE" ]]; then
+  STREAM_POINTER="$SCRIPT_DIR/output/.stream-file"
+  if [[ -f "$STREAM_POINTER" ]]; then
+    TMPFILE=$(cat "$STREAM_POINTER" 2>/dev/null)
+  fi
 fi
 
 if [[ -n "$TMPFILE" && -f "$TMPFILE" ]]; then
@@ -218,18 +243,63 @@ echo ""
 
 # ── Output files ──
 echo "── Output Files ──"
-for team in art writing editorial; do
-  dir="$SCRIPT_DIR/output/$team"
-  if [[ -d "$dir" ]]; then
-    count=$(find "$dir" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
-    if [[ "$count" -gt 0 ]]; then
-      echo "  $team/ ($count files):"
-      find "$dir" -type f -not -name '.*' -exec ls -lh {} \; 2>/dev/null | awk '{print "    " $NF " (" $5 ")"}'
-    else
-      echo "  $team/ (empty)"
-    fi
+
+# Cross-session memory
+CROSS_MEM="$SCRIPT_DIR/output/MEMORY.md"
+if [[ -s "$CROSS_MEM" ]]; then
+  size=$(du -h "$CROSS_MEM" 2>/dev/null | cut -f1)
+  echo "  MEMORY.md ($size) — cross-session learnings"
+elif [[ -f "$CROSS_MEM" ]]; then
+  echo "  MEMORY.md (empty) — cross-session learnings"
+fi
+
+# List sessions
+SESSIONS=$(ls -td "$SCRIPT_DIR/output"/[0-9]*/ 2>/dev/null || true)
+if [[ -n "$SESSIONS" ]]; then
+  SESSION_COUNT=$(echo "$SESSIONS" | wc -l | tr -d ' ')
+  echo "  Sessions: $SESSION_COUNT"
+  echo ""
+fi
+
+# Latest session detail
+if [[ -n "$LATEST_SESSION" ]]; then
+  echo "  Latest session: $(basename "$LATEST_SESSION")"
+
+  # Session-level memory
+  if [[ -s "$LATEST_SESSION/MEMORY.md" ]]; then
+    echo "    MEMORY.md (session learnings)"
   fi
-done
+
+  for team in art writing editorial research; do
+    dir="$LATEST_SESSION/$team"
+    if [[ -d "$dir" ]]; then
+      count=$(find "$dir" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+      has_mem=""
+      [[ -f "$dir/MEMORY.md" ]] && has_mem=" [+MEMORY.md]"
+      if [[ "$count" -gt 0 ]]; then
+        echo "    $team/ ($count files)$has_mem:"
+        find "$dir" -type f -not -name '.*' -exec ls -lh {} \; 2>/dev/null \
+          | awk '{print "      " $NF " (" $5 ")"}'
+      else
+        echo "    $team/ (empty)$has_mem"
+      fi
+    fi
+  done
+else
+  # Fall back to old flat layout
+  for team in art writing editorial research; do
+    dir="$SCRIPT_DIR/output/$team"
+    if [[ -d "$dir" ]]; then
+      count=$(find "$dir" -type f -not -name '.*' 2>/dev/null | wc -l | tr -d ' ')
+      if [[ "$count" -gt 0 ]]; then
+        echo "  $team/ ($count files):"
+        find "$dir" -type f -not -name '.*' -exec ls -lh {} \; 2>/dev/null | awk '{print "    " $NF " (" $5 ")"}'
+      else
+        echo "  $team/ (empty)"
+      fi
+    fi
+  done
+fi
 
 # Check for files written directly in poc/ (like the previous run did)
 STRAY=$(find "$SCRIPT_DIR" -maxdepth 1 -name '*.md' -o -name '*.svg' -o -name '*.dot' -o -name '*.tex' 2>/dev/null)
@@ -249,6 +319,7 @@ RUNNING=0
 [[ -n "$ART_PIDS" ]] && RUNNING=$((RUNNING + 1))
 [[ -n "$WRITING_PIDS" ]] && RUNNING=$((RUNNING + 1))
 [[ -n "$EDITORIAL_PIDS" ]] && RUNNING=$((RUNNING + 1))
+[[ -n "$RESEARCH_PIDS" ]] && RUNNING=$((RUNNING + 1))
 
 if [[ $RUNNING -eq 0 ]]; then
   echo "  Status: IDLE (no team processes running)"
