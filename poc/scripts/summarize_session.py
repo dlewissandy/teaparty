@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""Extract durable learnings from an agent session stream.
+
+Reads a .exec-stream.jsonl file, extracts the conversation, and calls
+claude-haiku to produce structured learning entries. Appends results
+to a target MEMORY.md file.
+
+Usage:
+    summarize_session.py --stream <stream.jsonl> --output <MEMORY.md> [--context <file>...] [--scope <level>]
+
+Scope levels control what kind of learnings are extracted:
+    team     — how the team worked (default, used by relay.sh)
+    session  — session-level coordination learnings (used by run.sh for uber session)
+    project  — project-relevant patterns from accumulated session learnings
+    global   — cross-project insights only; excludes domain knowledge
+"""
+import argparse
+import json
+import subprocess
+import sys
+from datetime import date
+from pathlib import Path
+
+
+def extract_conversation(stream_path: str, max_chars: int = 10000) -> str:
+    """Pull assistant text and tool-use summaries from a stream-json file."""
+    parts = []
+    total = 0
+
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                ev_type = ev.get("type", "")
+
+                if ev_type == "assistant":
+                    content = ev.get("message", {}).get("content", [])
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        bt = block.get("type", "")
+                        if bt == "text" and block.get("text", "").strip():
+                            parts.append(block["text"])
+                            total += len(block["text"])
+                        elif bt == "tool_use":
+                            name = block.get("name", "")
+                            inp = block.get("input", {})
+                            # Summarize tool calls concisely
+                            if name == "Write":
+                                fp = inp.get("file_path", "?")
+                                parts.append(f"[Write: {fp}]")
+                            elif name == "SendMessage":
+                                recip = inp.get("recipient", "?")
+                                summary = inp.get("summary", "")
+                                parts.append(f"[SendMessage @{recip}: {summary}]")
+                            elif name == "Task":
+                                desc = inp.get("description", "")
+                                agent = inp.get("name", "")
+                                parts.append(f"[Task @{agent}: {desc}]")
+                            elif name == "Bash":
+                                cmd = inp.get("command", "")[:100]
+                                parts.append(f"[Bash: {cmd}]")
+
+                if total > max_chars:
+                    break
+    except FileNotFoundError:
+        print(f"[summarize] Stream file not found: {stream_path}", file=sys.stderr)
+        return ""
+
+    return "\n".join(parts)[:max_chars]
+
+
+def read_context_files(paths: list[str]) -> str:
+    """Read optional context files (e.g. team MEMORY.md files)."""
+    parts = []
+    for p in paths:
+        path = Path(p)
+        if path.is_file() and path.stat().st_size > 0:
+            text = path.read_text().strip()
+            if text:
+                parts.append(f"--- {path.name} ({path.parent.name}) ---\n{text}")
+    return "\n\n".join(parts)
+
+
+# Scope-specific extraction prompts
+PROMPTS = {
+    "team": """Review this agent team session and extract 3-5 durable learnings.
+
+Only include learnings that are:
+- Likely to apply in future sessions (not one-off)
+- Actionable (suggest a concrete change in behavior or approach)
+- About HOW to work effectively (coordination, tool usage, patterns) not WHAT was produced
+
+Format each learning as:
+
+## [{date}] Session Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "session": """Review this uber-level agent session and extract 3-5 durable learnings about coordination and delegation.
+
+Focus on:
+- Cross-team coordination patterns that worked or failed
+- Delegation strategies (task decomposition, sequencing, parallelism)
+- Information flow between teams (what summaries were useful, what was missing)
+- Resource allocation decisions
+
+Do NOT include:
+- Domain-specific content (what was written, drawn, researched)
+- Individual team-level tool usage
+
+Format each learning as:
+
+## [{date}] Session Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "project": """Review the session learnings below and extract patterns relevant to this project.
+
+Focus on:
+- Patterns that will recur in future sessions of this same project
+- Project-specific workflow optimizations
+- Domain knowledge about this project's subject matter that aids future work
+- Team compositions or delegation strategies that worked well for this project
+
+Deduplicate with any existing project learnings in the context.
+
+Format each learning as:
+
+## [{date}] Project Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "global": """Review the project learnings below and extract ONLY insights that apply across ALL projects.
+
+This is a strict filter. Only include learnings about:
+- General-purpose agent coordination strategies
+- Tool usage patterns (relay.sh, plan-execute lifecycle, etc.)
+- Process improvements (how to decompose tasks, when to parallelize)
+- Communication patterns between team levels
+
+EXCLUDE:
+- Any domain-specific knowledge (tea, handbooks, dark energy, etc.)
+- Project-specific workflow decisions
+- Content-related insights
+
+If nothing qualifies as truly cross-project, output nothing.
+
+Format each learning as:
+
+## [{date}] Global Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+}
+
+
+def summarize(stream_path: str, output_path: str, context_files: list[str], scope: str):
+    """Extract learnings and append to MEMORY.md."""
+    conversation = extract_conversation(stream_path)
+    context = read_context_files(context_files)
+
+    # For project and global scopes, context is the primary source (stream may be empty)
+    if not conversation.strip() and not context.strip():
+        print("[summarize] No conversation or context content found, skipping.", file=sys.stderr)
+        return 1
+
+    context_section = ""
+    if context:
+        context_section = f"Additional context (accumulated learnings):\n{context}\n"
+
+    today = date.today().isoformat()
+    prompt_template = PROMPTS.get(scope, PROMPTS["team"])
+    prompt = prompt_template.format(
+        date=today,
+        conversation=conversation if conversation.strip() else "(no stream conversation available — use context above)",
+        context_section=context_section,
+    )
+
+    print(f"[summarize] Extracting {scope}-level learnings from {stream_path}...", file=sys.stderr)
+
+    try:
+        result = subprocess.run(
+            [
+                "claude",
+                "-p",
+                "--model", "claude-haiku-4-5",
+                "--max-turns", "1",
+                "--output-format", "text",
+            ],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except FileNotFoundError:
+        print("[summarize] claude CLI not found, skipping.", file=sys.stderr)
+        return 1
+    except subprocess.TimeoutExpired:
+        print("[summarize] claude call timed out, skipping.", file=sys.stderr)
+        return 1
+
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"[summarize] claude returned {result.returncode}", file=sys.stderr)
+        if result.stderr:
+            print(f"[summarize] stderr: {result.stderr[:200]}", file=sys.stderr)
+        return 1
+
+    learnings = result.stdout.strip()
+
+    # Append to MEMORY.md
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output, "a") as f:
+        f.write("\n\n" + learnings + "\n")
+
+    print(f"[summarize] Appended {scope}-level learnings to {output_path}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Extract session learnings")
+    parser.add_argument("--stream", required=True, help="Path to .exec-stream.jsonl")
+    parser.add_argument("--output", required=True, help="Path to target MEMORY.md")
+    parser.add_argument("--context", nargs="*", default=[], help="Additional context files")
+    parser.add_argument("--scope", default="team",
+                        choices=["team", "session", "project", "global"],
+                        help="Extraction scope (team, session, project, global)")
+    args = parser.parse_args()
+
+    sys.exit(summarize(args.stream, args.output, args.context, args.scope))

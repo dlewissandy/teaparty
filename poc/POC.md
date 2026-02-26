@@ -92,6 +92,10 @@ Minimal, non-prescriptive prompts. No retry loops, format constraints, or output
 
 The only custom inter-process communication. Everything else uses Claude's built-in inbox/messaging. relay.sh is intentionally thin: spawn a claude process, wait, return JSON.
 
+**Parallelism lives at the lead level, not the liaison level.** The lead dispatches multiple liaisons as background Tasks (`run_in_background: true`). Each liaison calls relay.sh as a foreground Bash command — blocking until the subteam completes, then returning the JSON result through the Task tool. Parallelism comes from multiple concurrent Tasks, not from background Bash within a single liaison.
+
+relay.sh also writes `.result.json` to the dispatch output directory and uses a `.running` sentinel file. This makes results discoverable even if an agent uses a suboptimal dispatch pattern (e.g., background Bash + polling instead of foreground Bash). When `.running` disappears and `.result.json` exists, the result is ready.
+
 ### plan-execute.sh Works at Both Levels
 
 Same script, same lifecycle. The only difference: `--auto-approve` at the subteam level (no human in the loop). One pattern, no special casing.
@@ -106,58 +110,117 @@ Workers (writers, artists, editors) have no Bash. They produce files and return 
 
 ## Memory Hierarchy
 
-Each run is isolated in a timestamped session directory. Persistent learnings accumulate across sessions.
+Work is organized by project. Each project has its own namespace and memory. The project is determined from the task description via LLM-based intent classification (or explicit `--project` override). Within a project, each run gets a timestamped session directory. Within a session, each team dispatch gets its own timestamped subdirectory.
 
 ### Directory Layout
 
 ```
 poc/output/
-  MEMORY.md                              # cross-session learnings (persists across runs)
-  20260226-143052/                       # session directory (timestamped)
-    MEMORY.md                            # session-level learnings (uber lead curates)
-    art/
-      MEMORY.md                          # art team learnings (art lead curates)
-      *.svg, *.dot, *.tex               # art deliverables
-    writing/
-      MEMORY.md                          # writing team learnings
-      *.md, *.tex                        # writing deliverables
-    editorial/
-      MEMORY.md                          # editorial team learnings
-      *.md                               # editorial notes
-    research/
-      MEMORY.md                          # research team learnings
-      *.md                               # research briefs
-    .conversation                        # unified conversation log
-    .plan-stream.jsonl                   # uber plan stream
-    .exec-stream.jsonl                   # uber exec stream
-    art/.plan-stream.jsonl               # team-level streams
-    art/.exec-stream.jsonl
-    ...
+  MEMORY.md                                    # global learnings (all projects)
+  projects/
+    multidimensional-travellers-handbook/
+      MEMORY.md                                # project learnings
+      20260226-143052/                         # uber session
+        MEMORY.md                              # session learnings
+        .conversation                          # unified conversation log
+        .plan-stream.jsonl                     # uber plan stream
+        .exec-stream.jsonl                     # uber exec stream
+        art/
+          20260226-143055/                     # dispatch session 1
+            MEMORY.md                          # dispatch learnings
+            *.svg, *.dot
+          20260226-144200/                     # dispatch session 2
+            MEMORY.md
+            *.svg
+        writing/
+          20260226-143100/
+            MEMORY.md
+            *.md, *.tex
+        editorial/
+          20260226-145000/
+            MEMORY.md
+            *.md
+        research/
+          20260226-143052/
+            .result.json              # relay.sh result (persistent)
+            .running                  # sentinel (exists while relay.sh runs)
+            MEMORY.md
+            *.md
+    dark-energy-research/
+      MEMORY.md
+      ...
 ```
 
-### Access Model
+### Project Classification
 
-Access control is advisory (prompt-based), not enforced. Agents are told what to write where — not prevented from writing elsewhere.
+When `run.sh` is called without `--project`, it calls `scripts/classify_task.py` to derive a project slug from the task description. The classifier:
 
-| Level | Who writes | Who reads |
-|-------|-----------|-----------|
-| `output/MEMORY.md` | uber lead only | everyone |
-| `<session>/MEMORY.md` | uber lead only | everyone |
-| `<session>/<team>/MEMORY.md` | team lead only | everyone |
-| `<session>/<team>/*` (deliverables) | team lead + workers | everyone |
+1. Lists existing project directories under `output/projects/`
+2. Calls claude-haiku with the task description and the existing project names
+3. Returns an existing project slug if the task belongs to one, or a new slug if not
 
-### Memory Curation Flow
+This means "revise chapter 1 of the handbook to reflect dark energy research" routes to the handbook project (not a new project), while "research dark energy" might create a separate project if no handbook project exists yet.
 
-1. **Workers** produce deliverables. They read team MEMORY.md for context but don't write to it.
-2. **Team leads** curate their team's MEMORY.md — recording decisions, conventions, and patterns discovered during the session.
-3. **Uber lead** reads team MEMORY.md files and its own session MEMORY.md. At session end, it promotes durable insights to the cross-session `output/MEMORY.md`.
-4. **Cross-session memory** persists across runs. The uber lead reads it at startup for accumulated learnings, and appends to it at session end.
+Override with `--project <slug>` for explicit control.
 
-No scripted extraction step. Agents are agents — they decide what's worth remembering.
+### Automated Learning Extraction
+
+Learning is structural, not prompt-dependent. When a session ends, `scripts/summarize_session.py` reads the exec stream, calls claude-haiku to extract durable learnings, and appends them to MEMORY.md. No agent prompt mentions memory — agents don't need to cooperate for learning to happen.
+
+The `--scope` parameter controls what kind of learnings are extracted at each level:
+
+| Scope | Focus | Excludes |
+|-------|-------|----------|
+| `team` | Tool usage, coordination within the team | Domain content |
+| `session` | Cross-team coordination, delegation strategies | Individual team details |
+| `project` | Project-specific workflow patterns, domain knowledge | Generic process insights |
+| `global` | Cross-project process insights only | ALL domain knowledge |
+
+### Promotion Chain
+
+```
+dispatch session ends (relay.sh)
+  └─> summarize_session.py --scope team
+      └─> <session>/<team>/<dispatch>/MEMORY.md
+
+uber session ends (run.sh)
+  └─> summarize_session.py --scope session
+      └─> <session>/MEMORY.md
+  └─> promote_learnings.sh --scope session
+      └─> reads session + dispatch MEMORY.md files
+      └─> summarize_session.py --scope project
+          └─> projects/<project>/MEMORY.md
+  └─> promote_learnings.sh --scope global
+      └─> reads project MEMORY.md
+      └─> summarize_session.py --scope global (filtered)
+          └─> output/MEMORY.md
+```
+
+The project→global step is a strict filter. Only cross-project-applicable insights about working methods propagate. Domain knowledge stays at the project level.
 
 ### Session Isolation
 
-Each `run.sh` invocation creates a new timestamped session directory under `output/`. Sessions never clobber each other. The cross-session `output/MEMORY.md` is the only file shared between runs (append-only by convention).
+Each `run.sh` invocation creates a new timestamped session directory under the project. Each `relay.sh` dispatch creates a new timestamped subdirectory under its team. Sessions and dispatches never clobber each other.
+
+Shared files (append-only by convention):
+- `output/MEMORY.md` — global learnings across all projects
+- `output/projects/<slug>/MEMORY.md` — project learnings across all sessions
+
+### File Access Permissions
+
+Claude Code restricts file tool access (Read, Glob, Grep, Write) to the CWD tree by default. The POC uses `--cwd` to set the working directory (write target) and `--add-dir` to grant read access to broader directory trees.
+
+| Level | CWD (write target) | --add-dir (read access) |
+|-------|-------------------|------------------------|
+| Uber | `$POC_SESSION_DIR` (session dir) | `$POC_PROJECT_DIR` (project dir — includes past sessions + project MEMORY.md) |
+| Subteam | `$OUTPUT_DIR` (dispatch dir) | `$POC_SESSION_DIR` (session dir — includes all team/dispatch dirs + session MEMORY.md) |
+
+This means:
+- **Writes stay local**: output files go to the dispatch/session directory, preventing scattering.
+- **Reads are broad**: agents can read output from sibling dispatches, other teams, and memory files.
+- A writing subteam dispatched a second time can read the outline from its first dispatch.
+- An editorial subteam can read writing and art output for review.
+- The uber lead can read project MEMORY.md and past session output.
 
 ## Stream-JSON Parsing
 
@@ -226,29 +289,44 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 
 | File | Purpose |
 |------|---------|
-| `run.sh` | Entry point. Sets env, builds agents JSON, creates session dir, calls plan-execute.sh. |
+| `run.sh` | Entry point. Classifies project, sets env, builds agents JSON, creates session dir, calls plan-execute.sh. |
 | `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. |
-| `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process. |
+| `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process with per-dispatch session dirs. |
 | `agents/*.json` | Static team definitions. One file per team level. |
 | `stream_filter.py` | Filters stream-json to human-readable conversation output. |
-| `status.sh` | Dashboard: processes, teams, stream activity, output files. Session-aware. |
+| `status.sh` | Dashboard: processes, teams, stream activity, output files. Project-aware. |
 | `shutdown.sh` | Graceful shutdown and team artifact cleanup. |
-| `output/MEMORY.md` | Cross-session learnings. Persists across runs. Uber lead appends. |
-| `output/<session>/` | Session directory (timestamped YYYYMMDD-HHMMSS). One per run. |
-| `output/<session>/MEMORY.md` | Session-level learnings. Uber lead's working journal. |
-| `output/<session>/<team>/MEMORY.md` | Team-level learnings. Team lead curates. |
+| `scripts/classify_task.py` | LLM-based project classification. Maps task descriptions to project slugs. |
+| `scripts/summarize_session.py` | Extracts durable learnings from stream files via claude-haiku. Scope-aware (team/session/project/global). |
+| `scripts/promote_learnings.sh` | Promotes learnings upward: session→project or project→global (via `--scope`). |
+| `output/MEMORY.md` | Global learnings. Persists across all projects. Only cross-project insights. |
+| `output/projects/<slug>/` | Project directory. One per classified project. |
+| `output/projects/<slug>/MEMORY.md` | Project learnings. Persists across sessions within this project. |
+| `output/projects/<slug>/<session>/` | Session directory (timestamped YYYYMMDD-HHMMSS). One per run. |
+| `output/projects/<slug>/<session>/MEMORY.md` | Session-level learnings. |
+| `output/projects/<slug>/<session>/<team>/<dispatch>/` | Dispatch directory (timestamped). One per relay.sh call. |
+| `output/projects/<slug>/<session>/<team>/<dispatch>/.result.json` | Relay result JSON. Written by relay.sh on completion. Discoverable fallback when stdout isn't captured. |
+| `output/projects/<slug>/<session>/<team>/<dispatch>/.running` | Sentinel file. Exists while relay.sh is running. Removed on completion or abnormal exit (via trap). |
+| `output/projects/<slug>/<session>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
 
 ## Usage
 
 ```bash
-./poc/run.sh "Create a handbook about dimensional travel"   # run
-./poc/status.sh                                             # monitor
-./poc/shutdown.sh                                           # stop
+# Run (project auto-classified from task description)
+./poc/run.sh "Create a handbook about dimensional travel"
 
-ls poc/output/                                              # list sessions
-cat poc/output/MEMORY.md                                    # cross-session learnings
-cat poc/output/20260226-143052/MEMORY.md                    # session learnings
-cat poc/output/20260226-143052/writing/MEMORY.md            # team learnings
+# Run with explicit project
+./poc/run.sh --project dimensional-travel-handbook "Add chapter on dark energy"
+
+# Monitor and stop
+./poc/status.sh
+./poc/shutdown.sh
+
+# Browse output
+ls poc/output/projects/                                               # list projects
+cat poc/output/MEMORY.md                                              # global learnings
+cat poc/output/projects/dimensional-travel-handbook/MEMORY.md          # project learnings
+cat poc/output/projects/dimensional-travel-handbook/20260226-143052/MEMORY.md  # session learnings
 ```
 
 ## CLI Flags
@@ -268,6 +346,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `--verbose` | Includes additional detail in stream-json output. |
 | `--settings <file>` | Points to a settings file (used at uber level to pre-approve relay.sh). |
 | `--setting-sources user` | Ignores project-level `.claude/agents/` discovery. Isolates the POC from any agents defined in the repo. |
+| `--add-dir <dir>` | Grants tool access to directories outside CWD. Used by subteams to read session-wide output (sibling dispatches, other teams, memory files) and by uber level to read project-wide output. |
 
 ## Environment Variables
 
@@ -276,8 +355,10 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | `run.sh` | Enables agent teams. Required for SendMessage, shared inboxes, and team coordination. Without this, agents are plain subagents that only report results back. |
 | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `run.sh` | Maximum output tokens per response. Defaults to 128000. SVG and LaTeX output can be verbose — the 32k default is too low for art agents. |
 | `CONVERSATION_LOG` | `run.sh` | Shared log file path. All levels append filtered conversation output here. Lives in the session directory. `run.sh` tails it for live terminal output. Subteam output is indented via `--filter-prefix`. |
-| `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains cross-session MEMORY.md and session directories. |
-| `POC_SESSION_DIR` | `run.sh` | Current session directory (`poc/output/YYYYMMDD-HHMMSS/`). Each run gets a unique timestamped directory. Propagated to subteams via settings file. |
+| `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains global MEMORY.md and projects directory. |
+| `POC_PROJECT` | `run.sh` | Project slug (kebab-case). Derived from task via `classify_task.py` or `--project` override. |
+| `POC_PROJECT_DIR` | `run.sh` | Project directory (`poc/output/projects/<slug>/`). Contains project MEMORY.md and session directories. |
+| `POC_SESSION_DIR` | `run.sh` | Current session directory (`poc/output/projects/<slug>/YYYYMMDD-HHMMSS/`). Each run gets a unique timestamped directory. Propagated to subteams via settings file. |
 
 ## Agent/Team Lifecycle
 
@@ -329,5 +410,7 @@ The stream-json output contains `task_progress` events while background agents w
 - Subteams never communicate with each other (only through uber team).
 - No bespoke intra-team messaging (use Claude's built-in agent teams).
 - No prompt engineering for structural behavior (use tool restrictions and plan mode).
-- Memory curation is advisory (prompt-based), not enforced. Agents are told what to write where, but nothing prevents an agent from writing to the wrong MEMORY.md.
-- Access control is by convention — agents are told what to read and write, not restricted by file permissions.
+- Learning extraction is automated (post-session scripts), not prompt-dependent. Agents don't need to write MEMORY.md — the summarizer extracts learnings from their conversation streams.
+- Learning extraction calls claude-haiku, adding a small cost per session (~$0.01).
+- Project classification calls claude-haiku once per run (~$0.001). Override with `--project` to skip classification.
+- Project→global promotion is strictly filtered — only cross-project process insights propagate. Domain knowledge stays at the project level.

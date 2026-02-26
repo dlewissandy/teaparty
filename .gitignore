@@ -20,3 +20,6 @@ teaparty.db-wal
 
 # Claude Code
 .claude/worktrees/
+
+# Generated Documents
+output/

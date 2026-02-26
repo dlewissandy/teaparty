@@ -21,6 +21,7 @@ SETTINGS_FILE=""
 PLAN_TURNS=15
 EXEC_TURNS=30
 CWD=""
+ADD_DIR=""
 FILTER_PREFIX=""
 TASK=""
 
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --plan-turns)    PLAN_TURNS="$2"; shift 2 ;;
     --exec-turns)    EXEC_TURNS="$2"; shift 2 ;;
     --cwd)           CWD="$2"; shift 2 ;;
+    --add-dir)       ADD_DIR="$2"; shift 2 ;;
     --filter-prefix) FILTER_PREFIX="$2"; shift 2 ;;
     -*)              echo "Unknown option: $1" >&2; exit 1 ;;
     *)               TASK="$1"; shift ;;
@@ -47,6 +49,7 @@ CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 [[ -n "$AGENTS_JSON" ]]   && CLAUDE_ARGS+=(--agents "$AGENTS_JSON")
 [[ -n "$LEAD" ]]           && CLAUDE_ARGS+=(--agent "$LEAD")
 [[ -n "$SETTINGS_FILE" ]]  && CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
+[[ -n "$ADD_DIR" ]]        && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
 
 # Stream files — persist in WORK_DIR so they can be observed live
 WORK_DIR="${CWD:-.}"
@@ -110,6 +113,10 @@ run_claude() {
 # ── Phase 1: Plan ──
 echo "--- plan ---" >&2
 
+# Snapshot ~/.claude/plans/ before plan phase so we can relocate any new plan files
+PLANS_BEFORE=$(mktemp)
+ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" || true
+
 run_claude "$PLAN_STREAM" "$TASK" \
   --permission-mode plan --max-turns "$PLAN_TURNS"
 
@@ -121,6 +128,17 @@ if [[ -z "$SESSION_ID" ]]; then
 fi
 
 echo "--- plan complete (session: ${SESSION_ID:0:8}...) ---" >&2
+
+# Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into session dir
+PLANS_AFTER=$(mktemp)
+ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
+NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
+for plan in $NEW_PLANS; do
+  mv ~/.claude/plans/"$plan" "$WORK_DIR/plan.md"
+  echo "[plan-execute] Relocated plan: $plan -> $WORK_DIR/plan.md" >&2
+  break  # Only one plan expected per session
+done
+rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 
 # ── Phase 2: Approve ──
 PLAN_FILE="$WORK_DIR/plan.md"
