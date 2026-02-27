@@ -116,16 +116,17 @@ Work is organized by project. Each project has its own namespace and memory. The
 
 ```
 poc/output/
-  MEMORY.md                                    # global learnings (all projects)
+  MEMORY.md                                    # global learnings (project-agnostic)
   projects/
     multidimensional-travellers-handbook/
-      MEMORY.md                                # project learnings
+      MEMORY.md                                # project learnings (across sessions)
       20260226-143052/                         # uber session
-        MEMORY.md                              # session learnings
+        MEMORY.md                              # session learnings (team-agnostic)
         .conversation                          # unified conversation log
         .plan-stream.jsonl                     # uber plan stream
         .exec-stream.jsonl                     # uber exec stream
         art/
+          MEMORY.md                            # team learnings (across dispatches)
           20260226-143055/                     # dispatch session 1
             MEMORY.md                          # dispatch learnings
             *.svg, *.dot
@@ -133,14 +134,17 @@ poc/output/
             MEMORY.md
             *.svg
         writing/
+          MEMORY.md                            # team learnings
           20260226-143100/
             MEMORY.md
             *.md, *.tex
         editorial/
+          MEMORY.md                            # team learnings
           20260226-145000/
             MEMORY.md
             *.md
         research/
+          MEMORY.md                            # team learnings
           20260226-143052/
             .result.json              # relay.sh result (persistent)
             .running                  # sentinel (exists while relay.sh runs)
@@ -172,31 +176,44 @@ The `--scope` parameter controls what kind of learnings are extracted at each le
 | Scope | Focus | Excludes |
 |-------|-------|----------|
 | `team` | Tool usage, coordination within the team | Domain content |
-| `session` | Cross-team coordination, delegation strategies | Individual team details |
+| `team-rollup` | Patterns across dispatches for one team | One-off issues |
+| `session` | Cross-team coordination, delegation strategies | Team-internal details |
 | `project` | Project-specific workflow patterns, domain knowledge | Generic process insights |
 | `global` | Cross-project process insights only | ALL domain knowledge |
 
 ### Promotion Chain
+
+Each level filters more aggressively. Team-specific knowledge stays at team level. Project-specific knowledge stays at project level.
 
 ```
 dispatch session ends (relay.sh)
   └─> summarize_session.py --scope team
       └─> <session>/<team>/<dispatch>/MEMORY.md
 
-uber session ends (run.sh)
-  └─> summarize_session.py --scope session
-      └─> <session>/MEMORY.md
-  └─> promote_learnings.sh --scope session
-      └─> reads session + dispatch MEMORY.md files
-      └─> summarize_session.py --scope project
-          └─> projects/<project>/MEMORY.md
-  └─> promote_learnings.sh --scope global
-      └─> reads project MEMORY.md
-      └─> summarize_session.py --scope global (filtered)
-          └─> output/MEMORY.md
+uber session ends (run.sh) — 4 promotion steps:
+
+  1. promote_learnings.sh --scope team
+     └─> for each team: aggregate dispatch MEMORY.md files
+     └─> summarize_session.py --scope team-rollup
+         └─> <session>/<team>/MEMORY.md
+
+  2. promote_learnings.sh --scope session
+     └─> reads team MEMORY.md files + uber exec stream
+     └─> summarize_session.py --scope session (team-agnostic filter)
+         └─> <session>/MEMORY.md
+
+  3. promote_learnings.sh --scope project
+     └─> reads session MEMORY.md
+     └─> summarize_session.py --scope project
+         └─> projects/<project>/MEMORY.md
+
+  4. promote_learnings.sh --scope global
+     └─> reads project MEMORY.md
+     └─> summarize_session.py --scope global (project-agnostic filter)
+         └─> output/MEMORY.md
 ```
 
-The project→global step is a strict filter. Only cross-project-applicable insights about working methods propagate. Domain knowledge stays at the project level.
+The team→session step filters for team-agnostic learnings only. The project→global step filters for project-agnostic insights only. Domain knowledge stays at the project level. Team-specific patterns stay at the team level.
 
 ### Session Isolation
 
@@ -273,6 +290,21 @@ Events don't have an `agent_name` field. To identify who's speaking:
 2. **Subagents**: `parent_tool_use_id` on the event matches the `id` of the Task `tool_use` that spawned them. Track the mapping `tool_use_id → agent name` from Task dispatches.
 3. **Fallback**: `session_id[:8]` as a short hash.
 
+### Stream Completion and Stop Reasons
+
+The `stop_reason` field on assistant messages tells you what happened and what to do next:
+
+| `stop_reason` | Meaning | Action |
+|---------------|---------|--------|
+| `end_turn` | Claude finished naturally. The accompanying text IS the result. | Relay the result up. Task complete. |
+| `tool_use` | Claude is calling a tool. Mid-loop. | Execute the tool, return the result, continue. |
+| `max_tokens` | Response truncated at token limit. | Consider continuing or increasing `max_tokens`. |
+| `null` | Intermediate event, not a stopping point. | Ignore — not the end of the stream. |
+
+In the CLI's `--output-format stream-json` coalesced format, the completion signal is the `type: result` event with `subtype: success`. This is the CLI-level equivalent of `stop_reason: end_turn`. When this event appears, the stream is done and the last assistant text content is the final result.
+
+**relay.sh uses this signal**: as soon as `plan-execute.sh` returns (meaning the subteam's stream emitted its result event), relay.sh immediately writes `.result.json` and echoes the result to stdout — before any post-processing (learning extraction runs asynchronously in the background). This ensures the result is available to the parent team as quickly as possible.
+
 ### What stream_filter.py Shows
 
 The filter reads stream-json from stdin and outputs `[sender] @recipient: body` lines:
@@ -291,7 +323,7 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 |------|---------|
 | `run.sh` | Entry point. Classifies project, sets env, builds agents JSON, creates session dir, calls plan-execute.sh. |
 | `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. |
-| `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process with per-dispatch session dirs. |
+| `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process with per-dispatch session dirs. Returns result immediately on stream completion; learning extraction runs async. |
 | `agents/*.json` | Static team definitions. One file per team level. |
 | `stream_filter.py` | Filters stream-json to human-readable conversation output. |
 | `status.sh` | Dashboard: processes, teams, stream activity, output files. Project-aware. |
@@ -307,6 +339,7 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 | `output/projects/<slug>/<session>/<team>/<dispatch>/` | Dispatch directory (timestamped). One per relay.sh call. |
 | `output/projects/<slug>/<session>/<team>/<dispatch>/.result.json` | Relay result JSON. Written by relay.sh on completion. Discoverable fallback when stdout isn't captured. |
 | `output/projects/<slug>/<session>/<team>/<dispatch>/.running` | Sentinel file. Exists while relay.sh is running. Removed on completion or abnormal exit (via trap). |
+| `output/projects/<slug>/<session>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
 | `output/projects/<slug>/<session>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
 
 ## Usage
@@ -379,10 +412,11 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 ### Completion
 
 9. Workers finish → results return to subteam lead.
-10. Subteam lead finishes → `result/success` event → `extract_result.py` captures the JSON summary.
-11. relay.sh returns the summary to the liaison → liaison returns to uber lead.
-12. Uber lead synthesizes results, may dispatch more work, eventually exits.
-13. `plan-execute.sh` reads the final `result/success` event and exits.
+10. Subteam lead finishes → stream emits `result/success` event (the `stop_reason: end_turn` signal). The last assistant text IS the result.
+11. `extract_result.py` captures the result text. relay.sh immediately writes `.result.json`, clears `.running`, and returns the JSON summary — before learning extraction (which runs async).
+12. Liaison receives the summary → returns to uber lead via Task tool.
+13. Uber lead synthesizes results, may dispatch more work, eventually exits.
+14. `plan-execute.sh` reads the final `result/success` event and exits.
 
 ### Failure Modes
 

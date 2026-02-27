@@ -108,16 +108,16 @@ echo ""
 echo ""
 echo "=== Extracting session learnings ==="
 
-# 1. Summarize uber session → session MEMORY.md
-python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
-  --stream "$POC_SESSION_DIR/.exec-stream.jsonl" \
-  --output "$POC_SESSION_DIR/MEMORY.md" \
-  --scope session || true
+# 1. Roll up dispatch MEMORYs → team MEMORY.md (for each team that ran)
+"$SCRIPT_DIR/scripts/promote_learnings.sh" --scope team || true
 
-# 2. Promote session learnings → project MEMORY.md
+# 2. Roll up team MEMORYs → session MEMORY.md (team-agnostic filter)
 "$SCRIPT_DIR/scripts/promote_learnings.sh" --scope session || true
 
-# 3. Promote project learnings → global MEMORY.md (filtered for cross-project insights)
+# 3. Roll up session MEMORY → project MEMORY.md
+"$SCRIPT_DIR/scripts/promote_learnings.sh" --scope project || true
+
+# 4. Roll up project MEMORY → global MEMORY.md (project-agnostic filter)
 "$SCRIPT_DIR/scripts/promote_learnings.sh" --scope global || true
 
 # Stop the tail

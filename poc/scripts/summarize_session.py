@@ -9,10 +9,11 @@ Usage:
     summarize_session.py --stream <stream.jsonl> --output <MEMORY.md> [--context <file>...] [--scope <level>]
 
 Scope levels control what kind of learnings are extracted:
-    team     — how the team worked (default, used by relay.sh)
-    session  — session-level coordination learnings (used by run.sh for uber session)
-    project  — project-relevant patterns from accumulated session learnings
-    global   — cross-project insights only; excludes domain knowledge
+    team         — how the team worked (default, used by relay.sh per dispatch)
+    team-rollup  — aggregate dispatch learnings into team-level patterns
+    session      — team-agnostic coordination learnings (from team MEMORYs)
+    project      — project-relevant patterns from accumulated session learnings
+    global       — cross-project insights only; excludes domain knowledge
 """
 import argparse
 import json
@@ -111,7 +112,29 @@ Session conversation:
 {conversation}
 """,
 
-    "session": """Review this uber-level agent session and extract 3-5 durable learnings about coordination and delegation.
+    "team-rollup": """Review the dispatch-level learnings below for a single team across multiple dispatches in one session.
+
+Extract patterns that recur across dispatches:
+- Common tool/coordination patterns this team uses
+- Recurring problems or workarounds
+- Team-specific workflow optimizations
+
+Deduplicate: if multiple dispatches learned the same thing, consolidate into one entry.
+
+Format each learning as:
+
+## [{date}] Team Learning
+**Context:** <pattern observed across dispatches>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "session": """Review the team-level learnings and uber-level coordination below. Extract learnings that are NOT specific to any single team.
 
 Focus on:
 - Cross-team coordination patterns that worked or failed
@@ -119,9 +142,9 @@ Focus on:
 - Information flow between teams (what summaries were useful, what was missing)
 - Resource allocation decisions
 
-Do NOT include:
+EXCLUDE:
+- Anything specific to how one team works internally (that stays at team level)
 - Domain-specific content (what was written, drawn, researched)
-- Individual team-level tool usage
 
 Format each learning as:
 
@@ -221,6 +244,7 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
                 "--model", "claude-haiku-4-5",
                 "--max-turns", "1",
                 "--output-format", "text",
+                "--tools", "",
             ],
             input=prompt,
             capture_output=True,
@@ -259,8 +283,8 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, help="Path to target MEMORY.md")
     parser.add_argument("--context", nargs="*", default=[], help="Additional context files")
     parser.add_argument("--scope", default="team",
-                        choices=["team", "session", "project", "global"],
-                        help="Extraction scope (team, session, project, global)")
+                        choices=["team", "team-rollup", "session", "project", "global"],
+                        help="Extraction scope (team, team-rollup, session, project, global)")
     args = parser.parse_args()
 
     sys.exit(summarize(args.stream, args.output, args.context, args.scope))

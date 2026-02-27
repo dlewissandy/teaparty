@@ -92,19 +92,13 @@ RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
 
 echo "[RELAY] <<< $TEAM team finished" >&2
 
-# Extract team learnings from the subteam session
-echo "[RELAY]     Extracting learnings..." >&2
-python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
-  --stream "$OUTPUT_DIR/.exec-stream.jsonl" \
-  --output "$OUTPUT_DIR/MEMORY.md" 2>&1 | sed 's/^/[RELAY]     /' >&2 || true
+# ── Relay result immediately ──
+# The stream's result event (type:result, subtype:success) signals completion.
+# The accompanying text IS the result — relay it up NOW, before post-processing.
 
 # List output files produced by the subteam (exclude hidden files)
 OUTPUT_FILES=$(ls "$OUTPUT_DIR" 2>/dev/null | grep -v '^\.' | paste -sd ',' - || echo "")
 echo "[RELAY]     Files: ${OUTPUT_FILES:-none}" >&2
-
-# Check if team produced a MEMORY.md
-HAS_MEMORY="false"
-[[ -s "$OUTPUT_DIR/MEMORY.md" ]] && HAS_MEMORY="true"
 
 # Build JSON summary
 RESULT_JSON=$(jq -n \
@@ -113,14 +107,17 @@ RESULT_JSON=$(jq -n \
   --arg summary "$RESULT" \
   --arg output_files "$OUTPUT_FILES" \
   --arg output_dir "$OUTPUT_DIR" \
-  --argjson has_memory "$HAS_MEMORY" \
-  '{team: $team, status: $status, summary: $summary, output_files: $output_files, output_dir: $output_dir, has_memory: $has_memory}')
+  '{team: $team, status: $status, summary: $summary, output_files: $output_files, output_dir: $output_dir}')
 
-# Write to persistent file (discoverable even if stdout isn't captured)
+# Write result and clear sentinel — available to parent immediately
 echo "$RESULT_JSON" > "$OUTPUT_DIR/.result.json"
-
-# Remove running sentinel — result is ready
 rm -f "$OUTPUT_DIR/.running"
 
-# Also output to stdout (the normal path for foreground Bash)
+# Return result to caller (stdout for foreground Bash, task output for background)
 echo "$RESULT_JSON"
+
+# ── Post-processing (async, doesn't block result relay) ──
+echo "[RELAY]     Extracting learnings (background)..." >&2
+python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
+  --stream "$OUTPUT_DIR/.exec-stream.jsonl" \
+  --output "$OUTPUT_DIR/MEMORY.md" 2>&1 | sed 's/^/[RELAY]     /' >&2 &
