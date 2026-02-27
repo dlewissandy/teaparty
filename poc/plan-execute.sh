@@ -23,6 +23,7 @@ EXEC_TURNS=30
 CWD=""
 ADD_DIR=""
 FILTER_PREFIX=""
+STREAM_DIR=""
 TASK=""
 
 # Parse arguments
@@ -36,6 +37,7 @@ while [[ $# -gt 0 ]]; do
     --exec-turns)    EXEC_TURNS="$2"; shift 2 ;;
     --cwd)           CWD="$2"; shift 2 ;;
     --add-dir)       ADD_DIR="$2"; shift 2 ;;
+    --stream-dir)    STREAM_DIR="$2"; shift 2 ;;
     --filter-prefix) FILTER_PREFIX="$2"; shift 2 ;;
     -*)              echo "Unknown option: $1" >&2; exit 1 ;;
     *)               TASK="$1"; shift ;;
@@ -51,14 +53,18 @@ CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 [[ -n "$SETTINGS_FILE" ]]  && CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
 [[ -n "$ADD_DIR" ]]        && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
 
-# Stream files — persist in WORK_DIR so they can be observed live
+# Working directory for agent CWD
 WORK_DIR="${CWD:-.}"
 mkdir -p "$WORK_DIR"
-PLAN_STREAM="$WORK_DIR/.plan-stream.jsonl"
-EXEC_STREAM="$WORK_DIR/.exec-stream.jsonl"
+
+# Stream files — go to STREAM_DIR if provided, otherwise WORK_DIR
+STREAM_TARGET="${STREAM_DIR:-$WORK_DIR}"
+mkdir -p "$STREAM_TARGET"
+PLAN_STREAM="$STREAM_TARGET/.plan-stream.jsonl"
+EXEC_STREAM="$STREAM_TARGET/.exec-stream.jsonl"
 
 # Write pointer for status.sh
-echo "$EXEC_STREAM" > "$WORK_DIR/.stream-file" 2>/dev/null || true
+echo "$EXEC_STREAM" > "$STREAM_TARGET/.stream-file" 2>/dev/null || true
 
 # Stream filter — appends to shared conversation log if set, otherwise stderr.
 # CONVERSATION_LOG env var is set by run.sh and inherited through relay.sh.
@@ -129,19 +135,19 @@ fi
 
 echo "--- plan complete (session: ${SESSION_ID:0:8}...) ---" >&2
 
-# Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into session dir
+# Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into stream target dir
 PLANS_AFTER=$(mktemp)
 ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
 NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
 for plan in $NEW_PLANS; do
-  mv ~/.claude/plans/"$plan" "$WORK_DIR/plan.md"
-  echo "[plan-execute] Relocated plan: $plan -> $WORK_DIR/plan.md" >&2
+  mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
+  echo "[plan-execute] Relocated plan: $plan -> $STREAM_TARGET/plan.md" >&2
   break  # Only one plan expected per session
 done
 rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 
 # ── Phase 2: Approve ──
-PLAN_FILE="$WORK_DIR/plan.md"
+PLAN_FILE="$STREAM_TARGET/plan.md"
 
 if [[ "$AUTO_APPROVE" != "true" ]]; then
   if [[ -f "$PLAN_FILE" ]]; then

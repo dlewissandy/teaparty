@@ -34,17 +34,40 @@ else
     --projects-dir "$PROJECTS_DIR" 2>/dev/null) || PROJECT="default"
 fi
 export POC_PROJECT="$PROJECT"
-
-# Session isolation: each run gets a timestamped directory under the project
-SESSION_TS=$(date +%Y%m%d-%H%M%S)
 export POC_PROJECT_DIR="$PROJECTS_DIR/$PROJECT"
-export POC_SESSION_DIR="$POC_PROJECT_DIR/$SESSION_TS"
 
-# Create project + session directories for subteams
-mkdir -p "$POC_SESSION_DIR/art"
-mkdir -p "$POC_SESSION_DIR/writing"
-mkdir -p "$POC_SESSION_DIR/editorial"
-mkdir -p "$POC_SESSION_DIR/research"
+# ── Project repo initialization (first run only) ──
+if [[ ! -d "$POC_PROJECT_DIR/.git" ]]; then
+  mkdir -p "$POC_PROJECT_DIR"
+  git init "$POC_PROJECT_DIR"
+  cat > "$POC_PROJECT_DIR/.gitignore" << 'GITIGNORE'
+.worktrees/
+.sessions/
+MEMORY.md
+GITIGNORE
+  cat > "$POC_PROJECT_DIR/CLAUDE.md" << CLAUDEMD
+# Project: $PROJECT
+CLAUDEMD
+  git -C "$POC_PROJECT_DIR" add -A
+  git -C "$POC_PROJECT_DIR" commit -m "init project $PROJECT"
+fi
+
+# ── Session setup with worktree ──
+SESSION_TS=$(date +%Y%m%d-%H%M%S)
+SESSION_BRANCH="session/$SESSION_TS"
+SESSION_WORKTREE="$POC_PROJECT_DIR/.worktrees/session-$SESSION_TS"
+INFRA_DIR="$POC_PROJECT_DIR/.sessions/$SESSION_TS"
+
+# Create session worktree (branched from main)
+mkdir -p "$POC_PROJECT_DIR/.worktrees"
+git -C "$POC_PROJECT_DIR" worktree add "$SESSION_WORKTREE" -b "$SESSION_BRANCH"
+
+# Create infra dirs for each team
+mkdir -p "$INFRA_DIR"/{art,writing,editorial,research}
+
+# Export for relay.sh and promote_learnings.sh
+export POC_SESSION_WORKTREE="$SESSION_WORKTREE"
+export POC_SESSION_DIR="$INFRA_DIR"
 
 # Memory files — global persists across all projects, project persists across sessions
 touch "$POC_OUTPUT_DIR/MEMORY.md"
@@ -52,7 +75,7 @@ touch "$POC_PROJECT_DIR/MEMORY.md"
 
 # Shared conversation log — scoped to this session.
 # Subteam output is indented via --filter-prefix in relay.sh.
-export CONVERSATION_LOG="$POC_SESSION_DIR/.conversation"
+export CONVERSATION_LOG="$INFRA_DIR/.conversation"
 > "$CONVERSATION_LOG"
 
 # Tail the conversation log in the background so it streams to the terminal
@@ -61,7 +84,7 @@ TAIL_PID=$!
 
 # Substitute placeholders with absolute paths in agent definitions
 AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
-                  -e "s|__SESSION_DIR__|$POC_SESSION_DIR|g" \
+                  -e "s|__SESSION_DIR__|$INFRA_DIR|g" \
   "$SCRIPT_DIR/agents/uber-team.json")
 
 # Self-contained settings: pre-approve relay.sh
@@ -83,6 +106,7 @@ json.dump({'permissions': {'allow': rules}, 'env': {
     'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
     'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
     'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
+    'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
 }}, sys.stdout)
 " > "$SETTINGS_FILE"
 
@@ -90,7 +114,8 @@ echo "=== Hierarchical Agent Teams POC ==="
 echo "Project: $PROJECT"
 echo "Task: $TASK"
 echo "Session: $SESSION_TS"
-echo "Output: $POC_SESSION_DIR/"
+echo "Worktree: $SESSION_WORKTREE"
+echo "Infra: $INFRA_DIR/"
 echo ""
 
 # Plan → Approve → Execute (same script used by relay.sh for subteams)
@@ -98,11 +123,26 @@ echo ""
   --agents "$AGENTS_JSON" \
   --agent project-lead \
   --settings "$SETTINGS_FILE" \
-  --cwd "$POC_SESSION_DIR" \
+  --cwd "$SESSION_WORKTREE" \
+  --stream-dir "$INFRA_DIR" \
   --add-dir "$POC_PROJECT_DIR" \
   --plan-turns 15 \
   --exec-turns 30 \
   "$TASK"
+
+# ── Session completion: merge session branch into main ──
+echo ""
+echo "=== Merging session into main ==="
+
+git -C "$POC_PROJECT_DIR" merge --no-ff "$SESSION_BRANCH" \
+  -m "session $SESSION_TS" 2>&1 || \
+  git -C "$POC_PROJECT_DIR" merge -X theirs --no-ff "$SESSION_BRANCH" \
+    -m "session $SESSION_TS (auto-resolved)" 2>&1 || \
+  echo "WARNING: Session merge failed — deliverables remain on branch $SESSION_BRANCH" >&2
+
+# Clean up worktree and branch
+git -C "$POC_PROJECT_DIR" worktree remove "$SESSION_WORKTREE" 2>/dev/null || true
+git -C "$POC_PROJECT_DIR" branch -d "$SESSION_BRANCH" 2>/dev/null || true
 
 # ── Extract learnings ──
 echo ""
@@ -127,7 +167,8 @@ wait "$TAIL_PID" 2>/dev/null || true
 echo ""
 echo "=== Session: $SESSION_TS ==="
 echo "Project: $PROJECT"
-echo "Session dir: $POC_SESSION_DIR/"
+echo "Deliverables (on main):"
+git -C "$POC_PROJECT_DIR" ls-files 2>/dev/null | grep -v '^\.' | sort || echo "  (none)"
+echo "Infra: $INFRA_DIR/"
 echo "Project memory: $POC_PROJECT_DIR/MEMORY.md"
 echo "Global memory: $POC_OUTPUT_DIR/MEMORY.md"
-find "$POC_SESSION_DIR" -type f -not -name '.*' 2>/dev/null | sort

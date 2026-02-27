@@ -114,46 +114,89 @@ Work is organized by project. Each project has its own namespace and memory. The
 
 ### Directory Layout
 
+Each project is a **git repository**. Deliverables (files agents produce) are git-tracked. Infrastructure (streams, MEMORY, sentinels) lives in `.sessions/` and is gitignored.
+
 ```
 poc/output/
   MEMORY.md                                    # global learnings (project-agnostic)
   projects/
-    multidimensional-travellers-handbook/
-      MEMORY.md                                # project learnings (across sessions)
-      20260226-143052/                         # uber session
-        MEMORY.md                              # session learnings (team-agnostic)
-        .conversation                          # unified conversation log
-        .plan-stream.jsonl                     # uber plan stream
-        .exec-stream.jsonl                     # uber exec stream
-        art/
-          MEMORY.md                            # team learnings (across dispatches)
-          20260226-143055/                     # dispatch session 1
-            MEMORY.md                          # dispatch learnings
-            *.svg, *.dot
-          20260226-144200/                     # dispatch session 2
+    multidimensional-travellers-handbook/       # ← git repo
+      .git/
+      .gitignore                               # excludes .sessions/, .worktrees/, MEMORY.md
+      CLAUDE.md                                # project instructions (git-tracked)
+      MEMORY.md                                # project learnings (gitignored, managed by promotion chain)
+      writing/chapter-01.md                    # deliverable (git-tracked, always current version)
+      writing/chapter-02.md                    # deliverable
+      art/cover.svg                            # deliverable
+      editorial/review-notes.md               # deliverable
+      research/brief.md                        # deliverable
+      .worktrees/                              # gitignored — temporary worktree checkouts
+        session-20260226-143052/               #   uber team works here (during session)
+        writing-143100/                        #   subteam works here (during dispatch)
+      .sessions/                               # gitignored — infrastructure files
+        20260226-143052/                       # session infra
+          MEMORY.md                            # session learnings (team-agnostic)
+          .conversation                        # unified conversation log
+          .plan-stream.jsonl                   # uber plan stream
+          .exec-stream.jsonl                   # uber exec stream
+          plan.md                              # uber plan
+          art/
+            MEMORY.md                          # team learnings (across dispatches)
+            20260226-143055/                   # dispatch infra
+              MEMORY.md                        # dispatch learnings
+              .exec-stream.jsonl
+              .result.json
+              .running
+            20260226-144200/
+              MEMORY.md
+              .exec-stream.jsonl
+              .result.json
+          writing/
             MEMORY.md
-            *.svg
-        writing/
-          MEMORY.md                            # team learnings
-          20260226-143100/
+            20260226-143100/
+              MEMORY.md
+              .exec-stream.jsonl
+              .result.json
+          editorial/
             MEMORY.md
-            *.md, *.tex
-        editorial/
-          MEMORY.md                            # team learnings
-          20260226-145000/
+            20260226-145000/
+              MEMORY.md
+              .exec-stream.jsonl
+              .result.json
+          research/
             MEMORY.md
-            *.md
-        research/
-          MEMORY.md                            # team learnings
-          20260226-143052/
-            .result.json              # relay.sh result (persistent)
-            .running                  # sentinel (exists while relay.sh runs)
-            MEMORY.md
-            *.md
+            20260226-143052/
+              MEMORY.md
+              .exec-stream.jsonl
+              .result.json
     dark-energy-research/
+      .git/
       MEMORY.md
       ...
 ```
+
+### Git Worktree Model
+
+Each session and dispatch runs in an **isolated git worktree** with its own branch. This prevents concurrent processes from clobbering each other's files while keeping a clean version history.
+
+**Branch model (two-level)**:
+```
+main                                    # always has latest consolidated deliverables
+ \
+  session/20260226-143052               # uber team session (feature branch)
+   \         \
+    \         dispatch/writing/143100   # subteam dispatch branch
+     \
+      dispatch/art/143055               # another subteam dispatch branch
+```
+
+**Lifecycle**:
+1. Session starts → `git worktree add` creates session worktree on `session/<ts>` branch (from main)
+2. Dispatch starts → `git worktree add` creates dispatch worktree on `dispatch/<team>/<ts>` branch (from session)
+3. Dispatch completes → commit deliverables, merge dispatch branch into session branch, remove worktree
+4. Session completes → merge session branch into main, remove worktree
+
+After merging, main always has the latest version of every deliverable. `git log` shows full version history with commit messages like `writing: Wrote chapter 1 introduction`.
 
 ### Project Classification
 
@@ -217,7 +260,7 @@ The team→session step filters for team-agnostic learnings only. The project→
 
 ### Session Isolation
 
-Each `run.sh` invocation creates a new timestamped session directory under the project. Each `relay.sh` dispatch creates a new timestamped subdirectory under its team. Sessions and dispatches never clobber each other.
+Each `run.sh` invocation creates a new git worktree with its own branch under the project. Each `relay.sh` dispatch creates a nested worktree branched from the session. Sessions and dispatches are isolated via git branches — concurrent processes write to separate branches and merge on completion.
 
 Shared files (append-only by convention):
 - `output/MEMORY.md` — global learnings across all projects
@@ -229,15 +272,15 @@ Claude Code restricts file tool access (Read, Glob, Grep, Write) to the CWD tree
 
 | Level | CWD (write target) | --add-dir (read access) |
 |-------|-------------------|------------------------|
-| Uber | `$POC_SESSION_DIR` (session dir) | `$POC_PROJECT_DIR` (project dir — includes past sessions + project MEMORY.md) |
-| Subteam | `$OUTPUT_DIR` (dispatch dir) | `$POC_SESSION_DIR` (session dir — includes all team/dispatch dirs + session MEMORY.md) |
+| Uber | `$POC_SESSION_WORKTREE` (session worktree) | `$POC_PROJECT_DIR` (project root — main checkout with CLAUDE.md, MEMORY.md, past deliverables) |
+| Subteam | dispatch worktree | `$POC_SESSION_WORKTREE` (session worktree — merged deliverables from prior dispatches) |
 
 This means:
-- **Writes stay local**: output files go to the dispatch/session directory, preventing scattering.
-- **Reads are broad**: agents can read output from sibling dispatches, other teams, and memory files.
-- A writing subteam dispatched a second time can read the outline from its first dispatch.
-- An editorial subteam can read writing and art output for review.
-- The uber lead can read project MEMORY.md and past session output.
+- **Writes go to the worktree**: deliverables are written to the branch's checkout, then committed and merged.
+- **Reads are broad**: agents can read deliverables from prior merges, project CLAUDE.md, and MEMORY files.
+- A writing subteam dispatched a second time can read chapter 1 (already merged into the session branch).
+- An editorial subteam can read `writing/` and `art/` directly (merged into the session branch).
+- The uber lead can read project MEMORY.md and main-branch deliverables from past sessions.
 
 ## Stream-JSON Parsing
 
@@ -321,26 +364,28 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 
 | File | Purpose |
 |------|---------|
-| `run.sh` | Entry point. Classifies project, sets env, builds agents JSON, creates session dir, calls plan-execute.sh. |
-| `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. |
-| `relay.sh` | Inter-process bridge. Called by liaisons via Bash. Spawns subteam claude process with per-dispatch session dirs. Returns result immediately on stream completion; learning extraction runs async. |
+| `run.sh` | Entry point. Classifies project, inits git repo, creates session worktree, calls plan-execute.sh, merges session into main on completion. |
+| `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. `--stream-dir` separates stream files from agent CWD. |
+| `relay.sh` | Inter-process bridge. Creates dispatch worktree, spawns subteam, commits and merges deliverables on completion. Learning extraction runs async. |
 | `agents/*.json` | Static team definitions. One file per team level. |
 | `stream_filter.py` | Filters stream-json to human-readable conversation output. |
-| `status.sh` | Dashboard: processes, teams, stream activity, output files. Project-aware. |
+| `status.sh` | Dashboard: processes, teams, stream activity, git-tracked deliverables. Project-aware. |
 | `shutdown.sh` | Graceful shutdown and team artifact cleanup. |
 | `scripts/classify_task.py` | LLM-based project classification. Maps task descriptions to project slugs. |
 | `scripts/summarize_session.py` | Extracts durable learnings from stream files via claude-haiku. Scope-aware (team/session/project/global). |
 | `scripts/promote_learnings.sh` | Promotes learnings upward: session→project or project→global (via `--scope`). |
 | `output/MEMORY.md` | Global learnings. Persists across all projects. Only cross-project insights. |
-| `output/projects/<slug>/` | Project directory. One per classified project. |
-| `output/projects/<slug>/MEMORY.md` | Project learnings. Persists across sessions within this project. |
-| `output/projects/<slug>/<session>/` | Session directory (timestamped YYYYMMDD-HHMMSS). One per run. |
-| `output/projects/<slug>/<session>/MEMORY.md` | Session-level learnings. |
-| `output/projects/<slug>/<session>/<team>/<dispatch>/` | Dispatch directory (timestamped). One per relay.sh call. |
-| `output/projects/<slug>/<session>/<team>/<dispatch>/.result.json` | Relay result JSON. Written by relay.sh on completion. Discoverable fallback when stdout isn't captured. |
-| `output/projects/<slug>/<session>/<team>/<dispatch>/.running` | Sentinel file. Exists while relay.sh is running. Removed on completion or abnormal exit (via trap). |
-| `output/projects/<slug>/<session>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
-| `output/projects/<slug>/<session>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
+| `output/projects/<slug>/` | Project git repository. One per classified project. |
+| `output/projects/<slug>/.git/` | Project git data. Tracks deliverables, session/dispatch history in branches and commits. |
+| `output/projects/<slug>/CLAUDE.md` | Project instructions (git-tracked). Agents read this via `--add-dir`. |
+| `output/projects/<slug>/MEMORY.md` | Project learnings. Gitignored, managed by promotion chain. |
+| `output/projects/<slug>/.worktrees/` | Gitignored. Temporary worktree checkouts for active sessions and dispatches. |
+| `output/projects/<slug>/.sessions/<ts>/` | Session infrastructure (gitignored). Streams, MEMORY, conversation log. |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/` | Dispatch infrastructure (gitignored). Streams, result JSON, sentinel, MEMORY. |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.result.json` | Relay result JSON. Written by relay.sh on completion. |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.running` | Sentinel file. Exists while relay.sh is running. Removed on completion or abnormal exit (via trap). |
+| `output/projects/<slug>/.sessions/<ts>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
 
 ## Usage
 
@@ -355,11 +400,14 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 ./poc/status.sh
 ./poc/shutdown.sh
 
-# Browse output
-ls poc/output/projects/                                               # list projects
+# Browse deliverables (git-tracked, always current)
+ls poc/output/projects/dimensional-travel-handbook/writing/           # current files
+git -C poc/output/projects/dimensional-travel-handbook log --oneline  # version history
+
+# Browse learnings
 cat poc/output/MEMORY.md                                              # global learnings
 cat poc/output/projects/dimensional-travel-handbook/MEMORY.md          # project learnings
-cat poc/output/projects/dimensional-travel-handbook/20260226-143052/MEMORY.md  # session learnings
+cat poc/output/projects/dimensional-travel-handbook/.sessions/20260226-143052/MEMORY.md  # session learnings
 ```
 
 ## CLI Flags
@@ -390,8 +438,9 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `CONVERSATION_LOG` | `run.sh` | Shared log file path. All levels append filtered conversation output here. Lives in the session directory. `run.sh` tails it for live terminal output. Subteam output is indented via `--filter-prefix`. |
 | `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains global MEMORY.md and projects directory. |
 | `POC_PROJECT` | `run.sh` | Project slug (kebab-case). Derived from task via `classify_task.py` or `--project` override. |
-| `POC_PROJECT_DIR` | `run.sh` | Project directory (`poc/output/projects/<slug>/`). Contains project MEMORY.md and session directories. |
-| `POC_SESSION_DIR` | `run.sh` | Current session directory (`poc/output/projects/<slug>/YYYYMMDD-HHMMSS/`). Each run gets a unique timestamped directory. Propagated to subteams via settings file. |
+| `POC_PROJECT_DIR` | `run.sh` | Project directory / git repo root (`poc/output/projects/<slug>/`). Contains CLAUDE.md, MEMORY.md, deliverables on main, `.sessions/`, `.worktrees/`. |
+| `POC_SESSION_WORKTREE` | `run.sh` | Session worktree path (`.worktrees/session-<ts>/`). Agents write deliverables here. relay.sh merges dispatch branches into it. |
+| `POC_SESSION_DIR` | `run.sh` | Session infrastructure directory (`.sessions/<ts>/`). Contains streams, MEMORY, conversation log. Used by promote_learnings.sh. |
 
 ## Agent/Team Lifecycle
 
@@ -413,10 +462,16 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 
 9. Workers finish → results return to subteam lead.
 10. Subteam lead finishes → stream emits `result/success` event (the `stop_reason: end_turn` signal). The last assistant text IS the result.
-11. `extract_result.py` captures the result text. relay.sh immediately writes `.result.json`, clears `.running`, and returns the JSON summary — before learning extraction (which runs async).
+11. `extract_result.py` captures the result text. relay.sh then:
+    - Commits deliverables in the dispatch worktree (`git add -A && git commit`)
+    - Merges the dispatch branch into the session branch (with `-X theirs` fallback for conflicts)
+    - Removes the dispatch worktree and branch
+    - Writes `.result.json` and clears `.running`
+    - Returns the JSON summary (learning extraction runs async in background)
 12. Liaison receives the summary → returns to uber lead via Task tool.
 13. Uber lead synthesizes results, may dispatch more work, eventually exits.
 14. `plan-execute.sh` reads the final `result/success` event and exits.
+15. run.sh merges the session branch into main (with `-X theirs` fallback), removes the session worktree, then runs the promotion chain.
 
 ### Failure Modes
 
