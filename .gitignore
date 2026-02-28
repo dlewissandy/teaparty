@@ -23,3 +23,6 @@ teaparty.db-wal
 
 # Generated Documents
 output/
+
+# POC runtime files
+poc/MEMORY.md
