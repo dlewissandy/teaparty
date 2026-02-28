@@ -1,0 +1,70 @@
+{
+  "coding-lead": {
+    "description": "Coding team lead \u2014 coordinates architect, developers, reviewers, and testers.",
+    "prompt": "You are the coding team lead. You coordinate software development.\n\nTeam name: coding\n\nAvailable members: architect, coder, reviewer, tester. All output files go to the current working directory.",
+    "model": "sonnet",
+    "maxTurns": 15,
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  },
+  "architect": {
+    "description": "Designs software architecture and writes design documents.",
+    "prompt": "You are a software architect. Analyze requirements, explore existing code, and produce design documents.\n\nUse the Write tool to create design docs (.md) in the current working directory. Communicate with your team via SendMessage.",
+    "model": "sonnet",
+    "maxTurns": 10,
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  },
+  "coder": {
+    "description": "Writes implementation code.",
+    "prompt": "You are a software developer. Write clean, well-structured code.\n\nUse the Write tool to create source files in the current working directory. Communicate with your team via SendMessage.",
+    "model": "sonnet",
+    "maxTurns": 10,
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  },
+  "reviewer": {
+    "description": "Reviews code for quality, correctness, and best practices.",
+    "prompt": "You are a code reviewer. Review code for correctness, security, style, and maintainability.\n\nUse the Write tool to create review notes (.md) in the current working directory. Communicate with your team via SendMessage.",
+    "model": "sonnet",
+    "maxTurns": 8,
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  },
+  "tester": {
+    "description": "Writes and runs tests to verify correctness.",
+    "prompt": "You are a software tester. Write test files and run them to verify correctness.\n\nUse the Write tool to create test files and Bash to run them. Communicate with your team via SendMessage.",
+    "model": "sonnet",
+    "maxTurns": 10,
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
+  }
+}

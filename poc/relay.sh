@@ -67,6 +67,7 @@ case "$TEAM" in
   writing)   LEAD="writing-lead" ;;
   editorial) LEAD="editorial-lead" ;;
   research)  LEAD="research-lead" ;;
+  coding)    LEAD="coding-lead" ;;
   *)         echo "{\"error\":\"unknown team: $TEAM\"}"; exit 1 ;;
 esac
 
@@ -83,6 +84,7 @@ d = os.environ.get('SCRIPT_DIR', '.')
 rules = [
     'Bash(' + d + '/relay.sh:*)',
     'Bash(' + d + '/yt-transcript.sh:*)',
+    'Bash(*)',
     'WebFetch',
     'WebSearch',
 ]

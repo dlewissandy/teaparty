@@ -63,7 +63,7 @@ mkdir -p "$POC_PROJECT_DIR/.worktrees"
 git -C "$POC_PROJECT_DIR" worktree add "$SESSION_WORKTREE" -b "$SESSION_BRANCH"
 
 # Create infra dirs for each team
-mkdir -p "$INFRA_DIR"/{art,writing,editorial,research}
+mkdir -p "$INFRA_DIR"/{art,writing,editorial,research,coding}
 
 # Export for relay.sh and promote_learnings.sh
 export POC_SESSION_WORKTREE="$SESSION_WORKTREE"
@@ -130,9 +130,16 @@ echo ""
   --exec-turns 30 \
   "$TASK"
 
-# ── Session completion: merge session branch into main ──
+# ── Session completion: commit + merge session branch into main ──
 echo ""
 echo "=== Merging session into main ==="
+
+# Commit any uncommitted deliverables in the session worktree
+# (files written directly by the uber team or merged from dispatch branches)
+git -C "$SESSION_WORKTREE" add -A 2>/dev/null || true
+if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
+  git -C "$SESSION_WORKTREE" commit -m "session deliverables: $PROJECT" 2>&1 || true
+fi
 
 git -C "$POC_PROJECT_DIR" merge --no-ff "$SESSION_BRANCH" \
   -m "session $SESSION_TS" 2>&1 || \

@@ -26,7 +26,7 @@ The specific teams (art, writing, editorial, research) are an implementation det
 
 2. **Someone must cross the process boundary.** The subteam runs as a separate `claude -p` process. Someone in the uber process needs to call `relay.sh` (via Bash) to spawn it, wait for completion, and return the result. That's the liaison — it lives in the uber team and bridges to the subteam process.
 
-3. **Parallelism.** The project-lead dispatches multiple liaisons as background Tasks, so subteams run concurrently. If the lead called relay.sh directly, it would block on each subteam sequentially.
+3. **Parallelism.** The project-lead sends messages to multiple liaisons via SendMessage. Since teammates process messages concurrently, subteams run in parallel without any background task management.
 
 4. **Context isolation.** The liaison returns a JSON summary, not the full subteam conversation. The uber lead never sees raw file content or worker-level chatter — only results. This is the context rot prevention in action.
 
@@ -34,24 +34,23 @@ The specific teams (art, writing, editorial, research) are an implementation det
 
 All intra-team communication uses Claude Code's built-in primitives (`CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`):
 
-- **Task** — the primary delegation mechanism. Leads spawn agents from the `--agents` pool. The spawned agent runs in its own context, does work, and results return through the Task tool. Can run in foreground (blocking) or background (parallel).
-- **SendMessage** — direct messages between teammates within a process. Available for coordination but in practice the lead often uses Task for delegation since results return automatically.
+- **SendMessage** — the primary delegation mechanism. The lead sends task descriptions to teammates; they process messages concurrently and report results back via SendMessage. Direct, reliable, no intermediate files.
 - **Automatic inbox delivery** — messages queue and deliver between turns.
 
 No bespoke messaging code. The POC relies entirely on Claude's native coordination primitives.
 
-**Within a level** (intra-process): the lead delegates via Task, spawning agents from the `--agents` pool. Results return through the tool. Agents can also coordinate via SendMessage. All of this is built into Claude Code — the POC adds nothing.
+**Within a level** (intra-process): the lead delegates via SendMessage to teammates in the `--agents` pool. Teammates process messages concurrently and report results back via SendMessage. All of this is built into Claude Code — the POC adds nothing.
 
 **Between levels** (inter-process): liaison agents call `relay.sh` via the Bash tool. This is the only bespoke bridge. relay.sh spawns a new `claude -p` process for the subteam, waits for completion, and returns a JSON summary.
 
 ```
 uber process                          subteam process
 -----------                          ---------------
-lead ──Task──> liaison
-               liaison ──Bash(relay.sh)──> lead ──Task──> workers
-                                           lead <──(result)── workers
-               liaison <──(JSON result)──  lead
-lead <──(result)── liaison
+lead ──SendMessage──> liaison
+                     liaison ──Bash(relay.sh)──> lead ──SendMessage──> workers
+                                                 lead <──(SendMessage)── workers
+                     liaison <──(JSON result)──  lead
+lead <──(SendMessage)── liaison
 ```
 
 Subteams never communicate with each other. All cross-team coordination goes through the uber team.
@@ -73,7 +72,7 @@ This uses Claude's native plan mode — no prompt engineering to get plan/execut
 The POC's value is proving that Claude Code's existing primitives are sufficient for hierarchical teams:
 
 - **Agent teams** (`--agents` JSON, `--agent` lead, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) — the CLI creates the team context automatically when given agent definitions and a lead agent. No agent needs to call TeamCreate.
-- **Subagents** (`--agents` pool, Task tool) — leads spawn teammates from the defined pool via the Task tool. Teammates coordinate via SendMessage and shared inboxes.
+- **Subagents** (`--agents` pool, SendMessage) — leads delegate to teammates from the defined pool via SendMessage. Teammates process messages concurrently and coordinate via shared inboxes.
 - **Plan mode** (`--permission-mode plan`, ExitPlanMode, `--resume`) — plan/execute lifecycle
 - **Tool restrictions** (`disallowedTools`) — structural role enforcement
 - **Agent definitions** (`--agents` JSON with description, prompt, model, maxTurns) — static team composition
@@ -82,7 +81,7 @@ The only bespoke code is the inter-process bridge (relay.sh) and the lifecycle o
 
 ### Teams Are Static
 
-Agent definitions live in JSON files. The CLI creates the team from `--agents` + `--agent` + the env var. TeamCreate/TeamDelete are in every agent's `disallowedTools` — agents cannot create or destroy teams at runtime. The lead spawns teammates via Task from the pre-defined pool.
+Agent definitions live in JSON files. The CLI creates the team from `--agents` + `--agent` + the env var. TeamCreate/TeamDelete are in every agent's `disallowedTools` — agents cannot create or destroy teams at runtime. The lead delegates to teammates via SendMessage. Teammates are pre-defined in the `--agents` pool and run concurrently within the process.
 
 ### Agents Are Agents
 
@@ -92,7 +91,7 @@ Minimal, non-prescriptive prompts. No retry loops, format constraints, or output
 
 The only custom inter-process communication. Everything else uses Claude's built-in inbox/messaging. relay.sh is intentionally thin: spawn a claude process, wait, return JSON.
 
-**Parallelism lives at the lead level, not the liaison level.** The lead dispatches multiple liaisons as background Tasks (`run_in_background: true`). Each liaison calls relay.sh as a foreground Bash command — blocking until the subteam completes, then returning the JSON result through the Task tool. Parallelism comes from multiple concurrent Tasks, not from background Bash within a single liaison.
+**Parallelism lives at the lead level, not the liaison level.** The lead dispatches multiple liaisons via SendMessage. Each liaison calls relay.sh as a foreground Bash command — blocking until the subteam completes, then reporting the JSON result back via SendMessage. Parallelism comes from multiple liaisons processing their messages concurrently, not from background processes or task management.
 
 relay.sh also writes `.result.json` to the dispatch output directory and uses a `.running` sentinel file. This makes results discoverable even if an agent uses a suboptimal dispatch pattern (e.g., background Bash + polling instead of foreground Bash). When `.running` disappears and `.result.json` exists, the result is ready.
 
@@ -102,7 +101,7 @@ Same script, same lifecycle. The only difference: `--auto-approve` at the subtea
 
 ### Leaf Workers Have Restricted Tools
 
-Workers (writers, artists, editors) have no Bash. They produce files and return results via Task. Leads have Bash only because liaisons need it for relay.sh. Tool restrictions via `disallowedTools`, not prompts.
+Workers (writers, artists, editors) have no Bash. They produce files and return results via SendMessage. Leads have Bash only because liaisons need it for relay.sh. Tool restrictions via `disallowedTools`, not prompts.
 
 ### Stream Files Are Observable
 
@@ -313,10 +312,11 @@ Each `assistant` event contains `message.content[]` — an array of typed blocks
 
 | Tool name | What it means | Input fields |
 |-----------|---------------|--------------|
-| `Task` | Lead dispatching to a subagent. | `subagent_type`, `name`, `description`, `prompt`, `run_in_background` |
-| `SendMessage` | Direct message between teammates. | `type` (message/broadcast/shutdown_request), `recipient`, `content`, `summary` |
+| `SendMessage` | **Primary delegation mechanism.** Lead dispatching work to teammates; teammates reporting results. | `type` (message/broadcast/shutdown_request), `recipient`, `content`, `summary` |
 | `Bash` | Shell command. Only relay.sh calls cross process boundaries. | `command` |
 | `Write` | File creation. | `file_path`, `content` |
+
+> **Note**: `Task`, `TaskOutput`, and `TaskStop` are in every agent's `disallowedTools`. See [Counter-Indicated Patterns](#counter-indicated-patterns) for why.
 
 ### Tool Results (User Events)
 
@@ -330,7 +330,7 @@ Tool results come back as `user` events with `message.content[]` containing obje
 Events don't have an `agent_name` field. To identify who's speaking:
 
 1. **Lead**: the `session_id` from the first `system/init` event.
-2. **Subagents**: `parent_tool_use_id` on the event matches the `id` of the Task `tool_use` that spawned them. Track the mapping `tool_use_id → agent name` from Task dispatches.
+2. **Teammates**: SendMessage events include `recipient` — the agent name. Track which agents are active from SendMessage dispatches.
 3. **Fallback**: `session_id[:8]` as a short hash.
 
 ### Stream Completion and Stop Reasons
@@ -352,7 +352,7 @@ In the CLI's `--output-format stream-json` coalesced format, the completion sign
 
 The filter reads stream-json from stdin and outputs `[sender] @recipient: body` lines:
 
-- **Task dispatch**: `[lead] @writing-liaison: Write chapter 1 — ...`
+- **SendMessage dispatch**: `[lead] @writing-liaison: Write chapter 1 — ...`
 - **SendMessage**: `[art-liaison] @project-lead: Art assets complete`
 - **Relay call**: `[writing-liaison] @writing-team: Write the introduction`
 - **Errors**: `[lead] !! Bash: command failed`
@@ -418,7 +418,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 |------|---------|
 | `-p` | Pipe mode. Non-interactive, reads task from stdin, exits when done. |
 | `--output-format stream-json` | Streams structured JSON events (tool calls, messages, results) to stdout. Consumed by `stream_filter.py` for human-readable output. |
-| `--agents '<JSON>'` | Defines the agent pool for this process. Each agent has `description`, `prompt`, `model`, `maxTurns`, `disallowedTools`. Agents are spawned via the Task tool. |
+| `--agents '<JSON>'` | Defines the agent pool for this process. Each agent has `description`, `prompt`, `model`, `maxTurns`, `disallowedTools`. The lead delegates to agents via SendMessage. |
 | `--agent <name>` | Runs claude as the named agent from the `--agents` pool. Combined with `--agents` and the env var, this creates the team context automatically — no TeamCreate needed. |
 | `--permission-mode plan` | Plan phase. Agent explores and plans in read-only mode, calls ExitPlanMode when ready. |
 | `--permission-mode acceptEdits` | Execute phase. Agent can write files and run tools without prompting. |
@@ -454,9 +454,9 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 
 ### Delegation
 
-6. The lead spawns liaisons via Task from the `--agents` pool. Liaisons run as subagents — each in its own context window.
+6. The lead delegates to liaisons via SendMessage. Liaisons are teammates in the `--agents` pool and process messages concurrently.
 7. Liaisons call `relay.sh` via Bash, which starts a new `claude -p` process for the subteam (step 2 again, recursively).
-8. Subteam leads spawn workers via Task. Workers produce files and return results.
+8. Subteam leads delegate to workers via SendMessage. Workers produce files and return results.
 
 ### Completion
 
@@ -468,7 +468,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
     - Removes the dispatch worktree and branch
     - Writes `.result.json` and clears `.running`
     - Returns the JSON summary (learning extraction runs async in background)
-12. Liaison receives the summary → returns to uber lead via Task tool.
+12. Liaison receives the summary → reports to uber lead via SendMessage.
 13. Uber lead synthesizes results, may dispatch more work, eventually exits.
 14. `plan-execute.sh` reads the final `result/success` event and exits.
 15. run.sh merges the session branch into main (with `-X theirs` fallback), removes the session worktree, then runs the promotion chain.
@@ -479,17 +479,17 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 - **Token limit**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` too low. Agent gets an API error. Set to 128k.
 - **Max turns exhausted**: agent stops mid-work. Increase `--max-turns` or simplify the task.
 - **Rate limiting**: `rate_limit_event` in the stream. Claude retries automatically.
-- **Hung process**: a background Task agent waiting on something that will never come. Use `shutdown.sh` to kill the process tree.
+- **Hung process**: a stalled claude process (e.g., blocked on a relay that will never return). The stall watchdog in `plan-execute.sh` auto-kills after 30 minutes of inactivity. Use `shutdown.sh` for manual intervention.
 
 ## Observed Behavior
 
 From test runs, the lead autonomously:
 
-- **Dispatches multiple Task agents in parallel** using `run_in_background: true` for concurrent liaison work.
+- **Delegates to multiple liaisons via SendMessage** — teammates process concurrently, enabling parallel subteam dispatch.
 - **Falls back gracefully** — if a relay.sh call fails or an art subteam errors, the lead re-dispatches or delegates to a `general-purpose` subagent directly.
 - **Sequences dependent work** — writing first, then art, then editorial review — without being prompted to do so.
 
-The stream-json output contains `task_progress` events while background agents work. These are high-volume and suppressed by `stream_filter.py`. The observable events are Task dispatches, relay.sh calls, SendMessage, and errors.
+The stream-json output contains `task_progress` events while agents work. These are high-volume and suppressed by `stream_filter.py`. The observable events are SendMessage dispatches, relay.sh calls, and errors.
 
 ## Constraints
 
@@ -503,3 +503,25 @@ The stream-json output contains `task_progress` events while background agents w
 - Learning extraction calls claude-haiku, adding a small cost per session (~$0.01).
 - Project classification calls claude-haiku once per run (~$0.001). Override with `--project` to skip classification.
 - Project→global promotion is strictly filtered — only cross-project process insights propagate. Domain knowledge stays at the project level.
+
+## Counter-Indicated Patterns
+
+### Task / TaskOutput / TaskStop — NEVER USE
+
+All agents have `Task`, `TaskOutput`, and `TaskStop` in their `disallowedTools`. These tools are structurally incompatible with the POC's process model:
+
+1. **Task creates task output files** in `/private/tmp/claude-*/.../.tasks/`. These are ephemeral files used by Claude Code to track background subagent output.
+
+2. **TaskOutput reads via `tail -f task.output | head -N`**. If the task output has fewer than N lines, `tail -f` blocks forever waiting for more data that will never come.
+
+3. **The stall cascades**: blocked `tail -f` → blocked claude process → blocked FIFO → blocked plan-execute.sh → blocked relay.sh → blocked uber claude. The entire pipeline deadlocks.
+
+This caused every hung process in the POC (oxalate-kidney-stone-guide, mandelbrot-explorer, frogger-game). The frogger-game project-lead used Task 14 times with `run_in_background: true` and SendMessage 0 times.
+
+**The correct pattern**: delegate via SendMessage to teammates defined in `--agents`. Teammates process messages concurrently — no background task management, no task output files, no stalls.
+
+**Safety net**: `plan-execute.sh` includes a stall watchdog that monitors stream file mtime and kills the claude process tree if no output is produced for 30 minutes (configurable via `STALL_TIMEOUT` env var) with no active dispatches. This catches any remaining stall scenarios, but the `disallowedTools` fix prevents the root cause.
+
+### TeamCreate / TeamDelete — NEVER USE
+
+Teams are static. The `--agents` flag + `--agent` + `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` env var create the team automatically. Agents must not create or destroy teams at runtime. Both tools are in every agent's `disallowedTools`.

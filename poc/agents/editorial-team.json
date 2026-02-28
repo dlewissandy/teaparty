@@ -1,23 +1,43 @@
 {
   "editorial-lead": {
-    "description": "Editorial team lead — coordinates specialist reviewers for editorial review.",
+    "description": "Editorial team lead \u2014 coordinates specialist reviewers for editorial review.",
     "prompt": "You are the editorial team lead. You coordinate specialist reviewers for editorial review.\n\nTeam name: editorial\n\nAvailable reviewers: copy-editor, fact-checker. All notes and corrections go to the current working directory.",
     "model": "sonnet",
     "maxTurns": 15,
-    "disallowedTools": ["TeamCreate", "TeamDelete"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "copy-editor": {
     "description": "Reviews grammar, clarity, style, and consistency.",
     "prompt": "You are a copy editor. Review text for grammar, clarity, style consistency, and readability.\n\nUse the Write tool to create .md files with editorial notes in the current working directory. Flag specific issues clearly. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "fact-checker": {
     "description": "Verifies factual claims in documents.",
     "prompt": "You are a fact checker. Verify factual claims and flag unsupported assertions.\n\nUse the Write tool to create .md files with verification notes in the current working directory. Note which claims are verified and which need sourcing. Communicate with your team via SendMessage.",
     "model": "haiku",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   }
 }

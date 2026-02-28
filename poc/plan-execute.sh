@@ -66,6 +66,53 @@ EXEC_STREAM="$STREAM_TARGET/.exec-stream.jsonl"
 # Write pointer for status.sh
 echo "$EXEC_STREAM" > "$STREAM_TARGET/.stream-file" 2>/dev/null || true
 
+# ── Stall watchdog ──
+# Claude Code can spawn `tail -f <task-output> | head -N` as Bash tool calls.
+# When the task output file is deleted, tail -f blocks forever, deadlocking the
+# entire pipeline (claude → FIFO → cat|tee → plan-execute → relay → uber claude).
+# The watchdog monitors stream file mtime and kills the claude process tree if
+# no output is produced for STALL_TIMEOUT seconds with no active dispatches.
+STALL_TIMEOUT="${STALL_TIMEOUT:-1800}"  # 30 minutes default
+
+kill_tree() {
+  local pid=$1
+  local children
+  children=$(pgrep -P "$pid" 2>/dev/null || true)
+  for child in $children; do
+    kill_tree "$child"
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+}
+
+stall_watchdog() {
+  local pid=$1 stream=$2
+  # Grace period: let claude start up before checking
+  sleep 120
+  while kill -0 "$pid" 2>/dev/null; do
+    sleep 60
+    # Stream mtime check (macOS stat -f%m, Linux stat -c%Y)
+    local mtime now age
+    mtime=$(stat -f%m "$stream" 2>/dev/null || stat -c%Y "$stream" 2>/dev/null || echo 0)
+    now=$(date +%s)
+    age=$(( now - mtime ))
+    if [[ $age -ge $STALL_TIMEOUT ]]; then
+      # Check for active dispatches before killing — a running dispatch
+      # means claude is legitimately waiting for a relay.sh result.
+      local running_count=0
+      if [[ -n "${POC_SESSION_DIR:-}" ]]; then
+        running_count=$(find "$POC_SESSION_DIR" -name ".running" 2>/dev/null | wc -l | tr -d ' ')
+      fi
+      if [[ $running_count -gt 0 ]]; then
+        echo "[watchdog] Stream stale ${age}s but $running_count dispatch(es) active — waiting" >&2
+        continue
+      fi
+      echo "[watchdog] Stream stale ${age}s with no active dispatches — killing PID $pid" >&2
+      kill_tree "$pid"
+      break
+    fi
+  done
+}
+
 # Stream filter — appends to shared conversation log if set, otherwise stderr.
 # CONVERSATION_LOG env var is set by run.sh and inherited through relay.sh.
 filter_stream() {
@@ -107,12 +154,21 @@ run_claude() {
   (cd "$WORK_DIR" && echo "$task_input" | claude "${CLAUDE_ARGS[@]}" "$@" > "$fifo") &
   local bg_pid=$!
 
+  # Start stall watchdog — kills claude if stream goes stale
+  stall_watchdog "$bg_pid" "$stream_file" &
+  local watchdog_pid=$!
+
   # Read until claude exits (EOF on FIFO)
   cat < "$fifo" \
     | tee "$stream_file" \
     | tee >(filter_stream) > /dev/null
 
   wait "$bg_pid" 2>/dev/null || true
+
+  # Stop the watchdog
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+
   rm -f "$fifo"
 }
 

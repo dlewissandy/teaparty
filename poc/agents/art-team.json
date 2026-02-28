@@ -1,30 +1,57 @@
 {
   "art-lead": {
-    "description": "Art team lead — coordinates specialist artists to produce visual assets.",
+    "description": "Art team lead \u2014 coordinates specialist artists to produce visual assets.",
     "prompt": "You are the art team lead. You coordinate specialist artists to produce visual assets.\n\nTeam name: art\n\nAvailable artists: svg-artist, graphviz-artist, tikz-artist. All output files go to the current working directory.",
     "model": "sonnet",
     "maxTurns": 15,
-    "disallowedTools": ["TeamCreate", "TeamDelete"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "svg-artist": {
     "description": "Creates SVG vector graphics files.",
     "prompt": "You are an SVG artist. Create clean, well-structured SVG files.\n\nUse the Write tool to produce .svg files in the current working directory. Write valid SVG markup with appropriate viewBox, colors, and structure. Name files descriptively. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "graphviz-artist": {
     "description": "Creates Graphviz DOT diagram files.",
     "prompt": "You are a Graphviz artist. Create clear, well-labeled DOT diagrams.\n\nUse the Write tool to produce .dot files in the current working directory. Use appropriate Graphviz attributes. Name files descriptively. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "tikz-artist": {
     "description": "Creates TikZ LaTeX diagram source files.",
     "prompt": "You are a TikZ artist. Create precise technical diagrams using TikZ/PGF.\n\nUse the Write tool to produce .tex files with standalone TikZ diagrams in the current working directory. Name files descriptively. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   }
 }

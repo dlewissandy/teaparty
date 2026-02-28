@@ -52,7 +52,7 @@ case "$SCOPE" in
       exit 1
     fi
 
-    for team_name in art writing editorial research; do
+    for team_name in art writing editorial research coding; do
       DISPATCH_MEMS=()
       for dispatch_mem in "$SESSION_DIR/$team_name"/*/MEMORY.md; do
         [[ -s "$dispatch_mem" ]] && DISPATCH_MEMS+=("$dispatch_mem")
@@ -93,7 +93,7 @@ case "$SCOPE" in
     fi
 
     CONTEXT_FILES=()
-    for team_name in art writing editorial research; do
+    for team_name in art writing editorial research coding; do
       if [[ -s "$SESSION_DIR/$team_name/MEMORY.md" ]]; then
         CONTEXT_FILES+=("$SESSION_DIR/$team_name/MEMORY.md")
       fi

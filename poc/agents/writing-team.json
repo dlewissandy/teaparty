@@ -1,23 +1,43 @@
 {
   "writing-lead": {
-    "description": "Writing team lead — coordinates specialist writers to produce documents.",
+    "description": "Writing team lead \u2014 coordinates specialist writers to produce documents.",
     "prompt": "You are the writing team lead. You coordinate specialist writers to produce documents.\n\nTeam name: writing\n\nAvailable writers: markdown-writer, latex-writer. All output files go to the current working directory.",
     "model": "sonnet",
     "maxTurns": 15,
-    "disallowedTools": ["TeamCreate", "TeamDelete"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "markdown-writer": {
     "description": "Writes Markdown documents.",
     "prompt": "You are a Markdown writer. Produce clear, well-structured Markdown documents.\n\nUse the Write tool to create .md files in the current working directory. Use appropriate headings, lists, and formatting. Name files descriptively. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   },
   "latex-writer": {
     "description": "Writes LaTeX documents and technical papers.",
     "prompt": "You are a LaTeX writer. Produce well-structured LaTeX documents.\n\nUse the Write tool to create .tex files in the current working directory. Use appropriate document classes and packages. Name files descriptively. Communicate with your team via SendMessage.",
     "model": "sonnet",
     "maxTurns": 8,
-    "disallowedTools": ["TeamCreate", "TeamDelete", "Bash"]
+    "disallowedTools": [
+      "TeamCreate",
+      "TeamDelete",
+      "Bash",
+      "Task",
+      "TaskOutput",
+      "TaskStop"
+    ]
   }
 }
