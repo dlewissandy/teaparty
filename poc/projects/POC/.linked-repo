@@ -1,0 +1,3 @@
+# This project uses the parent git repository instead of its own.
+# Session worktrees are created from the parent repo, allowing agents
+# to modify the POC codebase itself (dogfooding).

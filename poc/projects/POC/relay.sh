@@ -30,6 +30,7 @@ DISPATCH_TS=$(date +%Y%m%d-%H%M%S)
 DISPATCH_BRANCH="dispatch/$TEAM/$DISPATCH_TS"
 
 PROJECT_DIR="${POC_PROJECT_DIR:-}"
+REPO_DIR="${POC_REPO_DIR:-$PROJECT_DIR}"
 SESSION_WORKTREE="${POC_SESSION_WORKTREE:-}"
 
 if [[ -n "$PROJECT_DIR" && -n "$SESSION_WORKTREE" ]]; then
@@ -135,8 +136,8 @@ if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
   fi
 
   # Clean up worktree and branch
-  git -C "$PROJECT_DIR" worktree remove "$DISPATCH_WORKTREE" 2>/dev/null || true
-  git -C "$PROJECT_DIR" branch -d "$DISPATCH_BRANCH" 2>/dev/null || true
+  git -C "$REPO_DIR" worktree remove "$DISPATCH_WORKTREE" 2>/dev/null || true
+  git -C "$REPO_DIR" branch -d "$DISPATCH_BRANCH" 2>/dev/null || true
 fi
 
 # ── Relay result immediately ──

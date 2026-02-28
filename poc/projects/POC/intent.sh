@@ -1,0 +1,264 @@
+#!/usr/bin/env bash
+# intent.sh — Multi-turn intent gathering conversation.
+#
+# Conducts a dialog between the human and an intent team to produce INTENT.md.
+# Uses claude -p with --resume for multi-turn conversation continuity.
+# The intent-lead facilitates the dialog; the research-liaison dispatches
+# research to the existing research subteam via relay.sh.
+#
+# Usage: intent.sh --cwd <worktree> --stream-dir <infra-dir> --task "<task>" \
+#                  [--context-file <path>...]
+#
+# Exits 0 with INTENT.md written to CWD, or 1 if skipped/failed.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Defaults
+CWD=""
+STREAM_DIR=""
+TASK=""
+CONTEXT_FILES=()
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cwd)          CWD="$2"; shift 2 ;;
+    --stream-dir)   STREAM_DIR="$2"; shift 2 ;;
+    --task)         TASK="$2"; shift 2 ;;
+    --context-file) CONTEXT_FILES+=("$2"); shift 2 ;;
+    *)              echo "intent.sh: unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+[[ -z "$CWD" ]]  && { echo "intent.sh: --cwd required" >&2; exit 1; }
+[[ -z "$TASK" ]] && { echo "intent.sh: --task required" >&2; exit 1; }
+
+# Default stream dir to CWD if not specified
+STREAM_DIR="${STREAM_DIR:-$CWD}"
+mkdir -p "$STREAM_DIR"
+
+# ── Build initial prompt with warm-start context ──
+INITIAL_PROMPT="Task: $TASK"
+
+for ctx_file in "${CONTEXT_FILES[@]}"; do
+  if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
+    LABEL=$(basename "$ctx_file")
+    DIR_LABEL=$(basename "$(dirname "$ctx_file")")
+    INITIAL_PROMPT="$INITIAL_PROMPT
+
+--- $LABEL ($DIR_LABEL) ---
+$(cat "$ctx_file")
+--- end $LABEL ---"
+  fi
+done
+
+# ── Agent definition with path substitution ──
+AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
+                  -e "s|__SESSION_DIR__|$STREAM_DIR|g" \
+  "$SCRIPT_DIR/agents/intent-team.json")
+
+# ── Settings: pre-approve tools needed by intent team ──
+SETTINGS_FILE=$(mktemp)
+trap "rm -f $SETTINGS_FILE" EXIT
+
+python3 -c "
+import json, os, sys
+d = os.environ.get('SCRIPT_DIR', '.')
+rules = [
+    'Bash(' + d + '/relay.sh:*)',
+    'Bash(' + d + '/yt-transcript.sh:*)',
+    'WebFetch',
+    'WebSearch',
+]
+json.dump({'permissions': {'allow': rules}, 'env': {
+    'SCRIPT_DIR': d,
+    'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
+    'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
+    'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+    'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
+    'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+}}, sys.stdout)
+" > "$SETTINGS_FILE"
+
+# ── Stream and session state ──
+INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
+> "$INTENT_STREAM"
+
+# Common claude args
+CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
+CLAUDE_ARGS+=(--agents "$AGENTS_JSON" --agent intent-lead)
+CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
+ADD_DIR="${POC_REPO_DIR:-${POC_PROJECT_DIR:-}}"
+[[ -n "$ADD_DIR" ]] && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
+
+# ── Helper: extract session ID from stream ──
+extract_session_id() {
+  python3 -c "
+import json, sys
+for line in sys.stdin:
+    try:
+        ev = json.loads(line.strip())
+        if ev.get('type') == 'system' and ev.get('subtype') == 'init':
+            print(ev['session_id'])
+            break
+    except:
+        pass
+"
+}
+
+# ── Helper: run one turn of the conversation ──
+# Sends input to claude, streams output through intent_filter.py,
+# saves raw stream to .intent-stream.jsonl (append mode).
+run_turn() {
+  local input="$1"
+  shift
+  local extra_args=("$@")
+
+  local fifo
+  fifo=$(mktemp -u).fifo
+  mkfifo "$fifo"
+
+  # Claude writes to FIFO in background
+  (cd "$CWD" && echo "$input" | claude "${CLAUDE_ARGS[@]}" "${extra_args[@]}" > "$fifo") &
+  local bg_pid=$!
+
+  # Stream through filter for display, also append to stream file
+  cat < "$fifo" \
+    | tee -a "$INTENT_STREAM" \
+    | python3 -u "$SCRIPT_DIR/intent_filter.py" >&2
+
+  wait "$bg_pid" 2>/dev/null || true
+  rm -f "$fifo"
+}
+
+# ── Banner ──
+echo "" >&2
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "  Intent Gathering" >&2
+echo "  Respond to the agent. Type 'done' to finalize, 'skip' to bypass." >&2
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+echo "" >&2
+
+# ── Turn 1: Initial prompt ──
+run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 15
+
+# Extract session ID for --resume on subsequent turns
+SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
+if [[ -z "$SESSION_ID" ]]; then
+  echo "ERROR: Could not extract session ID from intent agent" >&2
+  exit 1
+fi
+
+# ── Conversation loop ──
+MAX_ROUNDS=10
+round=0
+
+while [[ $round -lt $MAX_ROUNDS ]]; do
+  ((round++))
+
+  # Check if INTENT.md was written
+  if [[ -f "$CWD/INTENT.md" ]]; then
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "  INTENT.md" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    cat "$CWD/INTENT.md" >&2
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+
+    read -p "Approve INTENT.md? [y/n/e(dit)] " approval </dev/tty
+    case "$approval" in
+      y|Y)
+        echo "Intent approved." >&2
+        exit 0
+        ;;
+      e|E)
+        ${EDITOR:-vim} "$CWD/INTENT.md"
+        echo "INTENT.md updated." >&2
+        exit 0
+        ;;
+      n|N)
+        # Human wants changes — get feedback and continue
+        read -p "Feedback: " feedback </dev/tty
+        if [[ -z "$feedback" ]]; then
+          echo "No feedback provided. Continuing..." >&2
+          continue
+        fi
+        run_turn "$feedback" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+        continue
+        ;;
+      *)
+        # Treat any other input as feedback
+        run_turn "$approval" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+        continue
+        ;;
+    esac
+  fi
+
+  # No INTENT.md yet — get human input
+  echo "" >&2
+  read -p "> " human_input </dev/tty
+
+  # Control commands
+  case "$human_input" in
+    skip|SKIP)
+      echo "Skipping intent gathering." >&2
+      exit 1
+      ;;
+    done|DONE)
+      # Ask the agent to write INTENT.md based on the conversation so far
+      echo "Asking agent to finalize INTENT.md..." >&2
+      run_turn "Please write INTENT.md now based on our conversation." \
+        --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+      # Loop will check for INTENT.md on next iteration
+      continue
+      ;;
+    "")
+      continue
+      ;;
+  esac
+
+  # Send human input to the intent team, resume the session
+  run_turn "$human_input" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+done
+
+# ── Fallback: conversation ended without INTENT.md ──
+if [[ ! -f "$CWD/INTENT.md" ]]; then
+  echo "" >&2
+  echo "No INTENT.md was written. Asking agent to produce it..." >&2
+  run_turn "Please write the INTENT.md now based on everything we've discussed." \
+    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+fi
+
+if [[ -f "$CWD/INTENT.md" ]]; then
+  echo "" >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  echo "  INTENT.md" >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  cat "$CWD/INTENT.md" >&2
+  echo "" >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  echo "" >&2
+
+  read -p "Approve INTENT.md? [y/n/e(dit)] " approval </dev/tty
+  case "$approval" in
+    y|Y)
+      echo "Intent approved." >&2
+      exit 0
+      ;;
+    e|E)
+      ${EDITOR:-vim} "$CWD/INTENT.md"
+      echo "INTENT.md updated." >&2
+      exit 0
+      ;;
+    *)
+      echo "Intent rejected." >&2
+      exit 1
+      ;;
+  esac
+else
+  echo "WARNING: Intent agent did not produce INTENT.md." >&2
+  exit 1
+fi

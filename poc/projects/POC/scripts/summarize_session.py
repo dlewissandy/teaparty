@@ -209,6 +209,74 @@ Format each learning as:
 Session conversation:
 {conversation}
 """,
+
+    "observations": """Review this conversation and extract observations about the human's preferences, values, and working style.
+
+Focus on:
+- Explicit preference statements ("I want X", "I prefer Y over Z")
+- Implicit value signals (what the human emphasized, repeated, or pushed back on)
+- Corrections that reveal preferences (human changed the agent's understanding)
+- Stated vs. revealed preference divergences (human says one thing but corrects toward another)
+
+Only include observations that are durable (likely to apply in future sessions).
+
+Format each observation as:
+
+## [{date}] Observation
+**Category:** Values | Preferences | Corrections | Stated vs. Revealed
+**Signal:** <what was observed>
+**Implication:** <what this means for future intent gathering>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "escalation": """Review this conversation and extract escalation-relevant observations.
+
+Focus on:
+- Explicit preferences about where agents should use their own judgment vs. stop and consult the human
+- Decisions about risk tolerance for specific domains or decision types
+- Autonomous actions that were accepted (calibrate toward autonomy) or corrected (calibrate toward escalation)
+- Statements like "you should have just done that" (threshold too high) or corrections after autonomous action (threshold too low)
+
+Format each observation as:
+
+## [{date}] Escalation Observation
+**Domain:** <what area this applies to (e.g., code style, factual claims, design choices)>
+**Signal:** <what was observed>
+**Calibration:** <should agents escalate more or less in this domain?>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "intent-alignment": """Compare the intent specification (in context below) against the work that was done (in the conversation).
+
+Extract observations about how well the executed work aligned with the stated intent:
+- Which success criteria were addressed by the deliverables?
+- Which success criteria were NOT addressed or only partially addressed?
+- Where did agents deviate from the intent's decision boundaries?
+- What corrections during execution reveal gaps in the intent specification?
+- What preferences were revealed that the intent did not capture?
+
+Focus on actionable observations that improve future intent gathering.
+
+Format each observation as:
+
+## [{date}] Alignment Observation
+**Category:** Success Criteria Met | Success Criteria Missed | Boundary Deviation | Intent Gap
+**Signal:** <what was observed>
+**Implication:** <what to ask about or capture in the next intent gathering session>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
 }
 
 
@@ -283,8 +351,10 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, help="Path to target MEMORY.md")
     parser.add_argument("--context", nargs="*", default=[], help="Additional context files")
     parser.add_argument("--scope", default="team",
-                        choices=["team", "team-rollup", "session", "project", "global"],
-                        help="Extraction scope (team, team-rollup, session, project, global)")
+                        choices=["team", "team-rollup", "session", "project", "global",
+                                 "observations", "escalation", "intent-alignment"],
+                        help="Extraction scope (team, team-rollup, session, project, global, "
+                             "observations, escalation, intent-alignment)")
     args = parser.parse_args()
 
     sys.exit(summarize(args.stream, args.output, args.context, args.scope))

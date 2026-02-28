@@ -27,11 +27,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-POC_DIR="$(dirname "$SCRIPT_DIR")"
+POC_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 SESSION_DIR="${POC_SESSION_DIR:-}"
 PROJECT_DIR="${POC_PROJECT_DIR:-}"
-OUTPUT_DIR="${POC_OUTPUT_DIR:-$POC_DIR/output}"
+OUTPUT_DIR="${POC_OUTPUT_DIR:-$POC_DIR}"
 
 # Parse --scope argument
 SCOPE="${1:-}"

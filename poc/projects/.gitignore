@@ -1,0 +1,5 @@
+# Runtime project repos are gitignored (each has own .git)
+/*
+# The POC project itself is tracked
+!/.gitignore
+!/POC/
