@@ -316,16 +316,47 @@ def update_topic_conversation(
     if payload.description is not None:
         conversation.description = payload.description.strip()
 
+    newly_archived = False
     if payload.is_archived is not None:
         require_workgroup_editor(session, workgroup_id, user.id)
+        newly_archived = payload.is_archived and not conversation.is_archived
         conversation.is_archived = payload.is_archived
         conversation.archived_at = utc_now() if payload.is_archived else None
 
     session.add(conversation)
     session.commit()
     publish_sync_event(session, "workgroup", conversation.workgroup_id, "sync:tree_changed", {"workgroup_id": conversation.workgroup_id})
+
+    # Synthesize long-term memories in the background when archiving.
+    if newly_archived:
+        _synthesize_memories_background(conversation.id)
+
     session.refresh(conversation)
     return ConversationRead.model_validate(conversation)
+
+
+def _synthesize_memories_background(conversation_id: str) -> None:
+    """Synthesize long-term agent memories from a newly archived conversation."""
+    import logging
+    import threading
+
+    logger = logging.getLogger(__name__)
+
+    def _run() -> None:
+        try:
+            with Session(engine) as bg_session:
+                conv = bg_session.get(Conversation, conversation_id)
+                if not conv:
+                    return
+                from teaparty_app.services.agent_learning import synthesize_long_term_memories
+                result = synthesize_long_term_memories(bg_session, conv)
+                if result:
+                    bg_session.commit()
+                    logger.info("Synthesized memories for conversation %s: %s", conversation_id, result)
+        except Exception:
+            logger.warning("Memory synthesis failed for conversation %s", conversation_id, exc_info=True)
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _cleanup_claude_session(session_id: str) -> None:

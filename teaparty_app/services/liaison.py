@@ -189,6 +189,7 @@ def run_subteam(
             files_context="Your workgroup's files are in the current working directory. Use Read, Edit, Write, Glob, and Grep.",
             teammates=others if is_lead else None,
             org_files=org_files,
+            session=session,
         )
         slug_to_id[slug] = agent.id
 

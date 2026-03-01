@@ -24,6 +24,7 @@ def build_agent_json(
     files_context: str = "",
     teammates: list[Agent] | None = None,
     org_files: list[dict] | None = None,
+    session: Session | None = None,
 ) -> dict:
     """Convert an Agent record to a dict suitable for ``--agents`` JSON.
 
@@ -44,6 +45,7 @@ def build_agent_json(
         "prompt": _build_prompt_body(
             agent, conversation, workgroup, files_context,
             teammates=teammates, org_files=org_files,
+            session=session,
         ),
         "model": agent.model,
     }
@@ -278,6 +280,7 @@ def _build_prompt_body(
     files_context: str = "",
     teammates: list[Agent] | None = None,
     org_files: list[dict] | None = None,
+    session: Session | None = None,
 ) -> str:
     """Build the agent's prompt body — same content as build_system_prompt()."""
     parts: list[str] = []
@@ -286,6 +289,14 @@ def _build_prompt_body(
     parts.append(f"You are {agent.name}.")
     if agent.prompt:
         parts.append(agent.prompt)
+
+    # Long-term memories from past conversations
+    if session:
+        from teaparty_app.services.agent_learning import get_agent_memory_context
+        memory_ctx = get_agent_memory_context(session, agent)
+        if memory_ctx:
+            parts.append("")
+            parts.append(memory_ctx)
 
     # Conversation context
     parts.append("")

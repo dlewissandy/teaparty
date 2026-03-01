@@ -323,6 +323,7 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
             files_context=files_context,
             org_files=org_files,
             teammates=sub_agents,
+            session=session,
         )
         lead_slug = slugify(agent.name)
 
@@ -333,6 +334,7 @@ def build_admin_agent_reply(session: Session, agent: Agent, conversation: Conver
                 sub, conversation, workgroup,
                 files_context=files_context,
                 org_files=org_files,
+                session=session,
             )
             agents_dict[slugify(sub.name)] = sub_def
 
@@ -579,6 +581,7 @@ def _run_single_agent_responses(
                     agent, conversation, workgroup,
                     files_context=files_context,
                     org_files=org_files,
+                    session=session,
                 )
                 slug = slugify(agent.name)
                 agents_json = json.dumps({slug: agent_def})

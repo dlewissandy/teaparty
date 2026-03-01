@@ -190,7 +190,7 @@ fi
   --add-dir "$POC_REPO_DIR" \
   --plan-turns 15 \
   --exec-turns 30 \
-  "${MEMORY_CTX[@]}" \
+  ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
   "$TASK"
 
 # ── Session completion: commit + merge session branch into main ──

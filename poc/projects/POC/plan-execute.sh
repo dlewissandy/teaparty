@@ -25,6 +25,7 @@ CWD=""
 ADD_DIR=""
 FILTER_PREFIX=""
 STREAM_DIR=""
+CONTEXT_FILES=()
 TASK=""
 
 # Parse arguments
@@ -40,6 +41,7 @@ while [[ $# -gt 0 ]]; do
     --add-dir)       ADD_DIR="$2"; shift 2 ;;
     --stream-dir)    STREAM_DIR="$2"; shift 2 ;;
     --filter-prefix) FILTER_PREFIX="$2"; shift 2 ;;
+    --context-file)  CONTEXT_FILES+=("$2"); shift 2 ;;
     -*)              echo "Unknown option: $1" >&2; exit 1 ;;
     *)               TASK="$1"; shift ;;
   esac
@@ -53,6 +55,9 @@ CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 [[ -n "$LEAD" ]]           && CLAUDE_ARGS+=(--agent "$LEAD")
 [[ -n "$SETTINGS_FILE" ]]  && CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
 [[ -n "$ADD_DIR" ]]        && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
+for ctx in ${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}; do
+  [[ -f "$ctx" && -s "$ctx" ]] && CLAUDE_ARGS+=(--context-file "$ctx")
+done
 
 # Working directory for agent CWD
 WORK_DIR="${CWD:-.}"
