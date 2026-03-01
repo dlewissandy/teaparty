@@ -12,7 +12,7 @@ source "$SCRIPT_DIR/chrome.sh"
 
 # Parse arguments: optional --project override, --skip-intent, then positional task
 PROJECT_OVERRIDE=""
-SKIP_INTENT="true"
+SKIP_INTENT=""
 TASK=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,13 +34,33 @@ mkdir -p "$PROJECTS_DIR"
 
 if [[ -n "$PROJECT_OVERRIDE" ]]; then
   PROJECT="$PROJECT_OVERRIDE"
+  TASK_TIER=2  # Default tier when manually overriding project
 else
-  PROJECT=$(python3 "$SCRIPT_DIR/scripts/classify_task.py" \
+  CLASSIFY_OUT=$(python3 "$SCRIPT_DIR/scripts/classify_task.py" \
     --task "$TASK" \
-    --projects-dir "$PROJECTS_DIR" 2>/dev/null) || PROJECT="default"
+    --projects-dir "$PROJECTS_DIR" 2>/dev/null) || CLASSIFY_OUT="default	2"
+  PROJECT=$(printf '%s' "$CLASSIFY_OUT" | cut -f1)
+  TASK_TIER=$(printf '%s' "$CLASSIFY_OUT" | cut -f2)
+  [[ "$TASK_TIER" =~ ^[0-3]$ ]] || TASK_TIER=2
 fi
 export POC_PROJECT="$PROJECT"
+export POC_TASK_TIER="$TASK_TIER"
 export POC_PROJECT_DIR="$PROJECTS_DIR/$PROJECT"
+
+# ── Tier 0: Conversational — no workflow ──
+if [[ "$TASK_TIER" == "0" ]]; then
+  echo -e "  ${C_DIM}Tier 0 (conversational) — responding directly, no workflow.${C_RESET}" >&2
+  echo "$TASK" | claude -p \
+    --model claude-sonnet-4-5 \
+    --max-turns 1 \
+    --output-format text
+  exit 0
+fi
+
+# ── Resolve intent skip based on tier (unless overridden by flags) ──
+if [[ -z "$SKIP_INTENT" ]]; then
+  [[ "$TASK_TIER" == "1" ]] && SKIP_INTENT="true" || SKIP_INTENT="false"
+fi
 
 # ── Project repo detection ──
 # Three cases:
@@ -87,6 +107,8 @@ mkdir -p "$INFRA_DIR"/{art,writing,editorial,research,coding}
 # Export for relay.sh and promote_learnings.sh
 export POC_SESSION_WORKTREE="$SESSION_WORKTREE"
 export POC_SESSION_DIR="$INFRA_DIR"
+export POC_PREMORTEM_FILE="$INFRA_DIR/.premortem.md"
+export POC_ASSUMPTIONS_FILE="$INFRA_DIR/.assumptions.jsonl"
 
 # Memory files — global persists across all projects, project persists across sessions
 touch "$POC_OUTPUT_DIR/MEMORY.md"
@@ -129,6 +151,9 @@ json.dump({'permissions': {'allow': rules}, 'env': {
     'POC_REPO_DIR': os.environ.get('POC_REPO_DIR', ''),
     'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
     'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+    'POC_TASK_TIER': os.environ.get('POC_TASK_TIER', '2'),
+    'POC_PREMORTEM_FILE': os.environ.get('POC_PREMORTEM_FILE', ''),
+    'POC_ASSUMPTIONS_FILE': os.environ.get('POC_ASSUMPTIONS_FILE', ''),
 }}, sys.stdout)
 " > "$SETTINGS_FILE"
 
@@ -139,6 +164,7 @@ chrome_banner "Hierarchical Agent Teams" "$SUBTITLE"
 echo -e "  ${C_DIM}Task:${C_RESET} $TASK" >&2
 echo -e "  ${C_DIM}Worktree:${C_RESET} $SESSION_WORKTREE" >&2
 echo -e "  ${C_DIM}Infra:${C_RESET} $INFRA_DIR/" >&2
+echo -e "  ${C_DIM}Tier:${C_RESET} $TASK_TIER" >&2
 
 # ── Intent gathering phase ──
 if [[ "$SKIP_INTENT" != "true" ]]; then
@@ -180,17 +206,94 @@ if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
   [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
 fi
 
-# Plan → Approve → Execute (same script used by relay.sh for subteams)
-"$SCRIPT_DIR/plan-execute.sh" \
-  --agents "$AGENTS_JSON" \
-  --agent project-lead \
-  --settings "$SETTINGS_FILE" \
-  --cwd "$SESSION_WORKTREE" \
-  --stream-dir "$INFRA_DIR" \
-  --plan-turns 15 \
-  --exec-turns 30 \
-  ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
-  "$TASK"
+# ── Confidence posture (Tier 2/3 only) ──
+if [[ "$TASK_TIER" =~ ^[23]$ ]]; then
+  chrome_header "CONFIDENCE POSTURE"
+  POSTURE_CTX=""
+  [[ -s "$MEMORY_CTX_FILE" ]] && POSTURE_CTX=$(cat "$MEMORY_CTX_FILE")
+  [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]] && POSTURE_CTX="$POSTURE_CTX
+$(head -c 2000 "$POC_PROJECT_DIR/ESCALATION.md")"
+
+  CONFIDENCE_POSTURE=$(python3 "$SCRIPT_DIR/scripts/generate_confidence_posture.py" \
+    --task "$TASK" \
+    --context "$POSTURE_CTX" 2>/dev/null) || true
+
+  if [[ -n "$CONFIDENCE_POSTURE" ]]; then
+    echo "$CONFIDENCE_POSTURE" >&2
+    TASK="$CONFIDENCE_POSTURE
+
+---
+
+$TASK"
+  fi
+fi
+
+# ── Pre-mortem (Tier 2/3 only) ──
+if [[ "$TASK_TIER" =~ ^[23]$ ]]; then
+  chrome_header "PRE-MORTEM"
+  python3 "$SCRIPT_DIR/scripts/run_premortem.py" \
+    --task "$TASK" \
+    --output "$POC_PREMORTEM_FILE" \
+    ${MEMORY_CTX[@]:+--context-file "$MEMORY_CTX_FILE"} 2>/dev/null || true
+
+  if [[ -s "$POC_PREMORTEM_FILE" ]]; then
+    echo -e "  ${C_DIM}Pre-mortem risks identified — injecting as context.${C_RESET}" >&2
+    cat "$POC_PREMORTEM_FILE" >&2
+    MEMORY_CTX=(--context-file "$POC_PREMORTEM_FILE" ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"})
+  fi
+fi
+
+# ── Plan → Execute (tier-based routing) ──
+if [[ "$TASK_TIER" == "1" ]]; then
+  # Tier 1: Execute only — no plan mode, no human approval gate
+  "$SCRIPT_DIR/plan-execute.sh" \
+    --agents "$AGENTS_JSON" \
+    --agent project-lead \
+    --settings "$SETTINGS_FILE" \
+    --cwd "$SESSION_WORKTREE" \
+    --stream-dir "$INFRA_DIR" \
+    --exec-turns 20 \
+    --no-plan \
+    ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
+    "$TASK"
+else
+  # Tier 2/3: Full plan → approve → execute
+  "$SCRIPT_DIR/plan-execute.sh" \
+    --agents "$AGENTS_JSON" \
+    --agent project-lead \
+    --settings "$SETTINGS_FILE" \
+    --cwd "$SESSION_WORKTREE" \
+    --stream-dir "$INFRA_DIR" \
+    --plan-turns 15 \
+    --exec-turns 30 \
+    ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
+    "$TASK"
+fi
+
+# ── Tier 3: Offer revision round ──
+if [[ "$TASK_TIER" == "3" ]]; then
+  chrome_header "REVISION ROUND"
+  echo -e "  ${C_DIM}Tier 3 project complete. Would you like a revision round? (y/n)${C_RESET}" >&2
+  read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" revision_answer </dev/tty || revision_answer="n"
+  if [[ "$revision_answer" =~ ^[yY]$ ]]; then
+    echo -e "  ${C_DIM}Describe what to revise:${C_RESET}" >&2
+    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" revision_feedback </dev/tty || revision_feedback=""
+    if [[ -n "$revision_feedback" ]]; then
+      REVISION_TASK="REVISION REQUEST: $revision_feedback
+
+Context from original task: ${TASK:0:500}"
+      "$SCRIPT_DIR/plan-execute.sh" \
+        --agents "$AGENTS_JSON" \
+        --agent project-lead \
+        --settings "$SETTINGS_FILE" \
+        --cwd "$SESSION_WORKTREE" \
+        --stream-dir "$INFRA_DIR" \
+        --plan-turns 10 \
+        --exec-turns 20 \
+        "$REVISION_TASK"
+    fi
+  fi
+fi
 
 # ── Session completion: commit + squash-merge session branch into main ──
 chrome_header "MERGE"
@@ -289,6 +392,15 @@ if [[ -f "$POC_REPO_DIR/INTENT.md" && -f "$INFRA_DIR/.exec-stream.jsonl" ]]; the
     --scope intent-alignment \
     --context "$POC_REPO_DIR/INTENT.md" || true
 fi
+
+# 8. Prospective learnings (pre-mortem + execution)
+"$SCRIPT_DIR/scripts/promote_learnings.sh" --scope prospective || true
+
+# 9. In-flight learnings (milestone checkpoints)
+"$SCRIPT_DIR/scripts/promote_learnings.sh" --scope in-flight || true
+
+# 10. Corrective learnings (error events in exec stream)
+"$SCRIPT_DIR/scripts/promote_learnings.sh" --scope corrective || true
 
 # Stop the tail
 kill "$TAIL_PID" 2>/dev/null || true

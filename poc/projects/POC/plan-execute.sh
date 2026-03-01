@@ -27,6 +27,7 @@ FILTER_PREFIX=""
 STREAM_DIR=""
 CONTEXT_FILES=()
 TASK=""
+NO_PLAN=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -42,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --stream-dir)    STREAM_DIR="$2"; shift 2 ;;
     --filter-prefix) FILTER_PREFIX="$2"; shift 2 ;;
     --context-file)  CONTEXT_FILES+=("$2"); shift 2 ;;
+    --no-plan)       NO_PLAN=true; shift ;;
     -*)              echo "Unknown option: $1" >&2; exit 1 ;;
     *)               TASK="$1"; shift ;;
   esac
@@ -188,40 +190,45 @@ run_claude() {
   rm -f "$fifo"
 }
 
-# ── Phase 1: Plan ──
-chrome_header "PLAN"
+# ── Phase 1: Plan (skipped in --no-plan mode) ──
+if [[ "$NO_PLAN" == "true" ]]; then
+  chrome_header "EXECUTE (Tier 1 — no plan mode)"
+  SESSION_ID=""
+else
+  chrome_header "PLAN"
 
-# Snapshot ~/.claude/plans/ before plan phase so we can relocate any new plan files
-PLANS_BEFORE=$(mktemp)
-ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" || true
+  # Snapshot ~/.claude/plans/ before plan phase so we can relocate any new plan files
+  PLANS_BEFORE=$(mktemp)
+  ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" || true
 
-run_claude "$PLAN_STREAM" "$TASK" \
-  --permission-mode plan --max-turns "$PLAN_TURNS"
+  run_claude "$PLAN_STREAM" "$TASK" \
+    --permission-mode plan --max-turns "$PLAN_TURNS"
 
-SESSION_ID=$(extract_session_id < "$PLAN_STREAM")
+  SESSION_ID=$(extract_session_id < "$PLAN_STREAM")
 
-if [[ -z "$SESSION_ID" ]]; then
-  echo -e "  ${C_RED}Could not extract session ID from plan output${C_RESET}" >&2
-  exit 1
+  if [[ -z "$SESSION_ID" ]]; then
+    echo -e "  ${C_RED}Could not extract session ID from plan output${C_RESET}" >&2
+    exit 1
+  fi
+
+  echo -e "  ${C_DIM}plan complete (session: ${SESSION_ID:0:8}...)${C_RESET}" >&2
+
+  # Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into stream target dir
+  PLANS_AFTER=$(mktemp)
+  ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
+  NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
+  for plan in $NEW_PLANS; do
+    mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
+    echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
+    break  # Only one plan expected per session
+  done
+  rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 fi
-
-echo -e "  ${C_DIM}plan complete (session: ${SESSION_ID:0:8}...)${C_RESET}" >&2
-
-# Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into stream target dir
-PLANS_AFTER=$(mktemp)
-ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
-NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
-for plan in $NEW_PLANS; do
-  mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
-  echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
-  break  # Only one plan expected per session
-done
-rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 
 # ── Phase 2: Approve ──
 PLAN_FILE="$STREAM_TARGET/plan.md"
 
-if [[ "$AUTO_APPROVE" != "true" ]]; then
+if [[ "$AUTO_APPROVE" != "true" && "$NO_PLAN" != "true" ]]; then
   chrome_header "APPROVE"
 
   if [[ -f "$PLAN_FILE" ]]; then
@@ -245,10 +252,17 @@ if [[ "$AUTO_APPROVE" != "true" ]]; then
 fi
 
 # ── Phase 3: Execute ──
-chrome_header "EXECUTE"
+if [[ "$NO_PLAN" != "true" ]]; then
+  chrome_header "EXECUTE"
+fi
 
-run_claude "$EXEC_STREAM" "Execute the plan." \
-  --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+if [[ "$NO_PLAN" == "true" ]]; then
+  run_claude "$EXEC_STREAM" "$TASK" \
+    --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+else
+  run_claude "$EXEC_STREAM" "Execute the plan." \
+    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+fi
 
 # Output the final result to stdout (for relay.sh to capture)
 python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"

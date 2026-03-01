@@ -165,14 +165,17 @@ def extract_conversation(stream_path: str, max_chars: int = 10000) -> str:
 
 
 def read_context_files(paths: list[str]) -> str:
-    """Read optional context files (e.g. team MEMORY.md files)."""
+    """Read optional context files (e.g. team MEMORY.md files or .jsonl checkpoints)."""
     parts = []
     for p in paths:
         path = Path(p)
         if path.is_file() and path.stat().st_size > 0:
             text = path.read_text().strip()
             if text:
-                parts.append(f"--- {path.name} ({path.parent.name}) ---\n{text}")
+                if path.suffix == '.jsonl':
+                    parts.append(f"--- {path.name} (checkpoint records) ---\n{text}")
+                else:
+                    parts.append(f"--- {path.name} ({path.parent.name}) ---\n{text}")
     return "\n\n".join(parts)
 
 
@@ -402,6 +405,91 @@ Format each observation as:
 Session conversation:
 {conversation}
 """,
+
+    "prospective": """You are reading a pre-mortem risk assessment written BEFORE a task began, alongside the execution stream that followed.
+
+Extract learnings about predictive accuracy and risk identification quality.
+
+FOCUS ON:
+- Risks correctly identified in the pre-mortem that actually materialized — and how they were handled
+- Risks that materialized but were NOT identified in the pre-mortem (missed risks)
+- Risks identified but that did NOT materialize (false alarms)
+- Whether the pre-mortem process added value to execution planning
+
+QUALITY BAR: Only extract learnings likely to improve future pre-mortems for similar tasks. Do not extract one-off environmental accidents.
+
+If no signal meets the quality bar, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Prospective Learning
+**Pre-mortem Risk:** <the risk that was or wasn't identified>
+**Outcome:** Materialized | Did not materialize | Not anticipated
+**Learning:** <what this tells us about pre-mortem quality or risk identification>
+**Action:** <how to improve pre-mortem assessments for similar tasks>
+
+{context_section}
+
+Pre-mortem and execution stream:
+{conversation}
+""",
+
+    "in-flight": """You are reading milestone assumption checkpoint records (JSONL format) alongside the execution stream.
+
+Each checkpoint record has this shape:
+{{"milestone": "...", "timestamp": "...", "assumptions": {{"complexity": "...", "approach_viability": "...", "preference_model": "...", "scope": "..."}}, "recommendation": "..."}}
+
+Extract durable learnings about how assumptions evolved during execution.
+
+FOCUS ON:
+- Which assumption types (complexity, approach viability, preference model, scope) were most often wrong
+- Whether checkpoint recommendations (continue/notify/escalate) were appropriate
+- Patterns in scope expansion or contraction
+- Whether mandatory trigger conditions (2x time overrun, 20% scope expansion) fired appropriately
+
+If no patterns meet the quality bar, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] In-Flight Learning
+**Assumption Type:** Complexity | Approach Viability | Preference Model | Scope
+**Pattern:** <what was consistently over/underestimated>
+**Learning:** <the specific calibration insight>
+**Action:** <how to improve planning estimates or checkpoint triggers>
+
+{context_section}
+
+Checkpoint records and execution stream:
+{conversation}
+""",
+
+    "corrective": """You are reading an execution stream. Extract learnings from errors, retries, corrections, and recoveries.
+
+LOOK FOR:
+- Tool call failures and how the agent recovered
+- Assumptions that had to be corrected mid-execution
+- Cases where the agent undid work and redid it
+- Explicit error messages in bash tool outputs
+- Agent narration of mistakes ("I tried X but it failed because Y")
+- Retries that succeeded or failed
+
+QUALITY BAR: Only extract corrections likely to recur in future sessions. One-off environment errors (network timeout, missing file) do not qualify. Systematic mistakes in approach, tool usage, or sequencing do qualify.
+
+If no qualifying errors are present, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Corrective Learning
+**Error Pattern:** <what went wrong>
+**Recovery:** <how it was fixed>
+**Root Cause:** <why it happened>
+**Prevention:** <how to avoid this in future sessions>
+
+{context_section}
+
+Execution stream:
+{conversation}
+""",
 }
 
 # These scopes use the intent stream and need human-turn extraction
@@ -507,7 +595,8 @@ if __name__ == "__main__":
     parser.add_argument("--context", nargs="*", default=[], help="Additional context files")
     parser.add_argument("--scope", default="team",
                         choices=["team", "team-rollup", "session", "project", "global",
-                                 "observations", "escalation", "intent-alignment"],
+                                 "observations", "escalation", "intent-alignment",
+                                 "prospective", "in-flight", "corrective"],
                         help="Extraction scope")
     args = parser.parse_args()
 

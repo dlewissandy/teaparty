@@ -115,6 +115,36 @@ for line in sys.stdin:
 "
 }
 
+# ── INTENT.md version management ──
+INTENT_VERSION=0
+
+bump_intent_version() {
+  local intent_path="$1"
+  local change_summary="${2:-revision}"
+  INTENT_VERSION=$((INTENT_VERSION + 1))
+  local version_str="v0.$INTENT_VERSION"
+  local timestamp
+  timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+  local version_header="<!-- INTENT VERSION: $version_str | Updated: $timestamp | Change: $change_summary -->"
+
+  if grep -q "<!-- INTENT VERSION:" "$intent_path" 2>/dev/null; then
+    # Replace existing version header
+    local tmp
+    tmp=$(mktemp)
+    echo "$version_header" > "$tmp"
+    grep -v "<!-- INTENT VERSION:" "$intent_path" >> "$tmp"
+    mv "$tmp" "$intent_path"
+  else
+    # Prepend fresh version header
+    local tmp
+    tmp=$(mktemp)
+    echo "$version_header" > "$tmp"
+    cat "$intent_path" >> "$tmp"
+    mv "$tmp" "$intent_path"
+  fi
+  echo -e "  ${C_DIM}INTENT.md $version_str${C_RESET}" >&2
+}
+
 # ── Helper: run one turn of the conversation ──
 # Sends input to claude, streams output through intent_filter.py,
 # saves raw stream to .intent-stream.jsonl (append mode).
@@ -166,6 +196,8 @@ while [[ $round -lt $MAX_ROUNDS ]]; do
   INTENT_PATH=$(find_intent_md)
   if [[ -n "$INTENT_PATH" ]]; then
     chrome_banner "INTENT.md"
+    INTENT_VER=$(grep "<!-- INTENT VERSION:" "$INTENT_PATH" 2>/dev/null | grep -o 'v[0-9.]*' | head -1 || echo "v0.0 (unversioned)")
+    echo -e "  ${C_DIM}Version: $INTENT_VER${C_RESET}" >&2
     cat "$INTENT_PATH" >&2
     echo "" >&2
     chrome_heavy_line
@@ -173,11 +205,13 @@ while [[ $round -lt $MAX_ROUNDS ]]; do
     chrome_approval approval
     case "$approval" in
       y|Y)
+        bump_intent_version "$INTENT_PATH" "approved"
         echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
         exit 0
         ;;
       e|E)
         ${EDITOR:-vim} "$CWD/INTENT.md"
+        bump_intent_version "$INTENT_PATH" "human-edited"
         echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
         exit 0
         ;;
@@ -241,6 +275,8 @@ fi
 
 if [[ -n "$INTENT_PATH" ]]; then
   chrome_banner "INTENT.md"
+  INTENT_VER=$(grep "<!-- INTENT VERSION:" "$INTENT_PATH" 2>/dev/null | grep -o 'v[0-9.]*' | head -1 || echo "v0.0 (unversioned)")
+  echo -e "  ${C_DIM}Version: $INTENT_VER${C_RESET}" >&2
   cat "$INTENT_PATH" >&2
   echo "" >&2
   chrome_heavy_line
@@ -248,11 +284,13 @@ if [[ -n "$INTENT_PATH" ]]; then
   chrome_approval approval
   case "$approval" in
     y|Y)
+      bump_intent_version "$INTENT_PATH" "approved"
       echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
       exit 0
       ;;
     e|E)
       ${EDITOR:-vim} "$INTENT_PATH"
+      bump_intent_version "$INTENT_PATH" "human-edited"
       echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
       exit 0
       ;;

@@ -180,8 +180,62 @@ case "$SCOPE" in
       --context "$PROJECT_DIR/MEMORY.md"
     ;;
 
+  prospective)
+    if [[ -z "$SESSION_DIR" || -z "$PROJECT_DIR" ]]; then
+      echo "[promote] POC_SESSION_DIR or POC_PROJECT_DIR not set, skipping." >&2
+      exit 1
+    fi
+    PREMORTEM="${POC_PREMORTEM_FILE:-$SESSION_DIR/.premortem.md}"
+    STREAM="$SESSION_DIR/.exec-stream.jsonl"
+    [[ -f "$STREAM" ]] || STREAM="/dev/null"
+    if [[ ! -s "$PREMORTEM" ]]; then
+      echo "[promote] No pre-mortem file found, skipping prospective extraction." >&2
+      exit 0
+    fi
+    echo "[promote] Extracting prospective learnings from pre-mortem + execution" >&2
+    python3 "$SCRIPT_DIR/summarize_session.py" \
+      --stream "$STREAM" \
+      --output "$PROJECT_DIR/MEMORY.md" \
+      --scope prospective \
+      --context "$PREMORTEM" || true
+    ;;
+
+  in-flight)
+    if [[ -z "$SESSION_DIR" || -z "$PROJECT_DIR" ]]; then
+      echo "[promote] POC_SESSION_DIR or POC_PROJECT_DIR not set, skipping." >&2
+      exit 1
+    fi
+    ASSUMPTIONS="${POC_ASSUMPTIONS_FILE:-$SESSION_DIR/.assumptions.jsonl}"
+    STREAM="$SESSION_DIR/.exec-stream.jsonl"
+    [[ -f "$STREAM" ]] || STREAM="/dev/null"
+    if [[ ! -s "$ASSUMPTIONS" ]]; then
+      echo "[promote] No assumption checkpoint file found, skipping in-flight extraction." >&2
+      exit 0
+    fi
+    echo "[promote] Extracting in-flight learnings from milestone checkpoints" >&2
+    python3 "$SCRIPT_DIR/summarize_session.py" \
+      --stream "$STREAM" \
+      --output "$PROJECT_DIR/MEMORY.md" \
+      --scope in-flight \
+      --context "$ASSUMPTIONS" || true
+    ;;
+
+  corrective)
+    if [[ -z "$SESSION_DIR" || -z "$PROJECT_DIR" ]]; then
+      echo "[promote] POC_SESSION_DIR or POC_PROJECT_DIR not set, skipping." >&2
+      exit 1
+    fi
+    STREAM="$SESSION_DIR/.exec-stream.jsonl"
+    [[ -f "$STREAM" ]] || { echo "[promote] No exec stream, skipping corrective." >&2; exit 0; }
+    echo "[promote] Extracting corrective learnings from error events" >&2
+    python3 "$SCRIPT_DIR/summarize_session.py" \
+      --stream "$STREAM" \
+      --output "$PROJECT_DIR/MEMORY.md" \
+      --scope corrective || true
+    ;;
+
   *)
-    echo "[promote] Unknown scope: $SCOPE (expected 'team', 'session', 'project', or 'global')" >&2
+    echo "[promote] Unknown scope: $SCOPE (expected 'team', 'session', 'project', 'global', 'prospective', 'in-flight', or 'corrective')" >&2
     exit 1
     ;;
 esac
