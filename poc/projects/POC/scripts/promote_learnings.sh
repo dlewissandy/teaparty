@@ -157,6 +157,9 @@ case "$SCOPE" in
       exit 1
     fi
 
+    # Institutional memory lives at the projects/ folder level (parent of project dir)
+    PROJECTS_DIR="$(dirname "$PROJECT_DIR")"
+
     if [[ ! -s "$PROJECT_DIR/MEMORY.md" ]]; then
       echo "[promote] No project learnings to promote to global." >&2
       exit 0
@@ -172,7 +175,7 @@ case "$SCOPE" in
 
     python3 "$SCRIPT_DIR/summarize_session.py" \
       --stream "$STREAM" \
-      --output "$OUTPUT_DIR/MEMORY.md" \
+      --output "$PROJECTS_DIR/MEMORY.md" \
       --scope global \
       --context "$PROJECT_DIR/MEMORY.md"
     ;;
