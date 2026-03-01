@@ -4,13 +4,13 @@
 
 The goal is an agent that knows the human well enough to start working from minimal cues. It arrives at a session with accumulated institutional knowledge — what the human values, how they think, where they grant autonomy, what cost and risk thresholds would make them want to stop — and uses that knowledge to act rather than ask. When something unforeseeable at session start exceeds the human's known tolerance, the agent pauses — not with a question, but with researched alternatives, a clear recommendation, and enough context that the human can redirect without re-explaining what they already communicated in prior sessions. This is the end state, reached through accumulated calibration over many sessions.
 
-## What Is Broken
+## What Remains
 
-**The extraction is broken.** `projects/POC/run.sh` calls `projects/POC/scripts/summarize_session.py` with the intent stream for observations and escalation extraction. Intent stream files exist in `projects/POC/.sessions/` from prior sessions. OBSERVATIONS.md and ESCALATION.md are empty everywhere. The call is failing — confirmed broken, not a signal-strength issue. The failure is silent behind `|| true`.
+**Error visibility.** Both extraction calls in `run.sh` use `|| true`, which suppresses return codes and stderr. A failing extraction produces an empty OBSERVATIONS.md or ESCALATION.md with no indication why. Replace both `|| true` guards with error reporting that surfaces failures to stderr.
 
-**When extraction does run, it extracts the wrong things.** The prompts in `summarize_session.py` treat the execution stream as equivalent to the intent stream. The exec stream contains agent-to-agent coordination traffic. The intent stream — written to `projects/POC/.sessions/<timestamp>/.intent-stream.jsonl` by `projects/POC/intent.sh` — is where the human actually speaks: preference signals, corrections, pushback, stated values. MEMORY.md is being populated with coordination patterns extracted from execution. OBSERVATIONS.md should be populated with human-preference signals extracted from the intent stream. The current prompts do not make that distinction.
+**Output quality validation.** Extraction has not been validated against actual intent streams. Run extraction against existing intent streams in `projects/POC/.sessions/` and verify that OBSERVATIONS.md and ESCALATION.md entries meet the success criteria bar — specific, actionable observations and domain-indexed escalation entries with cited signals. Generic output means the prompts need revision.
 
-**The storage model doesn't scale.** MEMORY.md, OBSERVATIONS.md, and ESCALATION.md are injected wholesale as context at session start via `--context-file` flags in `run.sh` and `intent.sh`. As they grow, context windows fill with increasingly irrelevant content. An indexed retrieval system — SQLite with FTS5, optional sqlite-vec for embeddings — replaces injection with relevance queries against the current task. None of this exists yet.
+**Retroactive extraction.** `scripts/retroactive_extract.py` exists but has not been confirmed to have run against the existing `.sessions/` intent streams. Run it to populate the baseline index. Retrieval cannot be meaningfully tested without real signal in the index.
 
 ## The Learning Loop
 
@@ -22,11 +22,15 @@ The goal is an agent that knows the human well enough to start working from mini
 
 ## Objective
 
-Two work streams, sequenced: extraction first, retrieval second. Retrieval cannot be meaningfully built or validated until the index contains real signal, so the streams are not parallel in practice even though the implementations are independent.
+Both implementation streams are complete: `summarize_session.py` correctly targets the intent stream for extraction, and `memory_indexer.py` provides SQLite FTS5 + hybrid embedding retrieval integrated at session start. The remaining work is validation and error surfacing, in this order:
 
-**1. Fix extraction.** Diagnose why the extraction call in `projects/POC/run.sh` is failing silently. Fix the call, then verify the prompts in `summarize_session.py` correctly target the intent stream (not the exec stream) as the primary signal source. If the prompts are wrong, rewrite the `observations` and `escalation` scopes to extract human-preference signal specifically — what the human values, pushes back on, corrects, or states as constraint. Once extraction is running correctly, retroactively extract from existing intent streams in `projects/POC/.sessions/` to populate a baseline index.
+**1. Make failures visible.** Replace `|| true` on both extraction calls in `run.sh` with error handling that reports failures to stderr. Until this is done, empty output files are indistinguishable from correct output.
 
-**2. Build indexed storage and retrieval.** Implement a Python SQLite indexer (FTS5 + optional sqlite-vec) that chunks OBSERVATIONS.md, ESCALATION.md, and MEMORY.md, maintains an index, and answers relevance queries against a task description. Replace `--context-file` injection of these three files in `projects/POC/run.sh` and `projects/POC/intent.sh` with retrieval calls. The SQLite file lives adjacent to the markdown files it indexes, is gitignored, and is rebuildable from source.
+**2. Validate extraction quality.** Run extraction against existing intent streams in `projects/POC/.sessions/` and verify OBSERVATIONS.md and ESCALATION.md entries against the success criteria: observations specific enough to act on, escalation entries that name a domain and cite a signal. If output is generic, revise the prompts.
+
+**3. Run retroactive extraction.** Execute `scripts/retroactive_extract.py` against existing `.sessions/` intent streams to populate the baseline index. This must happen before retrieval can be meaningfully tested.
+
+**4. Confirm retrieval.** Verify that `memory_indexer.py` is serving relevant chunks at session start for representative task descriptions. Confirm the `--context-file` injection flags for MEMORY.md, OBSERVATIONS.md, and ESCALATION.md have been removed from `run.sh` and `intent.sh`.
 
 ## Success Criteria
 
@@ -65,10 +69,6 @@ Two work streams, sequenced: extraction first, retrieval second. Retrieval canno
 - sqlite-vec is optional; fall back to FTS5/BM25 if unavailable.
 - Retrieval queries at session start are constructed from the task description using the same single haiku-call pattern as `projects/POC/scripts/classify_task.py`.
 - Downstream outcome learning (tracking edit-to-acceptance ratios) is deferred.
-
-## Open Questions
-
-- Has any implementation work begun on either stream since this INTENT.md was written? Knowing what's been attempted (even if incomplete or reverted) shapes where the planner starts.
 
 ## Reference Material
 
