@@ -166,7 +166,7 @@ Original task: $TASK"
 fi
 
 # ── Memory retrieval ──
-MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXX.md)
+MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXXXXXXXX)
 trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE" EXIT
 MEMORY_CTX=()
 if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
@@ -187,7 +187,6 @@ fi
   --settings "$SETTINGS_FILE" \
   --cwd "$SESSION_WORKTREE" \
   --stream-dir "$INFRA_DIR" \
-  --add-dir "$POC_REPO_DIR" \
   --plan-turns 15 \
   --exec-turns 30 \
   ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
