@@ -1,0 +1,66 @@
+Write a ~1300-word markdown document at absolute path /Users/darrell/git/teaparty/poc/projects/POC/.worktrees/session-20260301-083046/poc/projects/POC/poc-workflow/execution-alignment.md
+
+Voice: analytical, direct, opinionated. These are the project lead's musings on workflow design -- state positions, not frameworks. Every claim should be specific and defensible.
+
+CONTEXT FROM SPEC FILES:
+- From intent-engineering-spec.md: "Every sentence must earn its place." and "Would a reasonable person find this sufficient?" -- these are quality gates for all artifacts.
+- From spec: "Bring solutions, not questions. Never present a problem without researched alternatives and a recommendation."
+- From detailed-design section 4.4: "When an execution agent escalates, the escalation must contain three things: the situation, the recommended action with reasoning, and the cost of waiting."
+- From detailed-design section 4.2: Escalation thresholds shift upward with positive signals (+0.05), downward with negative (-0.10). The model learns what the human actually wants from corrections.
+- From detailed-design section 4.3: Irreversible actions always escalate or require high threshold (>0.8). The action cost matrix governs when to act autonomously.
+- From POC.md: relay.sh returns a JSON summary to the uber lead. The uber lead "never sees raw file content or worker-level chatter -- only results." This means alignment checking must happen at the right level.
+
+DOCUMENT TITLE: # Execution Alignment: Staying True While Moving Fast
+
+CORE ARGUMENT: The most dangerous execution failure is delivering exactly what was planned while missing what was intended. Alignment is not checked at the start -- it must be maintained throughout.
+
+SECTIONS (use these exact headers):
+
+## The Letter vs. Spirit Problem
+Open with force. Make this argument:
+- An agent can technically complete every task in the plan and still deliver something the user does not want. The plan is a decomposition of intent, not a substitute for it. When the map diverges from the territory, agents that navigate by map alone get lost.
+- Three specific examples of this failure mode:
+  1. Technically correct code that solves the wrong problem -- passes the tests, misses the use case
+  2. Documentation that answers the wrong questions -- complete by any formal measure, useless to the reader
+  3. A report that fulfills all stated requirements while missing the key insight the user needed -- which only becomes apparent after the human reads it
+- This failure mode is actually harder to detect and fix than simple non-delivery. "We did everything we were asked" is the defense that makes it resistant to correction. The partial credit framing ("we completed 8 of 10 requirements") obscures the fact that the output misses the point.
+
+## Intent Anchors
+Be operational:
+- At each execution milestone, re-read INTENT.md success criteria and ask: "Does this output serve the original purpose?"
+- The anchor question is not "did I do what the plan says?" It is "would a user who articulated this intent be satisfied with this output?" These are different questions. The plan is one path to satisfying intent; it is not the only path and not always the right one.
+- Milestone definition: any output that will be handed off to another agent, surfaced to the user, or used as input for the next major step. In the POC, this is every relay.sh result that returns to the uber lead. The liaison reporting back to the uber lead is an intent anchor moment.
+- Anchors are cheap. Re-reading INTENT.md success criteria takes seconds. Delivering an output that requires rework takes hours or days.
+
+## The Reasonable User Test
+Make this a formal pre-delivery gate:
+- Before submitting any deliverable, ask: "Would a reasonable user, having made this request, be satisfied with this output?"
+- This test catches three distinct failure modes:
+  1. Technically correct but practically useless -- the output answers the question asked, not the question meant
+  2. Over-engineered -- adding more than was needed because it was interesting, not because it was wanted. This is a form of scope drift that masquerades as quality.
+  3. Under-contextualized -- correct output that a reader cannot use because it lacks the framing they need
+- This test should be a formal pre-delivery gate for Tier 2 and Tier 3 tasks (connecting to the tier model). Tier 0 and Tier 1 tasks are too small to warrant formal gating, but the instinct should be present even there.
+- "Reasonable user" is not the same as "any user." It is the specific human who made this specific request in this specific context. The test requires holding that person in mind, not an abstract average.
+
+## Partial Delivery as Intent Probing
+Argue for intermediate surfacing:
+- For long tasks, intermediate outputs are valuable signals about whether the approach is working. Do not wait for 100% completion before surfacing work.
+- "Check in, do not check out" -- agents should surface partial outputs with a brief alignment note: "I have completed X; this represents approximately Y of the total work; does this direction look right before I continue?"
+- This shifts the human's role from overseer (monitoring every step) to occasional calibrator (confirming direction at key milestones). Much lower involvement, much higher effectiveness.
+- In the POC architecture, this maps naturally to the relay pattern: the uber lead can request intermediate relay results from liaisons rather than waiting for full completion. The liaison reports back after completing phase 1 of a multi-phase dispatch, not just at the end.
+- The cost of a wrong intermediate output is far lower than the cost of a wrong final output. Build the feedback loop into the execution structure.
+
+## Drift Detection Patterns
+Name these precisely and explain why each is distinct:
+- Scope creep: doing more than intended. Often well-intentioned -- the agent found something interesting and added it. Frequently unwanted because it changes the character of the output, consumes time that could serve the stated intent, and signals that the agent is optimizing for its own judgment rather than the user's.
+- Gold-plating: adding quality or features beyond what was asked. Distinct from scope creep in that the core deliverable is correct -- the problem is the additional work layered on top. Misallocates effort and can make the output feel over-engineered.
+- Interpretation drift: solving a slightly different problem than intended, with each step feeling locally correct but the trajectory drifting. This is the hardest pattern to detect from inside the execution because every individual decision seems reasonable. The drift is only visible when you step back and compare current trajectory to original intent.
+
+## When to Escalate vs. Improvise
+Connect to the escalation framework:
+- High-cost decisions not anticipated in INTENT.md: always escalate. "High-cost" means significant investment required, low reversibility, or meaningful organizational impact -- referencing the action cost matrix from the detailed-design.
+- Low-cost, reversible improvisation that clearly serves intent: proceed and notify. Log the improvisation in the execution notes so the human can review it, but do not interrupt their flow.
+- The default posture should be "proceed and note" rather than "stop and ask" for low-stakes decisions. Anxious agents that escalate constantly impose a hidden cost on users and erode the value proposition of autonomy.
+- Any action that cannot be undone at low cost requires explicit approval. This is not about threshold calibration -- it is about the asymmetry of irreversible mistakes. Reversibility is the primary signal; it overrides domain threshold calibration when it hits the irreversible end of the scale.
+
+Write in flowing prose. ~1300 words total.

@@ -1,0 +1,73 @@
+Write a ~1400-word markdown document at absolute path /Users/darrell/git/teaparty/poc/projects/POC/.worktrees/session-20260301-083046/poc/projects/POC/poc-workflow/learning-evolution.md
+
+Voice: analytical, direct, opinionated. These are the project lead's musings on workflow design -- state positions, not frameworks. Every claim should be specific and defensible.
+
+CONTEXT FROM SPEC FILES:
+- From intent-engineering-spec.md open questions: "Learning from downstream outcomes -- the system must learn whether completed work actually satisfied the intent, without requiring the human to fill out a survey."
+- From spec: "Three approaches worth evaluating: instrument output delivery points; compare intent.md success criteria against observable outcomes; use lightweight periodic check-ins. The recommendation: start with delivery-point instrumentation."
+- From detailed-design section 5: The promotion chain -- dispatch MEMORY.md to team MEMORY.md to session MEMORY.md to project MEMORY.md to global MEMORY.md. Each level filters more aggressively.
+- From detailed-design section 4.2: Risk tolerance model with threshold (0.0-1.0), confidence (0.0-1.0), signal_count, last_calibrated, and signals array. This is the memory schema for escalation calibration.
+- From POC.md: "scripts/summarize_session.py reads the exec stream, calls claude-haiku to extract durable learnings, and appends them to MEMORY.md. No agent prompt mentions memory -- agents do not need to cooperate for learning to happen."
+- From POC.md: "classify_task.py calls claude-haiku with the task description and existing project names." -- This is the prospective retrieval point where memory should be surfaced before execution begins.
+- From POC.md scope table: team/team-rollup/session/project/global scopes with different focus areas. Currently all retrospective.
+
+DOCUMENT TITLE: # Learning Evolution: The Four Moments That Matter
+
+CORE ARGUMENT: The current learning model is purely retrospective -- after execution ends, extract learnings from the stream. This misses the three other moments when learning is most valuable: before starting (prospective), during execution (in-flight), and at the moment of correction (corrective). Retrospective learning is the least actionable of the four.
+
+SECTIONS (use these exact headers):
+
+## The Four Moments of Learning
+Introduce the framework with clear argument for why each moment matters:
+- Prospective (before starting): What do we already know that is relevant? What does memory tell us about similar past work, user preferences, known domain constraints? This is where memory pays dividends -- but only if it is actively surfaced before execution begins, not passively available in a file that agents may or may not consult.
+- In-flight (during execution): What patterns are emerging that should update our model? Are estimates holding? Are approach assumptions proving out? This is the learning that prevents compounding errors -- catching a wrong assumption at step 3 rather than at delivery.
+- Corrective (at the moment of correction): When we got something wrong, what was the upstream assumption that failed? Not just "what happened" but "why did our model fail to predict this?" This is the most high-signal learning moment and the one the current system handles least well.
+- Retrospective (after completion): What should we carry forward? The current system's only learning moment. Valuable, but alone insufficient -- it operates on stale data, after the cost of errors has already been paid.
+
+## Prospective Learning in Practice
+Make concrete what "warm start" should actually do:
+- The current warm-start in the spec is memory retrieval for user preferences -- but only for escalation calibration. Extend this to project-level patterns, domain-level constraints, and known failure modes for similar tasks.
+- Before intent.sh runs, the system should actively surface: "In the last three sessions on similar tasks, the most common misalignment was X. In this user's history, approach Y has consistently failed. This domain has a known constraint Z that is not obvious from the task description."
+- The pre-mortem as a prospective learning exercise: before starting, name the 2-3 most likely ways this approach fails. What would we wish we had considered? This is not pessimism -- it is the systematic application of accumulated failure knowledge before committing to a path.
+- Pre-mortems do not slow planning. A 5-minute pre-mortem that catches a category of failure saves hours of rework. The objection "we do not have time for this" reflects a miscalculation about where time is actually spent.
+- In the POC architecture, this means classify_task.py should do more than classify the project -- it should retrieve and surface relevant memory before the intent session begins. The same claude-haiku call that assigns a project slug can also retrieve the top 3 relevant learnings from that project's MEMORY.md.
+
+## In-Flight Learning
+Argue for mid-execution model updates:
+- At each major milestone, update the working model: was this step more complex than expected? Update the estimate for remaining steps. Did the approach assumption prove out? If not, flag it before proceeding -- not after.
+- In-flight corrections are dramatically cheaper than post-delivery corrections. An estimate revision at step 3 changes the plan for steps 4-10. A delivery-time correction requires redoing steps 1-10. The cost ratio is not linear.
+- This is currently absent from the workflow. No mechanism exists to carry in-flight insights forward within a session. A liaison who discovers mid-dispatch that the task is 3x more complex than estimated has no structured way to surface that before completing the work.
+- Proposed addition: milestone completion events in relay dispatches include a brief model-update note. The liaison reporting back to the uber lead after completing phase 1 of a multi-phase dispatch includes: "Original estimate was X, actual was Y; this suggests remaining phases will take Z, not the planned W." This flows to the session log and is available for retrospective extraction.
+- The milestone model-update note is not overhead -- it is the data that makes the retrospective extraction meaningful. Without it, summarize_session.py extracts qualitative impressions. With it, it extracts calibrated estimates.
+
+## Corrective Learning
+Make the root cause argument:
+- When a mismatch occurs, the system should extract the upstream assumption that caused it, not just a description of what went wrong. "The output was too formal" is a surface description. "We assumed the audience was technical developers when they were actually executive stakeholders -- this assumption is embedded in the approach we default to for API documentation" is a corrective learning.
+- The escalation calibration model records -0.10 for negative signals. This is the right direction but insufficient. The signal should include the mechanism: what decision was made, what assumption justified it, what the actual outcome was, and what that implies for the assumption.
+- Corrective learnings should carry the highest weight in the memory system because they are direct evidence of a model error, not just a positive or negative outcome signal. A corrective learning says: "The world does not work the way I thought it did in this respect." That is categorically more valuable than an outcome signal that says "this did not go well."
+- In practice: escalation events and correction events should trigger root-cause extraction as part of relay.sh completion, not just standard learning extraction. When a liaison reports an escalation or a human corrects an output, that event is a corrective learning opportunity that the current summarize_session.py call will miss because it treats all events with equal weight.
+
+## Confidence-Weighted Memory
+Argue for memory that degrades appropriately:
+- The spec specifies 0.7/0.4 confidence thresholds for retrieval -- but confidence should decay without reinforcement and renew with repeated confirmation.
+- There is a meaningful difference between "we learned X" and "we are 80% confident X still applies under these conditions." The current memory schema does not capture this distinction.
+- Temporal decay: a learning from 6 months ago about a user's writing preferences should surface with lower confidence than one from last week, unless it has been repeatedly confirmed. The last_calibrated field in the risk tolerance schema is the right model -- extend it to all memory records, not just escalation calibration.
+- Conditional applicability: learnings should carry context. "The user prefers concise outputs" may be true in status update contexts but false in detailed design documents. A memory record that lacks this context will misfire when retrieved for a task where the condition does not hold.
+- This does not require a sophisticated new memory architecture. The existing MEMORY.md files can carry confidence annotations and applicability conditions in their entries. The extraction prompt for summarize_session.py should explicitly request: what confidence level does this learning warrant, and under what conditions does it apply?
+
+## The Calibration Problem
+Close with the systemic argument:
+- Are we getting better at estimating complexity, duration, and risk over time? This question cannot be answered without tracking prediction versus actual across many sessions.
+- Currently, every session starts with the same estimation heuristics regardless of past accuracy. There is no feedback loop on estimation quality. The system accumulates qualitative learnings but not calibration data.
+- Proposed: add a calibration record type to the memory schema. After each session, extract: predicted vs. actual complexity for each work stream, predicted vs. actual turn count, predicted vs. actual escalation count. Over 10 or more sessions, these data calibrate the planning estimates systematically.
+- This is the difference between a system that gets smarter and a system that just accumulates experience. Experience without calibration produces confident wrong answers. Calibrated experience produces accurate predictions and better-scoped plans.
+
+## Implications for the Workflow
+Connect learning improvements to concrete workflow changes:
+- Prospective learning changes how intent.sh and plan-execute.sh begin: load and actively surface relevant memory before intent capture starts, not after.
+- In-flight learning changes milestone handling in relay dispatches: brief model-update note at each checkpoint becomes standard, not optional.
+- Corrective learning changes escalation handling: escalation and correction events trigger root-cause extraction, not just signal recording.
+- Calibration changes summarize_session.py output: extract prediction vs. actual pairs alongside qualitative learnings.
+- None of these require architectural changes to the POC. They require prompt changes to the extraction scripts and a small addition to the relay result schema. The infrastructure is already there -- the extraction logic is what needs to evolve.
+
+Write in flowing prose. ~1400 words total.
