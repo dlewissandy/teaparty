@@ -185,6 +185,8 @@ Only include learnings that are:
 - Actionable (suggest a concrete change in behavior or approach)
 - About HOW to work effectively (coordination, tool usage, patterns) not WHAT was produced
 
+If no learnings meet the quality bar, output nothing. Do not explain why or state that there are no learnings. Silence is correct.
+
 Format each learning as:
 
 ## [{date}] Session Learning
@@ -206,6 +208,8 @@ Extract patterns that recur across dispatches:
 - Team-specific workflow optimizations
 
 Deduplicate: if multiple dispatches learned the same thing, consolidate into one entry.
+
+If no learnings meet the quality bar, output nothing. Do not explain why or state that there are no learnings. Silence is correct.
 
 Format each learning as:
 
@@ -232,6 +236,8 @@ EXCLUDE:
 - Anything specific to how one team works internally (that stays at team level)
 - Domain-specific content (what was written, drawn, researched)
 
+If no learnings meet the quality bar, output nothing. Do not explain why or state that there are no learnings. Silence is correct.
+
 Format each learning as:
 
 ## [{date}] Session Learning
@@ -254,6 +260,8 @@ Focus on:
 - Team compositions or delegation strategies that worked well for this project
 
 Deduplicate with any existing project learnings in the context.
+
+If no learnings meet the quality bar, output nothing. Do not explain why or state that there are no learnings. Silence is correct.
 
 Format each learning as:
 
@@ -280,6 +288,8 @@ EXCLUDE:
 - Any domain-specific knowledge (tea, handbooks, dark energy, etc.)
 - Project-specific workflow decisions
 - Content-related insights
+
+IMPORTANT: Do NOT reference specific project names in global learnings. Use generic terms ("a previous project", "one session") rather than naming specific projects.
 
 If nothing qualifies as truly cross-project, output nothing.
 
@@ -465,6 +475,14 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
     if learnings.startswith("Error: Reached max turns"):
         print(f"[summarize] Claude hit max turns, skipping.", file=sys.stderr)
         return 1
+
+    # Reject outputs that contain no properly-formatted entries.
+    # A valid learning entry must start with "## [". Pure prose output
+    # (meta-commentary, explanations of why nothing qualifies) must be
+    # discarded and must never be persisted to memory files.
+    if learnings and not any(line.strip().startswith("## [") for line in learnings.splitlines()):
+        print(f"[summarize] No formatted entries found in output (meta-commentary?), skipping.", file=sys.stderr)
+        return 0
 
     # If haiku produced nothing (silence is valid for intent-stream scopes), skip
     if not learnings:

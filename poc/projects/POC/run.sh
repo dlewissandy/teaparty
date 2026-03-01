@@ -174,7 +174,7 @@ if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
     --source "$POC_PROJECT_DIR/OBSERVATIONS.md" \
     --source "$POC_PROJECT_DIR/ESCALATION.md" \
     --source "$POC_PROJECT_DIR/MEMORY.md" \
-    --source "$POC_OUTPUT_DIR/MEMORY.md" \
+    --source "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" \
     --task "$TASK" \
     --output "$MEMORY_CTX_FILE" 2>/dev/null; then
   [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
