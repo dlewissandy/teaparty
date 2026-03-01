@@ -12,6 +12,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/chrome.sh"
 
 # Defaults
 AGENTS_JSON=""
@@ -103,10 +104,10 @@ stall_watchdog() {
         running_count=$(find "$POC_SESSION_DIR" -name ".running" 2>/dev/null | wc -l | tr -d ' ')
       fi
       if [[ $running_count -gt 0 ]]; then
-        echo "[watchdog] Stream stale ${age}s but $running_count dispatch(es) active — waiting" >&2
+        echo -e "  ${C_DIM}[watchdog] Stream stale ${age}s but $running_count dispatch(es) active${C_RESET}" >&2
         continue
       fi
-      echo "[watchdog] Stream stale ${age}s with no active dispatches — killing PID $pid" >&2
+      echo -e "  ${C_RED}[watchdog] Stream stale ${age}s — killing PID $pid${C_RESET}" >&2
       kill_tree "$pid"
       break
     fi
@@ -173,7 +174,7 @@ run_claude() {
 }
 
 # ── Phase 1: Plan ──
-echo "--- plan ---" >&2
+chrome_header "PLAN"
 
 # Snapshot ~/.claude/plans/ before plan phase so we can relocate any new plan files
 PLANS_BEFORE=$(mktemp)
@@ -185,11 +186,11 @@ run_claude "$PLAN_STREAM" "$TASK" \
 SESSION_ID=$(extract_session_id < "$PLAN_STREAM")
 
 if [[ -z "$SESSION_ID" ]]; then
-  echo "ERROR: Could not extract session ID from plan output" >&2
+  echo -e "  ${C_RED}Could not extract session ID from plan output${C_RESET}" >&2
   exit 1
 fi
 
-echo "--- plan complete (session: ${SESSION_ID:0:8}...) ---" >&2
+echo -e "  ${C_DIM}plan complete (session: ${SESSION_ID:0:8}...)${C_RESET}" >&2
 
 # Relocate plan files that Claude Code wrote to ~/.claude/plans/ back into stream target dir
 PLANS_AFTER=$(mktemp)
@@ -197,7 +198,7 @@ ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
 NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
 for plan in $NEW_PLANS; do
   mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
-  echo "[plan-execute] Relocated plan: $plan -> $STREAM_TARGET/plan.md" >&2
+  echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
   break  # Only one plan expected per session
 done
 rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
@@ -206,29 +207,30 @@ rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 PLAN_FILE="$STREAM_TARGET/plan.md"
 
 if [[ "$AUTO_APPROVE" != "true" ]]; then
+  chrome_header "APPROVE"
+
   if [[ -f "$PLAN_FILE" ]]; then
-    echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    chrome_banner "Plan"
     cat "$PLAN_FILE" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    chrome_heavy_line
   else
     # No plan.md written — extract plan from result
-    echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    chrome_banner "Plan"
     python3 "$SCRIPT_DIR/extract_result.py" < "$PLAN_STREAM" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    chrome_heavy_line
   fi
 
-  read -p "Approve? [y/n/e(dit)] " approval </dev/tty
+  chrome_approval approval
   case "$approval" in
-    n|N) echo "Aborted." >&2; exit 0 ;;
+    n|N) echo -e "  ${C_YELLOW}Aborted.${C_RESET}" >&2; exit 0 ;;
     e|E) ${EDITOR:-vim} "$PLAN_FILE" ;;
   esac
 fi
 
 # ── Phase 3: Execute ──
-echo "" >&2
-echo "--- execute ---" >&2
+chrome_header "EXECUTE"
 
 run_claude "$EXEC_STREAM" "Execute the plan." \
   --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
@@ -236,4 +238,5 @@ run_claude "$EXEC_STREAM" "Execute the plan." \
 # Output the final result to stdout (for relay.sh to capture)
 python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"
 
-echo "--- done ---" >&2
+chrome_header "done"
+chrome_beep

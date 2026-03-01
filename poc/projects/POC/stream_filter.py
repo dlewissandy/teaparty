@@ -14,6 +14,12 @@ import json
 import re
 import sys
 
+# ── ANSI Colors (match chrome.sh) ──
+C_RESET = "\033[0m"
+C_DIM = "\033[2m"
+C_CYAN = "\033[36m"
+C_RED = "\033[31m"
+
 # Map parent_tool_use_id -> agent name
 task_agents = {}
 # session_id of the lead agent (from init event)
@@ -52,7 +58,10 @@ for line in sys.stdin:
                 lead_session_id = ev.get("session_id", "")
             agent_list = ev.get("agents", [])
             if agent_list:
-                print(f"[init] agents: {', '.join(agent_list)}", flush=True)
+                print(
+                    f"{C_DIM}[init] agents: {', '.join(agent_list)}{C_RESET}",
+                    flush=True,
+                )
         continue
 
     # Assistant messages — only SendMessage and relay calls
@@ -82,7 +91,7 @@ for line in sys.stdin:
                         first_line = prompt.strip().split("\n")[0][:200]
                         body = f"{body} — {first_line}" if body else first_line
                     print(
-                        f"[{label}] @{recipient}: {body}",
+                        f"{C_CYAN}[{label}]{C_RESET} @{recipient}: {body}",
                         flush=True,
                     )
 
@@ -91,16 +100,25 @@ for line in sys.stdin:
                     recipient = tool_input.get("recipient", "")
                     content_text = tool_input.get("content", "")
                     if msg_type == "broadcast":
-                        print(f"[{label}] @all: {content_text}", flush=True)
+                        print(
+                            f"{C_CYAN}[{label}]{C_RESET} @all: {content_text}",
+                            flush=True,
+                        )
                     elif msg_type == "shutdown_request":
-                        print(f"[{label}] @{recipient}: shutdown", flush=True)
+                        print(
+                            f"{C_CYAN}[{label}]{C_RESET} @{recipient}: shutdown",
+                            flush=True,
+                        )
                     elif msg_type == "shutdown_response":
                         approve = tool_input.get("approve", False)
                         status = "approved" if approve else "rejected"
-                        print(f"[{label}] shutdown {status}", flush=True)
+                        print(
+                            f"{C_CYAN}[{label}]{C_RESET} shutdown {status}",
+                            flush=True,
+                        )
                     else:
                         print(
-                            f"[{label}] @{recipient}: {content_text}",
+                            f"{C_CYAN}[{label}]{C_RESET} @{recipient}: {content_text}",
                             flush=True,
                         )
 
@@ -117,7 +135,8 @@ for line in sys.stdin:
                         team = team_match.group(1) if team_match else "?"
                         task = task_match.group(1) if task_match else cmd[:200]
                         print(
-                            f"[{label}] @{team}-team: {task}", flush=True
+                            f"{C_CYAN}[{label}]{C_RESET} @{team}-team: {task}",
+                            flush=True,
                         )
 
         continue
@@ -127,11 +146,14 @@ for line in sys.stdin:
         if ev.get("is_error", False):
             tool = ev.get("tool", "")
             output = ev.get("output", "")[:200]
-            print(f"[{label}] !! {tool}: {output}", flush=True)
+            print(
+                f"  {C_RED}[error]{C_RESET} {tool}: {output}",
+                flush=True,
+            )
         continue
 
     # Final result
     if t == "result":
         result = ev.get("result", "")[:500]
-        print(f"\n--- done ---\n{result}", flush=True)
+        print(f"\n{C_DIM}── done ──{C_RESET}\n{result}", flush=True)
         continue

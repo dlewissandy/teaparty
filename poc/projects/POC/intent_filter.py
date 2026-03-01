@@ -9,9 +9,22 @@ Unlike stream_filter.py (which suppresses text blocks and shows only
 inter-agent communication), this filter shows both — because the agent's
 text IS the conversation the human is having.
 """
+import argparse
 import json
 import re
 import sys
+
+# ── ANSI Colors (match chrome.sh) ──
+C_RESET = "\033[0m"
+C_DIM = "\033[2m"
+C_CYAN = "\033[36m"
+C_RED = "\033[31m"
+
+# ── CLI args ──
+parser = argparse.ArgumentParser()
+parser.add_argument("--agent-name", default="intent-lead")
+args = parser.parse_args()
+AGENT_NAME = args.agent_name
 
 # Track the lead's session_id for labeling
 lead_session_id = None
@@ -22,7 +35,7 @@ def agent_label(ev):
     global lead_session_id
     sid = ev.get("session_id", "")
     if sid and sid == lead_session_id:
-        return "intent-lead"
+        return AGENT_NAME
     parent = ev.get("parent_tool_use_id")
     if parent:
         return "research-liaison"
@@ -55,11 +68,11 @@ for line in sys.stdin:
                 continue
             bt = block.get("type", "")
 
-            # Show text blocks (the conversation)
+            # Show text blocks (the conversation) with agent name prefix
             if bt == "text":
                 text = block.get("text", "").strip()
                 if text:
-                    print(text, flush=True)
+                    print(f"{C_CYAN}[{AGENT_NAME}]:{C_RESET} {text}", flush=True)
                     print("", flush=True)
 
             # Show tool use — team communication and key actions
@@ -75,11 +88,20 @@ for line in sys.stdin:
                     summary = inp.get("summary", "")
                     display = summary or content_text[:120]
                     if msg_type == "broadcast":
-                        print(f"  [{label} -> all: {display}]", flush=True)
+                        print(
+                            f"  {C_DIM}[{label} -> all: {display}]{C_RESET}",
+                            flush=True,
+                        )
                     elif msg_type in ("shutdown_request", "shutdown_response"):
-                        print(f"  [{label}: shutdown {msg_type.split('_')[1]}]", flush=True)
+                        print(
+                            f"  {C_DIM}[{label}: shutdown {msg_type.split('_')[1]}]{C_RESET}",
+                            flush=True,
+                        )
                     else:
-                        print(f"  [{label} -> {recipient}: {display}]", flush=True)
+                        print(
+                            f"  {C_DIM}[{label} -> {recipient}: {display}]{C_RESET}",
+                            flush=True,
+                        )
 
                 elif name == "Bash":
                     cmd = inp.get("command", "")
@@ -90,20 +112,22 @@ for line in sys.stdin:
                             task_match = re.search(r"--task\s+'([^']*)'", cmd)
                         team = team_match.group(1) if team_match else "?"
                         task = task_match.group(1) if task_match else cmd[:120]
-                        print(f"  [{label} -> {team}-team: {task}]", flush=True)
+                        print(
+                            f"  {C_DIM}[{label} -> {team}-team: {task}]{C_RESET}",
+                            flush=True,
+                        )
 
                 elif name == "Write":
                     fp = inp.get("file_path", "?")
-                    fname = fp.rsplit("/", 1)[-1] if "/" in fp else fp
-                    print(f"  [writing {fname}]", flush=True)
+                    print(f"  {C_DIM}[writing {fp}]{C_RESET}", flush=True)
 
                 elif name == "WebSearch":
                     query = inp.get("query", "")
-                    print(f"  [searching: {query}]", flush=True)
+                    print(f"  {C_DIM}[searching: {query}]{C_RESET}", flush=True)
 
                 elif name == "WebFetch":
                     url = inp.get("url", "")
-                    print(f"  [reading: {url}]", flush=True)
+                    print(f"  {C_DIM}[reading: {url}]{C_RESET}", flush=True)
 
                 # Suppress Glob, Grep, Read, Edit, TodoWrite — noise
         continue
@@ -113,7 +137,7 @@ for line in sys.stdin:
         if ev.get("is_error", False):
             tool = ev.get("tool", "")
             output = ev.get("output", "")[:200]
-            print(f"  [error] {tool}: {output}", flush=True)
+            print(f"  {C_RED}[error]{C_RESET} {tool}: {output}", flush=True)
         continue
 
     # Final result — suppress (the loop in intent.sh handles turn boundaries)

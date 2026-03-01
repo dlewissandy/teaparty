@@ -4,97 +4,146 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECTS_DIR="$SCRIPT_DIR/output/projects"
+POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECTS_DIR="$POC_ROOT/projects"
 NOW=$(date +%s)
 
 echo "=== POC Status ==="
 echo "$(date '+%H:%M:%S')"
 echo ""
 
-# ── Discover processes ──
-UBER_PIDS=$(pgrep -f 'claude.*-p.*--agent.*project-lead' 2>/dev/null || true)
-ART_PIDS=$(pgrep -f 'claude.*-p.*--agents.*art-lead' 2>/dev/null || true)
-WRITING_PIDS=$(pgrep -f 'claude.*-p.*--agents.*writing-lead' 2>/dev/null || true)
-EDITORIAL_PIDS=$(pgrep -f 'claude.*-p.*--agents.*editorial-lead' 2>/dev/null || true)
-RESEARCH_PIDS=$(pgrep -f 'claude.*-p.*--agents.*research-lead' 2>/dev/null || true)
-CODING_PIDS=$(pgrep -f 'claude.*-p.*--agents.*coding-lead' 2>/dev/null || true)
-
-ALL_SUBTEAM_PIDS="$ART_PIDS $WRITING_PIDS $EDITORIAL_PIDS $RESEARCH_PIDS $CODING_PIDS"
-
-# PID → project map via cwd
-PID_MAP=$(mktemp)
-trap "rm -f $PID_MAP" EXIT
-
-for pid in $UBER_PIDS $ALL_SUBTEAM_PIDS; do
-  [[ -z "$pid" ]] && continue
-  cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | awk '/^n/{print substr($0,2); exit}')
-  if [[ -n "$cwd" && "$cwd" == *"/output/"* ]]; then
-    proj=$(echo "$cwd" | sed -n 's|.*/output/projects/\([^/]*\)/.*|\1|p')
-    [[ -n "$proj" ]] && echo "$pid:$proj" >> "$PID_MAP"
-  fi
-done
-
-pid_project() { awk -F: -v pid="$1" '$1==pid {print $2; exit}' "$PID_MAP"; }
-
-# Stream health for a project: check mtime of most recent session stream
-# Returns: 🟢 (<5m), 🟡 (5-10m), 🔴 (>10m), empty (no stream)
-project_health() {
-  local proj_dir="$1"
-  [[ -d "$proj_dir/.sessions" ]] || return
-  local sess_dir
-  sess_dir=$(ls -td "$proj_dir/.sessions"/[0-9]*/ 2>/dev/null | head -1)
-  [[ -d "$sess_dir" ]] || return
-
-  local stream=""
-  for sf in "$sess_dir/.exec-stream.jsonl" "$sess_dir/.plan-stream.jsonl"; do
-    [[ -f "$sf" ]] && { stream="$sf"; break; }
-  done
-  [[ -z "$stream" ]] && return
-
-  local mtime age_s
-  mtime=$(stat -f%m "$stream" 2>/dev/null || stat -c%Y "$stream" 2>/dev/null || echo "$NOW")
-  age_s=$(( NOW - mtime ))
-
-  if [[ $age_s -ge 3600 ]]; then
-    echo "⚫"
-  elif [[ $age_s -ge 1800 ]]; then
-    echo "🔴"
-  elif [[ $age_s -ge 600 ]]; then
-    echo "🟡"
-  else
-    echo "🟢"
+# ── Helper: age in human-readable form ──
+human_age() {
+  local s=$1
+  if [[ $s -lt 60 ]]; then echo "${s}s"
+  elif [[ $s -lt 3600 ]]; then echo "$((s / 60))m"
+  else echo "$((s / 3600))h$((s % 3600 / 60))m"
   fi
 }
 
-# ── Processes ──
-echo "── Processes ──"
+# ── Helper: stream health + phase for a session dir ──
+# Returns "<emoji> <phase> <age_seconds>" — e.g. "🟢 intent 23"
+session_health() {
+  local sess_dir="$1"
+  local stream="" phase="" best_mtime=0
 
-if [[ -z "$UBER_PIDS" ]]; then
-  echo "  (none)"
-else
-  for pid in $UBER_PIDS; do
-    elapsed=$(ps -o etime= -p "$pid" 2>/dev/null | tr -d ' ')
-    cpu=$(ps -o %cpu= -p "$pid" 2>/dev/null | tr -d ' ')
-    proj=$(pid_project "$pid")
-    proj_dir="$PROJECTS_DIR/${proj:-_none_}"
-
-    health=$(project_health "$proj_dir")
-    echo "  ${health:-  } UBER  ${proj:-?}  elapsed=$elapsed  cpu=${cpu}%"
-
-    # Show subteams belonging to this project
-    for label_pids in "ART:$ART_PIDS" "WRITING:$WRITING_PIDS" "EDITORIAL:$EDITORIAL_PIDS" "RESEARCH:$RESEARCH_PIDS" "CODING:$CODING_PIDS"; do
-      label="${label_pids%%:*}"
-      pids="${label_pids#*:}"
-      for spid in $pids; do
-        [[ -z "$spid" ]] && continue
-        sproj=$(pid_project "$spid")
-        if [[ "$sproj" == "$proj" ]]; then
-          selapsed=$(ps -o etime= -p "$spid" 2>/dev/null | tr -d ' ')
-          echo "     └ $label  PID=$spid  elapsed=$selapsed"
-        fi
-      done
-    done
+  for sf_phase in \
+    "$sess_dir/.intent-stream.jsonl:intent" \
+    "$sess_dir/.plan-stream.jsonl:plan" \
+    "$sess_dir/.exec-stream.jsonl:execute"; do
+    local sf="${sf_phase%%:*}"
+    local ph="${sf_phase#*:}"
+    [[ -f "$sf" ]] || continue
+    local mt
+    mt=$(stat -f%m "$sf" 2>/dev/null || stat -c%Y "$sf" 2>/dev/null || echo 0)
+    if [[ $mt -ge $best_mtime ]]; then
+      best_mtime=$mt
+      stream="$sf"
+      phase="$ph"
+    fi
   done
+  [[ -z "$stream" ]] && return
+
+  local age_s=$(( NOW - best_mtime ))
+  local emoji
+  if [[ $age_s -ge 3600 ]]; then emoji="⚫"
+  elif [[ $age_s -ge 1800 ]]; then emoji="🔴"
+  elif [[ $age_s -ge 300 ]]; then emoji="🟡"
+  else emoji="🟢"
+  fi
+
+  echo "$emoji $phase $age_s"
+}
+
+# ── Helper: find PIDs associated with a project ──
+# Checks run.sh, intent.sh, plan-execute.sh, and claude -p processes.
+# Returns newline-separated "PID LABEL" pairs.
+project_pids() {
+  local proj="$1"
+  local proj_dir="$2"
+
+  # Look for orchestrator processes (run.sh, intent.sh, plan-execute.sh)
+  # that reference this project in their arguments or CWD
+  for pid in $(pgrep -f "(run\.sh|intent\.sh|plan-execute\.sh)" 2>/dev/null || true); do
+    [[ -z "$pid" ]] && continue
+    local cmd
+    cmd=$(ps -o command= -p "$pid" 2>/dev/null) || continue
+    # Match by project path in command args
+    if [[ "$cmd" == *"$proj_dir"* || "$cmd" == *"--project $proj "* || "$cmd" == *"--project $proj" ]]; then
+      # Determine label from command
+      local label="run.sh"
+      [[ "$cmd" == *"intent.sh"* ]] && label="intent"
+      [[ "$cmd" == *"plan-execute"* ]] && label="plan-exec"
+      echo "$pid $label"
+    fi
+  done
+
+  # Look for claude -p processes with CWD in this project
+  for pid in $(pgrep -f "claude.*-p" 2>/dev/null || true); do
+    [[ -z "$pid" ]] && continue
+    local cwd
+    cwd=$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | awk '/^n/{print substr($0,2); exit}')
+    if [[ -n "$cwd" && ( "$cwd" == *"/$proj/"* || "$cwd" == *"/$proj" ) ]]; then
+      local cpu
+      cpu=$(ps -o %cpu= -p "$pid" 2>/dev/null | tr -d ' ')
+      echo "$pid claude(${cpu}%)"
+    fi
+  done
+}
+
+# ── Sessions ──
+echo "── Sessions ──"
+
+found_sessions=false
+for proj_dir in "$PROJECTS_DIR"/*/; do
+  [[ -d "$proj_dir/.sessions" ]] || continue
+  proj=$(basename "$proj_dir")
+
+  sess_dir=$(ls -td "$proj_dir/.sessions"/[0-9]*/ 2>/dev/null | head -1)
+  [[ -d "$sess_dir" ]] || continue
+
+  health_info=$(session_health "$sess_dir")
+  [[ -z "$health_info" ]] && continue
+
+  emoji="${health_info%% *}"
+  rest="${health_info#* }"
+  phase="${rest%% *}"
+  age_s="${rest#* }"
+
+  # Find processes associated with this project
+  pids_info=$(project_pids "$proj" "$proj_dir")
+
+  # Skip dead sessions: stale (> 2 hours) with no running process
+  if [[ $age_s -ge 7200 && -z "$pids_info" ]]; then
+    continue
+  fi
+
+  # Determine if alive (has process) or just has recent stream activity
+  sess_ts=$(basename "$sess_dir")
+  if [[ -n "$pids_info" ]]; then
+    # Show with process info
+    pid_line=""
+    while IFS= read -r pid_entry; do
+      pid_num="${pid_entry%% *}"
+      pid_label="${pid_entry#* }"
+      elapsed=$(ps -o etime= -p "$pid_num" 2>/dev/null | tr -d ' ')
+      if [[ -n "$pid_line" ]]; then
+        pid_line="$pid_line, $pid_label PID=$pid_num ($elapsed)"
+      else
+        pid_line="$pid_label PID=$pid_num ($elapsed)"
+      fi
+    done <<< "$pids_info"
+    echo "  $emoji $proj  phase=$phase  age=$(human_age $age_s)  session=$sess_ts"
+    echo "     └ $pid_line"
+  else
+    # No process but recent enough to show — mark as stopped
+    echo "  ⏹  $proj  phase=$phase  age=$(human_age $age_s)  session=$sess_ts  (no process)"
+  fi
+  found_sessions=true
+done
+
+if [[ "$found_sessions" == "false" ]]; then
+  echo "  (none)"
 fi
 
 echo ""
@@ -107,18 +156,16 @@ for proj_dir in "$PROJECTS_DIR"/*/; do
   [[ -d "$proj_dir/.sessions" ]] || continue
   proj=$(basename "$proj_dir")
 
-  # Find active session (most recent)
   sess_dir=$(ls -td "$proj_dir/.sessions"/[0-9]*/ 2>/dev/null | head -1)
   [[ -d "$sess_dir" ]] || continue
 
   line=""
-  for team in art writing editorial research coding; do
+  for team in intent art writing editorial research coding; do
     team_dir="$sess_dir/$team"
     [[ -d "$team_dir" ]] || continue
     total=$( (ls -d "$team_dir"/[0-9]*/ 2>/dev/null || true) | wc -l | tr -d ' ')
     [[ "$total" -eq 0 ]] && continue
 
-    # Count active (.running sentinel) and compute age of active dispatch
     active=0
     active_age=""
     for dd in "$team_dir"/[0-9]*/; do
@@ -126,11 +173,7 @@ for proj_dir in "$PROJECTS_DIR"/*/; do
         active=$((active + 1))
         mtime=$(stat -f%m "$dd/.running" 2>/dev/null || stat -c%Y "$dd/.running" 2>/dev/null || echo "$NOW")
         age_s=$(( NOW - mtime ))
-        if [[ $age_s -lt 60 ]]; then
-          active_age="${age_s}s"
-        else
-          active_age="$((age_s / 60))m"
-        fi
+        active_age="$(human_age $age_s)"
       fi
     done 2>/dev/null
 

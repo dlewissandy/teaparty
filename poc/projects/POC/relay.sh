@@ -9,6 +9,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/chrome.sh"
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 TEAM=""
@@ -92,8 +93,8 @@ rules = [
 json.dump({'permissions': {'allow': rules}}, sys.stdout)
 " > "$SETTINGS_FILE"
 
-echo "[RELAY] >>> Dispatching to $TEAM team (lead: $LEAD)" >&2
-echo "[RELAY]     Task: ${TASK:0:100}..." >&2
+echo -e "  ${C_DIM}[relay] >>> ${TEAM} team (${LEAD})${C_RESET}" >&2
+echo -e "  ${C_DIM}[relay]     ${TASK:0:100}...${C_RESET}" >&2
 
 # Plan → auto-approve → Execute
 RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
@@ -109,7 +110,7 @@ RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
   --exec-turns 30 \
   "$TASK") || true
 
-echo "[RELAY] <<< $TEAM team finished" >&2
+echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished${C_RESET}" >&2
 
 # ── Worktree completion: commit, merge, cleanup ──
 if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
@@ -118,21 +119,21 @@ if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
   if ! git -C "$DISPATCH_WORKTREE" diff --cached --quiet 2>/dev/null; then
     COMMIT_MSG=$(echo "$RESULT" | head -c 72)
     git -C "$DISPATCH_WORKTREE" commit -m "$TEAM: ${COMMIT_MSG:-dispatch $DISPATCH_TS}" 2>&1 \
-      | sed 's/^/[RELAY]     /' >&2 || true
+      | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || true
   else
-    echo "[RELAY]     No deliverables to commit" >&2
+    echo -e "  ${C_DIM}[relay]     No deliverables to commit${C_RESET}" >&2
   fi
 
   # Merge dispatch branch into session branch
-  echo "[RELAY]     Merging $DISPATCH_BRANCH into session..." >&2
+  echo -e "  ${C_DIM}[relay]     Merging $DISPATCH_BRANCH into session...${C_RESET}" >&2
   if ! git -C "$SESSION_WORKTREE" merge --no-ff "$DISPATCH_BRANCH" \
-      -m "merge $TEAM/$DISPATCH_TS" 2>&1 | sed 's/^/[RELAY]     /' >&2; then
-    echo "[RELAY]     Merge conflict — retrying with -X theirs..." >&2
+      -m "merge $TEAM/$DISPATCH_TS" 2>&1 | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2; then
+    echo -e "  ${C_DIM}[relay]     Merge conflict — retrying with -X theirs...${C_RESET}" >&2
     git -C "$SESSION_WORKTREE" merge --abort 2>/dev/null || true
     git -C "$SESSION_WORKTREE" merge -X theirs --no-ff "$DISPATCH_BRANCH" \
       -m "merge $TEAM/$DISPATCH_TS (auto-resolved)" 2>&1 \
-      | sed 's/^/[RELAY]     /' >&2 || \
-      echo "[RELAY]     WARNING: Merge failed — deliverables remain on branch $DISPATCH_BRANCH" >&2
+      | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || \
+      echo -e "  ${C_RED}[relay] Merge failed — deliverables remain on branch $DISPATCH_BRANCH${C_RESET}" >&2
   fi
 
   # Clean up worktree and branch
@@ -149,7 +150,7 @@ if [[ -n "$SESSION_WORKTREE" && -d "$SESSION_WORKTREE" ]]; then
 else
   OUTPUT_FILES=$(ls "$WORK_CWD" 2>/dev/null | grep -v '^\.' | paste -sd ',' - || echo "")
 fi
-echo "[RELAY]     Files: ${OUTPUT_FILES:-none}" >&2
+echo -e "  ${C_DIM}[relay]     Files: ${OUTPUT_FILES:-none}${C_RESET}" >&2
 
 # Build JSON summary
 RESULT_JSON=$(jq -n \
@@ -167,7 +168,7 @@ rm -f "$INFRA_DIR/.running"
 echo "$RESULT_JSON"
 
 # ── Post-processing (async, doesn't block result relay) ──
-echo "[RELAY]     Extracting learnings (background)..." >&2
+echo -e "  ${C_DIM}[relay]     Extracting learnings...${C_RESET}" >&2
 python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
   --stream "$INFRA_DIR/.exec-stream.jsonl" \
-  --output "$INFRA_DIR/MEMORY.md" 2>&1 | sed 's/^/[RELAY]     /' >&2 &
+  --output "$INFRA_DIR/MEMORY.md" 2>&1 | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 &

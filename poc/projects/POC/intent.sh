@@ -13,6 +13,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/chrome.sh"
 
 # Defaults
 CWD=""
@@ -89,8 +90,15 @@ INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
 CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 CLAUDE_ARGS+=(--agents "$AGENTS_JSON" --agent intent-lead)
 CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
-ADD_DIR="${POC_REPO_DIR:-${POC_PROJECT_DIR:-}}"
-[[ -n "$ADD_DIR" ]] && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
+# No --add-dir: the intent agent only writes INTENT.md to CWD.
+# Repo access is not needed — context is inlined in the prompt.
+
+# ── Helper: find INTENT.md ──
+find_intent_md() {
+  if [[ -f "$CWD/INTENT.md" ]]; then
+    echo "$CWD/INTENT.md"
+  fi
+}
 
 # ── Helper: extract session ID from stream ──
 extract_session_id() {
@@ -126,27 +134,24 @@ run_turn() {
   # Stream through filter for display, also append to stream file
   cat < "$fifo" \
     | tee -a "$INTENT_STREAM" \
-    | python3 -u "$SCRIPT_DIR/intent_filter.py" >&2
+    | python3 -u "$SCRIPT_DIR/intent_filter.py" --agent-name intent-lead >&2
 
   wait "$bg_pid" 2>/dev/null || true
   rm -f "$fifo"
 }
 
 # ── Banner ──
-echo "" >&2
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-echo "  Intent Gathering" >&2
-echo "  Respond to the agent. Type 'done' to finalize, 'skip' to bypass." >&2
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-echo "" >&2
+chrome_header "INTENT"
+echo -e "  ${C_DIM}Type 'done' to finalize, 'skip' to bypass.${C_RESET}" >&2
 
 # ── Turn 1: Initial prompt ──
-run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 15
+chrome_thinking
+run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 3
 
 # Extract session ID for --resume on subsequent turns
 SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
 if [[ -z "$SESSION_ID" ]]; then
-  echo "ERROR: Could not extract session ID from intent agent" >&2
+  echo -e "  ${C_RED}Could not extract session ID from intent agent${C_RESET}" >&2
   exit 1
 fi
 
@@ -157,61 +162,60 @@ round=0
 while [[ $round -lt $MAX_ROUNDS ]]; do
   ((round++))
 
-  # Check if INTENT.md was written
-  if [[ -f "$CWD/INTENT.md" ]]; then
+  # Check if INTENT.md was written (agent may write to CWD or ADD_DIR)
+  INTENT_PATH=$(find_intent_md)
+  if [[ -n "$INTENT_PATH" ]]; then
+    chrome_banner "INTENT.md"
+    cat "$INTENT_PATH" >&2
     echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    echo "  INTENT.md" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    cat "$CWD/INTENT.md" >&2
-    echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    echo "" >&2
+    chrome_heavy_line
 
-    read -p "Approve INTENT.md? [y/n/e(dit)] " approval </dev/tty
+    chrome_approval approval
     case "$approval" in
       y|Y)
-        echo "Intent approved." >&2
+        echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
         exit 0
         ;;
       e|E)
         ${EDITOR:-vim} "$CWD/INTENT.md"
-        echo "INTENT.md updated." >&2
+        echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
         exit 0
         ;;
       n|N)
-        # Human wants changes — get feedback and continue
-        read -p "Feedback: " feedback </dev/tty
+        # Human wants changes — get feedback
+        echo -e "  ${C_DIM}What should change?${C_RESET}" >&2
+        chrome_prompt feedback
         if [[ -z "$feedback" ]]; then
-          echo "No feedback provided. Continuing..." >&2
+          echo -e "  ${C_DIM}No feedback provided. Continuing...${C_RESET}" >&2
           continue
         fi
-        run_turn "$feedback" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+        chrome_thinking
+        run_turn "$feedback" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
         continue
         ;;
       *)
         # Treat any other input as feedback
-        run_turn "$approval" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+        chrome_thinking
+        run_turn "$approval" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
         continue
         ;;
     esac
   fi
 
   # No INTENT.md yet — get human input
-  echo "" >&2
-  read -p "> " human_input </dev/tty
+  chrome_prompt human_input
 
   # Control commands
   case "$human_input" in
     skip|SKIP)
-      echo "Skipping intent gathering." >&2
+      echo -e "  ${C_YELLOW}Skipping intent gathering.${C_RESET}" >&2
       exit 1
       ;;
     done|DONE)
-      # Ask the agent to write INTENT.md based on the conversation so far
-      echo "Asking agent to finalize INTENT.md..." >&2
+      echo -e "  ${C_DIM}Asking agent to finalize INTENT.md...${C_RESET}" >&2
+      chrome_thinking
       run_turn "Please write INTENT.md now based on our conversation." \
-        --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+        --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
       # Loop will check for INTENT.md on next iteration
       continue
       ;;
@@ -221,44 +225,43 @@ while [[ $round -lt $MAX_ROUNDS ]]; do
   esac
 
   # Send human input to the intent team, resume the session
-  run_turn "$human_input" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+  chrome_thinking
+  run_turn "$human_input" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
 done
 
 # ── Fallback: conversation ended without INTENT.md ──
-if [[ ! -f "$CWD/INTENT.md" ]]; then
-  echo "" >&2
-  echo "No INTENT.md was written. Asking agent to produce it..." >&2
+INTENT_PATH=$(find_intent_md)
+if [[ -z "$INTENT_PATH" ]]; then
+  echo -e "  ${C_DIM}No INTENT.md was written. Asking agent to produce it...${C_RESET}" >&2
+  chrome_thinking
   run_turn "Please write the INTENT.md now based on everything we've discussed." \
-    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 15
+    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+  INTENT_PATH=$(find_intent_md)
 fi
 
-if [[ -f "$CWD/INTENT.md" ]]; then
+if [[ -n "$INTENT_PATH" ]]; then
+  chrome_banner "INTENT.md"
+  cat "$INTENT_PATH" >&2
   echo "" >&2
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-  echo "  INTENT.md" >&2
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-  cat "$CWD/INTENT.md" >&2
-  echo "" >&2
-  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-  echo "" >&2
+  chrome_heavy_line
 
-  read -p "Approve INTENT.md? [y/n/e(dit)] " approval </dev/tty
+  chrome_approval approval
   case "$approval" in
     y|Y)
-      echo "Intent approved." >&2
+      echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
       exit 0
       ;;
     e|E)
-      ${EDITOR:-vim} "$CWD/INTENT.md"
-      echo "INTENT.md updated." >&2
+      ${EDITOR:-vim} "$INTENT_PATH"
+      echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
       exit 0
       ;;
     *)
-      echo "Intent rejected." >&2
+      echo -e "  ${C_YELLOW}Intent rejected.${C_RESET}" >&2
       exit 1
       ;;
   esac
 else
-  echo "WARNING: Intent agent did not produce INTENT.md." >&2
+  echo -e "  ${C_RED}Intent agent did not produce INTENT.md.${C_RESET}" >&2
   exit 1
 fi

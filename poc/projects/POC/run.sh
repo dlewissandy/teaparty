@@ -8,15 +8,17 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+source "$SCRIPT_DIR/chrome.sh"
 
 # Parse arguments: optional --project override, --skip-intent, then positional task
 PROJECT_OVERRIDE=""
-SKIP_INTENT="false"
+SKIP_INTENT="true"
 TASK=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --project)      PROJECT_OVERRIDE="$2"; shift 2 ;;
     --skip-intent)  SKIP_INTENT="true"; shift ;;
+    --with-intent)  SKIP_INTENT="false"; shift ;;
     *)              TASK="$1"; shift ;;
   esac
 done
@@ -58,6 +60,7 @@ else
 MEMORY.md
 OBSERVATIONS.md
 ESCALATION.md
+.memory.db
 GITIGNORE
   cat > "$POC_PROJECT_DIR/CLAUDE.md" << CLAUDEMD
 # Project: $PROJECT
@@ -129,14 +132,13 @@ json.dump({'permissions': {'allow': rules}, 'env': {
 }}, sys.stdout)
 " > "$SETTINGS_FILE"
 
-echo "=== Hierarchical Agent Teams POC ==="
-echo "Project: $PROJECT"
-[[ "$POC_REPO_DIR" != "$POC_PROJECT_DIR" ]] && echo "Repo: $POC_REPO_DIR"
-echo "Task: $TASK"
-echo "Session: $SESSION_TS"
-echo "Worktree: $SESSION_WORKTREE"
-echo "Infra: $INFRA_DIR/"
-echo ""
+# ── Startup banner ──
+SUBTITLE="Project: $PROJECT  Session: $SESSION_TS"
+[[ "$POC_REPO_DIR" != "$POC_PROJECT_DIR" ]] && SUBTITLE="$SUBTITLE  Repo: $POC_REPO_DIR"
+chrome_banner "Hierarchical Agent Teams" "$SUBTITLE"
+echo -e "  ${C_DIM}Task:${C_RESET} $TASK" >&2
+echo -e "  ${C_DIM}Worktree:${C_RESET} $SESSION_WORKTREE" >&2
+echo -e "  ${C_DIM}Infra:${C_RESET} $INFRA_DIR/" >&2
 
 # ── Intent gathering phase ──
 if [[ "$SKIP_INTENT" != "true" ]]; then
@@ -156,9 +158,26 @@ if [[ "$SKIP_INTENT" != "true" ]]; then
 
 Original task: $TASK"
   else
-    read -p "Intent skipped. Continue without? [y/n] " cont </dev/tty
+    chrome_beep
+    echo -e "  ${C_YELLOW}Intent skipped.${C_RESET} Continue without? (y/n)" >&2
+    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" cont </dev/tty
     [[ "$cont" == [nN] ]] && exit 0
   fi
+fi
+
+# ── Memory retrieval ──
+MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXX.md)
+trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE" EXIT
+MEMORY_CTX=()
+if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
+    --db "$POC_PROJECT_DIR/.memory.db" \
+    --source "$POC_PROJECT_DIR/OBSERVATIONS.md" \
+    --source "$POC_PROJECT_DIR/ESCALATION.md" \
+    --source "$POC_PROJECT_DIR/MEMORY.md" \
+    --source "$POC_OUTPUT_DIR/MEMORY.md" \
+    --task "$TASK" \
+    --output "$MEMORY_CTX_FILE" 2>/dev/null; then
+  [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
 fi
 
 # Plan → Approve → Execute (same script used by relay.sh for subteams)
@@ -171,11 +190,11 @@ fi
   --add-dir "$POC_REPO_DIR" \
   --plan-turns 15 \
   --exec-turns 30 \
+  "${MEMORY_CTX[@]}" \
   "$TASK"
 
 # ── Session completion: commit + merge session branch into main ──
-echo ""
-echo "=== Merging session into main ==="
+chrome_header "MERGE"
 
 # Commit any uncommitted deliverables in the session worktree
 # (files written directly by the uber team or merged from dispatch branches)
@@ -188,15 +207,14 @@ git -C "$POC_REPO_DIR" merge --no-ff "$SESSION_BRANCH" \
   -m "session $SESSION_TS" 2>&1 || \
   git -C "$POC_REPO_DIR" merge -X theirs --no-ff "$SESSION_BRANCH" \
     -m "session $SESSION_TS (auto-resolved)" 2>&1 || \
-  echo "WARNING: Session merge failed — deliverables remain on branch $SESSION_BRANCH" >&2
+  echo -e "  ${C_RED}Session merge failed — deliverables remain on branch $SESSION_BRANCH${C_RESET}" >&2
 
 # Clean up worktree and branch
 git -C "$POC_REPO_DIR" worktree remove "$SESSION_WORKTREE" 2>/dev/null || true
 git -C "$POC_REPO_DIR" branch -d "$SESSION_BRANCH" 2>/dev/null || true
 
 # ── Extract learnings ──
-echo ""
-echo "=== Extracting session learnings ==="
+chrome_header "LEARNINGS"
 
 # 1. Roll up dispatch MEMORYs → team MEMORY.md (for each team that ran)
 "$SCRIPT_DIR/scripts/promote_learnings.sh" --scope team || true
@@ -251,11 +269,12 @@ fi
 kill "$TAIL_PID" 2>/dev/null || true
 wait "$TAIL_PID" 2>/dev/null || true
 
-echo ""
-echo "=== Session: $SESSION_TS ==="
-echo "Project: $PROJECT"
-echo "Deliverables (on main):"
-git -C "$POC_REPO_DIR" ls-files 2>/dev/null | grep -v '^\.' | sort || echo "  (none)"
-echo "Infra: $INFRA_DIR/"
-echo "Project memory: $POC_PROJECT_DIR/MEMORY.md"
-echo "Global memory: $POC_OUTPUT_DIR/MEMORY.md"
+# ── Final report ──
+chrome_banner "Session Complete: $SESSION_TS" "Project: $PROJECT"
+echo -e "  ${C_BOLD}Deliverables:${C_RESET}" >&2
+git -C "$POC_REPO_DIR" ls-files 2>/dev/null | grep -v '^\.' | sort | sed 's/^/    /' >&2 || echo "    (none)" >&2
+echo "" >&2
+echo -e "  ${C_DIM}Project memory: $POC_PROJECT_DIR/MEMORY.md${C_RESET}" >&2
+echo -e "  ${C_DIM}Global memory: $POC_OUTPUT_DIR/MEMORY.md${C_RESET}" >&2
+chrome_heavy_line
+chrome_beep
