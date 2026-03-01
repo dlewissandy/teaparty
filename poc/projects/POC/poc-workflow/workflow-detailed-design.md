@@ -105,12 +105,42 @@ The adaptive model is a targeted set of changes to a workflow that is fundamenta
 
 ## 9. Open Questions
 
-These are genuinely unresolved. The design is directionally correct; these questions must be answered through implementation and observation.
+Question 1 remains open pending empirical data. Questions 2–4 have been researched in depth across relevant academic and practical domains; each has a recommended approach and a calibration path. Detailed findings are in the referenced research documents.
 
 1. **Tier classification calibration:** The 0.7 confidence threshold needs validation through actual sessions. What percentage of ambiguous cases are correctly classified on cold start, before memory accumulates? This baseline matters before the calibration loop can be tuned.
 
-2. **In-flight learning mechanism:** The spec has no current mechanism for flagging milestone model-updates into the session stream. Does this require a new tool, or can it be encoded as a structured annotation in the existing session log format?
+---
 
-3. **Confidence reporting format:** If agents are to report confidence decomposed by dimension, what format makes this useful rather than noisy? A domain-confidence pair per key claim — "technical approach: high; preference alignment: moderate; register: lower" — seems more actionable than a single session-level number, but the format needs to be specified in agent prompts before it can be applied consistently.
+### 2. In-flight learning mechanism — RESOLVED
 
-4. **Intent revision authority:** When should an agent revise INTENT.md mid-session versus escalate for human confirmation? The magnitude-times-reversibility criteria is directionally right but needs operationalization — concrete thresholds, not just a principle, so agents can apply it consistently across sessions and task types.
+**Research document:** `poc-workflow/research-q2-inflight-learning.md`
+
+**Finding:** The question of whether to add a new tool or annotate the existing log resolves to neither in isolation. The key insight from event sourcing and cognitive science is that absence must be interpretable: an optional annotation produces ambiguous absence (did the model hold, or did the agent forget?), while a proactive tool without a structural gate has no enforcement mechanism. Gama et al.'s drift detection methods (DDM/ADWIN) provide principled thresholds for when a milestone observation represents genuine assumption drift versus noise within expected variance.
+
+**Recommendation:** Mandatory assumption checkpoint sub-step in Tier 2 and Tier 3 milestone completion protocols (Alternative C), with output written to two destinations: a human-readable section in the workflow state document and a structured JSON annotation (`type: "assumption_checkpoint"`) in the session log for machine extraction. The checkpoint is mandatory — not a new tool, not an optional annotation — because its absence in the workflow state document is visibly detectable. Triggers for a mandatory (non-discretionary) checkpoint include: actual step completion time exceeding 2× the estimate, discovery of a new hard constraint not in INTENT.md at session start, and any assumption contradiction (partial or full).
+
+**Calibration path:** The DDM/ADWIN-derived mandatory trigger thresholds (e.g., 2× time overrun, 20% scope expansion) are well-grounded priors but should be validated against actual session data and adjusted as calibration records accumulate.
+
+---
+
+### 3. Confidence reporting format — RESOLVED
+
+**Research document:** `poc-workflow/research-q3-confidence-format.md`
+
+**Finding:** Shannon's channel capacity theorem provides the decisive constraint: an annotation that always appears, even at "high," carries near-zero information because the receiver can predict it before reading. Calibration research (Lichtenstein & Fischhoff 1977; Steyvers & Peters 2025 on LLMs) confirms that structural format requirements — not prompting alone — are the only reliable counterweight to systematic overconfidence. Nelson & Narens' metacognitive monitoring framework (1990) confirms that the five canonical dimensions (technical correctness, preference alignment, register/style, scope completeness, domain coverage) are genuinely separable epistemic states the agent can monitor independently.
+
+**Recommendation:** Two-tier format (Alternative C): the session opens with a memory-backed confidence posture statement derived from calibration records in ESCALATION.md (not generated fresh each session), followed by inline departure flags using only two levels — MODERATE CONFIDENCE and LOW CONFIDENCE — appearing only when a dimension departs from the opening posture. HIGH is the unmarked default; annotating it adds no information. Every inline flag requires a mandatory reason clause; a flag without a reason is structurally equivalent to the bare escalation question the spec prohibits ("bring solutions not questions").
+
+**Calibration path:** A minimum of 30 outcome-linked claims per confidence level per dimension are needed before calibration estimates are statistically meaningful; calibration health scores (expected accuracy: MODERATE ~70%, LOW ~47%) feed back into future session postures via ESCALATION.md.
+
+---
+
+### 4. Intent revision authority — RESOLVED
+
+**Research document:** `poc-workflow/research-q4-intent-revision-authority.md`
+
+**Finding:** The "magnitude × reversibility" principle resolves to a concrete two-axis assessment: (1) downstream decision scope — how many not-yet-executed steps would produce different outcomes under the revised intent — and (2) reversibility level — fully reversible (no work done under revised intent), partially reversible (work begun, no deliverable finalized), or irreversible (deliverable delivered or committed). Aghion & Tirole's (1997) formal vs. real authority framework provides the grounding: the agent should act autonomously when it has better information than the human (execution-revealed constraints), and return formal authority when the human has better information (values, organizational constraints). Material breach doctrine from contract law operationalizes "material" vs. "non-material" revision: a material revision is one a reasonable observer would characterize as "this is now a different project."
+
+**Recommendation:** Quantified impact threshold (Alternative C), initialized conservatively: autonomous revision is permitted only if downstream scope is ≤1 decision AND the revision is fully reversible; all other cases require either a notify-and-window or mandatory escalation. The research document contains a complete 10-node yes/no decision tree agents can apply without additional judgment, and a mandatory structured rationale appendix schema for all autonomous revisions. Conservative initialization is deliberate: early false escalations are calibration data. Domain-specific thresholds relax as session history confirms accurate preference inference.
+
+**Calibration path:** Track the fraction of autonomous revisions later found by the human to have required human input (>20% → threshold too permissive; <5% → potentially too conservative); minimum 20 autonomous revisions per domain category before adjusting; store calibration records in ESCALATION.md.
