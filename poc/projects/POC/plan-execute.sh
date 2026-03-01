@@ -55,8 +55,18 @@ CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 [[ -n "$LEAD" ]]           && CLAUDE_ARGS+=(--agent "$LEAD")
 [[ -n "$SETTINGS_FILE" ]]  && CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
 [[ -n "$ADD_DIR" ]]        && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
+
+# Inline context files into the task (claude CLI has no --context-file flag).
+# Same approach as intent.sh: read contents and prepend to the prompt.
 for ctx in ${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}; do
-  [[ -f "$ctx" && -s "$ctx" ]] && CLAUDE_ARGS+=(--context-file "$ctx")
+  if [[ -f "$ctx" && -s "$ctx" ]]; then
+    LABEL=$(basename "$ctx")
+    TASK="--- $LABEL ---
+$(cat "$ctx")
+--- end $LABEL ---
+
+$TASK"
+  fi
 done
 
 # Working directory for agent CWD

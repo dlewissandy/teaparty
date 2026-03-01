@@ -192,21 +192,47 @@ fi
   ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
   "$TASK"
 
-# ── Session completion: commit + merge session branch into main ──
+# ── Session completion: commit + squash-merge session branch into main ──
 chrome_header "MERGE"
 
 # Commit any uncommitted deliverables in the session worktree
 # (files written directly by the uber team or merged from dispatch branches)
+COMMIT_SUBJECT="${TASK:0:72}"
 git -C "$SESSION_WORKTREE" add -A 2>/dev/null || true
 if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
-  git -C "$SESSION_WORKTREE" commit -m "session deliverables: $PROJECT" 2>&1 || true
+  git -C "$SESSION_WORKTREE" commit -m "$COMMIT_SUBJECT" 2>&1 || true
 fi
 
-git -C "$POC_REPO_DIR" merge --no-ff "$SESSION_BRANCH" \
-  -m "session $SESSION_TS" 2>&1 || \
-  git -C "$POC_REPO_DIR" merge -X theirs --no-ff "$SESSION_BRANCH" \
-    -m "session $SESSION_TS (auto-resolved)" 2>&1 || \
-  echo -e "  ${C_RED}Session merge failed — deliverables remain on branch $SESSION_BRANCH${C_RESET}" >&2
+# Collect session commit log before squashing (for the commit body)
+SESSION_LOG=$(git -C "$POC_REPO_DIR" log --format='- %s' HEAD.."$SESSION_BRANCH" 2>/dev/null || true)
+
+# Squash-merge session branch into main
+if ! git -C "$POC_REPO_DIR" merge --squash "$SESSION_BRANCH" 2>&1; then
+  echo -e "  ${C_YELLOW}Merge conflict — retrying with -X theirs...${C_RESET}" >&2
+  git -C "$POC_REPO_DIR" reset --hard HEAD 2>/dev/null || true
+  git -C "$POC_REPO_DIR" merge --squash -X theirs "$SESSION_BRANCH" 2>&1 || \
+    echo -e "  ${C_RED}Session merge failed — deliverables remain on branch $SESSION_BRANCH${C_RESET}" >&2
+fi
+
+# Commit squashed changes with a structured message
+if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
+  SQUASH_MSG_FILE=$(mktemp)
+  {
+    echo "$PROJECT: ${TASK:0:72}"
+    echo ""
+    if [[ -n "$SESSION_LOG" ]]; then
+      echo "Squashed commits:"
+      echo "$SESSION_LOG"
+      echo ""
+    fi
+    echo "Files changed:"
+    git -C "$POC_REPO_DIR" diff --cached --name-only 2>/dev/null | sed 's/^/- /'
+  } > "$SQUASH_MSG_FILE"
+  git -C "$POC_REPO_DIR" commit -F "$SQUASH_MSG_FILE" 2>&1 || true
+  rm -f "$SQUASH_MSG_FILE"
+else
+  echo -e "  ${C_DIM}No changes to merge from session${C_RESET}" >&2
+fi
 
 # Clean up worktree and branch
 git -C "$POC_REPO_DIR" worktree remove "$SESSION_WORKTREE" 2>/dev/null || true

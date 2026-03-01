@@ -115,25 +115,49 @@ echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished${C_RESET}" >&2
 # ── Worktree completion: commit, merge, cleanup ──
 if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
   # Commit any deliverables written by the subteam
+  DISPATCH_SUBJECT="${TASK:0:60}"
   git -C "$DISPATCH_WORKTREE" add -A 2>/dev/null || true
   if ! git -C "$DISPATCH_WORKTREE" diff --cached --quiet 2>/dev/null; then
-    COMMIT_MSG=$(echo "$RESULT" | head -c 72)
-    git -C "$DISPATCH_WORKTREE" commit -m "$TEAM: ${COMMIT_MSG:-dispatch $DISPATCH_TS}" 2>&1 \
+    git -C "$DISPATCH_WORKTREE" commit -m "$TEAM: ${DISPATCH_SUBJECT:-dispatch}" 2>&1 \
       | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || true
   else
     echo -e "  ${C_DIM}[relay]     No deliverables to commit${C_RESET}" >&2
   fi
 
-  # Merge dispatch branch into session branch
-  echo -e "  ${C_DIM}[relay]     Merging $DISPATCH_BRANCH into session...${C_RESET}" >&2
-  if ! git -C "$SESSION_WORKTREE" merge --no-ff "$DISPATCH_BRANCH" \
-      -m "merge $TEAM/$DISPATCH_TS" 2>&1 | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2; then
+  # Squash-merge dispatch branch into session branch
+  echo -e "  ${C_DIM}[relay]     Squash-merging $DISPATCH_BRANCH into session...${C_RESET}" >&2
+
+  # Collect dispatch commit history before squashing (for the commit body)
+  DISPATCH_LOG=$(git -C "$SESSION_WORKTREE" log --format='- %s' HEAD.."$DISPATCH_BRANCH" 2>/dev/null || true)
+
+  if ! git -C "$SESSION_WORKTREE" merge --squash "$DISPATCH_BRANCH" 2>&1 \
+      | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2; then
     echo -e "  ${C_DIM}[relay]     Merge conflict — retrying with -X theirs...${C_RESET}" >&2
-    git -C "$SESSION_WORKTREE" merge --abort 2>/dev/null || true
-    git -C "$SESSION_WORKTREE" merge -X theirs --no-ff "$DISPATCH_BRANCH" \
-      -m "merge $TEAM/$DISPATCH_TS (auto-resolved)" 2>&1 \
+    git -C "$SESSION_WORKTREE" reset --hard HEAD 2>/dev/null || true
+    git -C "$SESSION_WORKTREE" merge --squash -X theirs "$DISPATCH_BRANCH" 2>&1 \
       | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || \
       echo -e "  ${C_RED}[relay] Merge failed — deliverables remain on branch $DISPATCH_BRANCH${C_RESET}" >&2
+  fi
+
+  # Commit squashed changes with a structured message
+  if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
+    SQUASH_MSG_FILE=$(mktemp)
+    {
+      echo "$TEAM: ${DISPATCH_SUBJECT:-dispatch}"
+      echo ""
+      if [[ -n "$DISPATCH_LOG" ]]; then
+        echo "Squashed commits:"
+        echo "$DISPATCH_LOG"
+        echo ""
+      fi
+      echo "Files changed:"
+      git -C "$SESSION_WORKTREE" diff --cached --name-only 2>/dev/null | sed 's/^/- /'
+    } > "$SQUASH_MSG_FILE"
+    git -C "$SESSION_WORKTREE" commit -F "$SQUASH_MSG_FILE" 2>&1 \
+      | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || true
+    rm -f "$SQUASH_MSG_FILE"
+  else
+    echo -e "  ${C_DIM}[relay]     Nothing to commit after squash merge${C_RESET}" >&2
   fi
 
   # Clean up worktree and branch
