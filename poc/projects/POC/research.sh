@@ -17,8 +17,20 @@ mkdir -p "$OUTPUT_DIR"
 export CONVERSATION_LOG="$OUTPUT_DIR/.conversation"
 > "$CONVERSATION_LOG"
 
-# Tail the conversation log in the background
-tail -f "$CONVERSATION_LOG" &
+# Stream conversation log to terminal (poll-based, no tail -f deadlock risk)
+python3 -uc "
+import sys, time, signal
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+with open(sys.argv[1]) as f:
+    while True:
+        chunk = f.read(8192)
+        if chunk:
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+        else:
+            time.sleep(0.5)
+" "$CONVERSATION_LOG" >&2 &
 TAIL_PID=$!
 
 # Substitute __POC_DIR__ with absolute path in agent definitions

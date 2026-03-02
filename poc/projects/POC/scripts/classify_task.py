@@ -64,9 +64,11 @@ Tier 1 — Simple Task: single-file or bounded edit, fully reversible, no ambigu
 Tier 2 — Standard Task: multi-file changes, some ambiguity (words like "feel", "style", "better", "improve"), or needs confirmation.
 Tier 3 — Complex Project: multi-team coordination, evolving/unclear requirements, or prior memory shows this task class caused escalations.
 
-BIAS RULE: When between two tiers, choose the higher. Misclassifying Tier 3 as Tier 1 is catastrophic; misclassifying Tier 0 as Tier 2 is merely annoying.
+TIER 0 PROTECTION: Status queries, clarification questions, "what does X mean", "show me what has been done", and queries requiring NO file changes MUST be Tier 0. Do not push upward. Misclassifying Tier 0 as Tier 1+ erodes trust — the user asked a simple question and received a protocol response.
 
-MEMORY WARM-START: If ESCALATION.md shows "Escalate more" for this domain, push tier up. If it shows "More autonomous", pull tier down (never below Tier 1 for tasks touching files).
+BIAS RULE (Tier 1-3 only): When between Tier 1, 2, or 3, choose the higher. Misclassifying Tier 3 as Tier 1 is catastrophic. This rule does NOT apply to the Tier 0/1 boundary — protect Tier 0 queries from workflow overhead.
+
+MEMORY WARM-START: If ESCALATION.md shows "Escalate more" for this domain, push tier up (not across Tier 0/1 boundary). If it shows "More autonomous", pull tier down (never below Tier 1 for tasks touching files).
 
 --- OUTPUT ---
 Return EXACTLY one line: <slug><TAB><tier>
@@ -75,7 +77,9 @@ No explanation. No quotes. No punctuation. Only slug, tab, digit 0-3.
 Examples:
 tea-brewing-handbook\t2
 POC\t1
-dark-energy-research\t3"""
+dark-energy-research\t3
+POC\t0
+default\t0"""
 
 
 def classify(task: str, projects_dir: str) -> str:
@@ -109,16 +113,16 @@ def classify(task: str, projects_dir: str) -> str:
         )
     except FileNotFoundError:
         print("[classify] claude CLI not found, using 'default'", file=sys.stderr)
-        return "default\t2"
+        return "default\t1"
     except subprocess.TimeoutExpired:
         print("[classify] claude call timed out, using 'default'", file=sys.stderr)
-        return "default\t2"
+        return "default\t1"
 
     if result.returncode != 0 or not result.stdout.strip():
         print(f"[classify] claude returned {result.returncode}", file=sys.stderr)
         if result.stderr:
             print(f"[classify] stderr: {result.stderr[:200]}", file=sys.stderr)
-        return "default\t2"
+        return "default\t1"
 
     output = result.stdout.strip()
 
@@ -128,12 +132,12 @@ def classify(task: str, projects_dir: str) -> str:
         # Fallback: treat whole output as slug, default to tier 2
         slug = re.sub(r'[^a-z0-9-]', '-', output.lower())
         slug = re.sub(r'-+', '-', slug).strip('-') or "default"
-        return f"{slug}\t2"
+        return f"{slug}\t1"
 
     slug_raw, tier_raw = parts[0].strip(), parts[1].strip()
     slug = re.sub(r'[^a-z0-9-]', '-', slug_raw.lower())
     slug = re.sub(r'-+', '-', slug).strip('-') or "default"
-    tier = tier_raw if tier_raw in ('0', '1', '2', '3') else '2'
+    tier = tier_raw if tier_raw in ('0', '1', '2', '3') else '1'
 
     return f"{slug}\t{tier}"
 

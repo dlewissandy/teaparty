@@ -54,6 +54,19 @@ $(cat "$ctx_file")
   fi
 done
 
+# Warm-start round reduction (spec Section 8.1)
+HAS_WARM_START=false
+for ctx_file in "${CONTEXT_FILES[@]}"; do
+  case "$(basename "$ctx_file")" in
+    OBSERVATIONS.md|ESCALATION.md)
+      if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
+        HAS_WARM_START=true
+        break
+      fi
+      ;;
+  esac
+done
+
 # ── Agent definition with path substitution ──
 AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
                   -e "s|__SESSION_DIR__|$STREAM_DIR|g" \
@@ -177,6 +190,8 @@ echo -e "  ${C_DIM}Type 'done' to finalize, 'skip' to bypass.${C_RESET}" >&2
 # ── Turn 1: Initial prompt ──
 chrome_thinking
 run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 3
+INTENT_START_EPOCH=$(date +%s)
+WARNED_AT_12=false
 
 # Extract session ID for --resume on subsequent turns
 SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
@@ -186,11 +201,37 @@ if [[ -z "$SESSION_ID" ]]; then
 fi
 
 # ── Conversation loop ──
-MAX_ROUNDS=10
+if [[ "$HAS_WARM_START" == "true" ]]; then
+  MAX_ROUNDS=6
+  echo -e "  ${C_DIM}Warm-start detected — reduced to $MAX_ROUNDS rounds.${C_RESET}" >&2
+else
+  MAX_ROUNDS=10
+fi
 round=0
 
 while [[ $round -lt $MAX_ROUNDS ]]; do
   ((round++))
+
+  # ── Time check (spec Section 3.1: warn at 12 min, force-finalize at 15 min) ──
+  ELAPSED=$(( $(date +%s) - INTENT_START_EPOCH ))
+  if [[ $ELAPSED -ge 900 ]]; then
+    echo -e "  ${C_YELLOW}15-minute limit reached — finalizing INTENT.md.${C_RESET}" >&2
+    chrome_thinking
+    run_turn "Time limit reached. Please write INTENT.md now with your current understanding. Note any unresolved questions in the Open Questions section." \
+      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+    break
+  elif [[ $ELAPSED -ge 720 && "$WARNED_AT_12" != "true" ]]; then
+    echo -e "  ${C_DIM}(12-minute mark — 3 minutes remaining)${C_RESET}" >&2
+    WARNED_AT_12=true
+  fi
+
+  # ── Round warning (spec Section 3.1: signal at round N-2) ──
+  ROUNDS_REMAINING=$((MAX_ROUNDS - round))
+  FINALIZE_NUDGE=""
+  if [[ $ROUNDS_REMAINING -eq 2 ]]; then
+    echo -e "  ${C_DIM}(Round $round of $MAX_ROUNDS — preparing to finalize)${C_RESET}" >&2
+    FINALIZE_NUDGE="[SYSTEM: 2 rounds remaining out of $MAX_ROUNDS. Begin finalizing INTENT.md now if you haven't already.] "
+  fi
 
   # Check if INTENT.md was written (agent may write to CWD or ADD_DIR)
   INTENT_PATH=$(find_intent_md)
@@ -217,26 +258,29 @@ while [[ $round -lt $MAX_ROUNDS ]]; do
         ;;
       n|N)
         # Human wants changes — get feedback
-        echo -e "  ${C_DIM}What should change?${C_RESET}" >&2
+        echo -e "  ${C_DIM}Describe what should change in INTENT.md:${C_RESET}" >&2
         chrome_prompt feedback
         if [[ -z "$feedback" ]]; then
           echo -e "  ${C_DIM}No feedback provided. Continuing...${C_RESET}" >&2
           continue
         fi
+        chrome_user "$feedback"
         chrome_thinking
-        run_turn "$feedback" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+        run_turn "${FINALIZE_NUDGE}The human rejected INTENT.md with this feedback: ${feedback}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
         continue
         ;;
       *)
-        # Treat any other input as feedback
+        # Treat any other input as feedback on the INTENT.md
+        chrome_user "$approval"
         chrome_thinking
-        run_turn "$approval" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+        run_turn "${FINALIZE_NUDGE}The human responded to INTENT.md with: ${approval}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
         continue
         ;;
     esac
   fi
 
   # No INTENT.md yet — get human input
+  echo -e "  ${C_DIM}Round $round/$MAX_ROUNDS · Respond to the agent, or: ${C_BOLD}done${C_RESET}${C_DIM} to finalize · ${C_BOLD}skip${C_RESET}${C_DIM} to bypass${C_RESET}" >&2
   chrome_prompt human_input
 
   # Control commands
@@ -248,19 +292,21 @@ while [[ $round -lt $MAX_ROUNDS ]]; do
     done|DONE)
       echo -e "  ${C_DIM}Asking agent to finalize INTENT.md...${C_RESET}" >&2
       chrome_thinking
-      run_turn "Please write INTENT.md now based on our conversation." \
+      run_turn "${FINALIZE_NUDGE}Please write INTENT.md now based on our conversation." \
         --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
       # Loop will check for INTENT.md on next iteration
       continue
       ;;
     "")
+      echo -e "  ${C_DIM}(empty — type a response or 'done'/'skip')${C_RESET}" >&2
       continue
       ;;
   esac
 
   # Send human input to the intent team, resume the session
+  chrome_user "$human_input"
   chrome_thinking
-  run_turn "$human_input" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+  run_turn "${FINALIZE_NUDGE}${human_input}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
 done
 
 # ── Fallback: conversation ended without INTENT.md ──

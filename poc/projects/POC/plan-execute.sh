@@ -251,6 +251,13 @@ if [[ "$AUTO_APPROVE" != "true" && "$NO_PLAN" != "true" ]]; then
   esac
 fi
 
+# ── INTENT.md pre-flight check (spec Section 9) ──
+if [[ -f "$WORK_DIR/INTENT.md" ]]; then
+  if grep -qi "open question" "$WORK_DIR/INTENT.md" 2>/dev/null; then
+    echo -e "  ${C_YELLOW}[pre-flight] INTENT.md contains open questions — ensure planning resolved them.${C_RESET}" >&2
+  fi
+fi
+
 # ── Phase 3: Execute ──
 if [[ "$NO_PLAN" != "true" ]]; then
   chrome_header "EXECUTE"

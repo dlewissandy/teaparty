@@ -34,14 +34,19 @@ mkdir -p "$PROJECTS_DIR"
 
 if [[ -n "$PROJECT_OVERRIDE" ]]; then
   PROJECT="$PROJECT_OVERRIDE"
-  TASK_TIER=2  # Default tier when manually overriding project
+  # Still classify for tier — project override only skips slug classification
+  CLASSIFY_OUT=$(python3 "$SCRIPT_DIR/scripts/classify_task.py" \
+    --task "$TASK" \
+    --projects-dir "$PROJECTS_DIR" 2>/dev/null) || CLASSIFY_OUT="default	1"
+  TASK_TIER=$(printf '%s' "$CLASSIFY_OUT" | cut -f2)
+  [[ "$TASK_TIER" =~ ^[0-3]$ ]] || TASK_TIER=1
 else
   CLASSIFY_OUT=$(python3 "$SCRIPT_DIR/scripts/classify_task.py" \
     --task "$TASK" \
-    --projects-dir "$PROJECTS_DIR" 2>/dev/null) || CLASSIFY_OUT="default	2"
+    --projects-dir "$PROJECTS_DIR" 2>/dev/null) || CLASSIFY_OUT="default	1"
   PROJECT=$(printf '%s' "$CLASSIFY_OUT" | cut -f1)
   TASK_TIER=$(printf '%s' "$CLASSIFY_OUT" | cut -f2)
-  [[ "$TASK_TIER" =~ ^[0-3]$ ]] || TASK_TIER=2
+  [[ "$TASK_TIER" =~ ^[0-3]$ ]] || TASK_TIER=1
 fi
 export POC_PROJECT="$PROJECT"
 export POC_TASK_TIER="$TASK_TIER"
@@ -121,8 +126,22 @@ touch "$POC_PROJECT_DIR/ESCALATION.md"
 export CONVERSATION_LOG="$INFRA_DIR/.conversation"
 > "$CONVERSATION_LOG"
 
-# Tail the conversation log in the background so it streams to the terminal
-tail -f "$CONVERSATION_LOG" &
+# Stream conversation log to terminal (poll-based, no tail -f deadlock risk).
+# tail -f blocks forever when the file stops being written — this caused
+# repeated session stalls. Poll-based reader exits naturally when killed.
+python3 -uc "
+import sys, time, os, signal
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+signal.signal(signal.SIGINT, lambda *_: sys.exit(0))
+with open(sys.argv[1]) as f:
+    while True:
+        chunk = f.read(8192)
+        if chunk:
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+        else:
+            time.sleep(0.5)
+" "$CONVERSATION_LOG" >&2 &
 TAIL_PID=$!
 
 # Substitute placeholders with absolute paths in agent definitions
@@ -166,32 +185,7 @@ echo -e "  ${C_DIM}Worktree:${C_RESET} $SESSION_WORKTREE" >&2
 echo -e "  ${C_DIM}Infra:${C_RESET} $INFRA_DIR/" >&2
 echo -e "  ${C_DIM}Tier:${C_RESET} $TASK_TIER" >&2
 
-# ── Intent gathering phase ──
-if [[ "$SKIP_INTENT" != "true" ]]; then
-  INTENT_CTX=()
-  [[ -f "$POC_REPO_DIR/INTENT.md" ]]          && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
-  [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]  && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
-  [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]    && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
-  [[ -s "$POC_PROJECT_DIR/MEMORY.md" ]]        && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/MEMORY.md")
-  [[ -s "$POC_OUTPUT_DIR/MEMORY.md" ]]         && INTENT_CTX+=(--context-file "$POC_OUTPUT_DIR/MEMORY.md")
-
-  if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
-      --task "$TASK" "${INTENT_CTX[@]}"; then
-    # Prepend INTENT.md to the task so it governs downstream planning
-    TASK="$(cat "$SESSION_WORKTREE/INTENT.md")
-
----
-
-Original task: $TASK"
-  else
-    chrome_beep
-    echo -e "  ${C_YELLOW}Intent skipped.${C_RESET} Continue without? (y/n)" >&2
-    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" cont </dev/tty
-    [[ "$cont" == [nN] ]] && exit 0
-  fi
-fi
-
-# ── Memory retrieval ──
+# ── Memory retrieval (before intent for warm-start — spec Section 8.1) ──
 MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXXXXXXXX)
 trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE" EXIT
 MEMORY_CTX=()
@@ -202,8 +196,50 @@ if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
     --source "$POC_PROJECT_DIR/MEMORY.md" \
     --source "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" \
     --task "$TASK" \
+    --top-k 10 \
     --output "$MEMORY_CTX_FILE" 2>/dev/null; then
   [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
+fi
+
+# ── Intent gathering phase ──
+INTENT_APPROVED=false
+if [[ "$SKIP_INTENT" != "true" ]]; then
+  INTENT_CTX=()
+  [[ -f "$POC_REPO_DIR/INTENT.md" ]]          && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+  [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]  && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
+  [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]    && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
+  [[ -s "$POC_PROJECT_DIR/MEMORY.md" ]]        && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/MEMORY.md")
+  [[ -s "$POC_OUTPUT_DIR/MEMORY.md" ]]         && INTENT_CTX+=(--context-file "$POC_OUTPUT_DIR/MEMORY.md")
+  # Include relevance-filtered memory from indexer (warm-start — spec Section 8.1)
+  [[ -s "$MEMORY_CTX_FILE" ]]                  && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
+
+  if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
+      --task "$TASK" "${INTENT_CTX[@]}"; then
+    INTENT_APPROVED=true
+    # Prepend INTENT.md to the task so it governs downstream planning
+    TASK="$(cat "$SESSION_WORKTREE/INTENT.md")
+
+---
+
+Original task: $TASK"
+
+    # Extract intent learnings immediately after approval (background — spec Section 5.3)
+    if [[ -f "$INFRA_DIR/.intent-stream.jsonl" ]]; then
+      python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
+        --stream "$INFRA_DIR/.intent-stream.jsonl" \
+        --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
+        --scope observations 2>/dev/null &
+      python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
+        --stream "$INFRA_DIR/.intent-stream.jsonl" \
+        --output "$POC_PROJECT_DIR/ESCALATION.md" \
+        --scope escalation 2>/dev/null &
+    fi
+  else
+    chrome_beep
+    echo -e "  ${C_YELLOW}Intent skipped.${C_RESET} Continue without? (y/n)" >&2
+    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" cont </dev/tty
+    [[ "$cont" == [nN] ]] && exit 0
+  fi
 fi
 
 # ── Confidence posture (Tier 2/3 only) ──
@@ -220,11 +256,17 @@ $(head -c 2000 "$POC_PROJECT_DIR/ESCALATION.md")"
 
   if [[ -n "$CONFIDENCE_POSTURE" ]]; then
     echo "$CONFIDENCE_POSTURE" >&2
-    TASK="$CONFIDENCE_POSTURE
+    # Skip injection when all dimensions are HIGH (zero information content — spec)
+    NON_HIGH_COUNT=$(echo "$CONFIDENCE_POSTURE" | grep -ciE ':\s*(moderate|low)' || true)
+    if [[ "$NON_HIGH_COUNT" -gt 0 ]]; then
+      TASK="$CONFIDENCE_POSTURE
 
 ---
 
 $TASK"
+    else
+      echo -e "  ${C_DIM}All-HIGH posture — skipping injection (no information content).${C_RESET}" >&2
+    fi
   fi
 fi
 
@@ -245,27 +287,50 @@ fi
 
 # ── Plan → Execute (tier-based routing) ──
 if [[ "$TASK_TIER" == "1" ]]; then
-  # Tier 1: Execute only — no plan mode, no human approval gate
-  "$SCRIPT_DIR/plan-execute.sh" \
-    --agents "$AGENTS_JSON" \
-    --agent project-lead \
+  # Tier 1: Single-agent direct execution — no team, no plan (spec: task-tiers.md)
+  chrome_header "EXECUTE (Tier 1 — direct)"
+  TIER1_STREAM="$INFRA_DIR/.exec-stream.jsonl"
+
+  TIER1_FIFO=$(mktemp -u).fifo
+  mkfifo "$TIER1_FIFO"
+  (cd "$SESSION_WORKTREE" && echo "$TASK" | claude -p \
+    --model claude-sonnet-4-5 \
+    --max-turns 10 \
+    --permission-mode acceptEdits \
+    --output-format stream-json \
+    --verbose \
+    --setting-sources user \
     --settings "$SETTINGS_FILE" \
-    --cwd "$SESSION_WORKTREE" \
-    --stream-dir "$INFRA_DIR" \
-    --exec-turns 20 \
-    --no-plan \
     ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
-    "$TASK"
+    > "$TIER1_FIFO") &
+  TIER1_PID=$!
+
+  cat < "$TIER1_FIFO" \
+    | tee "$TIER1_STREAM" \
+    | python3 -u "$SCRIPT_DIR/stream_filter.py" >> "${CONVERSATION_LOG:-/dev/stderr}"
+
+  wait "$TIER1_PID" 2>/dev/null || true
+  rm -f "$TIER1_FIFO"
+
+  # Output final result
+  python3 "$SCRIPT_DIR/extract_result.py" < "$TIER1_STREAM" 2>/dev/null || true
 else
   # Tier 2/3: Full plan → approve → execute
+  if [[ "$TASK_TIER" == "3" ]]; then
+    PLAN_T=20; EXEC_T=50
+    export POC_STALL_TIMEOUT=3600   # 60 min for complex projects
+  else
+    PLAN_T=15; EXEC_T=30
+    export POC_STALL_TIMEOUT=1800   # 30 min for standard tasks
+  fi
   "$SCRIPT_DIR/plan-execute.sh" \
     --agents "$AGENTS_JSON" \
     --agent project-lead \
     --settings "$SETTINGS_FILE" \
     --cwd "$SESSION_WORKTREE" \
     --stream-dir "$INFRA_DIR" \
-    --plan-turns 15 \
-    --exec-turns 30 \
+    --plan-turns "$PLAN_T" \
+    --exec-turns "$EXEC_T" \
     ${MEMORY_CTX[@]+"${MEMORY_CTX[@]}"} \
     "$TASK"
 fi
@@ -357,19 +422,9 @@ chrome_header "LEARNINGS"
 "$SCRIPT_DIR/scripts/promote_learnings.sh" --scope global || true
 
 # ── Intent learning extraction ──
-
-# 5. Observations from intent conversation
-if [[ -f "$INFRA_DIR/.intent-stream.jsonl" ]]; then
-  python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
-    --stream "$INFRA_DIR/.intent-stream.jsonl" \
-    --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
-    --scope observations || true
-
-  python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
-    --stream "$INFRA_DIR/.intent-stream.jsonl" \
-    --output "$POC_PROJECT_DIR/ESCALATION.md" \
-    --scope escalation || true
-fi
+# Intent observations/escalation extracted immediately after approval (see above — spec Section 5.3).
+# Wait for background extraction jobs to complete before exec-stream extraction touches same files.
+wait 2>/dev/null || true
 
 # 6. Observations from execution (corrections, autonomous decisions)
 if [[ -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
