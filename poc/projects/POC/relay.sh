@@ -90,7 +90,26 @@ rules = [
     'WebFetch',
     'WebSearch',
 ]
-json.dump({'permissions': {'allow': rules}}, sys.stdout)
+hook_cmd = d + '/hooks/block-task.sh'
+json.dump({
+    'permissions': {'allow': rules},
+    'hooks': {
+        'PreToolUse': [
+            {
+                'matcher': 'Task',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+            {
+                'matcher': 'TaskOutput',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+            {
+                'matcher': 'TaskStop',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+        ]
+    },
+}, sys.stdout)
 " > "$SETTINGS_FILE"
 
 echo -e "  ${C_DIM}[relay] >>> ${TEAM} team (${LEAD})${C_RESET}" >&2

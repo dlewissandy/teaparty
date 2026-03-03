@@ -162,18 +162,38 @@ rules = [
     'WebFetch',
     'WebSearch',
 ]
-json.dump({'permissions': {'allow': rules}, 'env': {
-    'SCRIPT_DIR': d,
-    'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
-    'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
-    'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
-    'POC_REPO_DIR': os.environ.get('POC_REPO_DIR', ''),
-    'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
-    'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
-    'POC_TASK_TIER': os.environ.get('POC_TASK_TIER', '2'),
-    'POC_PREMORTEM_FILE': os.environ.get('POC_PREMORTEM_FILE', ''),
-    'POC_ASSUMPTIONS_FILE': os.environ.get('POC_ASSUMPTIONS_FILE', ''),
-}}, sys.stdout)
+hook_cmd = d + '/hooks/block-task.sh'
+json.dump({
+    'permissions': {'allow': rules},
+    'hooks': {
+        'PreToolUse': [
+            {
+                'matcher': 'Task',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+            {
+                'matcher': 'TaskOutput',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+            {
+                'matcher': 'TaskStop',
+                'hooks': [{'type': 'command', 'command': hook_cmd}]
+            },
+        ]
+    },
+    'env': {
+        'SCRIPT_DIR': d,
+        'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
+        'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
+        'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+        'POC_REPO_DIR': os.environ.get('POC_REPO_DIR', ''),
+        'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
+        'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+        'POC_TASK_TIER': os.environ.get('POC_TASK_TIER', '2'),
+        'POC_PREMORTEM_FILE': os.environ.get('POC_PREMORTEM_FILE', ''),
+        'POC_ASSUMPTIONS_FILE': os.environ.get('POC_ASSUMPTIONS_FILE', ''),
+    }
+}, sys.stdout)
 " > "$SETTINGS_FILE"
 
 # ── Startup banner ──
@@ -224,15 +244,18 @@ if [[ "$SKIP_INTENT" != "true" ]]; then
 Original task: $TASK"
 
     # Extract intent learnings immediately after approval (background — spec Section 5.3)
+    INTENT_EXTRACT_PIDS=()
     if [[ -f "$INFRA_DIR/.intent-stream.jsonl" ]]; then
       python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
         --stream "$INFRA_DIR/.intent-stream.jsonl" \
         --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
         --scope observations 2>/dev/null &
+      INTENT_EXTRACT_PIDS+=($!)
       python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
         --stream "$INFRA_DIR/.intent-stream.jsonl" \
         --output "$POC_PROJECT_DIR/ESCALATION.md" \
         --scope escalation 2>/dev/null &
+      INTENT_EXTRACT_PIDS+=($!)
     fi
   else
     chrome_beep
@@ -423,8 +446,10 @@ chrome_header "LEARNINGS"
 
 # ── Intent learning extraction ──
 # Intent observations/escalation extracted immediately after approval (see above — spec Section 5.3).
-# Wait for background extraction jobs to complete before exec-stream extraction touches same files.
-wait 2>/dev/null || true
+# Wait ONLY for those specific background jobs — bare `wait` would deadlock on the tail process.
+for pid in "${INTENT_EXTRACT_PIDS[@]+"${INTENT_EXTRACT_PIDS[@]}"}"; do
+  wait "$pid" 2>/dev/null || true
+done
 
 # 6. Observations from execution (corrections, autonomous decisions)
 if [[ -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
