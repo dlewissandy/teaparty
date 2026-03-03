@@ -1,0 +1,201 @@
+Implement Phase 3 of the Hierarchical Agent Memory System: prominence-based retrieval in memory_indexer.py.
+
+## Prerequisites
+
+Phase 1 must be complete first. memory entries now have YAML frontmatter with fields:
+  id, type, importance, phase, status, reinforcement_count, created, last_accessed
+
+## Problem
+
+memory_indexer.py has two issues:
+
+1. CHARACTER-BASED CHUNKING: chunk_text() splits memory files into 1600-character overlapping
+   windows regardless of entry boundaries. A single logical entry (frontmatter + body) may be
+   split across multiple chunks, or one chunk may mix two different entries. This corrupts
+   semantic coherence and prevents per-entry prominence scoring.
+
+2. IMPLICIT EVERGREEN EXEMPTION: apply_temporal_decay() only decays entries whose source file
+   has a date in its PATH (like .../memory/2026-01-15.md). Files named MEMORY.md, OBSERVATIONS.md,
+   or ESCALATION.md have no date in the path, so infer_date_from_path() returns None and decay
+   is SKIPPED. This means project-level memories never decay and accumulate without bound.
+   The concrete failure: specification-phase memories in MEMORY.md were permanently evergreen
+   and saturated retrieval context during implementation sessions.
+
+## What to change in poc/projects/POC/scripts/memory_indexer.py
+
+READ the file first to get exact line numbers before making changes.
+
+### CHANGE A: Replace chunk_text() with entry-based chunking
+
+Remove the character-based chunk_text() function. Replace with two functions:
+
+def parse_entry_frontmatter(text: str) -> dict:
+    """Parse YAML frontmatter from an entry block. Returns dict with defaults for missing fields.
+
+    An entry starts with a line that is exactly "---", followed by YAML key-value pairs,
+    followed by another line that is exactly "---". Everything after that is the body.
+    Returns a dict with keys: id, type, importance, phase, status, reinforcement_count,
+    created (as date object or None), last_accessed (as date object or None).
+    Defaults: importance=5, reinforcement_count=0, status="active", phase="operational",
+    created=None (will be treated as today in prominence calculation).
+    """
+    # Implementation: use simple line-by-line YAML parsing (not PyYAML — stay stdlib only)
+    # Parse "key: value" lines between the two "---" delimiters
+    # For created/last_accessed: parse YYYY-MM-DD strings to date objects
+
+def split_into_entries(text: str) -> list[tuple[str, dict]]:
+    """Split memory file content into (entry_text, metadata) pairs.
+
+    Handles two formats:
+    1. NEW FORMAT: entry starts with "---" (YAML frontmatter block)
+    2. LEGACY FORMAT: entry starts with "## [" (no frontmatter)
+
+    For legacy entries, metadata defaults are: importance=5, reinforcement_count=0,
+    status="active", phase="operational", created=today.
+
+    Returns list of (full_entry_text, metadata_dict) pairs.
+    The full_entry_text includes both the frontmatter block and the body.
+    """
+    # State machine: track whether we're in frontmatter, body, or between entries
+    # A "---" line starts a new YAML frontmatter block
+    # The SECOND "---" line closes frontmatter and opens body
+    # Next "---" or "## [" starts a new entry
+
+### CHANGE B: Replace index_file() with entry-based indexing
+
+Update index_file() to:
+1. Call split_into_entries() instead of chunk_text()
+2. For each entry, check status — skip entries where status == "retired" or status == "superseded"
+3. Store the full entry text as a single chunk (no splitting within entries)
+4. Also store metadata fields in the chunks table by adding a new column:
+   ALTER TABLE chunks ADD COLUMN importance INTEGER DEFAULT 5
+   ALTER TABLE chunks ADD COLUMN reinforcement_count INTEGER DEFAULT 0
+   ALTER TABLE chunks ADD COLUMN created TEXT DEFAULT NULL
+   ALTER TABLE chunks ADD COLUMN entry_phase TEXT DEFAULT 'operational'
+   ALTER TABLE chunks ADD COLUMN entry_status TEXT DEFAULT 'active'
+
+   Add these columns in open_db() using the same try/except pattern already used for adding
+   the hash column to file_meta.
+
+5. When inserting a chunk, also insert: importance, reinforcement_count, created (as ISO string),
+   entry_phase, entry_status from the parsed metadata.
+
+### CHANGE C: Replace apply_temporal_decay() with prominence-weighted scoring
+
+Remove apply_temporal_decay(). Replace with compute_prominence():
+
+def compute_prominence(
+    importance: int,
+    created: date_type | None,
+    reinforcement_count: int,
+    today: date_type | None = None,
+    half_life_days: float = 30.0,
+) -> float:
+    """Compute entry prominence: importance * recency_decay * reinforcement_multiplier.
+
+    - importance: 1-10 (default 5 for legacy entries)
+    - recency_decay: exp(-ln(2)/half_life_days * age_days). If created is None, age=0 (no decay).
+    - reinforcement_multiplier: 1 + log(1 + reinforcement_count)
+    - All sources decay. There is no evergreen exemption.
+    """
+    if today is None:
+        today = date_type.today()
+    if created is not None:
+        age_days = max(0, (today - created).days)
+    else:
+        age_days = 0  # treat as fresh if no date
+    lambda_d = math.log(2) / half_life_days
+    recency_decay = math.exp(-lambda_d * age_days)
+    reinforcement_mult = 1.0 + math.log(1.0 + max(0, reinforcement_count))
+    return importance * recency_decay * reinforcement_mult
+
+### CHANGE D: Update retrieve_bm25() and retrieve_hybrid() to apply prominence
+
+After BM25/hybrid scoring, multiply each chunk's score by its prominence.
+
+In retrieve_bm25(): change the SELECT to also fetch importance, reinforcement_count, created:
+  SELECT source, content, rank, importance, reinforcement_count, created
+  FROM chunks_fts JOIN chunks ON chunks_fts.chunk_id = chunks.id
+  WHERE ...
+
+Then for each result, compute prominence and multiply: final_score = rank * prominence
+(Note: BM25 rank is negative, more-negative = better. After normalization this works correctly.)
+
+Actually: normalize BM25 ranks first (same as retrieve_hybrid does), THEN multiply by prominence.
+Add a prominence_weight step to both retrieval paths.
+
+In the main() function: replace the call to apply_temporal_decay() with the inline prominence
+weighting that is now part of retrieval (since it's baked into the scored results).
+
+Remove the old apply_temporal_decay() call from main().
+
+### CHANGE E: Update the database schema migration
+
+In open_db(), add schema migration for the new columns if they don't exist yet:
+  try:
+      conn.execute("ALTER TABLE chunks ADD COLUMN importance INTEGER DEFAULT 5")
+      conn.commit()
+  except sqlite3.OperationalError:
+      pass
+  (repeat for reinforcement_count, created, entry_phase, entry_status)
+
+Also: when the schema changes, trigger a full reindex so all existing chunks get proper metadata.
+Add a schema version check: if chunks table has no "importance" column in existing DB, force reindex.
+
+### CHANGE F: Filter out retired/superseded entries at retrieval time
+
+In retrieve_bm25() and retrieve_hybrid(): add a WHERE clause or post-filter to exclude chunks
+where entry_status IN ('retired', 'superseded').
+
+Add to the SQL:
+  AND (c.entry_status IS NULL OR c.entry_status NOT IN ('retired', 'superseded'))
+
+### 3. Write a test: poc/projects/POC/scripts/tests/test_phase3_retrieval.py
+
+Tests must run with: python3 -m pytest poc/projects/POC/scripts/tests/test_phase3_retrieval.py -v
+
+test_entry_based_chunking:
+  Create a memory file with 3 entries (each with frontmatter + body). Call split_into_entries().
+  Verify exactly 3 entries are returned, each with correct metadata.
+
+test_legacy_entry_parsing:
+  Create a memory file with a legacy entry (## [date] format). Call split_into_entries().
+  Verify it returns 1 entry with default metadata (importance=5, status=active).
+
+test_prominence_formula:
+  Call compute_prominence() with known inputs, verify output:
+  - importance=10, created=today, reinforcement_count=0: result approx 10.0
+  - importance=5, created=30 days ago, reinforcement_count=0: result approx 2.5
+  - importance=5, created=today, reinforcement_count=10: result = 5 * 1.0 * (1+log(11)) approx 11.99
+
+test_no_evergreen_exemption:
+  Create two entries: one with created=today (score should be ~1.0x importance), one with
+  created=365 days ago (score should be much lower). Index both. Retrieve. Verify the old
+  entry scores lower than the new one with same importance.
+
+test_retired_entries_excluded:
+  Create a memory file with an active entry and a retired entry. Index. Retrieve.
+  Verify the retired entry does NOT appear in results.
+
+test_high_prominence_beats_low_importance_evergreen:
+  Old behavior: a project MEMORY.md entry would have been evergreen (no decay).
+  New behavior: an importance=3 entry created=60 days ago should score LOWER than
+  an importance=8 entry created=today. Verify this is the case.
+
+test_round_trip_index_and_retrieve:
+  Write a memory file with 2 entries. Index it. Retrieve with a query matching the content.
+  Verify at least 1 relevant entry is returned.
+
+## File paths
+
+- EDIT: poc/projects/POC/scripts/memory_indexer.py
+- CREATE: poc/projects/POC/scripts/tests/test_phase3_retrieval.py
+
+## Success criteria
+
+- All 7 tests pass
+- Python syntax check: python3 -m py_compile poc/projects/POC/scripts/memory_indexer.py
+- infer_date_from_path() is no longer called or referenced (evergreen exemption removed)
+- split_into_entries() handles both YAML-frontmatter and legacy entries
+- compute_prominence() is importable and matches the formula
+- Retired entries do not appear in retrieval results

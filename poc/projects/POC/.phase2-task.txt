@@ -1,0 +1,109 @@
+Implement Phase 2 of the Hierarchical Agent Memory System: intent document scoping.
+
+## Problem
+
+In run.sh, line 228 loads the project repo's INTENT.md into the context for new intent gathering:
+  [[ -f "$POC_REPO_DIR/INTENT.md" ]] && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+
+This causes the previous session's intent (e.g., "write specification documents") to bleed into
+the next session's intent gathering. The concrete failure: a user said "write code" and the system
+rewrote specification documents because specification-phase memory saturated the retrieval context.
+
+The fix: INTENT.md must be session-scoped. It is created fresh each session by intent.sh in the
+session worktree, used to govern that session's work, archived with the session infra, and then
+NOT committed to the project repo. It must never be loaded by a future session.
+
+## What to change
+
+### 1. Edit poc/projects/POC/run.sh
+
+READ the file first to get exact line numbers and context before making surgical edits.
+
+CHANGE A: Remove the line that loads prior INTENT.md into INTENT_CTX.
+Find the block (around line 228-234) that builds INTENT_CTX:
+  INTENT_CTX=()
+  [[ -f "$POC_REPO_DIR/INTENT.md" ]]          && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+  [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]  && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
+  ...
+
+Remove the line that loads INTENT.md from POC_REPO_DIR:
+  BEFORE: [[ -f "$POC_REPO_DIR/INTENT.md" ]]  && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+  AFTER:  (line removed)
+
+CHANGE B: After intent.sh succeeds and INTENT.md is read into TASK (around lines 239-244),
+archive a copy to the session infra directory. Find the block:
+  INTENT_APPROVED=true
+  # Prepend INTENT.md to the task so it governs downstream planning
+  TASK="$(cat "$SESSION_WORKTREE/INTENT.md")
+  ...
+
+Immediately after TASK is set from INTENT.md, add an archive step:
+  # Archive INTENT.md with session (not committed to project repo)
+  cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md" 2>/dev/null || true
+
+Then remove INTENT.md from the session worktree BEFORE the session ends (so it doesn't get
+squash-merged into the project repo). Add this immediately after the archive copy:
+  # Remove from worktree so it is not committed to project repo
+  rm -f "$SESSION_WORKTREE/INTENT.md" 2>/dev/null || true
+
+CHANGE C: In the project initialization block (when a new project is created, around lines 82-94),
+add INTENT.md to the .gitignore. Find the cat heredoc that writes .gitignore:
+  cat > "$POC_PROJECT_DIR/.gitignore" << 'GITIGNORE'
+  .worktrees/
+  .sessions/
+  MEMORY.md
+  OBSERVATIONS.md
+  ESCALATION.md
+  .memory.db
+  GITIGNORE
+
+Add INTENT.md to this list:
+  cat > "$POC_PROJECT_DIR/.gitignore" << 'GITIGNORE'
+  .worktrees/
+  .sessions/
+  MEMORY.md
+  OBSERVATIONS.md
+  ESCALATION.md
+  .memory.db
+  INTENT.md
+  GITIGNORE
+
+CHANGE D: For existing projects that may have a committed INTENT.md, add a runtime gitignore
+check. After the project repo detection block (after line ~97 where POC_REPO_DIR is exported),
+add a safety check that adds INTENT.md to .git/info/exclude if not already present:
+  # Ensure INTENT.md is excluded from git tracking in this project
+  EXCLUDE_FILE="$POC_REPO_DIR/.git/info/exclude"
+  if [[ -f "$EXCLUDE_FILE" ]] && ! grep -qF "INTENT.md" "$EXCLUDE_FILE" 2>/dev/null; then
+    echo "INTENT.md" >> "$EXCLUDE_FILE"
+  fi
+
+### 2. Write a test: poc/projects/POC/scripts/tests/test_phase2_intent_scoping.py
+
+Tests must run with: python3 -m pytest poc/projects/POC/scripts/tests/test_phase2_intent_scoping.py -v
+
+test_intent_md_not_in_intent_ctx:
+  Read the run.sh file content. Verify there is NO line that loads INTENT.md from POC_REPO_DIR
+  into INTENT_CTX. Specifically: grep for the pattern 'INTENT_CTX.*INTENT.md' and verify it
+  does not appear in the file.
+
+test_intent_md_archived_to_infra:
+  Read run.sh. Verify it contains 'cp.*INTENT.md.*INFRA_DIR' (i.e., the archive step is present).
+
+test_intent_md_removed_from_worktree:
+  Read run.sh. Verify it contains 'rm -f.*SESSION_WORKTREE.*INTENT.md' (the removal step).
+
+test_intent_md_in_gitignore_template:
+  Read run.sh. Find the .gitignore heredoc. Verify 'INTENT.md' appears in it.
+
+## File paths
+
+- EDIT: poc/projects/POC/run.sh
+- CREATE: poc/projects/POC/scripts/tests/test_phase2_intent_scoping.py
+
+## Success criteria
+
+- Running the 4 tests produces all PASS
+- Bash syntax check passes: bash -n poc/projects/POC/run.sh
+- The edited run.sh does not load any prior INTENT.md into INTENT_CTX
+- INTENT.md is archived to $INFRA_DIR/INTENT.md during the session (verifiable by test)
+- INTENT.md is in the .gitignore template for new projects
