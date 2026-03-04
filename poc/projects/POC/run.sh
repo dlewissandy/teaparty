@@ -207,7 +207,8 @@ echo -e "  ${C_DIM}Tier:${C_RESET} $TASK_TIER" >&2
 
 # ── Memory retrieval (before intent for warm-start — spec Section 8.1) ──
 MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXXXXXXXX)
-trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE" EXIT
+RETRIEVED_IDS_FILE=$(mktemp /tmp/retrieved-ids-XXXXXXXXXXXX)  # Phase 5
+trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE $RETRIEVED_IDS_FILE" EXIT
 MEMORY_CTX=()
 if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
     --db "$POC_PROJECT_DIR/.memory.db" \
@@ -217,7 +218,8 @@ if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
     --source "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" \
     --task "$TASK" \
     --top-k 10 \
-    --output "$MEMORY_CTX_FILE" 2>/dev/null; then
+    --output "$MEMORY_CTX_FILE" \
+    --retrieved-ids "$RETRIEVED_IDS_FILE" 2>/dev/null; then
   [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
 fi
 
@@ -225,7 +227,9 @@ fi
 INTENT_APPROVED=false
 if [[ "$SKIP_INTENT" != "true" ]]; then
   INTENT_CTX=()
-  [[ -f "$POC_REPO_DIR/INTENT.md" ]]          && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+  # Phase 2: Do not load prior session's INTENT.md as persistent context.
+  # INTENT.md is archived to the session infra dir (gitignored) after each
+  # session and must not bleed into the next session's intent gathering.
   [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]  && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
   [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]    && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
   [[ -s "$POC_PROJECT_DIR/MEMORY.md" ]]        && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/MEMORY.md")
@@ -236,8 +240,14 @@ if [[ "$SKIP_INTENT" != "true" ]]; then
   if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
       --task "$TASK" "${INTENT_CTX[@]}"; then
     INTENT_APPROVED=true
+    # Phase 2: Archive INTENT.md to infra dir immediately — prevents git commit
+    # and isolates this session's intent from the next session's context.
+    if [[ -f "$SESSION_WORKTREE/INTENT.md" ]]; then
+      cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md"
+      rm "$SESSION_WORKTREE/INTENT.md"
+    fi
     # Prepend INTENT.md to the task so it governs downstream planning
-    TASK="$(cat "$SESSION_WORKTREE/INTENT.md")
+    TASK="$(cat "$INFRA_DIR/INTENT.md")
 
 ---
 
@@ -262,6 +272,27 @@ Original task: $TASK"
     echo -e "  ${C_YELLOW}Intent skipped.${C_RESET} Continue without? (y/n)" >&2
     read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" cont </dev/tty
     [[ "$cont" == [nN] ]] && exit 0
+  fi
+fi
+
+# ── Phase detection and retirement (Phase 4) ──
+if [[ "$INTENT_APPROVED" == "true" && -f "$INFRA_DIR/INTENT.md" ]]; then
+  # Read old phase BEFORE detect_phase.py overwrites .current-phase
+  OLD_PHASE=""
+  [[ -f "$POC_PROJECT_DIR/.current-phase" ]] && OLD_PHASE="$(head -1 "$POC_PROJECT_DIR/.current-phase" | tr -d '[:space:]')" || true
+
+  # Detect new phase; prints "PHASE_CHANGED" to stdout on transition
+  PHASE_STATUS="$(python3 "$SCRIPT_DIR/scripts/detect_phase.py" \
+    --intent "$INFRA_DIR/INTENT.md" \
+    --phase-file "$POC_PROJECT_DIR/.current-phase" 2>/dev/null)" || PHASE_STATUS=""
+
+  # Retire task-domain entries from the old phase if a transition occurred
+  if [[ "$PHASE_STATUS" == "PHASE_CHANGED" && -n "$OLD_PHASE" && "$OLD_PHASE" != "unknown" ]]; then
+    python3 "$SCRIPT_DIR/scripts/retire_phase.py" \
+      --old-phase "$OLD_PHASE" \
+      --memory "$POC_PROJECT_DIR/MEMORY.md" 2>/dev/null || true
+    NEW_PHASE="$(head -1 "$POC_PROJECT_DIR/.current-phase" 2>/dev/null | tr -d '[:space:]')" || NEW_PHASE=""
+    echo -e "  ${C_YELLOW}Phase transition: ${OLD_PHASE} → ${NEW_PHASE}${C_RESET}" >&2
   fi
 fi
 
@@ -464,13 +495,13 @@ if [[ -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
     --scope escalation || true
 fi
 
-# 7. Intent-vs-outcome alignment (worktree is gone — use merged INTENT.md)
-if [[ -f "$POC_REPO_DIR/INTENT.md" && -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
+# 7. Intent-vs-outcome alignment (Phase 2: INTENT.md archived to infra dir)
+if [[ -f "$INFRA_DIR/INTENT.md" && -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
   python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
     --stream "$INFRA_DIR/.exec-stream.jsonl" \
     --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
     --scope intent-alignment \
-    --context "$POC_REPO_DIR/INTENT.md" || true
+    --context "$INFRA_DIR/INTENT.md" || true
 fi
 
 # 8. Prospective learnings (pre-mortem + execution)
@@ -481,6 +512,14 @@ fi
 
 # 10. Corrective learnings (error events in exec stream)
 "$SCRIPT_DIR/scripts/promote_learnings.sh" --scope corrective || true
+
+# 11. Phase 5: Reinforce memory entries that were retrieved and used this session
+if [[ -s "$RETRIEVED_IDS_FILE" ]]; then
+  python3 "$SCRIPT_DIR/scripts/track_reinforcement.py" \
+    --ids-file "$RETRIEVED_IDS_FILE" \
+    --memory "$POC_PROJECT_DIR/MEMORY.md" \
+    --memory "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" 2>/dev/null || true
+fi
 
 # Stop the tail
 kill "$TAIL_PID" 2>/dev/null || true

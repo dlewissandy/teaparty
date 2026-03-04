@@ -1,0 +1,89 @@
+Implement Phase 2 of the memory lifecycle architecture: INTENT.md lifecycle isolation.
+
+## Context
+Currently INTENT.md is written to the session worktree, then committed via 'git add -A' and squash-merged into the project repo's main branch. On the next session, run.sh loads this prior INTENT.md as persistent context (around line 228), contaminating future sessions with stale task intent.
+
+The fix: after intent approval, copy INTENT.md to the session infra directory (gitignored), then remove it from the session worktree so it is not committed. Update the two downstream consumers to use the archived copy.
+
+## File to READ first (read thoroughly before modifying):
+- poc/projects/POC/run.sh
+
+## File to MODIFY:
+
+### poc/projects/POC/run.sh
+
+Make exactly 4 surgical changes. Do NOT restructure or reorder the script. Preserve all existing logic.
+
+### Change 1: Remove prior INTENT.md context loading (around line 228)
+In the intent context building block (inside 'if [[ "$SKIP_INTENT" != "true" ]]; then'),
+REMOVE this single line:
+  [[ -f "$POC_REPO_DIR/INTENT.md" ]]          && INTENT_CTX+=(--context-file "$POC_REPO_DIR/INTENT.md")
+
+Leave all other INTENT_CTX lines (OBSERVATIONS.md, ESCALATION.md, MEMORY.md) intact.
+
+### Change 2: Archive INTENT.md after approval
+In the block that starts with 'if "$SCRIPT_DIR/intent.sh" ...; then',
+after the line 'INTENT_APPROVED=true',
+before the comment '# Extract intent learnings immediately',
+INSERT:
+  # Archive INTENT.md to session infra dir (Phase 2 -- do not commit to repo)
+  if [[ -f "$SESSION_WORKTREE/INTENT.md" ]]; then
+    cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md"
+    rm "$SESSION_WORKTREE/INTENT.md"
+  fi
+
+### Change 3: Update TASK prepending to read from INFRA_DIR
+The existing code prepends INTENT.md to the TASK variable. It reads from $SESSION_WORKTREE/INTENT.md.
+After Change 2, that file no longer exists there.
+Change the path from $SESSION_WORKTREE/INTENT.md to $INFRA_DIR/INTENT.md in the TASK assignment.
+
+### Change 4: Update intent-alignment extraction
+Find the block that starts with:
+  # 7. Intent-vs-outcome alignment (worktree is gone -- use merged INTENT.md)
+  if [[ -f "$POC_REPO_DIR/INTENT.md" && ...
+
+Replace $POC_REPO_DIR/INTENT.md with $INFRA_DIR/INTENT.md in BOTH:
+  - The if condition: [[ -f "$INFRA_DIR/INTENT.md" && -f "$INFRA_DIR/.exec-stream.jsonl" ]]
+  - The --context argument: --context "$INFRA_DIR/INTENT.md"
+
+Also update the comment to say 'use archived INTENT.md from session infra' instead of 'use merged INTENT.md'.
+
+## Files to CREATE (tests):
+
+### poc/projects/POC/scripts/tests/__init__.py
+Create as empty file if it does not already exist.
+
+### poc/projects/POC/scripts/tests/test_intent_archival.py
+Use unittest.TestCase. Test the archival logic in Python (not the bash script directly).
+
+Helper _setup_dirs(self): create temp dir with session_worktree/ and infra_dir/ subdirs.
+Write a test INTENT.md to session_worktree/ with content 'Test intent content'.
+
+Tests:
+- test_intent_copied_to_infra_dir:
+  Run: shutil.copy(session_worktree/INTENT.md, infra_dir/INTENT.md); os.remove(session_worktree/INTENT.md)
+  Assert: infra_dir/INTENT.md exists and contains 'Test intent content'
+
+- test_intent_removed_from_worktree:
+  After archival, assert session_worktree/INTENT.md does NOT exist.
+  This is SUCCESS CRITERION 6: INTENT.md absent from repo after session.
+
+- test_archived_content_matches_original:
+  Assert infra_dir/INTENT.md content == original content written to session_worktree.
+
+Use setUp/tearDown with tempfile.mkdtemp() and shutil.rmtree().
+
+## Verification:
+After modifying run.sh, verify bash syntax:
+  bash -n poc/projects/POC/run.sh
+
+Run tests:
+  python3 -m unittest poc/projects/POC/scripts/tests/test_intent_archival -v
+
+Report bash -n output and test output exactly.
+
+## Hard constraints:
+- Make ONLY the 4 described changes to run.sh. No other modifications.
+- Do not modify intent.sh, plan-execute.sh, or any other file.
+- bash -n poc/projects/POC/run.sh must pass with zero errors after your changes.
+- Tests must use unittest.TestCase.

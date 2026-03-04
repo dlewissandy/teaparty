@@ -25,6 +25,83 @@ import sys
 from datetime import date
 from pathlib import Path
 
+# ── Memory entry wrapping (Phase 1 integration) ───────────────────────────────
+# Importance by scope — used when wrapping learnings in YAML frontmatter.
+_SCOPE_IMPORTANCE = {
+    "team": 0.4,
+    "team-rollup": 0.5,
+    "session": 0.6,
+    "project": 0.7,
+    "observations": 0.7,
+    "escalation": 0.7,
+    "intent-alignment": 0.6,
+    "prospective": 0.6,
+    "in-flight": 0.6,
+    "corrective": 0.8,
+    "global": 0.8,
+}
+
+# Domain by scope — 'team' for coordination learnings, 'task' for project-specific
+_SCOPE_DOMAIN = {
+    "team": "team",
+    "team-rollup": "team",
+    "session": "team",
+    "global": "team",
+    "project": "task",
+    "observations": "task",
+    "escalation": "task",
+    "intent-alignment": "task",
+    "prospective": "task",
+    "in-flight": "task",
+    "corrective": "task",
+}
+
+
+def _wrap_learnings_with_frontmatter(
+    learnings: str,
+    scope: str,
+    phase: str = "unknown",
+    domain: str = None,
+) -> str:
+    """Wrap each '## [' entry block in YAML frontmatter.
+
+    Falls back to returning learnings unchanged if memory_entry import fails.
+    The '## [date] Learning' header is preserved inside the content field.
+    """
+    try:
+        import sys as _sys
+        from pathlib import Path as _Path
+        _sys.path.insert(0, str(_Path(__file__).parent))
+        from memory_entry import make_entry, serialize_entry
+    except ImportError:
+        return learnings  # graceful degradation
+
+    importance = _SCOPE_IMPORTANCE.get(scope, 0.5)
+    effective_domain = domain or _SCOPE_DOMAIN.get(scope, "team")
+
+    # Split on '## [' boundaries to get individual entry blocks
+    import re as _re
+    parts = _re.split(r'(?=## \[)', learnings)
+
+    wrapped_parts = []
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            entry = make_entry(
+                content=part,
+                type="procedural",
+                domain=effective_domain,
+                importance=importance,
+                phase=phase,
+            )
+            wrapped_parts.append(serialize_entry(entry))
+        except Exception:
+            wrapped_parts.append(part)  # fallback: keep raw
+
+    return "\n\n".join(wrapped_parts) if wrapped_parts else learnings
+
 
 def extract_human_turns(stream_path: str, max_chars: int = 12000) -> str:
     """Extract human-authored text from an intent stream.
@@ -496,7 +573,8 @@ Execution stream:
 INTENT_STREAM_SCOPES = {"observations", "escalation"}
 
 
-def summarize(stream_path: str, output_path: str, context_files: list[str], scope: str):
+def summarize(stream_path: str, output_path: str, context_files: list[str], scope: str,
+              phase: str = "unknown", domain: str = None):
     """Extract learnings and append to the target file."""
     # Use the correct extraction function for the scope
     if scope in INTENT_STREAM_SCOPES:
@@ -577,12 +655,17 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
         print(f"[summarize] No {scope} entries extracted (correct if no signal present).", file=sys.stderr)
         return 0
 
+    # Wrap each learning entry in YAML frontmatter (Phase 1 structured entries)
+    wrapped_learnings = _wrap_learnings_with_frontmatter(
+        learnings, scope=scope, phase=phase, domain=domain
+    )
+
     # Append to output file
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output, "a") as f:
-        f.write("\n\n" + learnings + "\n")
+        f.write("\n\n" + wrapped_learnings + "\n")
 
     print(f"[summarize] Appended {scope}-level learnings to {output_path}", file=sys.stderr)
     return 0
@@ -598,6 +681,11 @@ if __name__ == "__main__":
                                  "observations", "escalation", "intent-alignment",
                                  "prospective", "in-flight", "corrective"],
                         help="Extraction scope")
+    parser.add_argument("--phase", default="unknown",
+                        help="Project phase to tag entries with (e.g. 'specification', 'implementation')")
+    parser.add_argument("--domain", default=None, choices=["task", "team"],
+                        help="Domain override ('task' or 'team'); inferred from scope if omitted")
     args = parser.parse_args()
 
-    sys.exit(summarize(args.stream, args.output, args.context, args.scope))
+    sys.exit(summarize(args.stream, args.output, args.context, args.scope,
+                       phase=args.phase, domain=args.domain))

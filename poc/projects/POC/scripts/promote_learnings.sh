@@ -120,6 +120,8 @@ case "$SCOPE" in
       --output "$SESSION_DIR/MEMORY.md" \
       --scope session \
       "${CONTEXT_ARGS[@]}"
+    # Compact to prevent monotonic growth (Phase 1)
+    python3 "$SCRIPT_DIR/compact_memory.py" --input "$SESSION_DIR/MEMORY.md" 2>/dev/null || true
     ;;
 
   project)
@@ -148,6 +150,8 @@ case "$SCOPE" in
       --output "$PROJECT_DIR/MEMORY.md" \
       --scope project \
       --context "$SESSION_DIR/MEMORY.md"
+    # Compact to prevent monotonic growth (Phase 1)
+    python3 "$SCRIPT_DIR/compact_memory.py" --input "$PROJECT_DIR/MEMORY.md" 2>/dev/null || true
     ;;
 
   global)
@@ -178,6 +182,8 @@ case "$SCOPE" in
       --output "$PROJECTS_DIR/MEMORY.md" \
       --scope global \
       --context "$PROJECT_DIR/MEMORY.md"
+    # Compact to prevent monotonic growth (Phase 1)
+    python3 "$SCRIPT_DIR/compact_memory.py" --input "$PROJECTS_DIR/MEMORY.md" 2>/dev/null || true
     ;;
 
   prospective)

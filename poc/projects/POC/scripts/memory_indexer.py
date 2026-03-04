@@ -50,6 +50,103 @@ def chunk_text(text: str, chunk_size: int = 1600, overlap: int = 320) -> list[tu
     return results
 
 
+def _parse_frontmatter_simple(text: str) -> dict:
+    """Parse simple key: value YAML frontmatter lines into a dict.
+
+    Handles only flat key: value pairs. Strips surrounding quotes from values
+    so that serialized fields like `last_reinforced: '2026-03-03'` are stored
+    as bare strings (e.g. '2026-03-03') not quoted strings ("'2026-03-03'").
+
+    Returns empty dict if no recognisable key: value lines are found.
+    """
+    result: dict = {}
+    for line in text.strip().splitlines():
+        if ':' not in line:
+            continue
+        key, _, val = line.partition(':')
+        k = key.strip()
+        v = val.strip()
+        # Strip surrounding single or double quotes
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+            v = v[1:-1]
+        if k and k.isidentifier():
+            result[k] = v
+    return result
+
+
+def chunk_by_entries(text: str, chunk_size: int = 1600, overlap: int = 320) -> list[tuple[str, dict, int]]:
+    """Entry-aware chunking: splits on YAML frontmatter '---' boundaries.
+
+    For structured MEMORY.md files, each entry (frontmatter + content block)
+    becomes one chunk with its YAML metadata extracted as a dict.
+
+    Falls back to character-based chunking for plain markdown files that
+    have no '---' frontmatter delimiters.
+
+    Returns list of (content, metadata_dict, char_offset) triples.
+    metadata_dict is empty for plain-text fallback chunks.
+    """
+    if not text.strip():
+        return []
+
+    # splitlines(keepends=True) preserves '\n' so char offsets are correct
+    lines = text.splitlines(keepends=True)
+
+    # Find indices of lines that are exactly '---' (allow trailing whitespace)
+    sep_indices = [i for i, l in enumerate(lines) if l.rstrip() == '---']
+
+    # Need at least one open+close delimiter pair to attempt structured parsing
+    if len(sep_indices) < 2:
+        return [(c, {}, o) for c, o in chunk_text(text, chunk_size, overlap)]
+
+    results = []
+    i = 0
+    while i + 1 < len(sep_indices):
+        open_idx = sep_indices[i]
+        close_idx = sep_indices[i + 1]
+
+        fm_lines = lines[open_idx + 1:close_idx]
+        fm_text = ''.join(fm_lines)
+        metadata = _parse_frontmatter_simple(fm_text)
+
+        if not metadata:
+            # Not valid frontmatter — advance by 1 and retry
+            i += 1
+            continue
+
+        # Content: from after closing '---' up to next opening '---' or EOF
+        content_start = close_idx + 1
+        if i + 2 < len(sep_indices):
+            content_end = sep_indices[i + 2]
+        else:
+            content_end = len(lines)
+
+        content_lines = lines[content_start:content_end]
+        # Strip trailing blank lines between entries
+        while content_lines and not content_lines[-1].strip():
+            content_lines.pop()
+
+        content = ''.join(content_lines).rstrip()
+
+        # Full entry text (frontmatter + content)
+        entry_text = ''.join(lines[open_idx:content_end]).rstrip()
+
+        # Char offset of the opening '---' line
+        char_offset = sum(len(l) for l in lines[:open_idx])
+
+        if entry_text.strip():
+            results.append((entry_text, metadata, char_offset))
+
+        # Advance by 2: skip this open/close pair
+        i += 2
+
+    if not results:
+        # No valid entries found — fall back to character chunking
+        return [(c, {}, o) for c, o in chunk_text(text, chunk_size, overlap)]
+
+    return results
+
+
 # ── Fingerprinting ────────────────────────────────────────────────────────────
 
 def file_fingerprint(path: str) -> tuple[float, int, str] | None:
@@ -113,6 +210,12 @@ def open_db(db_path: str) -> sqlite3.Connection:
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    try:
+        conn.execute("ALTER TABLE chunks ADD COLUMN metadata TEXT")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     return conn
 
 
@@ -135,10 +238,15 @@ def needs_reindex(conn: sqlite3.Connection, source_paths: list[str]) -> list[str
 
 
 def index_file(conn: sqlite3.Connection, path: str) -> int:
-    """Rechunk a file and insert into chunks + FTS. Returns chunk count."""
+    """Rechunk a file and insert into chunks + FTS. Returns chunk count.
+
+    Uses entry-aware chunking (chunk_by_entries) for structured MEMORY.md files.
+    Falls back to character-based chunking for plain markdown.
+    Stores YAML metadata as JSON in the chunks.metadata column.
+    """
     text = Path(path).read_text(errors="replace")
-    chunks = chunk_text(text)
-    if not chunks:
+    entry_chunks = chunk_by_entries(text)
+    if not entry_chunks:
         return 0
 
     # Remove existing chunks for this source
@@ -151,11 +259,12 @@ def index_file(conn: sqlite3.Connection, path: str) -> int:
         conn.execute(f"DELETE FROM chunks_fts WHERE chunk_id IN ({placeholders})", old_ids)
         conn.execute(f"DELETE FROM chunks WHERE id IN ({placeholders})", old_ids)
 
-    # Insert new chunks
-    for content, offset in chunks:
+    # Insert new chunks (content, metadata_dict, offset triples)
+    for content, metadata, offset in entry_chunks:
+        meta_json = json.dumps(metadata) if metadata else None
         cur = conn.execute(
-            "INSERT INTO chunks (source, content, char_offset) VALUES (?, ?, ?)",
-            (path, content, offset),
+            "INSERT INTO chunks (source, content, char_offset, metadata) VALUES (?, ?, ?, ?)",
+            (path, content, offset, meta_json),
         )
         chunk_id = cur.lastrowid
         conn.execute(
@@ -172,7 +281,7 @@ def index_file(conn: sqlite3.Connection, path: str) -> int:
         )
 
     conn.commit()
-    return len(chunks)
+    return len(entry_chunks)
 
 
 def refresh_index(conn: sqlite3.Connection, source_paths: list[str]) -> None:
@@ -439,7 +548,11 @@ def apply_temporal_decay(
     results: list[tuple[str, str, float]],
     today=None,
 ) -> list[tuple[str, str, float]]:
-    """Apply exponential decay to scores. Evergreen sources (no date in path) are exempt."""
+    """Apply exponential decay to scores. Evergreen sources (no date in path) are exempt.
+
+    DEPRECATED: use apply_prominence_weights() which reads YAML frontmatter and
+    removes the evergreen exemption. Retained for backward compatibility.
+    """
     if today is None:
         today = date_type.today()
     lambda_d = math.log(2) / HALF_LIFE_DAYS
@@ -451,6 +564,110 @@ def apply_temporal_decay(
             score = score * math.exp(-lambda_d * age_days)
         decayed.append((source, content, score))
     return decayed
+
+
+def compute_prominence(metadata: dict, source_path: str = '', today=None) -> float:
+    """Compute entry prominence from YAML frontmatter metadata.
+
+    Prominence = importance × recency_decay × (1 + reinforcement_count)
+
+    importance          : float in [0,1]; default 0.5 for legacy/plain entries
+    recency_decay       : exp(-ln(2)/30 × age_days)
+                          age derived from last_reinforced (frontmatter)
+                          → source path date → 30-day default
+    reinforcement_count : int; default 0
+
+    Retired entries return 0.0.
+
+    Entries with no date anywhere default to 30-day age — NO evergreen exemption.
+    This fixes the bug where project MEMORY.md files (no date in path) were
+    treated as evergreen and never decayed.
+    """
+    if today is None:
+        today = date_type.today()
+
+    if metadata.get('status') == 'retired':
+        return 0.0
+
+    importance = float(metadata.get('importance', 0.5))
+    importance = max(0.0, min(1.0, importance))
+
+    reinforcement_count = int(metadata.get('reinforcement_count', 0))
+
+    # Determine age: frontmatter last_reinforced > source path date > 30-day default
+    age_days: int | None = None
+
+    lr = metadata.get('last_reinforced', '')
+    if lr:
+        try:
+            entry_date = date_type.fromisoformat(str(lr)[:10])
+            age_days = max(0, (today - entry_date).days)
+        except (ValueError, TypeError):
+            pass
+
+    if age_days is None and source_path:
+        path_date = infer_date_from_path(source_path)
+        if path_date is not None:
+            age_days = max(0, (today - path_date).days)
+
+    if age_days is None:
+        # No date available — assume 30 days old (no evergreen exemption)
+        age_days = 30
+
+    lambda_d = math.log(2) / HALF_LIFE_DAYS
+    recency_decay = math.exp(-lambda_d * age_days)
+
+    return importance * recency_decay * (1 + reinforcement_count)
+
+
+def apply_prominence_weights(
+    results: list[tuple[str, str, float]],
+    conn: sqlite3.Connection,
+    today=None,
+) -> list[tuple[str, str, float]]:
+    """Re-weight retrieval results by entry prominence from stored YAML metadata.
+
+    Replaces apply_temporal_decay(). Algorithm:
+      1. Normalize raw scores to [0,1] (handles both negative BM25 and [0,1] hybrid).
+      2. Look up stored metadata JSON for each chunk.
+      3. Compute prominence from metadata + source path.
+      4. Final score = normalized_score × prominence.
+      5. Retired entries (prominence == 0) are excluded from output.
+
+    Returns (source, content, weighted_score) tuples; caller should sort.
+    """
+    if not results:
+        return results
+
+    # Normalize scores to [0, 1] — required because BM25 returns negative ranks
+    raw_scores = [r[2] for r in results]
+    min_s, max_s = min(raw_scores), max(raw_scores)
+    score_range = max_s - min_s if max_s != min_s else 1.0
+
+    out = []
+    for source, content, score in results:
+        normalized = (score - min_s) / score_range  # 0 = worst, 1 = best
+
+        # Look up stored metadata for this chunk
+        row = conn.execute(
+            "SELECT metadata FROM chunks WHERE source = ? AND content = ? LIMIT 1",
+            (source, content),
+        ).fetchone()
+        metadata: dict = {}
+        if row and row[0]:
+            try:
+                metadata = json.loads(row[0])
+            except Exception:
+                pass
+
+        # Retired entries are excluded entirely
+        if metadata.get('status') == 'retired':
+            continue
+
+        prominence = compute_prominence(metadata, source, today)
+        out.append((source, content, normalized * prominence))
+
+    return out
 
 
 # ── MMR diversification ───────────────────────────────────────────────────────
@@ -526,6 +743,8 @@ def main() -> int:
     parser.add_argument("--output", required=True, help="Path to write retrieved context")
     parser.add_argument("--top-k", type=int, default=5, dest="top_k",
                         help="Number of chunks to retrieve")
+    parser.add_argument("--retrieved-ids", default="", dest="retrieved_ids",
+                        help="Path to write retrieved entry IDs for reinforcement tracking")
     args = parser.parse_args()
 
     output_path = Path(args.output)
@@ -601,10 +820,31 @@ def main() -> int:
     else:
         results = retrieve_bm25(conn, query, top_k=args.top_k * 4)
 
-    # Apply temporal decay, sort, then MMR
-    results = apply_temporal_decay(results)
+    # Apply prominence weighting (replaces apply_temporal_decay — removes evergreen exemption)
+    results = apply_prominence_weights(results, conn)
     results.sort(key=lambda x: x[2], reverse=True)
     results = mmr_rerank(results, top_k=args.top_k)
+
+    # Phase 5: Write retrieved entry IDs to sidecar file for reinforcement tracking
+    if args.retrieved_ids and results:
+        entry_ids = []
+        for source, content, _score in results:
+            row = conn.execute(
+                "SELECT metadata FROM chunks WHERE source = ? AND content = ? LIMIT 1",
+                (source, content),
+            ).fetchone()
+            if row and row[0]:
+                try:
+                    meta = json.loads(row[0])
+                    eid = meta.get('id', '')
+                    if eid:
+                        entry_ids.append(eid)
+                except Exception:
+                    pass
+        if entry_ids:
+            Path(args.retrieved_ids).write_text('\n'.join(entry_ids) + '\n')
+            print(f"[memory_indexer] Wrote {len(entry_ids)} retrieved IDs to {args.retrieved_ids}",
+                  file=sys.stderr)
 
     conn.close()
 
