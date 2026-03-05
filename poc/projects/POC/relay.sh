@@ -14,14 +14,19 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 TEAM=""
 TASK=""
+CFA_PARENT_STATE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --team) TEAM="$2"; shift 2 ;;
-    --task) TASK="$2"; shift 2 ;;
-    *)      echo "{\"error\":\"unknown arg: $1\"}" >&2; exit 1 ;;
+    --team)             TEAM="$2"; shift 2 ;;
+    --task)             TASK="$2"; shift 2 ;;
+    --cfa-parent-state) CFA_PARENT_STATE="$2"; shift 2 ;;
+    *)                  echo "{\"error\":\"unknown arg: $1\"}" >&2; exit 1 ;;
   esac
 done
+
+# Fall back to environment variable for CfA parent state
+CFA_PARENT_STATE="${CFA_PARENT_STATE:-${POC_CFA_STATE:-}}"
 
 [[ -z "$TEAM" ]] && { echo '{"error":"--team required"}'; exit 1; }
 [[ -z "$TASK" ]] && { echo '{"error":"--task required"}'; exit 1; }
@@ -115,21 +120,59 @@ json.dump({
 echo -e "  ${C_DIM}[relay] >>> ${TEAM} team (${LEAD})${C_RESET}" >&2
 echo -e "  ${C_DIM}[relay]     ${TASK:0:100}...${C_RESET}" >&2
 
-# Plan → auto-approve → Execute
-RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
-  --agents "$AGENTS_JSON" \
-  --agent "$LEAD" \
-  --auto-approve \
-  --settings "$SETTINGS_FILE" \
-  --cwd "$WORK_CWD" \
-  --stream-dir "$INFRA_DIR" \
-  "${ADD_DIR_ARGS[@]}" \
-  --filter-prefix "  [$TEAM] " \
-  --plan-turns 10 \
-  --exec-turns 30 \
-  "$TASK") || true
+# ── CfA child state + per-team proxy model ──
+DISPATCH_CFA_STATE="$INFRA_DIR/.cfa-state.json"
+TEAM_PROXY_MODEL="${POC_PROJECT_DIR:-.}/.proxy-confidence-${TEAM}.json"
 
-echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished${C_RESET}" >&2
+if [[ -n "$CFA_PARENT_STATE" && -f "$CFA_PARENT_STATE" ]]; then
+  python3 "$SCRIPT_DIR/scripts/cfa_state.py" --make-child \
+    --parent "$CFA_PARENT_STATE" --team "$TEAM" --output "$DISPATCH_CFA_STATE" 2>/dev/null || true
+  echo -e "  ${C_DIM}[relay]     CfA child state created${C_RESET}" >&2
+fi
+
+# ── Plan → proxy-gated → Execute (with CfA retry loop) ──
+MAX_DISPATCH_RETRIES="${MAX_DISPATCH_RETRIES:-5}"
+DISPATCH_RETRIES=0
+DISPATCH_EXIT=0
+RESULT=""
+
+while true; do
+  DISPATCH_EXIT=0
+  RESULT=$("$SCRIPT_DIR/plan-execute.sh" \
+    --agents "$AGENTS_JSON" \
+    --agent "$LEAD" \
+    --agent-mode \
+    --settings "$SETTINGS_FILE" \
+    --cwd "$WORK_CWD" \
+    --stream-dir "$INFRA_DIR" \
+    --proxy-model "$TEAM_PROXY_MODEL" \
+    ${DISPATCH_CFA_STATE:+--cfa-state "$DISPATCH_CFA_STATE"} \
+    "${ADD_DIR_ARGS[@]}" \
+    --filter-prefix "  [$TEAM] " \
+    --plan-turns 10 \
+    --exec-turns 30 \
+    "$TASK") || DISPATCH_EXIT=$?
+
+  if [[ $DISPATCH_EXIT -eq 3 ]]; then
+    # Planning backtrack — retry locally
+    ((DISPATCH_RETRIES++))
+    if [[ $DISPATCH_RETRIES -ge $MAX_DISPATCH_RETRIES ]]; then
+      echo -e "  ${C_YELLOW}[relay] Max planning retries ($MAX_DISPATCH_RETRIES) reached for $TEAM${C_RESET}" >&2
+      break
+    fi
+    echo -e "  ${C_DIM}[relay] Planning backtrack — retry $DISPATCH_RETRIES/$MAX_DISPATCH_RETRIES${C_RESET}" >&2
+    continue
+  fi
+  # exit 0, 1, 2, 10, 11 — stop loop (escalations bubble up to caller)
+  if [[ $DISPATCH_EXIT -eq 10 ]]; then
+    echo -e "  ${C_DIM}[relay] Plan escalation — proxy not confident, needs outer review${C_RESET}" >&2
+  elif [[ $DISPATCH_EXIT -eq 11 ]]; then
+    echo -e "  ${C_DIM}[relay] Work escalation — proxy not confident, needs outer review${C_RESET}" >&2
+  fi
+  break
+done
+
+echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)${C_RESET}" >&2
 
 # ── Worktree completion: commit, merge, cleanup ──
 if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
@@ -195,13 +238,58 @@ else
 fi
 echo -e "  ${C_DIM}[relay]     Files: ${OUTPUT_FILES:-none}${C_RESET}" >&2
 
-# Build JSON summary
+# Determine CfA status for result JSON
+case $DISPATCH_EXIT in
+  0)  CFA_STATUS="completed" ;;
+  1)  CFA_STATUS="failed" ;;
+  2)  CFA_STATUS="backtrack_intent" ;;
+  3)  CFA_STATUS="backtrack_planning" ;;
+  10) CFA_STATUS="needs_plan_review" ;;
+  11) CFA_STATUS="needs_work_review" ;;
+  *)  CFA_STATUS="error" ;;
+esac
+
+# Read backtrack/escalation reason if available
+BACKTRACK_REASON=""
+[[ -f "$INFRA_DIR/.backtrack-feedback.txt" ]] && BACKTRACK_REASON=$(cat "$INFRA_DIR/.backtrack-feedback.txt" 2>/dev/null || true)
+
+# Escalation context for needs_plan_review/needs_work_review
+ESCALATION_CONTEXT=""
+if [[ $DISPATCH_EXIT -eq 10 || $DISPATCH_EXIT -eq 11 ]]; then
+  ESCALATION_CONTEXT="$BACKTRACK_REASON"
+fi
+
+# Read child CfA state for reporting
+CFA_STATE_VAL="unknown"
+if [[ -f "$DISPATCH_CFA_STATE" ]]; then
+  CFA_STATE_VAL=$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f: d = json.load(f)
+print(d.get('state', 'unknown'))
+" "$DISPATCH_CFA_STATE" 2>/dev/null || echo "unknown")
+fi
+
+# Determine backtrack direction
+CFA_BACKTRACK=""
+[[ $DISPATCH_EXIT -eq 2 ]] && CFA_BACKTRACK="intent"
+[[ $DISPATCH_EXIT -eq 3 ]] && CFA_BACKTRACK="planning"
+
+# Build JSON summary with CfA fields
 RESULT_JSON=$(jq -n \
   --arg team "$TEAM" \
-  --arg status "completed" \
+  --arg status "$CFA_STATUS" \
   --arg summary "$RESULT" \
   --arg output_files "$OUTPUT_FILES" \
-  '{team: $team, status: $status, summary: $summary, output_files: $output_files}')
+  --arg cfa_state "$CFA_STATE_VAL" \
+  --arg cfa_backtrack "$CFA_BACKTRACK" \
+  --arg backtrack_reason "$BACKTRACK_REASON" \
+  --arg escalation_context "$ESCALATION_CONTEXT" \
+  --argjson dispatch_retries "$DISPATCH_RETRIES" \
+  --argjson exit_code "$DISPATCH_EXIT" \
+  '{team: $team, status: $status, summary: $summary, output_files: $output_files,
+    cfa_state: $cfa_state, cfa_backtrack: $cfa_backtrack,
+    backtrack_reason: $backtrack_reason, escalation_context: $escalation_context,
+    dispatch_retries: $dispatch_retries, exit_code: $exit_code}')
 
 # Write result and clear sentinel — available to parent immediately
 echo "$RESULT_JSON" > "$INFRA_DIR/.result.json"

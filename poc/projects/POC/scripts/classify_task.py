@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Classify a task into a project slug and tier using LLM-based intent classification.
+"""Classify a task into a project slug and mode (workflow|conversational).
 
 Lists existing project directories and asks claude-haiku to match the task
-to an existing project or derive a new slug, and assign a tier (0-3).
+to an existing project or derive a new slug, and determine the task mode.
 
 Usage:
     classify_task.py --task "..." --projects-dir <path>
 
-Returns slug<TAB>tier on stdout (e.g., "multidimensional-travellers-handbook\t2").
+Returns slug<TAB>mode on stdout (e.g., "multidimensional-travellers-handbook\tworkflow").
 """
 import argparse
 import os
@@ -43,7 +43,7 @@ def read_memory_context(projects_dir: str, slug: str) -> str:
     return "\n\n".join(parts)
 
 
-CLASSIFY_PROMPT = """You are a task classifier for an AI agent workflow. Output EXACTLY one line with two tab-separated fields: the project slug and the tier number.
+CLASSIFY_PROMPT = """You are a task classifier for an AI agent workflow. Output EXACTLY one line with two tab-separated fields: the project slug and the task mode.
 
 Task: {task}
 
@@ -58,32 +58,23 @@ Memory context (prior learnings and escalation calibrations):
 3. The slug names the PROJECT (larger body of work), not the specific task.
 4. Focus on what is being CREATED, not the action being taken.
 
---- TIER CLASSIFICATION ---
-Tier 0 — Conversational: status queries, "what is X", clarifications, no file changes.
-Tier 1 — Simple Task: single-file or bounded edit, fully reversible, no ambiguity, known pattern.
-Tier 2 — Standard Task: multi-file changes, some ambiguity (words like "feel", "style", "better", "improve"), or needs confirmation.
-Tier 3 — Complex Project: multi-team coordination, evolving/unclear requirements, or prior memory shows this task class caused escalations.
-
-TIER 0 PROTECTION: Status queries, clarification questions, "what does X mean", "show me what has been done", and queries requiring NO file changes MUST be Tier 0. Do not push upward. Misclassifying Tier 0 as Tier 1+ erodes trust — the user asked a simple question and received a protocol response.
-
-BIAS RULE (Tier 1-3 only): When between Tier 1, 2, or 3, choose the higher. Misclassifying Tier 3 as Tier 1 is catastrophic. This rule does NOT apply to the Tier 0/1 boundary — protect Tier 0 queries from workflow overhead.
-
-MEMORY WARM-START: If ESCALATION.md shows "Escalate more" for this domain, push tier up (not across Tier 0/1 boundary). If it shows "More autonomous", pull tier down (never below Tier 1 for tasks touching files).
+--- MODE CLASSIFICATION ---
+conversational — Status queries, "what is X", clarifications, questions requiring NO file changes and only a short answer. Protect this mode: misclassifying a simple question as workflow erodes trust.
+workflow — Everything else: file changes, code, writing, research, creative work, builds, fixes, any sustained effort.
 
 --- OUTPUT ---
-Return EXACTLY one line: <slug><TAB><tier>
-No explanation. No quotes. No punctuation. Only slug, tab, digit 0-3.
+Return EXACTLY one line: <slug><TAB><mode>
+No explanation. No quotes. No punctuation. Only slug, tab, then either "workflow" or "conversational".
 
 Examples:
-tea-brewing-handbook\t2
-POC\t1
-dark-energy-research\t3
-POC\t0
-default\t0"""
+tea-brewing-handbook\tworkflow
+POC\tworkflow
+POC\tconversational
+default\tconversational"""
 
 
 def classify(task: str, projects_dir: str) -> str:
-    """Call claude-haiku to classify the task into a project slug and tier."""
+    """Call claude-haiku to classify the task into a project slug and mode."""
     existing = list_existing_projects(projects_dir)
     projects_str = ", ".join(existing) if existing else "(none — this will be the first project)"
 
@@ -113,37 +104,37 @@ def classify(task: str, projects_dir: str) -> str:
         )
     except FileNotFoundError:
         print("[classify] claude CLI not found, using 'default'", file=sys.stderr)
-        return "default\t1"
+        return "default\tworkflow"
     except subprocess.TimeoutExpired:
         print("[classify] claude call timed out, using 'default'", file=sys.stderr)
-        return "default\t1"
+        return "default\tworkflow"
 
     if result.returncode != 0 or not result.stdout.strip():
         print(f"[classify] claude returned {result.returncode}", file=sys.stderr)
         if result.stderr:
             print(f"[classify] stderr: {result.stderr[:200]}", file=sys.stderr)
-        return "default\t1"
+        return "default\tworkflow"
 
     output = result.stdout.strip()
 
     # Parse tab-separated output
     parts = output.split('\t', 1)
     if len(parts) != 2:
-        # Fallback: treat whole output as slug, default to tier 2
+        # Fallback: treat whole output as slug, default to workflow
         slug = re.sub(r'[^a-z0-9-]', '-', output.lower())
         slug = re.sub(r'-+', '-', slug).strip('-') or "default"
-        return f"{slug}\t1"
+        return f"{slug}\tworkflow"
 
-    slug_raw, tier_raw = parts[0].strip(), parts[1].strip()
+    slug_raw, mode_raw = parts[0].strip(), parts[1].strip().lower()
     slug = re.sub(r'[^a-z0-9-]', '-', slug_raw.lower())
     slug = re.sub(r'-+', '-', slug).strip('-') or "default"
-    tier = tier_raw if tier_raw in ('0', '1', '2', '3') else '1'
+    mode = mode_raw if mode_raw in ('workflow', 'conversational') else 'workflow'
 
-    return f"{slug}\t{tier}"
+    return f"{slug}\t{mode}"
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Classify task into a project and tier")
+    parser = argparse.ArgumentParser(description="Classify task into a project and mode")
     parser.add_argument("--task", required=True, help="Task description")
     parser.add_argument("--projects-dir", required=True, help="Path to projects directory")
     args = parser.parse_args()

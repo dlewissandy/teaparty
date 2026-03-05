@@ -32,3 +32,4 @@ output/
 # POC runtime files
 poc/MEMORY.md
 .memory.db
+INTENT.md

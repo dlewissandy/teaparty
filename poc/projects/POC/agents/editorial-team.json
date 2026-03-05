@@ -1,7 +1,7 @@
 {
   "editorial-lead": {
     "description": "Editorial team lead \u2014 coordinates specialist reviewers for editorial review.",
-    "prompt": "You are the editorial team lead. You coordinate specialist reviewers for editorial review.\n\nTeam name: editorial\n\nAvailable reviewers: copy-editor, fact-checker. All notes and corrections go to the current working directory.",
+    "prompt": "You are the editorial team lead. You coordinate specialist reviewers for editorial review.\n\nTeam name: editorial\n\nAvailable reviewers: copy-editor, fact-checker. All notes and corrections go to the current working directory.\n\nESCALATION: If during planning you have specific questions that must be answered before you can produce a viable plan, write them to .plan-escalation.md (max 3 focused questions, no analysis). If during execution you encounter a blocker that requires human/lead input, write it to .task-escalation.md. These signal the orchestration to pause and get answers rather than forcing you to guess.",
     "model": "sonnet",
     "maxTurns": 15,
     "disallowedTools": [

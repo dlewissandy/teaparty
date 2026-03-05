@@ -80,6 +80,26 @@ chrome_approval() {
   local varname="$1"
   chrome_beep
   echo "" >&2
-  echo -e "  ${C_YELLOW}(y)${C_RESET} approve   ${C_YELLOW}(n)${C_RESET} reject   ${C_YELLOW}(e)${C_RESET} edit" >&2
+  echo -e "  ${C_YELLOW}(y)${C_RESET} approve   ${C_YELLOW}(n)${C_RESET} reject   ${C_YELLOW}(e)${C_RESET} edit   ${C_YELLOW}(w)${C_RESET} withdraw" >&2
   read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" "$varname" </dev/tty
+}
+
+# ── Conversational Bridge ──
+
+chrome_bridge() {
+  # Replace document dumps with LLM-generated conversational summaries.
+  # Falls back to path + first 5 lines if LLM unavailable.
+  # Usage: chrome_bridge <file_path> <cfa_state> [task]
+  local file_path="$1" cfa_state="$2" task="${3:-}"
+  local bridge
+  bridge=$(python3 "$SCRIPT_DIR/scripts/generate_review_bridge.py" \
+    --file "$file_path" --state "$cfa_state" \
+    ${task:+--task "$task"} 2>/dev/null) || bridge=""
+  if [[ -n "$bridge" ]]; then
+    echo -e "\n  ${C_DIM}${bridge}${C_RESET}\n" >&2
+  else
+    echo -e "\n  ${C_DIM}Review: ${file_path}${C_RESET}" >&2
+    head -5 "$file_path" >&2
+    echo -e "  ${C_DIM}...${C_RESET}\n" >&2
+  fi
 }

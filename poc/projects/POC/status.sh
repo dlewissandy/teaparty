@@ -55,6 +55,30 @@ session_health() {
   echo "$emoji $phase $age_s"
 }
 
+# ── Helper: read CfA state file → "phase STATE backtrack_count" ──
+read_cfa() {
+  local f="$1"
+  [[ -f "$f" ]] || return
+  python3 -c "
+import json, sys
+with open(sys.argv[1]) as f: d = json.load(f)
+print(d.get('phase','?'), d.get('state','?'), d.get('backtrack_count',0))
+" "$f" 2>/dev/null
+}
+
+# ── Helper: format CfA info as "phase/STATE [↩N]" ──
+format_cfa() {
+  local cfa_info="$1"
+  [[ -z "$cfa_info" ]] && return
+  local cfa_phase="${cfa_info%% *}"
+  local cfa_rest="${cfa_info#* }"
+  local cfa_state="${cfa_rest%% *}"
+  local cfa_bt="${cfa_rest#* }"
+  local bt_tag=""
+  [[ "$cfa_bt" -gt 0 ]] 2>/dev/null && bt_tag="  ↩${cfa_bt}"
+  echo "$cfa_phase/$cfa_state$bt_tag"
+}
+
 # ── Helper: find PIDs associated with a project ──
 # Checks run.sh, intent.sh, plan-execute.sh, and claude -p processes.
 # Returns newline-separated "PID LABEL" pairs.
@@ -139,6 +163,12 @@ for proj_dir in "$PROJECTS_DIR"/*/; do
     # No process but recent enough to show — mark as stopped
     echo "  ⏹  $proj  phase=$phase  age=$(human_age $age_s)  session=$sess_ts  (no process)"
   fi
+
+  # Show root CfA state if present
+  cfa_info=$(read_cfa "$sess_dir/.cfa-state.json")
+  cfa_fmt=$(format_cfa "$cfa_info")
+  [[ -n "$cfa_fmt" ]] && echo "     └ cfa: $cfa_fmt"
+
   found_sessions=true
 done
 
@@ -159,37 +189,53 @@ for proj_dir in "$PROJECTS_DIR"/*/; do
   sess_dir=$(ls -td "$proj_dir/.sessions"/[0-9]*/ 2>/dev/null | head -1)
   [[ -d "$sess_dir" ]] || continue
 
-  line=""
-  for team in intent art writing editorial research coding; do
+  team_output=""
+  for team in art writing editorial research coding; do
     team_dir="$sess_dir/$team"
     [[ -d "$team_dir" ]] || continue
-    total=$( (ls -d "$team_dir"/[0-9]*/ 2>/dev/null || true) | wc -l | tr -d ' ')
-    [[ "$total" -eq 0 ]] && continue
 
+    # Collect dispatch info — most recent first
+    dispatches=()
     active=0
-    active_age=""
-    for dd in "$team_dir"/[0-9]*/; do
+    done_count=0
+    for dd in $(ls -td "$team_dir"/[0-9]*/ 2>/dev/null); do
+      [[ -d "$dd" ]] || continue
+      dispatch_ts=$(basename "$dd")
       if [[ -f "$dd/.running" ]]; then
         active=$((active + 1))
-        mtime=$(stat -f%m "$dd/.running" 2>/dev/null || stat -c%Y "$dd/.running" 2>/dev/null || echo "$NOW")
-        age_s=$(( NOW - mtime ))
-        active_age="$(human_age $age_s)"
+        # Read CfA state for active dispatch
+        dcfa=$(read_cfa "$dd/.cfa-state.json")
+        dcfa_fmt=$(format_cfa "$dcfa")
+        if [[ -n "$dcfa_fmt" ]]; then
+          dispatches+=("▶ $dispatch_ts  $dcfa_fmt")
+        else
+          mtime=$(stat -f%m "$dd/.running" 2>/dev/null || stat -c%Y "$dd/.running" 2>/dev/null || echo "$NOW")
+          age_s=$(( NOW - mtime ))
+          dispatches+=("▶ $dispatch_ts  running $(human_age $age_s)")
+        fi
+      else
+        done_count=$((done_count + 1))
       fi
-    done 2>/dev/null
+    done
 
-    done_count=$((total - active))
-    if [[ "$active" -gt 0 ]]; then
-      tag="$active RUNNING ($active_age)"
-      [[ "$done_count" -gt 0 ]] && tag="$tag, $done_count done"
-      line="$line  $team: $tag"
-    else
-      line="$line  $team: $total done"
-    fi
+    [[ $active -eq 0 && $done_count -eq 0 ]] && continue
+
+    # Build team summary
+    summary=""
+    [[ $active -gt 0 ]] && summary="$active active"
+    [[ $done_count -gt 0 ]] && summary="${summary:+$summary, }$done_count done"
+    team_output="${team_output}    $team ($summary)\n"
+
+    # Show active dispatch details
+    for dline in "${dispatches[@]+"${dispatches[@]}"}"; do
+      [[ -z "$dline" ]] && continue
+      team_output="${team_output}      $dline\n"
+    done
   done
 
-  if [[ -n "$line" ]]; then
+  if [[ -n "$team_output" ]]; then
     echo "  $proj"
-    echo "   $line"
+    echo -e "$team_output"
     had_dispatches=true
   fi
 done

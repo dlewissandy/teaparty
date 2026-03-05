@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
-# intent.sh — Multi-turn intent gathering conversation.
+# intent.sh — CfA-driven intent gathering.
 #
-# Conducts a dialog between the human and an intent team to produce INTENT.md.
-# Uses claude -p with --resume for multi-turn conversation continuity.
-# The intent-lead facilitates the dialog; the research-liaison dispatches
-# research to the existing research subteam via relay.sh.
+# The intent agent runs autonomously and produces INTENT.md. The human
+# reviews the result: approve, edit, reject with feedback. Rejection
+# feeds back into the agent (INTENT_RESPONSE → PROPOSAL cycle).
+#
+# There is no round counter, no "done"/"skip", no per-turn prompting.
+# The CfA state machine drives the loop:
+#   PROPOSAL → INTENT_ASSERT → approve (exit 0) or reject → INTENT_RESPONSE → PROPOSAL → ...
+#   PROPOSAL → INTENT_ESCALATE → clarify → INTENT_RESPONSE → PROPOSAL → ...
 #
 # Usage: intent.sh --cwd <worktree> --stream-dir <infra-dir> --task "<task>" \
-#                  [--context-file <path>...]
+#                  [--context-file <path>...] [--backtrack-context "<feedback>"]
 #
-# Exits 0 with INTENT.md written to CWD, or 1 if skipped/failed.
+# Exits 0 with INTENT.md written to CWD, or 1 if rejected/failed.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,16 +23,22 @@ source "$SCRIPT_DIR/chrome.sh"
 CWD=""
 STREAM_DIR=""
 TASK=""
+PROJECT_DIR=""
+BACKTRACK_CONTEXT=""
+PROXY_MODEL=""
 CONTEXT_FILES=()
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --cwd)          CWD="$2"; shift 2 ;;
-    --stream-dir)   STREAM_DIR="$2"; shift 2 ;;
-    --task)         TASK="$2"; shift 2 ;;
-    --context-file) CONTEXT_FILES+=("$2"); shift 2 ;;
-    *)              echo "intent.sh: unknown option: $1" >&2; exit 1 ;;
+    --cwd)               CWD="$2"; shift 2 ;;
+    --stream-dir)        STREAM_DIR="$2"; shift 2 ;;
+    --task)              TASK="$2"; shift 2 ;;
+    --project-dir)       PROJECT_DIR="$2"; shift 2 ;;
+    --backtrack-context) BACKTRACK_CONTEXT="$2"; shift 2 ;;
+    --proxy-model)       PROXY_MODEL="$2"; shift 2 ;;
+    --context-file)      CONTEXT_FILES+=("$2"); shift 2 ;;
+    *)                   echo "intent.sh: unknown option: $1" >&2; exit 1 ;;
   esac
 done
 
@@ -40,7 +50,9 @@ STREAM_DIR="${STREAM_DIR:-$CWD}"
 mkdir -p "$STREAM_DIR"
 
 # ── Build initial prompt with warm-start context ──
-INITIAL_PROMPT="Task: $TASK"
+INITIAL_PROMPT="Task: $TASK
+
+Write INTENT.md to: $CWD/INTENT.md (this is the absolute path to your working directory)"
 
 for ctx_file in "${CONTEXT_FILES[@]}"; do
   if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
@@ -52,19 +64,6 @@ for ctx_file in "${CONTEXT_FILES[@]}"; do
 $(cat "$ctx_file")
 --- end $LABEL ---"
   fi
-done
-
-# Warm-start round reduction (spec Section 8.1)
-HAS_WARM_START=false
-for ctx_file in "${CONTEXT_FILES[@]}"; do
-  case "$(basename "$ctx_file")" in
-    OBSERVATIONS.md|ESCALATION.md)
-      if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
-        HAS_WARM_START=true
-        break
-      fi
-      ;;
-  esac
 done
 
 # ── Agent definition with path substitution ──
@@ -92,8 +91,55 @@ json.dump({'permissions': {'allow': rules}, 'env': {
     'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
     'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
     'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+    'POC_CFA_STATE': os.environ.get('POC_CFA_STATE', ''),
 }}, sys.stdout)
 " > "$SETTINGS_FILE"
+
+# ── CfA state helpers — update root state if exported by run.sh ──
+intent_cfa_transition() {
+  local action="$1"
+  if [[ -n "${POC_CFA_STATE:-}" && -f "${POC_CFA_STATE:-}" ]]; then
+    if ! python3 "$SCRIPT_DIR/scripts/cfa_state.py" --transition \
+        --state-file "$POC_CFA_STATE" --action "$action" 2>/dev/null; then
+      return 1
+    fi
+  fi
+}
+
+intent_cfa_set() {
+  local target="$1"
+  if [[ -n "${POC_CFA_STATE:-}" && -f "${POC_CFA_STATE:-}" ]]; then
+    python3 "$SCRIPT_DIR/scripts/cfa_state.py" --set-state \
+      --state-file "$POC_CFA_STATE" --target "$target" 2>/dev/null || true
+  fi
+}
+
+# ── Human proxy helpers ──
+proxy_decide() {
+  local state="$1"
+  local task_type="${POC_PROJECT:-default}"
+  if [[ -n "$PROXY_MODEL" && -f "$PROXY_MODEL" ]]; then
+    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
+      --decide --state "$state" --task-type "$task_type" \
+      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
+  else
+    echo "escalate"
+  fi
+}
+
+proxy_record() {
+  local state="$1" outcome="$2"
+  local diff_summary="${3:-}"
+  local task_type="${POC_PROJECT:-default}"
+  if [[ -n "$PROXY_MODEL" ]]; then
+    local diff_args=()
+    [[ -n "$diff_summary" ]] && diff_args=(--diff "$diff_summary")
+    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
+      --record --state "$state" --task-type "$task_type" \
+      --outcome "$outcome" ${diff_args[@]+"${diff_args[@]}"} \
+      --model "$PROXY_MODEL" 2>/dev/null || true
+  fi
+}
 
 # ── Stream and session state ──
 INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
@@ -103,12 +149,26 @@ INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
 CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 CLAUDE_ARGS+=(--agents "$AGENTS_JSON" --agent intent-lead)
 CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
-# No --add-dir: the intent agent only writes INTENT.md to CWD.
-# Repo access is not needed — context is inlined in the prompt.
 
-# ── Helper: find INTENT.md ──
+# ── Helper: find INTENT.md (only if written during THIS session) ──
+INTENT_SESSION_START=$(date +%s)
+
 find_intent_md() {
+  # Primary: check exact CWD path (where we told the agent to write)
   if [[ -f "$CWD/INTENT.md" ]]; then
+    local mtime
+    mtime=$(stat -f%m "$CWD/INTENT.md" 2>/dev/null || stat -c%Y "$CWD/INTENT.md" 2>/dev/null || echo 0)
+    if [[ $mtime -ge $INTENT_SESSION_START ]]; then
+      echo "$CWD/INTENT.md"
+      return
+    fi
+  fi
+  # Fallback: agent may have written to a nearby path — search worktree
+  local found
+  found=$(find "$CWD" -maxdepth 2 -name "INTENT.md" -newer "$INTENT_STREAM" 2>/dev/null | head -1)
+  if [[ -n "$found" ]]; then
+    # Move it to the expected location
+    mv "$found" "$CWD/INTENT.md"
     echo "$CWD/INTENT.md"
   fi
 }
@@ -141,14 +201,12 @@ bump_intent_version() {
   local version_header="<!-- INTENT VERSION: $version_str | Updated: $timestamp | Change: $change_summary -->"
 
   if grep -q "<!-- INTENT VERSION:" "$intent_path" 2>/dev/null; then
-    # Replace existing version header
     local tmp
     tmp=$(mktemp)
     echo "$version_header" > "$tmp"
     grep -v "<!-- INTENT VERSION:" "$intent_path" >> "$tmp"
     mv "$tmp" "$intent_path"
   else
-    # Prepend fresh version header
     local tmp
     tmp=$(mktemp)
     echo "$version_header" > "$tmp"
@@ -159,8 +217,6 @@ bump_intent_version() {
 }
 
 # ── Helper: run one turn of the conversation ──
-# Sends input to claude, streams output through intent_filter.py,
-# saves raw stream to .intent-stream.jsonl (append mode).
 run_turn() {
   local input="$1"
   shift
@@ -170,11 +226,9 @@ run_turn() {
   fifo=$(mktemp -u).fifo
   mkfifo "$fifo"
 
-  # Claude writes to FIFO in background
   (cd "$CWD" && echo "$input" | claude "${CLAUDE_ARGS[@]}" "${extra_args[@]}" > "$fifo") &
   local bg_pid=$!
 
-  # Stream through filter for display, also append to stream file
   cat < "$fifo" \
     | tee -a "$INTENT_STREAM" \
     | python3 -u "$SCRIPT_DIR/intent_filter.py" --agent-name intent-lead >&2
@@ -183,169 +237,185 @@ run_turn() {
   rm -f "$fifo"
 }
 
+# ── Present INTENT.md for human review (CfA: INTENT_ASSERT) ──
+# Returns: 0 = approved, 1 = rejected (feedback in $REJECTION_FEEDBACK)
+REJECTION_FEEDBACK=""
+
+review_intent() {
+  local intent_path="$1"
+  intent_cfa_set "INTENT_ASSERT"
+
+  # ── Proxy gate: auto-approve if confident ──
+  PROXY_ACTION=$(proxy_decide "INTENT_ASSERT")
+  if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
+    proxy_record "INTENT_ASSERT" "approve"
+    bump_intent_version "$intent_path" "proxy-approved"
+    echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT (proxy auto-approved)${C_RESET}" >&2
+    return 0
+  fi
+
+  chrome_banner "INTENT_ASSERT" "CfA Phase 1 — human reviews intent document"
+  local ver
+  ver=$(grep "<!-- INTENT VERSION:" "$intent_path" 2>/dev/null | grep -o 'v[0-9.]*' | head -1 || echo "v0.0")
+  echo -e "  ${C_DIM}Version: $ver${C_RESET}" >&2
+  chrome_bridge "$intent_path" "INTENT_ASSERT" "$TASK"
+  chrome_heavy_line
+
+  chrome_approval approval
+  case "$approval" in
+    y|Y)
+      proxy_record "INTENT_ASSERT" "approve"
+      bump_intent_version "$intent_path" "approved"
+      echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
+      return 0
+      ;;
+    e|E)
+      ${EDITOR:-vim} "$intent_path"
+      proxy_record "INTENT_ASSERT" "approve"
+      bump_intent_version "$intent_path" "human-edited"
+      echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
+      return 0
+      ;;
+    w|W)
+      # Withdraw: human abandons intent (spec Section 4.2: approve, correct, or withdraw)
+      proxy_record "INTENT_ASSERT" "withdraw"
+      intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
+      echo -e "  ${C_YELLOW}Intent withdrawn.${C_RESET}" >&2
+      exit 1
+      ;;
+    n|N)
+      echo -e "  ${C_DIM}What should change?${C_RESET}" >&2
+      chrome_prompt feedback
+      REJECTION_FEEDBACK="$feedback"
+      proxy_record "INTENT_ASSERT" "correct" "$feedback"
+      return 1
+      ;;
+    *)
+      # Any other input is feedback
+      REJECTION_FEEDBACK="$approval"
+      proxy_record "INTENT_ASSERT" "correct" "$approval"
+      return 1
+      ;;
+  esac
+}
+
+# ══════════════════════════════════════════════════════════════
+#  CfA Intent Loop
+#
+#  PROPOSAL: Agent runs autonomously
+#    → writes INTENT.md: enter INTENT_ASSERT
+#    → writes .intent-escalation.md: enter INTENT_ESCALATE
+#  INTENT_ASSERT: Human/proxy reviews INTENT.md
+#    → approve: exit 0
+#    → reject with feedback: INTENT_RESPONSE → agent revises → PROPOSAL
+#  INTENT_ESCALATE: Agent has focused questions for the human
+#    → clarify: INTENT_RESPONSE → agent incorporates → PROPOSAL
+#    → withdraw: exit 1
+# ══════════════════════════════════════════════════════════════
+
 # ── Banner ──
-chrome_header "INTENT"
-echo -e "  ${C_DIM}Type 'done' to finalize, 'skip' to bypass.${C_RESET}" >&2
+if [[ -n "$BACKTRACK_CONTEXT" ]]; then
+  chrome_header "INTENT_RESPONSE → PROPOSAL (CfA backtrack re-entry)"
+  echo -e "  ${C_YELLOW}Re-entering intent alignment from downstream phase.${C_RESET}" >&2
+  echo -e "  ${C_DIM}Feedback: ${BACKTRACK_CONTEXT:0:200}${C_RESET}" >&2
+else
+  chrome_header "PROPOSAL (CfA Phase 1: Intent Alignment)"
+fi
 
-# ── Turn 1: Initial prompt ──
+# ── Build first prompt ──
+if [[ -n "$BACKTRACK_CONTEXT" ]]; then
+  INITIAL_PROMPT="[CfA BACKTRACK: Re-entering intent alignment from a downstream phase.]
+
+The planning or execution phase discovered that the intent needs refinement:
+
+--- Backtrack Feedback ---
+$BACKTRACK_CONTEXT
+--- end Backtrack Feedback ---
+
+Original task: $TASK
+
+Revise INTENT.md to address this feedback. Update the relevant sections — do not start from scratch.
+
+$INITIAL_PROMPT"
+fi
+
+# ── PROPOSAL: Agent's first autonomous pass ──
+intent_cfa_set "PROPOSAL"
 chrome_thinking
-run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 3
-INTENT_START_EPOCH=$(date +%s)
-WARNED_AT_12=false
+run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 5
 
-# Extract session ID for --resume on subsequent turns
+# Extract session ID for --resume on revisions
 SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
 if [[ -z "$SESSION_ID" ]]; then
   echo -e "  ${C_RED}Could not extract session ID from intent agent${C_RESET}" >&2
   exit 1
 fi
 
-# ── Conversation loop ──
-if [[ "$HAS_WARM_START" == "true" ]]; then
-  MAX_ROUNDS=6
-  echo -e "  ${C_DIM}Warm-start detected — reduced to $MAX_ROUNDS rounds.${C_RESET}" >&2
-else
-  MAX_ROUNDS=10
-fi
-round=0
+# ── CfA assert/revise loop (unbounded — spec imposes no cap) ──
+revision=0
 
-while [[ $round -lt $MAX_ROUNDS ]]; do
-  ((round++))
-
-  # ── Time check (spec Section 3.1: warn at 12 min, force-finalize at 15 min) ──
-  ELAPSED=$(( $(date +%s) - INTENT_START_EPOCH ))
-  if [[ $ELAPSED -ge 900 ]]; then
-    echo -e "  ${C_YELLOW}15-minute limit reached — finalizing INTENT.md.${C_RESET}" >&2
-    chrome_thinking
-    run_turn "Time limit reached. Please write INTENT.md now with your current understanding. Note any unresolved questions in the Open Questions section." \
-      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
-    break
-  elif [[ $ELAPSED -ge 720 && "$WARNED_AT_12" != "true" ]]; then
-    echo -e "  ${C_DIM}(12-minute mark — 3 minutes remaining)${C_RESET}" >&2
-    WARNED_AT_12=true
-  fi
-
-  # ── Round warning (spec Section 3.1: signal at round N-2) ──
-  ROUNDS_REMAINING=$((MAX_ROUNDS - round))
-  FINALIZE_NUDGE=""
-  if [[ $ROUNDS_REMAINING -eq 2 ]]; then
-    echo -e "  ${C_DIM}(Round $round of $MAX_ROUNDS — preparing to finalize)${C_RESET}" >&2
-    FINALIZE_NUDGE="[SYSTEM: 2 rounds remaining out of $MAX_ROUNDS. Begin finalizing INTENT.md now if you haven't already.] "
-  fi
-
-  # Check if INTENT.md was written (agent may write to CWD or ADD_DIR)
-  INTENT_PATH=$(find_intent_md)
-  if [[ -n "$INTENT_PATH" ]]; then
-    chrome_banner "INTENT.md"
-    INTENT_VER=$(grep "<!-- INTENT VERSION:" "$INTENT_PATH" 2>/dev/null | grep -o 'v[0-9.]*' | head -1 || echo "v0.0 (unversioned)")
-    echo -e "  ${C_DIM}Version: $INTENT_VER${C_RESET}" >&2
-    cat "$INTENT_PATH" >&2
-    echo "" >&2
+while true; do
+  # ── Check for escalation (INTENT_ESCALATE) ──
+  # Agent writes .intent-escalation.md when it has focused questions
+  # instead of writing INTENT.md directly.
+  ESCALATION_FILE="$CWD/.intent-escalation.md"
+  if [[ -f "$ESCALATION_FILE" ]]; then
+    intent_cfa_set "INTENT_ESCALATE"
+    chrome_header "INTENT_ESCALATE — agent needs clarification"
+    chrome_bridge "$ESCALATION_FILE" "INTENT_ESCALATE" "$TASK"
     chrome_heavy_line
 
-    chrome_approval approval
-    case "$approval" in
-      y|Y)
-        bump_intent_version "$INTENT_PATH" "approved"
-        echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
-        exit 0
-        ;;
-      e|E)
-        ${EDITOR:-vim} "$CWD/INTENT.md"
-        bump_intent_version "$INTENT_PATH" "human-edited"
-        echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
-        exit 0
-        ;;
-      n|N)
-        # Human wants changes — get feedback
-        echo -e "  ${C_DIM}Describe what should change in INTENT.md:${C_RESET}" >&2
-        chrome_prompt feedback
-        if [[ -z "$feedback" ]]; then
-          echo -e "  ${C_DIM}No feedback provided. Continuing...${C_RESET}" >&2
-          continue
-        fi
-        chrome_user "$feedback"
-        chrome_thinking
-        run_turn "${FINALIZE_NUDGE}The human rejected INTENT.md with this feedback: ${feedback}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
-        continue
-        ;;
-      *)
-        # Treat any other input as feedback on the INTENT.md
-        chrome_user "$approval"
-        chrome_thinking
-        run_turn "${FINALIZE_NUDGE}The human responded to INTENT.md with: ${approval}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
-        continue
-        ;;
-    esac
+    echo -e "  ${C_DIM}Answer the questions above, or (w)ithdraw:${C_RESET}" >&2
+    chrome_prompt clarification
+
+    if [[ "$clarification" == "w" || "$clarification" == "W" ]]; then
+      proxy_record "INTENT_ESCALATE" "withdraw"
+      intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
+      exit 1
+    fi
+
+    # Feed clarification back to agent
+    proxy_record "INTENT_ESCALATE" "clarify" "$clarification"
+    intent_cfa_transition "clarify" || intent_cfa_set "INTENT_RESPONSE"
+    rm -f "$ESCALATION_FILE"
+    chrome_user "$clarification"
+    echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
+    chrome_thinking
+    intent_cfa_set "PROPOSAL"
+    run_turn "Human clarification: $clarification" \
+      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 5
+    continue  # Re-check: agent may escalate again or write INTENT.md
   fi
 
-  # No INTENT.md yet — get human input
-  echo -e "  ${C_DIM}Round $round/$MAX_ROUNDS · Respond to the agent, or: ${C_BOLD}done${C_RESET}${C_DIM} to finalize · ${C_BOLD}skip${C_RESET}${C_DIM} to bypass${C_RESET}" >&2
-  chrome_prompt human_input
-
-  # Control commands
-  case "$human_input" in
-    skip|SKIP)
-      echo -e "  ${C_YELLOW}Skipping intent gathering.${C_RESET}" >&2
-      exit 1
-      ;;
-    done|DONE)
-      echo -e "  ${C_DIM}Asking agent to finalize INTENT.md...${C_RESET}" >&2
-      chrome_thinking
-      run_turn "${FINALIZE_NUDGE}Please write INTENT.md now based on our conversation." \
-        --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
-      # Loop will check for INTENT.md on next iteration
-      continue
-      ;;
-    "")
-      echo -e "  ${C_DIM}(empty — type a response or 'done'/'skip')${C_RESET}" >&2
-      continue
-      ;;
-  esac
-
-  # Send human input to the intent team, resume the session
-  chrome_user "$human_input"
-  chrome_thinking
-  run_turn "${FINALIZE_NUDGE}${human_input}" --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
-done
-
-# ── Fallback: conversation ended without INTENT.md ──
-INTENT_PATH=$(find_intent_md)
-if [[ -z "$INTENT_PATH" ]]; then
-  echo -e "  ${C_DIM}No INTENT.md was written. Asking agent to produce it...${C_RESET}" >&2
-  chrome_thinking
-  run_turn "Please write the INTENT.md now based on everything we've discussed." \
-    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
   INTENT_PATH=$(find_intent_md)
-fi
 
-if [[ -n "$INTENT_PATH" ]]; then
-  chrome_banner "INTENT.md"
-  INTENT_VER=$(grep "<!-- INTENT VERSION:" "$INTENT_PATH" 2>/dev/null | grep -o 'v[0-9.]*' | head -1 || echo "v0.0 (unversioned)")
-  echo -e "  ${C_DIM}Version: $INTENT_VER${C_RESET}" >&2
-  cat "$INTENT_PATH" >&2
-  echo "" >&2
-  chrome_heavy_line
+  if [[ -z "$INTENT_PATH" ]]; then
+    # Agent didn't write INTENT.md — ask it to finalize
+    echo -e "  ${C_DIM}No INTENT.md yet — asking agent to produce it.${C_RESET}" >&2
+    chrome_thinking
+    run_turn "Write the INTENT.md now based on what you know." \
+      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+    INTENT_PATH=$(find_intent_md)
+  fi
 
-  chrome_approval approval
-  case "$approval" in
-    y|Y)
-      bump_intent_version "$INTENT_PATH" "approved"
-      echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
-      exit 0
-      ;;
-    e|E)
-      ${EDITOR:-vim} "$INTENT_PATH"
-      bump_intent_version "$INTENT_PATH" "human-edited"
-      echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
-      exit 0
-      ;;
-    *)
-      echo -e "  ${C_YELLOW}Intent rejected.${C_RESET}" >&2
-      exit 1
-      ;;
-  esac
-else
-  echo -e "  ${C_RED}Intent agent did not produce INTENT.md.${C_RESET}" >&2
-  exit 1
-fi
+  if [[ -z "$INTENT_PATH" ]]; then
+    echo -e "  ${C_RED}Intent agent did not produce INTENT.md.${C_RESET}" >&2
+    exit 1
+  fi
+
+  # ── INTENT_ASSERT: Human reviews ──
+  if review_intent "$INTENT_PATH"; then
+    exit 0
+  fi
+
+  # ── INTENT_RESPONSE: Human rejected — feed back to agent ──
+  ((revision++))
+  intent_cfa_transition "correct" || intent_cfa_set "INTENT_RESPONSE"
+  echo -e "  ${C_DIM}CfA: INTENT_ASSERT → correct → INTENT_RESPONSE (revision $revision)${C_RESET}" >&2
+  chrome_user "$REJECTION_FEEDBACK"
+  echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
+  chrome_thinking
+  intent_cfa_set "PROPOSAL"  # Agent re-enters PROPOSAL after receiving feedback
+  run_turn "The human rejected INTENT.md with this feedback: ${REJECTION_FEEDBACK}" \
+    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+done

@@ -3,3 +3,7 @@
 MEMORY.md
 OBSERVATIONS.md
 ESCALATION.md
+INTENT.md
+.memory.db
+.proxy-confidence.json
+.cfa-state.json

@@ -97,7 +97,7 @@ relay.sh also writes `.result.json` to the dispatch output directory and uses a 
 
 ### plan-execute.sh Works at Both Levels
 
-Same script, same lifecycle. The only difference: `--auto-approve` at the subteam level (no human in the loop). One pattern, no special casing.
+Same script, same lifecycle. At the subteam level, `--agent-mode` enables proxy-gated approval: the human proxy decides whether to auto-approve or escalate to the outer Execution Lead. One pattern, no special casing.
 
 ### Leaf Workers Have Restricted Tools
 
@@ -449,7 +449,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 1. `run.sh` sets environment, builds `--agents` JSON from `agents/uber-team.json`, creates `CONVERSATION_LOG`.
 2. `plan-execute.sh` starts `claude -p --agents ... --agent project-lead --permission-mode plan`. The CLI creates the team context from the agent definitions — no TeamCreate call needed.
 3. The lead plans, calls ExitPlanMode. The session ID is extracted from the `system/init` event.
-4. Human approves (or `--auto-approve` at subteam level).
+4. Human approves (or proxy auto-approves at subteam level when confident; otherwise escalates to the Execution Lead).
 5. `claude -p --resume $SESSION_ID --permission-mode acceptEdits` starts execution with full plan context.
 
 ### Delegation
