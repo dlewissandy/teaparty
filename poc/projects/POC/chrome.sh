@@ -86,6 +86,106 @@ chrome_approval() {
 
 # ── Conversational Bridge ──
 
+# ── Natural Language Review Classification ──
+
+# Sets REVIEW_ACTION and REVIEW_FEEDBACK for the caller.
+# Returns 0 on success, 1 when fallback to old menu is needed.
+classify_review() {
+  local state="$1" response="$2"
+  local intent_summary="${3:-}" plan_summary="${4:-}"
+  local dialog_history="${5:-}"
+  local args=(--state "$state" --response "$response")
+  [[ -n "$intent_summary" ]] && args+=(--intent-summary "$intent_summary")
+  [[ -n "$plan_summary" ]] && args+=(--plan-summary "$plan_summary")
+  [[ -n "$dialog_history" ]] && args+=(--dialog-history "$dialog_history")
+  local raw
+  raw=$(python3 "$SCRIPT_DIR/scripts/classify_review.py" \
+    "${args[@]}" 2>/dev/null) || { REVIEW_ACTION="__fallback__"; return 1; }
+  REVIEW_ACTION=$(printf '%s' "$raw" | cut -f1)
+  REVIEW_FEEDBACK=$(printf '%s' "$raw" | cut -f2-)
+  [[ "$REVIEW_ACTION" == "__fallback__" ]] && return 1
+  return 0
+}
+
+# ── Dialog Response Generator ──
+
+# Generates agent-voice response to human question during review dialog.
+# Sets DIALOG_REPLY for the caller.
+dialog_response() {
+  local state="$1" question="$2"
+  local artifact="${3:-}" exec_stream="${4:-}"
+  local task="${5:-}" dialog_history="${6:-}"
+  local args=(--state "$state" --question "$question")
+  [[ -n "$artifact" ]]       && args+=(--artifact "$artifact")
+  [[ -n "$exec_stream" ]]    && args+=(--exec-stream "$exec_stream")
+  [[ -n "$task" ]]           && args+=(--task "$task")
+  [[ -n "$dialog_history" ]] && args+=(--dialog-history "$dialog_history")
+  DIALOG_REPLY=$(python3 "$SCRIPT_DIR/scripts/generate_dialog_response.py" \
+    "${args[@]}" 2>/dev/null) || \
+    DIALOG_REPLY="I'm not sure I can answer that. Could you rephrase, or let me know your decision?"
+}
+
+chrome_dialog_reply() {
+  echo -e "  ${C_CYAN}[agent]${C_RESET} $1" >&2
+}
+
+# ── CfA Review Loop ──
+
+# Dialog-capable review prompt. Loops until the human makes a non-dialog decision.
+# Handles dialog turns internally (question → agent response → re-prompt).
+#
+# Usage: cfa_review_loop STATE [INTENT_SUMMARY] [PLAN_SUMMARY] [ARTIFACT] [EXEC_STREAM] [TASK]
+#
+# On return, these globals are set:
+#   CFA_RESPONSE    — the human's final response text
+#   REVIEW_ACTION   — classified action (from classify_review)
+#   REVIEW_FEEDBACK — extracted feedback (from classify_review)
+#
+# Returns 0 if classification succeeded, 1 if fallback needed.
+cfa_review_loop() {
+  local state="$1"
+  local intent_summary="${2:-}"
+  local plan_summary="${3:-}"
+  local artifact="${4:-}"
+  local exec_stream="${5:-}"
+  local task="${6:-}"
+
+  local dialog_hist
+  dialog_hist=$(mktemp)
+  local classify_ok=1
+
+  CFA_RESPONSE=""
+
+  while true; do
+    chrome_prompt CFA_RESPONSE
+
+    local dh=""
+    [[ -s "$dialog_hist" ]] && dh=$(cat "$dialog_hist")
+
+    if classify_review "$state" "$CFA_RESPONSE" "$intent_summary" "$plan_summary" "$dh"; then
+      classify_ok=0
+      if [[ "$REVIEW_ACTION" == "dialog" ]]; then
+        echo "HUMAN: $CFA_RESPONSE" >> "$dialog_hist"
+        dialog_response "$state" "$CFA_RESPONSE" "$artifact" "$exec_stream" "$task" "$dh"
+        chrome_dialog_reply "$DIALOG_REPLY"
+        echo "AGENT: $DIALOG_REPLY" >> "$dialog_hist"
+        # Trim history at 4000 chars
+        if [[ $(wc -c < "$dialog_hist") -gt 4000 ]]; then
+          tail -c 4000 "$dialog_hist" > "${dialog_hist}.tmp"
+          mv "${dialog_hist}.tmp" "$dialog_hist"
+        fi
+        continue
+      fi
+    else
+      classify_ok=1
+    fi
+    break
+  done
+
+  rm -f "$dialog_hist"
+  return $classify_ok
+}
+
 chrome_bridge() {
   # Replace document dumps with LLM-generated conversational summaries.
   # Falls back to path + first 5 lines if LLM unavailable.

@@ -295,23 +295,21 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
         exit 11
       fi
 
-      echo -e "  ${C_DIM}Answer the question above, or (w)ithdraw:${C_RESET}" >&2
-      read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" task_clarification </dev/tty
-
-      if [[ "$task_clarification" == "w" || "$task_clarification" == "W" ]]; then
+      cfa_review_loop "TASK_ESCALATE" "" "" "$TASK_ESCALATION" "" "$TASK"
+      if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
         proxy_record "TASK_ESCALATE" "withdraw"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
         rm -f "$TASK_ESCALATION"
         exit 1
       fi
 
-      proxy_record "TASK_ESCALATE" "clarify" "$task_clarification"
+      proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
       cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
       echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
       rm -f "$TASK_ESCALATION"
       cfa_set "TASK_IN_PROGRESS"
-      CORRECTION_MSG="Human clarification: $task_clarification"
-      continue  # Re-enter execution loop with clarification
+      CORRECTION_MSG="Human clarification: $CFA_RESPONSE"
+      continue
     fi
 
     # ── WORK_ASSERT: human/proxy reviews the work ──
@@ -330,62 +328,51 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
       exit 11  # work escalation
     fi
 
-    # Interactive review
-    while true; do
-      echo -e "  ${C_DIM}Review the work. Options:${C_RESET}" >&2
-      echo -e "  ${C_DIM}  (y) approve — work complete${C_RESET}" >&2
-      echo -e "  ${C_DIM}  (c) correct — targeted fix (agent re-executes)${C_RESET}" >&2
-      echo -e "  ${C_DIM}  (p) revise plan — rework needed (backtrack to planning)${C_RESET}" >&2
-      echo -e "  ${C_DIM}  (i) refine intent — scope/intent misalignment (backtrack to intent)${C_RESET}" >&2
-      echo -e "  ${C_DIM}  (n) withdraw${C_RESET}" >&2
+    # Free-text review with dialog loop
+    PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
+    INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
 
-      read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" work_review </dev/tty || work_review="y"
-      case "$work_review" in
-        y|Y)
+    if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
+      case "$REVIEW_ACTION" in
+        approve)
           proxy_record "WORK_ASSERT" "approve"
           cfa_transition "approve" || cfa_set "COMPLETED_WORK"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
-          break 2  # Exit both loops — work complete
+          break
           ;;
-        c|C)
+        correct)
           cfa_transition "correct" || cfa_set "TASK_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
-          echo -e "  ${C_DIM}Describe the correction:${C_RESET}" >&2
-          read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" correction </dev/tty || correction=""
-          proxy_record "WORK_ASSERT" "correct" "$correction"
-          CORRECTION_MSG="Apply this correction to the work: $correction"
-          break  # Exit inner loop → re-enter outer loop (agent fixes)
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
           ;;
-        p|P)
+        revise-plan)
           cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
-          echo -e "  ${C_DIM}What needs replanning:${C_RESET}" >&2
-          read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" replan_reason </dev/tty || replan_reason=""
-          proxy_record "WORK_ASSERT" "correct" "$replan_reason"
-          echo "$replan_reason" > "$BACKTRACK_FEEDBACK"
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
           exit 3
           ;;
-        i|I)
+        refine-intent)
           cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
-          echo -e "  ${C_DIM}Describe the intent misalignment:${C_RESET}" >&2
-          read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" intent_issue </dev/tty || intent_issue=""
-          proxy_record "WORK_ASSERT" "correct" "$intent_issue"
-          echo "$intent_issue" > "$BACKTRACK_FEEDBACK"
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
           exit 2
           ;;
-        n|N)
+        withdraw)
           proxy_record "WORK_ASSERT" "withdraw"
           cfa_transition "withdraw" || cfa_set "WITHDRAWN"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
           exit 1
           ;;
-        *)
-          echo -e "  ${C_YELLOW}Unrecognized option: '$work_review'. Try y/c/p/i/n.${C_RESET}" >&2
-          continue
-          ;;
       esac
-    done
+    else
+      # Fallback: treat raw input as work correction
+      cfa_transition "correct" || cfa_set "TASK_RESPONSE"
+      proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
+      CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
+    fi
   done
 
   python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"
@@ -434,22 +421,20 @@ else
       exit 10
     fi
 
-    echo -e "  ${C_DIM}Answer the questions above, or (w)ithdraw:${C_RESET}" >&2
-    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" plan_clarification </dev/tty
-
-    if [[ "$plan_clarification" == "w" || "$plan_clarification" == "W" ]]; then
+    cfa_review_loop "PLANNING_ESCALATE" "" "" "$PLAN_ESCALATION" "" "$TASK"
+    if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
       proxy_record "PLANNING_ESCALATE" "withdraw"
       cfa_transition "withdraw" || cfa_set "WITHDRAWN"
       rm -f "$PLAN_ESCALATION"
       exit 1
     fi
 
-    proxy_record "PLANNING_ESCALATE" "clarify" "$plan_clarification"
+    proxy_record "PLANNING_ESCALATE" "clarify" "$CFA_RESPONSE"
     cfa_transition "clarify" || cfa_set "PLANNING_RESPONSE"
     echo -e "  ${C_DIM}CfA: PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
     rm -f "$PLAN_ESCALATION"
     cfa_set "DRAFT"
-    run_claude "$PLAN_STREAM" "Human clarification: $plan_clarification" \
+    run_claude "$PLAN_STREAM" "Human clarification: $CFA_RESPONSE" \
       --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
   done
 
@@ -500,7 +485,6 @@ if [[ "$NO_PLAN" != "true" ]]; then
       chrome_heavy_line
     else
       # No plan.md — extract from stream and bridge the result
-      local PLAN_EXTRACT
       PLAN_EXTRACT=$(mktemp)
       python3 "$SCRIPT_DIR/extract_result.py" < "$PLAN_STREAM" > "$PLAN_EXTRACT"
       chrome_banner "PLAN_ASSERT" "CfA Phase 2 — human reviews plan"
@@ -509,63 +493,58 @@ if [[ "$NO_PLAN" != "true" ]]; then
       rm -f "$PLAN_EXTRACT"
     fi
 
-    echo -e "  ${C_DIM}Options: (y) approve  (n) reject  (e) edit  (r) re-plan  (b) backtrack to intent${C_RESET}" >&2
-    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" approval </dev/tty || approval="y"
-    case "$approval" in
-      y|Y)
-        proxy_record "PLAN_ASSERT" "approve"
-        cfa_transition "approve" || cfa_set "PLAN"
-        echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN${C_RESET}" >&2
-        break
-        ;;
-      n|N)
-        proxy_record "PLAN_ASSERT" "reject"
-        cfa_transition "withdraw" || cfa_set "WITHDRAWN"
-        echo -e "  ${C_DIM}CfA: PLAN_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
-        exit 1
-        ;;
-      e|E)
-        ${EDITOR:-vim} "$PLAN_FILE"
-        proxy_record "PLAN_ASSERT" "approve"
-        cfa_transition "approve" || cfa_set "PLAN"
-        echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN (human-edited)${C_RESET}" >&2
-        break  # Human-edited plan is approved (records as approve since the human accepted the result)
-        ;;
-      r|R)
-        # Re-plan: stay within planning phase (PLAN_ASSERT → correct → PLANNING_RESPONSE → DRAFT)
-        cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
-        echo -e "  ${C_DIM}CfA: PLAN_ASSERT → correct → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
-        echo -e "  ${C_DIM}Describe what the plan should change:${C_RESET}" >&2
-        read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" plan_feedback </dev/tty || plan_feedback=""
-        proxy_record "PLAN_ASSERT" "correct" "$plan_feedback"
-        if [[ -n "$plan_feedback" ]]; then
+    # Free-text review with dialog loop
+    PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
+    INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
+
+    if cfa_review_loop "PLAN_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "" "$TASK"; then
+      case "$REVIEW_ACTION" in
+        approve)
+          proxy_record "PLAN_ASSERT" "approve"
+          cfa_transition "approve" || cfa_set "PLAN"
+          echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN${C_RESET}" >&2
+          break
+          ;;
+        correct)
+          cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
+          echo -e "  ${C_DIM}CfA: PLAN_ASSERT → correct → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
+          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
-          cfa_set "DRAFT"  # Agent re-enters DRAFT after receiving feedback
-          run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${plan_feedback}" \
+          cfa_set "DRAFT"
+          run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
             --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
-          cfa_set "PLAN_ASSERT"  # Agent completed: back to assertion
-          # Relocate new plan file if written
+          cfa_set "PLAN_ASSERT"
           NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
           [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
-        fi
-        continue  # Loop back to show revised plan
-        ;;
-      b|B)
-        # Cross-phase backtrack to intent alignment
-        cfa_set "INTENT_RESPONSE"
-        echo -e "  ${C_DIM}CfA: PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
-        echo -e "  ${C_DIM}What needs clarification in the intent:${C_RESET}" >&2
-        read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" intent_feedback </dev/tty || intent_feedback=""
-        proxy_record "PLAN_ASSERT" "correct" "$intent_feedback"
-        echo "$intent_feedback" > "$BACKTRACK_FEEDBACK"
-        exit 2  # Signal run.sh to re-enter intent phase
-        ;;
-      *)
-        # Unrecognized input — re-prompt
-        echo -e "  ${C_YELLOW}Unrecognized option: '$approval'. Try y/n/e/r/b.${C_RESET}" >&2
-        continue
-        ;;
-    esac
+          continue  # outer plan loop re-enters with fresh dialog
+          ;;
+        refine-intent)
+          cfa_set "INTENT_RESPONSE"
+          echo -e "  ${C_DIM}CfA: PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+          exit 2
+          ;;
+        withdraw)
+          proxy_record "PLAN_ASSERT" "withdraw"
+          cfa_transition "withdraw" || cfa_set "WITHDRAWN"
+          echo -e "  ${C_DIM}CfA: PLAN_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
+          exit 1
+          ;;
+      esac
+    else
+      # Fallback: treat raw input as plan correction
+      cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
+      proxy_record "PLAN_ASSERT" "correct" "$CFA_RESPONSE"
+      echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
+      cfa_set "DRAFT"
+      run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
+        --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
+      cfa_set "PLAN_ASSERT"
+      NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
+      [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
+      continue  # outer plan loop re-enters
+    fi
   done
 fi
 
@@ -629,22 +608,20 @@ while true; do
       exit 11
     fi
 
-    echo -e "  ${C_DIM}Answer the question above, or (w)ithdraw:${C_RESET}" >&2
-    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" task_clarification </dev/tty
-
-    if [[ "$task_clarification" == "w" || "$task_clarification" == "W" ]]; then
+    cfa_review_loop "TASK_ESCALATE" "" "" "$LEGACY_TASK_ESCALATION" "" "$TASK"
+    if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
       proxy_record "TASK_ESCALATE" "withdraw"
       cfa_transition "withdraw" || cfa_set "WITHDRAWN"
       rm -f "$LEGACY_TASK_ESCALATION"
       exit 1
     fi
 
-    proxy_record "TASK_ESCALATE" "clarify" "$task_clarification"
+    proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
     cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
     echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
     rm -f "$LEGACY_TASK_ESCALATION"
     cfa_set "TASK_IN_PROGRESS"
-    LEGACY_CORRECTION_MSG="Human clarification: $task_clarification"
+    LEGACY_CORRECTION_MSG="Human clarification: $CFA_RESPONSE"
     continue  # Re-enter execution loop with clarification
   fi
 
@@ -663,61 +640,52 @@ while true; do
   fi
 
   chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
-  while true; do
-    echo -e "  ${C_DIM}Review the work. Options:${C_RESET}" >&2
-    echo -e "  ${C_DIM}  (y) approve — work complete${C_RESET}" >&2
-    echo -e "  ${C_DIM}  (c) correct — targeted fix (agent re-executes)${C_RESET}" >&2
-    echo -e "  ${C_DIM}  (p) revise plan — rework needed (backtrack to planning)${C_RESET}" >&2
-    echo -e "  ${C_DIM}  (i) refine intent — scope/intent misalignment (backtrack to intent)${C_RESET}" >&2
-    echo -e "  ${C_DIM}  (n) withdraw${C_RESET}" >&2
 
-    read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" final_review </dev/tty || final_review="y"
-    case "$final_review" in
-      y|Y)
+  # Free-text review with dialog loop
+  PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
+  INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
+
+  if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
+    case "$REVIEW_ACTION" in
+      approve)
         proxy_record "WORK_ASSERT" "approve"
         cfa_transition "approve" || cfa_set "COMPLETED_WORK"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
-        break 2  # Exit both loops — work complete
+        break
         ;;
-      c|C)
+      correct)
         cfa_transition "correct" || cfa_set "TASK_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
-        echo -e "  ${C_DIM}Describe the correction:${C_RESET}" >&2
-        read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" correction </dev/tty || correction=""
-        proxy_record "WORK_ASSERT" "correct" "$correction"
-        LEGACY_CORRECTION_MSG="Apply this correction to the work: $correction"
-        break  # Exit inner loop → re-enter outer loop (agent fixes)
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        LEGACY_CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
         ;;
-      p|P)
+      revise-plan)
         cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
-        echo -e "  ${C_DIM}What needs replanning:${C_RESET}" >&2
-        read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" replan_reason </dev/tty || replan_reason=""
-        proxy_record "WORK_ASSERT" "correct" "$replan_reason"
-        echo "$replan_reason" > "$BACKTRACK_FEEDBACK"
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
         exit 3
         ;;
-      i|I)
+      refine-intent)
         cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
-        echo -e "  ${C_DIM}Describe the intent misalignment:${C_RESET}" >&2
-        read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" intent_issue </dev/tty || intent_issue=""
-        proxy_record "WORK_ASSERT" "correct" "$intent_issue"
-        echo "$intent_issue" > "$BACKTRACK_FEEDBACK"
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
         exit 2
         ;;
-      n|N)
+      withdraw)
         proxy_record "WORK_ASSERT" "withdraw"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
         exit 1
         ;;
-      *)
-        echo -e "  ${C_YELLOW}Unrecognized option: '$final_review'. Try y/c/p/i/n.${C_RESET}" >&2
-        continue
-        ;;
     esac
-  done
+  else
+    # Fallback: treat raw input as work correction
+    cfa_transition "correct" || cfa_set "TASK_RESPONSE"
+    proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
+    LEGACY_CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
+  fi
 done
 
 python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"

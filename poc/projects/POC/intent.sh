@@ -261,42 +261,37 @@ review_intent() {
   chrome_bridge "$intent_path" "INTENT_ASSERT" "$TASK"
   chrome_heavy_line
 
-  chrome_approval approval
-  case "$approval" in
-    y|Y)
-      proxy_record "INTENT_ASSERT" "approve"
-      bump_intent_version "$intent_path" "approved"
-      echo -e "  ${C_GREEN}Intent approved.${C_RESET}" >&2
-      return 0
-      ;;
-    e|E)
-      ${EDITOR:-vim} "$intent_path"
-      proxy_record "INTENT_ASSERT" "approve"
-      bump_intent_version "$intent_path" "human-edited"
-      echo -e "  ${C_GREEN}INTENT.md updated.${C_RESET}" >&2
-      return 0
-      ;;
-    w|W)
-      # Withdraw: human abandons intent (spec Section 4.2: approve, correct, or withdraw)
-      proxy_record "INTENT_ASSERT" "withdraw"
-      intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
-      echo -e "  ${C_YELLOW}Intent withdrawn.${C_RESET}" >&2
-      exit 1
-      ;;
-    n|N)
-      echo -e "  ${C_DIM}What should change?${C_RESET}" >&2
-      chrome_prompt feedback
-      REJECTION_FEEDBACK="$feedback"
-      proxy_record "INTENT_ASSERT" "correct" "$feedback"
-      return 1
-      ;;
-    *)
-      # Any other input is feedback
-      REJECTION_FEEDBACK="$approval"
-      proxy_record "INTENT_ASSERT" "correct" "$approval"
-      return 1
-      ;;
-  esac
+  # Free-text review with dialog loop
+  local intent_summary
+  intent_summary=$(head -c 500 "$intent_path" 2>/dev/null || true)
+
+  if cfa_review_loop "INTENT_ASSERT" "$intent_summary" "" "$intent_path" "" "$TASK"; then
+    case "$REVIEW_ACTION" in
+      approve)
+        proxy_record "INTENT_ASSERT" "approve"
+        bump_intent_version "$intent_path" "approved"
+        echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT${C_RESET}" >&2
+        return 0
+        ;;
+      withdraw)
+        proxy_record "INTENT_ASSERT" "withdraw"
+        intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
+        echo -e "  ${C_YELLOW}Intent withdrawn.${C_RESET}" >&2
+        exit 1
+        ;;
+      correct)
+        REJECTION_FEEDBACK="$REVIEW_FEEDBACK"
+        proxy_record "INTENT_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        echo -e "  ${C_DIM}CfA: INTENT_ASSERT → correct → INTENT_RESPONSE${C_RESET}" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  # Fallback: treat raw input as correction feedback
+  REJECTION_FEEDBACK="$CFA_RESPONSE"
+  proxy_record "INTENT_ASSERT" "correct" "$CFA_RESPONSE"
+  return 1
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -365,24 +360,22 @@ while true; do
     chrome_bridge "$ESCALATION_FILE" "INTENT_ESCALATE" "$TASK"
     chrome_heavy_line
 
-    echo -e "  ${C_DIM}Answer the questions above, or (w)ithdraw:${C_RESET}" >&2
-    chrome_prompt clarification
-
-    if [[ "$clarification" == "w" || "$clarification" == "W" ]]; then
+    cfa_review_loop "INTENT_ESCALATE" "" "" "$ESCALATION_FILE" "" "$TASK"
+    if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
       proxy_record "INTENT_ESCALATE" "withdraw"
       intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
       exit 1
     fi
 
     # Feed clarification back to agent
-    proxy_record "INTENT_ESCALATE" "clarify" "$clarification"
+    proxy_record "INTENT_ESCALATE" "clarify" "$CFA_RESPONSE"
     intent_cfa_transition "clarify" || intent_cfa_set "INTENT_RESPONSE"
     rm -f "$ESCALATION_FILE"
-    chrome_user "$clarification"
+    chrome_user "$CFA_RESPONSE"
     echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
     chrome_thinking
     intent_cfa_set "PROPOSAL"
-    run_turn "Human clarification: $clarification" \
+    run_turn "Human clarification: $CFA_RESPONSE" \
       --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 5
     continue  # Re-check: agent may escalate again or write INTENT.md
   fi
