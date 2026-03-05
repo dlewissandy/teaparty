@@ -2,45 +2,109 @@
 # Extract YouTube transcript as plain text.
 # Usage: yt-transcript.sh "<youtube-url>"
 #
-# Auto-installs yt-dlp via Homebrew on first run if not present.
+# Auto-installs youtube-transcript-api via pip on first run if not present.
 set -euo pipefail
 
 URL="${1:?Usage: yt-transcript.sh '<youtube-url>'}"
 
-# Auto-install yt-dlp if needed
-if ! command -v yt-dlp &>/dev/null; then
-  echo "[yt-transcript] Installing yt-dlp via Homebrew..." >&2
-  brew install yt-dlp >&2
+# Auto-install youtube-transcript-api if needed
+if ! python3 -c "import youtube_transcript_api" 2>/dev/null; then
+  echo "[yt-transcript] Installing youtube-transcript-api via pip..." >&2
+  pip3 install --quiet youtube-transcript-api >&2
 fi
 
-TMPDIR=$(mktemp -d)
-trap "rm -rf $TMPDIR" EXIT
+# Extract video ID from URL (handles various YouTube URL formats)
+python3 -c "
+import sys
+import re
+import json
+from youtube_transcript_api import YouTubeTranscriptApi
+from youtube_transcript_api._errors import (
+    TranscriptsDisabled,
+    NoTranscriptFound,
+    VideoUnavailable,
+)
 
-# Try to get auto-generated or manual English subtitles
-yt-dlp \
-  --skip-download \
-  --write-auto-sub \
-  --write-sub \
-  --sub-lang en \
-  --sub-format vtt \
-  --convert-subs srt \
-  -o "$TMPDIR/%(id)s.%(ext)s" \
-  "$URL" >&2 2>&1 || true
+url = sys.argv[1]
 
-# Find the subtitle file
-SUB_FILE=$(find "$TMPDIR" -name "*.srt" -o -name "*.vtt" | head -1)
+# Extract video ID from various YouTube URL formats
+video_id = None
+patterns = [
+    r'(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\?\/]+)',
+    r'youtube\.com\/.*[?&]v=([^&]+)',
+]
 
-if [[ -z "$SUB_FILE" ]]; then
-  echo '{"error": "No transcript available for this video"}'
-  exit 1
-fi
+for pattern in patterns:
+    match = re.search(pattern, url)
+    if match:
+        video_id = match.group(1)
+        break
 
-# Strip SRT formatting (timestamps, sequence numbers) to get plain text
-# Remove: sequence numbers (bare digits), timestamps (00:00:00,000 --> ...), blank lines, HTML tags
-# Deduplicate consecutive identical lines (common in auto-generated subs)
-sed -E '/^[0-9]+$/d; /^[0-9]{2}:[0-9]{2}/d; /^$/d; s/<[^>]*>//g' "$SUB_FILE" \
-  | awk '!seen[$0]++' \
-  | tr '\n' ' ' \
-  | fold -s -w 80
+if not video_id:
+    print(json.dumps({'error': 'Could not extract video ID from URL'}))
+    sys.exit(1)
 
-echo ""
+try:
+    # Get the transcript (tries auto-generated if manual not available)
+    transcript_list = YouTubeTranscriptApi.list_transcripts(video_id)
+
+    # Try to get English transcript first
+    try:
+        transcript = transcript_list.find_transcript(['en'])
+    except NoTranscriptFound:
+        # Fall back to any available transcript
+        transcript = transcript_list.find_generated_transcript(['en'])
+
+    # Fetch and format the transcript
+    transcript_data = transcript.fetch()
+
+    # Extract just the text, remove duplicates, and format
+    seen = set()
+    text_parts = []
+    for entry in transcript_data:
+        text = entry['text'].strip()
+        # Remove HTML tags and clean up
+        text = re.sub(r'<[^>]+>', '', text)
+        # Skip duplicates (common in auto-generated captions)
+        if text and text not in seen:
+            seen.add(text)
+            text_parts.append(text)
+
+    # Join and format to 80 chars width
+    full_text = ' '.join(text_parts)
+
+    # Simple word-wrap at 80 chars
+    words = full_text.split()
+    lines = []
+    current_line = []
+    current_length = 0
+
+    for word in words:
+        word_len = len(word)
+        if current_length + word_len + len(current_line) > 80:
+            if current_line:
+                lines.append(' '.join(current_line))
+                current_line = [word]
+                current_length = word_len
+        else:
+            current_line.append(word)
+            current_length += word_len
+
+    if current_line:
+        lines.append(' '.join(current_line))
+
+    print('\n'.join(lines))
+
+except TranscriptsDisabled:
+    print(json.dumps({'error': 'Transcripts are disabled for this video'}))
+    sys.exit(1)
+except NoTranscriptFound:
+    print(json.dumps({'error': 'No transcript available for this video'}))
+    sys.exit(1)
+except VideoUnavailable:
+    print(json.dumps({'error': 'Video is unavailable'}))
+    sys.exit(1)
+except Exception as e:
+    print(json.dumps({'error': f'Failed to fetch transcript: {str(e)}'}))
+    sys.exit(1)
+" "$URL"
