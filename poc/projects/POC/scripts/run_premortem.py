@@ -58,7 +58,7 @@ def run_premortem(task: str, output_path: str, context: str) -> int:
     try:
         result = subprocess.run(
             ["claude", "-p", "--model", "claude-haiku-4-5",
-             "--max-turns", "1", "--output-format", "text"],
+             "--output-format", "text"],
             input=prompt, capture_output=True, text=True, timeout=60,
         )
     except FileNotFoundError:

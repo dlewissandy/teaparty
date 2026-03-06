@@ -311,7 +311,6 @@ def build_retrieval_query(task_desc: str) -> str:
             [
                 "claude", "-p",
                 "--model", "claude-haiku-4-5",
-                "--max-turns", "1",
                 "--output-format", "text",
             ],
             input=prompt,

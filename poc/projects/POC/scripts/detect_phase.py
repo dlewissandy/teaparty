@@ -57,7 +57,6 @@ def detect_phase_from_content(content: str) -> str:
             [
                 'claude', '-p',
                 '--model', 'claude-haiku-4-5',
-                '--max-turns', '1',
                 '--output-format', 'text',
             ],
             input=prompt,

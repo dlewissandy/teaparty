@@ -21,7 +21,6 @@ EOF
 echo "Settings: $(cat "$SETTINGS1")"
 echo "Run the command: /tmp/poc-test-tool.sh hello" | claude -p \
   --output-format text \
-  --max-turns 3 \
   --permission-mode acceptEdits \
   --settings "$SETTINGS1" \
   2>&1 | head -20
@@ -35,7 +34,6 @@ EOF
 echo "Settings: $(cat "$SETTINGS2")"
 echo "Run the command: /tmp/poc-test-tool.sh hello" | claude -p \
   --output-format text \
-  --max-turns 3 \
   --permission-mode acceptEdits \
   --settings "$SETTINGS2" \
   2>&1 | head -20
@@ -44,7 +42,6 @@ echo ""
 echo "=== Test 3: --allowedTools directly ==="
 echo "Run the command: /tmp/poc-test-tool.sh hello" | claude -p \
   --output-format text \
-  --max-turns 3 \
   --permission-mode acceptEdits \
   --allowedTools 'Bash(/tmp/poc-test-tool.sh *)' \
   2>&1 | head -20
@@ -53,7 +50,6 @@ echo ""
 echo "=== Test 4: --allowedTools with just Bash ==="
 echo "Run the command: /tmp/poc-test-tool.sh hello" | claude -p \
   --output-format text \
-  --max-turns 3 \
   --permission-mode acceptEdits \
   --allowedTools 'Bash' \
   2>&1 | head -20

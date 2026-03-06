@@ -57,7 +57,6 @@ if [[ "$TASK_MODE" == "conversational" ]]; then
   echo -e "  ${C_DIM}Conversational — responding directly, no workflow.${C_RESET}" >&2
   echo "$TASK" | claude -p \
     --model claude-sonnet-4-5 \
-    --max-turns 1 \
     --output-format text
   exit 0
 fi
@@ -100,6 +99,15 @@ CLAUDEMD
 fi
 export POC_REPO_DIR
 
+# ── Compute relative path from repo root to project dir ──
+# Linked-repo: e.g., "poc/projects/POC". Standalone: "."
+if [[ "$POC_REPO_DIR" != "$POC_PROJECT_DIR" ]]; then
+  POC_RELATIVE_PATH=$(python3 -c "import os; print(os.path.relpath('$POC_PROJECT_DIR', '$POC_REPO_DIR'))")
+else
+  POC_RELATIVE_PATH="."
+fi
+export POC_RELATIVE_PATH
+
 # ── Session setup with worktree ──
 SESSION_TS=$(date +%Y%m%d-%H%M%S)
 SESSION_BRANCH="session/$SESSION_TS"
@@ -109,6 +117,17 @@ INFRA_DIR="$POC_PROJECT_DIR/.sessions/$SESSION_TS"
 # Create session worktree (branched from repo HEAD)
 mkdir -p "$POC_PROJECT_DIR/.worktrees"
 git -C "$POC_REPO_DIR" worktree add "$SESSION_WORKTREE" -b "$SESSION_BRANCH"
+
+# Compute project working directory inside the worktree.
+# Linked-repo: $SESSION_WORKTREE/poc/projects/POC (agent CWD = project subdir)
+# Standalone: $SESSION_WORKTREE (agent CWD = worktree root, same as before)
+if [[ "$POC_RELATIVE_PATH" != "." ]]; then
+  PROJECT_WORKDIR="$SESSION_WORKTREE/$POC_RELATIVE_PATH"
+  mkdir -p "$PROJECT_WORKDIR"
+else
+  PROJECT_WORKDIR="$SESSION_WORKTREE"
+fi
+export POC_PROJECT_WORKDIR="$PROJECT_WORKDIR"
 
 # Create infra dirs for each team
 mkdir -p "$INFRA_DIR"/{art,writing,editorial,research,coding}
@@ -166,22 +185,31 @@ rules = [
     'WebFetch',
     'WebSearch',
 ]
-hook_cmd = d + '/hooks/block-task.sh'
+block_task_cmd = d + '/hooks/block-task.sh'
+enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
 json.dump({
     'permissions': {'allow': rules},
     'hooks': {
         'PreToolUse': [
             {
                 'matcher': 'Task',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
             },
             {
                 'matcher': 'TaskOutput',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
             },
             {
                 'matcher': 'TaskStop',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
+            },
+            {
+                'matcher': 'Write',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+            {
+                'matcher': 'Edit',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
             },
         ]
     },
@@ -191,6 +219,8 @@ json.dump({
         'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
         'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
         'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+        'POC_PROJECT_WORKDIR': os.environ.get('POC_PROJECT_WORKDIR', ''),
+        'POC_RELATIVE_PATH': os.environ.get('POC_RELATIVE_PATH', ''),
         'POC_REPO_DIR': os.environ.get('POC_REPO_DIR', ''),
         'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
         'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
@@ -208,6 +238,7 @@ SUBTITLE="Project: $PROJECT  Session: $SESSION_TS"
 chrome_banner "Hierarchical Agent Teams" "$SUBTITLE"
 echo -e "  ${C_DIM}Task:${C_RESET} $TASK" >&2
 echo -e "  ${C_DIM}Worktree:${C_RESET} $SESSION_WORKTREE" >&2
+echo -e "  ${C_DIM}Project CWD:${C_RESET} $PROJECT_WORKDIR" >&2
 echo -e "  ${C_DIM}Infra:${C_RESET} $INFRA_DIR/" >&2
 echo -e "  ${C_DIM}Mode:${C_RESET} $TASK_MODE" >&2
 
@@ -295,7 +326,7 @@ proxy_record() {
 # ── Intent gathering phase (CfA Phase 1: INTENT_ASSERT proxy gate) ──
 # Remove any stale INTENT.md inherited from git or a prior session's worktree.
 # A fresh intent phase must start from scratch; the agent writes a new INTENT.md.
-rm -f "$SESSION_WORKTREE/INTENT.md"
+rm -f "$PROJECT_WORKDIR/INTENT.md"
 
 INTENT_APPROVED=false
 if [[ "$SKIP_INTENT" == "true" ]]; then
@@ -318,15 +349,15 @@ else
     [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]    && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
     [[ -s "$MEMORY_CTX_FILE" ]]                  && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
-    if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
+    if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
         --project-dir "$POC_PROJECT_DIR" --task "$TASK" \
         --proxy-model "$PROXY_MODEL" "${INTENT_CTX[@]}"; then
       INTENT_APPROVED=true
       # intent.sh records proxy outcomes internally — no proxy_record here
       # Phase 2: Archive INTENT.md to infra dir immediately
-      if [[ -f "$SESSION_WORKTREE/INTENT.md" ]]; then
-        cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md"
-        rm "$SESSION_WORKTREE/INTENT.md"
+      if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
+        cp "$PROJECT_WORKDIR/INTENT.md" "$INFRA_DIR/INTENT.md"
+        rm "$PROJECT_WORKDIR/INTENT.md"
       fi
       cfa_set "INTENT"
 
@@ -458,7 +489,6 @@ print(task, end='')
 " "$PROJECTS_DIR" <<< "$TASK")
 
 # ── CfA backtracking loop — plan → approve → execute → (backtrack?) ──
-PLAN_T=15; EXEC_T=30
 export POC_STALL_TIMEOUT=1800
 
 PLAN_SESSION_ID=""
@@ -473,10 +503,10 @@ while true; do
       --agents "$AGENTS_JSON" \
       --agent project-lead \
       --settings "$SETTINGS_FILE" \
-      --cwd "$SESSION_WORKTREE" \
+      --cwd "$PROJECT_WORKDIR" \
+      --add-dir "$SESSION_WORKTREE" \
+      --add-dir "$PROJECTS_DIR" \
       --stream-dir "$INFRA_DIR" \
-      --plan-turns "$PLAN_T" \
-      --exec-turns "$EXEC_T" \
       --proxy-model "$PROXY_MODEL" \
       --cfa-state "$CFA_STATE_FILE" \
       --plan-only \
@@ -496,13 +526,13 @@ while true; do
       [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]   && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
       [[ -s "$MEMORY_CTX_FILE" ]]                 && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
-      if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
+      if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
           --project-dir "$POC_PROJECT_DIR" --task "$ORIGINAL_TASK" \
           --proxy-model "$PROXY_MODEL" \
           --backtrack-context "$BACKTRACK_CTX" "${INTENT_CTX[@]}"; then
-        if [[ -f "$SESSION_WORKTREE/INTENT.md" ]]; then
-          cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md"
-          rm "$SESSION_WORKTREE/INTENT.md"
+        if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
+          cp "$PROJECT_WORKDIR/INTENT.md" "$INFRA_DIR/INTENT.md"
+          rm "$PROJECT_WORKDIR/INTENT.md"
         fi
         TASK="$(cat "$INFRA_DIR/INTENT.md")
 
@@ -526,10 +556,10 @@ Original task: $ORIGINAL_TASK"
       --agents "$AGENTS_JSON" \
       --agent project-lead \
       --settings "$SETTINGS_FILE" \
-      --cwd "$SESSION_WORKTREE" \
+      --cwd "$PROJECT_WORKDIR" \
+      --add-dir "$SESSION_WORKTREE" \
+      --add-dir "$PROJECTS_DIR" \
       --stream-dir "$INFRA_DIR" \
-      --plan-turns "$PLAN_T" \
-      --exec-turns "$EXEC_T" \
       --proxy-model "$PROXY_MODEL" \
       --cfa-state "$CFA_STATE_FILE" \
       --execute-only \
@@ -550,13 +580,13 @@ Original task: $ORIGINAL_TASK"
       [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]   && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
       [[ -s "$MEMORY_CTX_FILE" ]]                 && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
-      if "$SCRIPT_DIR/intent.sh" --cwd "$SESSION_WORKTREE" --stream-dir "$INFRA_DIR" \
+      if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
           --project-dir "$POC_PROJECT_DIR" --task "$ORIGINAL_TASK" \
           --proxy-model "$PROXY_MODEL" \
           --backtrack-context "$BACKTRACK_CTX" "${INTENT_CTX[@]}"; then
-        if [[ -f "$SESSION_WORKTREE/INTENT.md" ]]; then
-          cp "$SESSION_WORKTREE/INTENT.md" "$INFRA_DIR/INTENT.md"
-          rm "$SESSION_WORKTREE/INTENT.md"
+        if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
+          cp "$PROJECT_WORKDIR/INTENT.md" "$INFRA_DIR/INTENT.md"
+          rm "$PROJECT_WORKDIR/INTENT.md"
         fi
         TASK="$(cat "$INFRA_DIR/INTENT.md")
 

@@ -31,10 +31,8 @@ AGENTS_JSON=""
 LEAD=""
 AGENT_MODE=false
 SETTINGS_FILE=""
-PLAN_TURNS=15
-EXEC_TURNS=30
 CWD=""
-ADD_DIR=""
+ADD_DIRS=()
 FILTER_PREFIX=""
 STREAM_DIR=""
 CONTEXT_FILES=()
@@ -53,10 +51,8 @@ while [[ $# -gt 0 ]]; do
     --agent)           LEAD="$2"; shift 2 ;;
     --agent-mode)      AGENT_MODE=true; shift ;;
     --settings)        SETTINGS_FILE="$2"; shift 2 ;;
-    --plan-turns)      PLAN_TURNS="$2"; shift 2 ;;
-    --exec-turns)      EXEC_TURNS="$2"; shift 2 ;;
     --cwd)             CWD="$2"; shift 2 ;;
-    --add-dir)         ADD_DIR="$2"; shift 2 ;;
+    --add-dir)         ADD_DIRS+=("$2"); shift 2 ;;
     --stream-dir)      STREAM_DIR="$2"; shift 2 ;;
     --filter-prefix)   FILTER_PREFIX="$2"; shift 2 ;;
     --context-file)    CONTEXT_FILES+=("$2"); shift 2 ;;
@@ -78,7 +74,9 @@ CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 [[ -n "$AGENTS_JSON" ]]   && CLAUDE_ARGS+=(--agents "$AGENTS_JSON")
 [[ -n "$LEAD" ]]           && CLAUDE_ARGS+=(--agent "$LEAD")
 [[ -n "$SETTINGS_FILE" ]]  && CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
-[[ -n "$ADD_DIR" ]]        && CLAUDE_ARGS+=(--add-dir "$ADD_DIR")
+for _ad in "${ADD_DIRS[@]+"${ADD_DIRS[@]}"}"; do
+  CLAUDE_ARGS+=(--add-dir "$_ad")
+done
 
 # Inline context files into the task (claude CLI has no --context-file flag).
 # Same approach as intent.sh: read contents and prepend to the prompt.
@@ -268,13 +266,13 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
       # Correction round: resume agent with feedback (TASK_RESPONSE → TASK_IN_PROGRESS)
       cfa_set "TASK_IN_PROGRESS"
       run_claude "$EXEC_STREAM" "$CORRECTION_MSG" \
-        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
     elif [[ -n "$EXEC_SESSION_ID" ]]; then
       run_claude "$EXEC_STREAM" "Execute the plan." \
-        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
     else
       run_claude "$EXEC_STREAM" "$TASK" \
-        --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+        --permission-mode acceptEdits
     fi
 
     # Extract session ID for correction rounds
@@ -438,8 +436,7 @@ else
   ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" || true
 
   run_claude "$PLAN_STREAM" "$TASK" \
-    --permission-mode plan --max-turns "$PLAN_TURNS"
-
+    --permission-mode plan
   SESSION_ID=$(extract_session_id < "$PLAN_STREAM")
 
   if [[ -z "$SESSION_ID" ]]; then
@@ -477,7 +474,7 @@ else
     rm -f "$PLAN_ESCALATION"
     cfa_set "DRAFT"
     run_claude "$PLAN_STREAM" "Human clarification: $CFA_RESPONSE" \
-      --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
+      --resume "$SESSION_ID" --permission-mode plan
   done
 
   cfa_set "PLAN_ASSERT"  # Agent completed planning: DRAFT → assert → PLAN_ASSERT
@@ -554,7 +551,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
           echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
           cfa_set "DRAFT"
           run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
-            --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
+            --resume "$SESSION_ID" --permission-mode plan
           cfa_set "PLAN_ASSERT"
           NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
           [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
@@ -581,7 +578,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
       echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
       cfa_set "DRAFT"
       run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
-        --resume "$SESSION_ID" --permission-mode plan --max-turns "$PLAN_TURNS"
+        --resume "$SESSION_ID" --permission-mode plan
       cfa_set "PLAN_ASSERT"
       NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
       [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
@@ -617,13 +614,13 @@ while true; do
     # Correction round: resume agent with feedback (TASK_RESPONSE → TASK_IN_PROGRESS)
     cfa_set "TASK_IN_PROGRESS"
     run_claude "$EXEC_STREAM" "$LEGACY_CORRECTION_MSG" \
-      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
   elif [[ "$NO_PLAN" == "true" ]]; then
     run_claude "$EXEC_STREAM" "$TASK" \
-      --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+      --permission-mode acceptEdits
   else
     run_claude "$EXEC_STREAM" "Execute the plan." \
-      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits --max-turns "$EXEC_TURNS"
+      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
   fi
 
   # Extract session ID for correction rounds

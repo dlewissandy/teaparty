@@ -18,11 +18,15 @@ import shutil
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from human_proxy import (
     COLD_START_THRESHOLD,
+    EXPLORE_RATE,
+    STALENESS_DAYS,
     BINARY_STATES,
     GENERATIVE_STATES,
     ConfidenceEntry,
@@ -58,8 +62,20 @@ def _make_entry(
     correct_count: int = 0,
     reject_count: int = 0,
     total_count: int = 0,
+    last_updated: str = '',
+    ema_approval_rate: float = None,
 ) -> ConfidenceEntry:
-    """Return a ConfidenceEntry with specified counts."""
+    """Return a ConfidenceEntry with specified counts.
+
+    When ema_approval_rate is not specified, it is bootstrapped from the
+    Laplace rate — mirroring the backward-compat logic in production code
+    for old entries that predate the EMA field.
+    """
+    if ema_approval_rate is None:
+        if total_count > 0:
+            ema_approval_rate = (approve_count + 1) / (total_count + 2)
+        else:
+            ema_approval_rate = 0.5
     return ConfidenceEntry(
         state=state,
         task_type=task_type,
@@ -67,7 +83,8 @@ def _make_entry(
         correct_count=correct_count,
         reject_count=reject_count,
         total_count=total_count,
-        last_updated='2026-03-04',
+        last_updated=last_updated or date.today().isoformat(),
+        ema_approval_rate=ema_approval_rate,
     )
 
 
@@ -91,9 +108,24 @@ def _record_n(model: ConfidenceModel, state: str, task_type: str, outcome: str, 
     return model
 
 
+# All existing tests use DeterministicProxyTestCase which disables random
+# exploration so that auto-approve decisions are deterministic.
+# Exploration-specific tests at the bottom use unittest.TestCase directly.
+
+class DeterministicProxyTestCase(unittest.TestCase):
+    """Base class that disables random exploration for deterministic tests."""
+
+    def setUp(self):
+        self._explore_patcher = patch('human_proxy.random.random', return_value=1.0)
+        self._explore_patcher.start()
+
+    def tearDown(self):
+        self._explore_patcher.stop()
+
+
 # ── 1. Cold start ─────────────────────────────────────────────────────────────
 
-class TestColdStart(unittest.TestCase):
+class TestColdStart(DeterministicProxyTestCase):
 
     def test_new_state_always_escalates(self):
         """With no observations at all the proxy must escalate."""
@@ -129,7 +161,7 @@ class TestColdStart(unittest.TestCase):
 
 # ── 2. High confidence binary — auto-approve ──────────────────────────────────
 
-class TestHighConfidenceBinary(unittest.TestCase):
+class TestHighConfidenceBinary(DeterministicProxyTestCase):
 
     def test_all_approvals_auto_approves(self):
         """10 approvals with 0 corrections → auto-approve at binary threshold."""
@@ -167,7 +199,7 @@ class TestHighConfidenceBinary(unittest.TestCase):
 
 # ── 3. Low confidence — escalate ──────────────────────────────────────────────
 
-class TestLowConfidenceEscalates(unittest.TestCase):
+class TestLowConfidenceEscalates(DeterministicProxyTestCase):
 
     def test_high_correction_rate_escalates(self):
         """High correction rate keeps confidence below threshold → escalate."""
@@ -221,7 +253,7 @@ class TestLowConfidenceEscalates(unittest.TestCase):
 
 # ── 4. Generative states — higher threshold ───────────────────────────────────
 
-class TestGenerativeStates(unittest.TestCase):
+class TestGenerativeStates(DeterministicProxyTestCase):
 
     def test_is_generative_state_returns_true_for_escalate_states(self):
         for state in ('INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_ESCALATE'):
@@ -419,14 +451,16 @@ class TestBayesianSmoothing(unittest.TestCase):
 
 # ── 7. Persistence round-trip ─────────────────────────────────────────────────
 
-class TestPersistence(unittest.TestCase):
+class TestPersistence(DeterministicProxyTestCase):
 
     def setUp(self):
+        super().setUp()
         self.tmpdir = tempfile.mkdtemp()
         self.model_path = os.path.join(self.tmpdir, '.proxy-confidence.json')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+        super().tearDown()
 
     def test_save_creates_file(self):
         model = _make_model()
@@ -504,7 +538,7 @@ class TestPersistence(unittest.TestCase):
 
 # ── 8. Mixed task types ───────────────────────────────────────────────────────
 
-class TestMixedTaskTypes(unittest.TestCase):
+class TestMixedTaskTypes(DeterministicProxyTestCase):
 
     def test_different_task_types_tracked_independently(self):
         """Two different task types at the same state have independent confidence."""
@@ -577,7 +611,7 @@ class TestMixedTaskTypes(unittest.TestCase):
 
 # ── 9. Full learning loop ─────────────────────────────────────────────────────
 
-class TestFullLearningLoop(unittest.TestCase):
+class TestFullLearningLoop(DeterministicProxyTestCase):
 
     def test_ten_approvals_then_auto_approve(self):
         """After 10 approvals the proxy should auto-approve."""
@@ -600,7 +634,13 @@ class TestFullLearningLoop(unittest.TestCase):
                          f"Expected escalate after corrections, got: {decision.reasoning}")
 
     def test_full_loop_confidence_values(self):
-        """Verify exact confidence values at each stage of the learning loop."""
+        """Verify confidence values at each stage of the learning loop.
+
+        confidence = min(laplace, ema). After pure approvals, EMA > Laplace
+        so confidence = Laplace. After corrections with asymmetric regret
+        (REGRET_WEIGHT=3), EMA crashes well below Laplace, so confidence
+        tracks EMA — this is the intended least-regret behavior.
+        """
         model = _make_model()
 
         # Stage 1: cold start
@@ -611,17 +651,22 @@ class TestFullLearningLoop(unittest.TestCase):
         # Stage 2: after 10 approvals
         model = _record_n(model, 'PLAN_ASSERT', 'loop-proj', 'approve', 10)
         d1 = should_escalate(model, 'PLAN_ASSERT', 'loop-proj')
-        # confidence = (10+1)/(10+2) = 11/12 ≈ 0.917
+        # Laplace = (10+1)/(10+2) = 11/12 ≈ 0.917
+        # EMA > Laplace after pure approvals, so confidence = Laplace
         expected_after_10 = 11 / 12
         self.assertAlmostEqual(d1.confidence, expected_after_10, places=6)
         self.assertEqual(d1.action, 'auto-approve')
 
-        # Stage 3: after 3 corrections
+        # Stage 3: after 3 corrections (asymmetric regret = 9 EMA decay steps)
         model = _record_n(model, 'PLAN_ASSERT', 'loop-proj', 'correct', 3)
         d2 = should_escalate(model, 'PLAN_ASSERT', 'loop-proj')
-        # confidence = (10+1)/(13+2) = 11/15 ≈ 0.733
-        expected_after_corrections = 11 / 15
-        self.assertAlmostEqual(d2.confidence, expected_after_corrections, places=6)
+        laplace_after = 11 / 15  # ≈ 0.733
+        # EMA crashed well below Laplace due to regret weighting,
+        # so confidence = EMA << Laplace
+        self.assertLess(d2.confidence, laplace_after,
+                        "EMA should be below Laplace after corrections with regret weighting")
+        self.assertLess(d2.confidence, 0.1,
+                        "3 corrections × REGRET_WEIGHT=3 = 9 decay steps should crash EMA")
         self.assertEqual(d2.action, 'escalate')
 
     def test_recovery_after_corrections(self):
@@ -645,13 +690,15 @@ class TestFullLearningLoop(unittest.TestCase):
 
 # ── 10. Team-scoped model paths ──────────────────────────────────────────────
 
-class TestTeamScopedModels(unittest.TestCase):
+class TestTeamScopedModels(DeterministicProxyTestCase):
 
     def setUp(self):
+        super().setUp()
         self.tmpdir = tempfile.mkdtemp()
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+        super().tearDown()
 
     def test_resolve_team_model_path(self):
         from human_proxy import resolve_team_model_path
@@ -739,7 +786,7 @@ class TestTeamScopedModels(unittest.TestCase):
 
 # ── 11. INTENT_ASSERT gate ───────────────────────────────────────────────────
 
-class TestIntentAssertGate(unittest.TestCase):
+class TestIntentAssertGate(DeterministicProxyTestCase):
     """INTENT_ASSERT is a binary state used at the intent phase gate in run.sh.
     Verify the proxy correctly handles it alongside PLAN_ASSERT/WORK_ASSERT."""
 
@@ -1077,6 +1124,100 @@ class TestGenerativeResponse(unittest.TestCase):
         model = _make_model()
         result = generate_response(model, 'TASK_ESCALATE', 'proj')
         self.assertIsNone(result)
+
+
+# ── 10. Exploration and staleness ────────────────────────────────────────────
+
+class TestExploration(unittest.TestCase):
+    """Tests for the explore/exploit balance (ε-greedy exploration)."""
+
+    def test_exploration_triggers_escalation(self):
+        """When random < EXPLORE_RATE, escalate even with high confidence."""
+        entry = _make_entry(approve_count=20, total_count=20)
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=0.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('Exploration', decision.reasoning)
+
+    def test_no_exploration_when_random_above_rate(self):
+        """When random >= EXPLORE_RATE, auto-approve as normal."""
+        entry = _make_entry(approve_count=20, total_count=20)
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'auto-approve')
+
+    def test_exploration_preserves_confidence_value(self):
+        """Exploration decisions still report the actual confidence."""
+        entry = _make_entry(approve_count=10, total_count=10)
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=0.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertGreater(decision.confidence, 0.8)
+        self.assertEqual(decision.action, 'escalate')
+
+    def test_exploration_does_not_affect_cold_start(self):
+        """Cold start escalation takes priority over exploration."""
+        model = _make_model()
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'new-proj')
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('Cold start', decision.reasoning)
+
+    def test_exploration_does_not_affect_low_confidence(self):
+        """Low confidence escalation takes priority — no double reasoning."""
+        entry = _make_entry(approve_count=3, correct_count=7, total_count=10)
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'escalate')
+        self.assertNotIn('Exploration', decision.reasoning)
+
+
+class TestStaleness(unittest.TestCase):
+    """Tests for the staleness guard — force escalation after too long."""
+
+    def test_stale_entry_forces_escalation(self):
+        """Entry older than STALENESS_DAYS forces escalation."""
+        from datetime import timedelta
+        old_date = (date.today() - timedelta(days=STALENESS_DAYS + 1)).isoformat()
+        entry = _make_entry(approve_count=20, total_count=20, last_updated=old_date)
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('Stale', decision.reasoning)
+
+    def test_fresh_entry_not_stale(self):
+        """Entry updated today is not stale."""
+        entry = _make_entry(
+            approve_count=20, total_count=20,
+            last_updated=date.today().isoformat(),
+        )
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'auto-approve')
+
+    def test_staleness_checked_before_exploration(self):
+        """Stale entries escalate with staleness reasoning, not exploration."""
+        from datetime import timedelta
+        old_date = (date.today() - timedelta(days=STALENESS_DAYS + 1)).isoformat()
+        entry = _make_entry(approve_count=20, total_count=20, last_updated=old_date)
+        model = _model_with_entry(entry)
+        # Even if exploration would not trigger (random=1.0), staleness wins
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertIn('Stale', decision.reasoning)
+
+    def test_unparseable_date_treated_as_stale(self):
+        """Entries with bad date strings are treated as stale."""
+        entry = _make_entry(approve_count=20, total_count=20, last_updated='bad-date')
+        model = _model_with_entry(entry)
+        with patch('human_proxy.random.random', return_value=1.0):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+        self.assertEqual(decision.action, 'escalate')
 
 
 if __name__ == '__main__':

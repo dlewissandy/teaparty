@@ -337,8 +337,7 @@ fi
 # ── PROPOSAL: Agent's first autonomous pass ──
 intent_cfa_set "PROPOSAL"
 chrome_thinking
-run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits --max-turns 5
-
+run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
 # Extract session ID for --resume on revisions
 SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
 if [[ -z "$SESSION_ID" ]]; then
@@ -376,7 +375,7 @@ while true; do
     chrome_thinking
     intent_cfa_set "PROPOSAL"
     run_turn "Human clarification: $CFA_RESPONSE" \
-      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 5
+      --resume "$SESSION_ID" --permission-mode acceptEdits
     continue  # Re-check: agent may escalate again or write INTENT.md
   fi
 
@@ -387,7 +386,7 @@ while true; do
     echo -e "  ${C_DIM}No INTENT.md yet — asking agent to produce it.${C_RESET}" >&2
     chrome_thinking
     run_turn "Write the INTENT.md now based on what you know." \
-      --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+      --resume "$SESSION_ID" --permission-mode acceptEdits
     INTENT_PATH=$(find_intent_md)
   fi
 
@@ -410,5 +409,5 @@ while true; do
   chrome_thinking
   intent_cfa_set "PROPOSAL"  # Agent re-enters PROPOSAL after receiving feedback
   run_turn "The human rejected INTENT.md with this feedback: ${REJECTION_FEEDBACK}" \
-    --resume "$SESSION_ID" --permission-mode acceptEdits --max-turns 3
+    --resume "$SESSION_ID" --permission-mode acceptEdits
 done

@@ -49,8 +49,16 @@ if [[ -n "$PROJECT_DIR" && -n "$SESSION_WORKTREE" ]]; then
   mkdir -p "$INFRA_DIR"
   touch "$INFRA_DIR/.running"
 
-  WORK_CWD="$DISPATCH_WORKTREE"
-  ADD_DIR_ARGS=(--add-dir "$SESSION_WORKTREE")
+  # Compute project CWD within dispatch worktree (mirrors run.sh PROJECT_WORKDIR logic).
+  # Linked-repo: DISPATCH_WORKTREE/poc/projects/POC. Standalone: DISPATCH_WORKTREE.
+  REL_PATH="${POC_RELATIVE_PATH:-.}"
+  if [[ "$REL_PATH" != "." ]]; then
+    WORK_CWD="$DISPATCH_WORKTREE/$REL_PATH"
+    mkdir -p "$WORK_CWD"
+  else
+    WORK_CWD="$DISPATCH_WORKTREE"
+  fi
+  ADD_DIR_ARGS=(--add-dir "$DISPATCH_WORKTREE" --add-dir "$SESSION_WORKTREE")
 else
   # Fallback: flat directory mode (standalone use without worktrees)
   INFRA_DIR="${POC_SESSION_DIR:-$SCRIPT_DIR/output}/$TEAM/$DISPATCH_TS"
@@ -85,7 +93,7 @@ unset CLAUDE_CODE_ENTRYPOINT
 # Settings file: pre-approve tools subteams need
 SETTINGS_FILE=$(mktemp)
 trap "rm -f $SETTINGS_FILE; rm -f $INFRA_DIR/.running" EXIT
-python3 -c "
+WORK_CWD="$WORK_CWD" python3 -c "
 import json, os, sys
 d = os.environ.get('SCRIPT_DIR', '.')
 rules = [
@@ -95,24 +103,43 @@ rules = [
     'WebFetch',
     'WebSearch',
 ]
-hook_cmd = d + '/hooks/block-task.sh'
+block_task_cmd = d + '/hooks/block-task.sh'
+enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
 json.dump({
     'permissions': {'allow': rules},
     'hooks': {
         'PreToolUse': [
             {
                 'matcher': 'Task',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
             },
             {
                 'matcher': 'TaskOutput',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
             },
             {
                 'matcher': 'TaskStop',
-                'hooks': [{'type': 'command', 'command': hook_cmd}]
+                'hooks': [{'type': 'command', 'command': block_task_cmd}]
+            },
+            {
+                'matcher': 'Write',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+            {
+                'matcher': 'Edit',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
             },
         ]
+    },
+    'env': {
+        'POC_PROJECT_WORKDIR': os.environ.get('WORK_CWD', ''),
+        'POC_RELATIVE_PATH': os.environ.get('POC_RELATIVE_PATH', ''),
+        'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
+        'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+        'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
+        'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+        'POC_CFA_STATE': os.environ.get('POC_CFA_STATE', ''),
+        'SCRIPT_DIR': d,
     },
 }, sys.stdout)
 " > "$SETTINGS_FILE"
@@ -149,8 +176,6 @@ while true; do
     ${DISPATCH_CFA_STATE:+--cfa-state "$DISPATCH_CFA_STATE"} \
     "${ADD_DIR_ARGS[@]}" \
     --filter-prefix "  [$TEAM] " \
-    --plan-turns 10 \
-    --exec-turns 30 \
     "$TASK") || DISPATCH_EXIT=$?
 
   if [[ $DISPATCH_EXIT -eq 3 ]]; then

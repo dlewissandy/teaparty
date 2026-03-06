@@ -191,7 +191,7 @@ def generate(file_path: str, state: str, task: str) -> str:
     try:
         result = subprocess.run(
             ["claude", "-p", "--model", "claude-haiku-4-5",
-             "--max-turns", "1", "--output-format", "text"],
+             "--output-format", "text"],
             input=prompt, capture_output=True, text=True, timeout=30,
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):

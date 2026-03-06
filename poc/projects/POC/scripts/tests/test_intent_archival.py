@@ -68,18 +68,20 @@ class TestIntentArchivalContracts(unittest.TestCase):
     def test_intent_md_archived_to_infra_dir(self):
         """Phase 2: run.sh must copy INTENT.md from worktree to INFRA_DIR."""
         # Look for a cp command that copies INTENT.md to INFRA_DIR
+        # PROJECT_WORKDIR is the scoped CWD (may be a subdir of SESSION_WORKTREE)
         self.assertRegex(
             self.run_sh,
-            r'cp\s+.*INTENT\.md.*INFRA_DIR.*INTENT\.md|cp\s+.*SESSION_WORKTREE.*INTENT\.md.*INFRA_DIR',
+            r'cp\s+.*INTENT\.md.*INFRA_DIR.*INTENT\.md|cp\s+.*(SESSION_WORKTREE|PROJECT_WORKDIR).*INTENT\.md.*INFRA_DIR',
             "run.sh does not contain a cp command archiving INTENT.md to INFRA_DIR",
         )
 
     def test_intent_md_removed_from_worktree(self):
-        """Phase 2: INTENT.md must be removed from session worktree after archival."""
+        """Phase 2: INTENT.md must be removed from project workdir after archival."""
+        # PROJECT_WORKDIR is the scoped CWD (subdir of SESSION_WORKTREE in linked-repo mode)
         self.assertRegex(
             self.run_sh,
-            r'rm\s+.*SESSION_WORKTREE.*INTENT\.md|rm\s+.*\$SESSION_WORKTREE/INTENT\.md',
-            "run.sh does not remove INTENT.md from SESSION_WORKTREE after archiving",
+            r'rm\s+.*(SESSION_WORKTREE|PROJECT_WORKDIR).*INTENT\.md',
+            "run.sh does not remove INTENT.md from project workdir after archiving",
         )
 
     def test_task_prepend_uses_infra_dir_intent(self):
@@ -108,7 +110,10 @@ class TestIntentArchivalContracts(unittest.TestCase):
 
     def test_archival_before_task_prepend(self):
         """The cp (archival) must appear before the TASK= line that cats INFRA_DIR/INTENT.md."""
-        cp_pos = self.run_sh.find('cp "$SESSION_WORKTREE/INTENT.md"')
+        # Try PROJECT_WORKDIR first (linked-repo mode), fall back to SESSION_WORKTREE
+        cp_pos = self.run_sh.find('cp "$PROJECT_WORKDIR/INTENT.md"')
+        if cp_pos == -1:
+            cp_pos = self.run_sh.find('cp "$SESSION_WORKTREE/INTENT.md"')
         task_pos = self.run_sh.find('INFRA_DIR/INTENT.md")')
         if cp_pos == -1 or task_pos == -1:
             # Try alternate patterns

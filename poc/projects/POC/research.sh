@@ -62,8 +62,6 @@ echo ""
   --agent research-lead \
   --settings "$SETTINGS_FILE" \
   --cwd "$OUTPUT_DIR" \
-  --plan-turns 10 \
-  --exec-turns 30 \
   "$TASK"
 
 # Stop the tail

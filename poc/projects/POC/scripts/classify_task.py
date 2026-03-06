@@ -94,7 +94,6 @@ def classify(task: str, projects_dir: str) -> str:
                 "claude",
                 "-p",
                 "--model", "claude-haiku-4-5",
-                "--max-turns", "1",
                 "--output-format", "text",
             ],
             input=prompt,

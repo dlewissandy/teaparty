@@ -614,7 +614,6 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
                 "claude",
                 "-p",
                 "--model", "claude-haiku-4-5",
-                "--max-turns", "2",
                 "--output-format", "text",
             ],
             input=prompt,
@@ -636,11 +635,6 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
         return 1
 
     learnings = result.stdout.strip()
-
-    # Filter out claude CLI error messages that leak into stdout
-    if learnings.startswith("Error: Reached max turns"):
-        print(f"[summarize] Claude hit max turns, skipping.", file=sys.stderr)
-        return 1
 
     # Reject outputs that contain no properly-formatted entries.
     # A valid learning entry must start with "## [". Pure prose output

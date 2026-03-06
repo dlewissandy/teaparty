@@ -25,15 +25,36 @@ No external dependencies — uses stdlib only (json, os, datetime, dataclasses).
 import argparse
 import json
 import os
+import random
 import sys
 from dataclasses import dataclass, field, asdict
-from datetime import date
+from datetime import date, timedelta
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 
 # Minimum number of observations before the proxy will trust its own estimate.
 COLD_START_THRESHOLD = 5
+
+# Exploration rate: probability of escalating even when confidence is above
+# threshold. Prevents the proxy from converging to "always auto-approve" and
+# ensures ongoing calibration signal from the human.
+EXPLORE_RATE = 0.15
+
+# Staleness guard: force escalation if the last human observation is older
+# than this many days. Confidence drifts — the human's preferences may have
+# changed since the proxy last checked.
+STALENESS_DAYS = 7
+
+# EMA (exponential moving average) learning rate for recency decay.
+# Higher = more weight on recent observations, faster forgetting of old ones.
+EMA_ALPHA = 0.3
+
+# Asymmetric regret weight: one correction applies this many EMA decay steps.
+# This makes auto-approve harder to earn and easier to lose — because the cost
+# of rubber-stamping bad work (false approve) is much higher than the cost of
+# asking the human when they would have said yes (false escalate).
+REGRET_WEIGHT = 3
 
 # States where the proxy only needs to produce a binary approve/reject signal.
 BINARY_STATES = frozenset([
@@ -106,6 +127,7 @@ class ConfidenceEntry:
     total_count: int         # total decisions observed
     last_updated: str        # ISO date e.g. '2026-03-04'
     differentials: list = field(default_factory=list)  # list of TextDifferential dicts
+    ema_approval_rate: float = 0.5  # exponential moving average — recency-weighted approval rate
 
 
 @dataclass
@@ -167,15 +189,26 @@ def is_generative_state(state: str) -> bool:
 def compute_confidence(entry: ConfidenceEntry) -> float:
     """Compute approval confidence for a ConfidenceEntry.
 
-    Uses Laplace (add-1) smoothing so the estimate shrinks toward 0.5 when the
-    sample count is small and converges to the true rate as data accumulates.
+    Uses the conservative minimum of two signals:
+    - Laplace (add-1) smoothing: stable long-term estimate
+    - EMA (exponential moving average): recency-weighted estimate
+
+    min(laplace, ema) is a least-regret strategy: if EITHER long-term OR
+    short-term signal is low, the proxy escalates. This prevents old approvals
+    from masking recent corrections, and recent lucky streaks from masking
+    a poor long-term record.
 
     Returns 0.0 when total_count is zero (no data at all).
     """
     if entry.total_count == 0:
         return 0.0
     # Laplace smoothing: (approve + 1) / (total + 2)
-    return (entry.approve_count + 1) / (entry.total_count + 2)
+    laplace = (entry.approve_count + 1) / (entry.total_count + 2)
+    # EMA: initialized from Laplace for backward compat with old entries
+    ema = getattr(entry, 'ema_approval_rate', None)
+    if ema is None:
+        ema = laplace  # old entry without EMA — bootstrap from Laplace
+    return min(laplace, ema)
 
 
 def should_escalate(
@@ -196,6 +229,13 @@ def should_escalate(
     if raw is None:
         entry = _make_entry(state, task_type)
     elif isinstance(raw, dict):
+        # Backward compat: old entries may lack newer fields
+        if 'differentials' not in raw:
+            raw['differentials'] = []
+        if 'ema_approval_rate' not in raw:
+            ac = raw.get('approve_count', 0)
+            tc = raw.get('total_count', 0)
+            raw['ema_approval_rate'] = (ac + 1) / (tc + 2) if tc > 0 else 0.5
         entry = ConfidenceEntry(**raw)
     else:
         entry = raw
@@ -220,18 +260,7 @@ def should_escalate(
     )
     threshold_label = "generative" if is_generative_state(state) else "binary"
 
-    if confidence >= threshold:
-        return ProxyDecision(
-            action='auto-approve',
-            confidence=confidence,
-            reasoning=(
-                f"Confidence {confidence:.3f} >= {threshold_label} threshold "
-                f"{threshold:.2f} for ({state}, {task_type}). "
-                f"Approved {entry.approve_count}/{entry.total_count} times."
-            ),
-            predicted_response="approve",
-        )
-    else:
+    if confidence < threshold:
         return ProxyDecision(
             action='escalate',
             confidence=confidence,
@@ -243,6 +272,51 @@ def should_escalate(
             ),
             predicted_response="human review required",
         )
+
+    # Staleness guard: force escalation if we haven't heard from the human
+    # in too long. Confidence drifts — preferences may have changed.
+    try:
+        last = date.fromisoformat(entry.last_updated)
+        stale = (date.today() - last).days > STALENESS_DAYS
+    except (ValueError, TypeError):
+        stale = True  # unparseable date → treat as stale
+
+    if stale:
+        return ProxyDecision(
+            action='escalate',
+            confidence=confidence,
+            reasoning=(
+                f"Stale: last human observation was {entry.last_updated} "
+                f"(>{STALENESS_DAYS} days ago). Escalating to recalibrate."
+            ),
+            predicted_response="human review required (staleness)",
+        )
+
+    # Exploration: even when confident, occasionally escalate to get fresh
+    # signal. Without this, the proxy converges to auto-approve and never
+    # learns about new failure modes.
+    if random.random() < EXPLORE_RATE:
+        return ProxyDecision(
+            action='escalate',
+            confidence=confidence,
+            reasoning=(
+                f"Exploration: randomly escalating ({EXPLORE_RATE:.0%} rate) "
+                f"despite confidence {confidence:.3f} >= {threshold:.2f}. "
+                f"This ensures ongoing human calibration."
+            ),
+            predicted_response="human review required (exploration)",
+        )
+
+    return ProxyDecision(
+        action='auto-approve',
+        confidence=confidence,
+        reasoning=(
+            f"Confidence {confidence:.3f} >= {threshold_label} threshold "
+            f"{threshold:.2f} for ({state}, {task_type}). "
+            f"Approved {entry.approve_count}/{entry.total_count} times."
+        ),
+        predicted_response="approve",
+    )
 
 
 def record_outcome(
@@ -275,9 +349,14 @@ def record_outcome(
     if raw is None:
         entry = _make_entry(state, task_type)
     elif isinstance(raw, dict):
-        # Backward compat: old entries may lack 'differentials'
+        # Backward compat: old entries may lack newer fields
         if 'differentials' not in raw:
             raw['differentials'] = []
+        if 'ema_approval_rate' not in raw:
+            # Bootstrap EMA from existing Laplace rate
+            ac = raw.get('approve_count', 0)
+            tc = raw.get('total_count', 0)
+            raw['ema_approval_rate'] = (ac + 1) / (tc + 2) if tc > 0 else 0.5
         entry = ConfidenceEntry(**raw)
     else:
         # Already a ConfidenceEntry — copy it to avoid mutation
@@ -290,6 +369,7 @@ def record_outcome(
             total_count=raw.total_count,
             last_updated=raw.last_updated,
             differentials=list(getattr(raw, 'differentials', [])),
+            ema_approval_rate=getattr(raw, 'ema_approval_rate', 0.5),
         )
 
     # Update counters
@@ -305,6 +385,19 @@ def record_outcome(
     elif outcome in ('reject', 'withdraw'):
         reject_count += 1
     # 'clarify' only increments total_count (non-approval signal)
+
+    # Update EMA with asymmetric regret weighting.
+    # Approvals nudge the EMA up by one step.
+    # Corrections/rejections nudge it down by REGRET_WEIGHT steps — because
+    # false-approve (rubber-stamping bad work) costs much more than
+    # false-escalate (asking the human when they would have said yes).
+    ema = entry.ema_approval_rate
+    if outcome == 'approve':
+        ema = EMA_ALPHA * 1.0 + (1 - EMA_ALPHA) * ema
+    elif outcome in ('correct', 'reject', 'withdraw'):
+        for _ in range(REGRET_WEIGHT):
+            ema = EMA_ALPHA * 0.0 + (1 - EMA_ALPHA) * ema
+    # 'clarify' is neutral — no EMA update (asking a question is not approval or rejection)
 
     # Append text differential if provided (for non-approve outcomes)
     differentials = list(entry.differentials)
@@ -328,6 +421,7 @@ def record_outcome(
         total_count=total_count,
         last_updated=date.today().isoformat(),
         differentials=differentials,
+        ema_approval_rate=ema,
     )
 
     new_entries = dict(model.entries)
