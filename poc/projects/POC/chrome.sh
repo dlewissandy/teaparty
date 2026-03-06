@@ -14,6 +14,16 @@ C_GREEN='\033[32m'      # user / success
 C_YELLOW='\033[33m'     # phase indicators
 C_RED='\033[31m'        # errors
 
+# ── Session Chat Log ──
+# Writes structured, timestamped entries to $SESSION_LOG (set by run.sh).
+# Categories: SESSION, STATE, HUMAN, AGENT, PROXY, DISPATCH
+session_log() {
+  local category="$1"; shift
+  local message="$*"
+  printf '[%s] %-8s | %s\n' "$(date +%H:%M:%S)" "$category" "$message" \
+    >> "${SESSION_LOG:-/dev/null}"
+}
+
 # ── Box Drawing ──
 
 chrome_heavy_line() {
@@ -31,6 +41,7 @@ chrome_header() {
   pad=$(printf '%*s' "$pad_len" '' | tr ' ' '─')
   echo "" >&2
   echo -e "${C_YELLOW}── ${label} ${pad}${C_RESET}" >&2
+  session_log SESSION "-- $label --"
 }
 
 chrome_banner() {
@@ -72,6 +83,7 @@ chrome_prompt() {
   chrome_beep
   echo "" >&2
   read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" "$varname" </dev/tty
+  session_log HUMAN "${!varname}"
 }
 
 chrome_approval() {
@@ -127,6 +139,7 @@ dialog_response() {
 
 chrome_dialog_reply() {
   echo -e "  ${C_CYAN}[agent]${C_RESET} $1" >&2
+  session_log AGENT "$1"
 }
 
 # ── CfA Review Loop ──
@@ -182,6 +195,13 @@ cfa_review_loop() {
     break
   done
 
+  # Log final decision to session log
+  if [[ $classify_ok -eq 0 ]]; then
+    session_log HUMAN "Decision: $REVIEW_ACTION${REVIEW_FEEDBACK:+ -- $REVIEW_FEEDBACK}"
+  else
+    session_log HUMAN "Response: $CFA_RESPONSE"
+  fi
+
   rm -f "$dialog_hist"
   return $classify_ok
 }
@@ -197,9 +217,11 @@ chrome_bridge() {
     ${task:+--task "$task"} 2>/dev/null) || bridge=""
   if [[ -n "$bridge" ]]; then
     echo -e "\n  ${C_DIM}${bridge}${C_RESET}\n" >&2
+    session_log AGENT "[$cfa_state] ${bridge:0:200}"
   else
     echo -e "\n  ${C_DIM}Review: ${file_path}${C_RESET}" >&2
     head -5 "$file_path" >&2
     echo -e "  ${C_DIM}...${C_RESET}\n" >&2
+    session_log AGENT "[$cfa_state] Review: $(basename "$file_path")"
   fi
 }

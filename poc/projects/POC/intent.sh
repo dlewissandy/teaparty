@@ -247,10 +247,12 @@ review_intent() {
 
   # ── Proxy gate: auto-approve if confident ──
   PROXY_ACTION=$(proxy_decide "INTENT_ASSERT")
+  session_log PROXY "INTENT_ASSERT proxy=$PROXY_ACTION"
   if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
     proxy_record "INTENT_ASSERT" "approve"
     bump_intent_version "$intent_path" "proxy-approved"
     echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT (proxy auto-approved)${C_RESET}" >&2
+    session_log STATE "INTENT_ASSERT → approve → INTENT (proxy auto-approved)"
     return 0
   fi
 
@@ -271,18 +273,21 @@ review_intent() {
         proxy_record "INTENT_ASSERT" "approve"
         bump_intent_version "$intent_path" "approved"
         echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT${C_RESET}" >&2
+        session_log STATE "INTENT_ASSERT → approve → INTENT"
         return 0
         ;;
       withdraw)
         proxy_record "INTENT_ASSERT" "withdraw"
         intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
         echo -e "  ${C_YELLOW}Intent withdrawn.${C_RESET}" >&2
+        session_log STATE "INTENT_ASSERT → withdraw → WITHDRAWN"
         exit 1
         ;;
       correct)
         REJECTION_FEEDBACK="$REVIEW_FEEDBACK"
         proxy_record "INTENT_ASSERT" "correct" "$REVIEW_FEEDBACK"
         echo -e "  ${C_DIM}CfA: INTENT_ASSERT → correct → INTENT_RESPONSE${C_RESET}" >&2
+        session_log STATE "INTENT_ASSERT → correct → INTENT_RESPONSE"
         return 1
         ;;
     esac
@@ -336,6 +341,7 @@ fi
 
 # ── PROPOSAL: Agent's first autonomous pass ──
 intent_cfa_set "PROPOSAL"
+session_log STATE "PROPOSAL (intent phase)"
 chrome_thinking
 run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
 # Extract session ID for --resume on revisions
@@ -355,6 +361,7 @@ while true; do
   ESCALATION_FILE="$CWD/.intent-escalation.md"
   if [[ -f "$ESCALATION_FILE" ]]; then
     intent_cfa_set "INTENT_ESCALATE"
+    session_log STATE "INTENT_ESCALATE — agent needs clarification"
     chrome_header "INTENT_ESCALATE — agent needs clarification"
     chrome_bridge "$ESCALATION_FILE" "INTENT_ESCALATE" "$TASK"
     chrome_heavy_line
@@ -369,6 +376,7 @@ while true; do
     # Feed clarification back to agent
     proxy_record "INTENT_ESCALATE" "clarify" "$CFA_RESPONSE"
     intent_cfa_transition "clarify" || intent_cfa_set "INTENT_RESPONSE"
+    session_log STATE "INTENT_ESCALATE → clarify → INTENT_RESPONSE → PROPOSAL"
     rm -f "$ESCALATION_FILE"
     chrome_user "$CFA_RESPONSE"
     echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
@@ -404,6 +412,7 @@ while true; do
   ((revision++))
   intent_cfa_transition "correct" || intent_cfa_set "INTENT_RESPONSE"
   echo -e "  ${C_DIM}CfA: INTENT_ASSERT → correct → INTENT_RESPONSE (revision $revision)${C_RESET}" >&2
+  session_log STATE "INTENT_ASSERT → correct → INTENT_RESPONSE (revision $revision)"
   chrome_user "$REJECTION_FEEDBACK"
   echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
   chrome_thinking

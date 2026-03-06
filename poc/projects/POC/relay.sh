@@ -146,6 +146,7 @@ json.dump({
 
 echo -e "  ${C_DIM}[relay] >>> ${TEAM} team (${LEAD})${C_RESET}" >&2
 echo -e "  ${C_DIM}[relay]     ${TASK:0:100}...${C_RESET}" >&2
+session_log DISPATCH ">>> $TEAM team ($LEAD) -- ${TASK:0:100}"
 
 # ── CfA child state + per-team proxy model ──
 DISPATCH_CFA_STATE="$INFRA_DIR/.cfa-state.json"
@@ -155,6 +156,7 @@ if [[ -n "$CFA_PARENT_STATE" && -f "$CFA_PARENT_STATE" ]]; then
   python3 "$SCRIPT_DIR/scripts/cfa_state.py" --make-child \
     --parent "$CFA_PARENT_STATE" --team "$TEAM" --output "$DISPATCH_CFA_STATE" 2>/dev/null || true
   echo -e "  ${C_DIM}[relay]     CfA child state created${C_RESET}" >&2
+  session_log STATE "$TEAM CfA child state created"
 fi
 
 # ── Plan → proxy-gated → Execute (with CfA retry loop) ──
@@ -191,13 +193,16 @@ while true; do
   # exit 0, 1, 2, 10, 11 — stop loop (escalations bubble up to caller)
   if [[ $DISPATCH_EXIT -eq 10 ]]; then
     echo -e "  ${C_DIM}[relay] Plan escalation — proxy not confident, needs outer review${C_RESET}" >&2
+    session_log DISPATCH "$TEAM plan escalation — needs outer review"
   elif [[ $DISPATCH_EXIT -eq 11 ]]; then
     echo -e "  ${C_DIM}[relay] Work escalation — proxy not confident, needs outer review${C_RESET}" >&2
+    session_log DISPATCH "$TEAM work escalation — needs outer review"
   fi
   break
 done
 
 echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)${C_RESET}" >&2
+session_log DISPATCH "<<< $TEAM team -- $CFA_STATUS (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)"
 
 # ── Worktree completion: commit, merge, cleanup ──
 if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then

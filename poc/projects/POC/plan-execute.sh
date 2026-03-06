@@ -253,6 +253,7 @@ proxy_record() {
 # ── Execute-only mode: skip straight to execution ──
 if [[ "$EXECUTE_ONLY" == "true" ]]; then
   chrome_header "TASK → TASK_IN_PROGRESS (CfA Phase 3: Execution)"
+  session_log STATE "TASK → TASK_IN_PROGRESS (execute-only mode)"
   cfa_set "TASK"  # Agent runs autonomously through TASK → TASK_IN_PROGRESS → ...
 
   EXEC_SESSION_ID="$RESUME_SESSION"
@@ -313,12 +314,14 @@ for b in blocks[:5]: print(b)
           echo "Options: grant permission and re-run, or run the commands manually."
         } > "$TASK_ESCALATION"
         echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
+        session_log STATE "Auto-detected permission blocks → TASK_ESCALATE"
       fi
     fi
 
     # ── Check for execution escalation (TASK_ESCALATE) ──
     if [[ -f "$TASK_ESCALATION" ]]; then
       cfa_set "TASK_ESCALATE"
+      session_log STATE "TASK_ESCALATE — agent needs clarification"
       chrome_header "TASK_ESCALATE — agent needs clarification"
       chrome_bridge "$TASK_ESCALATION" "TASK_ESCALATE" "$TASK"
       chrome_heavy_line
@@ -333,6 +336,7 @@ for b in blocks[:5]: print(b)
       if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
         proxy_record "TASK_ESCALATE" "withdraw"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
+        session_log STATE "TASK_ESCALATE → withdraw → WITHDRAWN"
         rm -f "$TASK_ESCALATION"
         exit 1
       fi
@@ -340,6 +344,7 @@ for b in blocks[:5]: print(b)
       proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
       cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
       echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
+      session_log STATE "TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS"
       rm -f "$TASK_ESCALATION"
       cfa_set "TASK_IN_PROGRESS"
       CORRECTION_MSG="Human clarification: $CFA_RESPONSE"
@@ -350,9 +355,11 @@ for b in blocks[:5]: print(b)
     cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
     chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
     PROXY_ACTION=$(proxy_decide "WORK_ASSERT")
+    session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION"
 
     if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
       echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
+      session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)"
       proxy_record "WORK_ASSERT" "approve"
       cfa_transition "approve" || cfa_set "COMPLETED_WORK"
       break
@@ -378,17 +385,20 @@ for b in blocks[:5]: print(b)
           proxy_record "WORK_ASSERT" "approve"
           cfa_transition "approve" || cfa_set "COMPLETED_WORK"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
+          session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK"
           break
           ;;
         correct)
           cfa_transition "correct" || cfa_set "TASK_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
+          session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
           CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
           ;;
         revise-plan)
           cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+          session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
           exit 3
@@ -396,6 +406,7 @@ for b in blocks[:5]: print(b)
         refine-intent)
           cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+          session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
           exit 2
@@ -404,12 +415,14 @@ for b in blocks[:5]: print(b)
           proxy_record "WORK_ASSERT" "withdraw"
           cfa_transition "withdraw" || cfa_set "WITHDRAWN"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
+          session_log STATE "WORK_ASSERT → withdraw → WITHDRAWN"
           exit 1
           ;;
       esac
     else
       # Fallback: treat raw input as work correction
       cfa_transition "correct" || cfa_set "TASK_RESPONSE"
+      session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (fallback)"
       proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
       CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
     fi
@@ -430,6 +443,7 @@ if [[ "$NO_PLAN" == "true" ]]; then
   SESSION_ID=""
 else
   chrome_header "DRAFT (CfA Phase 2: Planning)"
+  session_log STATE "DRAFT (planning phase)"
   cfa_set "DRAFT"  # Agent runs autonomously through DRAFT (planning)
 
   PLANS_BEFORE=$(mktemp)
@@ -471,6 +485,7 @@ else
     proxy_record "PLANNING_ESCALATE" "clarify" "$CFA_RESPONSE"
     cfa_transition "clarify" || cfa_set "PLANNING_RESPONSE"
     echo -e "  ${C_DIM}CfA: PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
+    session_log STATE "PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → DRAFT"
     rm -f "$PLAN_ESCALATION"
     cfa_set "DRAFT"
     run_claude "$PLAN_STREAM" "Human clarification: $CFA_RESPONSE" \
@@ -479,6 +494,7 @@ else
 
   cfa_set "PLAN_ASSERT"  # Agent completed planning: DRAFT → assert → PLAN_ASSERT
   echo -e "  ${C_DIM}plan complete (session: ${SESSION_ID:0:8}...)${C_RESET}" >&2
+  session_log AGENT "Plan phase complete (session: ${SESSION_ID:0:8})"
 
   # Save session ID for --execute-only mode
   echo "$SESSION_ID" > "$STREAM_TARGET/.plan-session-id"
@@ -504,9 +520,11 @@ if [[ "$NO_PLAN" != "true" ]]; then
 
     # Always check human proxy confidence — no more bypassing
     PROXY_ACTION=$(proxy_decide "PLAN_ASSERT")
+    session_log PROXY "PLAN_ASSERT proxy=$PROXY_ACTION"
 
     if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
       echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN (proxy auto-approved)${C_RESET}" >&2
+      session_log STATE "PLAN_ASSERT → approve → PLAN (proxy auto-approved)"
       proxy_record "PLAN_ASSERT" "approve"
       cfa_transition "approve" || cfa_set "PLAN"
       break
@@ -542,11 +560,13 @@ if [[ "$NO_PLAN" != "true" ]]; then
           proxy_record "PLAN_ASSERT" "approve"
           cfa_transition "approve" || cfa_set "PLAN"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN${C_RESET}" >&2
+          session_log STATE "PLAN_ASSERT → approve → PLAN"
           break
           ;;
         correct)
           cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → correct → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
+          session_log STATE "PLAN_ASSERT → correct → PLANNING_RESPONSE → DRAFT"
           proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
           cfa_set "DRAFT"
@@ -560,6 +580,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
         refine-intent)
           cfa_set "INTENT_RESPONSE"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+          session_log STATE "PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
           proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
           exit 2
@@ -568,12 +589,14 @@ if [[ "$NO_PLAN" != "true" ]]; then
           proxy_record "PLAN_ASSERT" "withdraw"
           cfa_transition "withdraw" || cfa_set "WITHDRAWN"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
+          session_log STATE "PLAN_ASSERT → withdraw → WITHDRAWN"
           exit 1
           ;;
       esac
     else
       # Fallback: treat raw input as plan correction
       cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
+      session_log STATE "PLAN_ASSERT → correct → PLANNING_RESPONSE (fallback)"
       proxy_record "PLAN_ASSERT" "correct" "$CFA_RESPONSE"
       echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
       cfa_set "DRAFT"
@@ -604,6 +627,7 @@ fi
 cfa_set "TASK"  # Agent runs autonomously through TASK → TASK_IN_PROGRESS → ...
 if [[ "$NO_PLAN" != "true" ]]; then
   chrome_header "TASK → TASK_IN_PROGRESS (CfA Phase 3: Execution)"
+  session_log STATE "TASK → TASK_IN_PROGRESS (execution phase)"
 fi
 
 LEGACY_CORRECTION_MSG=""
@@ -666,12 +690,14 @@ for b in blocks[:5]: print(b)
         echo "Options: grant permission and re-run, or run the commands manually."
       } > "$LEGACY_TASK_ESCALATION"
       echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
+      session_log STATE "Auto-detected permission blocks → TASK_ESCALATE (legacy)"
     fi
   fi
 
   # ── Check for execution escalation (TASK_ESCALATE) ──
   if [[ -f "$LEGACY_TASK_ESCALATION" ]]; then
     cfa_set "TASK_ESCALATE"
+    session_log STATE "TASK_ESCALATE — agent needs clarification (legacy)"
     chrome_header "TASK_ESCALATE — agent needs clarification"
     chrome_bridge "$LEGACY_TASK_ESCALATION" "TASK_ESCALATE" "$TASK"
     chrome_heavy_line
@@ -686,6 +712,7 @@ for b in blocks[:5]: print(b)
     if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
       proxy_record "TASK_ESCALATE" "withdraw"
       cfa_transition "withdraw" || cfa_set "WITHDRAWN"
+      session_log STATE "TASK_ESCALATE → withdraw → WITHDRAWN (legacy)"
       rm -f "$LEGACY_TASK_ESCALATION"
       exit 1
     fi
@@ -693,6 +720,7 @@ for b in blocks[:5]: print(b)
     proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
     cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
     echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
+    session_log STATE "TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS (legacy)"
     rm -f "$LEGACY_TASK_ESCALATION"
     cfa_set "TASK_IN_PROGRESS"
     LEGACY_CORRECTION_MSG="Human clarification: $CFA_RESPONSE"
@@ -701,9 +729,11 @@ for b in blocks[:5]: print(b)
 
   cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
   PROXY_ACTION=$(proxy_decide "WORK_ASSERT")
+  session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION (legacy)"
 
   if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
     echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
+    session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved, legacy)"
     proxy_record "WORK_ASSERT" "approve"
     cfa_transition "approve" || cfa_set "COMPLETED_WORK"
     break
@@ -731,17 +761,20 @@ for b in blocks[:5]: print(b)
         proxy_record "WORK_ASSERT" "approve"
         cfa_transition "approve" || cfa_set "COMPLETED_WORK"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
+        session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (legacy)"
         break
         ;;
       correct)
         cfa_transition "correct" || cfa_set "TASK_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
+        session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
         LEGACY_CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
         ;;
       revise-plan)
         cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+        session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (legacy, cross-phase backtrack)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
         echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
         exit 3
@@ -749,6 +782,7 @@ for b in blocks[:5]: print(b)
       refine-intent)
         cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
+        session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (legacy, cross-phase backtrack)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
         echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
         exit 2
@@ -757,12 +791,14 @@ for b in blocks[:5]: print(b)
         proxy_record "WORK_ASSERT" "withdraw"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
+        session_log STATE "WORK_ASSERT → withdraw → WITHDRAWN (legacy)"
         exit 1
         ;;
     esac
   else
     # Fallback: treat raw input as work correction
     cfa_transition "correct" || cfa_set "TASK_RESPONSE"
+    session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy, fallback)"
     proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
     LEGACY_CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
   fi

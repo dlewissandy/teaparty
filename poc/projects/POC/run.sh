@@ -149,6 +149,12 @@ touch "$POC_PROJECT_DIR/ESCALATION.md"
 export CONVERSATION_LOG="$INFRA_DIR/.conversation"
 > "$CONVERSATION_LOG"
 
+# Session chat log — human-readable record of all actor communications + state changes
+export SESSION_LOG="$INFRA_DIR/session.log"
+session_log SESSION "Started -- Project: $PROJECT | Task: ${TASK:0:200}"
+session_log SESSION "Worktree: $SESSION_WORKTREE"
+session_log SESSION "Project CWD: $PROJECT_WORKDIR"
+
 # Stream conversation log to terminal (poll-based, no tail -f deadlock risk).
 # tail -f blocks forever when the file stops being written — this caused
 # repeated session stalls. Poll-based reader exits naturally when killed.
@@ -332,13 +338,16 @@ INTENT_APPROVED=false
 if [[ "$SKIP_INTENT" == "true" ]]; then
   # CLI override: --skip-intent forces skip
   echo -e "  ${C_DIM}Intent skipped (--skip-intent).${C_RESET}" >&2
+  session_log STATE "Intent skipped (--skip-intent)"
   cfa_set "INTENT"
 else
   # Proxy decides whether to run intent gathering
   INTENT_PROXY=$(proxy_decide "INTENT_ASSERT")
+  session_log PROXY "INTENT_ASSERT $INTENT_PROXY"
   if [[ "$INTENT_PROXY" == "auto-approve" ]]; then
     echo -e "  ${C_DIM}Human proxy: auto-approved intent (high confidence)${C_RESET}" >&2
     proxy_record "INTENT_ASSERT" "approve"
+    session_log STATE "INTENT_ASSERT -> approve -> INTENT (proxy auto-approved)"
     cfa_set "INTENT"  # Proxy auto-approved — skip intent gathering entirely
   else
     # Run intent.sh — human reviews
@@ -353,6 +362,7 @@ else
         --project-dir "$POC_PROJECT_DIR" --task "$TASK" \
         --proxy-model "$PROXY_MODEL" "${INTENT_CTX[@]}"; then
       INTENT_APPROVED=true
+      session_log STATE "INTENT_ASSERT -> approve -> INTENT"
       # intent.sh records proxy outcomes internally — no proxy_record here
       # Phase 2: Archive INTENT.md to infra dir immediately
       if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
@@ -385,6 +395,7 @@ Original task: $TASK"
     else
       # intent.sh records proxy outcomes internally — no proxy_record here
       cfa_set "WITHDRAWN"
+      session_log STATE "WITHDRAWN (intent failed)"
       chrome_beep
       echo -e "  ${C_RED}Intent failed — session cannot proceed without approved intent.${C_RESET}" >&2
       exit 1
@@ -517,6 +528,7 @@ while true; do
       # Backtrack to intent — re-enter intent alignment with feedback
       ((BACKTRACK_COUNT++))
       echo -e "  ${C_YELLOW}Backtracking to intent alignment (backtrack #$BACKTRACK_COUNT)...${C_RESET}" >&2
+      session_log STATE "Backtrack to intent (#$BACKTRACK_COUNT)"
 
       BACKTRACK_CTX=""
       [[ -f "$BACKTRACK_FEEDBACK_FILE" ]] && BACKTRACK_CTX=$(cat "$BACKTRACK_FEEDBACK_FILE")
@@ -543,6 +555,7 @@ Original task: $ORIGINAL_TASK"
       continue  # Re-enter planning loop
     elif [[ $PLAN_EXIT -eq 1 ]]; then
       echo -e "  ${C_YELLOW}Plan rejected — session ending.${C_RESET}" >&2
+      session_log STATE "Plan rejected -- session ending"
       break
     fi
 
@@ -571,6 +584,7 @@ Original task: $ORIGINAL_TASK"
       # Backtrack to intent — re-enter intent alignment with feedback
       ((BACKTRACK_COUNT++))
       echo -e "  ${C_YELLOW}Execution backtracking to intent (backtrack #$BACKTRACK_COUNT)...${C_RESET}" >&2
+      session_log STATE "Exec backtrack to intent (#$BACKTRACK_COUNT)"
 
       BACKTRACK_CTX=""
       [[ -f "$BACKTRACK_FEEDBACK_FILE" ]] && BACKTRACK_CTX=$(cat "$BACKTRACK_FEEDBACK_FILE")
@@ -595,6 +609,7 @@ Original task: $ORIGINAL_TASK"
 Original task: $ORIGINAL_TASK"
       else
         cfa_set "WITHDRAWN"
+        session_log STATE "WITHDRAWN (intent failed during backtrack)"
         echo -e "  ${C_RED}Intent failed during backtrack — session ending.${C_RESET}" >&2
         break
       fi
@@ -603,6 +618,7 @@ Original task: $ORIGINAL_TASK"
       # Backtrack to planning
       ((BACKTRACK_COUNT++))
       echo -e "  ${C_YELLOW}Execution backtracking to planning (backtrack #$BACKTRACK_COUNT)...${C_RESET}" >&2
+      session_log STATE "Exec backtrack to planning (#$BACKTRACK_COUNT)"
       continue  # Re-enter planning loop (skip intent)
     fi
 
@@ -735,3 +751,4 @@ echo -e "  ${C_DIM}Project memory: $POC_PROJECT_DIR/MEMORY.md${C_RESET}" >&2
 echo -e "  ${C_DIM}Global memory: $POC_OUTPUT_DIR/MEMORY.md${C_RESET}" >&2
 chrome_heavy_line
 chrome_beep
+session_log SESSION "Ended -- Deliverables: ${SESSION_DELIVERABLES:-none}"
