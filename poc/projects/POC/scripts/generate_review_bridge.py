@@ -40,6 +40,10 @@ STATE_CONFIG = {
         "template": "escalate",
         "noun": "task",
     },
+    "WORK_ASSERT": {
+        "template": "work_assert",
+        "noun": "work",
+    },
 }
 
 ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
@@ -94,10 +98,29 @@ Task: {task}
 Questions/escalation content (for your understanding only — do not reproduce):
 {content}"""
 
+WORK_ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
+You have just completed execution work and are asserting that it is done.
+Write 2-3 sentences that tell the human what was accomplished and invite them
+to review the result.
+
+Rules:
+- First person voice ("I've completed...", "I believe the work is done...")
+- Summarize what was accomplished in one concise sentence
+- Invite review — the human should verify the changes meet their intent
+- Do NOT reproduce the full output or list individual files — just the essence
+- No markdown, no bullet points, no headers — just plain conversational text
+- 2-3 sentences maximum
+
+Task: {task}
+
+Execution result (for your understanding only — do not reproduce):
+{content}"""
+
 TEMPLATES = {
     "assert": ASSERT_PROMPT,
     "plan_assert": PLAN_ASSERT_PROMPT,
     "escalate": ESCALATE_PROMPT,
+    "work_assert": WORK_ASSERT_PROMPT,
 }
 
 

@@ -328,6 +328,12 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
       exit 11  # work escalation
     fi
 
+    # Completion assertion bridge — frame what was accomplished
+    WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
+    python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
+    chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
+    chrome_heavy_line
+
     # Free-text review with dialog loop
     PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
     INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
@@ -640,6 +646,12 @@ while true; do
   fi
 
   chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
+
+  # Completion assertion bridge — frame what was accomplished
+  WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
+  python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
+  chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
+  chrome_heavy_line
 
   # Free-text review with dialog loop
   PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
