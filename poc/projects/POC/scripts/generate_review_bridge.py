@@ -99,21 +99,20 @@ Questions/escalation content (for your understanding only — do not reproduce):
 {content}"""
 
 WORK_ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
-You have just completed execution work and are asserting that it is done.
-Write 2-3 sentences that tell the human what was accomplished and invite them
-to review the result.
+The execution phase has finished. Write 2-3 sentences summarizing what happened
+during execution so the human can review.
 
 Rules:
-- First person voice ("I've completed...", "I believe the work is done...")
-- Summarize what was accomplished in one concise sentence
-- Invite review — the human should verify the changes meet their intent
+- First person voice ("I worked on...", "The execution produced...")
+- Summarize what actions were taken — do not judge whether the work is complete or successful
+- Your job is to DESCRIBE what happened, not to EVALUATE it — the human decides if it's done
 - Do NOT reproduce the full output or list individual files — just the essence
 - No markdown, no bullet points, no headers — just plain conversational text
 - 2-3 sentences maximum
 
 Task: {task}
 
-Execution result (for your understanding only — do not reproduce):
+Execution output (for your understanding only — do not reproduce):
 {content}"""
 
 TEMPLATES = {

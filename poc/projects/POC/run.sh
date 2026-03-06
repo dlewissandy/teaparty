@@ -602,7 +602,9 @@ if ! git -C "$POC_REPO_DIR" merge --squash "$SESSION_BRANCH" 2>&1; then
 fi
 
 # Commit squashed changes with a structured message
+SESSION_DELIVERABLES=""
 if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
+  SESSION_DELIVERABLES=$(git -C "$POC_REPO_DIR" diff --cached --name-only 2>/dev/null | sort)
   SQUASH_MSG_FILE=$(mktemp)
   {
     echo "$PROJECT: ${TASK:0:72}"
@@ -613,7 +615,7 @@ if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
       echo ""
     fi
     echo "Files changed:"
-    git -C "$POC_REPO_DIR" diff --cached --name-only 2>/dev/null | sed 's/^/- /'
+    echo "$SESSION_DELIVERABLES" | sed 's/^/- /'
   } > "$SQUASH_MSG_FILE"
   git -C "$POC_REPO_DIR" commit -F "$SQUASH_MSG_FILE" 2>&1 || true
   rm -f "$SQUASH_MSG_FILE"
@@ -693,7 +695,11 @@ wait "$TAIL_PID" 2>/dev/null || true
 # ── Final report ──
 chrome_banner "Session Complete: $SESSION_TS" "Project: $PROJECT"
 echo -e "  ${C_BOLD}Deliverables:${C_RESET}" >&2
-git -C "$POC_REPO_DIR" ls-files 2>/dev/null | grep -v '^\.' | sort | sed 's/^/    /' >&2 || echo "    (none)" >&2
+if [[ -n "${SESSION_DELIVERABLES:-}" ]]; then
+  echo "$SESSION_DELIVERABLES" | sed 's/^/    /' >&2
+else
+  echo "    (no changes this session)" >&2
+fi
 echo "" >&2
 echo -e "  ${C_DIM}Project memory: $POC_PROJECT_DIR/MEMORY.md${C_RESET}" >&2
 echo -e "  ${C_DIM}Global memory: $POC_OUTPUT_DIR/MEMORY.md${C_RESET}" >&2

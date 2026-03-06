@@ -259,6 +259,7 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
 
   EXEC_SESSION_ID="$RESUME_SESSION"
   CORRECTION_MSG=""
+  PLAN_FILE="${PLAN_FILE:-$STREAM_TARGET/plan.md}"
 
   # ── Execution loop: run → review → (correct → re-run) or (exit) ──
   # Per spec: WORK_ASSERT correct → TASK_RESPONSE → agent fixes → WORK_ASSERT
@@ -281,8 +282,43 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
       EXEC_SESSION_ID=$(extract_session_id < "$EXEC_STREAM")
     fi
 
-    # ── Check for execution escalation (TASK_ESCALATE) ──
+    # ── Auto-detect permission blocks → generate escalation ──
     TASK_ESCALATION="$STREAM_TARGET/.task-escalation.md"
+    if [[ ! -f "$TASK_ESCALATION" ]]; then
+      PERM_BLOCKS=$(python3 -c "
+import json, sys
+blocks = []
+for line in open('$EXEC_STREAM'):
+    try:
+        ev = json.loads(line.strip())
+    except: continue
+    if ev.get('type') != 'user': continue
+    for b in ev.get('message',{}).get('content',[]):
+        if not isinstance(b, dict) or not b.get('is_error'): continue
+        t = b.get('text','') or b.get('content','')
+        if 'requires approval' in t or 'require approval' in t:
+            blocks.append(t.strip())
+for b in blocks[:5]: print(b)
+" 2>/dev/null || true)
+      if [[ -n "$PERM_BLOCKS" ]]; then
+        {
+          echo "## Execution blocked by permission restrictions"
+          echo ""
+          echo "The agent was unable to complete execution because the following"
+          echo "commands were denied by the permission system:"
+          echo ""
+          echo "$PERM_BLOCKS" | while IFS= read -r b; do echo "- $b"; done
+          echo ""
+          echo "The human approved the intent and plan, but the execution"
+          echo "environment blocked the commands needed to carry them out."
+          echo ""
+          echo "Options: grant permission and re-run, or run the commands manually."
+        } > "$TASK_ESCALATION"
+        echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
+      fi
+    fi
+
+    # ── Check for execution escalation (TASK_ESCALATE) ──
     if [[ -f "$TASK_ESCALATION" ]]; then
       cfa_set "TASK_ESCALATE"
       chrome_header "TASK_ESCALATE — agent needs clarification"
@@ -600,8 +636,43 @@ while true; do
     break  # Skip review in these modes (handled above)
   fi
 
-  # ── Check for execution escalation (TASK_ESCALATE) ──
+  # ── Auto-detect permission blocks → generate escalation ──
   LEGACY_TASK_ESCALATION="$STREAM_TARGET/.task-escalation.md"
+  if [[ ! -f "$LEGACY_TASK_ESCALATION" ]]; then
+    PERM_BLOCKS=$(python3 -c "
+import json, sys
+blocks = []
+for line in open('$EXEC_STREAM'):
+    try:
+        ev = json.loads(line.strip())
+    except: continue
+    if ev.get('type') != 'user': continue
+    for b in ev.get('message',{}).get('content',[]):
+        if not isinstance(b, dict) or not b.get('is_error'): continue
+        t = b.get('text','') or b.get('content','')
+        if 'requires approval' in t or 'require approval' in t:
+            blocks.append(t.strip())
+for b in blocks[:5]: print(b)
+" 2>/dev/null || true)
+    if [[ -n "$PERM_BLOCKS" ]]; then
+      {
+        echo "## Execution blocked by permission restrictions"
+        echo ""
+        echo "The agent was unable to complete execution because the following"
+        echo "commands were denied by the permission system:"
+        echo ""
+        echo "$PERM_BLOCKS" | while IFS= read -r b; do echo "- $b"; done
+        echo ""
+        echo "The human approved the intent and plan, but the execution"
+        echo "environment blocked the commands needed to carry them out."
+        echo ""
+        echo "Options: grant permission and re-run, or run the commands manually."
+      } > "$LEGACY_TASK_ESCALATION"
+      echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
+    fi
+  fi
+
+  # ── Check for execution escalation (TASK_ESCALATE) ──
   if [[ -f "$LEGACY_TASK_ESCALATION" ]]; then
     cfa_set "TASK_ESCALATE"
     chrome_header "TASK_ESCALATE — agent needs clarification"
