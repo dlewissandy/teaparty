@@ -231,6 +231,7 @@ run_turn() {
 
   cat < "$fifo" \
     | tee -a "$INTENT_STREAM" \
+    | tee >(session_stream_log) \
     | python3 -u "$SCRIPT_DIR/intent_filter.py" --agent-name intent-lead >&2
 
   wait "$bg_pid" 2>/dev/null || true

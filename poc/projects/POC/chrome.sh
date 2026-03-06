@@ -24,6 +24,15 @@ session_log() {
     >> "${SESSION_LOG:-/dev/null}"
 }
 
+# Session stream logger — pipes JSONL agent output into session.log.
+# Usage: ... | tee >(session_stream_log [prefix])
+session_stream_log() {
+  local prefix="${1:-}"
+  local args=(--session-log "${SESSION_LOG:-/dev/null}")
+  [[ -n "$prefix" ]] && args+=(--prefix "$prefix")
+  python3 -u "$SCRIPT_DIR/session_stream_logger.py" "${args[@]}"
+}
+
 # ── Box Drawing ──
 
 chrome_heavy_line() {

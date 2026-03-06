@@ -637,7 +637,7 @@ if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
 fi
 
 # Collect session commit log before squashing (for the commit body)
-SESSION_LOG=$(git -C "$POC_REPO_DIR" log --format='- %s' HEAD.."$SESSION_BRANCH" 2>/dev/null || true)
+SESSION_COMMITS=$(git -C "$POC_REPO_DIR" log --format='- %s' HEAD.."$SESSION_BRANCH" 2>/dev/null || true)
 
 # Squash-merge session branch into main
 if ! git -C "$POC_REPO_DIR" merge --squash "$SESSION_BRANCH" 2>&1; then
@@ -655,9 +655,9 @@ if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
   {
     echo "$PROJECT: ${TASK:0:72}"
     echo ""
-    if [[ -n "$SESSION_LOG" ]]; then
+    if [[ -n "$SESSION_COMMITS" ]]; then
       echo "Squashed commits:"
-      echo "$SESSION_LOG"
+      echo "$SESSION_COMMITS"
       echo ""
     fi
     echo "Files changed:"

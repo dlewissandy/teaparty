@@ -184,7 +184,8 @@ run_claude() {
 
   cat < "$fifo" \
     | tee "$stream_file" \
-    | tee >(filter_stream) > /dev/null
+    | tee >(filter_stream) \
+    | tee >(session_stream_log "$FILTER_PREFIX") > /dev/null
 
   wait "$bg_pid" 2>/dev/null || true
 
