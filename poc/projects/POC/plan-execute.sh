@@ -195,6 +195,35 @@ run_claude() {
   rm -f "$fifo"
 }
 
+# Orchestrated multi-agent execution: message broker with priority mailboxes.
+# Used for exec phase when --agents is present (spoke-and-wheel pattern).
+run_orchestrated() {
+  local stream_file="$1"; shift
+  local task_input="$1"; shift
+  local resume_session="${1:-}"
+  [[ -n "$resume_session" ]] && shift
+
+  local orch_args=(
+    --agents "$AGENTS_JSON"
+    --agent "$LEAD"
+    --stream "$stream_file"
+    --cwd "$WORK_DIR"
+    --max-turns 20
+  )
+  [[ -n "$SETTINGS_FILE" ]] && orch_args+=(--settings "$SETTINGS_FILE")
+  [[ -n "${SESSION_LOG:-}" ]] && orch_args+=(--session-log "$SESSION_LOG")
+  [[ -n "$resume_session" ]] && orch_args+=(--resume "$resume_session")
+
+  python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2
+
+  # Post-process: run filter and session stream logger on the merged stream
+  if [[ -f "$stream_file" ]]; then
+    cat "$stream_file" | filter_stream &
+    cat "$stream_file" | session_stream_log "$FILTER_PREFIX" &
+    wait
+  fi
+}
+
 # ── CfA state helpers ──
 
 # Validated transition: checks the action is legal from the current state.
@@ -267,14 +296,26 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
     if [[ -n "$CORRECTION_MSG" && -n "$EXEC_SESSION_ID" ]]; then
       # Correction round: resume agent with feedback (TASK_RESPONSE → TASK_IN_PROGRESS)
       cfa_set "TASK_IN_PROGRESS"
-      run_claude "$EXEC_STREAM" "$CORRECTION_MSG" \
-        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
+      if [[ -n "$AGENTS_JSON" ]]; then
+        run_orchestrated "$EXEC_STREAM" "$CORRECTION_MSG" "$EXEC_SESSION_ID"
+      else
+        run_claude "$EXEC_STREAM" "$CORRECTION_MSG" \
+          --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
+      fi
     elif [[ -n "$EXEC_SESSION_ID" ]]; then
-      run_claude "$EXEC_STREAM" "Execute the plan." \
-        --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
+      if [[ -n "$AGENTS_JSON" ]]; then
+        run_orchestrated "$EXEC_STREAM" "Execute the plan." "$EXEC_SESSION_ID"
+      else
+        run_claude "$EXEC_STREAM" "Execute the plan." \
+          --resume "$EXEC_SESSION_ID" --permission-mode acceptEdits
+      fi
     else
-      run_claude "$EXEC_STREAM" "$TASK" \
-        --permission-mode acceptEdits
+      if [[ -n "$AGENTS_JSON" ]]; then
+        run_orchestrated "$EXEC_STREAM" "$TASK"
+      else
+        run_claude "$EXEC_STREAM" "$TASK" \
+          --permission-mode acceptEdits
+      fi
     fi
 
     # Extract session ID for correction rounds
@@ -509,6 +550,18 @@ else
     break
   done
   rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
+
+  # Log plan content to session log (first 800 chars)
+  if [[ -f "$STREAM_TARGET/plan.md" ]]; then
+    PLAN_PREVIEW=$(head -c 800 "$STREAM_TARGET/plan.md" 2>/dev/null || true)
+    PLAN_SIZE=$(wc -c < "$STREAM_TARGET/plan.md" 2>/dev/null | tr -d ' ')
+    session_log PLAN "--- plan.md (${PLAN_SIZE} bytes) ---"
+    while IFS= read -r pline; do
+      session_log PLAN "$pline"
+    done <<< "${PLAN_PREVIEW}"
+    [[ ${#PLAN_PREVIEW} -ge 800 ]] && session_log PLAN "... (truncated, see plan.md for full content)"
+    session_log PLAN "--- end plan.md ---"
+  fi
 fi
 
 # ── Approve phase (CfA: PLAN_ASSERT) ──
@@ -638,14 +691,26 @@ while true; do
   if [[ -n "$LEGACY_CORRECTION_MSG" && -n "$LEGACY_SESSION_ID" ]]; then
     # Correction round: resume agent with feedback (TASK_RESPONSE → TASK_IN_PROGRESS)
     cfa_set "TASK_IN_PROGRESS"
-    run_claude "$EXEC_STREAM" "$LEGACY_CORRECTION_MSG" \
-      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
+    if [[ -n "$AGENTS_JSON" ]]; then
+      run_orchestrated "$EXEC_STREAM" "$LEGACY_CORRECTION_MSG" "$LEGACY_SESSION_ID"
+    else
+      run_claude "$EXEC_STREAM" "$LEGACY_CORRECTION_MSG" \
+        --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
+    fi
   elif [[ "$NO_PLAN" == "true" ]]; then
-    run_claude "$EXEC_STREAM" "$TASK" \
-      --permission-mode acceptEdits
+    if [[ -n "$AGENTS_JSON" ]]; then
+      run_orchestrated "$EXEC_STREAM" "$TASK"
+    else
+      run_claude "$EXEC_STREAM" "$TASK" \
+        --permission-mode acceptEdits
+    fi
   else
-    run_claude "$EXEC_STREAM" "Execute the plan." \
-      --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
+    if [[ -n "$AGENTS_JSON" ]]; then
+      run_orchestrated "$EXEC_STREAM" "Execute the plan." "$LEGACY_SESSION_ID"
+    else
+      run_claude "$EXEC_STREAM" "Execute the plan." \
+        --resume "$LEGACY_SESSION_ID" --permission-mode acceptEdits
+    fi
   fi
 
   # Extract session ID for correction rounds

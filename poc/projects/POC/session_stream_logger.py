@@ -207,6 +207,32 @@ def main():
                             task_text = task_match.group(1) if task_match else cmd[:TOOL_MAX]
                             write_entry(fd, "TOOL", f"{label}: relay.sh --team {team} -- {task_text[:TOOL_MAX]}", prefix)
 
+                    elif tool_name == "Read":
+                        path = tool_input.get("file_path", "")
+                        # Shorten worktree paths for readability
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        write_entry(fd, "EXPLORE", f"{label}: Read {short[:TOOL_MAX]}", prefix)
+
+                    elif tool_name == "Glob":
+                        pattern = tool_input.get("pattern", "")
+                        path = tool_input.get("path", "")
+                        loc = f" in {path}" if path else ""
+                        write_entry(fd, "EXPLORE", f"{label}: Glob {pattern}{loc}"[:TOOL_MAX + 30], prefix)
+
+                    elif tool_name == "Grep":
+                        pattern = tool_input.get("pattern", "")[:80]
+                        path = tool_input.get("path", "")
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path) if path else ""
+                        write_entry(fd, "EXPLORE", f'{label}: Grep "{pattern}" {short}'[:TOOL_MAX + 30], prefix)
+
+                    elif tool_name == "ExitPlanMode":
+                        write_entry(fd, "AGENT", f"{label}: ExitPlanMode -- plan ready for review", prefix)
+
+                    elif tool_name == "Edit":
+                        path = tool_input.get("file_path", "")
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        write_entry(fd, "TOOL", f"{label}: Edit {short[:TOOL_MAX]}", prefix)
+
             continue
 
         # ── Tool result errors ──

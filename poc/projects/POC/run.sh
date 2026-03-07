@@ -191,24 +191,11 @@ rules = [
     'WebFetch',
     'WebSearch',
 ]
-block_task_cmd = d + '/hooks/block-task.sh'
 enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
 json.dump({
     'permissions': {'allow': rules},
     'hooks': {
         'PreToolUse': [
-            {
-                'matcher': 'Task',
-                'hooks': [{'type': 'command', 'command': block_task_cmd}]
-            },
-            {
-                'matcher': 'TaskOutput',
-                'hooks': [{'type': 'command', 'command': block_task_cmd}]
-            },
-            {
-                'matcher': 'TaskStop',
-                'hooks': [{'type': 'command', 'command': block_task_cmd}]
-            },
             {
                 'matcher': 'Write',
                 'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
