@@ -29,6 +29,8 @@ STATE_ACTIONS = {
     "INTENT_ESCALATE": ["dialog", "clarify", "withdraw"],
     "PLANNING_ESCALATE": ["dialog", "clarify", "withdraw"],
     "TASK_ESCALATE": ["dialog", "clarify", "withdraw"],
+    # FAILURE state — infrastructure failure, human decides next step
+    "FAILURE": ["retry", "escalate", "backtrack", "withdraw"],
 }
 
 # ── Prompt templates ──
@@ -114,6 +116,36 @@ dialog\tWhat do you mean by that?
 dialog\tCan you explain why you need to know?
 clarify\tWe should use PostgreSQL because the data is relational"""
 
+FAILURE_PROMPT = """You are a CfA review classifier. A process has failed (crashed, timed out, or hit an infrastructure error). The human has been shown the failure details and is deciding what to do.
+
+--- HUMAN RESPONSE ---
+{response}
+
+--- CLASSIFICATION RULES ---
+1. RETRY: try again. Signals: "try again", "retry", "one more time", "rerun", "go again", "redo", "run it again", "yes".
+
+2. ESCALATE: the human wants to intervene, get help, or investigate. Signals: "let me look", "I'll fix it", "help", "I need to check", "investigate", "look into it", "hold on", "pause".
+
+3. BACKTRACK: the approach or plan needs rethinking. Signals: "rethink", "wrong approach", "the plan is wrong", "try a different way", "reconsider", "start over with a new plan".
+
+4. WITHDRAW: give up on this task. Signals: "stop", "cancel", "give up", "abort", "done", "forget it", "never mind", "quit".
+
+5. AMBIGUITY: When genuinely ambiguous, prefer "retry" — it is the lowest-risk default for transient failures.
+
+--- VALID ACTIONS ---
+{valid_actions}
+
+--- OUTPUT ---
+Return EXACTLY one line: ACTION<TAB>FEEDBACK_TEXT
+- ACTION must be one of the valid actions listed above.
+- FEEDBACK_TEXT is empty for retry and withdraw. For escalate or backtrack, include any relevant context the human provided.
+
+Examples:
+retry\t
+withdraw\t
+escalate\tI need to check the file permissions first
+backtrack\tThe plan assumed network access but this machine is offline"""
+
 
 def build_context_block(intent_summary: str, plan_summary: str) -> str:
     """Build the context block for the prompt."""
@@ -145,6 +177,12 @@ def build_prompt(state: str, response: str,
         actions = ["dialog", "approve", "correct", "withdraw"]
 
     history_block = build_dialog_history_block(dialog_history)
+
+    if state == "FAILURE":
+        return FAILURE_PROMPT.format(
+            response=response,
+            valid_actions=", ".join(actions),
+        )
 
     is_escalate = state.endswith("_ESCALATE")
     if is_escalate:

@@ -260,6 +260,7 @@ fi
 #   1 = failure/rejection (WITHDRAWN)
 #   2 = backtrack to intent (INTENT_RESPONSE re-entry)
 #   3 = backtrack to planning (PLANNING_RESPONSE re-entry)
+#   4 = infrastructure failure (process crash/timeout/error)
 CFA_STATE_FILE="$INFRA_DIR/.cfa-state.json"
 PROXY_MODEL="$POC_PROJECT_DIR/.proxy-confidence.json"
 BACKTRACK_FEEDBACK_FILE="$INFRA_DIR/.backtrack-feedback.txt"
@@ -540,6 +541,12 @@ while true; do
 Original task: $ORIGINAL_TASK"
       fi
       continue  # Re-enter planning loop
+    elif [[ $PLAN_EXIT -eq 4 ]]; then
+      # Infrastructure failure during planning — retry the planning phase
+      ((BACKTRACK_COUNT++))
+      echo -e "  ${C_YELLOW}Planning failed (infrastructure) — retrying (attempt #$BACKTRACK_COUNT)...${C_RESET}" >&2
+      session_log STATE "Planning infrastructure failure — retry #$BACKTRACK_COUNT"
+      continue
     elif [[ $PLAN_EXIT -eq 1 ]]; then
       echo -e "  ${C_YELLOW}Plan rejected — session ending.${C_RESET}" >&2
       session_log STATE "Plan rejected -- session ending"
@@ -607,6 +614,13 @@ Original task: $ORIGINAL_TASK"
       echo -e "  ${C_YELLOW}Execution backtracking to planning (backtrack #$BACKTRACK_COUNT)...${C_RESET}" >&2
       session_log STATE "Exec backtrack to planning (#$BACKTRACK_COUNT)"
       continue  # Re-enter planning loop (skip intent)
+    elif [[ $EXEC_EXIT -eq 4 ]]; then
+      # Infrastructure failure during execution — retry execution with same plan
+      ((BACKTRACK_COUNT++))
+      echo -e "  ${C_YELLOW}Execution failed (infrastructure) — retrying (attempt #$BACKTRACK_COUNT)...${C_RESET}" >&2
+      session_log STATE "Execution infrastructure failure — retry #$BACKTRACK_COUNT"
+      # Re-enter the loop but skip planning (go straight to execute)
+      continue
     fi
 
     break  # COMPLETED_WORK — exit CfA loop

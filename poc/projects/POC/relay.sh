@@ -180,14 +180,17 @@ while true; do
     --filter-prefix "  [$TEAM] " \
     "$TASK") || DISPATCH_EXIT=$?
 
-  if [[ $DISPATCH_EXIT -eq 3 ]]; then
-    # Planning backtrack — retry locally
+  if [[ $DISPATCH_EXIT -eq 3 || $DISPATCH_EXIT -eq 4 ]]; then
+    # Planning backtrack or infrastructure failure — retry locally
     ((DISPATCH_RETRIES++))
+    retry_reason="Planning backtrack"
+    [[ $DISPATCH_EXIT -eq 4 ]] && retry_reason="Infrastructure failure"
     if [[ $DISPATCH_RETRIES -ge $MAX_DISPATCH_RETRIES ]]; then
-      echo -e "  ${C_YELLOW}[relay] Max planning retries ($MAX_DISPATCH_RETRIES) reached for $TEAM${C_RESET}" >&2
+      echo -e "  ${C_YELLOW}[relay] Max retries ($MAX_DISPATCH_RETRIES) reached for $TEAM ($retry_reason)${C_RESET}" >&2
       break
     fi
-    echo -e "  ${C_DIM}[relay] Planning backtrack — retry $DISPATCH_RETRIES/$MAX_DISPATCH_RETRIES${C_RESET}" >&2
+    echo -e "  ${C_DIM}[relay] $retry_reason — retry $DISPATCH_RETRIES/$MAX_DISPATCH_RETRIES${C_RESET}" >&2
+    session_log DISPATCH "$TEAM $retry_reason — retry $DISPATCH_RETRIES/$MAX_DISPATCH_RETRIES"
     continue
   fi
   # exit 0, 1, 2, 10, 11 — stop loop (escalations bubble up to caller)
@@ -274,6 +277,7 @@ case $DISPATCH_EXIT in
   1)  CFA_STATUS="failed" ;;
   2)  CFA_STATUS="backtrack_intent" ;;
   3)  CFA_STATUS="backtrack_planning" ;;
+  4)  CFA_STATUS="infrastructure_failure" ;;
   10) CFA_STATUS="needs_plan_review" ;;
   11) CFA_STATUS="needs_work_review" ;;
   *)  CFA_STATUS="error" ;;

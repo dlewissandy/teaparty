@@ -14,6 +14,7 @@
 #   1 = rejected/failed (WITHDRAWN)
 #   2 = backtrack to intent (re-enter intent alignment)
 #   3 = backtrack to planning (re-enter planning)
+#   4 = infrastructure failure (process crash/timeout/error, agent-mode)
 #  10 = plan escalation (proxy not confident, agent-mode)
 #  11 = work escalation (proxy not confident, agent-mode)
 #
@@ -139,6 +140,8 @@ stall_watchdog() {
         continue
       fi
       echo -e "  ${C_RED}[watchdog] Stream stale ${age}s — killing PID $pid${C_RESET}" >&2
+      echo "Process killed after ${age}s of inactivity (stall timeout: ${STALL_TIMEOUT}s)" \
+        > "$STREAM_TARGET/.failure-reason"
       kill_tree "$pid"
       break
     fi
@@ -187,7 +190,8 @@ run_claude() {
     | tee >(filter_stream) \
     | tee >(session_stream_log "$FILTER_PREFIX") > /dev/null
 
-  wait "$bg_pid" 2>/dev/null || true
+  CLAUDE_EXIT=0
+  wait "$bg_pid" 2>/dev/null || CLAUDE_EXIT=$?
 
   kill "$watchdog_pid" 2>/dev/null || true
   wait "$watchdog_pid" 2>/dev/null || true
@@ -214,7 +218,8 @@ run_orchestrated() {
   [[ -n "${SESSION_LOG:-}" ]] && orch_args+=(--session-log "$SESSION_LOG")
   [[ -n "$resume_session" ]] && orch_args+=(--resume "$resume_session")
 
-  python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2
+  CLAUDE_EXIT=0
+  python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
 
   # Post-process: run filter and session stream logger on the merged stream
   if [[ -f "$stream_file" ]]; then
@@ -321,6 +326,33 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
     # Extract session ID for correction rounds
     if [[ -z "$EXEC_SESSION_ID" ]]; then
       EXEC_SESSION_ID=$(extract_session_id < "$EXEC_STREAM")
+    fi
+
+    # ── Infrastructure failure gate ──
+    if [[ $CLAUDE_EXIT -ne 0 ]]; then
+      FAILURE_SUMMARY=$(extract_failure "$EXEC_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+      session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during execution"
+
+      if [[ "$AGENT_MODE" == "true" ]]; then
+        echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+        cfa_set "FAILED_TASK"
+        exit 4
+      fi
+
+      cfa_failure_decision "$FAILURE_SUMMARY" "execution"
+      case "$FAILURE_ACTION" in
+        retry)    CORRECTION_MSG=""; continue ;;
+        escalate)
+          cfa_set "TASK_ESCALATE"
+          echo "$FAILURE_SUMMARY" > "$STREAM_TARGET/.task-escalation.md"
+          ;;  # fall through to escalation handling below
+        backtrack)
+          echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+          exit 3 ;;
+        withdraw)
+          cfa_set "WITHDRAWN"
+          exit 1 ;;
+      esac
     fi
 
     # ── Auto-detect permission blocks → generate escalation ──
@@ -493,6 +525,36 @@ else
 
   run_claude "$PLAN_STREAM" "$TASK" \
     --permission-mode plan
+
+  # ── Planning infrastructure failure gate ──
+  if [[ $CLAUDE_EXIT -ne 0 ]]; then
+    FAILURE_SUMMARY=$(extract_failure "$PLAN_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+    session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during planning"
+
+    if [[ "$AGENT_MODE" == "true" ]]; then
+      echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+      exit 4
+    fi
+
+    cfa_failure_decision "$FAILURE_SUMMARY" "planning"
+    case "$FAILURE_ACTION" in
+      retry)
+        # Re-run planning from scratch
+        run_claude "$PLAN_STREAM" "$TASK" --permission-mode plan
+        ;;
+      backtrack)
+        echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+        exit 2 ;;  # backtrack to intent
+      withdraw)
+        cfa_set "WITHDRAWN"
+        exit 1 ;;
+      *)
+        # escalate → treat as backtrack for planning phase
+        echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+        exit 2 ;;
+    esac
+  fi
+
   SESSION_ID=$(extract_session_id < "$PLAN_STREAM")
 
   if [[ -z "$SESSION_ID" ]]; then
@@ -716,6 +778,33 @@ while true; do
   # Extract session ID for correction rounds
   if [[ -z "$LEGACY_SESSION_ID" ]]; then
     LEGACY_SESSION_ID=$(extract_session_id < "$EXEC_STREAM")
+  fi
+
+  # ── Infrastructure failure gate ──
+  if [[ $CLAUDE_EXIT -ne 0 ]]; then
+    FAILURE_SUMMARY=$(extract_failure "$EXEC_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+    session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during execution (legacy)"
+
+    if [[ "$AGENT_MODE" == "true" ]]; then
+      echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+      cfa_set "FAILED_TASK"
+      exit 4
+    fi
+
+    cfa_failure_decision "$FAILURE_SUMMARY" "execution"
+    case "$FAILURE_ACTION" in
+      retry)    LEGACY_CORRECTION_MSG=""; continue ;;
+      escalate)
+        cfa_set "TASK_ESCALATE"
+        echo "$FAILURE_SUMMARY" > "$STREAM_TARGET/.task-escalation.md"
+        ;;  # fall through to escalation handling below
+      backtrack)
+        echo "$FAILURE_SUMMARY" > "$BACKTRACK_FEEDBACK"
+        exit 3 ;;
+      withdraw)
+        cfa_set "WITHDRAWN"
+        exit 1 ;;
+    esac
   fi
 
   # ── WORK_ASSERT: human/proxy reviews the work ──

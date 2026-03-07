@@ -234,7 +234,8 @@ run_turn() {
     | tee >(session_stream_log) \
     | python3 -u "$SCRIPT_DIR/intent_filter.py" --agent-name intent-lead >&2
 
-  wait "$bg_pid" 2>/dev/null || true
+  CLAUDE_EXIT=0
+  wait "$bg_pid" 2>/dev/null || CLAUDE_EXIT=$?
   rm -f "$fifo"
 }
 
@@ -345,6 +346,23 @@ intent_cfa_set "PROPOSAL"
 session_log STATE "PROPOSAL (intent phase)"
 chrome_thinking
 run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
+
+# ── Intent infrastructure failure gate ──
+if [[ $CLAUDE_EXIT -ne 0 ]]; then
+  FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+  session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent"
+
+  cfa_failure_decision "$FAILURE_SUMMARY" "intent"
+  case "$FAILURE_ACTION" in
+    retry)
+      run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
+      ;;
+    *)
+      intent_cfa_set "WITHDRAWN"
+      exit 1 ;;
+  esac
+fi
+
 # Extract session ID for --resume on revisions
 SESSION_ID=$(extract_session_id < "$INTENT_STREAM")
 if [[ -z "$SESSION_ID" ]]; then
@@ -385,6 +403,12 @@ while true; do
     intent_cfa_set "PROPOSAL"
     run_turn "Human clarification: $CFA_RESPONSE" \
       --resume "$SESSION_ID" --permission-mode acceptEdits
+    if [[ $CLAUDE_EXIT -ne 0 ]]; then
+      FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+      session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent revision"
+      cfa_failure_decision "$FAILURE_SUMMARY" "intent"
+      [[ "$FAILURE_ACTION" != "retry" ]] && { intent_cfa_set "WITHDRAWN"; exit 1; }
+    fi
     continue  # Re-check: agent may escalate again or write INTENT.md
   fi
 
@@ -420,4 +444,10 @@ while true; do
   intent_cfa_set "PROPOSAL"  # Agent re-enters PROPOSAL after receiving feedback
   run_turn "The human rejected INTENT.md with this feedback: ${REJECTION_FEEDBACK}" \
     --resume "$SESSION_ID" --permission-mode acceptEdits
+  if [[ $CLAUDE_EXIT -ne 0 ]]; then
+    FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+    session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent revision"
+    cfa_failure_decision "$FAILURE_SUMMARY" "intent"
+    [[ "$FAILURE_ACTION" != "retry" ]] && { intent_cfa_set "WITHDRAWN"; exit 1; }
+  fi
 done

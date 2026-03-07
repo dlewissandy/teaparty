@@ -234,3 +234,115 @@ chrome_bridge() {
     session_log AGENT "[$cfa_state] Review: $(basename "$file_path")"
   fi
 }
+
+# ── Failure Handling ──
+
+# Extract a concise failure summary from stream + exit code + sentinels.
+# Usage: extract_failure STREAM_FILE EXIT_CODE [STREAM_TARGET]
+# Prints markdown summary to stdout.
+extract_failure() {
+  local stream_file="$1"
+  local exit_code="$2"
+  local stream_target="${3:-$(dirname "$stream_file")}"
+  local parts=()
+
+  # Exit code
+  if [[ $exit_code -ne 0 ]]; then
+    parts+=("Process exited with code $exit_code")
+  fi
+
+  # Stall watchdog sentinel
+  if [[ -f "$stream_target/.failure-reason" ]]; then
+    local reason
+    reason=$(cat "$stream_target/.failure-reason")
+    parts+=("Failure reason: $reason")
+    rm -f "$stream_target/.failure-reason"
+  fi
+
+  # Scan stream for error events and is_error blocks (last 5)
+  if [[ -f "$stream_file" && -s "$stream_file" ]]; then
+    local stream_errors
+    stream_errors=$(python3 -c "
+import json, sys
+errors = []
+for line in open(sys.argv[1]):
+    try:
+        ev = json.loads(line.strip())
+    except: continue
+    # Error result blocks
+    if ev.get('type') == 'result' and ev.get('is_error'):
+        errors.append(ev.get('error', 'unknown error'))
+    # Tool use errors
+    for b in ev.get('message', {}).get('content', []):
+        if isinstance(b, dict) and b.get('is_error'):
+            t = b.get('text', '') or b.get('content', '')
+            if t: errors.append(t.strip()[:200])
+for e in errors[-5:]:
+    print(e)
+" "$stream_file" 2>/dev/null || true)
+    if [[ -n "$stream_errors" ]]; then
+      parts+=("Stream errors:")
+      while IFS= read -r err; do
+        parts+=("  - $err")
+      done <<< "$stream_errors"
+    fi
+  elif [[ ! -s "$stream_file" ]]; then
+    parts+=("Process produced no output")
+  fi
+
+  if [[ ${#parts[@]} -eq 0 ]]; then
+    parts+=("Process failed (no details available)")
+  fi
+
+  printf '%s\n' "${parts[@]}"
+}
+
+# Present a failure to the human/proxy and collect a decision.
+# Sets FAILURE_ACTION for the caller: retry | escalate | backtrack | withdraw
+#
+# Usage: cfa_failure_decision FAILURE_SUMMARY [PHASE]
+#   PHASE: "intent" | "planning" | "execution" (default)
+#   - intent: only retry | withdraw (nothing upstream)
+#   - planning: retry | backtrack | withdraw (backtrack = re-enter intent)
+#   - execution: retry | escalate | backtrack | withdraw
+cfa_failure_decision() {
+  local failure_summary="$1"
+  local phase="${2:-execution}"
+
+  chrome_header "FAILURE — process did not complete"
+  echo -e "  ${C_RED}${failure_summary}${C_RESET}" >&2
+  session_log STATE "FAILURE during $phase phase"
+
+  # Consult proxy — auto-retry for transient failures
+  local proxy_action
+  proxy_action=$(proxy_decide "FAILURE" 2>/dev/null || echo "escalate")
+  session_log PROXY "FAILURE proxy=$proxy_action"
+  if [[ "$proxy_action" == "auto-approve" ]]; then
+    echo -e "  ${C_DIM}Human proxy: auto-retrying (transient failure)${C_RESET}" >&2
+    session_log STATE "FAILURE → retry (proxy auto-retry)"
+    FAILURE_ACTION="retry"
+    return
+  fi
+
+  # Build options based on phase
+  local options
+  case "$phase" in
+    intent)   options="retry, withdraw" ;;
+    planning) options="retry, backtrack to intent, withdraw" ;;
+    *)        options="retry, escalate, backtrack to planning, withdraw" ;;
+  esac
+  echo -e "  ${C_DIM}Options: ${options}${C_RESET}" >&2
+  chrome_heavy_line
+
+  # Human decision via classify_review
+  chrome_prompt CFA_RESPONSE
+
+  if classify_review "FAILURE" "$CFA_RESPONSE"; then
+    FAILURE_ACTION="$REVIEW_ACTION"
+  else
+    # Fallback: default to retry
+    FAILURE_ACTION="retry"
+  fi
+
+  session_log HUMAN "Failure decision: $FAILURE_ACTION"
+}
