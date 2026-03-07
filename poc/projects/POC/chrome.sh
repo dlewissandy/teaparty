@@ -177,6 +177,7 @@ cfa_review_loop() {
   local classify_ok=1
 
   CFA_RESPONSE=""
+  REVIEW_DIALOG_HISTORY=""
 
   while true; do
     chrome_prompt CFA_RESPONSE
@@ -209,6 +210,14 @@ cfa_review_loop() {
     session_log HUMAN "Decision: $REVIEW_ACTION${REVIEW_FEEDBACK:+ -- $REVIEW_FEEDBACK}"
   else
     session_log HUMAN "Response: $CFA_RESPONSE"
+  fi
+
+  # Preserve dialog history for correction feedback — the agent that
+  # produced the artifact never participated in this dialog and needs
+  # the full exchange to understand the correction.
+  REVIEW_DIALOG_HISTORY=""
+  if [[ $classify_ok -eq 0 && "$REVIEW_ACTION" == "correct" && -s "$dialog_hist" ]]; then
+    REVIEW_DIALOG_HISTORY=$(cat "$dialog_hist")
   fi
 
   rm -f "$dialog_hist"

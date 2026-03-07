@@ -83,6 +83,7 @@ rules = [
     'Bash(' + d + '/yt-transcript.sh:*)',
     'WebFetch',
     'WebSearch',
+    'Write',
 ]
 json.dump({'permissions': {'allow': rules}, 'env': {
     'SCRIPT_DIR': d,
@@ -417,12 +418,11 @@ while true; do
     continue  # Re-check: agent may escalate again or write INTENT.md
   fi
 
-  INTENT_PATH=$(find_intent_md)
-
-  if [[ -z "$INTENT_PATH" ]]; then
-    # Agent didn't write INTENT.md and didn't escalate — check why.
-    # If the agent hit permission blocks, it couldn't read required files.
-    INTENT_PERM_BLOCKS=$(python3 -c "
+  # ── Permission block check (ALWAYS, before trusting any output) ──
+  # An intent produced while the agent had file-reading denials is
+  # untrustworthy — even if INTENT.md exists, it was written without
+  # reading the referenced material.
+  INTENT_PERM_BLOCKS=$(python3 -c "
 import json, sys
 blocks = []
 for line in open('$INTENT_STREAM'):
@@ -438,15 +438,20 @@ for line in open('$INTENT_STREAM'):
 for b in blocks[:5]: print(b)
 " 2>/dev/null || true)
 
-    if [[ -n "$INTENT_PERM_BLOCKS" ]]; then
-      echo -e "  ${C_RED}Intent agent blocked by permissions — cannot produce trustworthy intent.${C_RESET}" >&2
-      generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
-      session_log STATE "Intent blocked by permission restrictions"
-      exit 1
-    fi
+  if [[ -n "$INTENT_PERM_BLOCKS" ]]; then
+    echo -e "  ${C_RED}Intent agent blocked by permissions — cannot produce trustworthy intent.${C_RESET}" >&2
+    generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
+    session_log STATE "Intent blocked by permission restrictions"
+    exit 1
+  fi
 
-    # No permission blocks — agent may have delegated or just didn't finish.
-    # Ask it to complete, but do NOT tell it to skip reading.
+  # ── Check for INTENT.md ──
+  INTENT_PATH=$(find_intent_md)
+
+  if [[ -z "$INTENT_PATH" ]]; then
+    # No permission blocks and no INTENT.md — agent may have delegated
+    # or just didn't finish.  Ask it to complete, but do NOT tell it
+    # to skip reading.
     echo -e "  ${C_DIM}No INTENT.md yet — asking agent to complete it.${C_RESET}" >&2
     chrome_thinking
     run_turn "You have not yet written INTENT.md. If the task references files or documents you haven't read yet, read them now. Then write INTENT.md." \
@@ -473,7 +478,17 @@ for b in blocks[:5]: print(b)
   echo -e "  ${C_DIM}CfA: INTENT_RESPONSE → synthesize → PROPOSAL${C_RESET}" >&2
   chrome_thinking
   intent_cfa_set "PROPOSAL"  # Agent re-enters PROPOSAL after receiving feedback
-  run_turn "The human rejected INTENT.md with this feedback: ${REJECTION_FEEDBACK}" \
+  REVISION_MSG="The human rejected INTENT.md."
+  if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
+    REVISION_MSG="${REVISION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+  fi
+  REVISION_MSG="${REVISION_MSG}
+
+The human's correction: ${REJECTION_FEEDBACK}"
+  run_turn "$REVISION_MSG" \
     --resume "$SESSION_ID" --permission-mode acceptEdits
   if [[ $CLAUDE_EXIT -ne 0 ]]; then
     FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")

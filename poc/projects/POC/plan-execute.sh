@@ -535,14 +535,23 @@ for b in blocks[:5]: print(b)
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-          CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
+          CORRECTION_MSG="Apply this correction to the work."
+          if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
+            CORRECTION_MSG="${CORRECTION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+          fi
+          CORRECTION_MSG="${CORRECTION_MSG}
+
+The human's correction: ${REVIEW_FEEDBACK}"
           ;;
         revise-plan)
           cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+          { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 3
           ;;
         refine-intent)
@@ -550,7 +559,7 @@ for b in blocks[:5]: print(b)
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
           proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+          { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 2
           ;;
         withdraw)
@@ -566,7 +575,16 @@ for b in blocks[:5]: print(b)
       cfa_transition "correct" || cfa_set "TASK_RESPONSE"
       session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (fallback)"
       proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
-      CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
+      CORRECTION_MSG="Apply this correction to the work."
+      if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
+        CORRECTION_MSG="${CORRECTION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+      fi
+      CORRECTION_MSG="${CORRECTION_MSG}
+
+The human's correction: ${CFA_RESPONSE}"
     fi
   done
 
@@ -762,10 +780,20 @@ if [[ "$NO_PLAN" != "true" ]]; then
           proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
           echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
           cfa_set "DRAFT"
-          run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
+          PLAN_REVISION_MSG="Revise the plan."
+          if [[ -n "${REVIEW_DIALOG_HISTORY:-}" ]]; then
+            PLAN_REVISION_MSG="${PLAN_REVISION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+          fi
+          PLAN_REVISION_MSG="${PLAN_REVISION_MSG}
+
+The human's correction: ${REVIEW_FEEDBACK}"
+          run_claude "$PLAN_STREAM" "$PLAN_REVISION_MSG" \
             --resume "$SESSION_ID" --permission-mode plan
           if gate_plan_perm_blocks "$PLAN_STREAM"; then
-            run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
+            run_claude "$PLAN_STREAM" "$PLAN_REVISION_MSG" \
               --resume "$SESSION_ID" --permission-mode plan
           fi
           cfa_set "PLAN_ASSERT"
@@ -778,7 +806,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
           proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
-          echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+          { [[ -n "${REVIEW_DIALOG_HISTORY:-}" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 2
           ;;
         withdraw)
@@ -796,10 +824,20 @@ if [[ "$NO_PLAN" != "true" ]]; then
       proxy_record "PLAN_ASSERT" "correct" "$CFA_RESPONSE"
       echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
       cfa_set "DRAFT"
-      run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
+      PLAN_FALLBACK_MSG="Revise the plan."
+      if [[ -n "${REVIEW_DIALOG_HISTORY:-}" ]]; then
+        PLAN_FALLBACK_MSG="${PLAN_FALLBACK_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+      fi
+      PLAN_FALLBACK_MSG="${PLAN_FALLBACK_MSG}
+
+The human's correction: ${CFA_RESPONSE}"
+      run_claude "$PLAN_STREAM" "$PLAN_FALLBACK_MSG" \
         --resume "$SESSION_ID" --permission-mode plan
       if gate_plan_perm_blocks "$PLAN_STREAM"; then
-        run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
+        run_claude "$PLAN_STREAM" "$PLAN_FALLBACK_MSG" \
           --resume "$SESSION_ID" --permission-mode plan
       fi
       cfa_set "PLAN_ASSERT"
@@ -1010,14 +1048,23 @@ for b in blocks[:5]: print(b)
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-        LEGACY_CORRECTION_MSG="Apply this correction to the work: $REVIEW_FEEDBACK"
+        LEGACY_CORRECTION_MSG="Apply this correction to the work."
+        if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
+          LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+        fi
+        LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}
+
+The human's correction: ${REVIEW_FEEDBACK}"
         ;;
       revise-plan)
         cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (legacy, cross-phase backtrack)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-        echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+        { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
         exit 3
         ;;
       refine-intent)
@@ -1025,7 +1072,7 @@ for b in blocks[:5]: print(b)
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (legacy, cross-phase backtrack)"
         proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
-        echo "$REVIEW_FEEDBACK" > "$BACKTRACK_FEEDBACK"
+        { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
         exit 2
         ;;
       withdraw)
@@ -1041,7 +1088,16 @@ for b in blocks[:5]: print(b)
     cfa_transition "correct" || cfa_set "TASK_RESPONSE"
     session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy, fallback)"
     proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
-    LEGACY_CORRECTION_MSG="Apply this correction to the work: $CFA_RESPONSE"
+    LEGACY_CORRECTION_MSG="Apply this correction to the work."
+    if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
+      LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}
+
+During the review, this dialog took place:
+${REVIEW_DIALOG_HISTORY}"
+    fi
+    LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}
+
+The human's correction: ${CFA_RESPONSE}"
   fi
 done
 
