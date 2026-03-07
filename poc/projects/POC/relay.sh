@@ -95,13 +95,26 @@ unset CLAUDE_CODE_ENTRYPOINT
 # Settings file: pre-approve tools subteams need
 SETTINGS_FILE=$(mktemp)
 trap "rm -f $SETTINGS_FILE; rm -f $INFRA_DIR/.running" EXIT
-WORK_CWD="$WORK_CWD" python3 -c "
+WORK_CWD="$WORK_CWD" TEAM="$TEAM" python3 -c "
 import json, os, sys
 d = os.environ.get('SCRIPT_DIR', '.')
+team = os.environ.get('TEAM', '')
+
+# Per-team Bash permissions — only the specific commands each team needs.
+# All teams get relay.sh and yt-transcript.sh for dispatch and transcripts.
+_team_bash = {
+    'coding': [
+        'Bash(python3:*)',      # run scripts, pytest, unittest
+        'Bash(uv run:*)',       # uv-managed test/lint/run
+    ],
+}
+
 rules = [
     'Bash(' + d + '/relay.sh:*)',
     'Bash(' + d + '/yt-transcript.sh:*)',
-    'Bash(*)',
+]
+rules += _team_bash.get(team, [])
+rules += [
     'WebFetch',
     'WebSearch',
     'Write',

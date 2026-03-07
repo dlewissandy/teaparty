@@ -1,18 +1,30 @@
 #!/usr/bin/env python3
 """Stream filter for claude -p --output-format stream-json.
 
-Shows inter-agent communication only:
+Default mode — shows inter-agent communication only:
   - Task dispatch (lead delegates to subagent)
   - SendMessage (direct messages between teammates)
   - Bash relay.sh calls (cross-process dispatch to subteams)
   - Errors
 
+With --show-progress — also shows agent activity:
+  - Thinking excerpts (abbreviated)
+  - Tool use events (Write, Edit, Bash, WebSearch, WebFetch, Read)
+
 Format: [sender] @recipient: message body
 Indentation for subteams is handled externally via --filter-prefix.
 """
+import argparse
 import json
 import re
 import sys
+
+# ── CLI args ──
+parser = argparse.ArgumentParser()
+parser.add_argument("--show-progress", action="store_true",
+                    help="Show thinking excerpts and tool use events")
+args = parser.parse_args()
+show_progress = args.show_progress
 
 # ── ANSI Colors (match chrome.sh) ──
 C_RESET = "\033[0m"
@@ -20,10 +32,14 @@ C_DIM = "\033[2m"
 C_CYAN = "\033[36m"
 C_RED = "\033[31m"
 
+THINK_MAX = 120
+
 # Map parent_tool_use_id -> agent name
 task_agents = {}
 # session_id of the lead agent (from init event)
 lead_session_id = None
+# Previous todo state for differential display: {content: status}
+prev_todos = {}
 
 
 def agent_label(ev):
@@ -64,7 +80,7 @@ for line in sys.stdin:
                 )
         continue
 
-    # Assistant messages — only SendMessage and relay calls
+    # Assistant messages
     if t == "assistant":
         content = ev.get("message", {}).get("content", [])
         for block in content:
@@ -72,11 +88,25 @@ for line in sys.stdin:
                 continue
             bt = block.get("type", "")
 
-            if bt == "tool_use":
+            # ── Thinking blocks (--show-progress only) ──
+            if bt == "thinking" and show_progress:
+                thinking = block.get("thinking", "").strip()
+                if thinking:
+                    excerpt = thinking[:THINK_MAX].replace("\n", " ")
+                    if len(thinking) > THINK_MAX:
+                        excerpt += "..."
+                    print(
+                        f"  {C_DIM}\u2BF7 {excerpt}{C_RESET}",
+                        flush=True,
+                    )
+
+            # ── Tool use ──
+            elif bt == "tool_use":
                 tool_name = block.get("name", "")
                 tool_input = block.get("input", {})
                 tool_id = block.get("id", "")
 
+                # Always shown: Task dispatch
                 if tool_name == "Task":
                     agent_type = tool_input.get("subagent_type", "")
                     name = tool_input.get("name", "")
@@ -89,12 +119,13 @@ for line in sys.stdin:
                     body = desc or ""
                     if prompt:
                         first_line = prompt.strip().split("\n")[0][:200]
-                        body = f"{body} — {first_line}" if body else first_line
+                        body = f"{body} \u2014 {first_line}" if body else first_line
                     print(
                         f"{C_CYAN}[{label}]{C_RESET} @{recipient}: {body}",
                         flush=True,
                     )
 
+                # Always shown: SendMessage
                 elif tool_name == "SendMessage":
                     msg_type = tool_input.get("type", "message")
                     recipient = tool_input.get("recipient", "")
@@ -122,6 +153,7 @@ for line in sys.stdin:
                             flush=True,
                         )
 
+                # Always shown: Bash relay.sh calls
                 elif tool_name == "Bash":
                     cmd = tool_input.get("command", "")
                     if "relay.sh" in cmd:
@@ -138,6 +170,77 @@ for line in sys.stdin:
                             f"{C_CYAN}[{label}]{C_RESET} @{team}-team: {task}",
                             flush=True,
                         )
+                    elif show_progress:
+                        # Show non-relay Bash commands
+                        desc = tool_input.get("description", "")
+                        short = desc or cmd.split("\n")[0][:120]
+                        print(
+                            f"  {C_DIM}\u2192 Bash: {short}{C_RESET}",
+                            flush=True,
+                        )
+
+                # --show-progress: TodoWrite checklist
+                elif tool_name == "TodoWrite" and show_progress:
+                    todos = tool_input.get("todos", [])
+                    for item in todos:
+                        content = item.get("content", "")
+                        status = item.get("status", "")
+                        active = item.get("activeForm", "")
+                        old_status = prev_todos.get(content)
+
+                        if status == "in_progress" and old_status != "in_progress":
+                            display = active or content
+                            print(
+                                f"  {C_CYAN}\u25b6{C_RESET} {display}",
+                                flush=True,
+                            )
+                        elif status == "completed" and old_status != "completed":
+                            print(
+                                f"  {C_DIM}\u2713 {content}{C_RESET}",
+                                flush=True,
+                            )
+
+                    # Update tracked state
+                    prev_todos.clear()
+                    for item in todos:
+                        prev_todos[item.get("content", "")] = item.get("status", "")
+
+                # --show-progress: tool use events
+                elif show_progress:
+                    if tool_name == "Write":
+                        path = tool_input.get("file_path", "")
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        print(
+                            f"  {C_DIM}\u2192 Write {short}{C_RESET}",
+                            flush=True,
+                        )
+                    elif tool_name == "Edit":
+                        path = tool_input.get("file_path", "")
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        print(
+                            f"  {C_DIM}\u2192 Edit {short}{C_RESET}",
+                            flush=True,
+                        )
+                    elif tool_name == "WebSearch":
+                        query = tool_input.get("query", "")[:120]
+                        print(
+                            f"  {C_DIM}\u2192 WebSearch \"{query}\"{C_RESET}",
+                            flush=True,
+                        )
+                    elif tool_name == "WebFetch":
+                        url = tool_input.get("url", "")[:120]
+                        print(
+                            f"  {C_DIM}\u2192 WebFetch {url}{C_RESET}",
+                            flush=True,
+                        )
+                    elif tool_name == "Read":
+                        path = tool_input.get("file_path", "")
+                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        print(
+                            f"  {C_DIM}\u2192 Read {short}{C_RESET}",
+                            flush=True,
+                        )
+                    # Suppress: Glob, Grep, ExitPlanMode, etc.
 
         continue
 
@@ -155,5 +258,5 @@ for line in sys.stdin:
     # Final result
     if t == "result":
         result = ev.get("result", "")[:500]
-        print(f"\n{C_DIM}── done ──{C_RESET}\n{result}", flush=True)
+        print(f"\n{C_DIM}\u2500\u2500 done \u2500\u2500{C_RESET}\n{result}", flush=True)
         continue

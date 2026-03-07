@@ -150,10 +150,12 @@ stall_watchdog() {
 
 filter_stream() {
   local dest="${CONVERSATION_LOG:-/dev/stderr}"
+  local progress_flag=""
+  [[ "${FILTER_SHOW_PROGRESS:-}" == "1" ]] && progress_flag="--show-progress"
   if [[ -n "$FILTER_PREFIX" ]]; then
-    python3 -u "$SCRIPT_DIR/stream_filter.py" | sed -u "s/^/$FILTER_PREFIX/" >> "$dest"
+    python3 -u "$SCRIPT_DIR/stream_filter.py" $progress_flag | sed -u "s/^/$FILTER_PREFIX/" >> "$dest"
   else
-    python3 -u "$SCRIPT_DIR/stream_filter.py" >> "$dest"
+    python3 -u "$SCRIPT_DIR/stream_filter.py" $progress_flag >> "$dest"
   fi
 }
 
@@ -284,15 +286,20 @@ run_orchestrated() {
     orch_args+=(--add-dir "$_ad")
   done
 
+  # Live stream tailing — process JSONL as the orchestrator appends it
+  touch "$stream_file"
+  tail -f "$stream_file" | filter_stream &
+  local filter_pid=$!
+  tail -f "$stream_file" | session_stream_log "$FILTER_PREFIX" &
+  local logger_pid=$!
+
   CLAUDE_EXIT=0
   python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
 
-  # Post-process: run filter and session stream logger on the merged stream
-  if [[ -f "$stream_file" ]]; then
-    cat "$stream_file" | filter_stream &
-    cat "$stream_file" | session_stream_log "$FILTER_PREFIX" &
-    wait
-  fi
+  # Let tails flush remaining lines, then kill
+  sleep 0.5
+  kill "$filter_pid" "$logger_pid" 2>/dev/null || true
+  wait "$filter_pid" "$logger_pid" 2>/dev/null || true
 }
 
 # ── CfA state helpers ──
@@ -360,6 +367,7 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
   EXEC_SESSION_ID="$RESUME_SESSION"
   CORRECTION_MSG=""
   PLAN_FILE="${PLAN_FILE:-$STREAM_TARGET/plan.md}"
+  FILTER_SHOW_PROGRESS=1
 
   # ── Execution loop: run → review → (correct → re-run) or (exit) ──
   # Per spec: WORK_ASSERT correct → TASK_RESPONSE → agent fixes → WORK_ASSERT
@@ -870,6 +878,7 @@ fi
 
 LEGACY_CORRECTION_MSG=""
 LEGACY_SESSION_ID="$SESSION_ID"
+FILTER_SHOW_PROGRESS=1
 
 while true; do
   if [[ -n "$LEGACY_CORRECTION_MSG" && -n "$LEGACY_SESSION_ID" ]]; then
