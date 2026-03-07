@@ -209,6 +209,7 @@ $(echo "$PLAN_PERM_BLOCKS" | while IFS= read -r b; do echo "- $b"; done)
 A plan produced without reading the essential inputs is not trustworthy."
 
   echo -e "  ${C_RED}Planning blocked — agent could not read essential files${C_RESET}" >&2
+  generate_failure_report "$stream_file" "planning" "$LEAD"
   session_log STATE "Planning blocked by permission restrictions"
 
   if [[ "$AGENT_MODE" == "true" ]]; then
@@ -396,6 +397,7 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
     # ── Infrastructure failure gate ──
     if [[ $CLAUDE_EXIT -ne 0 ]]; then
       FAILURE_SUMMARY=$(extract_failure "$EXEC_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+      generate_failure_report "$EXEC_STREAM" "execution" "$LEAD"
       session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during execution"
 
       if [[ "$AGENT_MODE" == "true" ]]; then
@@ -452,6 +454,7 @@ for b in blocks[:5]: print(b)
           echo ""
           echo "Options: grant permission and re-run, or run the commands manually."
         } > "$TASK_ESCALATION"
+        generate_failure_report "$EXEC_STREAM" "execution" "$LEAD"
         echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
         session_log STATE "Auto-detected permission blocks → TASK_ESCALATE"
       fi
@@ -594,6 +597,7 @@ else
   # ── Planning infrastructure failure gate ──
   if [[ $CLAUDE_EXIT -ne 0 ]]; then
     FAILURE_SUMMARY=$(extract_failure "$PLAN_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+    generate_failure_report "$PLAN_STREAM" "planning" "$LEAD"
     session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during planning"
 
     if [[ "$AGENT_MODE" == "true" ]]; then
@@ -863,6 +867,7 @@ while true; do
   # ── Infrastructure failure gate ──
   if [[ $CLAUDE_EXIT -ne 0 ]]; then
     FAILURE_SUMMARY=$(extract_failure "$EXEC_STREAM" "$CLAUDE_EXIT" "$STREAM_TARGET")
+    generate_failure_report "$EXEC_STREAM" "execution" "$LEAD"
     session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during execution (legacy)"
 
     if [[ "$AGENT_MODE" == "true" ]]; then
@@ -924,6 +929,7 @@ for b in blocks[:5]: print(b)
         echo ""
         echo "Options: grant permission and re-run, or run the commands manually."
       } > "$LEGACY_TASK_ESCALATION"
+      generate_failure_report "$EXEC_STREAM" "execution" "$LEAD"
       echo -e "  ${C_DIM}Auto-detected permission blocks → TASK_ESCALATE${C_RESET}" >&2
       session_log STATE "Auto-detected permission blocks → TASK_ESCALATE (legacy)"
     fi

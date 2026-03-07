@@ -190,6 +190,9 @@ rules = [
     'Bash(' + d + '/yt-transcript.sh:*)',
     'WebFetch',
     'WebSearch',
+    'Write',
+    'Edit',
+    'ExitPlanMode',
 ]
 enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
 json.dump({

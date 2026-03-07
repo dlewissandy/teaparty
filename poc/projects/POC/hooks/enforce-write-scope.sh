@@ -34,10 +34,11 @@ except:
 # Resolve scope to real path for consistent comparison
 REAL_SCOPE=$(python3 -c "import os; print(os.path.realpath('$WRITE_SCOPE'))" 2>/dev/null) || REAL_SCOPE="$WRITE_SCOPE"
 
-# Allow: project workdir, temp dirs, session infra dir
+# Allow: project workdir, temp dirs, session infra dir, ~/.claude/ (plan files, etc.)
 case "$FILE_PATH" in
   "$REAL_SCOPE"/*|"$REAL_SCOPE") exit 0 ;;
   /tmp/*|/private/tmp/*|/var/folders/*) exit 0 ;;
+  "$HOME"/.claude/*) exit 0 ;;
 esac
 
 # Allow session infra dir (stream files, escalation files, etc.)

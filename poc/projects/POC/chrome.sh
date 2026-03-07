@@ -346,3 +346,27 @@ cfa_failure_decision() {
 
   session_log HUMAN "Failure decision: $FAILURE_ACTION"
 }
+
+# Generate a structured failure report to the session directory.
+# Produces .failure-report.md with evidence pointers (file + line numbers),
+# not embedded error text.  Called alongside extract_failure, before
+# cfa_failure_decision.
+#
+# Usage: generate_failure_report STREAM_FILE PHASE AGENT_NAME
+#   Uses env: STREAM_TARGET, TASK, CLAUDE_EXIT
+generate_failure_report() {
+  local stream_file="$1" phase="$2" agent_name="$3"
+  local session_dir="${STREAM_TARGET:-$(dirname "$stream_file")}"
+  python3 "$SCRIPT_DIR/scripts/generate_failure_report.py" \
+      --session-dir "$session_dir" \
+      --stream "$stream_file" \
+      --phase "$phase" \
+      --agent "$agent_name" \
+      --exit-code "${CLAUDE_EXIT:-1}" \
+      --task "${TASK:-unknown}" \
+      2>/dev/null || true
+  if [[ -f "$session_dir/.failure-report.md" ]]; then
+    echo -e "  ${C_DIM}Report: $session_dir/.failure-report.md${C_RESET}" >&2
+    session_log STATE "Failure report: $session_dir/.failure-report.md"
+  fi
+}

@@ -149,6 +149,9 @@ INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
 CLAUDE_ARGS=(-p --output-format stream-json --verbose --setting-sources user)
 CLAUDE_ARGS+=(--agents "$AGENTS_JSON" --agent intent-lead)
 CLAUDE_ARGS+=(--settings "$SETTINGS_FILE")
+# Grant read access to session worktree and projects dir
+[[ -n "${POC_SESSION_WORKTREE:-}" ]] && CLAUDE_ARGS+=(--add-dir "$POC_SESSION_WORKTREE")
+[[ -n "${PROJECTS_DIR:-}" ]]         && CLAUDE_ARGS+=(--add-dir "$PROJECTS_DIR")
 
 # ── Helper: find INTENT.md (only if written during THIS session) ──
 INTENT_SESSION_START=$(date +%s)
@@ -350,6 +353,7 @@ run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
 # ── Intent infrastructure failure gate ──
 if [[ $CLAUDE_EXIT -ne 0 ]]; then
   FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+  generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
   session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent"
 
   cfa_failure_decision "$FAILURE_SUMMARY" "intent"
@@ -405,6 +409,7 @@ while true; do
       --resume "$SESSION_ID" --permission-mode acceptEdits
     if [[ $CLAUDE_EXIT -ne 0 ]]; then
       FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+      generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
       session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent revision"
       cfa_failure_decision "$FAILURE_SUMMARY" "intent"
       [[ "$FAILURE_ACTION" != "retry" ]] && { intent_cfa_set "WITHDRAWN"; exit 1; }
@@ -415,10 +420,36 @@ while true; do
   INTENT_PATH=$(find_intent_md)
 
   if [[ -z "$INTENT_PATH" ]]; then
-    # Agent didn't write INTENT.md — ask it to finalize
-    echo -e "  ${C_DIM}No INTENT.md yet — asking agent to produce it.${C_RESET}" >&2
+    # Agent didn't write INTENT.md and didn't escalate — check why.
+    # If the agent hit permission blocks, it couldn't read required files.
+    INTENT_PERM_BLOCKS=$(python3 -c "
+import json, sys
+blocks = []
+for line in open('$INTENT_STREAM'):
+    try:
+        ev = json.loads(line.strip())
+    except: continue
+    if ev.get('type') != 'user': continue
+    for b in ev.get('message',{}).get('content',[]):
+        if not isinstance(b, dict) or not b.get('is_error'): continue
+        t = b.get('text','') or b.get('content','')
+        if 'denied' in t.lower() or 'requires approval' in t or 'not allowed' in t.lower():
+            blocks.append(t.strip())
+for b in blocks[:5]: print(b)
+" 2>/dev/null || true)
+
+    if [[ -n "$INTENT_PERM_BLOCKS" ]]; then
+      echo -e "  ${C_RED}Intent agent blocked by permissions — cannot produce trustworthy intent.${C_RESET}" >&2
+      generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
+      session_log STATE "Intent blocked by permission restrictions"
+      exit 1
+    fi
+
+    # No permission blocks — agent may have delegated or just didn't finish.
+    # Ask it to complete, but do NOT tell it to skip reading.
+    echo -e "  ${C_DIM}No INTENT.md yet — asking agent to complete it.${C_RESET}" >&2
     chrome_thinking
-    run_turn "Write the INTENT.md now based on what you know." \
+    run_turn "You have not yet written INTENT.md. If the task references files or documents you haven't read yet, read them now. Then write INTENT.md." \
       --resume "$SESSION_ID" --permission-mode acceptEdits
     INTENT_PATH=$(find_intent_md)
   fi
@@ -446,6 +477,7 @@ while true; do
     --resume "$SESSION_ID" --permission-mode acceptEdits
   if [[ $CLAUDE_EXIT -ne 0 ]]; then
     FAILURE_SUMMARY=$(extract_failure "$INTENT_STREAM" "$CLAUDE_EXIT" "$STREAM_DIR")
+    generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
     session_log STATE "Infrastructure failure (exit $CLAUDE_EXIT) during intent revision"
     cfa_failure_decision "$FAILURE_SUMMARY" "intent"
     [[ "$FAILURE_ACTION" != "retry" ]] && { intent_cfa_set "WITHDRAWN"; exit 1; }

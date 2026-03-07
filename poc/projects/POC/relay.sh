@@ -104,6 +104,9 @@ rules = [
     'Bash(*)',
     'WebFetch',
     'WebSearch',
+    'Write',
+    'Edit',
+    'ExitPlanMode',
 ]
 block_task_cmd = d + '/hooks/block-task.sh'
 enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
