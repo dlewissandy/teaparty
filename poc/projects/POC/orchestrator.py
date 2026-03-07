@@ -98,6 +98,12 @@ class Mailbox:
                 + "\n".join(lines)
             )
 
+        text += (
+            "\n\n[PROTOCOL] If you are blocked waiting for human action "
+            "or external input and cannot make further progress, end your "
+            "response with [WAITING] on its own line. This tells the "
+            "orchestrator not to wake other agents on your behalf.")
+
         return text
 
 
@@ -153,7 +159,13 @@ def parse_stream(stream_file):
             if etype == "result":
                 result_text = ev.get("result", "")
 
-    return session_id, outgoing, result_text
+    # Detect [WAITING] signal — agent is blocked on external input
+    waiting = False
+    if result_text and "[WAITING]" in result_text:
+        waiting = True
+        result_text = result_text.replace("[WAITING]", "").strip()
+
+    return session_id, outgoing, result_text, waiting
 
 
 def extract_result_text(stream_file):
@@ -241,7 +253,7 @@ def _wake_agent(pool, mbox, agents_json, settings_file, cwd,
         + (f" [{len(mbox.pending)} pending]" if mbox.pending else ""))
 
     def run():
-        session_id, outgoing, result = run_agent(
+        session_id, outgoing, result, waiting = run_agent(
             agents_json, mbox.name, task_input,
             settings_file, cwd, stream,
             extra_args=extra_args, resume_session=resume,
@@ -253,6 +265,7 @@ def _wake_agent(pool, mbox, agents_json, settings_file, cwd,
             "outgoing": outgoing,
             "result_text": result or extract_result_text(stream),
             "senders": senders,
+            "waiting": waiting,
         }
 
     fut = pool.submit(run)
@@ -322,7 +335,7 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
     lead_stream = f"{output_stream}.{lead_name}-{rid:03d}"
     log(session_log, "ORCH", f"Initial: {lead_name}")
 
-    session_id, outgoing, result = run_agent(
+    session_id, outgoing, result, _waiting = run_agent(
         agents_json, lead_name, task,
         settings_file, cwd, lead_stream,
         extra_args=extra_args, resume_session=resume_session,
@@ -380,9 +393,16 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
                 if sender in mailboxes:
                     mailboxes[sender].resolve_pending(agent_name)
 
+            # If agent is waiting for external input, log it and
+            # suppress auto-notification to break idle ping-pong
+            if r.get("waiting"):
+                log(session_log, "WAIT",
+                    f"{agent_name}: waiting for external input")
+
             # If agent finished without sending any messages, notify
-            # the senders so they know it completed
-            if not r.get("outgoing"):
+            # the senders so they know it completed — unless it's
+            # waiting for external input (which would cause ping-pong)
+            elif not r.get("outgoing"):
                 text = r.get("result_text", "")
                 summary = f"{agent_name} done"
                 for sender in r.get("senders", []):

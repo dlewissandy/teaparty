@@ -15,13 +15,15 @@ export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 TEAM=""
 TASK=""
 CFA_PARENT_STATE=""
+AUTO_APPROVE_PLAN=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --team)             TEAM="$2"; shift 2 ;;
-    --task)             TASK="$2"; shift 2 ;;
-    --cfa-parent-state) CFA_PARENT_STATE="$2"; shift 2 ;;
-    *)                  echo "{\"error\":\"unknown arg: $1\"}" >&2; exit 1 ;;
+    --team)               TEAM="$2"; shift 2 ;;
+    --task)               TASK="$2"; shift 2 ;;
+    --cfa-parent-state)   CFA_PARENT_STATE="$2"; shift 2 ;;
+    --auto-approve-plan)  AUTO_APPROVE_PLAN=1; shift ;;
+    *)                    echo "{\"error\":\"unknown arg: $1\"}" >&2; exit 1 ;;
   esac
 done
 
@@ -194,6 +196,7 @@ while true; do
     --stream-dir "$INFRA_DIR" \
     --proxy-model "$TEAM_PROXY_MODEL" \
     ${DISPATCH_CFA_STATE:+--cfa-state "$DISPATCH_CFA_STATE"} \
+    ${AUTO_APPROVE_PLAN:+--auto-approve-plan} \
     "${ADD_DIR_ARGS[@]}" \
     --filter-prefix "  [$TEAM] " \
     "$TASK") || DISPATCH_EXIT=$?
@@ -221,6 +224,18 @@ while true; do
   fi
   break
 done
+
+# Determine CfA status from exit code (must precede session_log on next line)
+case $DISPATCH_EXIT in
+  0)  CFA_STATUS="completed" ;;
+  1)  CFA_STATUS="failed" ;;
+  2)  CFA_STATUS="backtrack_intent" ;;
+  3)  CFA_STATUS="backtrack_planning" ;;
+  4)  CFA_STATUS="infrastructure_failure" ;;
+  10) CFA_STATUS="needs_plan_review" ;;
+  11) CFA_STATUS="needs_work_review" ;;
+  *)  CFA_STATUS="error" ;;
+esac
 
 echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)${C_RESET}" >&2
 session_log DISPATCH "<<< $TEAM team -- $CFA_STATUS (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)"
@@ -288,18 +303,6 @@ else
   OUTPUT_FILES=$(ls "$WORK_CWD" 2>/dev/null | grep -v '^\.' | paste -sd ',' - || echo "")
 fi
 echo -e "  ${C_DIM}[relay]     Files: ${OUTPUT_FILES:-none}${C_RESET}" >&2
-
-# Determine CfA status for result JSON
-case $DISPATCH_EXIT in
-  0)  CFA_STATUS="completed" ;;
-  1)  CFA_STATUS="failed" ;;
-  2)  CFA_STATUS="backtrack_intent" ;;
-  3)  CFA_STATUS="backtrack_planning" ;;
-  4)  CFA_STATUS="infrastructure_failure" ;;
-  10) CFA_STATUS="needs_plan_review" ;;
-  11) CFA_STATUS="needs_work_review" ;;
-  *)  CFA_STATUS="error" ;;
-esac
 
 # Read backtrack/escalation reason if available
 BACKTRACK_REASON=""

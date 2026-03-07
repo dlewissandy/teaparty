@@ -44,6 +44,7 @@ EXECUTE_ONLY=false
 RESUME_SESSION=""
 PROXY_MODEL=""
 CFA_STATE_FILE=""
+AUTO_APPROVE_PLAN=false
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -63,6 +64,7 @@ while [[ $# -gt 0 ]]; do
     --resume-session)  RESUME_SESSION="$2"; shift 2 ;;
     --proxy-model)     PROXY_MODEL="$2"; shift 2 ;;
     --cfa-state)       CFA_STATE_FILE="$2"; shift 2 ;;
+    --auto-approve-plan) AUTO_APPROVE_PLAN=true; shift ;;
     -*)                echo "Unknown option: $1" >&2; exit 1 ;;
     *)                 TASK="$1"; shift ;;
   esac
@@ -735,6 +737,16 @@ if [[ "$NO_PLAN" != "true" ]]; then
   # CfA plan approval loop — always consult proxy, supports revision and backtracking
   while true; do
     chrome_header "PLAN_ASSERT (CfA Phase 2 — human reviews plan)"
+
+    # If outer team already approved this plan, skip proxy check entirely
+    if [[ "$AUTO_APPROVE_PLAN" == "true" ]]; then
+      echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN (outer team pre-approved)${C_RESET}" >&2
+      session_log PROXY "PLAN_ASSERT auto-approved (outer team pre-approved)"
+      proxy_record "PLAN_ASSERT" "approve"
+      cfa_transition "approve" || cfa_set "PLAN"
+      AUTO_APPROVE_PLAN=false  # only auto-approve once (not on re-plan)
+      break
+    fi
 
     # Always check human proxy confidence — no more bypassing
     PROXY_ACTION=$(proxy_decide "PLAN_ASSERT")
