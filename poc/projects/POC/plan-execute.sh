@@ -171,6 +171,66 @@ for line in sys.stdin:
 "
 }
 
+# Check if the planning stream contains permission blocks (denied reads/globs).
+# A plan built without reading essential inputs is not trustworthy.
+# Sets PLAN_PERM_BLOCKS (non-empty if blocks found).
+check_plan_perm_blocks() {
+  local stream_file="$1"
+  PLAN_PERM_BLOCKS=$(python3 -c "
+import json, sys
+blocks = []
+for line in open('$stream_file'):
+    try:
+        ev = json.loads(line.strip())
+    except: continue
+    if ev.get('type') != 'user': continue
+    for b in ev.get('message',{}).get('content',[]):
+        if not isinstance(b, dict) or not b.get('is_error'): continue
+        t = b.get('text','') or b.get('content','')
+        if 'denied' in t.lower() or 'requires approval' in t or 'require approval' in t or 'not allowed' in t.lower():
+            blocks.append(t.strip())
+for b in blocks[:5]: print(b)
+" 2>/dev/null || true)
+}
+
+# If planning had permission blocks, abort before PLAN_ASSERT.
+# Returns 0 if it handled the failure (caller should not proceed to PLAN_ASSERT).
+# Returns 1 if no blocks found (caller proceeds normally).
+gate_plan_perm_blocks() {
+  local stream_file="$1"
+  check_plan_perm_blocks "$stream_file"
+  [[ -z "$PLAN_PERM_BLOCKS" ]] && return 1  # no blocks — proceed normally
+
+  local failure_summary="Planning blocked by permission restrictions.
+The agent could not read files needed for planning:
+
+$(echo "$PLAN_PERM_BLOCKS" | while IFS= read -r b; do echo "- $b"; done)
+
+A plan produced without reading the essential inputs is not trustworthy."
+
+  echo -e "  ${C_RED}Planning blocked — agent could not read essential files${C_RESET}" >&2
+  session_log STATE "Planning blocked by permission restrictions"
+
+  if [[ "$AGENT_MODE" == "true" ]]; then
+    echo "$failure_summary" > "$BACKTRACK_FEEDBACK"
+    exit 4  # infrastructure failure
+  fi
+
+  cfa_failure_decision "$failure_summary" "planning"
+  case "$FAILURE_ACTION" in
+    retry)    return 0 ;;  # caller should re-run planning
+    backtrack)
+      echo "$failure_summary" > "$BACKTRACK_FEEDBACK"
+      exit 2 ;;
+    withdraw)
+      cfa_set "WITHDRAWN"
+      exit 1 ;;
+    *)
+      echo "$failure_summary" > "$BACKTRACK_FEEDBACK"
+      exit 2 ;;
+  esac
+}
+
 run_claude() {
   local stream_file="$1"; shift
   local task_input="$1"; shift
@@ -217,6 +277,11 @@ run_orchestrated() {
   [[ -n "$SETTINGS_FILE" ]] && orch_args+=(--settings "$SETTINGS_FILE")
   [[ -n "${SESSION_LOG:-}" ]] && orch_args+=(--session-log "$SESSION_LOG")
   [[ -n "$resume_session" ]] && orch_args+=(--resume "$resume_session")
+
+  # Forward --add-dir flags so orchestrated agents can read project files
+  for _ad in ${ADD_DIRS[@]+"${ADD_DIRS[@]}"}; do
+    orch_args+=(--add-dir "$_ad")
+  done
 
   CLAUDE_EXIT=0
   python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
@@ -596,6 +661,13 @@ else
       --resume "$SESSION_ID" --permission-mode plan
   done
 
+  # ── Planning permission block gate ──
+  # If the agent couldn't read essential files, the plan is worthless.
+  if gate_plan_perm_blocks "$PLAN_STREAM"; then
+    # Permission blocks detected and handled (retry chosen) — re-run planning
+    run_claude "$PLAN_STREAM" "$TASK" --permission-mode plan
+  fi
+
   cfa_set "PLAN_ASSERT"  # Agent completed planning: DRAFT → assert → PLAN_ASSERT
   echo -e "  ${C_DIM}plan complete (session: ${SESSION_ID:0:8}...)${C_RESET}" >&2
   session_log AGENT "Plan phase complete (session: ${SESSION_ID:0:8})"
@@ -688,6 +760,10 @@ if [[ "$NO_PLAN" != "true" ]]; then
           cfa_set "DRAFT"
           run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
             --resume "$SESSION_ID" --permission-mode plan
+          if gate_plan_perm_blocks "$PLAN_STREAM"; then
+            run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${REVIEW_FEEDBACK}" \
+              --resume "$SESSION_ID" --permission-mode plan
+          fi
           cfa_set "PLAN_ASSERT"
           NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
           [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
@@ -718,6 +794,10 @@ if [[ "$NO_PLAN" != "true" ]]; then
       cfa_set "DRAFT"
       run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
         --resume "$SESSION_ID" --permission-mode plan
+      if gate_plan_perm_blocks "$PLAN_STREAM"; then
+        run_claude "$PLAN_STREAM" "Revise the plan based on this feedback: ${CFA_RESPONSE}" \
+          --resume "$SESSION_ID" --permission-mode plan
+      fi
       cfa_set "PLAN_ASSERT"
       NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
       [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true

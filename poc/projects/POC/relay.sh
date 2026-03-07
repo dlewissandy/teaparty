@@ -59,6 +59,8 @@ if [[ -n "$PROJECT_DIR" && -n "$SESSION_WORKTREE" ]]; then
     WORK_CWD="$DISPATCH_WORKTREE"
   fi
   ADD_DIR_ARGS=(--add-dir "$DISPATCH_WORKTREE" --add-dir "$SESSION_WORKTREE")
+  # Also grant read access to the main projects/ directory (if set)
+  [[ -n "${PROJECTS_DIR:-}" ]] && ADD_DIR_ARGS+=(--add-dir "$PROJECTS_DIR")
 else
   # Fallback: flat directory mode (standalone use without worktrees)
   INFRA_DIR="${POC_SESSION_DIR:-$SCRIPT_DIR/output}/$TEAM/$DISPATCH_TS"

@@ -234,9 +234,11 @@ def _wake_agent(pool, mbox, agents_json, settings_file, cwd,
     resume = mbox.session_id
     senders = list({m.sender for m in messages})
 
+    # Log each message being delivered so communication is visible
+    summaries = [m.summary or m.content[:60] for m in messages]
     log(session_log, "WAKE",
-        f"#{rid} {mbox.name}: {len(messages)} msg(s)"
-        + (f", {len(mbox.pending)} pending" if mbox.pending else ""))
+        f"#{rid} {mbox.name}: {'; '.join(summaries)}"
+        + (f" [{len(mbox.pending)} pending]" if mbox.pending else ""))
 
     def run():
         session_id, outgoing, result = run_agent(
@@ -382,12 +384,15 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
             # the senders so they know it completed
             if not r.get("outgoing"):
                 text = r.get("result_text", "")
+                summary = f"{agent_name} done"
                 for sender in r.get("senders", []):
                     if sender in mailboxes and sender != agent_name:
                         mailboxes[sender].enqueue(
                             agent_name,
                             text or f"{agent_name} completed.",
-                            f"{agent_name} done")
+                            summary)
+                        log(session_log, "ROUTE",
+                            f"{agent_name} -> {sender}: {summary}")
 
         # Wake any agent that now has mail
         _wake_idle(pool, mailboxes, agents_json, settings_file, cwd,
