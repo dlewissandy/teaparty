@@ -349,10 +349,12 @@ cfa_set() {
 # Returns "auto-approve" or "escalate" on stdout.
 proxy_decide() {
   local state="$1"
+  local artifact_path="${2:-}"
   local task_type="${POC_PROJECT:-default}"
   if [[ -n "$PROXY_MODEL" && -f "$PROXY_MODEL" ]]; then
     python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
       --decide --state "$state" --task-type "$task_type" \
+      --artifact "${artifact_path:-}" \
       --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
   else
     echo "escalate"
@@ -360,17 +362,23 @@ proxy_decide() {
 }
 
 # Records outcome to the proxy model.
-# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY]
+# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY [QUESTIONS [REASON [ARTIFACT_LEN]]]]
 proxy_record() {
   local state="$1" outcome="$2"
   local diff_summary="${3:-}"
+  local questions="${4:-}"
+  local reason="${5:-}"
+  local artifact_len="${6:-0}"
   local task_type="${POC_PROJECT:-default}"
   if [[ -n "$PROXY_MODEL" ]]; then
-    local diff_args=()
-    [[ -n "$diff_summary" ]] && diff_args=(--diff "$diff_summary")
+    local extra_args=()
+    [[ -n "$diff_summary" ]]    && extra_args+=(--diff "$diff_summary")
+    [[ -n "$questions" ]]       && extra_args+=(--questions "$questions")
+    [[ -n "$reason" ]]          && extra_args+=(--reason "$reason")
+    [[ "$artifact_len" -gt 0 ]] && extra_args+=(--artifact-length "$artifact_len")
     python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
       --record --state "$state" --task-type "$task_type" \
-      --outcome "$outcome" ${diff_args[@]+"${diff_args[@]}"} \
+      --outcome "$outcome" ${extra_args[@]+"${extra_args[@]}"} \
       --model "$PROXY_MODEL" 2>/dev/null || true
   fi
 }
@@ -499,16 +507,17 @@ for b in blocks[:5]: print(b)
         exit 11
       fi
 
+      task_escal_len=$(wc -c < "$TASK_ESCALATION" 2>/dev/null || echo 0)
       cfa_review_loop "TASK_ESCALATE" "" "" "$TASK_ESCALATION" "" "$TASK"
       if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
-        proxy_record "TASK_ESCALATE" "withdraw"
+        proxy_record "TASK_ESCALATE" "withdraw" "" "" "" "$task_escal_len"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
         session_log STATE "TASK_ESCALATE → withdraw → WITHDRAWN"
         rm -f "$TASK_ESCALATION"
         exit 1
       fi
 
-      proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
+      proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE" "$CFA_RESPONSE" "" "$task_escal_len"
       cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
       echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
       session_log STATE "TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS"
@@ -521,13 +530,14 @@ for b in blocks[:5]: print(b)
     # ── WORK_ASSERT: human/proxy reviews the work ──
     cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
     chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
-    PROXY_ACTION=$(proxy_decide "WORK_ASSERT")
+    PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$STREAM_TARGET/.work-summary.md")
+    work_artifact_len=$(wc -c < "$STREAM_TARGET/.work-summary.md" 2>/dev/null || echo 0)
     session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION"
 
     if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
       echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
       session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)"
-      proxy_record "WORK_ASSERT" "approve"
+      proxy_record "WORK_ASSERT" "approve" "" "" "" "$work_artifact_len"
       cfa_transition "approve" || cfa_set "COMPLETED_WORK"
       break
     elif [[ "$AGENT_MODE" == "true" ]]; then
@@ -549,7 +559,7 @@ for b in blocks[:5]: print(b)
     if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
       case "$REVIEW_ACTION" in
         approve)
-          proxy_record "WORK_ASSERT" "approve"
+          proxy_record "WORK_ASSERT" "approve" "" "" "" "$work_artifact_len"
           cfa_transition "approve" || cfa_set "COMPLETED_WORK"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK"
@@ -559,7 +569,7 @@ for b in blocks[:5]: print(b)
           cfa_transition "correct" || cfa_set "TASK_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE"
-          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$work_artifact_len"
           CORRECTION_MSG="Apply this correction to the work."
           if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
             CORRECTION_MSG="${CORRECTION_MSG}
@@ -575,7 +585,7 @@ The human's correction: ${REVIEW_FEEDBACK}"
           cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)"
-          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$work_artifact_len"
           { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 3
           ;;
@@ -583,12 +593,12 @@ The human's correction: ${REVIEW_FEEDBACK}"
           cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
-          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$work_artifact_len"
           { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 2
           ;;
         withdraw)
-          proxy_record "WORK_ASSERT" "withdraw"
+          proxy_record "WORK_ASSERT" "withdraw" "" "" "" "$work_artifact_len"
           cfa_transition "withdraw" || cfa_set "WITHDRAWN"
           echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
           session_log STATE "WORK_ASSERT → withdraw → WITHDRAWN"
@@ -599,7 +609,7 @@ The human's correction: ${REVIEW_FEEDBACK}"
       # Fallback: treat raw input as work correction
       cfa_transition "correct" || cfa_set "TASK_RESPONSE"
       session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (fallback)"
-      proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
+      proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE" "$CFA_RESPONSE" "$CFA_RESPONSE" "$work_artifact_len"
       CORRECTION_MSG="Apply this correction to the work."
       if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
         CORRECTION_MSG="${CORRECTION_MSG}
@@ -678,6 +688,7 @@ else
   # Agent may escalate multiple times — loop until it stops writing escalation files.
   while [[ -f "$STREAM_TARGET/.plan-escalation.md" ]]; do
     PLAN_ESCALATION="$STREAM_TARGET/.plan-escalation.md"
+    plan_escal_len=$(wc -c < "$PLAN_ESCALATION" 2>/dev/null || echo 0)
     cfa_set "PLANNING_ESCALATE"
     chrome_header "PLANNING_ESCALATE — agent needs clarification"
     chrome_bridge "$PLAN_ESCALATION" "PLANNING_ESCALATE" "$TASK"
@@ -692,13 +703,13 @@ else
 
     cfa_review_loop "PLANNING_ESCALATE" "" "" "$PLAN_ESCALATION" "" "$TASK"
     if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
-      proxy_record "PLANNING_ESCALATE" "withdraw"
+      proxy_record "PLANNING_ESCALATE" "withdraw" "" "" "" "$plan_escal_len"
       cfa_transition "withdraw" || cfa_set "WITHDRAWN"
       rm -f "$PLAN_ESCALATION"
       exit 1
     fi
 
-    proxy_record "PLANNING_ESCALATE" "clarify" "$CFA_RESPONSE"
+    proxy_record "PLANNING_ESCALATE" "clarify" "$CFA_RESPONSE" "$CFA_RESPONSE" "" "$plan_escal_len"
     cfa_transition "clarify" || cfa_set "PLANNING_RESPONSE"
     echo -e "  ${C_DIM}CfA: PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
     session_log STATE "PLANNING_ESCALATE → clarify → PLANNING_RESPONSE → DRAFT"
@@ -767,6 +778,7 @@ fi
 
 # ── Approve phase (CfA: PLAN_ASSERT) ──
 PLAN_FILE="$STREAM_TARGET/plan.md"
+plan_artifact_len=$(wc -c < "$PLAN_FILE" 2>/dev/null || echo 0)
 
 if [[ "$NO_PLAN" != "true" ]]; then
   # CfA plan approval loop — always consult proxy, supports revision and backtracking
@@ -777,20 +789,20 @@ if [[ "$NO_PLAN" != "true" ]]; then
     if [[ "$AUTO_APPROVE_PLAN" == "true" ]]; then
       echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN (outer team pre-approved)${C_RESET}" >&2
       session_log PROXY "PLAN_ASSERT auto-approved (outer team pre-approved)"
-      proxy_record "PLAN_ASSERT" "approve"
+      proxy_record "PLAN_ASSERT" "approve" "" "" "" "$plan_artifact_len"
       cfa_transition "approve" || cfa_set "PLAN"
       AUTO_APPROVE_PLAN=false  # only auto-approve once (not on re-plan)
       break
     fi
 
     # Always check human proxy confidence — no more bypassing
-    PROXY_ACTION=$(proxy_decide "PLAN_ASSERT")
+    PROXY_ACTION=$(proxy_decide "PLAN_ASSERT" "$PLAN_FILE")
     session_log PROXY "PLAN_ASSERT proxy=$PROXY_ACTION"
 
     if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
       echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN (proxy auto-approved)${C_RESET}" >&2
       session_log STATE "PLAN_ASSERT → approve → PLAN (proxy auto-approved)"
-      proxy_record "PLAN_ASSERT" "approve"
+      proxy_record "PLAN_ASSERT" "approve" "" "" "" "$plan_artifact_len"
       cfa_transition "approve" || cfa_set "PLAN"
       break
     fi
@@ -822,7 +834,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
     if cfa_review_loop "PLAN_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "" "$TASK"; then
       case "$REVIEW_ACTION" in
         approve)
-          proxy_record "PLAN_ASSERT" "approve"
+          proxy_record "PLAN_ASSERT" "approve" "" "" "" "$plan_artifact_len"
           cfa_transition "approve" || cfa_set "PLAN"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → approve → PLAN${C_RESET}" >&2
           session_log STATE "PLAN_ASSERT → approve → PLAN"
@@ -832,7 +844,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
           cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → correct → PLANNING_RESPONSE → synthesize → DRAFT${C_RESET}" >&2
           session_log STATE "PLAN_ASSERT → correct → PLANNING_RESPONSE → DRAFT"
-          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$plan_artifact_len"
           echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
           cfa_set "DRAFT"
           PLAN_REVISION_MSG="Revise the plan."
@@ -860,12 +872,12 @@ The human's correction: ${REVIEW_FEEDBACK}"
           cfa_set "INTENT_RESPONSE"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
           session_log STATE "PLAN_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)"
-          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK"
+          proxy_record "PLAN_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$plan_artifact_len"
           { [[ -n "${REVIEW_DIALOG_HISTORY:-}" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
           exit 2
           ;;
         withdraw)
-          proxy_record "PLAN_ASSERT" "withdraw"
+          proxy_record "PLAN_ASSERT" "withdraw" "" "" "" "$plan_artifact_len"
           cfa_transition "withdraw" || cfa_set "WITHDRAWN"
           echo -e "  ${C_DIM}CfA: PLAN_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
           session_log STATE "PLAN_ASSERT → withdraw → WITHDRAWN"
@@ -876,7 +888,7 @@ The human's correction: ${REVIEW_FEEDBACK}"
       # Fallback: treat raw input as plan correction
       cfa_transition "correct" || cfa_set "PLANNING_RESPONSE"
       session_log STATE "PLAN_ASSERT → correct → PLANNING_RESPONSE (fallback)"
-      proxy_record "PLAN_ASSERT" "correct" "$CFA_RESPONSE"
+      proxy_record "PLAN_ASSERT" "correct" "$CFA_RESPONSE" "$CFA_RESPONSE" "$CFA_RESPONSE" "$plan_artifact_len"
       echo -e "  ${C_DIM}Re-planning with feedback...${C_RESET}" >&2
       cfa_set "DRAFT"
       PLAN_FALLBACK_MSG="Revise the plan."
@@ -1043,16 +1055,17 @@ for b in blocks[:5]: print(b)
       exit 11
     fi
 
+    legacy_task_escal_len=$(wc -c < "$LEGACY_TASK_ESCALATION" 2>/dev/null || echo 0)
     cfa_review_loop "TASK_ESCALATE" "" "" "$LEGACY_TASK_ESCALATION" "" "$TASK"
     if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
-      proxy_record "TASK_ESCALATE" "withdraw"
+      proxy_record "TASK_ESCALATE" "withdraw" "" "" "" "$legacy_task_escal_len"
       cfa_transition "withdraw" || cfa_set "WITHDRAWN"
       session_log STATE "TASK_ESCALATE → withdraw → WITHDRAWN (legacy)"
       rm -f "$LEGACY_TASK_ESCALATION"
       exit 1
     fi
 
-    proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE"
+    proxy_record "TASK_ESCALATE" "clarify" "$CFA_RESPONSE" "$CFA_RESPONSE" "" "$legacy_task_escal_len"
     cfa_transition "clarify" || cfa_set "TASK_RESPONSE"
     echo -e "  ${C_DIM}CfA: TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS${C_RESET}" >&2
     session_log STATE "TASK_ESCALATE → clarify → TASK_RESPONSE → TASK_IN_PROGRESS (legacy)"
@@ -1063,13 +1076,14 @@ for b in blocks[:5]: print(b)
   fi
 
   cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
-  PROXY_ACTION=$(proxy_decide "WORK_ASSERT")
+  PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$STREAM_TARGET/.work-summary.md")
+  legacy_work_len=$(wc -c < "$STREAM_TARGET/.work-summary.md" 2>/dev/null || echo 0)
   session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION (legacy)"
 
   if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
     echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
     session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved, legacy)"
-    proxy_record "WORK_ASSERT" "approve"
+    proxy_record "WORK_ASSERT" "approve" "" "" "" "$legacy_work_len"
     cfa_transition "approve" || cfa_set "COMPLETED_WORK"
     break
   elif [[ "$AGENT_MODE" == "true" ]]; then
@@ -1093,7 +1107,7 @@ for b in blocks[:5]: print(b)
   if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
     case "$REVIEW_ACTION" in
       approve)
-        proxy_record "WORK_ASSERT" "approve"
+        proxy_record "WORK_ASSERT" "approve" "" "" "" "$legacy_work_len"
         cfa_transition "approve" || cfa_set "COMPLETED_WORK"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (legacy)"
@@ -1103,7 +1117,7 @@ for b in blocks[:5]: print(b)
         cfa_transition "correct" || cfa_set "TASK_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → correct → TASK_RESPONSE${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy)"
-        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$legacy_work_len"
         LEGACY_CORRECTION_MSG="Apply this correction to the work."
         if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
           LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}
@@ -1119,7 +1133,7 @@ The human's correction: ${REVIEW_FEEDBACK}"
         cfa_transition "revise-plan" || cfa_set "PLANNING_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → revise-plan → PLANNING_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → revise-plan → PLANNING_RESPONSE (legacy, cross-phase backtrack)"
-        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$legacy_work_len"
         { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
         exit 3
         ;;
@@ -1127,12 +1141,12 @@ The human's correction: ${REVIEW_FEEDBACK}"
         cfa_transition "refine-intent" || cfa_set "INTENT_RESPONSE"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → refine-intent → INTENT_RESPONSE (cross-phase backtrack)${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → refine-intent → INTENT_RESPONSE (legacy, cross-phase backtrack)"
-        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK"
+        proxy_record "WORK_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$legacy_work_len"
         { [[ -n "$REVIEW_DIALOG_HISTORY" ]] && printf '%s\n\n' "$REVIEW_DIALOG_HISTORY"; echo "$REVIEW_FEEDBACK"; } > "$BACKTRACK_FEEDBACK"
         exit 2
         ;;
       withdraw)
-        proxy_record "WORK_ASSERT" "withdraw"
+        proxy_record "WORK_ASSERT" "withdraw" "" "" "" "$legacy_work_len"
         cfa_transition "withdraw" || cfa_set "WITHDRAWN"
         echo -e "  ${C_DIM}CfA: WORK_ASSERT → withdraw → WITHDRAWN${C_RESET}" >&2
         session_log STATE "WORK_ASSERT → withdraw → WITHDRAWN (legacy)"
@@ -1143,7 +1157,7 @@ The human's correction: ${REVIEW_FEEDBACK}"
     # Fallback: treat raw input as work correction
     cfa_transition "correct" || cfa_set "TASK_RESPONSE"
     session_log STATE "WORK_ASSERT → correct → TASK_RESPONSE (legacy, fallback)"
-    proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE"
+    proxy_record "WORK_ASSERT" "correct" "$CFA_RESPONSE" "$CFA_RESPONSE" "$CFA_RESPONSE" "$legacy_work_len"
     LEGACY_CORRECTION_MSG="Apply this correction to the work."
     if [[ -n "$REVIEW_DIALOG_HISTORY" ]]; then
       LEGACY_CORRECTION_MSG="${LEGACY_CORRECTION_MSG}

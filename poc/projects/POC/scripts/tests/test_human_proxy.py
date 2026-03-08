@@ -39,6 +39,12 @@ from human_proxy import (
     record_outcome,
     save_model,
     should_escalate,
+    _check_content,
+    _extract_question_patterns,
+    ARTIFACT_LENGTH_RATIO_LOW,
+    ARTIFACT_LENGTH_RATIO_HIGH,
+    QUESTION_PATTERN_MIN_OCCURRENCES,
+    PRINCIPLE_VIOLATION_THRESHOLD,
 )
 
 
@@ -1218,6 +1224,177 @@ class TestStaleness(unittest.TestCase):
         with patch('human_proxy.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'escalate')
+
+
+# ── 15. Content-awareness checks ─────────────────────────────────────────────
+
+class TestContentAwareness(DeterministicProxyTestCase):
+    """Phase 1 and Phase 2a/2b content-awareness checks in should_escalate()."""
+
+    def setUp(self):
+        super().setUp()
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().tearDown()
+
+    def _make_trained_entry(self, approve_count=10, differentials=None, question_patterns=None):
+        entry = _make_entry(approve_count=approve_count, total_count=approve_count, ema_approval_rate=0.9)
+        if differentials is not None:
+            entry.differentials = differentials
+        if question_patterns is not None:
+            entry.question_patterns = question_patterns
+        return entry
+
+    def _write_artifact(self, text):
+        path = os.path.join(self._tmpdir, 'artifact.md')
+        Path(path).write_text(text)
+        return path
+
+    def test_length_anomaly_short_triggers_escalation(self):
+        entry = self._make_trained_entry()
+        entry.artifact_lengths = [1000] * 5
+        path = self._write_artifact('a' * 200)
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('short', decision.reasoning.lower())
+
+    def test_length_anomaly_long_triggers_escalation(self):
+        entry = self._make_trained_entry()
+        entry.artifact_lengths = [500] * 5
+        path = self._write_artifact('a' * 1200)
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('long', decision.reasoning.lower())
+
+    def test_novelty_detection_correction_keywords_trigger_escalation(self):
+        diff = {
+            'outcome': 'correct',
+            'summary': 'error handling missing in export function',
+            'reasoning': '',
+            'timestamp': '2026-01-01',
+        }
+        entry = self._make_trained_entry(differentials=[diff])
+        artifact_text = 'The export function processes data. Error handling has not been addressed.'
+        path = self._write_artifact(artifact_text)
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('correction', decision.reasoning.lower())
+
+    def test_missing_artifact_path_degrades_gracefully(self):
+        entry = self._make_trained_entry()
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path='')
+        self.assertIn(decision.action, ('auto-approve', 'escalate'))
+
+    def test_unreadable_artifact_degrades_gracefully(self):
+        entry = self._make_trained_entry()
+        model = _model_with_entry(entry)
+        artifact_path = '/nonexistent/path/that/will/never/exist-proxy-test.md'
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=artifact_path)
+        self.assertIn(decision.action, ('auto-approve', 'escalate'))
+
+    def test_cold_start_suppresses_content_checks(self):
+        entry = _make_entry(approve_count=2, total_count=2)  # below threshold of 5
+        diff = {'outcome': 'correct', 'summary': 'error handling missing', 'reasoning': '', 'timestamp': '2026-01-01'}
+        entry.differentials = [diff]
+        path = self._write_artifact('error handling is implemented here')
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('cold', decision.reasoning.lower())
+
+    def test_content_check_fires_independently_of_high_confidence(self):
+        entry = _make_entry(approve_count=20, total_count=20, ema_approval_rate=0.95)
+        diff = {'outcome': 'correct', 'summary': 'error handling missing in export function', 'reasoning': '', 'timestamp': '2026-01-01'}
+        entry.differentials = [diff]
+        path = self._write_artifact('the export function processes errors')
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('correction', decision.reasoning.lower())
+
+
+# ── 16. Question pattern learning ─────────────────────────────────────────────
+
+class TestQuestionPatternLearning(DeterministicProxyTestCase):
+    """Phase 2b -- question pattern accumulation and triggering."""
+
+    def setUp(self):
+        super().setUp()
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().tearDown()
+
+    def _write_artifact(self, text):
+        path = os.path.join(self._tmpdir, 'artifact.md')
+        Path(path).write_text(text)
+        return path
+
+    def test_question_pattern_recorded_after_record_outcome(self):
+        model = _make_model()
+        updated = record_outcome(
+            model, 'PLAN_ASSERT', 'test-project', 'correct',
+            question_patterns=[{
+                'question': 'Did you handle errors?',
+                'concern': 'error_handling',
+                'reasoning': 'because silent failures are worse than noisy ones',
+                'disposition': 'correct',
+                'timestamp': '2026-01-01',
+            }],
+        )
+        key = 'PLAN_ASSERT|test-project'
+        raw = updated.entries[key]
+        qps = raw.get('question_patterns', [])
+        self.assertEqual(len(qps), 1)
+        self.assertEqual(qps[0]['concern'], 'error_handling')
+
+    def test_phase_2b_fires_when_artifact_lacks_concern_keywords(self):
+        qp = {
+            'question': 'Did you handle errors?',
+            'concern': 'error_handling',
+            'reasoning': '',
+            'disposition': 'correct',
+            'timestamp': '2026-01-01',
+        }
+        entry = _make_entry(approve_count=10, total_count=10, ema_approval_rate=0.9)
+        entry.question_patterns = [qp, qp]  # 2 occurrences >= QUESTION_PATTERN_MIN_OCCURRENCES
+        path = self._write_artifact('The function processes the input and returns the result.')
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('error_handling', decision.reasoning)
+
+    def test_phase_2b_includes_reasoning_in_escalation_message(self):
+        reasoning_text = 'silent failures are worse than noisy ones'
+        qp = {
+            'question': 'Did you handle errors?',
+            'concern': 'error_handling',
+            'reasoning': reasoning_text,
+            'disposition': 'correct',
+            'timestamp': '2026-01-01',
+        }
+        entry = _make_entry(approve_count=10, total_count=10, ema_approval_rate=0.9)
+        entry.question_patterns = [qp, qp]
+        path = self._write_artifact('The function processes the input and returns the result.')
+        model = _model_with_entry(entry)
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn(reasoning_text, decision.reasoning)
+
+    def test_extract_question_patterns_captures_reasoning_from_because_clause(self):
+        dialog = 'You should handle errors because silent failures are worse than noisy ones'
+        patterns = _extract_question_patterns(dialog, 'correct')
+        self.assertTrue(len(patterns) > 0)
+        error_patterns = [p for p in patterns if p.get('concern') == 'error_handling']
+        self.assertTrue(len(error_patterns) > 0)
+        self.assertTrue(len(error_patterns[0].get('reasoning', '')) > 0)
 
 
 if __name__ == '__main__':
