@@ -4,6 +4,8 @@ Master catalog of peer-reviewed and authoritative research informing TeaParty de
 
 Research is organized by topic file. Each entry includes: title, authors/year, tags, and a one-line summary.
 
+See [learning-system.md](../learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
+
 ---
 
 ## How to Use This Index
@@ -22,6 +24,7 @@ Research is organized by topic file. Each entry includes: title, authors/year, t
 `#metacognition` `#uncertainty` `#self-monitoring` `#self-evolving`
 `#production` `#security` `#failure-modes` `#evaluation`
 `#human-ai` `#trust` `#teaparty-direct`
+`#context-injection` `#retrieval` `#claude-code` `#openclaw`
 
 ---
 
@@ -138,6 +141,16 @@ Research is organized by topic file. Each entry includes: title, authors/year, t
 | Cognitive Challenges in Human-AI Collaboration | Logg et al., 2022 | `#human-ai` `#trust` | Teams improve only when AI delegates to humans, not when humans delegate to AI — challenges assumptions about AI as pure assistant. | SUPPLEMENT §Theme 7 |
 | Theory of Mind for Multi-Agent Collaboration | 2024 | `#multi-agent` `#human-ai` | MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open. | COGARCH §5.1 |
 | Supporting Effortless Coordination (25 years of CSCW awareness research) | Gross, 2013 | `#human-ai` `#coordination` | Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture. | COGARCH §5.1 |
+
+---
+
+## Claude Code Memory System and Retrieval Architecture
+
+| Title | Authors/Org, Year | Tags | One-line Summary | Source |
+|-------|------------------|------|-----------------|--------|
+| Claude Code Memory System (official docs) | Anthropic, 2025-2026 | `#memory` `#context-injection` `#production` `#teaparty-direct` | MEMORY.md first 200 lines load verbatim at session start; topic files are read on demand; no semantic retrieval. Full four-scope hierarchy (managed, project, local, user). | `claude-code-memory-system.md` §1-3 |
+| Claude Code Subagent Persistent Memory | Anthropic, 2026 | `#memory` `#multi-agent` `#production` `#teaparty-direct` | `memory: user/project/local` frontmatter gives each subagent its own MEMORY.md with same 200-line injection rule; identical mechanics to main session memory. | `claude-code-memory-system.md` §3 |
+| OpenClaw Memory Architecture | Steinberger et al., 2025-2026 | `#memory` `#retrieval` `#openclaw` `#production` | Hybrid sqlite-vec + FTS5 retrieval over chunked Markdown; selective injection vs. Claude Code's flat injection; open-sourced as memsearch by Zilliz. | `claude-code-memory-system.md` §5 |
 
 ---
 

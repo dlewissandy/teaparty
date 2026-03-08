@@ -1,0 +1,128 @@
+{
+  "description": "Conversation for Action (CfA) state machine — a recursive 3-phase lifecycle for turning ideas into completed work.",
+  "phases": {
+    "intent": {
+      "description": "Intent Alignment: IDEA → INTENT. Produce INTENT.md capturing what the human wants.",
+      "states": ["IDEA", "PROPOSAL", "INTENT_QUESTION", "INTENT_ESCALATE", "INTENT_ASSERT", "INTENT_RESPONSE", "INTENT"]
+    },
+    "planning": {
+      "description": "Planning: INTENT → PLAN. Given approved intent, produce an implementation plan.",
+      "states": ["DRAFT", "PLANNING_QUESTION", "PLANNING_ESCALATE", "PLAN_ASSERT", "PLANNING_RESPONSE", "PLAN"]
+    },
+    "execution": {
+      "description": "Execution: PLAN → COMPLETED_WORK. Execute the plan and deliver completed work.",
+      "states": ["TASK", "TASK_IN_PROGRESS", "TASK_QUESTION", "TASK_ESCALATE", "TASK_ASSERT", "TASK_RESPONSE", "FAILED_TASK", "COMPLETED_TASK", "WORK_IN_PROGRESS", "WORK_ASSERT", "COMPLETED_WORK", "WITHDRAWN"]
+    }
+  },
+  "terminal_states": ["COMPLETED_WORK", "WITHDRAWN"],
+  "transitions": {
+    "IDEA": [
+      { "action": "propose", "to": "PROPOSAL", "actor": "human" }
+    ],
+    "PROPOSAL": [
+      { "action": "question", "to": "INTENT_QUESTION", "actor": "intent_team" },
+      { "action": "escalate", "to": "INTENT_ESCALATE", "actor": "intent_team" },
+      { "action": "assert", "to": "INTENT_ASSERT", "actor": "intent_team" },
+      { "action": "auto-approve", "to": "INTENT", "actor": "intent_team" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
+    ],
+    "INTENT_QUESTION": [
+      { "action": "answer", "to": "INTENT_RESPONSE", "actor": "research_team" }
+    ],
+    "INTENT_ESCALATE": [
+      { "action": "clarify", "to": "INTENT_RESPONSE", "actor": "human" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
+    ],
+    "INTENT_ASSERT": [
+      { "action": "approve", "to": "INTENT", "actor": "human" },
+      { "action": "correct", "to": "INTENT_RESPONSE", "actor": "human" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
+    ],
+    "INTENT_RESPONSE": [
+      { "action": "synthesize", "to": "PROPOSAL", "actor": "intent_team" }
+    ],
+    "INTENT": [
+      { "action": "plan", "to": "DRAFT", "actor": "planning_team" }
+    ],
+    "DRAFT": [
+      { "action": "question", "to": "PLANNING_QUESTION", "actor": "planning_team" },
+      { "action": "escalate", "to": "PLANNING_ESCALATE", "actor": "planning_team" },
+      { "action": "assert", "to": "PLAN_ASSERT", "actor": "planning_team" },
+      { "action": "auto-approve", "to": "PLAN", "actor": "planning_team" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" },
+      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "human", "backtrack": true }
+    ],
+    "PLANNING_QUESTION": [
+      { "action": "answer", "to": "PLANNING_RESPONSE", "actor": "research_team" },
+      { "action": "backtrack", "to": "INTENT_QUESTION", "actor": "research_team", "backtrack": true }
+    ],
+    "PLANNING_ESCALATE": [
+      { "action": "clarify", "to": "PLANNING_RESPONSE", "actor": "human" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
+    ],
+    "PLAN_ASSERT": [
+      { "action": "approve", "to": "PLAN", "actor": "human" },
+      { "action": "correct", "to": "PLANNING_RESPONSE", "actor": "human" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
+    ],
+    "PLANNING_RESPONSE": [
+      { "action": "synthesize", "to": "DRAFT", "actor": "planning_team" }
+    ],
+    "PLAN": [
+      { "action": "delegate", "to": "TASK", "actor": "execution_lead" }
+    ],
+    "TASK": [
+      { "action": "accept", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" },
+      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
+      { "action": "failed", "to": "FAILED_TASK", "actor": "execution_worker" }
+    ],
+    "TASK_IN_PROGRESS": [
+      { "action": "assert", "to": "TASK_ASSERT", "actor": "execution_worker" },
+      { "action": "question", "to": "TASK_QUESTION", "actor": "execution_worker" },
+      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
+      { "action": "failed", "to": "FAILED_TASK", "actor": "execution_worker" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "TASK_QUESTION": [
+      { "action": "answer", "to": "TASK_RESPONSE", "actor": "research_team" },
+      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "research_team", "backtrack": true }
+    ],
+    "TASK_ESCALATE": [
+      { "action": "clarify", "to": "TASK_RESPONSE", "actor": "approval_gate" },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "TASK_ASSERT": [
+      { "action": "approve", "to": "COMPLETED_TASK", "actor": "execution_lead" },
+      { "action": "correct", "to": "TASK_RESPONSE", "actor": "execution_lead" },
+      { "action": "reject", "to": "FAILED_TASK", "actor": "execution_lead" }
+    ],
+    "TASK_RESPONSE": [
+      { "action": "synthesize", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" }
+    ],
+    "FAILED_TASK": [
+      { "action": "retry", "to": "TASK", "actor": "execution_worker" },
+      { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
+      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "execution_lead", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "COMPLETED_TASK": [
+      { "action": "synthesize", "to": "WORK_IN_PROGRESS", "actor": "execution_lead" }
+    ],
+    "WORK_IN_PROGRESS": [
+      { "action": "delegate", "to": "TASK", "actor": "execution_lead" },
+      { "action": "assert", "to": "WORK_ASSERT", "actor": "execution_lead" },
+      { "action": "auto-approve", "to": "COMPLETED_WORK", "actor": "execution_lead" },
+      { "action": "backtrack", "to": "PLANNING_QUESTION", "actor": "execution_lead", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "WORK_ASSERT": [
+      { "action": "approve", "to": "COMPLETED_WORK", "actor": "approval_gate" },
+      { "action": "correct", "to": "TASK_RESPONSE", "actor": "approval_gate" },
+      { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "approval_gate", "backtrack": true },
+      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "approval_gate", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "COMPLETED_WORK": [],
+    "WITHDRAWN": []
+  }
+}

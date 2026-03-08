@@ -10,180 +10,58 @@ Cross-phase backtracking is supported via special actions (refine-intent,
 backtrack, revise-plan) that re-enter earlier phases at RESPONSE or QUESTION
 states (the synthesis funnel), never at decision states.
 
-No external dependencies — uses stdlib only (json, datetime, dataclasses).
+State machine structure is defined in cfa-state-machine.json (the single source
+of truth). This module loads from that file and provides the runtime API.
+
+No external dependencies — uses stdlib only (json, datetime, dataclasses, os).
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
 
-# ── Phase membership ────────────────────────────────────────────────────────────
+# ── Load state machine from JSON ───────────────────────────────────────────────
 
-INTENT_STATES = frozenset([
-    'IDEA',
-    'PROPOSAL',
-    'INTENT_QUESTION',
-    'INTENT_ESCALATE',
-    'INTENT_ASSERT',
-    'INTENT_RESPONSE',
-    'INTENT',
-])
-
-PLANNING_STATES = frozenset([
-    'DRAFT',
-    'PLANNING_QUESTION',
-    'PLANNING_ESCALATE',
-    'PLAN_ASSERT',
-    'PLANNING_RESPONSE',
-    'PLAN',
-])
-
-EXECUTION_STATES = frozenset([
-    'TASK',
-    'TASK_IN_PROGRESS',
-    'TASK_QUESTION',
-    'TASK_ESCALATE',
-    'TASK_ASSERT',
-    'TASK_RESPONSE',
-    'FAILED_TASK',
-    'COMPLETED_TASK',
-    'WORK_IN_PROGRESS',
-    'WORK_ASSERT',
-    'COMPLETED_WORK',
-    'WITHDRAWN',
-])
-
-# WITHDRAWN is globally terminal — it can originate from any phase but is
-# owned by the execution state set for phase resolution purposes.
-
-ALL_STATES = INTENT_STATES | PLANNING_STATES | EXECUTION_STATES
+_MACHINE_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'cfa-state-machine.json',
+)
 
 
-# ── Transition table ────────────────────────────────────────────────────────────
-#
-# Format: TRANSITIONS[state] = [(action, target_state, actor), ...]
+def _load_machine(path: str = _MACHINE_FILE) -> dict:
+    with open(path) as f:
+        return json.load(f)
 
-TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
-    # ── Phase 1: Intent Alignment ──────────────────────────────────────────────
-    'IDEA': [
-        ('propose',       'PROPOSAL',        'human'),
-    ],
-    'PROPOSAL': [
-        ('question',      'INTENT_QUESTION',  'intent_team'),
-        ('escalate',      'INTENT_ESCALATE',  'intent_team'),
-        ('assert',        'INTENT_ASSERT',    'intent_team'),
-        ('auto-approve',  'INTENT',           'intent_team'),
-        ('withdraw',      'WITHDRAWN',        'human'),
-    ],
-    'INTENT_QUESTION': [
-        ('answer',        'INTENT_RESPONSE',  'research_team'),
-    ],
-    'INTENT_ESCALATE': [
-        ('clarify',       'INTENT_RESPONSE',  'human'),
-        ('withdraw',      'WITHDRAWN',        'human'),
-    ],
-    'INTENT_ASSERT': [
-        ('approve',       'INTENT',           'human'),
-        ('correct',       'INTENT_RESPONSE',  'human'),
-        ('withdraw',      'WITHDRAWN',        'human'),
-    ],
-    'INTENT_RESPONSE': [
-        ('synthesize',    'PROPOSAL',         'intent_team'),
-    ],
 
-    # ── Phase 2: Planning ──────────────────────────────────────────────────────
-    'INTENT': [
-        ('plan',          'DRAFT',            'planning_team'),
-    ],
-    'DRAFT': [
-        ('question',      'PLANNING_QUESTION', 'planning_team'),
-        ('escalate',      'PLANNING_ESCALATE', 'planning_team'),
-        ('assert',        'PLAN_ASSERT',       'planning_team'),
-        ('auto-approve',  'PLAN',              'planning_team'),
-        ('withdraw',      'WITHDRAWN',         'human'),
-        ('refine-intent', 'INTENT_RESPONSE',   'human'),
-    ],
-    'PLANNING_QUESTION': [
-        ('answer',        'PLANNING_RESPONSE', 'research_team'),
-        ('backtrack',     'INTENT_QUESTION',   'research_team'),
-    ],
-    'PLANNING_ESCALATE': [
-        ('clarify',       'PLANNING_RESPONSE', 'human'),
-        ('withdraw',      'WITHDRAWN',         'human'),
-    ],
-    'PLAN_ASSERT': [
-        ('approve',       'PLAN',              'human'),
-        ('correct',       'PLANNING_RESPONSE', 'human'),
-        ('withdraw',      'WITHDRAWN',         'human'),
-    ],
-    'PLANNING_RESPONSE': [
-        ('synthesize',    'DRAFT',             'planning_team'),
-    ],
+def _build_from_machine(machine: dict) -> tuple[
+    frozenset, frozenset, frozenset, frozenset,
+    dict[str, list[tuple[str, str, str]]],
+]:
+    """Derive phase sets and transition table from the JSON machine definition."""
+    phases = machine['phases']
+    intent_states = frozenset(phases['intent']['states'])
+    planning_states = frozenset(phases['planning']['states'])
+    execution_states = frozenset(phases['execution']['states'])
+    all_states = intent_states | planning_states | execution_states
 
-    # ── Phase 3: Execution ─────────────────────────────────────────────────────
-    'PLAN': [
-        ('delegate',      'TASK',             'execution_lead'),
-    ],
-    'TASK': [
-        ('accept',        'TASK_IN_PROGRESS', 'execution_worker'),
-        ('escalate',      'TASK_ESCALATE',    'execution_worker'),
-        ('failed',        'FAILED_TASK',      'execution_worker'),
-    ],
-    'TASK_IN_PROGRESS': [
-        ('assert',        'TASK_ASSERT',      'execution_worker'),
-        ('question',      'TASK_QUESTION',    'execution_worker'),
-        ('escalate',      'TASK_ESCALATE',    'execution_worker'),
-        ('failed',        'FAILED_TASK',      'execution_worker'),
-        ('withdraw',      'WITHDRAWN',        'approval_gate'),
-    ],
-    'TASK_QUESTION': [
-        ('answer',        'TASK_RESPONSE',    'research_team'),
-        ('backtrack',     'PLANNING_QUESTION', 'research_team'),
-    ],
-    'TASK_ESCALATE': [
-        ('clarify',       'TASK_RESPONSE',    'approval_gate'),
-        ('withdraw',      'WITHDRAWN',        'approval_gate'),
-    ],
-    'TASK_ASSERT': [
-        ('approve',       'COMPLETED_TASK',   'execution_lead'),
-        ('correct',       'TASK_RESPONSE',    'execution_lead'),
-        ('reject',        'FAILED_TASK',      'execution_lead'),
-    ],
-    'TASK_RESPONSE': [
-        ('synthesize',    'TASK_IN_PROGRESS', 'execution_worker'),
-    ],
-    'FAILED_TASK': [
-        ('retry',         'TASK',             'execution_worker'),
-        ('escalate',      'TASK_ESCALATE',    'execution_worker'),
-        ('backtrack',     'PLANNING_QUESTION', 'execution_lead'),
-        ('withdraw',      'WITHDRAWN',        'approval_gate'),
-    ],
-    'COMPLETED_TASK': [
-        ('synthesize',    'WORK_IN_PROGRESS', 'execution_lead'),
-    ],
-    'WORK_IN_PROGRESS': [
-        ('delegate',      'TASK',             'execution_lead'),
-        ('assert',        'WORK_ASSERT',      'execution_lead'),
-        ('auto-approve',  'COMPLETED_WORK',   'execution_lead'),
-        ('backtrack',     'PLANNING_QUESTION', 'execution_lead'),
-        ('withdraw',      'WITHDRAWN',        'approval_gate'),
-    ],
-    'WORK_ASSERT': [
-        ('approve',       'COMPLETED_WORK',   'approval_gate'),
-        ('correct',       'TASK_RESPONSE',    'approval_gate'),
-        ('revise-plan',   'PLANNING_RESPONSE', 'approval_gate'),
-        ('refine-intent', 'INTENT_RESPONSE',  'approval_gate'),
-        ('withdraw',      'WITHDRAWN',        'approval_gate'),
-    ],
+    transitions: dict[str, list[tuple[str, str, str]]] = {}
+    for state, edges in machine['transitions'].items():
+        transitions[state] = [
+            (e['action'], e['to'], e['actor']) for e in edges
+        ]
 
-    # ── Terminal states (no outgoing transitions) ──────────────────────────────
-    'COMPLETED_WORK': [],
-    'WITHDRAWN':      [],
-}
+    return intent_states, planning_states, execution_states, all_states, transitions
+
+
+_machine = _load_machine()
+INTENT_STATES, PLANNING_STATES, EXECUTION_STATES, ALL_STATES, TRANSITIONS = (
+    _build_from_machine(_machine)
+)
 
 
 # ── Exception ───────────────────────────────────────────────────────────────────
