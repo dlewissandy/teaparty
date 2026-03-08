@@ -4,8 +4,8 @@
 
 The CfA pipeline relies on a layer of custom bash scripts and Python CLI
 wrappers to give agents access to infrastructure services. An agent that needs
-to check proxy confidence calls `python3 human_proxy.py --decide` via Bash.
-An agent that needs to dispatch a subteam calls `relay.sh --team coding` via
+to check proxy confidence calls `python3 approval_gate.py --decide` via Bash.
+An agent that needs to dispatch a subteam calls `dispatch.sh --team coding` via
 Bash. Review classification, dialog response generation, session
 summarization, memory indexing — all of these go through the same pattern:
 bash shell-out to a Python script that does the real work.
@@ -13,7 +13,7 @@ bash shell-out to a Python script that does the real work.
 This works but has several costs:
 
 1. **Fragile plumbing.** Every service call is a subprocess with arg parsing,
-   stdout capture, exit code conventions, and error handling. `relay.sh` alone
+   stdout capture, exit code conventions, and error handling. `dispatch.sh` alone
    is 300 lines of worktree setup, CfA child state creation, settings
    generation, retry loops, git merge/squash, and JSON result construction —
    none of which is the actual work of "dispatch a subteam."
@@ -24,8 +24,8 @@ This works but has several costs:
    constructs bash commands by string concatenation and hopes the args are
    right.
 
-3. **No structured I/O.** Everything goes through stdout strings. `relay.sh`
-   builds a JSON result via `jq`. `human_proxy.py` returns "auto-approve" or
+3. **No structured I/O.** Everything goes through stdout strings. `dispatch.sh`
+   builds a JSON result via `jq`. `approval_gate.py` returns "auto-approve" or
    "escalate" as a bare string. `classify_review.py` returns tab-delimited
    `action\tfeedback`. Each script has its own ad-hoc output format that the
    caller must parse.
@@ -56,15 +56,15 @@ tools is a straightforward lift.
 
 | Current pattern | MCP tool | Parameters | Returns |
 |----------------|----------|------------|---------|
-| `proxy_decide()` → `python3 human_proxy.py --decide` | `cfa_proxy_decide` | `state`, `task_type`, `model_path` | `{action: "auto-approve"\|"escalate", confidence: 0.87, reason: "..."}` |
-| `proxy_record()` → `python3 human_proxy.py --record` | `cfa_proxy_record` | `state`, `task_type`, `outcome`, `diff_summary?`, `model_path` | `{ok: true, new_confidence: 0.91}` |
+| `proxy_decide()` → `python3 approval_gate.py --decide` | `cfa_proxy_decide` | `state`, `task_type`, `model_path` | `{action: "auto-approve"\|"escalate", confidence: 0.87, reason: "..."}` |
+| `proxy_record()` → `python3 approval_gate.py --record` | `cfa_proxy_record` | `state`, `task_type`, `outcome`, `diff_summary?`, `model_path` | `{ok: true, new_confidence: 0.91}` |
 | `cfa_set()` → `python3 cfa_state.py --set-state` | `cfa_set_state` | `state_file`, `target_state` | `{state: "PLAN_ASSERT", phase: "planning"}` |
 | `cfa_transition()` → `python3 cfa_state.py --transition` | `cfa_transition` | `state_file`, `action` | `{state: "PLAN", phase: "planning", is_backtrack: false}` |
 | `python3 cfa_state.py --read` | `cfa_read_state` | `state_file` | `{state, phase, actor, backtrack_count, ...}` |
 | `python3 cfa_state.py --init` | `cfa_init_state` | `output_path`, `task_id?`, `team?` | `{state_file: "...", state: "IDEA"}` |
 | `python3 cfa_state.py --make-child` | `cfa_make_child_state` | `parent_file`, `team`, `output_path` | `{state_file: "...", state: "INTENT", parent_id: "..."}` |
 | `classify_task.py` | `cfa_classify_task` | `task`, `projects`, `memory_context?` | `{project: "my-proj", mode: "workflow"}` |
-| `detect_phase.py` | `cfa_detect_phase` | `content` | `{phase: "implementation"}` |
+| `detect_stage.py` | `cfa_detect_stage` | `content` | `{stage: "implementation"}` |
 
 ### Tier 2: Heavier services that benefit from structured contracts
 
@@ -74,7 +74,7 @@ structured response.
 
 | Current pattern | MCP tool | Parameters | Returns |
 |----------------|----------|------------|---------|
-| `relay.sh` (full subteam dispatch) | `cfa_dispatch_subteam` | `team`, `task`, `cfa_parent_state?` | `{status, summary, output_files, cfa_state, cfa_backtrack, backtrack_reason, exit_code}` |
+| `dispatch.sh` (full subteam dispatch) | `cfa_dispatch_subteam` | `team`, `task`, `cfa_parent_state?` | `{status, summary, output_files, cfa_state, cfa_backtrack, backtrack_reason, exit_code}` |
 | `generate_review_bridge.py` | `cfa_review_bridge` | `file_path`, `state`, `task?` | `{bridge_text: "..."}` |
 | `classify_review.py` | `cfa_classify_review` | `state`, `response`, `intent_summary?`, `plan_summary?`, `dialog_history?` | `{action: "approve"\|"correct"\|"dialog"\|..., feedback: "..."}` |
 | `generate_dialog_response.py` | `cfa_dialog_response` | `state`, `question`, `artifact?`, `exec_stream?`, `task?`, `dialog_history?` | `{reply: "..."}` |
@@ -83,9 +83,9 @@ structured response.
 | `generate_confidence_posture.py` | `cfa_confidence_posture` | `task`, `context` | `{posture_text: "..."}` |
 | `memory_indexer.py` (query) | `cfa_memory_query` | `task`, `project_dir` | `{entries: [...], relevance_scores: [...]}` |
 
-### Tier 3: Composite operations (relay.sh decomposition)
+### Tier 3: Composite operations (dispatch.sh decomposition)
 
-`relay.sh` is the heaviest script. Rather than lifting it wholesale into one
+`dispatch.sh` is the heaviest script. Rather than lifting it wholesale into one
 monolithic tool, decompose it into the constituent operations that an agent
 (or the CfA skill from the sibling backlog item) can compose:
 
@@ -105,9 +105,9 @@ owns the flow; the tools provide the atomic operations.
 Once the MCP tools are in place and the CfA skill (see
 `backlog/cfa-as-claude-skill.md`) internalizes the protocol:
 
-- **`relay.sh`** — replaced by `git_create_dispatch_worktree` +
+- **`dispatch.sh`** — replaced by `git_create_dispatch_worktree` +
   `cfa_dispatch_subteam` + `git_squash_merge_dispatch`, composed by the agent
-- **`chrome.sh` service functions** — `classify_review()`, `dialog_response()`,
+- **`ui.sh` service functions** — `classify_review()`, `dialog_response()`,
   `cfa_review_loop()`, `proxy_decide()`, `proxy_record()` bash wrappers all
   replaced by direct MCP tool calls
 - **`plan-execute.sh` infrastructure** — `run_claude()`, `stall_watchdog()`,
@@ -120,13 +120,13 @@ Once the MCP tools are in place and the CfA skill (see
   CfA skill backlog item)
 
 What survives:
-- **`chrome.sh` presentation functions** — `chrome_header()`,
+- **`ui.sh` presentation functions** — `chrome_header()`,
   `chrome_banner()`, `chrome_heavy_line()`, `chrome_prompt()`,
   `chrome_beep()`. These are terminal UI, not services. They stay as bash
   functions or become a thin presentation layer.
 - **`cfa_state.py`** — the state machine module. It backs the MCP tools but
   remains a standalone Python module with CLI for testing/debugging.
-- **`human_proxy.py`** — the confidence model module. Same: backs the MCP
+- **`approval_gate.py`** — the confidence model module. Same: backs the MCP
   tools, stays as a standalone module.
 
 ## MCP Server Design
@@ -135,7 +135,7 @@ What survives:
 
 The MCP server lives in the POC project as a Python module:
 `scripts/mcp_server.py` (or `scripts/cfa_mcp/`). It imports the existing
-Python modules (`cfa_state`, `human_proxy`, `classify_review`, etc.) and
+Python modules (`cfa_state`, `approval_gate`, `classify_review`, etc.) and
 exposes them as MCP tools.
 
 ### Configuration
@@ -208,7 +208,7 @@ not a bare failure.
 
 Expose the simple, stateless tools: `cfa_proxy_decide`, `cfa_proxy_record`,
 `cfa_transition`, `cfa_set_state`, `cfa_read_state`, `cfa_classify_task`,
-`cfa_detect_phase`. These are pure function wrappers — low risk, high value.
+`cfa_detect_stage`. These are pure function wrappers — low risk, high value.
 
 The shell scripts continue to work. The MCP tools are additive. Agents in
 skill mode (see `backlog/cfa-as-claude-skill.md`) can use the tools; the
@@ -222,13 +222,13 @@ These currently shell out to `claude -p`; the MCP tool versions call
 
 This is where the CfA skill starts to replace the shell pipeline for
 single-level tasks: the agent uses MCP tools for proxy checks and
-classification instead of the bash wrapper functions in `chrome.sh`.
+classification instead of the bash wrapper functions in `ui.sh`.
 
 ### Phase 3: Relay decomposition
 
 Expose `git_create_dispatch_worktree`, `cfa_dispatch_subteam`,
 `git_squash_merge_dispatch`. The agent (running the CfA skill) composes
-these to dispatch subteams, replacing `relay.sh`.
+these to dispatch subteams, replacing `dispatch.sh`.
 
 This phase depends on the CfA skill being stable enough to drive
 hierarchical dispatch. The MCP tools provide the atomic operations; the
@@ -237,13 +237,13 @@ skill provides the orchestration knowledge.
 ### Phase 4: Retire shell scripts
 
 Once the CfA skill + MCP tools handle all scenarios (single-level and
-hierarchical), retire `relay.sh`, the bash wrapper functions in `chrome.sh`,
+hierarchical), retire `dispatch.sh`, the bash wrapper functions in `ui.sh`,
 and the infrastructure functions in `plan-execute.sh`. What remains:
 
 - `cfa_state.py` (module, backing `cfa_*` MCP tools)
-- `human_proxy.py` (module, backing `cfa_proxy_*` MCP tools)
+- `approval_gate.py` (module, backing `cfa_proxy_*` MCP tools)
 - `scripts/mcp_server.py` (the MCP server)
-- `chrome.sh` presentation functions (terminal UI only)
+- `ui.sh` presentation functions (terminal UI only)
 - `run.sh` (entry point — now thin: classify task, invoke skill)
 
 ## Relationship to Other Backlog Items
@@ -277,7 +277,7 @@ or can the available set be scoped by CfA state?
 **Testing.** MCP tools need integration tests — the MCP protocol, parameter
 validation, structured responses. The current tests mock `subprocess.run`;
 MCP tool tests would mock at the module level (e.g., mock
-`human_proxy.should_escalate` inside the `cfa_proxy_decide` tool handler).
+`approval_gate.should_escalate` inside the `cfa_proxy_decide` tool handler).
 This is actually cleaner than the current approach.
 
 **Concurrent dispatch.** When the uber lead dispatches multiple subteams in
@@ -289,16 +289,16 @@ single-threaded. May need async handlers or a process-per-dispatch model.
 
 | Document | Path | Relevance |
 |----------|------|-----------|
-| Relay script | `relay.sh` | Primary target for decomposition: worktree setup, subteam invocation, git merge, result assembly |
-| Chrome/UI functions | `chrome.sh` | Bash wrapper functions that become MCP tools: classify_review, dialog_response, proxy_decide, proxy_record, cfa_review_loop |
+| Dispatch script | `dispatch.sh` | Primary target for decomposition: worktree setup, subteam invocation, git merge, result assembly |
+| UI functions | `ui.sh` | Bash wrapper functions that become MCP tools: classify_review, dialog_response, proxy_decide, proxy_record, cfa_review_loop |
 | Plan-execute pipeline | `plan-execute.sh` | Infrastructure functions that MCP tools replace: run_claude, stall_watchdog, filter_stream, extract_session_id |
 | CfA state machine | `scripts/cfa_state.py` | Module backing cfa_transition, cfa_set_state, cfa_read_state, cfa_init_state, cfa_make_child_state tools |
-| Human proxy | `scripts/human_proxy.py` | Module backing cfa_proxy_decide, cfa_proxy_record tools |
+| Approval gate | `scripts/approval_gate.py` | Module backing cfa_proxy_decide, cfa_proxy_record tools |
 | Review classifier | `scripts/classify_review.py` | Becomes cfa_classify_review tool |
 | Review bridge | `scripts/generate_review_bridge.py` | Becomes cfa_review_bridge tool |
 | Dialog response | `scripts/generate_dialog_response.py` | Becomes cfa_dialog_response tool |
 | Task classifier | `scripts/classify_task.py` | Becomes cfa_classify_task tool |
-| Phase detector | `scripts/detect_phase.py` | Becomes cfa_detect_phase tool |
+| Stage detector | `scripts/detect_stage.py` | Becomes cfa_detect_stage tool |
 | Session summarizer | `scripts/summarize_session.py` | Becomes cfa_summarize_session tool |
 | Premortem | `scripts/run_premortem.py` | Becomes cfa_premortem tool |
 | Confidence posture | `scripts/generate_confidence_posture.py` | Becomes cfa_confidence_posture tool |
@@ -306,6 +306,6 @@ single-threaded. May need async handlers or a process-per-dispatch model.
 | CfA skill (backlog) | `backlog/cfa-as-claude-skill.md` | The skill consumes these tools; they are complementary |
 | Context-aware proxy (backlog) | `backlog/context-aware-proxy.md` | cfa_proxy_decide is the integration point for artifact-aware confidence |
 | Reference-based passing (backlog) | `backlog/reference-based-information-passing.md` | MCP tool schemas naturally enforce path-based references |
-| POC architecture | `POC.md` | Two-level hierarchy, relay bridge, process model |
+| POC architecture | `POC.md` | Two-level hierarchy, dispatch bridge, process model |
 | Intent engineering spec | `intent-engineering-spec.md` | CfA protocol spec that the tools serve |
 | CfA spec (original) | `agentic-cfa-spec.docx` | Six-role state machine, phase definitions |

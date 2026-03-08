@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # POC Shutdown — kill all team processes, orphans, and clean up team artifacts
-# Usage: ./poc/shutdown.sh [--force] [--clean]
+# Usage: ./projects/POC/ops/shutdown.sh [--force] [--clean]
 #   --force  SIGKILL immediately (no graceful shutdown)
 #   --clean  Only clean up stale team/task directories (no process killing)
 set -euo pipefail

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Hierarchical Agent Teams POC — Entry Point
 #
-# Usage: ./poc/run.sh "Create a document about the solar system with diagrams"
-#        ./poc/run.sh --project tea-handbook "Add chapter 2 on oolong"
-#        ./poc/run.sh --project POC "Improve the stream filter"
+# Usage: ./projects/POC/run.sh "Create a document about the solar system with diagrams"
+#        ./projects/POC/run.sh --project tea-handbook "Add chapter 2 on oolong"
+#        ./projects/POC/run.sh --project POC "Improve the stream filter"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+POC_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 source "$SCRIPT_DIR/ui.sh"
 
 # Parse arguments: optional --project override, --skip-intent, then positional task
@@ -29,7 +29,7 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS="${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-128000}"
 
 # ── Project classification ──
 export POC_OUTPUT_DIR="$POC_ROOT"
-export PROJECTS_DIR="$POC_ROOT/projects"
+export PROJECTS_DIR="$POC_ROOT"
 mkdir -p "$PROJECTS_DIR"
 
 if [[ -n "$PROJECT_OVERRIDE" ]]; then
@@ -100,7 +100,7 @@ fi
 export POC_REPO_DIR
 
 # ── Compute relative path from repo root to project dir ──
-# Linked-repo: e.g., "poc/projects/POC". Standalone: "."
+# Linked-repo: e.g., "projects/POC". Standalone: "."
 if [[ "$POC_REPO_DIR" != "$POC_PROJECT_DIR" ]]; then
   POC_RELATIVE_PATH=$(python3 -c "import os; print(os.path.relpath('$POC_PROJECT_DIR', '$POC_REPO_DIR'))")
 else
@@ -119,7 +119,7 @@ mkdir -p "$POC_PROJECT_DIR/.worktrees"
 git -C "$POC_REPO_DIR" worktree add "$SESSION_WORKTREE" -b "$SESSION_BRANCH"
 
 # Compute project working directory inside the worktree.
-# Linked-repo: $SESSION_WORKTREE/poc/projects/POC (agent CWD = project subdir)
+# Linked-repo: $SESSION_WORKTREE/projects/POC (agent CWD = project subdir)
 # Standalone: $SESSION_WORKTREE (agent CWD = worktree root, same as before)
 if [[ "$POC_RELATIVE_PATH" != "." ]]; then
   PROJECT_WORKDIR="$SESSION_WORKTREE/$POC_RELATIVE_PATH"

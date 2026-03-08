@@ -133,7 +133,7 @@ it needs. Each script decides its own retrieval strategy:
 - **generate_review_bridge.py**: Needs an overview for a 2-3 sentence
   summary. Uses `head` strategy (current behavior).
 
-- **human_proxy.py**: Needs structural signals for novelty detection
+- **approval_gate.py**: Needs structural signals for novelty detection
   (per context-aware-proxy backlog item). Uses `head` + `keyword`
   against differential history.
 
@@ -179,8 +179,8 @@ This is backward-compatible at every phase:
 | `scripts/generate_review_bridge.py` | Replace `read_file_content()` with import | 1 |
 | `scripts/generate_dialog_response.py` | Replace inline reading with import | 1 |
 | `scripts/classify_review.py` | Accept paths instead of inline summaries | 2 |
-| `scripts/human_proxy.py` | Use artifact_reader for content checks | 2 |
-| `chrome.sh` | Pass paths instead of `head -c 500` results | 2 |
+| `scripts/approval_gate.py` | Use artifact_reader for content checks | 2 |
+| `ui.sh` | Pass paths instead of `head -c 500` results | 2 |
 | `intent.sh` | Stop pre-reading intent summary | 2 |
 | `plan-execute.sh` | Stop pre-reading plan/intent summaries | 2 |
 | `scripts/tests/test_artifact_reader.py` | **NEW** ~30 tests | 1 |

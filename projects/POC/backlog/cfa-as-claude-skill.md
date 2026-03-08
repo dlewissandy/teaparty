@@ -3,9 +3,9 @@
 ## Problem
 
 The CfA lifecycle is currently implemented as a shell orchestration layer:
-`run.sh` → `intent.sh` → `plan-execute.sh` → `chrome.sh`, with Python helper
+`run.sh` → `intent.sh` → `plan-execute.sh` → `ui.sh`, with Python helper
 scripts (`classify_review.py`, `generate_review_bridge.py`,
-`generate_dialog_response.py`, `human_proxy.py`, `cfa_state.py`) handling
+`generate_dialog_response.py`, `approval_gate.py`, `cfa_state.py`) handling
 classification, bridging, dialog, proxy confidence, and state transitions.
 
 This works, but it's fundamentally a scripted pipeline driving agents from the
@@ -55,10 +55,10 @@ conventions for how phases work:
 - **Review gate behavior.** At assertion states, the agent presents its
   artifact, invites review, classifies the response, and takes the appropriate
   action (approve, correct, dialog, withdraw, backtrack). This replaces the
-  `cfa_review_loop` in `chrome.sh` and the `classify_review.py` /
+  `cfa_review_loop` in `ui.sh` and the `classify_review.py` /
   `generate_dialog_response.py` / `generate_review_bridge.py` helper scripts.
 
-- **Human proxy integration.** The agent calls `human_proxy.py` (or its
+- **Human proxy integration.** The agent calls `approval_gate.py` (or its
   successor) to check confidence before escalating to the human. If the proxy
   is confident, the agent auto-approves. If not, it escalates. The proxy model
   and its EMA/regret/staleness mechanics remain external — the skill knows
@@ -70,7 +70,7 @@ conventions for how phases work:
 
 ### What stays external
 
-- **Human proxy model.** `human_proxy.py` with its confidence entries, EMA,
+- **Human proxy model.** `approval_gate.py` with its confidence entries, EMA,
   asymmetric regret, staleness, and exploration logic. The skill calls it; it
   doesn't contain it. The proxy is a service, not protocol knowledge.
 
@@ -83,11 +83,11 @@ conventions for how phases work:
   learning promotion chain. These are post-session concerns, not mid-protocol
   decisions.
 
-- **Team hierarchy.** `relay.sh` and the uber/subteam dispatch model. The
+- **Team hierarchy.** `dispatch.sh` and the uber/subteam dispatch model. The
   skill governs one CfA conversation; hierarchical delegation is an outer
   concern.
 
-- **Chrome presentation layer.** `chrome.sh` formatting (banners, bridges,
+- **Chrome presentation layer.** `ui.sh` formatting (banners, bridges,
   heavy lines) is UI chrome, not protocol. The skill may emit structured
   markers that a presentation layer formats, but it doesn't own the rendering.
 
@@ -126,7 +126,7 @@ It includes:
      human review.
 
 3. **Review gate protocol** — at each assertion state:
-   - Check proxy confidence (call `human_proxy.py`).
+   - Check proxy confidence (call `approval_gate.py`).
    - If auto-approve: transition and continue.
    - If escalate: present the artifact, invite free-text review.
    - Classify the response: approve, correct, dialog, withdraw, backtrack.
@@ -148,7 +148,7 @@ It includes:
 
 The agent begins at IDEA, transitions to PROPOSAL, and autonomously navigates
 the full CfA lifecycle. It uses tools (Read, Write, Bash, web search) as
-needed during each phase. It calls `human_proxy.py` at review gates. It
+needed during each phase. It calls `approval_gate.py` at review gates. It
 presents artifacts and handles multi-turn dialog at assertion states. It
 backtracks when corrected.
 
@@ -173,14 +173,14 @@ tasks. `run.sh` invokes the skill instead of the shell pipeline. The Python
 helpers (`classify_review.py`, `generate_review_bridge.py`,
 `generate_dialog_response.py`) are retired.
 
-What remains: `human_proxy.py`, `cfa_state.py` (for persistence/audit),
+What remains: `approval_gate.py`, `cfa_state.py` (for persistence/audit),
 `memory_indexer.py`, `summarize_session.py`, and the presentation layer.
 
 ### Phase 3: Hierarchical delegation
 
 Extend to multi-team scenarios. The uber-level agent runs the CfA skill,
 and delegates to subteam agents (which also run the CfA skill at
-`depth + 1` with intent pre-approved). This replaces `relay.sh` dispatch.
+`depth + 1` with intent pre-approved). This replaces `dispatch.sh` dispatch.
 
 This phase depends on Claude's team primitives (SendMessage, agent pools)
 being able to support recursive CfA — each subteam agent needs its own
@@ -199,8 +199,8 @@ agent holds state in-context. If the session crashes, state is lost. Should
 the agent persist state to disk at each transition? Should it resume from
 persisted state?
 
-**Proxy integration boundary.** The agent needs to call `human_proxy.py` at
-review gates. Currently this is a CLI call (`python3 human_proxy.py --state
+**Proxy integration boundary.** The agent needs to call `approval_gate.py` at
+review gates. Currently this is a CLI call (`python3 approval_gate.py --state
 PLAN_ASSERT --task-type my-project`). In the skill model, the agent would
 make this call via Bash tool. Is that sufficient, or does the proxy need to
 become a more integrated service?
@@ -224,8 +224,8 @@ a Claude platform question more than a design question.
 | CfA state machine | `scripts/cfa_state.py` | 29-state transition table, phase membership, backtracking detection, persistence |
 | Intent engineering spec | `intent-engineering-spec.md` | Why intent alignment exists; least-regret escalation; success criteria; three governing principles |
 | Intent engineering detailed design | `intent-engineering-detailed-design.md` | Conversation protocol, cold-start/warm-start behavior, turn structure, agent prompt specifications |
-| Human proxy | `scripts/human_proxy.py` | Confidence model: Laplace smoothing, EMA with asymmetric regret, staleness guard, exploration floor |
-| POC architecture | `POC.md` | Two-level hierarchy, relay.sh bridge, process model, git worktree isolation, stream-json parsing |
+| Approval gate | `scripts/approval_gate.py` | Confidence model: Laplace smoothing, EMA with asymmetric regret, staleness guard, exploration floor |
+| POC architecture | `POC.md` | Two-level hierarchy, dispatch.sh bridge, process model, git worktree isolation, stream-json parsing |
 | Context-aware proxy (backlog) | `backlog/context-aware-proxy.md` | Future: proxy reads artifacts for content-informed decisions |
 | Reference-based info passing (backlog) | `backlog/reference-based-information-passing.md` | Future: path-based references replace inline content |
 | TeaParty workflows | `../../docs/workflows.md` | Skill context embedding pattern: workflows embedded in agent prompts as available skills |

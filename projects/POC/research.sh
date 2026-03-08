@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Standalone research team entry point.
 #
-# Usage: ./poc/research.sh "Research quantum error correction techniques"
+# Usage: ./projects/POC/research.sh "Research quantum error correction techniques"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

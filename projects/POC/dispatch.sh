@@ -52,7 +52,7 @@ if [[ -n "$PROJECT_DIR" && -n "$SESSION_WORKTREE" ]]; then
   touch "$INFRA_DIR/.running"
 
   # Compute project CWD within dispatch worktree (mirrors run.sh PROJECT_WORKDIR logic).
-  # Linked-repo: DISPATCH_WORKTREE/poc/projects/POC. Standalone: DISPATCH_WORKTREE.
+  # Linked-repo: DISPATCH_WORKTREE/projects/POC. Standalone: DISPATCH_WORKTREE.
   REL_PATH="${POC_RELATIVE_PATH:-.}"
   if [[ "$REL_PATH" != "." ]]; then
     WORK_CWD="$DISPATCH_WORKTREE/$REL_PATH"

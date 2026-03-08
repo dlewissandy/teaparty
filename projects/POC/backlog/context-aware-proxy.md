@@ -35,7 +35,7 @@ It cannot:
 
 ```
 proxy_decide()
-  -> human_proxy.py --decide --state PLAN_ASSERT --task-type my-project --model .proxy.json
+  -> approval_gate.py --decide --state PLAN_ASSERT --task-type my-project --model .proxy.json
   <- "auto-approve" | "escalate"
 ```
 
@@ -85,7 +85,7 @@ range (e.g., 0.7-0.85 for binary states).
 
 ## Interface Changes
 
-### human_proxy.py
+### approval_gate.py
 
 ```python
 def should_escalate(
@@ -114,7 +114,7 @@ Decision flow becomes:
 ### CLI
 
 ```bash
-python3 human_proxy.py --decide \
+python3 approval_gate.py --decide \
   --state PLAN_ASSERT \
   --task-type my-project \
   --model .proxy.json \
@@ -130,7 +130,7 @@ proxy_decide() {
   local state="$1"
   local artifact="${2:-}"                                # NEW
   local task_type="${POC_PROJECT:-default}"
-  python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
+  python3 "$SCRIPT_DIR/scripts/approval_gate.py" \
     --decide --state "$state" --task-type "$task_type" \
     --model "$PROXY_MODEL" \
     ${artifact:+--artifact "$artifact"} \                # NEW

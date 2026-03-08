@@ -116,12 +116,11 @@ Work is organized by project. Each project has its own namespace and memory. The
 Each project is a **git repository**. Deliverables (files agents produce) are git-tracked. Infrastructure (streams, MEMORY, sentinels) lives in `.sessions/` and is gitignored.
 
 ```
-poc/output/
+projects/
   MEMORY.md                                    # global learnings (project-agnostic)
-  projects/
-    multidimensional-travellers-handbook/       # ← git repo
-      .git/
-      .gitignore                               # excludes .sessions/, .worktrees/, MEMORY.md
+  multidimensional-travellers-handbook/       # ← git repo
+    .git/
+    .gitignore                               # excludes .sessions/, .worktrees/, MEMORY.md
       CLAUDE.md                                # project instructions (git-tracked)
       MEMORY.md                                # project learnings (gitignored, managed by promotion chain)
       writing/chapter-01.md                    # deliverable (git-tracked, always current version)
@@ -168,10 +167,10 @@ poc/output/
               MEMORY.md
               .exec-stream.jsonl
               .result.json
-    dark-energy-research/
-      .git/
-      MEMORY.md
-      ...
+  dark-energy-research/
+    .git/
+    MEMORY.md
+    ...
 ```
 
 ### Git Worktree Model
@@ -252,7 +251,7 @@ uber session ends (run.sh) — 4 promotion steps:
   4. promote_learnings.sh --scope global
      └─> reads project MEMORY.md
      └─> summarize_session.py --scope global (project-agnostic filter)
-         └─> output/MEMORY.md
+         └─> projects/MEMORY.md
 ```
 
 The team→session step filters for team-agnostic learnings only. The project→global step filters for project-agnostic insights only. Domain knowledge stays at the project level. Team-specific patterns stay at the team level.
@@ -262,8 +261,8 @@ The team→session step filters for team-agnostic learnings only. The project→
 Each `run.sh` invocation creates a new git worktree with its own branch under the project. Each `dispatch.sh` dispatch creates a nested worktree branched from the session. Sessions and dispatches are isolated via git branches — concurrent processes write to separate branches and merge on completion.
 
 Shared files (append-only by convention):
-- `output/MEMORY.md` — global learnings across all projects
-- `output/projects/<slug>/MEMORY.md` — project learnings across all sessions
+- `projects/MEMORY.md` — global learnings across all projects
+- `projects/<slug>/MEMORY.md` — project learnings across all sessions
 
 ### File Access Permissions
 
@@ -374,40 +373,40 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 | `scripts/classify_task.py` | LLM-based project classification. Maps task descriptions to project slugs. |
 | `scripts/summarize_session.py` | Extracts durable learnings from stream files via claude-haiku. Scope-aware (team/session/project/global). |
 | `scripts/promote_learnings.sh` | Promotes learnings upward: session→project or project→global (via `--scope`). |
-| `output/MEMORY.md` | Global learnings. Persists across all projects. Only cross-project insights. |
-| `output/projects/<slug>/` | Project git repository. One per classified project. |
-| `output/projects/<slug>/.git/` | Project git data. Tracks deliverables, session/dispatch history in branches and commits. |
-| `output/projects/<slug>/CLAUDE.md` | Project instructions (git-tracked). Agents read this via `--add-dir`. |
-| `output/projects/<slug>/MEMORY.md` | Project learnings. Gitignored, managed by promotion chain. |
-| `output/projects/<slug>/.worktrees/` | Gitignored. Temporary worktree checkouts for active sessions and dispatches. |
-| `output/projects/<slug>/.sessions/<ts>/` | Session infrastructure (gitignored). Streams, MEMORY, conversation log. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/` | Dispatch infrastructure (gitignored). Streams, result JSON, sentinel, MEMORY. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.result.json` | Dispatch result JSON. Written by dispatch.sh on completion. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.running` | Sentinel file. Exists while dispatch.sh is running. Removed on completion or abnormal exit (via trap). |
-| `output/projects/<slug>/.sessions/<ts>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
+| `projects/MEMORY.md` | Global learnings. Persists across all projects. Only cross-project insights. |
+| `projects/<slug>/` | Project git repository. One per classified project. |
+| `projects/<slug>/.git/` | Project git data. Tracks deliverables, session/dispatch history in branches and commits. |
+| `projects/<slug>/CLAUDE.md` | Project instructions (git-tracked). Agents read this via `--add-dir`. |
+| `projects/<slug>/MEMORY.md` | Project learnings. Gitignored, managed by promotion chain. |
+| `projects/<slug>/.worktrees/` | Gitignored. Temporary worktree checkouts for active sessions and dispatches. |
+| `projects/<slug>/.sessions/<ts>/` | Session infrastructure (gitignored). Streams, MEMORY, conversation log. |
+| `projects/<slug>/.sessions/<ts>/<team>/<dispatch>/` | Dispatch infrastructure (gitignored). Streams, result JSON, sentinel, MEMORY. |
+| `projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.result.json` | Dispatch result JSON. Written by dispatch.sh on completion. |
+| `projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.running` | Sentinel file. Exists while dispatch.sh is running. Removed on completion or abnormal exit (via trap). |
+| `projects/<slug>/.sessions/<ts>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
+| `projects/<slug>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
 
 ## Usage
 
 ```bash
 # Run (project auto-classified from task description)
-./poc/run.sh "Create a handbook about dimensional travel"
+./projects/POC/run.sh "Create a handbook about dimensional travel"
 
 # Run with explicit project
-./poc/run.sh --project dimensional-travel-handbook "Add chapter on dark energy"
+./projects/POC/run.sh --project dimensional-travel-handbook "Add chapter on dark energy"
 
 # Monitor and stop
-./poc/status.sh
-./poc/shutdown.sh
+./projects/POC/ops/status.sh
+./projects/POC/ops/shutdown.sh
 
 # Browse deliverables (git-tracked, always current)
-ls poc/output/projects/dimensional-travel-handbook/writing/           # current files
-git -C poc/output/projects/dimensional-travel-handbook log --oneline  # version history
+ls projects/dimensional-travel-handbook/writing/           # current files
+git -C projects/dimensional-travel-handbook log --oneline  # version history
 
 # Browse learnings
-cat poc/output/MEMORY.md                                              # global learnings
-cat poc/output/projects/dimensional-travel-handbook/MEMORY.md          # project learnings
-cat poc/output/projects/dimensional-travel-handbook/.sessions/20260226-143052/MEMORY.md  # session learnings
+cat projects/MEMORY.md                                              # global learnings
+cat projects/dimensional-travel-handbook/MEMORY.md                   # project learnings
+cat projects/dimensional-travel-handbook/.sessions/20260226-143052/MEMORY.md  # session learnings
 ```
 
 ## CLI Flags
@@ -436,9 +435,9 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | `run.sh` | Enables agent teams. Required for SendMessage, shared inboxes, and team coordination. Without this, agents are plain subagents that only report results back. |
 | `CLAUDE_CODE_MAX_OUTPUT_TOKENS` | `run.sh` | Maximum output tokens per response. Defaults to 128000. SVG and LaTeX output can be verbose — the 32k default is too low for art agents. |
 | `CONVERSATION_LOG` | `run.sh` | Shared log file path. All levels append filtered conversation output here. Lives in the session directory. `run.sh` tails it for live terminal output. Subteam output is indented via `--filter-prefix`. |
-| `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains global MEMORY.md and projects directory. |
+| `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`projects/`). Contains global MEMORY.md and project directories. |
 | `POC_PROJECT` | `run.sh` | Project slug (kebab-case). Derived from task via `classify_task.py` or `--project` override. |
-| `POC_PROJECT_DIR` | `run.sh` | Project directory / git repo root (`poc/output/projects/<slug>/`). Contains CLAUDE.md, MEMORY.md, deliverables on main, `.sessions/`, `.worktrees/`. |
+| `POC_PROJECT_DIR` | `run.sh` | Project directory / git repo root (`projects/<slug>/`). Contains CLAUDE.md, MEMORY.md, deliverables on main, `.sessions/`, `.worktrees/`. |
 | `POC_SESSION_WORKTREE` | `run.sh` | Session worktree path (`.worktrees/session-<ts>/`). Agents write deliverables here. dispatch.sh merges dispatch branches into it. |
 | `POC_SESSION_DIR` | `run.sh` | Session infrastructure directory (`.sessions/<ts>/`). Contains streams, MEMORY, conversation log. Used by promote_learnings.sh. |
 

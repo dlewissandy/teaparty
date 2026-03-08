@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # POC Status Dashboard — what's running, is anything hung?
-# Usage: ./poc/status.sh
+# Usage: ./projects/POC/ops/status.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-POC_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-PROJECTS_DIR="$POC_ROOT/projects"
+POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+PROJECTS_DIR="$POC_ROOT"
 NOW=$(date +%s)
 
 echo "=== POC Status ==="

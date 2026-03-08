@@ -5,8 +5,8 @@
 # plan-execute.sh) that has been running for more than a threshold with
 # no active claude child consuming CPU.
 #
-# Usage: ./poc/projects/POC/reap.sh          # dry run (list only)
-#        ./poc/projects/POC/reap.sh --kill    # actually kill them
+# Usage: ./projects/POC/ops/reap.sh          # dry run (list only)
+#        ./projects/POC/ops/reap.sh --kill    # actually kill them
 set -euo pipefail
 
 KILL=false

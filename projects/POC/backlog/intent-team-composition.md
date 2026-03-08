@@ -159,7 +159,7 @@ They do not lead those phases — they serve whoever leads.
 
 ```
 intent-lead     sonnet   Reads files, interprets task, writes INTENT.md
-research-liaison haiku   Relays to research subteam via relay.sh
+research-liaison haiku   Relays to research subteam via dispatch.sh
 ```
 
 The intent-lead's prompt explicitly says "READ THEM FIRST using Read,

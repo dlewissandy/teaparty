@@ -30,6 +30,6 @@ teaparty.db-wal
 output/
 
 # POC runtime files
-poc/MEMORY.md
+projects/POC/MEMORY.md
 .memory.db
 INTENT.md
