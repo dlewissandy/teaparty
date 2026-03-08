@@ -5,13 +5,15 @@
     "PLAN_ASSERT|POC": {
       "state": "PLAN_ASSERT",
       "task_type": "POC",
-      "approve_count": 4,
+      "approve_count": 5,
       "correct_count": 0,
       "reject_count": 0,
-      "total_count": 4,
+      "total_count": 5,
       "last_updated": "2026-03-07",
       "differentials": [],
-      "ema_approval_rate": 0.8799499999999998
+      "ema_approval_rate": 0.9159649999999997,
+      "artifact_lengths": [],
+      "question_patterns": []
     }
   }
 }

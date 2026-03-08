@@ -456,8 +456,12 @@ if [[ "$EXECUTE_ONLY" == "true" ]]; then
     fi
 
     # ── Auto-detect permission blocks → generate escalation ──
+    # Only check when the agent actually failed (CLAUDE_EXIT != 0).
+    # If the agent exited successfully, it recovered from any permission errors.
+    # Only match file-access denials ('denied'/'not allowed'), not Bash approval
+    # prompts ('requires approval') which are always non-fatal.
     TASK_ESCALATION="$STREAM_TARGET/.task-escalation.md"
-    if [[ ! -f "$TASK_ESCALATION" ]]; then
+    if [[ ! -f "$TASK_ESCALATION" && $CLAUDE_EXIT -ne 0 ]]; then
       PERM_BLOCKS=$(python3 -c "
 import json, sys
 blocks = []
@@ -469,7 +473,7 @@ for line in open('$EXEC_STREAM'):
     for b in ev.get('message',{}).get('content',[]):
         if not isinstance(b, dict) or not b.get('is_error'): continue
         t = b.get('text','') or b.get('content','')
-        if 'requires approval' in t or 'require approval' in t:
+        if 'denied' in t.lower() or 'not allowed' in t.lower():
             blocks.append(t.strip())
 for b in blocks[:5]: print(b)
 " 2>/dev/null || true)
@@ -1004,8 +1008,10 @@ while true; do
   fi
 
   # ── Auto-detect permission blocks → generate escalation ──
+  # Only check when the agent actually failed (CLAUDE_EXIT != 0).
+  # If the agent exited successfully, it recovered from any permission errors.
   LEGACY_TASK_ESCALATION="$STREAM_TARGET/.task-escalation.md"
-  if [[ ! -f "$LEGACY_TASK_ESCALATION" ]]; then
+  if [[ ! -f "$LEGACY_TASK_ESCALATION" && $CLAUDE_EXIT -ne 0 ]]; then
     PERM_BLOCKS=$(python3 -c "
 import json, sys
 blocks = []
@@ -1017,7 +1023,7 @@ for line in open('$EXEC_STREAM'):
     for b in ev.get('message',{}).get('content',[]):
         if not isinstance(b, dict) or not b.get('is_error'): continue
         t = b.get('text','') or b.get('content','')
-        if 'requires approval' in t or 'require approval' in t:
+        if 'denied' in t.lower() or 'not allowed' in t.lower():
             blocks.append(t.strip())
 for b in blocks[:5]: print(b)
 " 2>/dev/null || true)
