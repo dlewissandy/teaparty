@@ -1,0 +1,38 @@
+CfA Audit — Deep Code Reads (R1–R10)
+
+Context: We are auditing the Conversation for Agentic Action (CfA) system — comparing what documentation says against what the code actually does. This is read-only analysis. No source files should be modified. We have pre-identified 13 discrepancies; this research task fills 10 remaining open questions with line-level evidence from the code.
+
+Canonical session worktree: /Users/darrell/git/teaparty/projects/POC/.worktrees/session-20260308-135219
+Use this as the base for reading shell scripts (intent.sh, plan-execute.sh, run.sh, ui.sh). For Python scripts and JSON, use the repo root at /Users/darrell/git/teaparty/projects/POC/.
+
+Answer these 10 questions. For each, provide: (a) the answer, (b) file path + line number(s) as evidence, (c) a one-sentence severity assessment using: Structural / Behavioral / Naming / [BACKLOG].
+
+R1 — Exact state count in the JSON: Read /Users/darrell/git/teaparty/projects/POC/cfa-state-machine.json. Count every state in the phases block. List ALL state names by phase (intent / planning / execution). Report the total. This resolves whether the runtime truth is 25 states (as the exploration found) vs. the "29 states" claimed in backlog/cfa-as-claude-skill.md.
+
+R2 — Actor vocabulary in the JSON: From the same cfa-state-machine.json, extract every unique value appearing in the actor field across all transitions. List them all. Count them. Compare against the alleged "six-role" model in docs/agentic-cfa-spec.docx (which cannot be read — just note the comparison is one-sided due to docx inaccessibility).
+
+R3 — Does human_proxy.py exist?: List all .py files in /Users/darrell/git/teaparty/projects/POC/scripts/. Specifically check whether both human_proxy.py and approval_gate.py exist. If only one exists, report which. docs/PROXY_WIRE_TASK.md references scripts/human_proxy.py as the canonical filename while the GLOSSARY.md calls the component Approval Gate (approval_gate.py).
+
+R4 — Proxy wiring in the shell scripts: In the worktree at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-20260308-135219/projects/POC/intent.sh and plan-execute.sh: Do proxy_decide() and proxy_record() functions exist? If yes, do the calls pass an --artifact path argument? If no proxy functions exist, report not wired. Report exact function signatures and the lines where they are invoked.
+
+R5 — Depth enforcement in cfa_state.py: Read /Users/darrell/git/teaparty/projects/POC/scripts/cfa_state.py, specifically the CfaState dataclass definition (look for depth field) and the make_child_state() function. Is there any maximum depth limit enforced? docs/POC.md states Two levels only (uber + subteams). No recursive hierarchies. Does the code respect this constraint?
+
+R6 — Numbered sections in intent-engineering-detailed-design.md: intent.sh contains a comment referencing spec Section 8.1 (warm-start round reduction). Read /Users/darrell/git/teaparty/projects/POC/docs/intent-engineering-detailed-design.md and check: (a) Does the document have numbered sections? (b) Is there a Section 8 or Section 8.1 covering warm-start or round limits? If not, the intent.sh comment references a spec section that does not exist in any accessible document.
+
+R7 — --no-plan authorization in spec docs: In the worktree, read plan-execute.sh and find the --no-plan flag handling. Report what it does (what phase does it skip?). Then search all spec docs (docs/GLOSSARY.md, docs/intent-engineering-spec.md, docs/intent-engineering-detailed-design.md, docs/POC.md) for any mention of no-plan, skip planning, or bypass planning. Report whether this mode is authorized/documented anywhere.
+
+R8 — BINARY_STATES and GENERATIVE_STATES completeness: Read /Users/darrell/git/teaparty/projects/POC/scripts/approval_gate.py lines ~55-90. List the states in BINARY_STATES and GENERATIVE_STATES. Cross-reference against the state names found in R1: Are there any ASSERT states in the JSON that are missing from BINARY_STATES? Are there any ESCALATE states in the JSON that are missing from GENERATIVE_STATES? Does WORK_ESCALATE appear in the JSON? If not but WORK_ASSERT is in BINARY_STATES, flag that inconsistency.
+
+R9 — set_state_direct() used from shell?: Read cfa_state.py to find the set_state_direct() function (look for function definition and its docstring describing it as escape hatch). Then grep intent.sh and plan-execute.sh (in the worktree) for any calls to --set-state or set_state_direct. Report whether the shell orchestration actually uses this bypass.
+
+R10 — WORK_ASSERT actor per spec: Read docs/intent-engineering-detailed-design.md and search for WORK_ASSERT. What actor does the design doc assign to this state? Compare to cfa-state-machine.json where WORK_ASSERT transitions list approval_gate as the actor. Does the spec document call the approval gate an actor, or describe it differently (e.g., as a routing aid, confidence predictor)?
+
+Deliverable: Write all findings to /Users/darrell/git/teaparty/projects/POC/backlog/.research-findings.md.
+
+Format for each finding:
+R[N] — [Question title]
+Answer: [direct answer to the question]
+Evidence: [file path, line numbers, quoted snippet if useful]
+Severity: [Structural / Behavioral / Naming / [BACKLOG] — one sentence why]
+
+This is a read-only research task. Do not modify any source files, shell scripts, or spec documents. Only write to the deliverable file: /Users/darrell/git/teaparty/projects/POC/backlog/.research-findings.md
