@@ -418,11 +418,16 @@ while true; do
     continue  # Re-check: agent may escalate again or write INTENT.md
   fi
 
-  # ── Permission block check (ALWAYS, before trusting any output) ──
-  # An intent produced while the agent had file-reading denials is
-  # untrustworthy — even if INTENT.md exists, it was written without
-  # reading the referenced material.
-  INTENT_PERM_BLOCKS=$(python3 -c "
+  # ── Check for INTENT.md FIRST ──
+  # If the agent produced INTENT.md despite intermediate permission errors,
+  # those errors were non-fatal.  Only check permission blocks if no output.
+  INTENT_PATH=$(find_intent_md)
+
+  if [[ -z "$INTENT_PATH" ]]; then
+    # No INTENT.md — check if permission blocks caused the failure.
+    # Only counts file-access denials (Read/Glob), not Bash approval
+    # prompts or interactive tool prompts (non-fatal in automated context).
+    INTENT_PERM_BLOCKS=$(python3 -c "
 import json, sys
 blocks = []
 for line in open('$INTENT_STREAM'):
@@ -433,25 +438,20 @@ for line in open('$INTENT_STREAM'):
     for b in ev.get('message',{}).get('content',[]):
         if not isinstance(b, dict) or not b.get('is_error'): continue
         t = b.get('text','') or b.get('content','')
-        if 'denied' in t.lower() or 'requires approval' in t or 'not allowed' in t.lower():
+        if 'denied' in t.lower() or 'not allowed' in t.lower():
             blocks.append(t.strip())
 for b in blocks[:5]: print(b)
 " 2>/dev/null || true)
 
-  if [[ -n "$INTENT_PERM_BLOCKS" ]]; then
-    echo -e "  ${C_RED}Intent agent blocked by permissions — cannot produce trustworthy intent.${C_RESET}" >&2
-    generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
-    session_log STATE "Intent blocked by permission restrictions"
-    exit 1
-  fi
+    if [[ -n "$INTENT_PERM_BLOCKS" ]]; then
+      echo -e "  ${C_RED}Intent agent blocked by permissions — cannot produce trustworthy intent.${C_RESET}" >&2
+      generate_failure_report "$INTENT_STREAM" "intent" "intent-lead"
+      session_log STATE "Intent blocked by permission restrictions"
+      exit 1
+    fi
 
-  # ── Check for INTENT.md ──
-  INTENT_PATH=$(find_intent_md)
-
-  if [[ -z "$INTENT_PATH" ]]; then
-    # No permission blocks and no INTENT.md — agent may have delegated
-    # or just didn't finish.  Ask it to complete, but do NOT tell it
-    # to skip reading.
+    # No permission blocks either — agent just didn't finish.
+    # Ask it to complete, but do NOT tell it to skip reading.
     echo -e "  ${C_DIM}No INTENT.md yet — asking agent to complete it.${C_RESET}" >&2
     chrome_thinking
     run_turn "You have not yet written INTENT.md. If the task references files or documents you haven't read yet, read them now. Then write INTENT.md." \

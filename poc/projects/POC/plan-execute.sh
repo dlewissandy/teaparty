@@ -175,8 +175,10 @@ for line in sys.stdin:
 "
 }
 
-# Check if the planning stream contains permission blocks (denied reads/globs).
-# A plan built without reading essential inputs is not trustworthy.
+# Check if the planning stream contains file-access permission blocks.
+# Only counts Read/Glob denials — Bash approval prompts are non-fatal
+# (agent has Read/Glob/Grep alternatives), and interactive tool prompts
+# (AskUserQuestion, ExitPlanMode) are expected in automated pipelines.
 # Sets PLAN_PERM_BLOCKS (non-empty if blocks found).
 check_plan_perm_blocks() {
   local stream_file="$1"
@@ -191,7 +193,10 @@ for line in open('$stream_file'):
     for b in ev.get('message',{}).get('content',[]):
         if not isinstance(b, dict) or not b.get('is_error'): continue
         t = b.get('text','') or b.get('content','')
-        if 'denied' in t.lower() or 'requires approval' in t or 'require approval' in t or 'not allowed' in t.lower():
+        # Only count file-access denials (Read/Glob outside allowed dirs).
+        # Skip 'requires approval' (Bash tool) — non-fatal, agent uses
+        # Read/Glob/Grep instead.  Skip interactive prompts too.
+        if 'denied' in t.lower() or 'not allowed' in t.lower():
             blocks.append(t.strip())
 for b in blocks[:5]: print(b)
 " 2>/dev/null || true)
@@ -288,20 +293,30 @@ run_orchestrated() {
     orch_args+=(--add-dir "$_ad")
   done
 
-  # Live stream tailing — process JSONL as the orchestrator appends it
+  # Live stream tailing — process JSONL as the orchestrator appends it.
+  #
+  # Bug fix: the original `tail -f | filter_stream &` pattern leaked tail -f
+  # processes. filter_stream is a shell function, so bash ran it in a subshell
+  # and $! captured the subshell PID. kill/wait targeted the subshell but left
+  # the tail -f alive as a child of plan-execute.sh, blocking exit (__wait4).
+  #
+  # Fix: use output process substitution — `tail -f > >(func) &` — so $!
+  # captures the tail PID. When we kill tail, the pipe breaks, func gets EOF
+  # and exits cleanly.
   touch "$stream_file"
-  tail -f "$stream_file" | filter_stream &
-  local filter_pid=$!
-  tail -f "$stream_file" | session_stream_log "$FILTER_PREFIX" &
-  local logger_pid=$!
+  tail -f "$stream_file" > >(filter_stream) &
+  local tail1_pid=$!
+  tail -f "$stream_file" > >(session_stream_log "$FILTER_PREFIX") &
+  local tail2_pid=$!
 
   CLAUDE_EXIT=0
   python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
 
-  # Let tails flush remaining lines, then kill
+  # Let tails flush remaining lines, then kill. Killing tail breaks the pipe,
+  # causing filter_stream / session_stream_log to get EOF and exit.
   sleep 0.5
-  kill "$filter_pid" "$logger_pid" 2>/dev/null || true
-  wait "$filter_pid" "$logger_pid" 2>/dev/null || true
+  kill "$tail1_pid" "$tail2_pid" 2>/dev/null || true
+  wait "$tail1_pid" "$tail2_pid" 2>/dev/null || true
 }
 
 # ── CfA state helpers ──
@@ -693,11 +708,41 @@ else
       --resume "$SESSION_ID" --permission-mode plan
   done
 
+  # ── Plan file detection ──
+  # Check for a plan file BEFORE the permission block gate.  If the agent
+  # produced a plan despite encountering intermediate permission errors,
+  # those errors were non-fatal and should not abort the session.
+  relocate_new_plans() {
+    local plans_after
+    plans_after=$(mktemp)
+    ls ~/.claude/plans/ 2>/dev/null | sort > "$plans_after" || true
+    local new_plans
+    new_plans=$(comm -13 "$PLANS_BEFORE" "$plans_after" || true)
+    for plan in $new_plans; do
+      mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
+      echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
+      break
+    done
+    rm -f "$plans_after"
+  }
+  relocate_new_plans
+  rm -f "$PLANS_BEFORE"
+
   # ── Planning permission block gate ──
-  # If the agent couldn't read essential files, the plan is worthless.
-  if gate_plan_perm_blocks "$PLAN_STREAM"; then
-    # Permission blocks detected and handled (retry chosen) — re-run planning
-    run_claude "$PLAN_STREAM" "$TASK" --permission-mode plan
+  # Only check if the agent FAILED to produce a plan.  If a plan exists,
+  # the agent recovered from any intermediate permission errors.
+  if [[ ! -f "$STREAM_TARGET/plan.md" ]]; then
+    if gate_plan_perm_blocks "$PLAN_STREAM"; then
+      # Permission blocks detected and handled (retry chosen) — re-run planning
+      run_claude "$PLAN_STREAM" "$TASK" --permission-mode plan
+      # Re-detect: just grab the newest plan file
+      local newest_plan
+      newest_plan=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1)
+      if [[ -n "$newest_plan" ]]; then
+        mv ~/.claude/plans/"$newest_plan" "$STREAM_TARGET/plan.md"
+        echo -e "  ${C_DIM}Relocated plan (retry): $newest_plan${C_RESET}" >&2
+      fi
+    fi
   fi
 
   cfa_set "PLAN_ASSERT"  # Agent completed planning: DRAFT → assert → PLAN_ASSERT
@@ -706,16 +751,6 @@ else
 
   # Save session ID for --execute-only mode
   echo "$SESSION_ID" > "$STREAM_TARGET/.plan-session-id"
-
-  PLANS_AFTER=$(mktemp)
-  ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_AFTER" || true
-  NEW_PLANS=$(comm -13 "$PLANS_BEFORE" "$PLANS_AFTER" || true)
-  for plan in $NEW_PLANS; do
-    mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
-    echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
-    break
-  done
-  rm -f "$PLANS_BEFORE" "$PLANS_AFTER"
 
   # Log plan content to session log (first 800 chars)
   if [[ -f "$STREAM_TARGET/plan.md" ]]; then

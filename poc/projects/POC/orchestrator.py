@@ -35,6 +35,7 @@ class Message:
     content: str
     summary: str
     arrived_at: float = field(default_factory=time.time)
+    auto: bool = False  # True for system-generated "done" notifications
 
 
 @dataclass
@@ -55,9 +56,9 @@ class Mailbox:
         self.session_id: str | None = None
         self.running = False
 
-    def enqueue(self, sender, content, summary):
+    def enqueue(self, sender, content, summary, auto=False):
         self.inbox.append(Message(sender=sender, content=content,
-                                  summary=summary))
+                                  summary=summary, auto=auto))
 
     def add_pending(self, recipient, summary):
         self.pending.append(PendingItem(recipient=recipient, summary=summary))
@@ -245,6 +246,7 @@ def _wake_agent(pool, mbox, agents_json, settings_file, cwd,
     stream = f"{output_stream}.{mbox.name}-{rid:03d}"
     resume = mbox.session_id
     senders = list({m.sender for m in messages})
+    auto_wakeup = all(m.auto for m in messages)
 
     # Log each message being delivered so communication is visible
     summaries = [m.summary or m.content[:60] for m in messages]
@@ -266,6 +268,7 @@ def _wake_agent(pool, mbox, agents_json, settings_file, cwd,
             "result_text": result or extract_result_text(stream),
             "senders": senders,
             "waiting": waiting,
+            "auto_wakeup": auto_wakeup,
         }
 
     fut = pool.submit(run)
@@ -393,15 +396,21 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
                 if sender in mailboxes:
                     mailboxes[sender].resolve_pending(agent_name)
 
-            # If agent is waiting for external input, log it and
-            # suppress auto-notification to break idle ping-pong
+            # Suppress auto-notification in two cases to prevent
+            # idle ping-pong loops:
+            # 1. Agent signaled [WAITING] — blocked on external input
+            # 2. Agent was woken only by auto-generated "done"
+            #    notifications — don't chain "done" → "done" → ...
             if r.get("waiting"):
                 log(session_log, "WAIT",
                     f"{agent_name}: waiting for external input")
 
+            elif r.get("auto_wakeup") and not r.get("outgoing"):
+                log(session_log, "ORCH",
+                    f"{agent_name}: done (auto-echo suppressed)")
+
             # If agent finished without sending any messages, notify
-            # the senders so they know it completed — unless it's
-            # waiting for external input (which would cause ping-pong)
+            # the senders so they know it completed
             elif not r.get("outgoing"):
                 text = r.get("result_text", "")
                 summary = f"{agent_name} done"
@@ -410,7 +419,8 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
                         mailboxes[sender].enqueue(
                             agent_name,
                             text or f"{agent_name} completed.",
-                            summary)
+                            summary,
+                            auto=True)
                         log(session_log, "ROUTE",
                             f"{agent_name} -> {sender}: {summary}")
 
