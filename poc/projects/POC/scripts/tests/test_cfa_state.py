@@ -499,13 +499,13 @@ class TestTransitionPhase3(unittest.TestCase):
         cfa = _make_at_state('TASK_ESCALATE')
         new_cfa = transition(cfa, 'clarify')
         self.assertEqual(new_cfa.state, 'TASK_RESPONSE')
-        self.assertEqual(new_cfa.actor, 'human_proxy')
+        self.assertEqual(new_cfa.actor, 'approval_gate')
 
     def test_task_escalate_withdraw_to_withdrawn(self):
         cfa = _make_at_state('TASK_ESCALATE')
         new_cfa = transition(cfa, 'withdraw')
         self.assertEqual(new_cfa.state, 'WITHDRAWN')
-        self.assertEqual(new_cfa.actor, 'human_proxy')
+        self.assertEqual(new_cfa.actor, 'approval_gate')
 
     def test_task_assert_approve_to_completed_task(self):
         cfa = _make_at_state('TASK_ASSERT')
@@ -579,7 +579,7 @@ class TestTransitionPhase3(unittest.TestCase):
         cfa = _make_at_state('WORK_ASSERT')
         new_cfa = transition(cfa, 'approve')
         self.assertEqual(new_cfa.state, 'COMPLETED_WORK')
-        self.assertEqual(new_cfa.actor, 'human_proxy')
+        self.assertEqual(new_cfa.actor, 'approval_gate')
 
     def test_work_assert_correct_to_task_response(self):
         cfa = _make_at_state('WORK_ASSERT')

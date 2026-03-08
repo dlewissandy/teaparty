@@ -345,9 +345,9 @@ Read, Glob, and Grep are disabled because the intent-lead is a conversational ag
 
 TeamCreate and TeamDelete are disabled because the team is statically defined by the intent-team.json specification. Dynamic team creation would circumvent tool restriction enforcement.
 
-Task, TaskOutput, and TaskStop are disabled because cross-team coordination goes through the liaison pattern (SendMessage to research-liaison, who calls relay.sh), not through Task tool invocations.
+Task, TaskOutput, and TaskStop are disabled because cross-team coordination goes through the liaison pattern (SendMessage to research-liaison, who calls dispatch.sh), not through Task tool invocations.
 
-**Research-liaison allowed tools:** All tools including WebFetch, WebSearch, Bash(relay.sh), Bash(yt-transcript.sh). The research-liaison has no disallowed tools because its role requires broad access to external information.
+**Research-liaison allowed tools:** All tools including WebFetch, WebSearch, Bash(dispatch.sh), Bash(yt-transcript.sh). The research-liaison has no disallowed tools because its role requires broad access to external information.
 
 **Permission mode:** acceptEdits. The intent-lead must be able to write INTENT.md to the working directory. No other file writes are expected or appropriate during intent gathering.
 

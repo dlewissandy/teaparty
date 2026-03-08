@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # smart-merge.sh — Robust squash-merge with progressive conflict resolution
 #
-# Replaces the fragile inline merge logic in run.sh and relay.sh.
+# Replaces the fragile inline merge logic in run.sh and dispatch.sh.
 # Handles: untracked file conflicts, modified file conflicts, content conflicts.
 # Falls back to file-by-file checkout when merge mechanics fail entirely.
 #
@@ -14,7 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/chrome.sh"
+source "$SCRIPT_DIR/../ui.sh"
 
 TARGET_DIR=""
 BRANCH=""

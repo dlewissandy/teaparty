@@ -45,7 +45,7 @@ SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
 import json, os, sys
 d = os.environ['SCRIPT_DIR']
 rules = [
-    'Bash(' + d + '/yt-transcript.sh:*)',
+    'Bash(' + d + '/tools/yt-transcript.sh:*)',
     'Bash(curl:*)'
 ]
 json.dump({'permissions': {'allow': rules}}, sys.stdout)

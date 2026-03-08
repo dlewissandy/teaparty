@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Tests for Phase 4: detect_phase.py and retire_phase.py.
+"""Tests for Stage lifecycle: detect_stage.py and retire_stage.py.
 
 Covers:
- - retire_phase_entries() marks task-domain entries from old phase as retired
- - Team-domain entries survive phase transitions
- - SUCCESS CRITERION 1: spec-phase task directives absent after phase transition
+ - retire_stage_entries() marks task-domain entries from old stage as retired
+ - Team-domain entries survive stage transitions
+ - SUCCESS CRITERION 1: spec-stage task directives absent after stage transition
  - SUCCESS CRITERION 2: team-domain entries survive unchanged
- - detect_phase_from_content() returns a known phase string
- - detect_phase_from_content() handles edge cases gracefully
+ - detect_stage_from_content() returns a known stage string
+ - detect_stage_from_content() handles edge cases gracefully
 """
 import os
 import shutil
@@ -19,13 +19,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from memory_entry import make_entry, parse_memory_file, serialize_memory_file, MemoryEntry
-from retire_phase import retire_phase_entries
-from detect_phase import detect_phase_from_content, PHASES
+from retire_stage import retire_stage_entries
+from detect_stage import detect_stage_from_content, STAGES
 
 
-# ── retire_phase_entries ──────────────────────────────────────────────────────
+# ── retire_stage_entries ──────────────────────────────────────────────────────
 
-class TestRetirePhaseEntries(unittest.TestCase):
+class TestRetireStageEntries(unittest.TestCase):
 
     def _make_task_entry(self, phase: str, content: str = 'Task directive') -> MemoryEntry:
         e = make_entry(content, type='directive', domain='task', importance=0.7, phase=phase)
@@ -37,15 +37,15 @@ class TestRetirePhaseEntries(unittest.TestCase):
 
     # ── SUCCESS CRITERION 1 ───────────────────────────────────────────────────
 
-    def test_task_entries_from_old_phase_retired(self):
-        """SUCCESS CRITERION 1: spec-phase task directives absent after phase transition."""
+    def test_task_entries_from_old_stage_retired(self):
+        """SUCCESS CRITERION 1: spec-stage task directives absent after stage transition."""
         spec_task = self._make_task_entry(phase='specification',
                                           content='Spec requirement: must document all APIs.')
         impl_task = self._make_task_entry(phase='implementation',
                                           content='Implementation note: use async functions.')
 
         entries = [spec_task, impl_task]
-        updated, count = retire_phase_entries(entries, old_phase='specification')
+        updated, count = retire_stage_entries(entries, old_phase='specification')
 
         self.assertEqual(count, 1, "Exactly 1 spec task entry should be retired")
 
@@ -64,7 +64,7 @@ class TestRetirePhaseEntries(unittest.TestCase):
         other_entry = make_entry('Other', domain='team', type='procedural',
                                  importance=0.5, phase='specification')
 
-        updated, count = retire_phase_entries([task_entry, other_entry], 'specification')
+        updated, count = retire_stage_entries([task_entry, other_entry], 'specification')
         self.assertEqual(count, 1)
 
         statuses = {e.domain: e.status for e in updated}
@@ -73,8 +73,8 @@ class TestRetirePhaseEntries(unittest.TestCase):
 
     # ── SUCCESS CRITERION 2 ───────────────────────────────────────────────────
 
-    def test_team_entries_survive_phase_transition(self):
-        """SUCCESS CRITERION 2: team-domain entries are not retired on phase transition."""
+    def test_team_entries_survive_stage_transition(self):
+        """SUCCESS CRITERION 2: team-domain entries are not retired on stage transition."""
         team_entries = [
             self._make_team_entry(phase='specification', content=f'Team knowledge {i}')
             for i in range(5)
@@ -83,7 +83,7 @@ class TestRetirePhaseEntries(unittest.TestCase):
                                            content='Specification task directive.')
 
         all_entries = team_entries + [task_entry]
-        updated, count = retire_phase_entries(all_entries, old_phase='specification')
+        updated, count = retire_stage_entries(all_entries, old_phase='specification')
 
         self.assertEqual(count, 1, "Only 1 task entry should be retired")
 
@@ -98,13 +98,13 @@ class TestRetirePhaseEntries(unittest.TestCase):
         e = self._make_task_entry(phase='specification')
         already_retired = replace(e, status='retired')
 
-        updated, count = retire_phase_entries([already_retired], 'specification')
+        updated, count = retire_stage_entries([already_retired], 'specification')
         self.assertEqual(count, 0, "Already-retired entry should not be counted again")
 
-    def test_entries_from_different_phase_not_retired(self):
-        """Entries from a phase other than old_phase are not retired."""
+    def test_entries_from_different_stage_not_retired(self):
+        """Entries from a stage other than old stage are not retired."""
         impl_task = self._make_task_entry(phase='implementation')
-        updated, count = retire_phase_entries([impl_task], old_phase='specification')
+        updated, count = retire_stage_entries([impl_task], old_phase='specification')
         self.assertEqual(count, 0)
         self.assertEqual(updated[0].status, 'active')
 
@@ -112,29 +112,29 @@ class TestRetirePhaseEntries(unittest.TestCase):
         """All task-domain entries from the old phase are retired."""
         entries = [self._make_task_entry(phase='specification', content=f'Spec {i}')
                    for i in range(4)]
-        updated, count = retire_phase_entries(entries, 'specification')
+        updated, count = retire_stage_entries(entries, 'specification')
         self.assertEqual(count, 4)
         for e in updated:
             self.assertEqual(e.status, 'retired')
 
     def test_empty_input_returns_empty(self):
         """Empty input list returns empty, count 0."""
-        updated, count = retire_phase_entries([], 'specification')
+        updated, count = retire_stage_entries([], 'specification')
         self.assertEqual(updated, [])
         self.assertEqual(count, 0)
 
-    def test_unknown_old_phase_retires_nothing(self):
-        """'unknown' phase should not retire anything meaningful."""
+    def test_unknown_old_stage_retires_nothing(self):
+        """'unknown' stage should not retire anything meaningful."""
         entry = self._make_task_entry(phase='unknown')
-        # retire_phase.py guards against old_phase='unknown' at CLI level,
-        # but the library function itself will still match phase='unknown'
-        updated, count = retire_phase_entries([entry], 'unknown')
+        # retire_stage.py guards against old_stage='unknown' at CLI level,
+        # but the library function itself will still match stage='unknown'
+        updated, count = retire_stage_entries([entry], 'unknown')
         self.assertEqual(count, 1)  # matches, but this is filtered at CLI level
 
 
-# ── retire_phase file I/O ─────────────────────────────────────────────────────
+# ── retire_stage file I/O ─────────────────────────────────────────────────────
 
-class TestRetirePhaseFileIO(unittest.TestCase):
+class TestRetireStageFileIO(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -149,9 +149,9 @@ class TestRetirePhaseFileIO(unittest.TestCase):
     def _read_memory(self):
         return parse_memory_file(Path(self.mem_path).read_text())
 
-    def test_retire_phase_updates_memory_file(self):
-        """retire_phase.py main() modifies MEMORY.md in place."""
-        from retire_phase import main as retire_main
+    def test_retire_stage_updates_memory_file(self):
+        """retire_stage.py main() modifies MEMORY.md in place."""
+        from retire_stage import main as retire_main
         import sys
 
         e_task = make_entry('Spec task', domain='task', type='directive',
@@ -161,7 +161,7 @@ class TestRetirePhaseFileIO(unittest.TestCase):
         self._write_memory([e_task, e_team])
 
         # Call main() directly
-        sys.argv = ['retire_phase.py', '--old-phase', 'specification',
+        sys.argv = ['retire_stage.py', '--old-stage', 'specification',
                     '--memory', self.mem_path]
         retire_main()
 
@@ -175,55 +175,54 @@ class TestRetirePhaseFileIO(unittest.TestCase):
         self.assertEqual(team_entry.status, 'active')
 
 
-# ── detect_phase_from_content ─────────────────────────────────────────────────
+# ── detect_stage_from_content ─────────────────────────────────────────────────
 
-class TestDetectPhaseFromContent(unittest.TestCase):
+class TestDetectStageFromContent(unittest.TestCase):
 
-    def test_returns_known_phase_string(self):
-        """detect_phase_from_content returns a value in PHASES list."""
+    def test_returns_known_stage_string(self):
+        """detect_stage_from_content returns a value in STAGES list."""
         # Use a clearly implementation-oriented description
         content = "Implement the new authentication module. Write Python code."
-        result = detect_phase_from_content(content)
-        self.assertIn(result, PHASES,
-                      f"Expected one of {PHASES}, got '{result}'")
+        result = detect_stage_from_content(content)
+        self.assertIn(result, STAGES, f"Expected one of {STAGES}, got '{result}'")
 
     def test_empty_content_returns_unknown(self):
         """Empty content string must return 'unknown'."""
-        result = detect_phase_from_content('')
+        result = detect_stage_from_content('')
         self.assertEqual(result, 'unknown')
 
     def test_whitespace_only_returns_unknown(self):
         """Whitespace-only content must return 'unknown'."""
-        result = detect_phase_from_content('   \n\t  ')
+        result = detect_stage_from_content('   \n\t  ')
         self.assertEqual(result, 'unknown')
 
     def test_output_is_lowercase(self):
         """Returned phase must be lowercase."""
-        result = detect_phase_from_content('Implementing code changes.')
+        result = detect_stage_from_content('Implementing code changes.')
         self.assertEqual(result, result.lower())
 
     def test_result_has_no_whitespace(self):
         """Returned phase must not contain whitespace."""
-        result = detect_phase_from_content('Building the feature.')
+        result = detect_stage_from_content('Building the feature.')
         self.assertEqual(result, result.strip())
         self.assertNotIn(' ', result)
 
 
-# ── Integration: phase transition end-to-end ──────────────────────────────────
+# ── Integration: stage transition end-to-end ──────────────────────────────────
 
-class TestPhaseTransitionIntegration(unittest.TestCase):
+class TestStageTransitionIntegration(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
         self.mem_path = os.path.join(self.tmpdir, 'MEMORY.md')
-        self.phase_file = os.path.join(self.tmpdir, '.current-phase')
+        self.stage_file = os.path.join(self.tmpdir, '.current-stage')
 
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_full_transition_retires_task_keeps_team(self):
-        """End-to-end: write memory, simulate phase transition, verify retirement."""
-        # Write entries for 'specification' phase
+        """End-to-end: write memory, simulate stage transition, verify retirement."""
+        # Write entries for 'specification' stage
         spec_task = make_entry(
             'Spec requirement: implement XYZ interface.',
             domain='task', type='directive', importance=0.8, phase='specification',
@@ -234,8 +233,8 @@ class TestPhaseTransitionIntegration(unittest.TestCase):
         )
         Path(self.mem_path).write_text(serialize_memory_file([spec_task, team_learning]))
 
-        # Simulate: phase was 'specification', now retiring it
-        updated, count = retire_phase_entries(
+        # Simulate: stage was 'specification', now retiring it
+        updated, count = retire_stage_entries(
             parse_memory_file(Path(self.mem_path).read_text()),
             old_phase='specification',
         )
@@ -245,12 +244,12 @@ class TestPhaseTransitionIntegration(unittest.TestCase):
         final_entries = parse_memory_file(Path(self.mem_path).read_text())
         task_entries = [e for e in final_entries if e.domain == 'task' and e.status == 'active']
         self.assertEqual(len(task_entries), 0,
-                         "No active task-domain entries should remain after phase transition")
+                         "No active task-domain entries should remain after stage transition")
 
         # Verify SUCCESS CRITERION 2: team entry survives
         team_entries = [e for e in final_entries if e.domain == 'team' and e.status == 'active']
         self.assertEqual(len(team_entries), 1,
-                         "Team-domain entry must survive phase transition")
+                         "Team-domain entry must survive stage transition")
 
 
 if __name__ == '__main__':

@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Session stream logger — appends agent conversation content to session.log.
+"""Session audit logger -- writes categorized entries to session.log.
 
-Reads JSONL from stdin (same as stream_filter.py) and writes formatted entries
-to the session log file. Captures what agents say, think, dispatch, and do.
+Reads JSONL from stdin (same stream-json as display_filter.py) and writes
+formatted log entries. Captures what agents say, think, dispatch, and do.
 
 Categories:
-  AGENT    — text blocks (agent conversational output)
-  THINK    — thinking blocks (abbreviated)
-  DISPATCH — Task tool_use (agent delegates to subagent)
-  MESSAGE  — SendMessage tool_use (inter-agent messages)
-  TOOL     — notable tool use (WebSearch, Write, WebFetch, relay.sh)
-  ERROR    — tool_result errors
-  RESULT   — final result text
+  AGENT    -- text blocks (agent conversational output)
+  THINK    -- thinking blocks (abbreviated)
+  DISPATCH -- Task tool_use (agent delegates to subagent)
+  MESSAGE  -- SendMessage tool_use (inter-agent messages)
+  TOOL     -- notable tool use (WebSearch, Write, WebFetch, dispatch.sh)
+  EXPLORE  -- read-only tools (Read, Glob, Grep)
+  ERROR    -- tool_result errors
+  RESULT   -- final result text
 """
 import argparse
 import json
@@ -19,6 +20,12 @@ import os
 import re
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from stream._common import (
+    agent_label, register_lead_session, register_task_agent,
+    parse_events, shorten_worktree_path, parse_dispatch_command,
+)
 
 # ── Truncation limits ──
 TEXT_MAX = 500
@@ -29,22 +36,6 @@ MESSAGE_MAX = 300
 TOOL_MAX = 200
 ERROR_MAX = 200
 RESULT_MAX = 300
-
-# ── Agent name resolution (same approach as stream_filter.py) ──
-task_agents = {}
-lead_session_id = None
-
-
-def agent_label(ev):
-    """Extract a readable agent label from an event."""
-    global lead_session_id
-    parent = ev.get("parent_tool_use_id")
-    if parent and parent in task_agents:
-        return task_agents[parent]
-    sid = ev.get("session_id", "")
-    if sid and sid == lead_session_id:
-        return "lead"
-    return sid[:8] if sid else "agent"
 
 
 def truncate(text, limit):
@@ -59,7 +50,6 @@ def format_entry(category, message, prefix=""):
     """Format a session log entry with continuation lines."""
     timestamp = time.strftime("%H:%M:%S")
     lines = message.split("\n")
-    # Limit continuation lines
     if len(lines) > TEXT_MAX_LINES:
         lines = lines[:TEXT_MAX_LINES]
     parts = [f"[{timestamp}] {category:<8s} | {prefix}{lines[0]}"]
@@ -85,7 +75,6 @@ def main():
 
     log_path = args.session_log
     if not log_path:
-        # No session log configured — silently consume stdin
         for _ in sys.stdin:
             pass
         return
@@ -99,25 +88,15 @@ def main():
             pass
         return
 
-    global lead_session_id
-
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            ev = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
-            continue
-
+    for ev in parse_events():
         t = ev.get("type", "")
         sub = ev.get("subtype", "")
         label = agent_label(ev)
 
         # ── System events: capture lead session_id ──
         if t == "system":
-            if sub == "init" and lead_session_id is None:
-                lead_session_id = ev.get("session_id", "")
+            if sub == "init":
+                register_lead_session(ev)
             continue
 
         # ── Assistant messages: text, thinking, tool_use ──
@@ -133,7 +112,6 @@ def main():
                     if not text:
                         continue
                     text = truncate(text, TEXT_MAX)
-                    # Clean up for single-line scanning
                     clean = re.sub(r"\n{3,}", "\n\n", text)
                     write_entry(fd, "AGENT", f"{label}: {clean}", prefix)
 
@@ -142,7 +120,6 @@ def main():
                     if not thinking:
                         continue
                     total = len(thinking)
-                    # Single line, no newlines
                     excerpt = thinking[:THINK_MAX].replace("\n", " ")
                     if total > THINK_MAX:
                         excerpt = f"{excerpt}... ({total} chars)"
@@ -154,12 +131,11 @@ def main():
                     tool_id = block.get("id", "")
 
                     if tool_name == "Task":
+                        register_task_agent(tool_id, tool_input)
                         agent_type = tool_input.get("subagent_type", "")
                         name = tool_input.get("name", "")
                         desc = tool_input.get("description", "")
                         prompt = tool_input.get("prompt", "")
-                        if tool_id:
-                            task_agents[tool_id] = name or agent_type or desc
                         recipient = name or agent_type or "subagent"
                         body = desc or ""
                         if prompt:
@@ -198,19 +174,13 @@ def main():
 
                     elif tool_name == "Bash":
                         cmd = tool_input.get("command", "")
-                        if "relay.sh" in cmd:
-                            team_match = re.search(r"--team\s+(\S+)", cmd)
-                            task_match = re.search(r'--task\s+"([^"]*)"', cmd)
-                            if not task_match:
-                                task_match = re.search(r"--task\s+'([^']*)'", cmd)
-                            team = team_match.group(1) if team_match else "?"
-                            task_text = task_match.group(1) if task_match else cmd[:TOOL_MAX]
-                            write_entry(fd, "TOOL", f"{label}: relay.sh --team {team} -- {task_text[:TOOL_MAX]}", prefix)
+                        if "dispatch.sh" in cmd or "relay.sh" in cmd:
+                            team, task = parse_dispatch_command(cmd)
+                            write_entry(fd, "TOOL", f"{label}: dispatch --team {team} -- {task[:TOOL_MAX]}", prefix)
 
                     elif tool_name == "Read":
                         path = tool_input.get("file_path", "")
-                        # Shorten worktree paths for readability
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        short = shorten_worktree_path(path)
                         write_entry(fd, "EXPLORE", f"{label}: Read {short[:TOOL_MAX]}", prefix)
 
                     elif tool_name == "Glob":
@@ -222,7 +192,7 @@ def main():
                     elif tool_name == "Grep":
                         pattern = tool_input.get("pattern", "")[:80]
                         path = tool_input.get("path", "")
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path) if path else ""
+                        short = shorten_worktree_path(path) if path else ""
                         write_entry(fd, "EXPLORE", f'{label}: Grep "{pattern}" {short}'[:TOOL_MAX + 30], prefix)
 
                     elif tool_name == "ExitPlanMode":
@@ -230,7 +200,7 @@ def main():
 
                     elif tool_name == "Edit":
                         path = tool_input.get("file_path", "")
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
+                        short = shorten_worktree_path(path)
                         write_entry(fd, "TOOL", f"{label}: Edit {short[:TOOL_MAX]}", prefix)
 
             continue

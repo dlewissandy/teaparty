@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for human_proxy.py — confidence-based CfA approval gate.
+"""Tests for approval_gate.py — confidence-based CfA approval gate.
 
 Covers:
  1. Cold start — always escalate when < 5 samples
@@ -23,7 +23,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from human_proxy import (
+from approval_gate import (
     COLD_START_THRESHOLD,
     EXPLORE_RATE,
     STALENESS_DAYS,
@@ -122,7 +122,7 @@ class DeterministicProxyTestCase(unittest.TestCase):
     """Base class that disables random exploration for deterministic tests."""
 
     def setUp(self):
-        self._explore_patcher = patch('human_proxy.random.random', return_value=1.0)
+        self._explore_patcher = patch('approval_gate.random.random', return_value=1.0)
         self._explore_patcher.start()
 
     def tearDown(self):
@@ -707,7 +707,7 @@ class TestTeamScopedModels(DeterministicProxyTestCase):
         super().tearDown()
 
     def test_resolve_team_model_path(self):
-        from human_proxy import resolve_team_model_path
+        from approval_gate import resolve_team_model_path
         base = '/path/to/.proxy-confidence.json'
         self.assertEqual(
             resolve_team_model_path(base, 'coding'),
@@ -715,12 +715,12 @@ class TestTeamScopedModels(DeterministicProxyTestCase):
         )
 
     def test_resolve_team_model_path_empty_team(self):
-        from human_proxy import resolve_team_model_path
+        from approval_gate import resolve_team_model_path
         base = '/path/to/.proxy-confidence.json'
         self.assertEqual(resolve_team_model_path(base, ''), base)
 
     def test_resolve_team_model_path_various_teams(self):
-        from human_proxy import resolve_team_model_path
+        from approval_gate import resolve_team_model_path
         base = '/data/.proxy-confidence.json'
         self.assertEqual(
             resolve_team_model_path(base, 'art'),
@@ -733,7 +733,7 @@ class TestTeamScopedModels(DeterministicProxyTestCase):
 
     def test_independent_team_models(self):
         """Two teams write to different files and don't cross-contaminate."""
-        from human_proxy import resolve_team_model_path
+        from approval_gate import resolve_team_model_path
 
         base = os.path.join(self.tmpdir, '.proxy-confidence.json')
         coding_path = resolve_team_model_path(base, 'coding')
@@ -760,7 +760,7 @@ class TestTeamScopedModels(DeterministicProxyTestCase):
 
     def test_uber_model_separate_from_team_models(self):
         """The uber-level model at the base path is separate from team-scoped models."""
-        from human_proxy import resolve_team_model_path
+        from approval_gate import resolve_team_model_path
 
         base = os.path.join(self.tmpdir, '.proxy-confidence.json')
         coding_path = resolve_team_model_path(base, 'coding')
@@ -887,7 +887,7 @@ class TestTextDifferentials(unittest.TestCase):
 
     def test_differential_capped_at_max(self):
         """Differentials are capped at MAX_DIFFERENTIALS_PER_ENTRY."""
-        from human_proxy import MAX_DIFFERENTIALS_PER_ENTRY
+        from approval_gate import MAX_DIFFERENTIALS_PER_ENTRY
         model = _make_model()
         for i in range(MAX_DIFFERENTIALS_PER_ENTRY + 5):
             model = record_outcome(
@@ -1053,7 +1053,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_none_on_cold_start(self):
         """generate_response returns None when < COLD_START_THRESHOLD observations."""
-        from human_proxy import generate_response
+        from approval_gate import generate_response
         model = _make_model()
         model = record_outcome(model, 'WORK_ASSERT', 'proj', 'correct',
                                differential_summary='Fix colors')
@@ -1062,7 +1062,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_none_with_no_differentials(self):
         """generate_response returns None when entry has no differentials."""
-        from human_proxy import generate_response
+        from approval_gate import generate_response
         model = _make_model()
         # Record enough approvals to pass cold start but no differentials
         model = _record_n(model, 'PLAN_ASSERT', 'proj', 'approve', 10)
@@ -1071,7 +1071,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_none_below_threshold(self):
         """generate_response returns None when confidence < threshold."""
-        from human_proxy import generate_response, GenerativeResponse
+        from approval_gate import generate_response, GenerativeResponse
         model = _make_model()
         # Mix of approvals and corrections → confidence below 0.80
         model = _record_n(model, 'WORK_ASSERT', 'proj', 'approve', 3)
@@ -1083,7 +1083,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_response_when_confident_with_differentials(self):
         """generate_response returns a prediction when confidence is high."""
-        from human_proxy import generate_response, GenerativeResponse
+        from approval_gate import generate_response, GenerativeResponse
         model = _make_model()
         # Many approvals + one correction with differential
         model = _record_n(model, 'WORK_ASSERT', 'proj', 'approve', 10)
@@ -1100,7 +1100,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_generative_state_uses_higher_threshold(self):
         """INTENT_ESCALATE needs 0.95 confidence for generation."""
-        from human_proxy import generate_response
+        from approval_gate import generate_response
         model = _make_model(generative_threshold=0.95)
         # 9 approvals + 1 correction → confidence ~= (9+1)/(11+2) = 0.769
         model = _record_n(model, 'INTENT_ESCALATE', 'proj', 'approve', 9)
@@ -1111,7 +1111,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_most_recent_differential(self):
         """generate_response returns the most recent differential text."""
-        from human_proxy import generate_response
+        from approval_gate import generate_response
         model = _make_model()
         model = _record_n(model, 'WORK_ASSERT', 'proj', 'approve', 15)
         model = record_outcome(model, 'WORK_ASSERT', 'proj', 'correct',
@@ -1126,7 +1126,7 @@ class TestGenerativeResponse(unittest.TestCase):
 
     def test_returns_none_for_unseen_state(self):
         """generate_response returns None for a state with no history."""
-        from human_proxy import generate_response
+        from approval_gate import generate_response
         model = _make_model()
         result = generate_response(model, 'TASK_ESCALATE', 'proj')
         self.assertIsNone(result)
@@ -1141,7 +1141,7 @@ class TestExploration(unittest.TestCase):
         """When random < EXPLORE_RATE, escalate even with high confidence."""
         entry = _make_entry(approve_count=20, total_count=20)
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=0.0):
+        with patch('approval_gate.random.random', return_value=0.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'escalate')
         self.assertIn('Exploration', decision.reasoning)
@@ -1150,7 +1150,7 @@ class TestExploration(unittest.TestCase):
         """When random >= EXPLORE_RATE, auto-approve as normal."""
         entry = _make_entry(approve_count=20, total_count=20)
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'auto-approve')
 
@@ -1158,7 +1158,7 @@ class TestExploration(unittest.TestCase):
         """Exploration decisions still report the actual confidence."""
         entry = _make_entry(approve_count=10, total_count=10)
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=0.0):
+        with patch('approval_gate.random.random', return_value=0.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertGreater(decision.confidence, 0.8)
         self.assertEqual(decision.action, 'escalate')
@@ -1166,7 +1166,7 @@ class TestExploration(unittest.TestCase):
     def test_exploration_does_not_affect_cold_start(self):
         """Cold start escalation takes priority over exploration."""
         model = _make_model()
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'new-proj')
         self.assertEqual(decision.action, 'escalate')
         self.assertIn('Cold start', decision.reasoning)
@@ -1175,7 +1175,7 @@ class TestExploration(unittest.TestCase):
         """Low confidence escalation takes priority — no double reasoning."""
         entry = _make_entry(approve_count=3, correct_count=7, total_count=10)
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'escalate')
         self.assertNotIn('Exploration', decision.reasoning)
@@ -1190,7 +1190,7 @@ class TestStaleness(unittest.TestCase):
         old_date = (date.today() - timedelta(days=STALENESS_DAYS + 1)).isoformat()
         entry = _make_entry(approve_count=20, total_count=20, last_updated=old_date)
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'escalate')
         self.assertIn('Stale', decision.reasoning)
@@ -1202,7 +1202,7 @@ class TestStaleness(unittest.TestCase):
             last_updated=date.today().isoformat(),
         )
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'auto-approve')
 
@@ -1213,7 +1213,7 @@ class TestStaleness(unittest.TestCase):
         entry = _make_entry(approve_count=20, total_count=20, last_updated=old_date)
         model = _model_with_entry(entry)
         # Even if exploration would not trigger (random=1.0), staleness wins
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertIn('Stale', decision.reasoning)
 
@@ -1221,7 +1221,7 @@ class TestStaleness(unittest.TestCase):
         """Entries with bad date strings are treated as stale."""
         entry = _make_entry(approve_count=20, total_count=20, last_updated='bad-date')
         model = _model_with_entry(entry)
-        with patch('human_proxy.random.random', return_value=1.0):
+        with patch('approval_gate.random.random', return_value=1.0):
             decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
         self.assertEqual(decision.action, 'escalate')
 

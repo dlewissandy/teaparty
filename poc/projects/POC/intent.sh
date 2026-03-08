@@ -17,7 +17,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/chrome.sh"
+source "$SCRIPT_DIR/ui.sh"
 
 # Defaults
 CWD=""
@@ -79,8 +79,8 @@ python3 -c "
 import json, os, sys
 d = os.environ.get('SCRIPT_DIR', '.')
 rules = [
-    'Bash(' + d + '/relay.sh:*)',
-    'Bash(' + d + '/yt-transcript.sh:*)',
+    'Bash(' + d + '/dispatch.sh:*)',
+    'Bash(' + d + '/tools/yt-transcript.sh:*)',
     'WebFetch',
     'WebSearch',
     'Write',
@@ -115,40 +115,7 @@ intent_cfa_set() {
   fi
 }
 
-# ── Human proxy helpers ──
-proxy_decide() {
-  local state="$1"
-  local artifact_path="${2:-}"
-  local task_type="${POC_PROJECT:-default}"
-  if [[ -n "$PROXY_MODEL" && -f "$PROXY_MODEL" ]]; then
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --decide --state "$state" --task-type "$task_type" \
-      --artifact "${artifact_path:-}" \
-      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
-  else
-    echo "escalate"
-  fi
-}
-
-proxy_record() {
-  local state="$1" outcome="$2"
-  local diff_summary="${3:-}"
-  local questions="${4:-}"
-  local reason="${5:-}"
-  local artifact_len="${6:-0}"
-  local task_type="${POC_PROJECT:-default}"
-  if [[ -n "$PROXY_MODEL" ]]; then
-    local extra_args=()
-    [[ -n "$diff_summary" ]]    && extra_args+=(--diff "$diff_summary")
-    [[ -n "$questions" ]]       && extra_args+=(--questions "$questions")
-    [[ -n "$reason" ]]          && extra_args+=(--reason "$reason")
-    [[ "$artifact_len" -gt 0 ]] && extra_args+=(--artifact-length "$artifact_len")
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --record --state "$state" --task-type "$task_type" \
-      --outcome "$outcome" ${extra_args[@]+"${extra_args[@]}"} \
-      --model "$PROXY_MODEL" 2>/dev/null || true
-  fi
-}
+# Approval gate helpers (proxy_decide, proxy_record) are in ui.sh
 
 # ── Stream and session state ──
 INTENT_STREAM="$STREAM_DIR/.intent-stream.jsonl"
@@ -244,7 +211,7 @@ run_turn() {
   cat < "$fifo" \
     | tee -a "$INTENT_STREAM" \
     | tee >(session_stream_log) \
-    | python3 -u "$SCRIPT_DIR/intent_filter.py" --agent-name intent-lead >&2
+    | python3 -u "$SCRIPT_DIR/stream/intent_display.py" --agent-name intent-lead >&2
 
   CLAUDE_EXIT=0
   wait "$bg_pid" 2>/dev/null || CLAUDE_EXIT=$?

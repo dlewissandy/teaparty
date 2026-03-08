@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
 """Extract the final result from claude stream-json output.
 
-Usage: echo "<stream-json-lines>" | python3 extract_result.py
+Usage: echo "<stream-json-lines>" | python3 stream/extract_result.py
 """
-import json
 import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from stream._common import parse_events
 
 result = ""
 last_assistant = ""
 
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        ev = json.loads(line)
-    except json.JSONDecodeError:
-        continue
-
+for ev in parse_events():
     ev_type = ev.get("type", "")
 
     if ev_type == "result":

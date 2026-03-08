@@ -138,15 +138,15 @@ TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
         ('question',      'TASK_QUESTION',    'execution_worker'),
         ('escalate',      'TASK_ESCALATE',    'execution_worker'),
         ('failed',        'FAILED_TASK',      'execution_worker'),
-        ('withdraw',      'WITHDRAWN',        'human_proxy'),
+        ('withdraw',      'WITHDRAWN',        'approval_gate'),
     ],
     'TASK_QUESTION': [
         ('answer',        'TASK_RESPONSE',    'research_team'),
         ('backtrack',     'PLANNING_QUESTION', 'research_team'),
     ],
     'TASK_ESCALATE': [
-        ('clarify',       'TASK_RESPONSE',    'human_proxy'),
-        ('withdraw',      'WITHDRAWN',        'human_proxy'),
+        ('clarify',       'TASK_RESPONSE',    'approval_gate'),
+        ('withdraw',      'WITHDRAWN',        'approval_gate'),
     ],
     'TASK_ASSERT': [
         ('approve',       'COMPLETED_TASK',   'execution_lead'),
@@ -160,7 +160,7 @@ TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
         ('retry',         'TASK',             'execution_worker'),
         ('escalate',      'TASK_ESCALATE',    'execution_worker'),
         ('backtrack',     'PLANNING_QUESTION', 'execution_lead'),
-        ('withdraw',      'WITHDRAWN',        'human_proxy'),
+        ('withdraw',      'WITHDRAWN',        'approval_gate'),
     ],
     'COMPLETED_TASK': [
         ('synthesize',    'WORK_IN_PROGRESS', 'execution_lead'),
@@ -170,14 +170,14 @@ TRANSITIONS: dict[str, list[tuple[str, str, str]]] = {
         ('assert',        'WORK_ASSERT',      'execution_lead'),
         ('auto-approve',  'COMPLETED_WORK',   'execution_lead'),
         ('backtrack',     'PLANNING_QUESTION', 'execution_lead'),
-        ('withdraw',      'WITHDRAWN',        'human_proxy'),
+        ('withdraw',      'WITHDRAWN',        'approval_gate'),
     ],
     'WORK_ASSERT': [
-        ('approve',       'COMPLETED_WORK',   'human_proxy'),
-        ('correct',       'TASK_RESPONSE',    'human_proxy'),
-        ('revise-plan',   'PLANNING_RESPONSE', 'human_proxy'),
-        ('refine-intent', 'INTENT_RESPONSE',  'human_proxy'),
-        ('withdraw',      'WITHDRAWN',        'human_proxy'),
+        ('approve',       'COMPLETED_WORK',   'approval_gate'),
+        ('correct',       'TASK_RESPONSE',    'approval_gate'),
+        ('revise-plan',   'PLANNING_RESPONSE', 'approval_gate'),
+        ('refine-intent', 'INTENT_RESPONSE',  'approval_gate'),
+        ('withdraw',      'WITHDRAWN',        'approval_gate'),
     ],
 
     # ── Terminal states (no outgoing transitions) ──────────────────────────────

@@ -6,6 +6,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+POC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 FORCE=false
 CLEAN_ONLY=false
@@ -32,7 +33,7 @@ cleanup_teams() {
   python3 -c "
 import json, os, glob, shutil
 
-poc_dir = '$SCRIPT_DIR'
+poc_dir = '$POC_DIR'
 teams_dir = os.path.expanduser('~/.claude/teams')
 tasks_dir = os.path.expanduser('~/.claude/tasks')
 cleaned = 0
@@ -89,10 +90,10 @@ while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
 done < <(pgrep -f 'claude.*-p.*--agents' 2>/dev/null || true)
 
-# relay.sh processes
+# dispatch.sh processes
 while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
-done < <(pgrep -f 'relay\.sh' 2>/dev/null || true)
+done < <(pgrep -f 'dispatch\.sh|relay\.sh' 2>/dev/null || true)
 
 # extract_result.py orphans
 while IFS= read -r pid; do
@@ -104,10 +105,10 @@ while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
 done < <(pgrep -f 'tee /.*tmp\.' 2>/dev/null || true)
 
-# python3 stream filter
+# python3 stream display filter
 while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
-done < <(pgrep -f 'python3.*stream_filter\.py' 2>/dev/null || true)
+done < <(pgrep -f 'python3.*display_filter\.py' 2>/dev/null || true)
 
 # Deduplicate
 UNIQUE_PIDS=($(printf '%s\n' "${PIDS[@]}" 2>/dev/null | sort -u || true))
@@ -159,7 +160,7 @@ else
 
   # Final check
   sleep 1
-  REMAINING=$(pgrep -f 'claude.*-p.*--agents|relay\.sh|extract_result\.py|stream_filter\.py' 2>/dev/null || true)
+  REMAINING=$(pgrep -f 'claude.*-p.*--agents|dispatch\.sh|relay\.sh|extract_result\.py|display_filter\.py' 2>/dev/null || true)
   if [[ -n "$REMAINING" ]]; then
     echo "WARNING: Some processes may still be alive:"
     echo "$REMAINING" | while read pid; do

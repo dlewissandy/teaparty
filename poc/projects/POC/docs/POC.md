@@ -11,9 +11,9 @@ This POC demonstrates two-level agent team coordination using Claude Code CLI. T
 ```
 uber team (one claude -p process)
 ├── lead        — delegates, never produces deliverables
-└── liaisons    — bridge to subteams via relay.sh
+└── liaisons    — bridge to subteams via dispatch.sh
 
-subteams (separate claude -p processes, one per relay dispatch)
+subteams (separate claude -p processes, one per dispatch)
 ├── lead        — coordinates workers within the subteam
 └── workers     — produce files
 ```
@@ -24,7 +24,7 @@ The specific teams (art, writing, editorial, research) are an implementation det
 
 1. **`--agents` is a flat pool.** Each `claude -p` process gets one `--agents` JSON defining its agent pool. The writing-lead needs access to markdown-writer and latex-writer; the art-lead needs svg-artist, graphviz-artist, and tikz-artist. These can't all be in the uber pool — the writing-lead would have no way to get its own workers. Subteams must be separate processes with separate pools.
 
-2. **Someone must cross the process boundary.** The subteam runs as a separate `claude -p` process. Someone in the uber process needs to call `relay.sh` (via Bash) to spawn it, wait for completion, and return the result. That's the liaison — it lives in the uber team and bridges to the subteam process.
+2. **Someone must cross the process boundary.** The subteam runs as a separate `claude -p` process. Someone in the uber process needs to call `dispatch.sh` (via Bash) to spawn it, wait for completion, and return the result. That's the liaison — it lives in the uber team and bridges to the subteam process.
 
 3. **Parallelism.** The project-lead sends messages to multiple liaisons via SendMessage. Since teammates process messages concurrently, subteams run in parallel without any background task management.
 
@@ -41,13 +41,13 @@ No bespoke messaging code. The POC relies entirely on Claude's native coordinati
 
 **Within a level** (intra-process): the lead delegates via SendMessage to teammates in the `--agents` pool. Teammates process messages concurrently and report results back via SendMessage. All of this is built into Claude Code — the POC adds nothing.
 
-**Between levels** (inter-process): liaison agents call `relay.sh` via the Bash tool. This is the only bespoke bridge. relay.sh spawns a new `claude -p` process for the subteam, waits for completion, and returns a JSON summary.
+**Between levels** (inter-process): liaison agents call `dispatch.sh` via the Bash tool. This is the only bespoke bridge. dispatch.sh spawns a new `claude -p` process for the subteam, waits for completion, and returns a JSON summary.
 
 ```
 uber process                          subteam process
 -----------                          ---------------
 lead ──SendMessage──> liaison
-                     liaison ──Bash(relay.sh)──> lead ──SendMessage──> workers
+                     liaison ──Bash(dispatch.sh)──> lead ──SendMessage──> workers
                                                  lead <──(SendMessage)── workers
                      liaison <──(JSON result)──  lead
 lead <──(SendMessage)── liaison
@@ -77,7 +77,7 @@ The POC's value is proving that Claude Code's existing primitives are sufficient
 - **Tool restrictions** (`disallowedTools`) — structural role enforcement
 - **Agent definitions** (`--agents` JSON with description, prompt, model, maxTurns) — static team composition
 
-The only bespoke code is the inter-process bridge (relay.sh) and the lifecycle orchestration (plan-execute.sh). Everything else is Claude Code doing what Claude Code does.
+The only bespoke code is the inter-process bridge (dispatch.sh) and the lifecycle orchestration (plan-execute.sh). Everything else is Claude Code doing what Claude Code does.
 
 ### Teams Are Static
 
@@ -87,13 +87,13 @@ Agent definitions live in JSON files. The CLI creates the team from `--agents` +
 
 Minimal, non-prescriptive prompts. No retry loops, format constraints, or output rules. Agents decide how to organize their work. Behavior is shaped by tool availability (disallowedTools), not by prompt engineering.
 
-### relay.sh Is the Only Bridge
+### dispatch.sh Is the Only Bridge
 
-The only custom inter-process communication. Everything else uses Claude's built-in inbox/messaging. relay.sh is intentionally thin: spawn a claude process, wait, return JSON.
+The only custom inter-process communication. Everything else uses Claude's built-in inbox/messaging. dispatch.sh is intentionally thin: spawn a claude process, wait, return JSON.
 
-**Parallelism lives at the lead level, not the liaison level.** The lead dispatches multiple liaisons via SendMessage. Each liaison calls relay.sh as a foreground Bash command — blocking until the subteam completes, then reporting the JSON result back via SendMessage. Parallelism comes from multiple liaisons processing their messages concurrently, not from background processes or task management.
+**Parallelism lives at the lead level, not the liaison level.** The lead dispatches multiple liaisons via SendMessage. Each liaison calls dispatch.sh as a foreground Bash command — blocking until the subteam completes, then reporting the JSON result back via SendMessage. Parallelism comes from multiple liaisons processing their messages concurrently, not from background processes or task management.
 
-relay.sh also writes `.result.json` to the dispatch output directory and uses a `.running` sentinel file. This makes results discoverable even if an agent uses a suboptimal dispatch pattern (e.g., background Bash + polling instead of foreground Bash). When `.running` disappears and `.result.json` exists, the result is ready.
+dispatch.sh also writes `.result.json` to the dispatch output directory and uses a `.running` sentinel file. This makes results discoverable even if an agent uses a suboptimal dispatch pattern (e.g., background Bash + polling instead of foreground Bash). When `.running` disappears and `.result.json` exists, the result is ready.
 
 ### plan-execute.sh Works at Both Levels
 
@@ -101,11 +101,11 @@ Same script, same lifecycle. At the subteam level, `--agent-mode` enables proxy-
 
 ### Leaf Workers Have Restricted Tools
 
-Workers (writers, artists, editors) have no Bash. They produce files and return results via SendMessage. Leads have Bash only because liaisons need it for relay.sh. Tool restrictions via `disallowedTools`, not prompts.
+Workers (writers, artists, editors) have no Bash. They produce files and return results via SendMessage. Leads have Bash only because liaisons need it for dispatch.sh. Tool restrictions via `disallowedTools`, not prompts.
 
 ### Stream Files Are Observable
 
-`.plan-stream.jsonl` and `.exec-stream.jsonl` persist in each team's output directory. `stream_filter.py` shows conversations and decisions, suppresses internal machinery. The shared `CONVERSATION_LOG` unifies output across all levels, with subteam output indented via `--filter-prefix`.
+`.plan-stream.jsonl` and `.exec-stream.jsonl` persist in each team's output directory. `stream/display_filter.py` shows conversations and decisions, suppresses internal machinery. The shared `CONVERSATION_LOG` unifies output across all levels, with subteam output indented via `--filter-prefix`.
 
 ## Memory Hierarchy
 
@@ -228,7 +228,7 @@ The `--scope` parameter controls what kind of learnings are extracted at each le
 Each level filters more aggressively. Team-specific knowledge stays at team level. Project-specific knowledge stays at project level.
 
 ```
-dispatch session ends (relay.sh)
+dispatch session ends (dispatch.sh)
   └─> summarize_session.py --scope team
       └─> <session>/<team>/<dispatch>/MEMORY.md
 
@@ -259,7 +259,7 @@ The team→session step filters for team-agnostic learnings only. The project→
 
 ### Session Isolation
 
-Each `run.sh` invocation creates a new git worktree with its own branch under the project. Each `relay.sh` dispatch creates a nested worktree branched from the session. Sessions and dispatches are isolated via git branches — concurrent processes write to separate branches and merge on completion.
+Each `run.sh` invocation creates a new git worktree with its own branch under the project. Each `dispatch.sh` dispatch creates a nested worktree branched from the session. Sessions and dispatches are isolated via git branches — concurrent processes write to separate branches and merge on completion.
 
 Shared files (append-only by convention):
 - `output/MEMORY.md` — global learnings across all projects
@@ -313,7 +313,7 @@ Each `assistant` event contains `message.content[]` — an array of typed blocks
 | Tool name | What it means | Input fields |
 |-----------|---------------|--------------|
 | `SendMessage` | **Primary delegation mechanism.** Lead dispatching work to teammates; teammates reporting results. | `type` (message/broadcast/shutdown_request), `recipient`, `content`, `summary` |
-| `Bash` | Shell command. Only relay.sh calls cross process boundaries. | `command` |
+| `Bash` | Shell command. Only dispatch.sh calls cross process boundaries. | `command` |
 | `Write` | File creation. | `file_path`, `content` |
 
 > **Note**: `Task`, `TaskOutput`, and `TaskStop` are in every agent's `disallowedTools`. See [Counter-Indicated Patterns](#counter-indicated-patterns) for why.
@@ -346,9 +346,9 @@ The `stop_reason` field on assistant messages tells you what happened and what t
 
 In the CLI's `--output-format stream-json` coalesced format, the completion signal is the `type: result` event with `subtype: success`. This is the CLI-level equivalent of `stop_reason: end_turn`. When this event appears, the stream is done and the last assistant text content is the final result.
 
-**relay.sh uses this signal**: as soon as `plan-execute.sh` returns (meaning the subteam's stream emitted its result event), relay.sh immediately writes `.result.json` and echoes the result to stdout — before any post-processing (learning extraction runs asynchronously in the background). This ensures the result is available to the parent team as quickly as possible.
+**dispatch.sh uses this signal**: as soon as `plan-execute.sh` returns (meaning the subteam's stream emitted its result event), dispatch.sh immediately writes `.result.json` and echoes the result to stdout — before any post-processing (learning extraction runs asynchronously in the background). This ensures the result is available to the parent team as quickly as possible.
 
-### What stream_filter.py Shows
+### What stream/display_filter.py Shows
 
 The filter reads stream-json from stdin and outputs `[sender] @recipient: body` lines:
 
@@ -366,11 +366,11 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 |------|---------|
 | `run.sh` | Entry point. Classifies project, inits git repo, creates session worktree, calls plan-execute.sh, merges session into main on completion. |
 | `plan-execute.sh` | Lifecycle: plan → approve → execute. Works at both levels. `--stream-dir` separates stream files from agent CWD. |
-| `relay.sh` | Inter-process bridge. Creates dispatch worktree, spawns subteam, commits and merges deliverables on completion. Learning extraction runs async. |
+| `dispatch.sh` | Inter-process bridge. Creates dispatch worktree, spawns subteam, commits and merges deliverables on completion. Learning extraction runs async. |
 | `agents/*.json` | Static team definitions. One file per team level. |
-| `stream_filter.py` | Filters stream-json to human-readable conversation output. |
-| `status.sh` | Dashboard: processes, teams, stream activity, git-tracked deliverables. Project-aware. |
-| `shutdown.sh` | Graceful shutdown and team artifact cleanup. |
+| `stream/display_filter.py` | Filters stream-json to human-readable conversation output. |
+| `ops/status.sh` | Dashboard: processes, teams, stream activity, git-tracked deliverables. Project-aware. |
+| `ops/shutdown.sh` | Graceful shutdown and team artifact cleanup. |
 | `scripts/classify_task.py` | LLM-based project classification. Maps task descriptions to project slugs. |
 | `scripts/summarize_session.py` | Extracts durable learnings from stream files via claude-haiku. Scope-aware (team/session/project/global). |
 | `scripts/promote_learnings.sh` | Promotes learnings upward: session→project or project→global (via `--scope`). |
@@ -382,8 +382,8 @@ Everything else (thinking, text narration, Glob, Read, Grep, TodoWrite, task_pro
 | `output/projects/<slug>/.worktrees/` | Gitignored. Temporary worktree checkouts for active sessions and dispatches. |
 | `output/projects/<slug>/.sessions/<ts>/` | Session infrastructure (gitignored). Streams, MEMORY, conversation log. |
 | `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/` | Dispatch infrastructure (gitignored). Streams, result JSON, sentinel, MEMORY. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.result.json` | Relay result JSON. Written by relay.sh on completion. |
-| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.running` | Sentinel file. Exists while relay.sh is running. Removed on completion or abnormal exit (via trap). |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.result.json` | Dispatch result JSON. Written by dispatch.sh on completion. |
+| `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/.running` | Sentinel file. Exists while dispatch.sh is running. Removed on completion or abnormal exit (via trap). |
 | `output/projects/<slug>/.sessions/<ts>/<team>/MEMORY.md` | Team-level learnings. Aggregated from dispatch MEMORYs via `promote_learnings.sh --scope team`. |
 | `output/projects/<slug>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md` | Dispatch-level learnings. |
 
@@ -417,7 +417,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | Flag | Purpose |
 |------|---------|
 | `-p` | Pipe mode. Non-interactive, reads task from stdin, exits when done. |
-| `--output-format stream-json` | Streams structured JSON events (tool calls, messages, results) to stdout. Consumed by `stream_filter.py` for human-readable output. |
+| `--output-format stream-json` | Streams structured JSON events (tool calls, messages, results) to stdout. Consumed by `stream/display_filter.py` for human-readable output. |
 | `--agents '<JSON>'` | Defines the agent pool for this process. Each agent has `description`, `prompt`, `model`, `maxTurns`, `disallowedTools`. The lead delegates to agents via SendMessage. |
 | `--agent <name>` | Runs claude as the named agent from the `--agents` pool. Combined with `--agents` and the env var, this creates the team context automatically — no TeamCreate needed. |
 | `--permission-mode plan` | Plan phase. Agent explores and plans in read-only mode, calls ExitPlanMode when ready. |
@@ -425,7 +425,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `--resume <session-id>` | Resumes a previous session. Used to continue from plan phase into execute phase with full context preserved. |
 | `--max-turns <n>` | Caps the number of agentic turns. Prevents runaway processes. |
 | `--verbose` | Includes additional detail in stream-json output. |
-| `--settings <file>` | Points to a settings file (used at uber level to pre-approve relay.sh). |
+| `--settings <file>` | Points to a settings file (used at uber level to pre-approve dispatch.sh). |
 | `--setting-sources user` | Ignores project-level `.claude/agents/` discovery. Isolates the POC from any agents defined in the repo. |
 | `--add-dir <dir>` | Grants tool access to directories outside CWD. Used by subteams to read session-wide output (sibling dispatches, other teams, memory files) and by uber level to read project-wide output. |
 
@@ -439,7 +439,7 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 | `POC_OUTPUT_DIR` | `run.sh` | Root output directory (`poc/output/`). Contains global MEMORY.md and projects directory. |
 | `POC_PROJECT` | `run.sh` | Project slug (kebab-case). Derived from task via `classify_task.py` or `--project` override. |
 | `POC_PROJECT_DIR` | `run.sh` | Project directory / git repo root (`poc/output/projects/<slug>/`). Contains CLAUDE.md, MEMORY.md, deliverables on main, `.sessions/`, `.worktrees/`. |
-| `POC_SESSION_WORKTREE` | `run.sh` | Session worktree path (`.worktrees/session-<ts>/`). Agents write deliverables here. relay.sh merges dispatch branches into it. |
+| `POC_SESSION_WORKTREE` | `run.sh` | Session worktree path (`.worktrees/session-<ts>/`). Agents write deliverables here. dispatch.sh merges dispatch branches into it. |
 | `POC_SESSION_DIR` | `run.sh` | Session infrastructure directory (`.sessions/<ts>/`). Contains streams, MEMORY, conversation log. Used by promote_learnings.sh. |
 
 ## Agent/Team Lifecycle
@@ -455,14 +455,14 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 ### Delegation
 
 6. The lead delegates to liaisons via SendMessage. Liaisons are teammates in the `--agents` pool and process messages concurrently.
-7. Liaisons call `relay.sh` via Bash, which starts a new `claude -p` process for the subteam (step 2 again, recursively).
+7. Liaisons call `dispatch.sh` via Bash, which starts a new `claude -p` process for the subteam (step 2 again, recursively).
 8. Subteam leads delegate to workers via SendMessage. Workers produce files and return results.
 
 ### Completion
 
 9. Workers finish → results return to subteam lead.
 10. Subteam lead finishes → stream emits `result/success` event (the `stop_reason: end_turn` signal). The last assistant text IS the result.
-11. `extract_result.py` captures the result text. relay.sh then:
+11. `extract_result.py` captures the result text. dispatch.sh then:
     - Commits deliverables in the dispatch worktree (`git add -A && git commit`)
     - Merges the dispatch branch into the session branch (with `-X theirs` fallback for conflicts)
     - Removes the dispatch worktree and branch
@@ -475,21 +475,21 @@ Every `claude -p` invocation uses these flags. They are the mechanism — no bes
 
 ### Failure Modes
 
-- **Subteam error**: relay.sh returns an error JSON. The liaison reports failure. The lead can re-dispatch or fall back to a `general-purpose` subagent.
+- **Subteam error**: dispatch.sh returns an error JSON. The liaison reports failure. The lead can re-dispatch or fall back to a `general-purpose` subagent.
 - **Token limit**: `CLAUDE_CODE_MAX_OUTPUT_TOKENS` too low. Agent gets an API error. Set to 128k.
 - **Max turns exhausted**: agent stops mid-work. Increase `--max-turns` or simplify the task.
 - **Rate limiting**: `rate_limit_event` in the stream. Claude retries automatically.
-- **Hung process**: a stalled claude process (e.g., blocked on a relay that will never return). The stall watchdog in `plan-execute.sh` auto-kills after 30 minutes of inactivity. Use `shutdown.sh` for manual intervention.
+- **Hung process**: a stalled claude process (e.g., blocked on a dispatch that will never return). The stall watchdog in `plan-execute.sh` auto-kills after 30 minutes of inactivity. Use `shutdown.sh` for manual intervention.
 
 ## Observed Behavior
 
 From test runs, the lead autonomously:
 
 - **Delegates to multiple liaisons via SendMessage** — teammates process concurrently, enabling parallel subteam dispatch.
-- **Falls back gracefully** — if a relay.sh call fails or an art subteam errors, the lead re-dispatches or delegates to a `general-purpose` subagent directly.
+- **Falls back gracefully** — if a dispatch.sh call fails or an art subteam errors, the lead re-dispatches or delegates to a `general-purpose` subagent directly.
 - **Sequences dependent work** — writing first, then art, then editorial review — without being prompted to do so.
 
-The stream-json output contains `task_progress` events while agents work. These are high-volume and suppressed by `stream_filter.py`. The observable events are SendMessage dispatches, relay.sh calls, and errors.
+The stream-json output contains `task_progress` events while agents work. These are high-volume and suppressed by `stream/display_filter.py`. The observable events are SendMessage dispatches, dispatch.sh calls, and errors.
 
 ## Constraints
 
@@ -514,7 +514,7 @@ All agents have `Task`, `TaskOutput`, and `TaskStop` in their `disallowedTools`.
 
 2. **TaskOutput reads via `tail -f task.output | head -N`**. If the task output has fewer than N lines, `tail -f` blocks forever waiting for more data that will never come.
 
-3. **The stall cascades**: blocked `tail -f` → blocked claude process → blocked FIFO → blocked plan-execute.sh → blocked relay.sh → blocked uber claude. The entire pipeline deadlocks.
+3. **The stall cascades**: blocked `tail -f` → blocked claude process → blocked FIFO → blocked plan-execute.sh → blocked dispatch.sh → blocked uber claude. The entire pipeline deadlocks.
 
 This caused every hung process in the POC (oxalate-kidney-stone-guide, mandelbrot-explorer, frogger-game). The frogger-game project-lead used Task 14 times with `run_in_background: true` and SendMessage 0 times.
 

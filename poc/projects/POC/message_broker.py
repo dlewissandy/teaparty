@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""orchestrator.py — Multi-agent message broker.
+"""message_broker.py — Multi-agent message broker.
 
 Each agent is an actor with:
   - inbox:   messages received, in arrival order
   - pending: dispatches sent, awaiting response
 
-The orchestrator delivers messages. When an agent is woken up, it sees
+The broker delivers messages. When an agent is woken up, it sees
 its full inbox and pending list — like checking your messages and todo
 list. The agent decides what's important, what's blocked, what to act on.
 
-The orchestrator does not assign priority or order. Agents are agents.
+The broker does not assign priority or order. Agents are agents.
 
 Usage:
-    orchestrator.py --agents <json> --agent <lead> \
+    message_broker.py --agents <json> --agent <lead> \
         --settings <file> --cwd <dir> --stream <file> \
         [--session-log <file>] [--resume <session-id>] \
         [--max-turns N] "<task>"

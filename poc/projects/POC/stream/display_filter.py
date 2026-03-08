@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Stream filter for claude -p --output-format stream-json.
+"""Display filter for stream-json output.
 
-Default mode — shows inter-agent communication only:
+Default mode -- shows inter-agent communication only:
   - Task dispatch (lead delegates to subagent)
   - SendMessage (direct messages between teammates)
-  - Bash relay.sh calls (cross-process dispatch to subteams)
+  - Bash dispatch.sh calls (cross-process dispatch to subteams)
   - Errors
 
-With --show-progress — also shows agent activity:
+With --show-progress -- also shows agent activity:
   - Thinking excerpts (abbreviated)
   - Tool use events (Write, Edit, Bash, WebSearch, WebFetch, Read)
 
@@ -15,9 +15,15 @@ Format: [sender] @recipient: message body
 Indentation for subteams is handled externally via --filter-prefix.
 """
 import argparse
-import json
-import re
 import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from stream._common import (
+    C_RESET, C_DIM, C_CYAN, C_RED,
+    agent_label, register_lead_session, register_task_agent,
+    parse_events, shorten_worktree_path, parse_dispatch_command,
+)
 
 # ── CLI args ──
 parser = argparse.ArgumentParser()
@@ -26,52 +32,21 @@ parser.add_argument("--show-progress", action="store_true",
 args = parser.parse_args()
 show_progress = args.show_progress
 
-# ── ANSI Colors (match chrome.sh) ──
-C_RESET = "\033[0m"
-C_DIM = "\033[2m"
-C_CYAN = "\033[36m"
-C_RED = "\033[31m"
-
 THINK_MAX = 120
 
-# Map parent_tool_use_id -> agent name
-task_agents = {}
-# session_id of the lead agent (from init event)
-lead_session_id = None
 # Previous todo state for differential display: {content: status}
 prev_todos = {}
 
 
-def agent_label(ev):
-    """Extract a readable agent label from an event."""
-    global lead_session_id
-    parent = ev.get("parent_tool_use_id")
-    if parent and parent in task_agents:
-        return task_agents[parent]
-    sid = ev.get("session_id", "")
-    if sid and sid == lead_session_id:
-        return "lead"
-    return sid[:8] if sid else "agent"
-
-
-for line in sys.stdin:
-    line = line.strip()
-    if not line:
-        continue
-    try:
-        ev = json.loads(line)
-    except (json.JSONDecodeError, ValueError):
-        continue
-
+for ev in parse_events():
     t = ev.get("type", "")
     sub = ev.get("subtype", "")
     label = agent_label(ev)
 
-    # System events — capture lead session_id from init
+    # System events -- capture lead session_id from init
     if t == "system":
         if sub == "init":
-            if lead_session_id is None:
-                lead_session_id = ev.get("session_id", "")
+            register_lead_session(ev)
             agent_list = ev.get("agents", [])
             if agent_list:
                 print(
@@ -108,14 +83,12 @@ for line in sys.stdin:
 
                 # Always shown: Task dispatch
                 if tool_name == "Task":
+                    register_task_agent(tool_id, tool_input)
                     agent_type = tool_input.get("subagent_type", "")
                     name = tool_input.get("name", "")
                     desc = tool_input.get("description", "")
                     prompt = tool_input.get("prompt", "")
-                    if tool_id:
-                        task_agents[tool_id] = name or agent_type or desc
                     recipient = name or agent_type or "subagent"
-                    # Show description (short) then first line of prompt
                     body = desc or ""
                     if prompt:
                         first_line = prompt.strip().split("\n")[0][:200]
@@ -153,25 +126,16 @@ for line in sys.stdin:
                             flush=True,
                         )
 
-                # Always shown: Bash relay.sh calls
+                # Always shown: Bash dispatch.sh calls
                 elif tool_name == "Bash":
                     cmd = tool_input.get("command", "")
-                    if "relay.sh" in cmd:
-                        # Extract --team and --task from the command
-                        team_match = re.search(r"--team\s+(\S+)", cmd)
-                        task_match = re.search(r'--task\s+"([^"]*)"', cmd)
-                        if not task_match:
-                            task_match = re.search(
-                                r"--task\s+'([^']*)'", cmd
-                            )
-                        team = team_match.group(1) if team_match else "?"
-                        task = task_match.group(1) if task_match else cmd[:200]
+                    if "dispatch.sh" in cmd or "relay.sh" in cmd:
+                        team, task = parse_dispatch_command(cmd)
                         print(
                             f"{C_CYAN}[{label}]{C_RESET} @{team}-team: {task}",
                             flush=True,
                         )
                     elif show_progress:
-                        # Show non-relay Bash commands
                         desc = tool_input.get("description", "")
                         short = desc or cmd.split("\n")[0][:120]
                         print(
@@ -183,24 +147,23 @@ for line in sys.stdin:
                 elif tool_name == "TodoWrite" and show_progress:
                     todos = tool_input.get("todos", [])
                     for item in todos:
-                        content = item.get("content", "")
-                        status = item.get("status", "")
+                        item_content = item.get("content", "")
+                        item_status = item.get("status", "")
                         active = item.get("activeForm", "")
-                        old_status = prev_todos.get(content)
+                        old_status = prev_todos.get(item_content)
 
-                        if status == "in_progress" and old_status != "in_progress":
-                            display = active or content
+                        if item_status == "in_progress" and old_status != "in_progress":
+                            display = active or item_content
                             print(
                                 f"  {C_CYAN}\u25b6{C_RESET} {display}",
                                 flush=True,
                             )
-                        elif status == "completed" and old_status != "completed":
+                        elif item_status == "completed" and old_status != "completed":
                             print(
-                                f"  {C_DIM}\u2713 {content}{C_RESET}",
+                                f"  {C_DIM}\u2713 {item_content}{C_RESET}",
                                 flush=True,
                             )
 
-                    # Update tracked state
                     prev_todos.clear()
                     for item in todos:
                         prev_todos[item.get("content", "")] = item.get("status", "")
@@ -209,50 +172,31 @@ for line in sys.stdin:
                 elif show_progress:
                     if tool_name == "Write":
                         path = tool_input.get("file_path", "")
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
-                        print(
-                            f"  {C_DIM}\u2192 Write {short}{C_RESET}",
-                            flush=True,
-                        )
+                        short = shorten_worktree_path(path)
+                        print(f"  {C_DIM}\u2192 Write {short}{C_RESET}", flush=True)
                     elif tool_name == "Edit":
                         path = tool_input.get("file_path", "")
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
-                        print(
-                            f"  {C_DIM}\u2192 Edit {short}{C_RESET}",
-                            flush=True,
-                        )
+                        short = shorten_worktree_path(path)
+                        print(f"  {C_DIM}\u2192 Edit {short}{C_RESET}", flush=True)
                     elif tool_name == "WebSearch":
                         query = tool_input.get("query", "")[:120]
-                        print(
-                            f"  {C_DIM}\u2192 WebSearch \"{query}\"{C_RESET}",
-                            flush=True,
-                        )
+                        print(f'  {C_DIM}\u2192 WebSearch "{query}"{C_RESET}', flush=True)
                     elif tool_name == "WebFetch":
                         url = tool_input.get("url", "")[:120]
-                        print(
-                            f"  {C_DIM}\u2192 WebFetch {url}{C_RESET}",
-                            flush=True,
-                        )
+                        print(f"  {C_DIM}\u2192 WebFetch {url}{C_RESET}", flush=True)
                     elif tool_name == "Read":
                         path = tool_input.get("file_path", "")
-                        short = re.sub(r".*/\.worktrees/[^/]+/", ".../", path)
-                        print(
-                            f"  {C_DIM}\u2192 Read {short}{C_RESET}",
-                            flush=True,
-                        )
-                    # Suppress: Glob, Grep, ExitPlanMode, etc.
+                        short = shorten_worktree_path(path)
+                        print(f"  {C_DIM}\u2192 Read {short}{C_RESET}", flush=True)
 
         continue
 
-    # Tool results — only show errors
+    # Tool results -- only show errors
     if t == "tool_result":
         if ev.get("is_error", False):
             tool = ev.get("tool", "")
             output = ev.get("output", "")[:200]
-            print(
-                f"  {C_RED}[error]{C_RESET} {tool}: {output}",
-                flush=True,
-            )
+            print(f"  {C_RED}[error]{C_RESET} {tool}: {output}", flush=True)
         continue
 
     # Final result

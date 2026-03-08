@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# chrome.sh — Shared visual primitives for the POC CLI.
-# Source this file: source "$SCRIPT_DIR/chrome.sh"
+# ui.sh — Shared terminal UI primitives for the POC CLI.
+# Source this file: source "$SCRIPT_DIR/ui.sh"
 
 # ── Width ──
 CHROME_WIDTH=60
@@ -30,7 +30,7 @@ session_stream_log() {
   local prefix="${1:-}"
   local args=(--session-log "${SESSION_LOG:-/dev/null}")
   [[ -n "$prefix" ]] && args+=(--prefix "$prefix")
-  python3 -u "$SCRIPT_DIR/session_stream_logger.py" "${args[@]}"
+  python3 -u "$SCRIPT_DIR/stream/session_logger.py" "${args[@]}"
 }
 
 # ── Box Drawing ──
@@ -377,5 +377,70 @@ generate_failure_report() {
   if [[ -f "$session_dir/.failure-report.md" ]]; then
     echo -e "  ${C_DIM}Report: $session_dir/.failure-report.md${C_RESET}" >&2
     session_log STATE "Failure report: $session_dir/.failure-report.md"
+  fi
+}
+
+# ── CfA State Helpers ──
+
+# Validated transition: checks the action is legal from the current state.
+# Returns 0 on success, 1 on failure.
+cfa_transition() {
+  local action="$1"
+  if [[ -n "${CFA_STATE_FILE:-}" && -f "${CFA_STATE_FILE:-}" ]]; then
+    if ! python3 "$SCRIPT_DIR/scripts/cfa_state.py" --transition \
+        --state-file "$CFA_STATE_FILE" --action "$action" 2>/dev/null; then
+      echo -e "  ${C_DIM}CfA: transition '$action' invalid from current state${C_RESET}" >&2
+      return 1
+    fi
+  fi
+}
+
+# Direct state set: bypasses transition validation.
+# Used after autonomous agent runs where intermediate states aren't tracked.
+cfa_set() {
+  local target="$1"
+  if [[ -n "${CFA_STATE_FILE:-}" && -f "${CFA_STATE_FILE:-}" ]]; then
+    python3 "$SCRIPT_DIR/scripts/cfa_state.py" --set-state \
+      --state-file "$CFA_STATE_FILE" --target "$target" 2>/dev/null || true
+  fi
+}
+
+# ── Approval Gate Helpers ──
+
+# Queries the approval gate to decide whether to auto-approve or escalate.
+# Returns "auto-approve" or "escalate" on stdout.
+proxy_decide() {
+  local state="$1"
+  local artifact_path="${2:-}"
+  local task_type="${POC_PROJECT:-default}"
+  if [[ -n "${PROXY_MODEL:-}" && -f "${PROXY_MODEL:-}" ]]; then
+    python3 "$SCRIPT_DIR/scripts/approval_gate.py" \
+      --decide --state "$state" --task-type "$task_type" \
+      --artifact "${artifact_path:-}" \
+      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
+  else
+    echo "escalate"
+  fi
+}
+
+# Records outcome to the approval gate model.
+# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY [QUESTIONS [REASON [ARTIFACT_LEN]]]]
+proxy_record() {
+  local state="$1" outcome="$2"
+  local diff_summary="${3:-}"
+  local questions="${4:-}"
+  local reason="${5:-}"
+  local artifact_len="${6:-0}"
+  local task_type="${POC_PROJECT:-default}"
+  if [[ -n "${PROXY_MODEL:-}" ]]; then
+    local extra_args=()
+    [[ -n "$diff_summary" ]]    && extra_args+=(--diff "$diff_summary")
+    [[ -n "$questions" ]]       && extra_args+=(--questions "$questions")
+    [[ -n "$reason" ]]          && extra_args+=(--reason "$reason")
+    [[ "$artifact_len" -gt 0 ]] && extra_args+=(--artifact-length "$artifact_len")
+    python3 "$SCRIPT_DIR/scripts/approval_gate.py" \
+      --record --state "$state" --task-type "$task_type" \
+      --outcome "$outcome" ${extra_args[@]+"${extra_args[@]}"} \
+      --model "$PROXY_MODEL" 2>/dev/null || true
   fi
 }

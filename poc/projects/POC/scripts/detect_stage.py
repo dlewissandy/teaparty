@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Detect the current project phase from INTENT.md using LLM classification.
+"""Detect the current project stage from INTENT.md using LLM classification.
 
-Writes the detected phase to a .current-phase file. Prints "PHASE_CHANGED"
+Writes the detected stage to a .current-stage file. Prints "STAGE_CHANGED"
 to stdout when a transition is detected so the caller can trigger retirement.
 
 Usage:
-    detect_phase.py --intent <path> --phase-file <path>
+    detect_stage.py --intent <path> --stage-file <path>
 
 Exit codes:
     0: success (whether or not phase changed)
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PHASES = [
+STAGES = [
     'specification', 'planning', 'design',
     'implementation', 'review', 'maintenance', 'unknown',
 ]
@@ -43,10 +43,10 @@ Intent document:
 Phase (one word):"""
 
 
-def detect_phase_from_content(content: str) -> str:
-    """Call claude-haiku to classify the project phase from document content.
+def detect_stage_from_content(content: str) -> str:
+    """Call claude-haiku to classify the project stage from document content.
 
-    Returns a phase string from PHASES. Falls back to 'unknown' on any error.
+    Returns a stage string from STAGES. Falls back to 'unknown' on any error.
     """
     if not content.strip():
         return 'unknown'
@@ -70,7 +70,7 @@ def detect_phase_from_content(content: str) -> str:
         raw = result.stdout.strip().lower()
         # Extract first token matching a known phase
         for word in re.findall(r'[a-z]+', raw):
-            if word in PHASES:
+            if word in STAGES:
                 return word
         return 'unknown'
 
@@ -80,17 +80,17 @@ def detect_phase_from_content(content: str) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description='Detect project phase from INTENT.md and write to .current-phase'
+        description='Detect project stage from INTENT.md and write to .current-stage'
     )
     parser.add_argument('--intent', required=True, help='Path to INTENT.md')
-    parser.add_argument('--phase-file', required=True, help='Path to .current-phase state file')
+    parser.add_argument('--stage-file', required=True, help='Path to .current-stage state file')
     args = parser.parse_args()
 
     intent_path = Path(args.intent)
-    phase_path = Path(args.phase_file)
+    phase_path = Path(args.stage_file)
 
     if not intent_path.is_file():
-        print(f'[detect_phase] INTENT.md not found: {intent_path}', file=sys.stderr)
+        print(f'[detect_stage] INTENT.md not found: {intent_path}', file=sys.stderr)
         return 0  # non-fatal: no intent = no phase transition
 
     content = intent_path.read_text(errors='replace')
@@ -100,17 +100,17 @@ def main() -> int:
     if phase_path.is_file():
         old_phase = phase_path.read_text().strip()
 
-    new_phase = detect_phase_from_content(content)
+    new_phase = detect_stage_from_content(content)
 
     # Write updated phase (always, even if unchanged — confirms liveness)
     phase_path.write_text(new_phase + '\n')
-    print(f'[detect_phase] Phase: {old_phase or "(none)"} → {new_phase}', file=sys.stderr)
+    print(f'[detect_stage] Phase: {old_phase or "(none)"} → {new_phase}', file=sys.stderr)
 
     # Signal phase transition to caller via stdout
     if old_phase and old_phase != new_phase and old_phase != 'unknown':
-        print('PHASE_CHANGED', flush=True)
+        print('STAGE_CHANGED', flush=True)
         print(
-            f'[detect_phase] Transition detected: {old_phase} → {new_phase}',
+            f'[detect_stage] Transition detected: {old_phase} → {new_phase}',
             file=sys.stderr,
         )
 

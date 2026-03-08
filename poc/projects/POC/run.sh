@@ -8,7 +8,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-source "$SCRIPT_DIR/chrome.sh"
+source "$SCRIPT_DIR/ui.sh"
 
 # Parse arguments: optional --project override, --skip-intent, then positional task
 PROJECT_OVERRIDE=""
@@ -132,7 +132,7 @@ export POC_PROJECT_WORKDIR="$PROJECT_WORKDIR"
 # Create infra dirs for each team
 mkdir -p "$INFRA_DIR"/{art,writing,editorial,research,coding}
 
-# Export for relay.sh and promote_learnings.sh
+# Export for dispatch.sh and promote_learnings.sh
 export POC_SESSION_WORKTREE="$SESSION_WORKTREE"
 export POC_SESSION_DIR="$INFRA_DIR"
 export POC_PREMORTEM_FILE="$INFRA_DIR/.premortem.md"
@@ -145,7 +145,7 @@ touch "$POC_PROJECT_DIR/OBSERVATIONS.md"
 touch "$POC_PROJECT_DIR/ESCALATION.md"
 
 # Shared conversation log — scoped to this session.
-# Subteam output is indented via --filter-prefix in relay.sh.
+# Subteam output is indented via --filter-prefix in dispatch.sh.
 export CONVERSATION_LOG="$INFRA_DIR/.conversation"
 > "$CONVERSATION_LOG"
 
@@ -178,7 +178,7 @@ AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
                   -e "s|__SESSION_DIR__|$INFRA_DIR|g" \
   "$SCRIPT_DIR/agents/uber-team.json")
 
-# Self-contained settings: pre-approve relay.sh
+# Self-contained settings: pre-approve dispatch.sh
 SETTINGS_FILE=$(mktemp)
 trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE" EXIT
 
@@ -186,8 +186,8 @@ SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
 import json, os, sys
 d = os.environ['SCRIPT_DIR']
 rules = [
-    'Bash(' + d + '/relay.sh:*)',
-    'Bash(' + d + '/yt-transcript.sh:*)',
+    'Bash(' + d + '/dispatch.sh:*)',
+    'Bash(' + d + '/tools/yt-transcript.sh:*)',
     'WebFetch',
     'WebSearch',
     'Write',
@@ -270,55 +270,13 @@ BACKTRACK_FEEDBACK_FILE="$INFRA_DIR/.backtrack-feedback.txt"
 ORIGINAL_TASK="$TASK"
 BACKTRACK_COUNT=0
 
-# Initialize root CfA state and export for child processes (relay.sh dispatches)
+# Initialize root CfA state and export for child processes (dispatch.sh dispatches)
 python3 "$SCRIPT_DIR/scripts/cfa_state.py" --init \
   --task-id "session-$(basename "$INFRA_DIR")" \
   --output "$CFA_STATE_FILE" 2>/dev/null || true
 export POC_CFA_STATE="$CFA_STATE_FILE"
 
-# CfA state helpers (mirrors plan-execute.sh)
-cfa_transition() {
-  local action="$1"
-  if [[ -n "$CFA_STATE_FILE" && -f "$CFA_STATE_FILE" ]]; then
-    if ! python3 "$SCRIPT_DIR/scripts/cfa_state.py" --transition \
-        --state-file "$CFA_STATE_FILE" --action "$action" 2>/dev/null; then
-      return 1
-    fi
-  fi
-}
-
-cfa_set() {
-  if [[ -n "$CFA_STATE_FILE" && -f "$CFA_STATE_FILE" ]]; then
-    python3 "$SCRIPT_DIR/scripts/cfa_state.py" --set-state \
-      --state-file "$CFA_STATE_FILE" --target "$1" 2>/dev/null || true
-  fi
-}
-
-# Human proxy helpers (mirrors plan-execute.sh proxy_decide/proxy_record)
-proxy_decide() {
-  local state="$1"
-  local task_type="${2:-default}"
-  if [[ -n "$PROXY_MODEL" ]]; then
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --decide --state "$state" --task-type "$task_type" \
-      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
-  else
-    echo "escalate"
-  fi
-}
-proxy_record() {
-  local state="$1" outcome="$2"
-  local task_type="${3:-default}"
-  local diff_summary="${4:-}"
-  if [[ -n "$PROXY_MODEL" ]]; then
-    local diff_args=()
-    [[ -n "$diff_summary" ]] && diff_args=(--diff "$diff_summary")
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --record --state "$state" --outcome "$outcome" --task-type "$task_type" \
-      ${diff_args[@]+"${diff_args[@]}"} \
-      --model "$PROXY_MODEL" 2>/dev/null || true
-  fi
-}
+# CfA state helpers and approval gate helpers are in ui.sh
 
 # ── Intent gathering phase (CfA Phase 1: INTENT_ASSERT proxy gate) ──
 # Remove any stale INTENT.md inherited from git or a prior session's worktree.
@@ -394,24 +352,24 @@ Original task: $TASK"
   fi
 fi
 
-# ── Phase detection and retirement (Phase 4) ──
+# ── Stage detection and retirement ──
 if [[ "$INTENT_APPROVED" == "true" && -f "$INFRA_DIR/INTENT.md" ]]; then
-  # Read old phase BEFORE detect_phase.py overwrites .current-phase
-  OLD_PHASE=""
-  [[ -f "$POC_PROJECT_DIR/.current-phase" ]] && OLD_PHASE="$(head -1 "$POC_PROJECT_DIR/.current-phase" | tr -d '[:space:]')" || true
+  # Read old stage BEFORE detect_stage.py overwrites .current-stage
+  OLD_STAGE=""
+  [[ -f "$POC_PROJECT_DIR/.current-stage" ]] && OLD_STAGE="$(head -1 "$POC_PROJECT_DIR/.current-stage" | tr -d '[:space:]')" || true
 
-  # Detect new phase; prints "PHASE_CHANGED" to stdout on transition
-  PHASE_STATUS="$(python3 "$SCRIPT_DIR/scripts/detect_phase.py" \
+  # Detect new stage; prints "STAGE_CHANGED" to stdout on transition
+  STAGE_STATUS="$(python3 "$SCRIPT_DIR/scripts/detect_stage.py" \
     --intent "$INFRA_DIR/INTENT.md" \
-    --phase-file "$POC_PROJECT_DIR/.current-phase" 2>/dev/null)" || PHASE_STATUS=""
+    --stage-file "$POC_PROJECT_DIR/.current-stage" 2>/dev/null)" || STAGE_STATUS=""
 
-  # Retire task-domain entries from the old phase if a transition occurred
-  if [[ "$PHASE_STATUS" == "PHASE_CHANGED" && -n "$OLD_PHASE" && "$OLD_PHASE" != "unknown" ]]; then
-    python3 "$SCRIPT_DIR/scripts/retire_phase.py" \
-      --old-phase "$OLD_PHASE" \
+  # Retire task-domain entries from the old stage if a transition occurred
+  if [[ "$STAGE_STATUS" == "STAGE_CHANGED" && -n "$OLD_STAGE" && "$OLD_STAGE" != "unknown" ]]; then
+    python3 "$SCRIPT_DIR/scripts/retire_stage.py" \
+      --old-stage "$OLD_STAGE" \
       --memory "$POC_PROJECT_DIR/MEMORY.md" 2>/dev/null || true
-    NEW_PHASE="$(head -1 "$POC_PROJECT_DIR/.current-phase" 2>/dev/null | tr -d '[:space:]')" || NEW_PHASE=""
-    echo -e "  ${C_YELLOW}Phase transition: ${OLD_PHASE} → ${NEW_PHASE}${C_RESET}" >&2
+    NEW_STAGE="$(head -1 "$POC_PROJECT_DIR/.current-stage" 2>/dev/null | tr -d '[:space:]')" || NEW_STAGE=""
+    echo -e "  ${C_YELLOW}Stage transition: ${OLD_STAGE} → ${NEW_STAGE}${C_RESET}" >&2
   fi
 fi
 

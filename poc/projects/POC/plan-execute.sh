@@ -25,7 +25,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/chrome.sh"
+source "$SCRIPT_DIR/ui.sh"
 
 # Defaults
 AGENTS_JSON=""
@@ -155,9 +155,9 @@ filter_stream() {
   local progress_flag=""
   [[ "${FILTER_SHOW_PROGRESS:-}" == "1" ]] && progress_flag="--show-progress"
   if [[ -n "$FILTER_PREFIX" ]]; then
-    python3 -u "$SCRIPT_DIR/stream_filter.py" $progress_flag | sed -u "s/^/$FILTER_PREFIX/" >> "$dest"
+    python3 -u "$SCRIPT_DIR/stream/display_filter.py" $progress_flag | sed -u "s/^/$FILTER_PREFIX/" >> "$dest"
   else
-    python3 -u "$SCRIPT_DIR/stream_filter.py" $progress_flag >> "$dest"
+    python3 -u "$SCRIPT_DIR/stream/display_filter.py" $progress_flag >> "$dest"
   fi
 }
 
@@ -310,7 +310,7 @@ run_orchestrated() {
   local tail2_pid=$!
 
   CLAUDE_EXIT=0
-  python3 "$SCRIPT_DIR/orchestrator.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
+  python3 "$SCRIPT_DIR/message_broker.py" "${orch_args[@]}" "$task_input" >&2 || CLAUDE_EXIT=$?
 
   # Let tails flush remaining lines, then kill. Killing tail breaks the pipe,
   # causing filter_stream / session_stream_log to get EOF and exit.
@@ -319,69 +319,7 @@ run_orchestrated() {
   wait "$tail1_pid" "$tail2_pid" 2>/dev/null || true
 }
 
-# ── CfA state helpers ──
-
-# Validated transition: checks the action is legal from the current state.
-# Returns 0 on success, 1 on failure. Prints new state to stdout on success.
-cfa_transition() {
-  local action="$1"
-  if [[ -n "$CFA_STATE_FILE" && -f "$CFA_STATE_FILE" ]]; then
-    if ! python3 "$SCRIPT_DIR/scripts/cfa_state.py" --transition \
-        --state-file "$CFA_STATE_FILE" --action "$action" 2>/dev/null; then
-      echo -e "  ${C_DIM}CfA: transition '$action' invalid from current state${C_RESET}" >&2
-      return 1
-    fi
-  fi
-}
-
-# Direct state set: bypasses transition validation.
-# Used after autonomous agent runs where intermediate states aren't tracked.
-cfa_set() {
-  local target="$1"
-  if [[ -n "$CFA_STATE_FILE" && -f "$CFA_STATE_FILE" ]]; then
-    python3 "$SCRIPT_DIR/scripts/cfa_state.py" --set-state \
-      --state-file "$CFA_STATE_FILE" --target "$target" 2>/dev/null || true
-  fi
-}
-
-# ── Human proxy helper ──
-# Queries the proxy model to decide whether to auto-approve or escalate.
-# Returns "auto-approve" or "escalate" on stdout.
-proxy_decide() {
-  local state="$1"
-  local artifact_path="${2:-}"
-  local task_type="${POC_PROJECT:-default}"
-  if [[ -n "$PROXY_MODEL" && -f "$PROXY_MODEL" ]]; then
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --decide --state "$state" --task-type "$task_type" \
-      --artifact "${artifact_path:-}" \
-      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
-  else
-    echo "escalate"
-  fi
-}
-
-# Records outcome to the proxy model.
-# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY [QUESTIONS [REASON [ARTIFACT_LEN]]]]
-proxy_record() {
-  local state="$1" outcome="$2"
-  local diff_summary="${3:-}"
-  local questions="${4:-}"
-  local reason="${5:-}"
-  local artifact_len="${6:-0}"
-  local task_type="${POC_PROJECT:-default}"
-  if [[ -n "$PROXY_MODEL" ]]; then
-    local extra_args=()
-    [[ -n "$diff_summary" ]]    && extra_args+=(--diff "$diff_summary")
-    [[ -n "$questions" ]]       && extra_args+=(--questions "$questions")
-    [[ -n "$reason" ]]          && extra_args+=(--reason "$reason")
-    [[ "$artifact_len" -gt 0 ]] && extra_args+=(--artifact-length "$artifact_len")
-    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
-      --record --state "$state" --task-type "$task_type" \
-      --outcome "$outcome" ${extra_args[@]+"${extra_args[@]}"} \
-      --model "$PROXY_MODEL" 2>/dev/null || true
-  fi
-}
+# CfA state helpers and approval gate helpers are in ui.sh
 
 # ── Execute-only mode: skip straight to execution ──
 if [[ "$EXECUTE_ONLY" == "true" ]]; then
@@ -552,7 +490,7 @@ for b in blocks[:5]: print(b)
 
     # Completion assertion bridge — frame what was accomplished
     WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
-    python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
+    python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
     chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
     chrome_heavy_line
 
@@ -627,7 +565,7 @@ The human's correction: ${CFA_RESPONSE}"
     fi
   done
 
-  python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"
+  python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM"
   chrome_header "done"
   chrome_beep
   exit 0
@@ -824,7 +762,7 @@ if [[ "$NO_PLAN" != "true" ]]; then
     else
       # No plan.md — extract from stream and bridge the result
       PLAN_EXTRACT=$(mktemp)
-      python3 "$SCRIPT_DIR/extract_result.py" < "$PLAN_STREAM" > "$PLAN_EXTRACT"
+      python3 "$SCRIPT_DIR/stream/extract_result.py" < "$PLAN_STREAM" > "$PLAN_EXTRACT"
       chrome_banner "PLAN_ASSERT" "CfA Phase 2 — human reviews plan"
       chrome_bridge "$PLAN_EXTRACT" "PLAN_ASSERT" "$TASK"
       chrome_heavy_line
@@ -1102,7 +1040,7 @@ for b in blocks[:5]: print(b)
 
   # Completion assertion bridge — frame what was accomplished
   WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
-  python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
+  python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
   chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
   chrome_heavy_line
 
@@ -1177,7 +1115,7 @@ The human's correction: ${CFA_RESPONSE}"
   fi
 done
 
-python3 "$SCRIPT_DIR/extract_result.py" < "$EXEC_STREAM"
+python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM"
 
 chrome_header "done"
 chrome_beep

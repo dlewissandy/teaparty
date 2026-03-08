@@ -6,6 +6,6 @@ jq -n '{
   hookSpecificOutput: {
     hookEventName: "PreToolUse",
     permissionDecision: "deny",
-    permissionDecisionReason: "Task tool is disabled. Use SendMessage to communicate with teammates, or Bash to run relay.sh for subteam dispatches."
+    permissionDecisionReason: "Task tool is disabled. Use SendMessage to communicate with teammates, or Bash to run dispatch.sh for subteam dispatches."
   }
 }'

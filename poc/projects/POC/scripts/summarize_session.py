@@ -9,7 +9,7 @@ Usage:
     summarize_session.py --stream <stream.jsonl> --output <MEMORY.md> [--context <file>...] [--scope <level>]
 
 Scope levels control what kind of learnings are extracted:
-    team         — how the team worked (default, used by relay.sh per dispatch)
+    team         — how the team worked (default, used by dispatch.sh per dispatch)
     team-rollup  — aggregate dispatch learnings into team-level patterns
     session      — team-agnostic coordination learnings (from team MEMORYs)
     project      — project-relevant patterns from accumulated session learnings
@@ -360,7 +360,7 @@ Session conversation:
 
 This is a strict filter. Only include learnings about:
 - General-purpose agent coordination strategies
-- Tool usage patterns (relay.sh, plan-execute lifecycle, etc.)
+- Tool usage patterns (dispatch.sh, plan-execute lifecycle, etc.)
 - Process improvements (how to decompose tasks, when to parallelize)
 - Communication patterns between team levels
 

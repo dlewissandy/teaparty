@@ -4,7 +4,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-POC_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+POC_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PROJECTS_DIR="$POC_ROOT/projects"
 NOW=$(date +%s)
 

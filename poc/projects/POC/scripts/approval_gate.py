@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Human Proxy — confidence-based approval gate for the CfA state machine.
+"""Approval Gate — confidence-based approval gate for the CfA state machine.
 
 Collapses human approval and agent auto-approval into a single mechanism
 driven by a learned confidence threshold. At every human decision point the
@@ -10,15 +10,15 @@ the proxy deciding whether it can speak for the human or not.
 
 Usage:
     # Query — should we escalate or auto-approve?
-    python3 human_proxy.py --decide --state PLAN_ASSERT --task-type my-project \\
+    python3 approval_gate.py --decide --state PLAN_ASSERT --task-type my-project \\
         --model /path/to/.proxy-confidence.json
 
     # Record — human actually approved
-    python3 human_proxy.py --record --state PLAN_ASSERT --task-type my-project \\
+    python3 approval_gate.py --record --state PLAN_ASSERT --task-type my-project \\
         --outcome approve --model /path/to/.proxy-confidence.json
 
     # Stats — show confidence summary
-    python3 human_proxy.py --stats --model /path/to/.proxy-confidence.json
+    python3 approval_gate.py --stats --model /path/to/.proxy-confidence.json
 
 No external dependencies — uses stdlib only (json, os, datetime, dataclasses).
 """

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Relay a task to a subteam by spawning a plan→execute cycle.
+# dispatch.sh — Dispatch a task to a subteam via plan→execute cycle.
 # Called by liaison agents via Bash.
 #
 # Each dispatch gets its own git worktree (branched from the session branch).
 # On completion: commit deliverables, merge into session branch, clean up worktree.
 #
-# Usage: relay.sh --team art --task "Create diagrams for..."
+# Usage: dispatch.sh --team art --task "Create diagrams for..."
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/chrome.sh"
+source "$SCRIPT_DIR/ui.sh"
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
 
 TEAM=""
@@ -103,7 +103,7 @@ d = os.environ.get('SCRIPT_DIR', '.')
 team = os.environ.get('TEAM', '')
 
 # Per-team Bash permissions — only the specific commands each team needs.
-# All teams get relay.sh and yt-transcript.sh for dispatch and transcripts.
+# All teams get dispatch.sh and yt-transcript.sh for dispatch and transcripts.
 _team_bash = {
     'coding': [
         'Bash(python3:*)',      # run scripts, pytest, unittest
@@ -112,8 +112,8 @@ _team_bash = {
 }
 
 rules = [
-    'Bash(' + d + '/relay.sh:*)',
-    'Bash(' + d + '/yt-transcript.sh:*)',
+    'Bash(' + d + '/dispatch.sh:*)',
+    'Bash(' + d + '/tools/yt-transcript.sh:*)',
 ]
 rules += _team_bash.get(team, [])
 rules += [
