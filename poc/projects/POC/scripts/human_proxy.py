@@ -26,6 +26,7 @@ import argparse
 import json
 import os
 import random
+import re
 import sys
 from dataclasses import dataclass, field, asdict
 from datetime import date, timedelta
@@ -79,6 +80,40 @@ VALID_OUTCOMES = frozenset(['approve', 'correct', 'reject', 'withdraw', 'clarify
 MAX_DIFFERENTIALS_PER_ENTRY = 20
 
 
+# ── Content-awareness constants ─────────────────────────────────────────────
+
+MAX_ARTIFACT_CHARS = 4000
+
+# Phase 1 — length anomaly thresholds (relative to mean of historical artifact lengths).
+ARTIFACT_LENGTH_RATIO_LOW  = 0.5   # < 50% of mean → escalate
+ARTIFACT_LENGTH_RATIO_HIGH = 2.0   # > 200% of mean → escalate
+MAX_ARTIFACT_LENGTHS_PER_ENTRY = 20  # same cap pattern as MAX_DIFFERENTIALS_PER_ENTRY
+
+# Phase 2b — concern frequency threshold.
+QUESTION_PATTERN_MIN_OCCURRENCES = 2  # concern must appear >= N times to trigger Phase 2b
+
+# Phase 2a — principle violation detection threshold.
+PRINCIPLE_VIOLATION_THRESHOLD = 0.5
+
+# Fixed concern vocabulary
+CONCERN_VOCABULARY = {
+    "error_handling":        ["error", "exception", "failure", "fallback", "handle",
+                              "handling", "catch", "retry", "fault"],
+    "rollback":              ["rollback", "revert", "undo", "restore", "recovery",
+                              "transaction"],
+    "security":              ["auth", "authentication", "authorization", "permission",
+                              "access", "token", "secret", "encrypt"],
+    "idempotency":           ["idempotent", "idempotency", "duplicate", "replay"],
+    "testing":               ["test", "tests", "spec", "coverage", "assert",
+                              "verify", "validate"],
+    "documentation":         ["docs", "documentation", "comment", "explain"],
+    "sequencing":            ["order", "sequence", "step", "before", "after",
+                              "dependency", "prerequisite"],
+    "external_dependencies": ["external", "dependency", "database", "service",
+                              "network", "connection"],
+}
+
+
 # ── Data model ─────────────────────────────────────────────────────────────────
 
 @dataclass
@@ -105,15 +140,26 @@ class GenerativeResponse:
 
 @dataclass
 class TextDifferential:
-    """A record of what the human changed when they corrected/edited output.
-
-    Per spec Section 9.2: the proxy learns not just from binary approve/reject
-    but from the substance of human corrections — what patterns of change indicate
-    a correction the proxy should learn to predict.
-    """
+    """A record of what the human changed when they corrected/edited output."""
     outcome: str             # 'correct', 'reject', 'clarify'
     summary: str             # brief description of the change
-    timestamp: str           # ISO date e.g. '2026-03-04'
+    reasoning: str = ''      # NEW — why it needed to change
+    timestamp: str = ''      # ISO date e.g. '2026-03-04'
+
+
+@dataclass
+class QuestionPattern:
+    """A record of a question the human asked during a review session.
+
+    Captures not just the question but the concern it probes and the reasoning
+    behind it — so the proxy can generalize to new artifacts that don't address
+    the same standard, even if the exact question was never asked before.
+    """
+    question: str     # verbatim or paraphrased question
+    concern: str      # concern category extracted via CONCERN_VOCABULARY
+    reasoning: str    # why the human asks this — the standard being checked
+    disposition: str  # final disposition after this Q&A: 'approve'|'correct'|'reject'
+    timestamp: str
 
 
 @dataclass
@@ -128,6 +174,8 @@ class ConfidenceEntry:
     last_updated: str        # ISO date e.g. '2026-03-04'
     differentials: list = field(default_factory=list)  # list of TextDifferential dicts
     ema_approval_rate: float = 0.5  # exponential moving average — recency-weighted approval rate
+    artifact_lengths: list = field(default_factory=list)   # [int, ...] char counts of reviewed artifacts
+    question_patterns: list = field(default_factory=list)  # [QuestionPattern dicts]
 
 
 @dataclass
@@ -173,6 +221,175 @@ def _make_entry(state: str, task_type: str) -> ConfidenceEntry:
     )
 
 
+# ── Content-awareness helpers ──────────────────────────────────────────────────
+
+def _read_artifact(path: str) -> str:
+    """Read artifact text up to MAX_ARTIFACT_CHARS. Returns '' on empty path or any error."""
+    if not path:
+        return ''
+    try:
+        with open(path) as f:
+            return f.read(MAX_ARTIFACT_CHARS)
+    except OSError:
+        return ''
+
+
+def _extract_tokens(text: str) -> set:
+    """Lowercase, split on non-alpha chars, drop tokens shorter than 4 characters."""
+    return {t for t in re.split(r'[^a-z]+', text.lower()) if len(t) >= 4}
+
+
+def _mean_artifact_length(entry: ConfidenceEntry) -> float:
+    """Mean of stored artifact character counts. Returns 0.0 if no history."""
+    lengths = getattr(entry, 'artifact_lengths', [])
+    return sum(lengths) / len(lengths) if lengths else 0.0
+
+
+def _extract_concern(question: str) -> str:
+    """Map a question string to the best-matching concern in CONCERN_VOCABULARY.
+
+    Returns the concern name with the most keyword hits, or 'general' if no concern
+    vocabulary keywords appear in the question.
+    """
+    tokens = _extract_tokens(question)
+    best_concern, best_count = 'general', 0
+    for concern, keywords in CONCERN_VOCABULARY.items():
+        count = sum(1 for kw in keywords if kw in tokens)
+        if count > best_count:
+            best_concern, best_count = concern, count
+    return best_concern
+
+
+def _extract_question_patterns(dialog_text: str, disposition: str) -> list:
+    """Extract QuestionPattern dicts from raw dialog text.
+
+    Splits on question marks and newlines to find candidate questions.
+    Maps each to a concern via CONCERN_VOCABULARY (skipping 'general').
+    Extracts reasoning heuristically from sentences containing reasoning indicators.
+
+    Returns a list of QuestionPattern dicts (via asdict). Returns [] if dialog is empty.
+    """
+    if not dialog_text.strip():
+        return []
+
+    patterns = []
+    sentences = re.split(r'[?\n]+', dialog_text)
+    for sent in sentences:
+        sent = sent.strip()
+        if not sent:
+            continue
+        concern = _extract_concern(sent)
+        if concern == 'general':
+            continue
+        reasoning = ''
+        lower = sent.lower()
+        if any(ind in lower for ind in ['because', 'requires', 'must', 'should', 'need']):
+            reasoning = sent
+        patterns.append(asdict(QuestionPattern(
+            question=sent[:200],
+            concern=concern,
+            reasoning=reasoning[:500],
+            disposition=disposition,
+            timestamp=date.today().isoformat(),
+        )))
+    return patterns
+
+
+def _check_content(artifact_text: str, entry: ConfidenceEntry) -> tuple:
+    """Run all Phase 1 + 2a + 2b content checks. Returns (fired: bool, reason: str).
+
+    Checks run in priority order and stop at first match:
+      Phase 1:  Length anomaly vs historical mean
+      Phase 2a: Principle-based violation (reasoning field populated)
+      Phase 2a: Keyword fallback (summary field only)
+      Phase 2b: Concern pattern reasoning-based
+      Phase 2b: Concern pattern keyword fallback
+
+    Returns (False, '') if no check fires.
+    """
+    # Phase 1 — length anomaly
+    mean_len = _mean_artifact_length(entry)
+    if mean_len > 0:
+        ratio = len(artifact_text) / mean_len
+        if ratio < ARTIFACT_LENGTH_RATIO_LOW:
+            return True, (
+                f"Content novelty: length anomaly — artifact is unusually short "
+                f"({len(artifact_text)} chars, {ratio:.0%} of historical mean {mean_len:.0f})"
+            )
+        if ratio > ARTIFACT_LENGTH_RATIO_HIGH:
+            return True, (
+                f"Content novelty: length anomaly — artifact is unusually long "
+                f"({len(artifact_text)} chars, {ratio:.0%} of historical mean {mean_len:.0f})"
+            )
+
+    artifact_tokens = _extract_tokens(artifact_text)
+    differentials = getattr(entry, 'differentials', [])
+
+    # Phase 2a — reasoning-based (takes priority over keyword fallback)
+    for d in differentials:
+        reasoning = d.get('reasoning', '')
+        if reasoning and d.get('outcome') in ('correct', 'reject'):
+            principle_tokens = _extract_tokens(reasoning)
+            if not principle_tokens:
+                continue
+            present = principle_tokens & artifact_tokens
+            coverage = len(present) / len(principle_tokens)
+            if coverage < PRINCIPLE_VIOLATION_THRESHOLD:
+                return True, (
+                    f"Content novelty: possible principle violation. "
+                    f"The human's stated standard: '{reasoning}'. "
+                    f"This artifact does not appear to satisfy it "
+                    f"(only {coverage:.0%} of principle keywords present)."
+                )
+
+    # Phase 2a — keyword fallback (differentials without reasoning field)
+    correction_tokens: set = set()
+    for d in differentials:
+        if not d.get('reasoning') and d.get('outcome') in ('correct', 'reject'):
+            correction_tokens |= _extract_tokens(d.get('summary', ''))
+    matched = correction_tokens & artifact_tokens
+    if matched:
+        sample = sorted(matched)[:3]
+        return True, (
+            f"Content novelty: artifact matches past correction patterns: {sample}"
+        )
+
+    # Phase 2b — question pattern checks
+    question_patterns = getattr(entry, 'question_patterns', [])
+    from collections import Counter
+    concern_count: Counter = Counter()
+    concern_reasoning: dict = {}
+    for qp in question_patterns:
+        c = qp.get('concern', '')
+        if c and c != 'general':
+            concern_count[c] += 1
+            r = qp.get('reasoning', '')
+            if r:
+                concern_reasoning[c] = r
+
+    for concern, count in concern_count.items():
+        if count < QUESTION_PATTERN_MIN_OCCURRENCES:
+            continue
+        concern_kws = set(CONCERN_VOCABULARY.get(concern, []))
+        if not concern_kws:
+            continue
+        if concern_kws & artifact_tokens:
+            continue  # concern is addressed in artifact
+        reasoning = concern_reasoning.get(concern, '')
+        if reasoning:
+            return True, (
+                f"Content novelty: unaddressed concern '{concern}'. "
+                f"The human consistently applies the standard: '{reasoning}'. "
+                f"This artifact does not address it."
+            )
+        return True, (
+            f"Content novelty: unaddressed concern '{concern}' "
+            f"(raised {count} times in question history, no matching keywords in artifact)."
+        )
+
+    return False, ''
+
+
 # ── Core logic ─────────────────────────────────────────────────────────────────
 
 def is_generative_state(state: str) -> bool:
@@ -215,6 +432,7 @@ def should_escalate(
     model: ConfidenceModel,
     state: str,
     task_type: str,
+    artifact_path: str = '',
 ) -> ProxyDecision:
     """Decide whether to auto-approve or escalate to the human.
 
@@ -236,6 +454,10 @@ def should_escalate(
             ac = raw.get('approve_count', 0)
             tc = raw.get('total_count', 0)
             raw['ema_approval_rate'] = (ac + 1) / (tc + 2) if tc > 0 else 0.5
+        if 'artifact_lengths' not in raw:
+            raw['artifact_lengths'] = []
+        if 'question_patterns' not in raw:
+            raw['question_patterns'] = []
         entry = ConfidenceEntry(**raw)
     else:
         entry = raw
@@ -253,6 +475,20 @@ def should_escalate(
         )
 
     confidence = compute_confidence(entry)
+
+    # Content check (Phase 1 / 2a / 2b) — fires regardless of confidence level.
+    if artifact_path:
+        artifact_text = _read_artifact(artifact_path)
+        if artifact_text:
+            fired, reason = _check_content(artifact_text, entry)
+            if fired:
+                return ProxyDecision(
+                    action='escalate',
+                    confidence=confidence,
+                    reasoning=reason,
+                    predicted_response="human review required (content signal)",
+                )
+
     threshold = (
         model.generative_threshold
         if is_generative_state(state)
@@ -325,6 +561,9 @@ def record_outcome(
     task_type: str,
     outcome: str,
     differential_summary: str = '',
+    differential_reasoning: str = '',
+    artifact_length: int = 0,
+    question_patterns: list = None,
 ) -> ConfidenceModel:
     """Record a human decision outcome and return the updated model.
 
@@ -357,6 +596,10 @@ def record_outcome(
             ac = raw.get('approve_count', 0)
             tc = raw.get('total_count', 0)
             raw['ema_approval_rate'] = (ac + 1) / (tc + 2) if tc > 0 else 0.5
+        if 'artifact_lengths' not in raw:
+            raw['artifact_lengths'] = []
+        if 'question_patterns' not in raw:
+            raw['question_patterns'] = []
         entry = ConfidenceEntry(**raw)
     else:
         # Already a ConfidenceEntry — copy it to avoid mutation
@@ -370,6 +613,8 @@ def record_outcome(
             last_updated=raw.last_updated,
             differentials=list(getattr(raw, 'differentials', [])),
             ema_approval_rate=getattr(raw, 'ema_approval_rate', 0.5),
+            artifact_lengths=list(getattr(raw, 'artifact_lengths', [])),
+            question_patterns=list(getattr(raw, 'question_patterns', [])),
         )
 
     # Update counters
@@ -404,13 +649,28 @@ def record_outcome(
     if differential_summary and outcome != 'approve':
         diff_entry = asdict(TextDifferential(
             outcome=outcome,
-            summary=differential_summary[:500],  # Cap length
+            summary=differential_summary[:500],
+            reasoning=differential_reasoning[:500],
             timestamp=date.today().isoformat(),
         ))
         differentials.append(diff_entry)
         # Retain only the most recent MAX_DIFFERENTIALS_PER_ENTRY
         if len(differentials) > MAX_DIFFERENTIALS_PER_ENTRY:
             differentials = differentials[-MAX_DIFFERENTIALS_PER_ENTRY:]
+
+    # Track artifact length for Phase 1 length-anomaly detection
+    artifact_lengths = list(entry.artifact_lengths) if hasattr(entry, 'artifact_lengths') else []
+    if artifact_length > 0:
+        artifact_lengths.append(artifact_length)
+        if len(artifact_lengths) > MAX_ARTIFACT_LENGTHS_PER_ENTRY:
+            artifact_lengths = artifact_lengths[-MAX_ARTIFACT_LENGTHS_PER_ENTRY:]
+
+    # Track question patterns for Phase 2b concern-pattern detection
+    stored_patterns = list(entry.question_patterns) if hasattr(entry, 'question_patterns') else []
+    if question_patterns:
+        stored_patterns.extend(question_patterns)
+        if len(stored_patterns) > MAX_DIFFERENTIALS_PER_ENTRY:
+            stored_patterns = stored_patterns[-MAX_DIFFERENTIALS_PER_ENTRY:]
 
     updated_entry = ConfidenceEntry(
         state=state,
@@ -422,6 +682,8 @@ def record_outcome(
         last_updated=date.today().isoformat(),
         differentials=differentials,
         ema_approval_rate=ema,
+        artifact_lengths=artifact_lengths,
+        question_patterns=stored_patterns,
     )
 
     new_entries = dict(model.entries)
@@ -457,14 +719,18 @@ def generate_response(
     if isinstance(raw, dict):
         if 'differentials' not in raw:
             raw['differentials'] = []
+        if 'artifact_lengths' not in raw:
+            raw['artifact_lengths'] = []
+        if 'question_patterns' not in raw:
+            raw['question_patterns'] = []
         entry = ConfidenceEntry(**raw)
     else:
         entry = raw
 
-    # Need sufficient history AND differentials to generate
+    # Need sufficient history AND differentials or question_patterns to generate
     if entry.total_count < COLD_START_THRESHOLD:
         return None
-    if not entry.differentials:
+    if not entry.differentials and not getattr(entry, 'question_patterns', []):
         return None
 
     confidence = compute_confidence(entry)
@@ -477,11 +743,35 @@ def generate_response(
     if confidence < threshold:
         return None
 
-    # Find the most recent differential as the predicted response
-    latest = entry.differentials[-1]
+    text_parts = []
+
+    # Prepend from question_patterns — most recent with both reasoning and question
+    qps = getattr(entry, 'question_patterns', [])
+    for qp in reversed(qps):
+        q = qp.get('question', '') if isinstance(qp, dict) else ''
+        r = qp.get('reasoning', '') if isinstance(qp, dict) else ''
+        if q and r:
+            text_parts.append(
+                f"Based on past reviews, the human would likely ask: '{q}' — checking whether {r}"
+            )
+            break
+
+    # Append from differentials — most recent
+    if entry.differentials:
+        latest = entry.differentials[-1]
+        r = latest.get('reasoning', '') if isinstance(latest, dict) else ''
+        s = latest.get('summary', '') if isinstance(latest, dict) else ''
+        if r:
+            text_parts.append(f"The human would likely correct this to address: {r}")
+        elif s:
+            text_parts.append(s)
+
+    if not text_parts:
+        return None
+
     return GenerativeResponse(
-        action=latest['outcome'],
-        text=latest['summary'],
+        action=entry.differentials[-1].get('outcome', 'correct') if entry.differentials else 'correct',
+        text='\n'.join(text_parts),
         confidence=confidence,
     )
 
@@ -546,7 +836,8 @@ def _fmt_confidence(c: float) -> str:
 def _cmd_decide(args) -> None:
     """Handle --decide: print action to stdout, details to stderr."""
     model = load_model(args.model)
-    decision = should_escalate(model, args.state, args.task_type)
+    decision = should_escalate(model, args.state, args.task_type,
+                               artifact_path=getattr(args, 'artifact', '') or '')
     print(decision.action)
     print(f"confidence: {_fmt_confidence(decision.confidence)}", file=sys.stderr)
     print(f"reasoning:  {decision.reasoning}", file=sys.stderr)
@@ -557,9 +848,16 @@ def _cmd_record(args) -> None:
     """Handle --record: update model file with new outcome."""
     model = load_model(args.model)
     diff_summary = getattr(args, 'diff', '') or ''
+    diff_reasoning = getattr(args, 'reason', '') or ''
+    artifact_len = getattr(args, 'artifact_length', 0) or 0
+    raw_questions = getattr(args, 'questions', '') or ''
+    qps = _extract_question_patterns(raw_questions, args.outcome) if raw_questions else None
     updated = record_outcome(
         model, args.state, args.task_type, args.outcome,
         differential_summary=diff_summary,
+        differential_reasoning=diff_reasoning,
+        artifact_length=artifact_len,
+        question_patterns=qps or None,
     )
     save_model(updated, args.model)
     key = _entry_key(args.state, args.task_type)
@@ -567,12 +865,15 @@ def _cmd_record(args) -> None:
     total = raw.get('total_count', 0)
     approved = raw.get('approve_count', 0)
     diff_count = len(raw.get('differentials', []))
+    qp_count = len(qps) if qps else 0
     msg = (
         f"Recorded outcome={args.outcome!r} for ({args.state}, {args.task_type}). "
         f"Total={total}, approved={approved}."
     )
     if diff_summary:
         msg += f" Differentials: {diff_count}."
+    if qp_count > 0:
+        msg += f" Question patterns: {qp_count}."
     print(msg, file=sys.stderr)
 
 
@@ -651,6 +952,14 @@ if __name__ == '__main__':
     parser.add_argument('--diff', default='',
                         help="Text differential summary — what the human changed "
                              "(for --record, per spec Section 9.2)")
+    parser.add_argument('--artifact', default='',
+                        help="Path to artifact under review (for --decide)")
+    parser.add_argument('--artifact-length', type=int, default=0,
+                        help="Char count of artifact reviewed (for --record)")
+    parser.add_argument('--reason', default='',
+                        help="Why correction was needed (for --record)")
+    parser.add_argument('--questions', default='',
+                        help="Raw dialog text for pattern extraction (for --record)")
     parser.add_argument('--model', required=True,
                         help="Path to the JSON confidence model file")
     parser.add_argument('--team',
