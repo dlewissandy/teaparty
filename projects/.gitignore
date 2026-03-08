@@ -1,5 +1,2 @@
-# Runtime project repos are gitignored (each has own .git)
-/*
-# The POC project itself is tracked
-!/.gitignore
-!/POC/
+# This file is intentionally kept so git tracks the projects/ directory.
+# Runtime project ignores are handled by the root .gitignore.

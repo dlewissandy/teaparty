@@ -29,7 +29,10 @@ teaparty.db-wal
 # Generated Documents
 output/
 
-# POC runtime files
+# POC runtime projects (each has own .git; POC itself is tracked)
+projects/*
+!projects/.gitignore
+!projects/POC/
 projects/POC/MEMORY.md
 .memory.db
 INTENT.md

@@ -25,8 +25,8 @@ PYTHONPATH=. uv run pytest tests/ --tb=short -q
 ## Docs
 
 - [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) -- Master conceptual model
+- [docs/UX.md](../docs/UX.md) -- UX design and interaction patterns
 - [ROADMAP.md](../ROADMAP.md) -- Phased plan
-- [TASKLIST.md](../TASKLIST.md) -- Task breakdown
 - [docs/file-layout.md](../docs/file-layout.md) -- Virtual file tree
 - [docs/workflows.md](../docs/workflows.md) -- Workflow system
 - [docs/engagements-and-partnerships.md](../docs/engagements-and-partnerships.md) -- Cross-org engagement and partnership model
