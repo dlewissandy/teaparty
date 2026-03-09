@@ -224,15 +224,13 @@ REJECTION_FEEDBACK=""
 
 review_intent() {
   local intent_path="$1"
-  local intent_artifact_len
-  intent_artifact_len=$(wc -c < "$intent_path" 2>/dev/null || echo 0)
   intent_cfa_set "INTENT_ASSERT"
 
   # ── Proxy gate: auto-approve if confident ──
   PROXY_ACTION=$(proxy_decide "INTENT_ASSERT" "$intent_path")
   session_log PROXY "INTENT_ASSERT proxy=$PROXY_ACTION"
   if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
-    proxy_record "INTENT_ASSERT" "approve" "" "" "" "$intent_artifact_len"
+    proxy_record "INTENT_ASSERT" "approve" "" "$intent_path"
     bump_intent_version "$intent_path" "proxy-approved"
     echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT (proxy auto-approved)${C_RESET}" >&2
     session_log STATE "INTENT_ASSERT → approve → INTENT (proxy auto-approved)"
@@ -253,14 +251,14 @@ review_intent() {
   if cfa_review_loop "INTENT_ASSERT" "$intent_summary" "" "$intent_path" "" "$TASK"; then
     case "$REVIEW_ACTION" in
       approve)
-        proxy_record "INTENT_ASSERT" "approve" "" "" "" "$intent_artifact_len"
+        proxy_record "INTENT_ASSERT" "approve" "" "$intent_path"
         bump_intent_version "$intent_path" "approved"
         echo -e "  ${C_DIM}CfA: INTENT_ASSERT → approve → INTENT${C_RESET}" >&2
         session_log STATE "INTENT_ASSERT → approve → INTENT"
         return 0
         ;;
       withdraw)
-        proxy_record "INTENT_ASSERT" "withdraw" "" "" "" "$intent_artifact_len"
+        proxy_record "INTENT_ASSERT" "withdraw"
         intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
         echo -e "  ${C_YELLOW}Intent withdrawn.${C_RESET}" >&2
         session_log STATE "INTENT_ASSERT → withdraw → WITHDRAWN"
@@ -268,7 +266,12 @@ review_intent() {
         ;;
       correct)
         REJECTION_FEEDBACK="$REVIEW_FEEDBACK"
-        proxy_record "INTENT_ASSERT" "correct" "$REVIEW_FEEDBACK" "${REVIEW_DIALOG_HISTORY:-}" "$REVIEW_FEEDBACK" "$intent_artifact_len"
+        _CONV_TEXT=""
+        [[ -n "${REVIEW_DIALOG_HISTORY:-}" ]] && _CONV_TEXT="${REVIEW_DIALOG_HISTORY}
+
+"
+        _CONV_TEXT="${_CONV_TEXT}${CFA_RESPONSE}"
+        proxy_record "INTENT_ASSERT" "correct" "$REVIEW_FEEDBACK" "$intent_path" "$_CONV_TEXT"
         echo -e "  ${C_DIM}CfA: INTENT_ASSERT → correct → INTENT_RESPONSE${C_RESET}" >&2
         session_log STATE "INTENT_ASSERT → correct → INTENT_RESPONSE"
         return 1
@@ -278,7 +281,7 @@ review_intent() {
 
   # Fallback: treat raw input as correction feedback
   REJECTION_FEEDBACK="$CFA_RESPONSE"
-  proxy_record "INTENT_ASSERT" "correct" "$CFA_RESPONSE" "$CFA_RESPONSE" "$CFA_RESPONSE" "$intent_artifact_len"
+  proxy_record "INTENT_ASSERT" "correct" "$CFA_RESPONSE" "$intent_path" "$CFA_RESPONSE"
   return 1
 }
 
@@ -338,6 +341,11 @@ if [[ $CLAUDE_EXIT -ne 0 ]]; then
   case "$FAILURE_ACTION" in
     retry)
       run_turn "$INITIAL_PROMPT" --permission-mode acceptEdits
+      if [[ $CLAUDE_EXIT -ne 0 ]]; then
+        session_log STATE "Infrastructure failure persists after retry — withdrawing"
+        intent_cfa_set "WITHDRAWN"
+        exit 1
+      fi
       ;;
     *)
       intent_cfa_set "WITHDRAWN"
@@ -362,7 +370,6 @@ while true; do
   ESCALATION_FILE="$CWD/.intent-escalation.md"
   if [[ -f "$ESCALATION_FILE" ]]; then
     intent_cfa_set "INTENT_ESCALATE"
-    escal_artifact_len=$(wc -c < "$ESCALATION_FILE" 2>/dev/null || echo 0)
     session_log STATE "INTENT_ESCALATE — agent needs clarification"
     chrome_header "INTENT_ESCALATE — agent needs clarification"
     chrome_bridge "$ESCALATION_FILE" "INTENT_ESCALATE" "$TASK"
@@ -370,13 +377,13 @@ while true; do
 
     cfa_review_loop "INTENT_ESCALATE" "" "" "$ESCALATION_FILE" "" "$TASK"
     if [[ "$REVIEW_ACTION" == "withdraw" ]]; then
-      proxy_record "INTENT_ESCALATE" "withdraw" "" "" "" "$escal_artifact_len"
+      proxy_record "INTENT_ESCALATE" "withdraw"
       intent_cfa_transition "withdraw" || intent_cfa_set "WITHDRAWN"
       exit 1
     fi
 
     # Feed clarification back to agent
-    proxy_record "INTENT_ESCALATE" "clarify" "$CFA_RESPONSE" "$CFA_RESPONSE" "" "$escal_artifact_len"
+    proxy_record "INTENT_ESCALATE" "clarify" "$CFA_RESPONSE"
     intent_cfa_transition "clarify" || intent_cfa_set "INTENT_RESPONSE"
     session_log STATE "INTENT_ESCALATE → clarify → INTENT_RESPONSE → PROPOSAL"
     rm -f "$ESCALATION_FILE"

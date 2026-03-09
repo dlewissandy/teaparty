@@ -1,0 +1,107 @@
+Make four specific edits to /Users/darrell/git/teaparty/projects/POC/.worktrees/session-20260308-203749-amg0/projects/POC/scripts/memory_indexer.py. This is a code modification task — the agent MUST use Edit or Write tools to make actual changes to the file.
+
+STEP 1: Read the file first.
+
+STEP 2: Make CHANGE 1 — In main(), replace the source filtering block (around line 752). Use the Edit tool with these exact strings:
+
+OLD:
+    # Filter to existing, non-empty source files
+    sources = [s for s in args.sources if Path(s).is_file() and Path(s).stat().st_size > 0]
+
+NEW:
+    # Filter to existing, non-empty source files; expand directory paths to contained .md files
+    sources = []
+    for s in args.sources:
+        p = Path(s)
+        if p.is_dir():
+            for f in sorted(p.glob('*.md')):
+                if f.is_file() and f.stat().st_size > 0:
+                    sources.append(str(f))
+        elif p.is_file() and p.stat().st_size > 0:
+            sources.append(s)
+
+STEP 3: Make CHANGE 2 — Add --scope-base-dir argument in main() after --retrieved-ids. Use the Edit tool with these exact strings:
+
+OLD:
+    parser.add_argument("--retrieved-ids", default="", dest="retrieved_ids",
+                        help="Path to write retrieved entry IDs for reinforcement tracking")
+    args = parser.parse_args()
+
+NEW:
+    parser.add_argument("--retrieved-ids", default="", dest="retrieved_ids",
+                        help="Path to write retrieved entry IDs for reinforcement tracking")
+    parser.add_argument("--scope-base-dir", default="", dest="scope_base_dir",
+                        help="Project base directory for scope-level score multiplier (team > project > global)")
+    args = parser.parse_args()
+
+STEP 4: Make CHANGE 3 — Add scope multiplier functions before main(). Find the end of the mmr_rerank function (the line that reads "    return selected") and the blank line after it and the start of "def main():", then insert the scope functions in between. Use the Edit tool with these exact strings:
+
+OLD:
+    return selected
+
+
+def main():
+
+NEW:
+    return selected
+
+
+# -- Scope weighting ----------------------------------------------------------
+
+SCOPE_MULTIPLIERS = {
+    'team': 1.5,
+    'project': 1.2,
+    'global': 1.0,
+}
+
+
+def classify_scope(source_path: str, base_project_dir: str) -> str:
+    """Classify source scope: 'team' (.sessions/ path), 'project', or 'global'."""
+    if not base_project_dir:
+        return 'global'
+    try:
+        p = Path(source_path).resolve()
+        base = Path(base_project_dir).resolve()
+        rel = p.relative_to(base)
+        if '.sessions' in rel.parts:
+            return 'team'
+        return 'project'
+    except ValueError:
+        return 'global'
+
+
+def apply_scope_multipliers(
+    results: list[tuple[str, str, float]],
+    base_project_dir: str,
+) -> list[tuple[str, str, float]]:
+    """Multiply scores by scope-level weight: team x1.5, project x1.2, global x1.0."""
+    if not base_project_dir:
+        return results
+    return [
+        (source, content, score * SCOPE_MULTIPLIERS.get(classify_scope(source, base_project_dir), 1.0))
+        for source, content, score in results
+    ]
+
+
+def main():
+
+STEP 5: Make CHANGE 4 — Call apply_scope_multipliers in main(). Use the Edit tool with these exact strings:
+
+OLD:
+    # Apply prominence weighting (replaces apply_temporal_decay — removes evergreen exemption)
+    results = apply_prominence_weights(results, conn)
+    results.sort(key=lambda x: x[2], reverse=True)
+    results = mmr_rerank(results, top_k=args.top_k)
+
+NEW:
+    # Apply prominence weighting (replaces apply_temporal_decay — removes evergreen exemption)
+    results = apply_prominence_weights(results, conn)
+    if args.scope_base_dir:
+        results = apply_scope_multipliers(results, args.scope_base_dir)
+    results.sort(key=lambda x: x[2], reverse=True)
+    results = mmr_rerank(results, top_k=args.top_k)
+
+STEP 6: Verify by running:
+python3 /Users/darrell/git/teaparty/projects/POC/.worktrees/session-20260308-203749-amg0/projects/POC/scripts/memory_indexer.py --help 2>&1 | grep scope-base-dir
+
+The grep output must show the --scope-base-dir argument. Report exact lines changed and confirm the grep result.

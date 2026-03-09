@@ -26,28 +26,47 @@ from datetime import date
 from pathlib import Path
 
 # ── Memory entry wrapping (Phase 1 integration) ───────────────────────────────
-# Importance by scope — used when wrapping learnings in YAML frontmatter.
+# Importance by scope — Section 8 confidence schedule:
+#   corrective: 0.8  (direct evidence of model error)
+#   observations/escalation: 0.95  (explicitly human-stated)
+#   all others: 0.5  (single observation, unconfirmed)
 _SCOPE_IMPORTANCE = {
-    "team": 0.4,
+    "team": 0.5,
     "team-rollup": 0.5,
-    "session": 0.6,
-    "project": 0.7,
-    "observations": 0.7,
-    "escalation": 0.7,
-    "intent-alignment": 0.6,
-    "prospective": 0.6,
-    "in-flight": 0.6,
+    "team-rollup-institutional": 0.5,
+    "team-rollup-tasks": 0.5,
+    "session": 0.5,
+    "session-institutional": 0.5,
+    "session-tasks": 0.5,
+    "project": 0.5,
+    "project-institutional": 0.5,
+    "project-tasks": 0.5,
+    "global": 0.5,
+    "global-institutional": 0.5,
+    "global-tasks": 0.5,
+    "observations": 0.95,
+    "escalation": 0.95,
+    "intent-alignment": 0.5,
+    "prospective": 0.5,
+    "in-flight": 0.5,
     "corrective": 0.8,
-    "global": 0.8,
 }
 
 # Domain by scope — 'team' for coordination learnings, 'task' for project-specific
 _SCOPE_DOMAIN = {
     "team": "team",
     "team-rollup": "team",
+    "team-rollup-institutional": "team",
+    "team-rollup-tasks": "team",
     "session": "team",
+    "session-institutional": "team",
+    "session-tasks": "team",
     "global": "team",
+    "global-institutional": "team",
+    "global-tasks": "team",
     "project": "task",
+    "project-institutional": "task",
+    "project-tasks": "task",
     "observations": "task",
     "escalation": "task",
     "intent-alignment": "task",
@@ -567,6 +586,188 @@ Format each learning as:
 Execution stream:
 {conversation}
 """,
+
+    # ── Typed-store variants (institutional vs. task-based) ───────────────────
+
+    "team-rollup-institutional": """Review the dispatch-level learnings for a single team.
+
+Extract ONLY stable coordination NORMS: how this team organizes its work, consistent patterns of tool use, structural conventions that hold across dispatches.
+
+Do NOT extract task procedures, one-off decisions, or debugging steps.
+
+If no durable norms are present, output nothing. Silence is correct.
+
+Format each norm as:
+
+## [{date}] Team Norm
+**Pattern:** <the stable norm or convention>
+**Why it holds:** <why this is durable, not just session-specific>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "team-rollup-tasks": """Review the dispatch-level learnings for a single team across multiple dispatches.
+
+Extract patterns that recur across dispatches:
+- Common tool/coordination patterns this team uses
+- Recurring problems or workarounds
+- Team-specific workflow optimizations
+
+Deduplicate: if multiple dispatches learned the same thing, consolidate into one entry.
+
+If no learnings meet the quality bar, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Team Learning
+**Context:** <pattern observed across dispatches>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "session-institutional": """Review the team-level learnings from this session.
+
+Extract ONLY cross-team coordination NORMS: structural conventions governing how teams hand off work, sequencing rules that hold regardless of task type, information-flow patterns proven reliable.
+
+Do NOT extract team-specific internal practices, domain knowledge, or one-off session decisions.
+
+If no durable cross-team norms are present, output nothing. Silence is correct.
+
+Format each norm as:
+
+## [{date}] Session Norm
+**Pattern:** <the stable coordination norm>
+**Why it holds:** <why this generalizes across sessions>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "session-tasks": """Review the team-level learnings and session coordination below.
+
+Extract learnings NOT specific to any single team:
+- Cross-team coordination patterns that worked or failed
+- Delegation strategies (task decomposition, sequencing, parallelism)
+- Information flow between teams
+- Resource allocation decisions
+
+EXCLUDE anything specific to how one team works internally.
+
+If no learnings meet the quality bar, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Session Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "project-institutional": """Review the session learnings for this project.
+
+Extract ONLY durable project-level NORMS: how this project is organized, naming conventions, architectural decisions governing future work, structural patterns holding across all future sessions.
+
+Do NOT extract task procedures, one-off decisions, or debugging notes.
+
+If no durable project-level norms are present, output nothing. Silence is correct.
+
+Format each norm as:
+
+## [{date}] Project Convention
+**Convention:** <the stable norm or architectural decision>
+**Applies to:** <what future work this governs>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "project-tasks": """Review the session learnings below and extract patterns relevant to this project.
+
+Focus on:
+- Patterns that will recur in future sessions of this same project
+- Project-specific workflow optimizations
+- Domain knowledge aiding future work
+- Team compositions or delegation strategies that worked for this project
+
+Deduplicate with existing project learnings in the context.
+
+If no learnings meet the quality bar, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Project Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "global-institutional": """Review the project learnings below.
+
+Extract ONLY cross-project NORMS: general-purpose agent coordination principles, structural patterns for team organization, conventions proven stable across different project domains.
+
+This is a strict filter. Must be project-agnostic. Do NOT reference specific project names.
+
+If nothing qualifies as truly cross-project institutional knowledge, output nothing.
+
+Format each norm as:
+
+## [{date}] Global Norm
+**Norm:** <the cross-project coordination principle>
+**Evidence:** <what pattern of observations supports this>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
+
+    "global-tasks": """Review the project learnings below and extract ONLY insights applying across ALL projects.
+
+Strict filter. Only include:
+- General-purpose agent coordination strategies
+- Tool usage patterns (dispatch.sh, plan-execute lifecycle)
+- Process improvements (task decomposition, parallelization)
+- Communication patterns between team levels
+
+EXCLUDE: domain-specific knowledge, project-specific decisions, content insights.
+Do NOT reference specific project names.
+
+If nothing qualifies as truly cross-project, output nothing.
+
+Format each learning as:
+
+## [{date}] Global Learning
+**Context:** <what we were doing when this came up>
+**Learning:** <the specific insight>
+**Action:** <what to do differently next time>
+
+{context_section}
+
+Session conversation:
+{conversation}
+""",
 }
 
 # These scopes use the intent stream and need human-turn extraction
@@ -671,9 +872,14 @@ if __name__ == "__main__":
     parser.add_argument("--output", required=True, help="Path to target markdown file")
     parser.add_argument("--context", nargs="*", default=[], help="Additional context files")
     parser.add_argument("--scope", default="team",
-                        choices=["team", "team-rollup", "session", "project", "global",
-                                 "observations", "escalation", "intent-alignment",
-                                 "prospective", "in-flight", "corrective"],
+                        choices=[
+                            "team", "team-rollup", "team-rollup-institutional", "team-rollup-tasks",
+                            "session", "session-institutional", "session-tasks",
+                            "project", "project-institutional", "project-tasks",
+                            "global", "global-institutional", "global-tasks",
+                            "observations", "escalation", "intent-alignment",
+                            "prospective", "in-flight", "corrective",
+                        ],
                         help="Extraction scope")
     parser.add_argument("--phase", default="unknown",
                         help="Project phase to tag entries with (e.g. 'specification', 'implementation')")

@@ -265,7 +265,6 @@ extract_failure() {
     local reason
     reason=$(cat "$stream_target/.failure-reason")
     parts+=("Failure reason: $reason")
-    rm -f "$stream_target/.failure-reason"
   fi
 
   # Scan stream for error events and is_error blocks (last 5)
@@ -353,6 +352,17 @@ cfa_failure_decision() {
     FAILURE_ACTION="retry"
   fi
 
+  # Validate action is valid for this phase
+  case "$phase" in
+    intent)
+      [[ "$FAILURE_ACTION" == "retry" || "$FAILURE_ACTION" == "withdraw" ]] || FAILURE_ACTION="retry"
+      ;;
+    planning)
+      [[ "$FAILURE_ACTION" == "retry" || "$FAILURE_ACTION" == "backtrack" || "$FAILURE_ACTION" == "withdraw" ]] || FAILURE_ACTION="retry"
+      ;;
+    # execution: all actions valid
+  esac
+
   session_log HUMAN "Failure decision: $FAILURE_ACTION"
 }
 
@@ -411,36 +421,40 @@ cfa_set() {
 # Returns "auto-approve" or "escalate" on stdout.
 proxy_decide() {
   local state="$1"
-  local artifact_path="${2:-}"
+  local artifact="${2:-}"
   local task_type="${POC_PROJECT:-default}"
   if [[ -n "${PROXY_MODEL:-}" && -f "${PROXY_MODEL:-}" ]]; then
-    python3 "$SCRIPT_DIR/scripts/approval_gate.py" \
+    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
       --decide --state "$state" --task-type "$task_type" \
-      --artifact "${artifact_path:-}" \
-      --model "$PROXY_MODEL" 2>/dev/null || echo "escalate"
+      --model "$PROXY_MODEL" \
+      ${artifact:+--artifact "$artifact"} \
+      2>/dev/null || echo "escalate"
   else
     echo "escalate"
   fi
 }
 
-# Records outcome to the approval gate model.
-# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY [QUESTIONS [REASON [ARTIFACT_LEN]]]]
+# Records outcome to the human proxy model.
+# Usage: proxy_record STATE OUTCOME [DIFF_SUMMARY [ARTIFACT_PATH [CONVERSATION_TEXT]]]
 proxy_record() {
   local state="$1" outcome="$2"
   local diff_summary="${3:-}"
-  local questions="${4:-}"
-  local reason="${5:-}"
-  local artifact_len="${6:-0}"
+  local artifact="${4:-}"
+  local conversation_text="${5:-}"
   local task_type="${POC_PROJECT:-default}"
   if [[ -n "${PROXY_MODEL:-}" ]]; then
-    local extra_args=()
-    [[ -n "$diff_summary" ]]    && extra_args+=(--diff "$diff_summary")
-    [[ -n "$questions" ]]       && extra_args+=(--questions "$questions")
-    [[ -n "$reason" ]]          && extra_args+=(--reason "$reason")
-    [[ "$artifact_len" -gt 0 ]] && extra_args+=(--artifact-length "$artifact_len")
-    python3 "$SCRIPT_DIR/scripts/approval_gate.py" \
+    local diff_args=()
+    [[ -n "$diff_summary" ]]       && diff_args=(--diff "$diff_summary")
+    local artifact_args=()
+    [[ -n "$artifact" ]]           && artifact_args=(--artifact "$artifact")
+    local conv_args=()
+    [[ -n "$conversation_text" ]]  && conv_args=(--conversation "$conversation_text")
+    python3 "$SCRIPT_DIR/scripts/human_proxy.py" \
       --record --state "$state" --task-type "$task_type" \
-      --outcome "$outcome" ${extra_args[@]+"${extra_args[@]}"} \
+      --outcome "$outcome" \
+      ${diff_args[@]+"${diff_args[@]}"} \
+      ${artifact_args[@]+"${artifact_args[@]}"} \
+      ${conv_args[@]+"${conv_args[@]}"} \
       --model "$PROXY_MODEL" 2>/dev/null || true
   fi
 }

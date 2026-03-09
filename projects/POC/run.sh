@@ -89,6 +89,10 @@ INTENT.md
 .memory.db
 .proxy-confidence.json
 .cfa-state.json
+institutional.md
+tasks/
+proxy.md
+proxy-tasks/
 GITIGNORE
   cat > "$POC_PROJECT_DIR/CLAUDE.md" << CLAUDEMD
 # Project: $PROJECT
@@ -138,9 +142,11 @@ export POC_SESSION_DIR="$INFRA_DIR"
 export POC_PREMORTEM_FILE="$INFRA_DIR/.premortem.md"
 export POC_ASSUMPTIONS_FILE="$INFRA_DIR/.assumptions.jsonl"
 
-# Memory files — global persists across all projects, project persists across sessions
-touch "$POC_OUTPUT_DIR/MEMORY.md"
-touch "$POC_PROJECT_DIR/MEMORY.md"
+# Memory store directories — typed stores (institutional.md + tasks/)
+mkdir -p "$POC_OUTPUT_DIR/tasks"
+mkdir -p "$POC_PROJECT_DIR/tasks"
+mkdir -p "$POC_PROJECT_DIR/proxy-tasks"
+# Legacy files: kept for backward compat (fallback when tasks/ is empty)
 touch "$POC_PROJECT_DIR/OBSERVATIONS.md"
 touch "$POC_PROJECT_DIR/ESCALATION.md"
 
@@ -240,21 +246,57 @@ echo -e "  ${C_DIM}Mode:${C_RESET} $TASK_MODE" >&2
 
 # ── Memory retrieval (before intent for warm-start — spec Section 8.1) ──
 MEMORY_CTX_FILE=$(mktemp /tmp/memory-ctx-XXXXXXXXXXXX)
-RETRIEVED_IDS_FILE=$(mktemp /tmp/retrieved-ids-XXXXXXXXXXXX)  # Phase 5
-trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE $RETRIEVED_IDS_FILE" EXIT
-MEMORY_CTX=()
-if python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
+INST_CTX_FILE=$(mktemp /tmp/inst-ctx-XXXXXXXXXXXX)
+PROXY_CTX_FILE=$(mktemp /tmp/proxy-ctx-XXXXXXXXXXXX)
+RETRIEVED_IDS_FILE=$(mktemp /tmp/retrieved-ids-XXXXXXXXXXXX)
+trap "kill $TAIL_PID 2>/dev/null; rm -f $SETTINGS_FILE $MEMORY_CTX_FILE $INST_CTX_FILE $PROXY_CTX_FILE $RETRIEVED_IDS_FILE" EXIT
+
+# 1. Always-load: institutional.md at global + project level (no retrieval gate)
+{
+  _GLOBAL_INST="$(dirname "$POC_PROJECT_DIR")/institutional.md"
+  if [[ -f "$_GLOBAL_INST" && -s "$_GLOBAL_INST" ]]; then
+    echo "--- global institutional ---"; cat "$_GLOBAL_INST"; echo "--- end ---"; echo ""
+  fi
+  if [[ -f "$POC_PROJECT_DIR/institutional.md" && -s "$POC_PROJECT_DIR/institutional.md" ]]; then
+    echo "--- project institutional ---"; cat "$POC_PROJECT_DIR/institutional.md"; echo "--- end ---"; echo ""
+  fi
+} > "$INST_CTX_FILE"
+
+# 2. Always-load: proxy.md (human preferential); fall back to OBSERVATIONS.md
+if [[ -f "$POC_PROJECT_DIR/proxy.md" && -s "$POC_PROJECT_DIR/proxy.md" ]]; then
+  cat "$POC_PROJECT_DIR/proxy.md" > "$PROXY_CTX_FILE"
+elif [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]; then
+  cat "$POC_PROJECT_DIR/OBSERVATIONS.md" > "$PROXY_CTX_FILE"
+fi
+
+# 3. Fuzzy retrieval: tasks/ + proxy-tasks/ directories
+TASK_SOURCES=()
+[[ -d "$POC_PROJECT_DIR/tasks" ]] && TASK_SOURCES+=(--source "$POC_PROJECT_DIR/tasks")
+[[ -d "$(dirname "$POC_PROJECT_DIR")/tasks" ]] && TASK_SOURCES+=(--source "$(dirname "$POC_PROJECT_DIR")/tasks")
+[[ -d "$POC_PROJECT_DIR/proxy-tasks" ]] && TASK_SOURCES+=(--source "$POC_PROJECT_DIR/proxy-tasks")
+# Backward compat: fallback to legacy MEMORY.md / OBSERVATIONS.md when tasks/ is empty
+if [[ ${#TASK_SOURCES[@]} -eq 0 ]]; then
+  [[ -s "$POC_PROJECT_DIR/MEMORY.md" ]] && TASK_SOURCES+=(--source "$POC_PROJECT_DIR/MEMORY.md")
+  [[ -s "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" ]] && TASK_SOURCES+=(--source "$(dirname "$POC_PROJECT_DIR")/MEMORY.md")
+  [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]] && TASK_SOURCES+=(--source "$POC_PROJECT_DIR/OBSERVATIONS.md")
+  [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]] && TASK_SOURCES+=(--source "$POC_PROJECT_DIR/ESCALATION.md")
+fi
+if [[ ${#TASK_SOURCES[@]} -gt 0 ]]; then
+  python3 "$SCRIPT_DIR/scripts/memory_indexer.py" \
     --db "$POC_PROJECT_DIR/.memory.db" \
-    --source "$POC_PROJECT_DIR/OBSERVATIONS.md" \
-    --source "$POC_PROJECT_DIR/ESCALATION.md" \
-    --source "$POC_PROJECT_DIR/MEMORY.md" \
-    --source "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" \
+    "${TASK_SOURCES[@]}" \
+    --scope-base-dir "$POC_PROJECT_DIR" \
     --task "$TASK" \
     --top-k 10 \
     --output "$MEMORY_CTX_FILE" \
-    --retrieved-ids "$RETRIEVED_IDS_FILE" 2>/dev/null; then
-  [[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX=(--context-file "$MEMORY_CTX_FILE")
+    --retrieved-ids "$RETRIEVED_IDS_FILE" 2>/dev/null || true
 fi
+
+# Combined context: institutional (always) + proxy (always) + tasks (fuzzy)
+MEMORY_CTX=()
+[[ -s "$INST_CTX_FILE" ]] && MEMORY_CTX+=(--context-file "$INST_CTX_FILE")
+[[ -s "$PROXY_CTX_FILE" ]] && MEMORY_CTX+=(--context-file "$PROXY_CTX_FILE")
+[[ -s "$MEMORY_CTX_FILE" ]] && MEMORY_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
 # ── CfA State Machine: Plan → Execute with backtracking ──
 # Implements the Agentic CfA framework: three-phase state machine with
@@ -302,8 +344,8 @@ else
     # Run intent.sh — human reviews
     chrome_header "INTENT (CfA Phase 1)"
     INTENT_CTX=()
-    # Intent context: only task-scoped files, not team-level MEMORY.md.
-    [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]]  && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
+    # Intent context: proxy (always-load) + escalation fallback + fuzzy-retrieved tasks
+    [[ -s "$PROXY_CTX_FILE" ]]                   && INTENT_CTX+=(--context-file "$PROXY_CTX_FILE")
     [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]    && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
     [[ -s "$MEMORY_CTX_FILE" ]]                  && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
@@ -330,14 +372,18 @@ Original task: $TASK"
       # Extract intent learnings immediately after approval (background)
       INTENT_EXTRACT_PIDS=()
       if [[ -f "$INFRA_DIR/.intent-stream.jsonl" ]]; then
+        # observations → proxy.md (always-loaded human preferential context)
         python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
           --stream "$INFRA_DIR/.intent-stream.jsonl" \
-          --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
+          --output "$POC_PROJECT_DIR/proxy.md" \
           --scope observations 2>/dev/null &
         INTENT_EXTRACT_PIDS+=($!)
+        # escalation → proxy-tasks/ (fuzzy-retrieved domain-indexed thresholds)
+        _ESC_TS=$(date +%Y%m%d-%H%M%S)
+        mkdir -p "$POC_PROJECT_DIR/proxy-tasks"
         python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
           --stream "$INFRA_DIR/.intent-stream.jsonl" \
-          --output "$POC_PROJECT_DIR/ESCALATION.md" \
+          --output "$POC_PROJECT_DIR/proxy-tasks/${_ESC_TS}-intent.md" \
           --scope escalation 2>/dev/null &
         INTENT_EXTRACT_PIDS+=($!)
       fi
@@ -376,7 +422,9 @@ fi
 # ── Confidence posture ──
 chrome_header "CONFIDENCE POSTURE"
 POSTURE_CTX=""
-[[ -s "$MEMORY_CTX_FILE" ]] && POSTURE_CTX=$(cat "$MEMORY_CTX_FILE")
+[[ -s "$INST_CTX_FILE" ]] && POSTURE_CTX=$(cat "$INST_CTX_FILE")
+[[ -s "$MEMORY_CTX_FILE" ]] && POSTURE_CTX="$POSTURE_CTX
+$(cat "$MEMORY_CTX_FILE")"
 [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]] && POSTURE_CTX="$POSTURE_CTX
 $(head -c 2000 "$POC_PROJECT_DIR/ESCALATION.md")"
 
@@ -452,8 +500,10 @@ print(task, end='')
 export POC_STALL_TIMEOUT=1800
 
 PLAN_SESSION_ID=""
+SKIP_PLANNING=false
 
 while true; do
+    if [[ "$SKIP_PLANNING" != "true" ]]; then
     # ── Planning phase (CfA Phase 2: DRAFT → PLAN_ASSERT → PLAN) ──
     chrome_header "PLAN (CfA Phase 2)"
     [[ $BACKTRACK_COUNT -gt 0 ]] && echo -e "  ${C_YELLOW}Backtrack #${BACKTRACK_COUNT}${C_RESET}" >&2
@@ -483,7 +533,7 @@ while true; do
       [[ -f "$BACKTRACK_FEEDBACK_FILE" ]] && BACKTRACK_CTX=$(cat "$BACKTRACK_FEEDBACK_FILE")
 
       INTENT_CTX=()
-      [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]] && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
+      [[ -s "$PROXY_CTX_FILE" ]]                  && INTENT_CTX+=(--context-file "$PROXY_CTX_FILE")
       [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]   && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
       [[ -s "$MEMORY_CTX_FILE" ]]                 && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
@@ -516,6 +566,8 @@ Original task: $ORIGINAL_TASK"
 
     # Extract plan session ID for execute --resume
     [[ -f "$INFRA_DIR/.plan-session-id" ]] && PLAN_SESSION_ID=$(cat "$INFRA_DIR/.plan-session-id")
+    fi  # end SKIP_PLANNING guard
+    SKIP_PLANNING=false
 
     # ── Execution phase (CfA Phase 3: PLAN → TASK → COMPLETED_WORK) ──
     chrome_header "EXECUTE (CfA Phase 3)"
@@ -545,7 +597,7 @@ Original task: $ORIGINAL_TASK"
       [[ -f "$BACKTRACK_FEEDBACK_FILE" ]] && BACKTRACK_CTX=$(cat "$BACKTRACK_FEEDBACK_FILE")
 
       INTENT_CTX=()
-      [[ -s "$POC_PROJECT_DIR/OBSERVATIONS.md" ]] && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/OBSERVATIONS.md")
+      [[ -s "$PROXY_CTX_FILE" ]]                  && INTENT_CTX+=(--context-file "$PROXY_CTX_FILE")
       [[ -s "$POC_PROJECT_DIR/ESCALATION.md" ]]   && INTENT_CTX+=(--context-file "$POC_PROJECT_DIR/ESCALATION.md")
       [[ -s "$MEMORY_CTX_FILE" ]]                 && INTENT_CTX+=(--context-file "$MEMORY_CTX_FILE")
 
@@ -580,7 +632,7 @@ Original task: $ORIGINAL_TASK"
       ((BACKTRACK_COUNT++))
       echo -e "  ${C_YELLOW}Execution failed (infrastructure) — retrying (attempt #$BACKTRACK_COUNT)...${C_RESET}" >&2
       session_log STATE "Execution infrastructure failure — retry #$BACKTRACK_COUNT"
-      # Re-enter the loop but skip planning (go straight to execute)
+      SKIP_PLANNING=true  # Re-enter the loop but skip planning (go straight to execute)
       continue
     fi
 
@@ -657,24 +709,30 @@ for pid in "${INTENT_EXTRACT_PIDS[@]+"${INTENT_EXTRACT_PIDS[@]}"}"; do
   wait "$pid" 2>/dev/null || true
 done
 
-# 6. Observations from execution (corrections, autonomous decisions)
+# 6. Observations/escalation from execution → proxy typed stores
 if [[ -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
+  # observations → proxy.md (always-loaded human preferential context)
   python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
     --stream "$INFRA_DIR/.exec-stream.jsonl" \
-    --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
+    --output "$POC_PROJECT_DIR/proxy.md" \
     --scope observations || true
 
+  # escalation → proxy-tasks/ (fuzzy-retrieved domain thresholds)
+  _ESC_TS=$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$POC_PROJECT_DIR/proxy-tasks"
   python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
     --stream "$INFRA_DIR/.exec-stream.jsonl" \
-    --output "$POC_PROJECT_DIR/ESCALATION.md" \
+    --output "$POC_PROJECT_DIR/proxy-tasks/${_ESC_TS}-exec.md" \
     --scope escalation || true
 fi
 
-# 7. Intent-vs-outcome alignment (Phase 2: INTENT.md archived to infra dir)
+# 7. Intent-vs-outcome alignment → project/tasks/ (procedural alignment patterns)
 if [[ -f "$INFRA_DIR/INTENT.md" && -f "$INFRA_DIR/.exec-stream.jsonl" ]]; then
+  _IA_TS=$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$POC_PROJECT_DIR/tasks"
   python3 "$SCRIPT_DIR/scripts/summarize_session.py" \
     --stream "$INFRA_DIR/.exec-stream.jsonl" \
-    --output "$POC_PROJECT_DIR/OBSERVATIONS.md" \
+    --output "$POC_PROJECT_DIR/tasks/${_IA_TS}-alignment.md" \
     --scope intent-alignment \
     --context "$INFRA_DIR/INTENT.md" || true
 fi
@@ -690,10 +748,22 @@ fi
 
 # 11. Phase 5: Reinforce memory entries that were retrieved and used this session
 if [[ -s "$RETRIEVED_IDS_FILE" ]]; then
-  python3 "$SCRIPT_DIR/scripts/track_reinforcement.py" \
-    --ids-file "$RETRIEVED_IDS_FILE" \
-    --memory "$POC_PROJECT_DIR/MEMORY.md" \
-    --memory "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" 2>/dev/null || true
+  REINFORCE_ARGS=()
+  for _rtasks_dir in "$POC_PROJECT_DIR/tasks" "$(dirname "$POC_PROJECT_DIR")/tasks" "$POC_PROJECT_DIR/proxy-tasks"; do
+    if [[ -d "$_rtasks_dir" ]]; then
+      for _rf in "$_rtasks_dir"/*.md; do
+        [[ -s "$_rf" ]] && REINFORCE_ARGS+=(--memory "$_rf")
+      done 2>/dev/null
+    fi
+  done
+  # Backward compat: also reinforce legacy MEMORY.md files if present
+  [[ -s "$POC_PROJECT_DIR/MEMORY.md" ]] && REINFORCE_ARGS+=(--memory "$POC_PROJECT_DIR/MEMORY.md")
+  [[ -s "$(dirname "$POC_PROJECT_DIR")/MEMORY.md" ]] && REINFORCE_ARGS+=(--memory "$(dirname "$POC_PROJECT_DIR")/MEMORY.md")
+  if [[ ${#REINFORCE_ARGS[@]} -gt 0 ]]; then
+    python3 "$SCRIPT_DIR/scripts/track_reinforcement.py" \
+      --ids-file "$RETRIEVED_IDS_FILE" \
+      "${REINFORCE_ARGS[@]}" 2>/dev/null || true
+  fi
 fi
 
 # Stop the tail
@@ -709,8 +779,8 @@ else
   echo "    (no changes this session)" >&2
 fi
 echo "" >&2
-echo -e "  ${C_DIM}Project memory: $POC_PROJECT_DIR/MEMORY.md${C_RESET}" >&2
-echo -e "  ${C_DIM}Global memory: $POC_OUTPUT_DIR/MEMORY.md${C_RESET}" >&2
+echo -e "  ${C_DIM}Project memory: $POC_PROJECT_DIR/institutional.md (+ tasks/)${C_RESET}" >&2
+echo -e "  ${C_DIM}Global memory: $POC_OUTPUT_DIR/institutional.md (+ tasks/)${C_RESET}" >&2
 chrome_heavy_line
 chrome_beep
 session_log SESSION "Ended -- Deliverables: ${SESSION_DELIVERABLES:-none}"

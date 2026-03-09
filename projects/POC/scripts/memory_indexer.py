@@ -733,6 +733,43 @@ def format_chunks(results: list[tuple[str, str, float]]) -> str:
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+# -- Scope weighting ----------------------------------------------------------
+
+SCOPE_MULTIPLIERS = {
+    'team': 1.5,
+    'project': 1.2,
+    'global': 1.0,
+}
+
+
+def classify_scope(source_path: str, base_project_dir: str) -> str:
+    """Classify source scope: 'team' (.sessions/ path), 'project', or 'global'."""
+    if not base_project_dir:
+        return 'global'
+    try:
+        p = Path(source_path).resolve()
+        base = Path(base_project_dir).resolve()
+        rel = p.relative_to(base)
+        if '.sessions' in rel.parts:
+            return 'team'
+        return 'project'
+    except ValueError:
+        return 'global'
+
+
+def apply_scope_multipliers(
+    results: list[tuple[str, str, float]],
+    base_project_dir: str,
+) -> list[tuple[str, str, float]]:
+    """Multiply scores by scope-level weight: team x1.5, project x1.2, global x1.0."""
+    if not base_project_dir:
+        return results
+    return [
+        (source, content, score * SCOPE_MULTIPLIERS.get(classify_scope(source, base_project_dir), 1.0))
+        for source, content, score in results
+    ]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Memory indexer and retriever")
     parser.add_argument("--db", required=True, help="Path to SQLite database file")
@@ -744,13 +781,23 @@ def main() -> int:
                         help="Number of chunks to retrieve")
     parser.add_argument("--retrieved-ids", default="", dest="retrieved_ids",
                         help="Path to write retrieved entry IDs for reinforcement tracking")
+    parser.add_argument("--scope-base-dir", default="", dest="scope_base_dir",
+                        help="Project base directory for scope-level score multiplier (team > project > global)")
     args = parser.parse_args()
 
     output_path = Path(args.output)
     output_path.write_text("")  # ensure file exists (empty = no relevant memory)
 
-    # Filter to existing, non-empty source files
-    sources = [s for s in args.sources if Path(s).is_file() and Path(s).stat().st_size > 0]
+    # Filter to existing, non-empty source files; expand directory paths to contained .md files
+    sources = []
+    for s in args.sources:
+        p = Path(s)
+        if p.is_dir():
+            for f in sorted(p.glob('*.md')):
+                if f.is_file() and f.stat().st_size > 0:
+                    sources.append(str(f))
+        elif p.is_file() and p.stat().st_size > 0:
+            sources.append(s)
     if not sources:
         print("[memory_indexer] No non-empty source files found, skipping.", file=sys.stderr)
         return 0
@@ -821,6 +868,9 @@ def main() -> int:
 
     # Apply prominence weighting (replaces apply_temporal_decay — removes evergreen exemption)
     results = apply_prominence_weights(results, conn)
+
+    if args.scope_base_dir:
+        results = apply_scope_multipliers(results, args.scope_base_dir)
     results.sort(key=lambda x: x[2], reverse=True)
     results = mmr_rerank(results, top_k=args.top_k)
 

@@ -32,7 +32,12 @@ class TestStateActions(unittest.TestCase):
         self.assertNotIn("revise-plan", actions)
 
     def test_dialog_in_all_states(self):
+        # FAILURE is a decision state (retry/escalate/backtrack/withdraw), not an
+        # assert or escalate state — it deliberately has no "dialog" action.
+        DECISION_STATES = {"FAILURE"}
         for state in mod.STATE_ACTIONS:
+            if state in DECISION_STATES:
+                continue
             self.assertIn("dialog", mod.STATE_ACTIONS[state],
                           f"dialog missing from {state}")
 
@@ -356,6 +361,171 @@ class TestDialogAction(unittest.TestCase):
         block = mod.build_dialog_history_block("HUMAN: hi\nAGENT: hello")
         self.assertIn("DIALOG HISTORY", block)
         self.assertIn("HUMAN: hi", block)
+
+
+class TestFailureStateDefinition(unittest.TestCase):
+    """FAILURE state is present in STATE_ACTIONS with correct decision actions."""
+
+    def test_failure_state_present(self):
+        self.assertIn("FAILURE", mod.STATE_ACTIONS)
+
+    def test_failure_state_actions_exact(self):
+        self.assertEqual(
+            mod.STATE_ACTIONS["FAILURE"],
+            ["retry", "escalate", "backtrack", "withdraw"])
+
+    def test_failure_state_has_no_dialog(self):
+        """FAILURE is a decision state — dialog is intentionally absent."""
+        self.assertNotIn("dialog", mod.STATE_ACTIONS["FAILURE"])
+
+    def test_failure_state_has_retry(self):
+        self.assertIn("retry", mod.STATE_ACTIONS["FAILURE"])
+
+    def test_failure_state_has_backtrack(self):
+        self.assertIn("backtrack", mod.STATE_ACTIONS["FAILURE"])
+
+
+class TestParseOutputFailureState(unittest.TestCase):
+    """parse_output correctly accepts/rejects actions at FAILURE state."""
+
+    def _valid(self):
+        return set(mod.STATE_ACTIONS["FAILURE"])
+
+    def test_retry_valid_at_failure(self):
+        action, feedback = mod.parse_output("retry\t", self._valid())
+        self.assertEqual(action, "retry")
+        self.assertEqual(feedback, "")
+
+    def test_escalate_with_feedback_valid_at_failure(self):
+        action, feedback = mod.parse_output(
+            "escalate\tI need to check the file permissions", self._valid())
+        self.assertEqual(action, "escalate")
+        self.assertEqual(feedback, "I need to check the file permissions")
+
+    def test_backtrack_with_feedback_valid_at_failure(self):
+        action, feedback = mod.parse_output(
+            "backtrack\tThe plan assumed network access but this machine is offline",
+            self._valid())
+        self.assertEqual(action, "backtrack")
+        self.assertEqual(feedback, "The plan assumed network access but this machine is offline")
+
+    def test_withdraw_valid_at_failure(self):
+        action, feedback = mod.parse_output("withdraw\t", self._valid())
+        self.assertEqual(action, "withdraw")
+        self.assertEqual(feedback, "")
+
+    def test_dialog_invalid_at_failure(self):
+        """dialog is not a valid action at FAILURE — should fallback."""
+        action, _ = mod.parse_output("dialog\tWhat went wrong?", self._valid())
+        self.assertEqual(action, "__fallback__")
+
+    def test_approve_invalid_at_failure(self):
+        action, _ = mod.parse_output("approve\t", self._valid())
+        self.assertEqual(action, "__fallback__")
+
+    def test_clarify_invalid_at_failure(self):
+        action, _ = mod.parse_output("clarify\tsomething", self._valid())
+        self.assertEqual(action, "__fallback__")
+
+
+class TestBuildPromptFailureState(unittest.TestCase):
+    """build_prompt routes FAILURE to FAILURE_PROMPT, not ASSERT_PROMPT/ESCALATE_PROMPT."""
+
+    def test_failure_uses_failure_prompt_not_assert(self):
+        prompt = mod.build_prompt("FAILURE", "try again")
+        # FAILURE_PROMPT contains retry/escalate/backtrack classification rules
+        self.assertIn("RETRY", prompt)
+        self.assertIn("BACKTRACK", prompt)
+        self.assertIn("ESCALATE", prompt.upper())
+
+    def test_failure_prompt_includes_response(self):
+        prompt = mod.build_prompt("FAILURE", "try again please")
+        self.assertIn("try again please", prompt)
+
+    def test_failure_prompt_includes_valid_actions(self):
+        prompt = mod.build_prompt("FAILURE", "let me look")
+        # Valid actions are listed in the prompt
+        self.assertIn("retry", prompt)
+        self.assertIn("escalate", prompt)
+        self.assertIn("backtrack", prompt)
+        self.assertIn("withdraw", prompt)
+
+    def test_failure_prompt_does_not_use_assert_prompt(self):
+        """FAILURE should NOT get the assert-state prompt language."""
+        prompt = mod.build_prompt("FAILURE", "try again")
+        # ASSERT_PROMPT starts with "You are a CfA (Conversation for Action) review classifier."
+        # and has "APPROVE:" and "CORRECT:" rules — these should NOT appear
+        self.assertNotIn("APPROVE:", prompt)
+        self.assertNotIn("CORRECT:", prompt)
+
+    def test_failure_prompt_does_not_use_escalate_prompt(self):
+        """FAILURE should NOT get the escalate-state prompt language."""
+        prompt = mod.build_prompt("FAILURE", "try again")
+        # ESCALATE_PROMPT has "CLARIFY:" rule — should not appear in FAILURE prompt
+        self.assertNotIn("CLARIFY:", prompt)
+
+    def test_failure_prompt_describes_failure_context(self):
+        """FAILURE_PROMPT should explain that a process failed."""
+        prompt = mod.build_prompt("FAILURE", "retry please")
+        # The FAILURE_PROMPT says "A process has failed"
+        self.assertIn("failed", prompt.lower())
+
+
+class TestClassifyFailureState(unittest.TestCase):
+    """classify() correctly handles the FAILURE state end-to-end."""
+
+    def _mock_llm(self, stdout, returncode=0):
+        mock = MagicMock()
+        mock.returncode = returncode
+        mock.stdout = stdout
+        return mock
+
+    def test_failure_retry(self):
+        with patch('subprocess.run', return_value=self._mock_llm("retry\t")):
+            result = mod.classify("FAILURE", "try again")
+        self.assertEqual(result, "retry\t")
+
+    def test_failure_escalate_with_feedback(self):
+        with patch('subprocess.run',
+                   return_value=self._mock_llm("escalate\tI need to check the logs")):
+            result = mod.classify("FAILURE", "let me look at the logs")
+        self.assertTrue(result.startswith("escalate\t"))
+        self.assertIn("logs", result)
+
+    def test_failure_backtrack(self):
+        with patch('subprocess.run',
+                   return_value=self._mock_llm(
+                       "backtrack\tThe plan assumed network access")):
+            result = mod.classify("FAILURE", "wrong approach, rethink it")
+        self.assertTrue(result.startswith("backtrack\t"))
+
+    def test_failure_withdraw(self):
+        with patch('subprocess.run', return_value=self._mock_llm("withdraw\t")):
+            result = mod.classify("FAILURE", "forget it, cancel everything")
+        self.assertEqual(result, "withdraw\t")
+
+    def test_failure_llm_returns_dialog_gives_fallback(self):
+        """If LLM hallucinates 'dialog' at FAILURE, it should fallback."""
+        with patch('subprocess.run',
+                   return_value=self._mock_llm("dialog\tWhat went wrong?")):
+            result = mod.classify("FAILURE", "what happened?")
+        self.assertTrue(result.startswith("__fallback__"))
+
+    def test_failure_empty_response_returns_fallback(self):
+        result = mod.classify("FAILURE", "")
+        self.assertTrue(result.startswith("__fallback__"))
+
+    def test_failure_llm_timeout_returns_fallback(self):
+        with patch('subprocess.run',
+                   side_effect=subprocess.TimeoutExpired("claude", 30)):
+            result = mod.classify("FAILURE", "retry please")
+        self.assertTrue(result.startswith("__fallback__"))
+
+    def test_failure_llm_invalid_action_returns_fallback(self):
+        with patch('subprocess.run',
+                   return_value=self._mock_llm("approve\tsomething")):
+            result = mod.classify("FAILURE", "looks good to retry")
+        self.assertTrue(result.startswith("__fallback__"))
 
 
 if __name__ == "__main__":
