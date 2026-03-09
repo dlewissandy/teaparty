@@ -352,7 +352,7 @@ else
 
     if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
         --project-dir "$POC_PROJECT_DIR" --task "$TASK" \
-        --proxy-model "$PROXY_MODEL" "${INTENT_CTX[@]}"; then
+        --proxy-model "$PROXY_MODEL" ${INTENT_CTX[@]+"${INTENT_CTX[@]}"}; then
       INTENT_APPROVED=true
       session_log STATE "INTENT_ASSERT -> approve -> INTENT"
       # intent.sh records proxy outcomes internally — no proxy_record here
@@ -541,7 +541,7 @@ while true; do
       if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
           --project-dir "$POC_PROJECT_DIR" --task "$ORIGINAL_TASK" \
           --proxy-model "$PROXY_MODEL" \
-          --backtrack-context "$BACKTRACK_CTX" "${INTENT_CTX[@]}"; then
+          --backtrack-context "$BACKTRACK_CTX" ${INTENT_CTX[@]+"${INTENT_CTX[@]}"}; then
         if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
           cp "$PROJECT_WORKDIR/INTENT.md" "$INFRA_DIR/INTENT.md"
           rm "$PROJECT_WORKDIR/INTENT.md"
@@ -605,7 +605,7 @@ Original task: $ORIGINAL_TASK"
       if "$SCRIPT_DIR/intent.sh" --cwd "$PROJECT_WORKDIR" --stream-dir "$INFRA_DIR" \
           --project-dir "$POC_PROJECT_DIR" --task "$ORIGINAL_TASK" \
           --proxy-model "$PROXY_MODEL" \
-          --backtrack-context "$BACKTRACK_CTX" "${INTENT_CTX[@]}"; then
+          --backtrack-context "$BACKTRACK_CTX" ${INTENT_CTX[@]+"${INTENT_CTX[@]}"}; then
         if [[ -f "$PROJECT_WORKDIR/INTENT.md" ]]; then
           cp "$PROJECT_WORKDIR/INTENT.md" "$INFRA_DIR/INTENT.md"
           rm "$PROJECT_WORKDIR/INTENT.md"

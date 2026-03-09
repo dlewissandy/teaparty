@@ -197,7 +197,7 @@ while true; do
     --proxy-model "$TEAM_PROXY_MODEL" \
     ${DISPATCH_CFA_STATE:+--cfa-state "$DISPATCH_CFA_STATE"} \
     ${AUTO_APPROVE_PLAN:+--auto-approve-plan} \
-    "${ADD_DIR_ARGS[@]}" \
+    ${ADD_DIR_ARGS[@]+"${ADD_DIR_ARGS[@]}"} \
     --filter-prefix "  [$TEAM] " \
     "$TASK") || DISPATCH_EXIT=$?
 

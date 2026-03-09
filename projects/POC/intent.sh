@@ -54,7 +54,7 @@ INITIAL_PROMPT="Task: $TASK
 
 Write INTENT.md to: $CWD/INTENT.md (this is the absolute path to your working directory)"
 
-for ctx_file in "${CONTEXT_FILES[@]}"; do
+for ctx_file in ${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}; do
   if [[ -f "$ctx_file" && -s "$ctx_file" ]]; then
     LABEL=$(basename "$ctx_file")
     DIR_LABEL=$(basename "$(dirname "$ctx_file")")
