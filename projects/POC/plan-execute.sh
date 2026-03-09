@@ -86,6 +86,11 @@ done
 for ctx in ${CONTEXT_FILES[@]+"${CONTEXT_FILES[@]}"}; do
   if [[ -f "$ctx" && -s "$ctx" ]]; then
     LABEL=$(basename "$ctx")
+    # Memory context temp files get a semantic label so agents don't
+    # confuse historical learnings with current task instructions.
+    if [[ "$LABEL" == memory-ctx-* ]]; then
+      LABEL="HISTORICAL LEARNINGS (background from prior sessions — not current task)"
+    fi
     TASK="--- $LABEL ---
 $(cat "$ctx")
 --- end $LABEL ---

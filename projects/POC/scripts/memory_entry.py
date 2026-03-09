@@ -55,6 +55,8 @@ class MemoryEntry:
     last_reinforced: str       # ISO date string e.g. '2026-03-01'
     created_at: str            # ISO date string
     content: str               # the learning text (after frontmatter)
+    session_id: str = ""       # originating session ID (e.g. 'session-20260309-064427')
+    session_task: str = ""     # originating task description (truncated)
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
@@ -65,6 +67,8 @@ def make_entry(
     domain: str = 'team',
     importance: float = 0.5,
     phase: str = 'unknown',
+    session_id: str = '',
+    session_task: str = '',
 ) -> MemoryEntry:
     """Create a new MemoryEntry with a fresh uuid4 id and today's date."""
     today = date.today().isoformat()
@@ -79,6 +83,8 @@ def make_entry(
         last_reinforced=today,
         created_at=today,
         content=content,
+        session_id=session_id,
+        session_task=session_task[:200] if session_task else '',
     )
 
 
@@ -175,9 +181,14 @@ def serialize_entry(entry: MemoryEntry) -> str:
         f'reinforcement_count: {entry.reinforcement_count}',
         f"last_reinforced: '{entry.last_reinforced}'",
         f"created_at: '{entry.created_at}'",
-        '---',
-        entry.content,
     ]
+    if entry.session_id:
+        lines.append(f"session_id: '{entry.session_id}'")
+    if entry.session_task:
+        # Escape single quotes in task description
+        safe_task = entry.session_task.replace("'", "''")
+        lines.append(f"session_task: '{safe_task}'")
+    lines.extend(['---', entry.content])
     return '\n'.join(lines)
 
 

@@ -86,6 +86,8 @@ def _wrap_learnings_with_frontmatter(
 
     Falls back to returning learnings unchanged if memory_entry import fails.
     The '## [date] Learning' header is preserved inside the content field.
+    Includes session_id and session_task from environment when available,
+    so entries are structurally tied to their originating session.
     """
     try:
         import sys as _sys
@@ -97,6 +99,20 @@ def _wrap_learnings_with_frontmatter(
 
     importance = _SCOPE_IMPORTANCE.get(scope, 0.5)
     effective_domain = domain or _SCOPE_DOMAIN.get(scope, "team")
+
+    # Extract session context from environment for provenance tracking
+    session_dir = os.environ.get("POC_SESSION_DIR", "")
+    session_id = ""
+    if session_dir:
+        session_id = "session-" + os.path.basename(session_dir)
+    # First line of original task (before intent/posture prepending)
+    session_task = ""
+    original_task = os.environ.get("ORIGINAL_TASK", "")
+    if not original_task:
+        # Fallback: check if task was passed; take first meaningful line
+        original_task = os.environ.get("POC_TASK", "")
+    if original_task:
+        session_task = original_task.split("\n")[0].strip()[:200]
 
     # Split on '## [' boundaries to get individual entry blocks
     import re as _re
@@ -114,6 +130,8 @@ def _wrap_learnings_with_frontmatter(
                 domain=effective_domain,
                 importance=importance,
                 phase=phase,
+                session_id=session_id,
+                session_task=session_task,
             )
             wrapped_parts.append(serialize_entry(entry))
         except Exception:

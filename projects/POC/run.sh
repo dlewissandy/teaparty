@@ -310,6 +310,7 @@ CFA_STATE_FILE="$INFRA_DIR/.cfa-state.json"
 PROXY_MODEL="$POC_PROJECT_DIR/.proxy-confidence.json"
 BACKTRACK_FEEDBACK_FILE="$INFRA_DIR/.backtrack-feedback.txt"
 ORIGINAL_TASK="$TASK"
+export ORIGINAL_TASK
 BACKTRACK_COUNT=0
 
 # Initialize root CfA state and export for child processes (dispatch.sh dispatches)

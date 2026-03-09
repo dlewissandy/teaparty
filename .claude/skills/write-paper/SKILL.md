@@ -17,6 +17,8 @@ You are writing a paper for peer-reviewed journal submission. This skill provide
 1. Clarify the research question or thesis. What gap does this paper fill?
 2. Identify the target journal (or class of journals) and its conventions — word limits, citation style, reporting guidelines, open-access policy.
 3. Conduct a literature review. Search broadly, then narrow. Build a working bibliography of 15-50 sources depending on paper type.
+   - **Check for existing research**: Look in `docs/research/` for prior research projects. If a relevant `synthesis.md` and `bibliography.md` exist, use them as your literature review foundation rather than starting from scratch. Query the research index for additional sources: `python3 scripts/research/research_indexer.py --db docs/research/<slug>/.research.db --query "..." --top-k 10`
+   - If no prior research exists and the topic warrants deep literature review, consider running the [research skill](../research/SKILL.md) first.
 4. For each key source, note: findings, methods, limitations, and how it relates to your argument.
 5. Identify the specific contribution this paper makes. If you can't state it in one sentence, the scope isn't clear yet.
 
