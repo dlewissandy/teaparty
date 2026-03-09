@@ -644,10 +644,15 @@ chrome_header "MERGE"
 
 # Commit any uncommitted deliverables in the session worktree
 # (files written directly by the uber team or merged from dispatch branches)
-COMMIT_SUBJECT="${TASK:0:72}"
+COMMIT_SUBJECT="${ORIGINAL_TASK:0:72}"
 git -C "$SESSION_WORKTREE" add -A 2>/dev/null || true
 if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
-  git -C "$SESSION_WORKTREE" commit -m "$COMMIT_SUBJECT" 2>&1 || true
+  SESSION_CHANGED=$(git -C "$SESSION_WORKTREE" diff --cached --name-only 2>/dev/null)
+  SESSION_INTERIM_MSG=$(python3 "$SCRIPT_DIR/scripts/generate_commit_message.py" \
+    --task "${ORIGINAL_TASK:0:500}" \
+    --team "$PROJECT" \
+    --files "$SESSION_CHANGED" 2>/dev/null) || SESSION_INTERIM_MSG="$COMMIT_SUBJECT"
+  git -C "$SESSION_WORKTREE" commit -m "$SESSION_INTERIM_MSG" 2>&1 || true
 fi
 
 # Collect session commit log before squashing (for the commit body)
@@ -666,17 +671,12 @@ SESSION_DELIVERABLES=""
 if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
   SESSION_DELIVERABLES=$(git -C "$POC_REPO_DIR" diff --cached --name-only 2>/dev/null | sort)
   SQUASH_MSG_FILE=$(mktemp)
-  {
-    echo "$PROJECT: ${TASK:0:72}"
-    echo ""
-    if [[ -n "$SESSION_COMMITS" ]]; then
-      echo "Squashed commits:"
-      echo "$SESSION_COMMITS"
-      echo ""
-    fi
-    echo "Files changed:"
-    echo "$SESSION_DELIVERABLES" | sed 's/^/- /'
-  } > "$SQUASH_MSG_FILE"
+  python3 "$SCRIPT_DIR/scripts/generate_commit_message.py" \
+    --task "${ORIGINAL_TASK:0:500}" \
+    --team "$PROJECT" \
+    --dispatch-log "$SESSION_COMMITS" \
+    --files "$SESSION_DELIVERABLES" > "$SQUASH_MSG_FILE" 2>/dev/null || \
+    { echo "$PROJECT: ${ORIGINAL_TASK:0:72}"; echo ""; echo "Files changed:"; echo "$SESSION_DELIVERABLES" | sed 's/^/- /'; } > "$SQUASH_MSG_FILE"
   git -C "$POC_REPO_DIR" commit -F "$SQUASH_MSG_FILE" 2>&1 || true
   rm -f "$SQUASH_MSG_FILE"
 else

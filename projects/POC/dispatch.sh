@@ -269,18 +269,14 @@ if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
 
   # Commit squashed changes with a structured message
   if ! git -C "$SESSION_WORKTREE" diff --cached --quiet 2>/dev/null; then
+    CHANGED_FILES=$(git -C "$SESSION_WORKTREE" diff --cached --name-only 2>/dev/null)
     SQUASH_MSG_FILE=$(mktemp)
-    {
-      echo "$TEAM: ${DISPATCH_SUBJECT:-dispatch}"
-      echo ""
-      if [[ -n "$DISPATCH_LOG" ]]; then
-        echo "Squashed commits:"
-        echo "$DISPATCH_LOG"
-        echo ""
-      fi
-      echo "Files changed:"
-      git -C "$SESSION_WORKTREE" diff --cached --name-only 2>/dev/null | sed 's/^/- /'
-    } > "$SQUASH_MSG_FILE"
+    python3 "$SCRIPT_DIR/scripts/generate_commit_message.py" \
+      --task "${DISPATCH_SUBJECT:-dispatch}" \
+      --team "$TEAM" \
+      --dispatch-log "$DISPATCH_LOG" \
+      --files "$CHANGED_FILES" > "$SQUASH_MSG_FILE" 2>/dev/null || \
+      echo "$TEAM: ${DISPATCH_SUBJECT:-dispatch}" > "$SQUASH_MSG_FILE"
     git -C "$SESSION_WORKTREE" commit -F "$SQUASH_MSG_FILE" 2>&1 \
       | sed "s/^/  $(printf '\033[2m')[relay]     /" | sed "s/$/$(printf '\033[0m')/" >&2 || true
     rm -f "$SQUASH_MSG_FILE"
