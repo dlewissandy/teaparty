@@ -1,0 +1,25 @@
+{
+  "global_threshold": 0.8,
+  "generative_threshold": 0.95,
+  "entries": {
+    "PLAN_ASSERT|poc": {
+      "state": "PLAN_ASSERT",
+      "task_type": "poc",
+      "approve_count": 4,
+      "correct_count": 0,
+      "reject_count": 0,
+      "total_count": 4,
+      "last_updated": "2026-03-10",
+      "differentials": [],
+      "ema_approval_rate": 0.8799499999999998,
+      "artifact_lengths": [
+        1095,
+        4000,
+        4000,
+        2644
+      ],
+      "last_approved_length": 2644,
+      "conversations": []
+    }
+  }
+}

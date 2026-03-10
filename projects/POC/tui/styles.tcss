@@ -1,0 +1,160 @@
+/* TeaParty POC TUI — Textual CSS */
+
+Screen {
+    background: $surface;
+}
+
+/* ── Section titles ── */
+.section-title {
+    text-style: bold;
+    color: $accent;
+    padding: 0 1;
+}
+
+/* ── Dashboard: 3-pane layout ── */
+#top-panes {
+    height: 1fr;
+    min-height: 8;
+}
+
+#left-pane {
+    width: 30%;
+    border-right: tall $primary-lighten-1;
+}
+
+#right-pane {
+    width: 70%;
+}
+
+#project-table {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#project-table > .datatable--header {
+    text-style: bold;
+    color: $accent;
+}
+
+#project-table > .datatable--cursor {
+    background: $accent 20%;
+}
+
+#session-table {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#session-table > .datatable--header {
+    text-style: bold;
+    color: $accent;
+}
+
+#session-table > .datatable--cursor {
+    background: $accent 20%;
+}
+
+#bottom-pane {
+    height: auto;
+    max-height: 14;
+    border-top: tall $primary-lighten-1;
+}
+
+#dash-dispatch-panel {
+    height: auto;
+    max-height: 12;
+    padding: 0 1;
+    margin: 0 1;
+}
+
+/* ── Drilldown ── */
+#drilldown-header {
+    dock: top;
+    height: 3;
+    background: $primary-darken-3;
+    color: $text;
+    padding: 0 2;
+}
+
+#activity-log {
+    width: 70%;
+    border-right: tall $primary-lighten-1;
+    padding: 0 1;
+}
+
+#dispatch-panel {
+    padding: 0 1;
+}
+
+#files-panel {
+    padding: 0 1;
+}
+
+#input-area {
+    dock: bottom;
+    height: auto;
+    max-height: 6;
+    background: $panel;
+    border: tall $warning;
+    padding: 0 1;
+    display: none;
+}
+
+#input-area.visible {
+    display: block;
+}
+
+#input-area Input {
+    margin-top: 1;
+}
+
+.agent-label {
+    color: $accent;
+}
+
+.tool-dim {
+    color: $text-muted;
+}
+
+.error-text {
+    color: $error;
+}
+
+/* ── Diagnostics ── */
+#process-table {
+    height: 1fr;
+    margin: 1 2 0 2;
+    max-height: 50%;
+}
+
+#health-panel {
+    height: 1fr;
+    margin: 0 2 1 2;
+    border: tall $primary-lighten-1;
+    padding: 0 1;
+}
+
+/* ── Launch ── */
+#launch-form {
+    align: center middle;
+    width: 70;
+    height: auto;
+    border: tall $accent;
+    padding: 2 3;
+    background: $panel;
+}
+
+#launch-form .form-title {
+    text-style: bold;
+    color: $accent;
+    margin-bottom: 1;
+}
+
+#launch-form Input {
+    margin-bottom: 1;
+}
+
+#launch-form Button {
+    margin-top: 1;
+    width: 100%;
+}
