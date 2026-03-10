@@ -18,12 +18,20 @@ Usage:
         [--max-turns N] "<task>"
 """
 import json
+import os
+import signal
 import subprocess
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass, field
+
+
+# ── Constants ──
+
+DEFAULT_AGENT_TIMEOUT = 3600  # 1 hour — sufficient for most single-turn work
+LIAISON_TIMEOUT = 7200        # 2 hours — liaison agents dispatch to subteams
 
 
 # ── Data structures ──
@@ -188,8 +196,32 @@ def extract_result_text(stream_file):
 
 # ── Agent execution ──
 
+def _get_agent_timeout(agents_json, agent_name):
+    """Get timeout for an agent from its JSON config.
+
+    Agents can specify a "timeout" field in their config (seconds).
+    Falls back to LIAISON_TIMEOUT for agents whose names end in '-liaison'
+    (they dispatch to subteams and need longer), or DEFAULT_AGENT_TIMEOUT
+    for all others.
+    """
+    try:
+        agents = json.loads(agents_json) if isinstance(agents_json, str) \
+            else agents_json
+        agent_cfg = agents.get(agent_name, {})
+        if "timeout" in agent_cfg:
+            return int(agent_cfg["timeout"])
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+
+    # Liaison agents dispatch to subteams — need longer timeout
+    if agent_name.endswith("-liaison"):
+        return LIAISON_TIMEOUT
+    return DEFAULT_AGENT_TIMEOUT
+
+
 def run_agent(agents_json, agent_name, task, settings_file, cwd,
-              stream_file, extra_args=None, resume_session=None):
+              stream_file, extra_args=None, resume_session=None,
+              timeout=None):
     cmd = [
         "claude", "-p",
         "--output-format", "stream-json",
@@ -206,11 +238,32 @@ def run_agent(agents_json, agent_name, task, settings_file, cwd,
     if extra_args:
         cmd += extra_args
 
+    if timeout is None:
+        timeout = _get_agent_timeout(agents_json, agent_name)
+
     with open(stream_file, "w") as sf:
-        subprocess.run(
-            cmd, input=task, stdout=sf, stderr=sys.stderr,
-            text=True, cwd=cwd, timeout=3600,
+        # Start in new process group so we can kill the entire tree on timeout
+        proc = subprocess.Popen(
+            cmd, stdin=subprocess.PIPE, stdout=sf, stderr=sys.stderr,
+            text=True, cwd=cwd, start_new_session=True,
         )
+        try:
+            proc.communicate(input=task, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # Kill the entire process group (agent + all child processes)
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+                proc.wait()
+            raise
 
     return parse_stream(stream_file)
 
@@ -368,6 +421,29 @@ def orchestrate(agents_json, lead_name, task, settings_file, cwd,
 
             try:
                 r = fut.result()
+            except subprocess.TimeoutExpired as exc:
+                timeout_s = _get_agent_timeout(agents_json, agent_name)
+                # Extract last activity from partial stream for diagnosis
+                last_activity = ""
+                try:
+                    last_activity = extract_result_text(
+                        f"{output_stream}.{agent_name}-{_run_counter:03d}")
+                    if last_activity:
+                        last_activity = f" | last: {last_activity[:120]}"
+                except OSError:
+                    pass
+                log(session_log, "TIMEOUT",
+                    f"{agent_name}: timed out after {timeout_s}s"
+                    f"{last_activity}")
+                # Notify anyone waiting on this agent
+                for mb in mailboxes.values():
+                    if mb.resolve_pending(agent_name):
+                        mb.enqueue(
+                            agent_name,
+                            f"{agent_name} timed out after {timeout_s}s. "
+                            "The subteam process may still be running.",
+                            f"{agent_name} timeout")
+                continue
             except Exception as exc:
                 log(session_log, "ERROR", f"{agent_name}: {exc}")
                 # Notify anyone waiting on this agent

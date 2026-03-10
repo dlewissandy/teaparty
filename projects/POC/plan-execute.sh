@@ -603,6 +603,7 @@ else
 
   PLANS_BEFORE=$(mktemp)
   ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" || true
+  PLAN_START_TS=$(date +%s)
 
   run_claude "$PLAN_STREAM" "$TASK" \
     --permission-mode plan
@@ -691,16 +692,41 @@ else
   # produced a plan despite encountering intermediate permission errors,
   # those errors were non-fatal and should not abort the session.
   relocate_new_plans() {
+    # Find plans created by THIS session's planning phase.
+    # ~/.claude/plans/ is a shared global directory — concurrent Claude Code
+    # sessions can write plans there too. Filter by:
+    #   1. New (not in PLANS_BEFORE snapshot)
+    #   2. Modified after PLAN_START_TS (our planning window)
+    #   3. Take the newest among candidates (most likely ours)
     local plans_after
     plans_after=$(mktemp)
     ls ~/.claude/plans/ 2>/dev/null | sort > "$plans_after" || true
     local new_plans
     new_plans=$(comm -13 "$PLANS_BEFORE" "$plans_after" || true)
+
+    local best_plan="" best_mtime=0
     for plan in $new_plans; do
-      mv ~/.claude/plans/"$plan" "$STREAM_TARGET/plan.md"
-      echo -e "  ${C_DIM}Relocated plan: $plan${C_RESET}" >&2
-      break
+      local plan_path="$HOME/.claude/plans/$plan"
+      [[ -f "$plan_path" ]] || continue
+      local mtime
+      mtime=$(stat -f%m "$plan_path" 2>/dev/null || stat -c%Y "$plan_path" 2>/dev/null || echo 0)
+      # Only accept plans created during or after our planning window
+      if [[ $mtime -ge ${PLAN_START_TS:-0} ]]; then
+        if [[ $mtime -gt $best_mtime ]]; then
+          best_plan="$plan"
+          best_mtime=$mtime
+        fi
+      else
+        echo -e "  ${C_DIM}Skipping stale plan: $plan (mtime $mtime < start $PLAN_START_TS)${C_RESET}" >&2
+      fi
     done
+
+    if [[ -n "$best_plan" ]]; then
+      mv "$HOME/.claude/plans/$best_plan" "$STREAM_TARGET/plan.md"
+      echo -e "  ${C_DIM}Relocated plan: $best_plan${C_RESET}" >&2
+    fi
+    # Update snapshot for subsequent revision rounds
+    ls ~/.claude/plans/ 2>/dev/null | sort > "$PLANS_BEFORE" 2>/dev/null || true
     rm -f "$plans_after"
   }
   relocate_new_plans
@@ -712,14 +738,10 @@ else
   if [[ ! -f "$STREAM_TARGET/plan.md" ]]; then
     if gate_plan_perm_blocks "$PLAN_STREAM"; then
       # Permission blocks detected and handled (retry chosen) — re-run planning
+      PLAN_START_TS=$(date +%s)
       run_claude "$PLAN_STREAM" "$TASK" --permission-mode plan
-      # Re-detect: just grab the newest plan file
-      local newest_plan
-      newest_plan=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1)
-      if [[ -n "$newest_plan" ]]; then
-        mv ~/.claude/plans/"$newest_plan" "$STREAM_TARGET/plan.md"
-        echo -e "  ${C_DIM}Relocated plan (retry): $newest_plan${C_RESET}" >&2
-      fi
+      # Re-detect: grab the newest plan created after our start timestamp
+      relocate_new_plans
     fi
   fi
 
@@ -828,15 +850,16 @@ ${REVIEW_DIALOG_HISTORY}"
           PLAN_REVISION_MSG="${PLAN_REVISION_MSG}
 
 The human's correction: ${REVIEW_FEEDBACK}"
+          PLAN_START_TS=$(date +%s)
           run_claude "$PLAN_STREAM" "$PLAN_REVISION_MSG" \
             --resume "$SESSION_ID" --permission-mode plan
           if gate_plan_perm_blocks "$PLAN_STREAM"; then
+            PLAN_START_TS=$(date +%s)
             run_claude "$PLAN_STREAM" "$PLAN_REVISION_MSG" \
               --resume "$SESSION_ID" --permission-mode plan
           fi
           cfa_set "PLAN_ASSERT"
-          NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
-          [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
+          relocate_new_plans
           continue  # outer plan loop re-enters with fresh dialog
           ;;
         refine-intent)
@@ -877,15 +900,16 @@ ${REVIEW_DIALOG_HISTORY}"
       PLAN_FALLBACK_MSG="${PLAN_FALLBACK_MSG}
 
 The human's correction: ${CFA_RESPONSE}"
+      PLAN_START_TS=$(date +%s)
       run_claude "$PLAN_STREAM" "$PLAN_FALLBACK_MSG" \
         --resume "$SESSION_ID" --permission-mode plan
       if gate_plan_perm_blocks "$PLAN_STREAM"; then
+        PLAN_START_TS=$(date +%s)
         run_claude "$PLAN_STREAM" "$PLAN_FALLBACK_MSG" \
           --resume "$SESSION_ID" --permission-mode plan
       fi
       cfa_set "PLAN_ASSERT"
-      NEW_PLANS=$(ls -t ~/.claude/plans/ 2>/dev/null | head -1 || true)
-      [[ -n "$NEW_PLANS" ]] && mv ~/.claude/plans/"$NEW_PLANS" "$PLAN_FILE" 2>/dev/null || true
+      relocate_new_plans
       continue  # outer plan loop re-enters
     fi
   done
