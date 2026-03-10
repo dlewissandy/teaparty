@@ -43,11 +43,38 @@ SESSION_WORKTREE="${POC_SESSION_WORKTREE:-}"
 
 if [[ -n "$PROJECT_DIR" && -n "$SESSION_WORKTREE" ]]; then
   # Worktree mode: create dispatch worktree branched from session
-  DISPATCH_WORKTREE="$PROJECT_DIR/.worktrees/$TEAM-$DISPATCH_TS"
+  # Self-describing name: TEAM-SHORT_ID--SLUG (Principle 4)
+  DISPATCH_SHORT_ID=$(python3 -c "import uuid; print(str(uuid.uuid4()).replace('-','')[:8])")
+  DISPATCH_SLUG=$(python3 -c "
+import re, sys
+t = sys.argv[1].lower()
+t = re.sub(r'[^a-z0-9]+', '-', t)
+t = t.strip('-')[:40].rstrip('-')
+print(t or 'task')
+" "$TASK")
+  DISPATCH_WORKTREE_NAME="${TEAM}-${DISPATCH_SHORT_ID}--${DISPATCH_SLUG}"
+  DISPATCH_WORKTREE="$PROJECT_DIR/.worktrees/$DISPATCH_WORKTREE_NAME"
+  # Collision detection (rare with random IDs, but guard anyway)
+  _wt_counter=0
+  while [[ -d "$DISPATCH_WORKTREE" ]]; do
+    ((_wt_counter++))
+    DISPATCH_WORKTREE_NAME="${TEAM}-${DISPATCH_SHORT_ID}--${DISPATCH_SLUG}-${_wt_counter}"
+    DISPATCH_WORKTREE="$PROJECT_DIR/.worktrees/$DISPATCH_WORKTREE_NAME"
+  done
+
   INFRA_DIR="${POC_SESSION_DIR:-$PROJECT_DIR/.sessions}/$TEAM/$DISPATCH_TS"
 
   mkdir -p "$PROJECT_DIR/.worktrees"
   git -C "$SESSION_WORKTREE" worktree add "$DISPATCH_WORKTREE" -b "$DISPATCH_BRANCH"
+  # Register new worktree in manifest (Principle 4)
+  python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" add \
+    --name "$DISPATCH_WORKTREE_NAME" \
+    --worktree-path "$DISPATCH_WORKTREE" \
+    --type dispatch \
+    --team "$TEAM" \
+    --task "${TASK:0:120}" \
+    --session-id "$DISPATCH_TS" \
+    --repo-dir "$REPO_DIR" 2>/dev/null || true
   mkdir -p "$INFRA_DIR"
   touch "$INFRA_DIR/.running"
 
@@ -239,6 +266,17 @@ esac
 
 echo -e "  ${C_DIM}[relay] <<< ${TEAM} team finished (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)${C_RESET}" >&2
 session_log DISPATCH "<<< $TEAM team -- $CFA_STATUS (exit=$DISPATCH_EXIT, retries=$DISPATCH_RETRIES)"
+
+# ── Manifest lifecycle update (Principle 4) ──
+if [[ -n "${DISPATCH_WORKTREE_NAME:-}" ]]; then
+  if [[ $DISPATCH_EXIT -eq 0 ]]; then
+    python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" complete \
+      --name "$DISPATCH_WORKTREE_NAME" --repo-dir "$REPO_DIR" 2>/dev/null || true
+  else
+    python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" fail \
+      --name "$DISPATCH_WORKTREE_NAME" --repo-dir "$REPO_DIR" 2>/dev/null || true
+  fi
+fi
 
 # ── Worktree completion: commit, merge, cleanup ──
 if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then

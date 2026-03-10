@@ -1,0 +1,26 @@
+{
+  "worktrees": [
+    {
+      "name": "test-ab12cd34--verify-slug",
+      "path": "/tmp/test-wt",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Verify slug generation works correctly",
+      "session_id": "20260310-000000",
+      "created_at": "2026-03-10T17:00:56.819426+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-10T17:01:07.380562+00:00"
+    },
+    {
+      "name": "test-cd34ef56--failed-task",
+      "path": "/tmp/test-wt2",
+      "type": "session",
+      "team": "",
+      "task": "A failed task",
+      "session_id": "20260310-000001",
+      "created_at": "2026-03-10T17:01:16.250059+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-10T17:01:21.152039+00:00"
+    }
+  ]
+}

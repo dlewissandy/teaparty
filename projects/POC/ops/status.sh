@@ -115,6 +115,12 @@ project_pids() {
   done
 }
 
+# ── Worktree Manifest (Principle 4) ──
+echo "── Worktree Manifest ──"
+python3 "$SCRIPT_DIR/../scripts/worktree_manifest.py" list \
+  --repo-dir "$POC_ROOT" 2>/dev/null || echo "  (manifest unavailable)"
+echo ""
+
 # ── Sessions ──
 echo "── Sessions ──"
 

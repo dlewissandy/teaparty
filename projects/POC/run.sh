@@ -115,12 +115,30 @@ export POC_RELATIVE_PATH
 # ── Session setup with worktree ──
 SESSION_TS=$(date +%Y%m%d-%H%M%S)
 SESSION_BRANCH="session/$SESSION_TS"
-SESSION_WORKTREE="$POC_PROJECT_DIR/.worktrees/session-$SESSION_TS"
+# Self-describing worktree name: session-SHORT_ID--SLUG (Principle 4)
+SESSION_SHORT_ID=$(python3 -c "import uuid; print(str(uuid.uuid4()).replace('-','')[:8])")
+SESSION_SLUG=$(python3 -c "
+import re, sys
+t = sys.argv[1].lower()
+t = re.sub(r'[^a-z0-9]+', '-', t)
+t = t.strip('-')[:40].rstrip('-')
+print(t or 'session')
+" "$TASK")
+SESSION_WORKTREE_NAME="session-${SESSION_SHORT_ID}--${SESSION_SLUG}"
+SESSION_WORKTREE="$POC_PROJECT_DIR/.worktrees/$SESSION_WORKTREE_NAME"
 INFRA_DIR="$POC_PROJECT_DIR/.sessions/$SESSION_TS"
 
 # Create session worktree (branched from repo HEAD)
 mkdir -p "$POC_PROJECT_DIR/.worktrees"
 git -C "$POC_REPO_DIR" worktree add "$SESSION_WORKTREE" -b "$SESSION_BRANCH"
+# Register session worktree in manifest (Principle 4)
+python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" add \
+  --name "$SESSION_WORKTREE_NAME" \
+  --worktree-path "$SESSION_WORKTREE" \
+  --type session \
+  --task "${TASK:0:120}" \
+  --session-id "$SESSION_TS" \
+  --repo-dir "$POC_REPO_DIR" 2>/dev/null || true
 
 # Compute project working directory inside the worktree.
 # Linked-repo: $SESSION_WORKTREE/projects/POC (agent CWD = project subdir)
@@ -683,6 +701,11 @@ if ! git -C "$POC_REPO_DIR" diff --cached --quiet 2>/dev/null; then
 else
   echo -e "  ${C_DIM}No changes to merge from session${C_RESET}" >&2
 fi
+
+# Mark session worktree complete in manifest before cleanup (Principle 4)
+python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" complete \
+  --name "$SESSION_WORKTREE_NAME" \
+  --repo-dir "$POC_REPO_DIR" 2>/dev/null || true
 
 # Clean up worktree and branch
 git -C "$POC_REPO_DIR" worktree remove "$SESSION_WORKTREE" 2>/dev/null || true
