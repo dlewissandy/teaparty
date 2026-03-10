@@ -50,6 +50,25 @@ def _state_display(phase: str, state: str) -> str:
     return state
 
 
+def _project_snapshot(reader) -> list[tuple]:
+    """Build a comparable snapshot of project data."""
+    return [
+        (p.slug, len(p.sessions), p.active_count, p.attention_count)
+        for p in reader.projects
+    ]
+
+
+def _session_snapshot(proj) -> list[tuple]:
+    """Build a comparable snapshot of session data for a project."""
+    if not proj:
+        return []
+    return [
+        (s.session_id, s.status, s.cfa_phase, s.cfa_state,
+         s.needs_input, len(s.dispatches), s.stream_age_seconds)
+        for s in proj.sessions
+    ]
+
+
 class DashboardScreen(Screen):
     """Main dashboard showing Projects \u2192 Sessions \u2192 Dispatches."""
 
@@ -97,17 +116,30 @@ class DashboardScreen(Screen):
         self._project_slugs: list[str] = []
         self._session_ids: list[str] = []
         self._selected_project: str = ''
-        self._refresh_data()
+        self._last_project_snap: list[tuple] = []
+        self._last_session_snap: list[tuple] = []
+        self._refresh_data(force=True)
 
-    def _refresh_data(self) -> None:
+    def _refresh_data(self, force: bool = False) -> None:
         reader = self.app.state_reader
         reader.reload()
 
-        self._refresh_projects()
-        self._refresh_sessions()
+        # Only rebuild project table if data changed
+        proj_snap = _project_snapshot(reader)
+        if force or proj_snap != self._last_project_snap:
+            self._last_project_snap = proj_snap
+            self._rebuild_project_table()
+
+        # Only rebuild session table if data changed
+        proj = reader.find_project(self._selected_project)
+        sess_snap = _session_snapshot(proj)
+        if force or sess_snap != self._last_session_snap:
+            self._last_session_snap = sess_snap
+            self._rebuild_session_table()
+
         self._update_dispatch_panel()
 
-    def _refresh_projects(self) -> None:
+    def _rebuild_project_table(self) -> None:
         ptable = self.query_one('#project-table', DataTable)
         old_cursor = ptable.cursor_row
         ptable.clear()
@@ -115,25 +147,25 @@ class DashboardScreen(Screen):
         self._project_slugs = []
 
         for proj in self.app.state_reader.projects:
-            marker = '\u25b8' if proj.slug == self._selected_project else ' '
             count = str(len(proj.sessions))
             attention = '\u23f3' if proj.attention_count > 0 else ''
-            ptable.add_row(marker, proj.slug, count, attention)
+            ptable.add_row(' ', proj.slug, count, attention)
             self._project_slugs.append(proj.slug)
 
         if not self._project_slugs:
             ptable.add_row('', '(no projects)', '', '')
+            self._selected_project = ''
             return
 
-        # Select first project if none selected
+        # Preserve selection by slug, fall back to first project
         if not self._selected_project or self._selected_project not in self._project_slugs:
             self._selected_project = self._project_slugs[0]
 
-        # Restore cursor position
-        if 0 <= old_cursor < len(self._project_slugs):
-            ptable.move_cursor(row=old_cursor)
+        # Move cursor to the selected project's current position
+        idx = self._project_slugs.index(self._selected_project)
+        ptable.move_cursor(row=idx)
 
-    def _refresh_sessions(self) -> None:
+    def _rebuild_session_table(self) -> None:
         stable = self.query_one('#session-table', DataTable)
         title = self.query_one('#sessions-title', Static)
         old_cursor = stable.cursor_row
@@ -208,9 +240,12 @@ class DashboardScreen(Screen):
         if table_id == 'project-table':
             cursor = event.data_table.cursor_row
             if 0 <= cursor < len(self._project_slugs):
-                self._selected_project = self._project_slugs[cursor]
-                self._refresh_sessions()
-                self._update_dispatch_panel()
+                new_project = self._project_slugs[cursor]
+                if new_project != self._selected_project:
+                    self._selected_project = new_project
+                    self._last_session_snap = []  # force session rebuild
+                    self._rebuild_session_table()
+                    self._update_dispatch_panel()
         elif table_id == 'session-table':
             self._update_dispatch_panel()
 
@@ -240,7 +275,7 @@ class DashboardScreen(Screen):
         self.app.push_screen(DiagnosticsScreen())
 
     def action_refresh(self) -> None:
-        self._refresh_data()
+        self._refresh_data(force=True)
 
     def action_quit_app(self) -> None:
         self.app.exit()
