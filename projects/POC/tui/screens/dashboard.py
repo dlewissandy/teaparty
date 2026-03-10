@@ -235,10 +235,10 @@ class DashboardScreen(Screen):
 
         panel.update('\n'.join(lines))
 
-    def on_data_table_cursor_moved(self, event: DataTable.CursorMoved) -> None:
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         table_id = event.data_table.id
         if table_id == 'project-table':
-            cursor = event.data_table.cursor_row
+            cursor = event.cursor_row
             if 0 <= cursor < len(self._project_slugs):
                 new_project = self._project_slugs[cursor]
                 if new_project != self._selected_project:

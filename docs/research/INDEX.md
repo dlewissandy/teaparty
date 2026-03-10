@@ -25,6 +25,7 @@ See [learning-system.md](../learning-system.md) for the conceptual design of Tea
 `#production` `#security` `#failure-modes` `#evaluation`
 `#human-ai` `#trust` `#teaparty-direct`
 `#context-injection` `#retrieval` `#claude-code` `#openclaw`
+`#tui` `#ui-events` `#textual` `#widget`
 
 ---
 
@@ -151,6 +152,19 @@ See [learning-system.md](../learning-system.md) for the conceptual design of Tea
 | Claude Code Memory System (official docs) | Anthropic, 2025-2026 | `#memory` `#context-injection` `#production` `#teaparty-direct` | MEMORY.md first 200 lines load verbatim at session start; topic files are read on demand; no semantic retrieval. Full four-scope hierarchy (managed, project, local, user). | `claude-code-memory-system.md` §1-3 |
 | Claude Code Subagent Persistent Memory | Anthropic, 2026 | `#memory` `#multi-agent` `#production` `#teaparty-direct` | `memory: user/project/local` frontmatter gives each subagent its own MEMORY.md with same 200-line injection rule; identical mechanics to main session memory. | `claude-code-memory-system.md` §3 |
 | OpenClaw Memory Architecture | Steinberger et al., 2025-2026 | `#memory` `#retrieval` `#openclaw` `#production` | Hybrid sqlite-vec + FTS5 retrieval over chunked Markdown; selective injection vs. Claude Code's flat injection; open-sourced as memsearch by Zilliz. | `claude-code-memory-system.md` §5 |
+
+---
+
+## TUI Framework — Textual Widget Events
+
+| Title | Authors/Org, Year | Tags | One-line Summary | Source |
+|-------|------------------|------|-----------------|--------|
+| Textual ListView.Highlighted Event | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` `#widget` | Fires on arrow key navigation; `event.item` is the ListItem widget; no built-in data payload; use parallel index list or ListItem subclass. | `textual-tui-selection-widgets.md` §1 |
+| Textual OptionList.OptionHighlighted Event | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` `#widget` | Fires on arrow keys; `event.option_id` gives the string key set at Option construction — cleanest data-attachment pattern of the three main list widgets. | `textual-tui-selection-widgets.md` §2 |
+| Textual Tree.NodeHighlighted Event | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` `#widget` | Fires on arrow keys; `event.node.data` carries arbitrary typed payload set at node creation — most ergonomic for structured data. | `textual-tui-selection-widgets.md` §3 |
+| Textual SelectionList.SelectionHighlighted Event | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` `#widget` | Designed for multi-select checkbox lists; wrong widget for single-selection panel-update patterns. | `textual-tui-selection-widgets.md` §4 |
+| Textual prevent() Context Manager | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` | Universal gate for suppressing spurious events during programmatic widget rebuilds; canonical solution for clear/repopulate refresh patterns. | `textual-tui-selection-widgets.md` §5 |
+| OptionList as DataTable Replacement for Project List | Synthesized, 2025 | `#tui` `#widget` `#teaparty-direct` | OptionList + set_options() + prevent(OptionHighlighted) eliminates the DataTable CursorMoved async race condition in dashboard.py; Option(id=slug) removes parallel index list. | `textual-tui-selection-widgets.md` §6 |
 
 ---
 
