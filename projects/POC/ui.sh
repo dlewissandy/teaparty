@@ -103,6 +103,7 @@ chrome_approval() {
   echo "" >&2
   echo -e "  ${C_YELLOW}(y)${C_RESET} approve   ${C_YELLOW}(n)${C_RESET} reject   ${C_YELLOW}(e)${C_RESET} edit   ${C_YELLOW}(w)${C_RESET} withdraw" >&2
   read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" "$varname" </dev/tty
+  session_log HUMAN "${!varname}"
 }
 
 # ── Conversational Bridge ──
