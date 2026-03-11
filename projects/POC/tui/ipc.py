@@ -33,33 +33,25 @@ def check_input_request(infra_dir: str) -> dict | None:
 def send_response(infra_dir: str, response: str) -> bool:
     """Write user response to the FIFO, unblocking the waiting session.
 
+    The shell side (ui.sh _tui_prompt) creates the FIFO and blocks reading it.
+    We write the response to unblock the shell, then clean up the request file.
+
     Returns True on success, False if the FIFO doesn't exist or write fails.
     """
     fifo_path = os.path.join(infra_dir, RESPONSE_FIFO)
 
-    # Ensure the FIFO exists
     if not os.path.exists(fifo_path):
-        try:
-            os.mkfifo(fifo_path)
-        except OSError:
-            return False
+        return False
 
     try:
-        # Open in non-blocking write mode with a timeout
         # The session process should be blocked reading the FIFO,
-        # so the write should complete immediately
-        fd = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
-        os.write(fd, (response + '\n').encode())
-        os.close(fd)
+        # so opening for write should succeed immediately
+        with open(fifo_path, 'w') as f:
+            f.write(response + '\n')
     except OSError:
-        # FIFO not ready (session not reading yet) — fall back to blocking write
-        try:
-            with open(fifo_path, 'w') as f:
-                f.write(response + '\n')
-        except OSError:
-            return False
+        return False
 
-    # Clean up the request file
+    # Clean up the request file (shell also cleans up, but be safe)
     request_path = os.path.join(infra_dir, REQUEST_FILE)
     try:
         os.unlink(request_path)

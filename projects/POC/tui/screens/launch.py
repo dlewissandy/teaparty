@@ -8,7 +8,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Checkbox, Footer, Input, Select, Static
+from textual.widgets import Button, Footer, Input, Select, Static
 
 
 class LaunchScreen(Screen):
@@ -18,20 +18,23 @@ class LaunchScreen(Screen):
         Binding('escape', 'go_back', 'Cancel', show=True),
     ]
 
+    def __init__(self, project: str = 'POC'):
+        super().__init__()
+        self._default_project = project or 'POC'
+
     def compose(self) -> ComposeResult:
         yield Vertical(
             Center(
                 Vertical(
-                    Static('What should we work on?', classes='form-title'),
+                    Static(f'New Session ({self._default_project})', classes='form-title'),
                     Static('Task:'),
                     Input(placeholder='Describe the task...', id='task-input'),
                     Static('Project:'),
                     Select(
                         self._get_project_options(),
                         id='project-select',
-                        value='POC',
+                        value=self._default_project,
                     ),
-                    Checkbox('Skip intent (--skip-intent)', id='skip-intent', value=True),
                     Button('Launch', variant='success', id='launch-btn'),
                     id='launch-form',
                 ),
@@ -72,15 +75,11 @@ class LaunchScreen(Screen):
         project_select = self.query_one('#project-select', Select)
         project = str(project_select.value) if project_select.value != Select.BLANK else 'POC'
 
-        skip_intent = self.query_one('#skip-intent', Checkbox).value
-
         # Build command
         run_script = os.path.join(self.app.poc_root, 'run.sh')
         cmd = ['bash', run_script]
         if project:
             cmd.extend(['--project', project])
-        if skip_intent:
-            cmd.append('--skip-intent')
         cmd.append(task)
 
         # Set TUI mode so sessions use FIFO IPC instead of /dev/tty

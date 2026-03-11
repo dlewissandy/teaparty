@@ -30,16 +30,6 @@ def _status_icon(status: str, needs_input: bool = False) -> str:
     return ' '
 
 
-def _dispatch_icon(status: str) -> str:
-    if status == 'active':
-        return '\u25b6'
-    if status == 'failed':
-        return '\u2717'
-    if status == 'complete':
-        return '\u2713'
-    return '\u2591'
-
-
 def _state_display(phase: str, state: str) -> str:
     if not phase and not state:
         return '\u2014'
@@ -75,6 +65,7 @@ class DashboardScreen(Screen):
     BINDINGS = [
         Binding('enter', 'select_session', 'Drilldown', show=True),
         Binding('n', 'new_session', 'New Session', show=True),
+        Binding('p', 'new_project', 'New Project', show=True),
         Binding('d', 'diagnostics', 'Diagnostics', show=True),
         Binding('r', 'refresh', 'Refresh', show=True),
         Binding('q', 'quit_app', 'Quit', show=True),
@@ -96,8 +87,8 @@ class DashboardScreen(Screen):
             id='top-panes',
         )
         yield Vertical(
-            Static('DISPATCHES', classes='section-title', id='dispatch-title'),
-            Static('', id='dash-dispatch-panel'),
+            Static('PROMPT', classes='section-title', id='prompt-title'),
+            Static('', id='dash-prompt-panel'),
             id='bottom-pane',
         )
         yield Footer()
@@ -111,7 +102,7 @@ class DashboardScreen(Screen):
         # Session table
         stable = self.query_one('#session-table', DataTable)
         stable.cursor_type = 'row'
-        stable.add_columns('', 'Session', 'Task', 'State', '#D', 'Age')
+        stable.add_columns('', 'Session', 'State', 'Age')
 
         self._project_slugs: list[str] = []
         self._session_ids: list[str] = []
@@ -137,7 +128,7 @@ class DashboardScreen(Screen):
             self._last_session_snap = sess_snap
             self._rebuild_session_table()
 
-        self._update_dispatch_panel()
+        self._update_prompt_panel()
 
     def _rebuild_project_table(self) -> None:
         ptable = self.query_one('#project-table', DataTable)
@@ -182,58 +173,39 @@ class DashboardScreen(Screen):
 
         for sess in proj.sessions:
             icon = _status_icon(sess.status, sess.needs_input)
-            task_short = sess.task[:45] + ('...' if len(sess.task) > 45 else '')
             state = _state_display(sess.cfa_phase, sess.cfa_state)
-            dispatches = str(len(sess.dispatches))
             age = _human_age(sess.stream_age_seconds)
-            stable.add_row(icon, sess.session_id, task_short, state, dispatches, age)
+            stable.add_row(icon, sess.session_id, state, age)
             self._session_ids.append(sess.session_id)
 
         if not self._session_ids:
-            stable.add_row('', '(no sessions)', '', '', '', '')
+            stable.add_row('', '(no sessions)', '', '')
 
         # Restore cursor
         if 0 <= old_cursor < len(self._session_ids):
             stable.move_cursor(row=old_cursor)
 
-    def _update_dispatch_panel(self) -> None:
-        title = self.query_one('#dispatch-title', Static)
-        panel = self.query_one('#dash-dispatch-panel', Static)
+    def _update_prompt_panel(self) -> None:
+        title = self.query_one('#prompt-title', Static)
+        panel = self.query_one('#dash-prompt-panel', Static)
 
         stable = self.query_one('#session-table', DataTable)
         cursor_row = stable.cursor_row
 
         if not self._session_ids or cursor_row < 0 or cursor_row >= len(self._session_ids):
-            title.update('DISPATCHES')
+            title.update('PROMPT')
             panel.update('  (no session selected)')
             return
 
         sid = self._session_ids[cursor_row]
         session = self.app.state_reader.find_session(sid)
-        if not session or not session.dispatches:
-            title.update(f'DISPATCHES ({sid})')
-            panel.update('  (no dispatches)')
+        if not session:
+            title.update(f'PROMPT ({sid})')
+            panel.update('  (no session)')
             return
 
-        title.update(f'DISPATCHES ({sid})')
-
-        by_team: dict[str, list] = {}
-        for d in session.dispatches:
-            by_team.setdefault(d.team or '?', []).append(d)
-
-        lines = []
-        for team, dispatches in sorted(by_team.items()):
-            lines.append(f'  [bold]{team}[/bold]')
-            for d in dispatches:
-                icon = _dispatch_icon(d.status)
-                name = d.worktree_name
-                if '--' in name:
-                    name = name.split('--', 1)[1][:30]
-                state = _state_display(d.cfa_phase, d.cfa_state) if d.cfa_state else d.status
-                age = _human_age(d.stream_age_seconds)
-                lines.append(f'    {icon} {name:<32} {state:<24} {age}')
-
-        panel.update('\n'.join(lines))
+        title.update(f'PROMPT ({sid})')
+        panel.update(f'  {session.task}' if session.task else '  (no prompt)')
 
     def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
         table_id = event.data_table.id
@@ -245,9 +217,9 @@ class DashboardScreen(Screen):
                     self._selected_project = new_project
                     self._last_session_snap = []  # force session rebuild
                     self._rebuild_session_table()
-                    self._update_dispatch_panel()
+                    self._update_prompt_panel()
         elif table_id == 'session-table':
-            self._update_dispatch_panel()
+            self._update_prompt_panel()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         """Handle Enter key on DataTable row."""
@@ -268,7 +240,11 @@ class DashboardScreen(Screen):
 
     def action_new_session(self) -> None:
         from projects.POC.tui.screens.launch import LaunchScreen
-        self.app.push_screen(LaunchScreen())
+        self.app.push_screen(LaunchScreen(self._selected_project))
+
+    def action_new_project(self) -> None:
+        from projects.POC.tui.screens.new_project import NewProjectScreen
+        self.app.push_screen(NewProjectScreen())
 
     def action_diagnostics(self) -> None:
         from projects.POC.tui.screens.diagnostics import DiagnosticsScreen
@@ -280,6 +256,6 @@ class DashboardScreen(Screen):
     def action_quit_app(self) -> None:
         self.app.exit()
 
-    def on_timer(self) -> None:
+    def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
         self._refresh_data()

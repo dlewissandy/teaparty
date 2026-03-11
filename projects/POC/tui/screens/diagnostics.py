@@ -41,18 +41,21 @@ def _find_poc_processes() -> list[dict]:
     except (subprocess.TimeoutExpired, ValueError):
         pass
 
-    # Claude agent processes
+    # Claude agent processes (running in POC worktrees)
     try:
         result = subprocess.run(
-            ['pgrep', '-f', r'claude.*-p'],
+            ['pgrep', '-f', r'claude.*\.worktrees/'],
             capture_output=True, text=True, timeout=5,
         )
+        seen_pids = {p['pid'] for p in processes}
         for pid_str in result.stdout.strip().split('\n'):
             pid_str = pid_str.strip()
             if pid_str:
-                info = _get_process_info(int(pid_str))
-                if info:
-                    processes.append(info)
+                pid = int(pid_str)
+                if pid not in seen_pids:
+                    info = _get_process_info(pid)
+                    if info:
+                        processes.append(info)
     except (subprocess.TimeoutExpired, ValueError):
         pass
 
@@ -96,17 +99,16 @@ def _get_process_info(pid: int) -> dict | None:
         except subprocess.TimeoutExpired:
             pass
 
-        # Shorten command and CWD for display
-        cmd_short = command[:40]
+        # Shorten CWD for display
         cwd_short = cwd
         if '.worktrees/' in cwd:
-            cwd_short = '.../' + cwd.split('.worktrees/')[-1][:20]
+            cwd_short = '.../' + cwd.split('.worktrees/')[-1]
         elif '/POC' in cwd:
             cwd_short = '.../POC'
 
         return {
             'pid': pid,
-            'command': cmd_short,
+            'command': command,
             'cpu': cpu.strip(),
             'elapsed': elapsed.strip(),
             'cwd': cwd_short,
@@ -185,7 +187,11 @@ class DiagnosticsScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one('#process-table', DataTable)
-        table.add_columns('PID', 'Command', 'CPU', 'Elapsed', 'Working Dir')
+        table.add_column('PID', width=8)
+        table.add_column('Command')
+        table.add_column('CPU', width=6)
+        table.add_column('Elapsed', width=10)
+        table.add_column('Working Dir', width=30)
         self._refresh_data()
 
     def _refresh_data(self) -> None:
@@ -231,7 +237,7 @@ class DiagnosticsScreen(Screen):
 
         health_panel.update('\n'.join(lines))
 
-    def on_timer(self) -> None:
+    def periodic_refresh(self) -> None:
         self._refresh_data()
 
     def action_go_back(self) -> None:

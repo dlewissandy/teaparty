@@ -41,5 +41,5 @@ class TeaPartyTUI(App):
     def _periodic_refresh(self) -> None:
         """Refresh the active screen's data every second."""
         screen = self.screen
-        if hasattr(screen, 'on_timer'):
-            screen.on_timer()
+        if hasattr(screen, 'periodic_refresh'):
+            screen.periodic_refresh()

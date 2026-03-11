@@ -85,10 +85,43 @@ chrome_thinking() {
 
 # ── Prompts ──
 
+# TUI-mode IPC: write a request file and block-read from a FIFO
+# instead of reading from /dev/tty.
+_tui_prompt() {
+  local varname="$1"
+  local prompt_type="$2"  # "prompt" or "approval"
+  local ipc_dir="${POC_SESSION_DIR:-}"
+  [[ -z "$ipc_dir" ]] && { eval "$varname=''"; return; }
+
+  # Write the input request so the TUI can detect it
+  local request_file="$ipc_dir/.input-request.json"
+  local fifo_path="$ipc_dir/.input-response.fifo"
+  printf '{"type":"%s"}\n' "$prompt_type" > "$request_file"
+
+  # Create FIFO if it doesn't exist
+  [[ -p "$fifo_path" ]] || mkfifo "$fifo_path"
+
+  # Block until the TUI writes a response
+  local response
+  IFS= read -r response < "$fifo_path" || true
+  printf -v "$varname" '%s' "$response"
+
+  # Clean up request file and FIFO for next cycle
+  rm -f "$request_file" "$fifo_path"
+
+  session_log HUMAN "${!varname}"
+}
+
 chrome_prompt() {
   # Beep + colored prompt, reads into named variable
   # Usage: chrome_prompt VARNAME
   local varname="$1"
+
+  if [[ "${POC_TUI_MODE:-}" == "1" ]]; then
+    _tui_prompt "$varname" "prompt"
+    return
+  fi
+
   chrome_beep
   echo "" >&2
   read -p "$(echo -e "${C_GREEN}[you]${C_RESET} > ")" "$varname" </dev/tty
@@ -99,6 +132,12 @@ chrome_approval() {
   # Approval prompt with clear labeled options
   # Usage: chrome_approval VARNAME
   local varname="$1"
+
+  if [[ "${POC_TUI_MODE:-}" == "1" ]]; then
+    _tui_prompt "$varname" "approval"
+    return
+  fi
+
   chrome_beep
   echo "" >&2
   echo -e "  ${C_YELLOW}(y)${C_RESET} approve   ${C_YELLOW}(n)${C_RESET} reject   ${C_YELLOW}(e)${C_RESET} edit   ${C_YELLOW}(w)${C_RESET} withdraw" >&2

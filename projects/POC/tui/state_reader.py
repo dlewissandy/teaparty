@@ -241,12 +241,17 @@ class StateReader:
             else:
                 status = 'complete'
 
+        # Task: prefer worktrees.json, fall back to INTENT.md
+        task = entry.get('task', '')
+        if not task:
+            task = self._read_intent(infra_dir)
+
         return SessionState(
             project=project,
             session_id=session_id,
             worktree_name=entry.get('name', ''),
             worktree_path=entry.get('path', ''),
-            task=entry.get('task', ''),
+            task=task,
             status=status,
             cfa_phase=cfa_phase,
             cfa_state=cfa_state,
@@ -284,6 +289,29 @@ class StateReader:
             infra_dir=infra_dir,
             stream_age_seconds=stream_age,
         )
+
+    def _read_intent(self, infra_dir: str) -> str:
+        """Read the session task from INTENT.md title or session.log."""
+        # Try INTENT.md title first
+        intent_path = os.path.join(infra_dir, 'INTENT.md')
+        try:
+            with open(intent_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('# INTENT:'):
+                        return line[len('# INTENT:'):].strip()
+        except (FileNotFoundError, OSError):
+            pass
+        # Fall back to session.log Task: line
+        log_path = os.path.join(infra_dir, 'session.log')
+        try:
+            with open(log_path) as f:
+                first = f.readline()
+                if 'Task: ' in first:
+                    return first.split('Task: ', 1)[1].strip()
+        except (FileNotFoundError, OSError):
+            pass
+        return ''
 
     def _read_cfa(self, path: str) -> dict:
         try:

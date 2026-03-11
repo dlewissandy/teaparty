@@ -60,7 +60,7 @@ Screen {
     border-top: tall $primary-lighten-1;
 }
 
-#dash-dispatch-panel {
+#dash-prompt-panel {
     height: auto;
     max-height: 12;
     padding: 0 1;
@@ -82,20 +82,41 @@ Screen {
     padding: 0 1;
 }
 
-#dispatch-panel {
+#session-meta {
     padding: 0 1;
+    height: auto;
+    max-height: 6;
+    border-bottom: tall $primary-lighten-1;
+}
+
+#tasks-panel {
+    padding: 0 1;
+    height: auto;
+    max-height: 12;
+    border-bottom: tall $primary-lighten-1;
+}
+
+#dispatch-list {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#dispatch-meta {
+    padding: 0 1;
+    height: auto;
+    max-height: 8;
+    border-bottom: tall $primary-lighten-1;
 }
 
 #files-panel {
     padding: 0 1;
+    height: 1fr;
 }
 
 #input-area {
     dock: bottom;
-    height: auto;
-    max-height: 6;
-    background: $panel;
-    border: tall $warning;
+    height: 3;
+    background: $warning 15%;
     padding: 0 1;
     display: none;
 }
@@ -104,8 +125,15 @@ Screen {
     display: block;
 }
 
-#input-area Input {
-    margin-top: 1;
+#input-prompt {
+    width: auto;
+    height: 3;
+    content-align: left middle;
+    padding: 0 1 0 0;
+}
+
+#input-area #input-field {
+    width: 1fr;
 }
 
 .agent-label {
@@ -157,4 +185,9 @@ Screen {
 #launch-form Button {
     margin-top: 1;
     width: 100%;
+}
+
+#project-error {
+    height: auto;
+    margin-bottom: 1;
 }

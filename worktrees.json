@@ -21,6 +21,57 @@
       "created_at": "2026-03-10T17:01:16.250059+00:00",
       "status": "failed",
       "updated_at": "2026-03-10T17:01:21.152039+00:00"
+    },
+    {
+      "name": "session-55435bb4--there-seems-to-be-a-problem-where-sessio",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-55435bb4--there-seems-to-be-a-problem-where-sessio",
+      "type": "session",
+      "team": "",
+      "task": "There seems to be a problem where sessions can write to the folders not in their project.   Agents should be able to rea",
+      "session_id": "20260310-174521",
+      "created_at": "2026-03-11T00:45:21.657870+00:00",
+      "status": "active"
+    },
+    {
+      "name": "session-c8177eb9--the-tui-truncates-the-prompt-that-is-dis",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-c8177eb9--the-tui-truncates-the-prompt-that-is-dis",
+      "type": "session",
+      "team": "",
+      "task": "The tui truncates the prompt that is displayed at the bottom of the dashboard and also at the top of the session screen.",
+      "session_id": "20260310-174920",
+      "created_at": "2026-03-11T00:49:20.380070+00:00",
+      "status": "active"
+    },
+    {
+      "name": "session-2054f34a--there-is-a-bug-in-the-poc-code-sessions",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-2054f34a--there-is-a-bug-in-the-poc-code-sessions",
+      "type": "session",
+      "team": "",
+      "task": "There is a bug in the POC code.   Sessions should only be able to write to files in their project folder, but it appears",
+      "session_id": "20260310-180833",
+      "created_at": "2026-03-11T01:08:33.633113+00:00",
+      "status": "active"
+    },
+    {
+      "name": "coding-b4f600ab--make-two-targeted-edits-to-fix-the-sessi",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-b4f600ab--make-two-targeted-edits-to-fix-the-sessi",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Make two targeted edits to fix the session write-scope enforcement bug. Work in the session worktree at: /Users/darrell/",
+      "session_id": "20260310-182934",
+      "created_at": "2026-03-11T01:29:34.717215+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-11T01:31:34.842478+00:00"
+    },
+    {
+      "name": "session-a820ebc5--the-prompt-that-is-displayed-at-the-bott",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-a820ebc5--the-prompt-that-is-displayed-at-the-bott",
+      "type": "session",
+      "team": "",
+      "task": "The prompt that is displayed at the bottom of the dashboard is truncated to 100 characters.   Display in a scrollable re",
+      "session_id": "20260310-183123",
+      "created_at": "2026-03-11T01:31:23.395401+00:00",
+      "status": "active"
     }
   ]
 }
