@@ -69,6 +69,7 @@ class DashboardScreen(Screen):
         Binding('d', 'diagnostics', 'Diagnostics', show=True),
         Binding('r', 'refresh', 'Refresh', show=True),
         Binding('q', 'quit_app', 'Quit', show=True),
+        Binding('f', 'change_folder', 'Folder', show=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -94,6 +95,7 @@ class DashboardScreen(Screen):
             ),
             id='bottom-pane',
         )
+        yield Static('', id='projects-dir-label', classes='projects-dir-label')
         yield Footer()
 
     def on_mount(self) -> None:
@@ -113,6 +115,12 @@ class DashboardScreen(Screen):
         self._last_project_snap: list[tuple] = []
         self._last_session_snap: list[tuple] = []
         self._refresh_data(force=True)
+        self._update_projects_dir_label()
+
+    def _update_projects_dir_label(self) -> None:
+        self.query_one('#projects-dir-label', Static).update(
+            f'Projects: {self.app.projects_dir}'
+        )
 
     def _refresh_data(self, force: bool = False) -> None:
         reader = self.app.state_reader
@@ -132,6 +140,7 @@ class DashboardScreen(Screen):
             self._rebuild_session_table()
 
         self._update_prompt_panel()
+        self._update_projects_dir_label()
 
     def _rebuild_project_table(self) -> None:
         ptable = self.query_one('#project-table', DataTable)
@@ -259,6 +268,53 @@ class DashboardScreen(Screen):
     def action_quit_app(self) -> None:
         self.app.exit()
 
+    def action_change_folder(self) -> None:
+        self.app.push_screen(ChangeProjectDirScreen())
+
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
         self._refresh_data()
+
+
+from textual.containers import Center
+from textual.widgets import Button, Input
+
+
+class ChangeProjectDirScreen(Screen):
+    """Modal to change the active projects directory."""
+
+    BINDINGS = [
+        Binding('escape', 'dismiss_modal', 'Cancel', show=True),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Vertical(
+            Center(
+                Vertical(
+                    Static('Change Projects Directory', classes='form-title'),
+                    Input(value=self.app.projects_dir, id='dir-input'),
+                    Button('Apply', variant='success', id='apply-btn'),
+                    id='change-dir-form',
+                ),
+            ),
+        )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one('#dir-input', Input).focus()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == 'apply-btn':
+            self._apply()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        self._apply()
+
+    def _apply(self) -> None:
+        new_dir = self.query_one('#dir-input', Input).value.strip()
+        if new_dir:
+            self.app.set_projects_dir(new_dir)
+        self.app.pop_screen()
+
+    def action_dismiss_modal(self) -> None:
+        self.app.pop_screen()

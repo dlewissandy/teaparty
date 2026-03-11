@@ -63,12 +63,12 @@ class ProjectState:
 class StateReader:
     """Reads all project state files and produces unified project/session list."""
 
-    def __init__(self, poc_root: str):
+    def __init__(self, poc_root: str, projects_dir: str | None = None):
         self.poc_root = poc_root
-        # projects/ dir is the parent of POC
-        self.projects_dir = os.path.dirname(poc_root)
-        # Repo root is parent of projects/
-        repo_root = os.path.dirname(self.projects_dir)
+        # projects_dir: configurable; defaults to dirname(poc_root)
+        self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(poc_root)
+        # manifest always lives in the teaparty repo root (two levels up from poc_root)
+        repo_root = os.path.dirname(os.path.dirname(poc_root))
         self.manifest_path = os.path.join(repo_root, 'worktrees.json')
         self._projects: list[ProjectState] = []
 

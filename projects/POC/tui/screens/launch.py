@@ -47,16 +47,18 @@ class LaunchScreen(Screen):
 
     def _get_project_options(self) -> list[tuple[str, str]]:
         """Scan projects directory for available projects."""
-        options = [('POC', 'POC')]
-        projects_dir = self.app.poc_root
+        options = []
+        projects_dir = self.app.projects_dir
         try:
-            parent = os.path.dirname(projects_dir)
-            for name in sorted(os.listdir(parent)):
-                full = os.path.join(parent, name)
-                if os.path.isdir(full) and name != 'POC' and not name.startswith('.'):
+            for name in sorted(os.listdir(projects_dir)):
+                full = os.path.join(projects_dir, name)
+                sessions = os.path.join(full, '.sessions')
+                if os.path.isdir(sessions) and not name.startswith('.'):
                     options.append((name, name))
         except OSError:
             pass
+        if not options:
+            options = [('POC', 'POC')]
         return options
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

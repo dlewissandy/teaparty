@@ -1,4 +1,5 @@
 """Entry point: python3 -m projects.POC.tui"""
+import argparse
 import os
 import sys
 
@@ -14,5 +15,19 @@ if poc_root not in sys.path:
 
 from projects.POC.tui.app import TeaPartyTUI
 
-app = TeaPartyTUI()
+parser = argparse.ArgumentParser(description='TeaParty TUI')
+parser.add_argument(
+    '--project-dir',
+    type=str,
+    default=None,
+    metavar='DIR',
+    help='Directory containing project folders (default: auto-discovered teaparty projects/)',
+)
+args = parser.parse_args()
+
+projects_dir = None
+if args.project_dir:
+    projects_dir = os.path.realpath(os.path.abspath(args.project_dir))
+
+app = TeaPartyTUI(projects_dir=projects_dir)
 app.run()
