@@ -4,8 +4,63 @@ Produces a unified snapshot of all projects/sessions/dispatches for the TUI.
 """
 import json
 import os
+import subprocess
 import time
 from dataclasses import dataclass, field
+
+# Module-level boot time cache
+_SENTINEL = object()
+_BOOT_TIME: float | None = _SENTINEL  # type: ignore[assignment]
+
+
+def _get_cached_boot_time() -> float | None:
+    """Return system boot time as a Unix timestamp, or None if unavailable.
+
+    Tries macOS sysctl first, then Linux /proc/uptime.  Result is cached
+    after the first successful call.
+    """
+    global _BOOT_TIME
+    if _BOOT_TIME is not _SENTINEL:
+        return _BOOT_TIME  # type: ignore[return-value]
+
+    # macOS: sysctl -n kern.boottime  → "{ sec = 1234567890, usec = 0 } ..."
+    try:
+        out = subprocess.check_output(
+            ['sysctl', '-n', 'kern.boottime'],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).decode()
+        for part in out.split(','):
+            part = part.strip()
+            if part.startswith('sec = ') or part.startswith('{ sec = '):
+                sec_str = part.split('=', 1)[1].strip().rstrip('}').strip()
+                _BOOT_TIME = float(sec_str)
+                return _BOOT_TIME
+    except Exception:
+        pass
+
+    # Linux: /proc/uptime  → "12345.67 23456.78"
+    try:
+        with open('/proc/uptime') as f:
+            uptime_seconds = float(f.read().split()[0])
+        _BOOT_TIME = time.time() - uptime_seconds
+        return _BOOT_TIME
+    except Exception:
+        pass
+
+    _BOOT_TIME = None
+    return None
+
+
+def _running_file_is_stale(path: str) -> bool:
+    """Return True if the .running file predates the last system boot."""
+    boot_time = _get_cached_boot_time()
+    if boot_time is None:
+        return False
+    try:
+        return os.path.getmtime(path) < boot_time
+    except OSError:
+        return False
 
 
 # States where the human needs to act
@@ -44,6 +99,7 @@ class SessionState:
     cfa_state: str = ''
     cfa_actor: str = ''
     needs_input: bool = False
+    is_orphaned: bool = False
     dispatches: list = field(default_factory=list)
     stream_age_seconds: int = -1
     infra_dir: str = ''
@@ -223,6 +279,17 @@ class StateReader:
         if os.path.exists(os.path.join(infra_dir, '.input-request.json')):
             needs_input = True
 
+        # Orphan detection: .running file predates boot, or FIFO has no reader
+        running_path = os.path.join(infra_dir, '.running')
+        is_orphaned = False
+        if os.path.exists(running_path) and cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
+            is_orphaned = _running_file_is_stale(running_path)
+            if not is_orphaned:
+                fifo_path = os.path.join(infra_dir, '.input-response.fifo')
+                if cfa_state in HUMAN_ACTOR_STATES and os.path.exists(fifo_path):
+                    from projects.POC.tui.ipc import check_fifo_has_reader
+                    is_orphaned = not check_fifo_has_reader(infra_dir)
+
         # Stream age
         stream_age = self._stream_age(infra_dir, now)
 
@@ -257,6 +324,7 @@ class StateReader:
             cfa_state=cfa_state,
             cfa_actor=cfa_actor,
             needs_input=needs_input,
+            is_orphaned=is_orphaned,
             dispatches=dispatch_states,
             stream_age_seconds=stream_age,
             infra_dir=infra_dir,

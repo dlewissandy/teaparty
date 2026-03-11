@@ -17,6 +17,22 @@
       ],
       "last_approved_length": 3535,
       "conversations": []
+    },
+    "PLAN_ASSERT|POC": {
+      "state": "PLAN_ASSERT",
+      "task_type": "POC",
+      "approve_count": 1,
+      "correct_count": 0,
+      "reject_count": 0,
+      "total_count": 1,
+      "last_updated": "2026-03-10",
+      "differentials": [],
+      "ema_approval_rate": 0.6499999999999999,
+      "artifact_lengths": [
+        1488
+      ],
+      "last_approved_length": 1488,
+      "conversations": []
     }
   }
 }

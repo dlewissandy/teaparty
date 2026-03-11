@@ -134,7 +134,12 @@ class DrilldownScreen(Screen):
         if self._session:
             s = self._session
             phase_state = f'{s.cfa_phase} \u25b8 {s.cfa_state}' if s.cfa_state else s.status
-            attention = '  \u23f3 YOUR INPUT' if s.needs_input else ''
+            if s.is_orphaned:
+                attention = '  \u26a0 ORPHANED'
+            elif s.needs_input:
+                attention = '  \u23f3 YOUR INPUT'
+            else:
+                attention = ''
             header.update(
                 f'[bold]{s.project} \u25b8 Session {s.session_id}[/bold]  '
                 f'{phase_state}{attention}\n'
@@ -249,6 +254,22 @@ class DrilldownScreen(Screen):
             # New request arrived — fall through to show input
             self._input_cooldown = False
 
+        # Orphaned sessions always show the recovery input area
+        if self._session and self._session.is_orphaned and self._session.cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
+            if not self._input_latched:
+                self._input_latched = True
+                input_area.add_class('visible')
+                state = self._session.cfa_state
+                if state in ('WORK_ASSERT', 'PLAN_ASSERT', 'INTENT_ASSERT'):
+                    prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
+                                        f"type 'approve' or 'abandon'")
+                else:
+                    prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
+                                        f"type 'abandon' to clean up")
+                if not was_visible:
+                    self.query_one('#input-field', Input).focus()
+            return
+
         if self._session and self._session.needs_input:
             self._input_latched = True
             input_area.add_class('visible')
@@ -266,18 +287,26 @@ class DrilldownScreen(Screen):
         if not response:
             return
 
-        # Write response via IPC
+        # Write response via IPC (or handle orphan recovery)
         if self._session and self._session.infra_dir:
-            from projects.POC.tui.ipc import send_response
-            send_response(self._session.infra_dir, response)
-
-            # Log the response in the activity stream
-            log = self.query_one('#activity-log', RichLog)
-            from rich.text import Text
-            text = Text()
-            text.append('[you] ', style='bold green')
-            text.append(response)
-            log.write(text)
+            if self._session.is_orphaned:
+                from projects.POC.tui.orphan_recovery import handle_orphan_response
+                msg = handle_orphan_response(self._session, response)
+                log = self.query_one('#activity-log', RichLog)
+                from rich.text import Text
+                t = Text()
+                t.append('[recovery] ', style='bold red')
+                t.append(msg)
+                log.write(t)
+            else:
+                from projects.POC.tui.ipc import send_response
+                send_response(self._session.infra_dir, response)
+                log = self.query_one('#activity-log', RichLog)
+                from rich.text import Text
+                text = Text()
+                text.append('[you] ', style='bold green')
+                text.append(response)
+                log.write(text)
 
         # Release latch, enter cooldown (one poll cycle suppression)
         self._input_latched = False

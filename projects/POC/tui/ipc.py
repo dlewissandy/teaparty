@@ -61,6 +61,28 @@ def send_response(infra_dir: str, response: str) -> bool:
     return True
 
 
+def check_fifo_has_reader(infra_dir: str) -> bool:
+    """Test whether a live reader is blocking on the response FIFO.
+
+    Opens the FIFO in non-blocking write mode: succeeds only if another
+    process already has the read end open (i.e. the session is alive).
+    Returns True if a reader is present, False if the FIFO doesn't exist
+    or no reader is present (ENXIO).
+    """
+    import errno
+    fifo_path = os.path.join(infra_dir, RESPONSE_FIFO)
+    if not os.path.exists(fifo_path):
+        return False
+    try:
+        fd = os.open(fifo_path, os.O_WRONLY | os.O_NONBLOCK)
+        os.close(fd)
+        return True
+    except OSError as e:
+        if e.errno == errno.ENXIO:
+            return False
+        return False
+
+
 def create_fifo(infra_dir: str) -> str:
     """Create the response FIFO if it doesn't exist. Returns the path."""
     fifo_path = os.path.join(infra_dir, RESPONSE_FIFO)

@@ -71,7 +71,74 @@
       "task": "The prompt that is displayed at the bottom of the dashboard is truncated to 100 characters.   Display in a scrollable re",
       "session_id": "20260310-183123",
       "created_at": "2026-03-11T01:31:23.395401+00:00",
-      "status": "active"
+      "status": "complete",
+      "updated_at": "2026-03-11T02:19:46.411801+00:00"
+    },
+    {
+      "name": "session-6973c7ab--i-need-the-readme-file-for-the-poc-to-be",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-6973c7ab--i-need-the-readme-file-for-the-poc-to-be",
+      "type": "session",
+      "team": "",
+      "task": "I need the readme file for the POC to be updated with information on how to get started for different OS systems (window",
+      "session_id": "20260310-215006",
+      "created_at": "2026-03-11T04:50:06.551804+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-11T05:12:03.256412+00:00"
+    },
+    {
+      "name": "session-cdcfad5c--i-would-like-to-modify-the-poc-so-that-y",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-cdcfad5c--i-would-like-to-modify-the-poc-so-that-y",
+      "type": "session",
+      "team": "",
+      "task": "I would like to modify the POC so that you can specify the project folder in the ui.   By default it should still be the",
+      "session_id": "20260310-215252",
+      "created_at": "2026-03-11T04:52:52.593529+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-11T05:10:40.778792+00:00"
+    },
+    {
+      "name": "writing-b2d3d08a--write-a-getting-started-readme-for-the-t",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/writing-b2d3d08a--write-a-getting-started-readme-for-the-t",
+      "type": "dispatch",
+      "team": "writing",
+      "task": "Write a Getting Started README for the TeaParty POC TUI.\n\nOutput file (exact path, write here): /Users/darrell/git/teapa",
+      "session_id": "20260310-215839",
+      "created_at": "2026-03-11T04:58:40.012577+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-11T05:00:40.160052+00:00"
+    },
+    {
+      "name": "writing-69345210--write-a-getting-started-readme-for-the-t",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/writing-69345210--write-a-getting-started-readme-for-the-t",
+      "type": "dispatch",
+      "team": "writing",
+      "task": "Write a Getting Started README for the TeaParty POC TUI. The plan is approved: write the file directly.\n\nOutput file (ex",
+      "session_id": "20260310-220120",
+      "created_at": "2026-03-11T05:01:20.692506+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-11T05:04:20.850538+00:00"
+    },
+    {
+      "name": "editorial-4abfb464--review-and-correct-the-readme-file-at-us",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/editorial-4abfb464--review-and-correct-the-readme-file-at-us",
+      "type": "dispatch",
+      "team": "editorial",
+      "task": "Review and correct the README file at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-6973c7ab--i-need-the-r",
+      "session_id": "20260310-220550",
+      "created_at": "2026-03-11T05:05:51.191294+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-11T05:07:51.316887+00:00"
+    },
+    {
+      "name": "editorial-50705f9a--review-and-correct-the-readme-file-at-us",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/editorial-50705f9a--review-and-correct-the-readme-file-at-us",
+      "type": "dispatch",
+      "team": "editorial",
+      "task": "Review and correct the README file at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-6973c7ab--i-need-the-r",
+      "session_id": "20260310-220816",
+      "created_at": "2026-03-11T05:08:16.306336+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-11T05:10:16.446452+00:00"
     }
   ]
 }

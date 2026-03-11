@@ -18,7 +18,9 @@ def _human_age(seconds: int) -> str:
     return f'{seconds // 3600}h{seconds % 3600 // 60}m'
 
 
-def _status_icon(status: str, needs_input: bool = False) -> str:
+def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = False) -> str:
+    if is_orphaned:
+        return '\u26a0'  # warning sign
     if needs_input:
         return '\u23f3'  # hourglass
     if status == 'active':
@@ -184,7 +186,7 @@ class DashboardScreen(Screen):
         title.update(f'SESSIONS ({proj.slug})')
 
         for sess in proj.sessions:
-            icon = _status_icon(sess.status, sess.needs_input)
+            icon = _status_icon(sess.status, sess.needs_input, getattr(sess, 'is_orphaned', False))
             state = _state_display(sess.cfa_phase, sess.cfa_state)
             age = _human_age(sess.stream_age_seconds)
             stable.add_row(icon, sess.session_id, state, age)
