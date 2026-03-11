@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
@@ -88,7 +88,10 @@ class DashboardScreen(Screen):
         )
         yield Vertical(
             Static('PROMPT', classes='section-title', id='prompt-title'),
-            Static('', id='dash-prompt-panel'),
+            VerticalScroll(
+                Static('', id='dash-prompt-panel'),
+                id='prompt-scroll',
+            ),
             id='bottom-pane',
         )
         yield Footer()
