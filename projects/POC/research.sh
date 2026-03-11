@@ -48,7 +48,20 @@ rules = [
     'Bash(' + d + '/tools/yt-transcript.sh:*)',
     'Bash(curl:*)'
 ]
-json.dump({'permissions': {'allow': rules}}, sys.stdout)
+enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
+json.dump({'permissions': {'allow': rules},
+'hooks': {
+    'PreToolUse': [
+        {
+            'matcher': 'Write',
+            'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+        },
+        {
+            'matcher': 'Edit',
+            'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+        },
+    ]
+}}, sys.stdout)
 " > "$SETTINGS_FILE"
 
 echo "=== Research Team ==="

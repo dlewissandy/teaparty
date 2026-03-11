@@ -75,9 +75,9 @@ AGENTS_JSON=$(sed -e "s|__POC_DIR__|$SCRIPT_DIR|g" \
 SETTINGS_FILE=$(mktemp)
 trap "rm -f $SETTINGS_FILE" EXIT
 
-python3 -c "
+SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
 import json, os, sys
-d = os.environ.get('SCRIPT_DIR', '.')
+d = os.environ['SCRIPT_DIR']
 rules = [
     'Bash(' + d + '/dispatch.sh:*)',
     'Bash(' + d + '/tools/yt-transcript.sh:*)',
@@ -85,11 +85,26 @@ rules = [
     'WebSearch',
     'Write',
 ]
-json.dump({'permissions': {'allow': rules}, 'env': {
+enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
+json.dump({'permissions': {'allow': rules},
+'hooks': {
+    'PreToolUse': [
+        {
+            'matcher': 'Write',
+            'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+        },
+        {
+            'matcher': 'Edit',
+            'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+        },
+    ]
+},
+'env': {
     'SCRIPT_DIR': d,
     'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
     'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
     'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+    'POC_PROJECT_WORKDIR': os.environ.get('POC_PROJECT_WORKDIR', ''),
     'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
     'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
     'POC_CFA_STATE': os.environ.get('POC_CFA_STATE', ''),

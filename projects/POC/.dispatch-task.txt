@@ -1,0 +1,121 @@
+Make two targeted edits to fix the session write-scope enforcement bug. Work in the session worktree at:
+/Users/darrell/git/teaparty/projects/POC/.worktrees/session-2054f34a--there-is-a-bug-in-the-poc-code-sessions
+
+Both files are under: projects/POC/ within that worktree.
+
+---
+
+## Fix 1: projects/POC/intent.sh (lines 78–97)
+
+Find and replace the entire settings-file python3 block. The current block starts with:
+    python3 -c "
+and ends with:
+    " > "$SETTINGS_FILE"
+
+Replace that block with the following (note the SCRIPT_DIR= prefix on the python3 invocation, the hooks section, and POC_PROJECT_WORKDIR in env):
+
+    SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
+    import json, os, sys
+    d = os.environ['SCRIPT_DIR']
+    rules = [
+        'Bash(' + d + '/dispatch.sh:*)',
+        'Bash(' + d + '/tools/yt-transcript.sh:*)',
+        'WebFetch',
+        'WebSearch',
+        'Write',
+    ]
+    enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
+    json.dump({'permissions': {'allow': rules},
+    'hooks': {
+        'PreToolUse': [
+            {
+                'matcher': 'Write',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+            {
+                'matcher': 'Edit',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+        ]
+    },
+    'env': {
+        'SCRIPT_DIR': d,
+        'POC_OUTPUT_DIR': os.environ.get('POC_OUTPUT_DIR', ''),
+        'POC_PROJECT': os.environ.get('POC_PROJECT', ''),
+        'POC_PROJECT_DIR': os.environ.get('POC_PROJECT_DIR', ''),
+        'POC_PROJECT_WORKDIR': os.environ.get('POC_PROJECT_WORKDIR', ''),
+        'POC_SESSION_DIR': os.environ.get('POC_SESSION_DIR', ''),
+        'POC_SESSION_WORKTREE': os.environ.get('POC_SESSION_WORKTREE', ''),
+        'POC_CFA_STATE': os.environ.get('POC_CFA_STATE', ''),
+    }}, sys.stdout)
+    " > "$SETTINGS_FILE"
+
+Changes from original:
+- Added SCRIPT_DIR="$SCRIPT_DIR" prefix to the python3 invocation
+- Changed d = os.environ.get('SCRIPT_DIR', '.') to d = os.environ['SCRIPT_DIR']
+- Added enforce_write_cmd variable
+- Added hooks section with PreToolUse matchers for Write and Edit
+- Added 'POC_PROJECT_WORKDIR': os.environ.get('POC_PROJECT_WORKDIR', '') to env dict
+
+Do NOT change anything else in intent.sh.
+
+---
+
+## Fix 2: projects/POC/research.sh (lines 44–52)
+
+Find and replace the settings-file python3 block. Current block:
+
+    SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
+    import json, os, sys
+    d = os.environ['SCRIPT_DIR']
+    rules = [
+        'Bash(' + d + '/tools/yt-transcript.sh:*)',
+        'Bash(curl:*)'
+    ]
+    json.dump({'permissions': {'allow': rules}}, sys.stdout)
+    " > "$SETTINGS_FILE"
+
+Replace with:
+
+    SCRIPT_DIR="$SCRIPT_DIR" python3 -c "
+    import json, os, sys
+    d = os.environ['SCRIPT_DIR']
+    rules = [
+        'Bash(' + d + '/tools/yt-transcript.sh:*)',
+        'Bash(curl:*)'
+    ]
+    enforce_write_cmd = d + '/hooks/enforce-write-scope.sh'
+    json.dump({'permissions': {'allow': rules},
+    'hooks': {
+        'PreToolUse': [
+            {
+                'matcher': 'Write',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+            {
+                'matcher': 'Edit',
+                'hooks': [{'type': 'command', 'command': enforce_write_cmd}]
+            },
+        ]
+    }}, sys.stdout)
+    " > "$SETTINGS_FILE"
+
+Changes from original:
+- Added enforce_write_cmd variable
+- Added hooks section with PreToolUse matchers for Write and Edit
+- NOTE: POC_PROJECT_WORKDIR is intentionally NOT added to env — research.sh is not project-scoped. The hook exits 0 (no-op) when POC_PROJECT_WORKDIR is unset, which is correct behavior.
+
+Do NOT change anything else in research.sh.
+
+---
+
+## Verification
+
+After making both edits:
+1. Run bash -n on both files to confirm no syntax errors
+2. Test the intent.sh python3 block in isolation:
+   SCRIPT_DIR=/Users/darrell/git/teaparty/projects/POC/.worktrees/session-2054f34a--there-is-a-bug-in-the-poc-code-sessions/projects/POC POC_PROJECT_WORKDIR=/test/project python3 -c "<the updated python block>" | python3 -m json.tool
+   Confirm output contains hooks key and POC_PROJECT_WORKDIR in env.
+3. Test the research.sh python3 block in isolation similarly. Confirm hooks key present, no POC_PROJECT_WORKDIR in env.
+
+Report which files were modified and paste the verification output.
