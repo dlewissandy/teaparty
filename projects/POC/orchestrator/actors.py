@@ -152,6 +152,9 @@ class AgentRunner:
 
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
+_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_REVIEW_ESCALATE'})
+
+
 class ApprovalGate:
     """Proxy decision + human review loop.
 
@@ -173,17 +176,28 @@ class ApprovalGate:
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state."""
         artifact_path = ctx.data.get('artifact_path', '')
+        escalation_file = ctx.data.get('escalation_file', '')
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
 
-        # Step 1: Consult proxy
-        proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path)
+        # For escalation states: present the agent's clarification request directly.
+        # Skip proxy — always escalate to human when the agent explicitly requests it.
+        if ctx.state in _ESCALATION_STATES and escalation_file and os.path.exists(escalation_file):
+            try:
+                with open(escalation_file) as _f:
+                    bridge_text = _f.read().strip()
+            except OSError:
+                bridge_text = f'Agent requested clarification at state: {ctx.state}'
+            proxy_decision = 'escalate'
+        else:
+            # Step 1: Consult proxy
+            proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path)
 
-        if proxy_decision == 'auto-approve':
-            self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path)
-            return ActorResult(action='approve')
+            if proxy_decision == 'auto-approve':
+                self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path)
+                return ActorResult(action='approve')
 
-        # Step 2: Generate bridge text for the human
-        bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
+            # Step 2: Generate bridge text for the human
+            bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
 
         # Step 3: Dialog loop — ask human, classify, maybe dialog more
         dialog_history = ''
@@ -243,7 +257,7 @@ class ApprovalGate:
     def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '') -> str:
         """Consult human proxy model.  Returns 'auto-approve' or 'escalate'."""
         try:
-            from projects.POC.scripts.human_proxy import (
+            from projects.POC.scripts.approval_gate import (
                 load_model, should_escalate,
             )
             model = load_model(self.proxy_model_path)
@@ -258,7 +272,7 @@ class ApprovalGate:
     ) -> None:
         """Record human decision for proxy learning."""
         try:
-            from projects.POC.scripts.human_proxy import (
+            from projects.POC.scripts.approval_gate import (
                 load_model, record_outcome, save_model,
             )
             model = load_model(self.proxy_model_path)
@@ -316,14 +330,49 @@ class ApprovalGate:
         except Exception:
             return "I'm not sure I can answer that. Could you rephrase?"
 
+    async def failure_dialog(self, reason: str, ctx: ActorContext) -> str:
+        """Ask human what to do after infrastructure failure.
+
+        Returns 'retry' | 'backtrack' | 'withdraw'.
+        """
+        bridge_text = (
+            f'Infrastructure failure: {reason}\n\n'
+            'Options:\n'
+            '  retry — try the execution phase again\n'
+            '  backtrack — return to planning with feedback\n'
+            '  withdraw — mark this dispatch as withdrawn\n'
+        )
+        await ctx.event_bus.publish(Event(
+            type=EventType.INPUT_REQUESTED,
+            data={'state': 'INFRASTRUCTURE_FAILURE', 'bridge_text': bridge_text},
+            session_id=ctx.session_id,
+        ))
+        response = await self.input_provider(InputRequest(
+            type='failure_decision',
+            state='INFRASTRUCTURE_FAILURE',
+            artifact='',
+            bridge_text=bridge_text,
+        ))
+        response = response.strip().lower()
+        if 'backtrack' in response:
+            return 'backtrack'
+        if 'withdraw' in response:
+            return 'withdraw'
+        return 'retry'
+
 
 # ── DispatchRunner ───────────────────────────────────────────────────────────
 
 class DispatchRunner:
-    """Creates a child orchestrator for subteam delegation.
+    """In-process dispatch path — creates a child orchestrator for subteam delegation.
 
-    This is called by the uber-team's execution phase when it dispatches
-    work to a subteam (art, writing, research, coding, editorial).
+    NOTE (Gap 58): This class is NOT currently wired to the engine's _invoke_actor routing.
+    The live dispatch path today is subprocess-based: agents invoke dispatch.sh, which calls
+    dispatch_cli.py as a subprocess. DispatchRunner is the intended future in-process path
+    when the engine manages dispatch routing directly without a shell intermediary.
+
+    Do not delete — it already uses make_child_state correctly and implements the full
+    dispatch lifecycle. Wire into _invoke_actor when in-process dispatch is ready.
     """
 
     def __init__(

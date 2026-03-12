@@ -28,7 +28,7 @@ from projects.POC.orchestrator.actors import (
     ApprovalGate,
     InputProvider,
 )
-from projects.POC.orchestrator.events import Event, EventBus, EventType
+from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
 
@@ -43,11 +43,16 @@ class PhaseResult:
     failure_reason: str = ''
 
 
+PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
+WORK_ESCALATION_STATES = frozenset({'TASK_REVIEW_ESCALATE'})
+
+
 @dataclass
 class OrchestratorResult:
     """Final outcome of the full session orchestration."""
     terminal_state: str             # COMPLETED_WORK or WITHDRAWN
     backtrack_count: int = 0
+    escalation_type: str = ''      # 'plan', 'work', or '' (no escalation)
 
 
 class Orchestrator:
@@ -110,18 +115,12 @@ class Orchestrator:
             if not self.skip_intent:
                 result = await self._run_phase('intent')
                 if result.terminal:
-                    return OrchestratorResult(
-                        terminal_state=result.terminal_state,
-                        backtrack_count=self.cfa.backtrack_count,
-                    )
+                    return self._make_result(result.terminal_state)
 
             # Phase 2: Planning
             result = await self._run_phase('planning')
             if result.terminal:
-                return OrchestratorResult(
-                    terminal_state=result.terminal_state,
-                    backtrack_count=self.cfa.backtrack_count,
-                )
+                return self._make_result(result.terminal_state)
             if result.backtrack_to == 'intent':
                 self.skip_intent = False
                 continue
@@ -129,10 +128,7 @@ class Orchestrator:
             # Phase 3: Execution
             result = await self._run_phase('execution')
             if result.terminal:
-                return OrchestratorResult(
-                    terminal_state=result.terminal_state,
-                    backtrack_count=self.cfa.backtrack_count,
-                )
+                return self._make_result(result.terminal_state)
             if result.backtrack_to == 'intent':
                 self.skip_intent = False
                 continue
@@ -140,14 +136,32 @@ class Orchestrator:
                 self.skip_intent = True
                 continue
             if result.infrastructure_failure:
-                # Retry execution
-                continue
+                # Gap 30: CfA-aware failure dialog — offer retry / backtrack / withdraw
+                decision = await self._failure_dialog(result.failure_reason)
+                if decision == 'backtrack':
+                    self.skip_intent = False
+                    continue
+                if decision == 'withdraw':
+                    self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                    save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+                    return self._make_result('WITHDRAWN')
+                continue  # retry
 
             # Should not reach here — but treat as completion
-            return OrchestratorResult(
-                terminal_state=self.cfa.state,
-                backtrack_count=self.cfa.backtrack_count,
-            )
+            return self._make_result(self.cfa.state)
+
+    def _make_result(self, terminal_state: str) -> OrchestratorResult:
+        """Build OrchestratorResult with escalation_type derived from CfA state."""
+        escalation_type = ''
+        if self.cfa.state in PLAN_ESCALATION_STATES:
+            escalation_type = 'plan'
+        elif self.cfa.state in WORK_ESCALATION_STATES:
+            escalation_type = 'work'
+        return OrchestratorResult(
+            terminal_state=terminal_state,
+            backtrack_count=self.cfa.backtrack_count,
+            escalation_type=escalation_type,
+        )
 
     async def _run_phase(self, phase_name: str) -> PhaseResult:
         """Run a single CfA phase to completion or backtrack."""
@@ -314,6 +328,36 @@ class Orchestrator:
         # Intent phase, or INTENT.md not yet written
         return self.task or self.project_slug
 
+    async def _failure_dialog(self, reason: str) -> str:
+        """Gap 30: Ask human what to do after infrastructure failure.
+
+        Returns 'retry' | 'backtrack' | 'withdraw'.
+        """
+        bridge_text = (
+            f'Infrastructure failure: {reason}\n\n'
+            'Options:\n'
+            '  retry — try the execution phase again\n'
+            '  backtrack — return to planning with feedback\n'
+            '  withdraw — mark this session as withdrawn\n'
+        )
+        await self.event_bus.publish(Event(
+            type=EventType.INPUT_REQUESTED,
+            data={'state': 'INFRASTRUCTURE_FAILURE', 'bridge_text': bridge_text},
+            session_id=self.session_id,
+        ))
+        response = await self.input_provider(InputRequest(
+            type='failure_decision',
+            state='INFRASTRUCTURE_FAILURE',
+            artifact='',
+            bridge_text=bridge_text,
+        ))
+        r = response.strip().lower()
+        if 'backtrack' in r:
+            return 'backtrack'
+        if 'withdraw' in r:
+            return 'withdraw'
+        return 'retry'
+
     def _build_env_vars(self) -> dict[str, str]:
         return {
             'POC_PROJECT': self.project_slug,
@@ -321,6 +365,9 @@ class Orchestrator:
             'POC_SESSION_DIR': self.infra_dir,
             'POC_SESSION_WORKTREE': self.session_worktree,
             'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
+            # Gap 3: SCRIPT_DIR and PROJECTS_DIR needed by subprocesses that call dispatch.sh
+            'SCRIPT_DIR': self.poc_root,
+            'PROJECTS_DIR': os.path.dirname(self.project_workdir),
         }
 
     def _build_add_dirs(self) -> list[str]:

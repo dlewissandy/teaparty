@@ -23,9 +23,9 @@ from projects.POC.orchestrator.worktree import (
     cleanup_worktree,
 )
 from projects.POC.scripts.cfa_state import (
-    make_initial_state,
+    make_child_state,
+    load_state,
     save_state,
-    transition,
 )
 
 
@@ -45,7 +45,7 @@ def _find_poc_root() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
-async def dispatch(team: str, task: str, auto_approve_plan: bool = False) -> dict:
+async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_parent_state: str = '') -> dict:
     """Run a dispatch and return a status dict."""
     poc_root = _find_poc_root()
     config = PhaseConfig(poc_root)
@@ -57,6 +57,16 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False) -> dic
 
     if not infra_dir:
         return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}
+
+    # Load parent CfA state for child linkage
+    parent_state_path = (
+        cfa_parent_state
+        or os.environ.get('POC_CFA_STATE', '')
+        or os.path.join(infra_dir, '.cfa-state.json')
+    )
+    if not os.path.exists(parent_state_path):
+        return {'status': 'failed', 'reason': f'parent CfA state not found: {parent_state_path}'}
+    parent_cfa = load_state(parent_state_path)
 
     # Create dispatch worktree
     try:
@@ -72,9 +82,11 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False) -> dic
     worktree_path = dispatch_info['worktree_path']
     dispatch_infra = dispatch_info['infra_dir']
 
-    # Initialize CfA state for the child
-    cfa = make_initial_state(task_id=f'dispatch-{team}-{dispatch_info["dispatch_id"]}')
-    cfa = transition(cfa, 'propose')
+    # Initialize CfA state for the child — use make_child_state for correct parent linkage
+    cfa = make_child_state(
+        parent_cfa, team,
+        task_id=f'dispatch-{team}-{dispatch_info["dispatch_id"]}',
+    )
     save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
     # Run child orchestrator
@@ -108,6 +120,8 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False) -> dic
         result = await orchestrator.run()
         if result.terminal_state in ('COMPLETED_WORK', 'WITHDRAWN'):
             break
+        if result.escalation_type:  # escalation — don't retry, surface it
+            break
         retries += 1
 
     # Merge back into parent session worktree
@@ -133,8 +147,13 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False) -> dic
 
     # Return JSON status
     status = 'completed' if result and result.terminal_state == 'COMPLETED_WORK' else 'failed'
+    escalation_type = result.escalation_type if result else ''
+    exit_reason = 'completed' if status == 'completed' else (
+        f'{escalation_type}_escalation' if escalation_type else 'failed'
+    )
     return {
         'status': status,
+        'exit_reason': exit_reason,
         'team': team,
         'task': task[:200],
         'terminal_state': result.terminal_state if result else 'unknown',
@@ -148,11 +167,14 @@ async def main() -> int:
     parser.add_argument('--task', required=True, help='Task description')
     parser.add_argument('--auto-approve-plan', action='store_true',
                         help='Skip proxy check for plan approval')
+    parser.add_argument('--cfa-parent-state', default='',
+                        help='Path to parent CfA state JSON (falls back to POC_CFA_STATE env)')
     args = parser.parse_args()
 
-    result = await dispatch(args.team, args.task, args.auto_approve_plan)
+    result = await dispatch(args.team, args.task, args.auto_approve_plan, args.cfa_parent_state)
     print(json.dumps(result, indent=2))
-    return 0 if result['status'] == 'completed' else 1
+    exit_codes = {'completed': 0, 'plan_escalation': 10, 'work_escalation': 11}
+    return exit_codes.get(result.get('exit_reason', 'failed'), 1)
 
 
 if __name__ == '__main__':

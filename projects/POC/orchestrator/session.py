@@ -61,9 +61,13 @@ class Session:
 
     async def run(self) -> SessionResult:
         """Execute the full session lifecycle."""
-        # 1. Classify task → project slug
-        self.project_slug = self._classify_task()
+        # 1. Classify task → project slug + task mode (Gap 5)
+        self.project_slug, task_mode = self._classify_task()
         self.session_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+
+        # Short-circuit for conversational tasks (no orchestration needed)
+        if task_mode == 'conversational':
+            self.skip_intent = True
 
         # 2. Ensure project directory exists
         project_dir = os.path.join(self.projects_dir, self.project_slug)
@@ -181,10 +185,14 @@ class Session:
             backtrack_count=result.backtrack_count,
         )
 
-    def _classify_task(self) -> str:
-        """Classify task to determine project slug."""
+    def _classify_task(self) -> tuple[str, str]:
+        """Classify task to determine (project_slug, task_mode).
+
+        task_mode is 'conversational' for simple Q&A tasks that bypass orchestration,
+        or 'normal' for full plan-execute sessions.
+        """
         if self.project_override:
-            return self.project_override
+            return self.project_override, 'normal'
 
         script = os.path.join(self.poc_root, 'scripts', 'classify_task.py')
         if os.path.exists(script):
@@ -196,11 +204,13 @@ class Session:
                 )
                 if result.returncode == 0 and result.stdout.strip():
                     parts = result.stdout.strip().split('\t')
-                    return parts[0]
+                    slug = parts[0]
+                    mode = parts[1] if len(parts) > 1 else 'normal'
+                    return slug, mode
             except Exception:
                 pass
 
-        return 'default'
+        return 'default', 'normal'
 
     def _find_repo_root(self) -> str:
         """Find the git repo root."""
@@ -243,19 +253,39 @@ class Session:
             except OSError:
                 pass
 
-        # Fuzzy memory retrieval
+        # Fuzzy memory retrieval (Gap 14: use correct memory_indexer.py flags)
+        import tempfile
         script = os.path.join(self.poc_root, 'scripts', 'memory_indexer.py')
-        if os.path.exists(script):
+        db_path = os.path.join(project_dir, '.memory.db')
+        if os.path.exists(script) and os.path.exists(db_path):
+            output_path = None
             try:
-                result = subprocess.run(
-                    ['python3', script, '--retrieve', '--query', self.task,
-                     '--tasks-dir', os.path.join(project_dir, 'tasks'),
-                     '--limit', '5'],
+                with tempfile.NamedTemporaryFile(
+                    mode='w', suffix='.md', delete=False,
+                ) as out_f:
+                    output_path = out_f.name
+                mem_result = subprocess.run(
+                    ['python3', script,
+                     '--db', db_path,
+                     '--task', self.task,
+                     '--top-k', '10',
+                     '--output', output_path,
+                     '--scope-base-dir', project_dir,
+                    ],
                     capture_output=True, text=True, timeout=15,
                 )
-                if result.returncode == 0 and result.stdout.strip():
-                    parts.append(f'--- Retrieved Memory ---\n{result.stdout.strip()}\n--- end ---')
+                if mem_result.returncode == 0 and os.path.exists(output_path):
+                    with open(output_path) as f:
+                        mem_content = f.read().strip()
+                    if mem_content:
+                        parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
             except Exception:
                 pass
+            finally:
+                if output_path:
+                    try:
+                        os.unlink(output_path)
+                    except OSError:
+                        pass
 
         return '\n\n'.join(parts)

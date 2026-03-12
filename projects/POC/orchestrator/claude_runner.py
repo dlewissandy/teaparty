@@ -130,6 +130,13 @@ class ClaudeRunner:
             try:
                 with open(self.agents_file) as f:
                     agents_json = f.read()
+                # Gaps 12/67: apply placeholder substitution (mirrors run.sh / dispatch.sh sed)
+                poc_root = self.env_vars.get('SCRIPT_DIR', '')
+                session_dir = self.env_vars.get('POC_SESSION_DIR', '')
+                if poc_root:
+                    agents_json = agents_json.replace('__POC_DIR__', poc_root)
+                if session_dir:
+                    agents_json = agents_json.replace('__SESSION_DIR__', session_dir)
                 args.extend(['--agents', agents_json])
             except OSError:
                 pass  # File not found — skip agents flag
