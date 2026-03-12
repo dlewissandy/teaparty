@@ -139,6 +139,17 @@
       "created_at": "2026-03-11T05:08:16.306336+00:00",
       "status": "failed",
       "updated_at": "2026-03-11T05:10:16.446452+00:00"
+    },
+    {
+      "name": "session-3c6c0074--when-at-a-decision-gate-in-a-tui-session",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-3c6c0074--when-at-a-decision-gate-in-a-tui-session",
+      "type": "session",
+      "team": "",
+      "task": "When at a decision gate in a tui session, the artifacts that I am supposed to review are not accessible yet (the buttons",
+      "session_id": "20260311-172450",
+      "created_at": "2026-03-12T00:24:50.359884+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T01:15:42.072148+00:00"
     }
   ]
 }

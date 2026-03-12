@@ -1,0 +1,58 @@
+{
+  "phases": {
+    "intent": {
+      "agent_file": "agents/intent-team.json",
+      "lead": "intent-lead",
+      "permission_mode": "acceptEdits",
+      "stream_file": ".intent-stream.jsonl",
+      "artifact": "INTENT.md",
+      "approval_state": "INTENT_ASSERT",
+      "escalation_state": "INTENT_ESCALATE",
+      "escalation_file": ".intent-escalation.md",
+      "settings_overlay": {
+        "permissions": {
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch"]
+        }
+      }
+    },
+    "planning": {
+      "agent_file": "agents/uber-team.json",
+      "lead": "project-lead",
+      "permission_mode": "plan",
+      "stream_file": ".plan-stream.jsonl",
+      "artifact": null,
+      "approval_state": "PLAN_ASSERT",
+      "escalation_state": "PLANNING_ESCALATE",
+      "escalation_file": ".plan-escalation.md",
+      "settings_overlay": {
+        "permissions": {
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "ExitPlanMode"]
+        }
+      }
+    },
+    "execution": {
+      "agent_file": "agents/uber-team.json",
+      "lead": "project-lead",
+      "permission_mode": "acceptEdits",
+      "stream_file": ".exec-stream.jsonl",
+      "artifact": null,
+      "approval_state": "WORK_ASSERT",
+      "escalation_state": "TASK_ESCALATE",
+      "escalation_file": ".task-escalation.md",
+      "settings_overlay": {
+        "permissions": {
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "ExitPlanMode"]
+        }
+      }
+    }
+  },
+  "teams": {
+    "art":       { "agent_file": "agents/art-team.json",       "lead": "art-lead" },
+    "writing":   { "agent_file": "agents/writing-team.json",   "lead": "writing-lead" },
+    "editorial": { "agent_file": "agents/editorial-team.json", "lead": "editorial-lead" },
+    "research":  { "agent_file": "agents/research-team.json",  "lead": "research-lead" },
+    "coding":    { "agent_file": "agents/coding-team.json",    "lead": "coding-lead" }
+  },
+  "stall_timeout_seconds": 1800,
+  "max_dispatch_retries": 5
+}
