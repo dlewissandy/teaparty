@@ -349,6 +349,21 @@ def should_escalate(
     # Content check (Phase 1 / Phase 2) — fires regardless of confidence level.
     if artifact_path:
         artifact_text = _read_artifact(artifact_path)
+
+        # Unconditional escalation: [CONFIRM:] markers require human review
+        confirm_markers = re.findall(r'\[CONFIRM:[^\]]+\]', artifact_text or '')
+        if confirm_markers:
+            markers_list = '\n'.join(f'  - {m}' for m in confirm_markers)
+            return ProxyDecision(
+                action='escalate',
+                confidence=confidence,
+                reasoning=(
+                    f"Artifact contains {len(confirm_markers)} unresolved [CONFIRM:] "
+                    f"marker(s) requiring human review before work proceeds:\n{markers_list}"
+                ),
+                predicted_response="human review required (CONFIRM markers)",
+            )
+
         if artifact_text:
             fired, reason = _check_content_novelty(artifact_text, entry)
             if fired:
