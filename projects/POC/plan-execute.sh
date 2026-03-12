@@ -474,15 +474,19 @@ for b in blocks[:5]: print(b)
     fi
 
     # ── WORK_ASSERT: human/proxy reviews the work ──
+    # Write work summary before announcing the gate so proxy and TUI
+    # have the artifact available immediately.
+    WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
+    python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
     cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
     chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
-    PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$STREAM_TARGET/.work-summary.md")
+    PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$WORK_SUMMARY_FILE")
     session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION"
 
     if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
       echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
       session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)"
-      proxy_record "WORK_ASSERT" "approve" "" "$STREAM_TARGET/.work-summary.md"
+      proxy_record "WORK_ASSERT" "approve" "" "$WORK_SUMMARY_FILE"
       cfa_transition "approve" || cfa_set "COMPLETED_WORK"
       break
     elif [[ "$AGENT_MODE" == "true" ]]; then
@@ -492,8 +496,6 @@ for b in blocks[:5]: print(b)
     fi
 
     # Completion assertion bridge — frame what was accomplished
-    WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
-    python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
     chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
     chrome_heavy_line
 
@@ -731,6 +733,13 @@ else
   }
   relocate_new_plans
   rm -f "$PLANS_BEFORE"
+
+  # Fallback: agent may have written plan.md directly to the working dir
+  # instead of using ExitPlanMode. Relocate it to infra dir so TUI can find it.
+  if [[ ! -f "$STREAM_TARGET/plan.md" && -f "$WORK_DIR/plan.md" ]]; then
+    mv "$WORK_DIR/plan.md" "$STREAM_TARGET/plan.md"
+    echo -e "  ${C_DIM}Relocated plan from working dir${C_RESET}" >&2
+  fi
 
   # ── Planning permission block gate ──
   # Only check if the agent FAILED to produce a plan.  If a plan exists,
@@ -1076,14 +1085,18 @@ for b in blocks[:5]: print(b)
     continue  # Re-enter execution loop with clarification
   fi
 
+  # Write work summary before announcing the gate so proxy and TUI
+  # have the artifact available immediately.
+  WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
+  python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
   cfa_set "WORK_ASSERT"  # Agent completed: WORK_IN_PROGRESS → assert → WORK_ASSERT
-  PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$STREAM_TARGET/.work-summary.md")
+  PROXY_ACTION=$(proxy_decide "WORK_ASSERT" "$WORK_SUMMARY_FILE")
   session_log PROXY "WORK_ASSERT proxy=$PROXY_ACTION (legacy)"
 
   if [[ "$PROXY_ACTION" == "auto-approve" ]]; then
     echo -e "  ${C_DIM}CfA: WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved)${C_RESET}" >&2
     session_log STATE "WORK_ASSERT → approve → COMPLETED_WORK (proxy auto-approved, legacy)"
-    proxy_record "WORK_ASSERT" "approve" "" "$STREAM_TARGET/.work-summary.md"
+    proxy_record "WORK_ASSERT" "approve" "" "$WORK_SUMMARY_FILE"
     cfa_transition "approve" || cfa_set "COMPLETED_WORK"
     break
   elif [[ "$AGENT_MODE" == "true" ]]; then
@@ -1095,8 +1108,6 @@ for b in blocks[:5]: print(b)
   chrome_header "WORK_ASSERT (CfA Phase 3 — human reviews deliverable)"
 
   # Completion assertion bridge — frame what was accomplished
-  WORK_SUMMARY_FILE="$STREAM_TARGET/.work-summary.md"
-  python3 "$SCRIPT_DIR/stream/extract_result.py" < "$EXEC_STREAM" > "$WORK_SUMMARY_FILE"
   chrome_bridge "$WORK_SUMMARY_FILE" "WORK_ASSERT" "$TASK"
   chrome_heavy_line
 

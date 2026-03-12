@@ -239,6 +239,12 @@ REJECTION_FEEDBACK=""
 
 review_intent() {
   local intent_path="$1"
+  # Stage INTENT.md to infra dir before announcing the gate so the TUI
+  # can open it immediately. The file lives in PROJECT_WORKDIR (a worktree
+  # subdirectory); the copy run.sh does post-approval is too late.
+  if [[ "$intent_path" != "$STREAM_DIR/INTENT.md" ]]; then
+    cp "$intent_path" "$STREAM_DIR/INTENT.md"
+  fi
   intent_cfa_set "INTENT_ASSERT"
 
   # ── Proxy gate: auto-approve if confident ──

@@ -79,9 +79,7 @@ class DispatchDrilldownScreen(Screen):
             if self._dispatch_worktree() is None:
                 return None
         if action == 'open_plan':
-            if not self._dispatch.infra_dir:
-                return None
-            if not os.path.exists(os.path.join(self._dispatch.infra_dir, 'plan.md')):
+            if self._find_dispatch_plan() is None:
                 return None
         return True
 
@@ -174,6 +172,19 @@ class DispatchDrilldownScreen(Screen):
             pass
         return files
 
+    def _find_dispatch_plan(self) -> str | None:
+        """Find plan.md in infra dir or dispatch worktree."""
+        if self._dispatch.infra_dir:
+            p = os.path.join(self._dispatch.infra_dir, 'plan.md')
+            if os.path.exists(p):
+                return p
+        wt = self._dispatch_worktree()
+        if wt:
+            p = os.path.join(wt, 'plan.md')
+            if os.path.exists(p):
+                return p
+        return None
+
     def _dispatch_worktree(self) -> str | None:
         """Resolve the worktree directory for the dispatch."""
         d = self._dispatch
@@ -220,10 +231,9 @@ class DispatchDrilldownScreen(Screen):
             subprocess.Popen(['code', path])
 
     def action_open_plan(self) -> None:
-        if self._dispatch.infra_dir:
-            path = os.path.join(self._dispatch.infra_dir, 'plan.md')
-            if os.path.exists(path):
-                subprocess.Popen(['open', path])
+        path = self._find_dispatch_plan()
+        if path:
+            subprocess.Popen(['open', path])
 
     def action_toggle_scroll(self) -> None:
         self._scroll_locked = not self._scroll_locked
