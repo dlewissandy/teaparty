@@ -230,9 +230,10 @@ class DrilldownScreen(Screen):
         """Show/hide the input area based on whether the session needs input.
 
         Latch: once shown, stays visible until user submits.
-        Cooldown: after submit, skip ONE poll cycle so the shell has time
-        to consume the FIFO.  If .input-request.json reappears (dialog
-        loop), we re-show immediately regardless of CfA state.
+        Cooldown: after submit, stay suppressed until needs_input clears
+        (i.e., CfA state has advanced past the gate).  A new
+        .input-request.json overrides cooldown immediately so multi-turn
+        dialog loops re-show without waiting.
         """
         input_area = self.query_one('#input-area')
         prompt_label = self.query_one('#input-prompt', Static)
@@ -241,18 +242,24 @@ class DrilldownScreen(Screen):
         if self._input_latched:
             return
 
-        # One-cycle cooldown after submit — but if a new request file
-        # appeared the shell is asking again (dialog turn), so skip cooldown.
+        # Cooldown after submit — persist until CfA state advances past
+        # needs_input, OR a new .input-request.json arrives (dialog loop).
         if self._input_cooldown:
             has_request = False
             if self._session and self._session.infra_dir:
                 has_request = os.path.exists(
                     os.path.join(self._session.infra_dir, '.input-request.json'))
-            if not has_request:
+            if has_request:
+                # New request arrived (dialog loop) — fall through to show immediately
+                self._input_cooldown = False
+            else:
+                # No new request. Stay suppressed while needs_input is still True
+                # (orchestrator hasn't advanced CfA state yet). Also break out if
+                # the session became orphaned so the recovery UI is not delayed.
+                if self._session and self._session.needs_input and not self._session.is_orphaned:
+                    return   # suppress: waiting for orchestrator to advance state
                 self._input_cooldown = False
                 return
-            # New request arrived — fall through to show input
-            self._input_cooldown = False
 
         # Orphaned sessions always show the recovery input area
         if self._session and self._session.is_orphaned and self._session.cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
@@ -308,7 +315,7 @@ class DrilldownScreen(Screen):
                 text.append(response)
                 log.write(text)
 
-        # Release latch, enter cooldown (one poll cycle suppression)
+        # Release latch, enter cooldown (persistent until CfA state advances)
         self._input_latched = False
         self._input_cooldown = True
         event.input.clear()
