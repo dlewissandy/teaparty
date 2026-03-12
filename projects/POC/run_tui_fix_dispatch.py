@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run dispatch.sh with task from coding_task.txt"""
+"""Run dispatch.sh with task from coding_task_tui_fix.txt"""
 import subprocess
 import sys
 import os
@@ -12,7 +12,7 @@ with open(task_file) as f:
     task = f.read().strip()
 
 result = subprocess.run(
-    [dispatch_sh, '--team', 'coding', '--task', task],
+    [dispatch_sh, '--team', 'coding', '--auto-approve-plan', '--task', task],
     capture_output=False,
     text=True,
 )

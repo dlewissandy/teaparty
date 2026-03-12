@@ -14,6 +14,7 @@ from textual.widgets.option_list import Option
 from projects.POC.tui.event_parser import EventParser
 from projects.POC.tui.stream_watcher import StreamWatcher
 from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_streams
+from projects.POC.tui.platform_utils import open_file
 
 
 def _human_age(seconds: int) -> str:
@@ -372,7 +373,7 @@ class DrilldownScreen(Screen):
     def action_open_finder(self) -> None:
         path = self._session_worktree()
         if path:
-            subprocess.Popen(['open', path])
+            open_file(path)
 
     def action_open_vscode(self) -> None:
         path = self._session_worktree()
@@ -382,12 +383,12 @@ class DrilldownScreen(Screen):
     def action_open_intent(self) -> None:
         path = self._find_doc('INTENT.md')
         if path:
-            subprocess.Popen(['open', path])
+            open_file(path)
 
     def action_open_plan(self) -> None:
         path = self._find_doc('plan.md')
         if path:
-            subprocess.Popen(['open', path])
+            open_file(path)
 
     def action_toggle_scroll(self) -> None:
         self._scroll_locked = not self._scroll_locked

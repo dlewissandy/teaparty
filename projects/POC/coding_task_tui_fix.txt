@@ -1,0 +1,48 @@
+Implement cross-platform TUI file-open fix in worktree at:
+  /Users/darrell/git/teaparty/projects/POC/.worktrees/session-c17e5596--this-is-a-continuation-of-session-202603
+
+All paths below are relative to that worktree root.
+
+STEP 1 — Create projects/POC/tui/platform_utils.py
+
+Create this file with the following content (platform-aware file/directory opening utility):
+- Function: open_file(path: str) -> None
+- macOS (sys.platform == 'darwin'): subprocess.Popen(['open', abs_path])
+- Linux (sys.platform == 'linux'): subprocess.Popen(['xdg-open', abs_path])
+- Windows (sys.platform == 'win32'): os.startfile(abs_path)
+- Otherwise: logger.warning with platform and path
+- On FileNotFoundError: logger.warning with platform and path
+- On any other Exception: logger.warning with path and error
+- Always converts path to absolute with os.path.abspath before using it
+- Imports needed: logging, os, subprocess, sys, from __future__ import annotations
+
+STEP 2 — Modify projects/POC/tui/screens/drilldown.py
+
+First READ the file to find exact lines. Then:
+1. Add import near other local imports: from projects.POC.tui.platform_utils import open_file
+2. In action_open_finder (~line 375): replace subprocess.Popen(['open', path]) with open_file(path)
+3. In action_open_intent (~line 385): replace subprocess.Popen(['open', path]) with open_file(path)
+4. In action_open_plan (~line 390): replace subprocess.Popen(['open', path]) with open_file(path)
+5. Leave 'import subprocess' in place — it is used by action_open_vscode
+
+STEP 3 — Modify projects/POC/tui/screens/dispatch_drilldown.py
+
+First READ the file to find exact lines. Then:
+1. Add import near other local imports: from projects.POC.tui.platform_utils import open_file
+2. In action_open_finder (~line 226): replace subprocess.Popen(['open', path]) with open_file(path)
+3. In action_open_plan (~line 236): replace subprocess.Popen(['open', path]) with open_file(path)
+4. Leave 'import subprocess' in place — it is used by action_open_vscode
+
+CONSTRAINTS
+- Do NOT modify any shell scripts (run.sh, ui.sh, etc.)
+- Do NOT modify diagnostics.py, launch.py, state_reader.py, or ipc.py
+- Do NOT add any new package dependencies
+- macOS behavior must be semantically identical — 'open' still gets called on darwin
+
+VERIFICATION
+After all changes, grep for remaining bare open calls in tui/screens/ to confirm none remain.
+
+DELIVERABLES — Report:
+1. Confirmation that platform_utils.py was created
+2. Confirmation that both drilldown files were updated
+3. The grep output showing no remaining bare subprocess.Popen(['open' calls in tui/screens/
