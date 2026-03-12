@@ -17,6 +17,14 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full conceptual model.
 ```bash
 uv sync
 cp .env.example .env
+./teaparty.sh
+```
+
+This launches the TUI dashboard. Pass `--project-dir DIR` to point at a custom projects directory.
+
+To run the web server directly instead:
+
+```bash
 uv run uvicorn teaparty_app.main:app --reload
 ```
 

@@ -325,6 +325,16 @@
       "session_id": "20260312-101816",
       "created_at": "2026-03-12T17:18:16.308727+00:00",
       "status": "active"
+    },
+    {
+      "name": "session-102925--we-previously-started-a-sessio",
+      "path": "/Users/darrell/git/teaparty/projects/hierarchical-memory-paper/.worktrees/session-102925--we-previously-started-a-sessio",
+      "type": "session",
+      "team": "",
+      "task": "We previously started a session to perform a multipass review of the hierarchical memory paper.   Please read the intent and plan documents from projects/hierarchical-memory-paper/.sessions/20260312-062725.   Complete the unfinished work",
+      "session_id": "20260312-102925",
+      "created_at": "2026-03-12T17:29:25.213110+00:00",
+      "status": "active"
     }
   ]
 }
