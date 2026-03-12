@@ -199,7 +199,26 @@ class ApprovalGate:
             # Step 2: Generate bridge text for the human
             bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
 
-        # Step 3: Dialog loop — ask human, classify, maybe dialog more
+        # Step 3: Build context summaries for classification accuracy
+        intent_summary = ''
+        plan_summary = ''
+        intent_path = os.path.join(ctx.infra_dir, 'INTENT.md')
+        if not os.path.exists(intent_path):
+            intent_path = os.path.join(ctx.session_worktree, 'INTENT.md')
+        if os.path.exists(intent_path):
+            try:
+                with open(intent_path) as _f:
+                    intent_summary = _f.read(500)
+            except OSError:
+                pass
+        if artifact_path and os.path.exists(artifact_path):
+            try:
+                with open(artifact_path) as _f:
+                    plan_summary = _f.read(500)
+            except OSError:
+                pass
+
+        # Step 4: Dialog loop — ask human, classify, maybe dialog more
         dialog_history = ''
         while True:
             await ctx.event_bus.publish(Event(
@@ -226,7 +245,10 @@ class ApprovalGate:
             ))
 
             # Classify the response
-            action, feedback = self._classify_review(ctx.state, response, dialog_history)
+            action, feedback = self._classify_review(
+                ctx.state, response, dialog_history,
+                intent_summary=intent_summary, plan_summary=plan_summary,
+            )
 
             if action == 'dialog':
                 # Generate agent response to question
@@ -291,11 +313,17 @@ class ApprovalGate:
 
     def _classify_review(
         self, state: str, response: str, dialog_history: str = '',
+        intent_summary: str = '', plan_summary: str = '',
     ) -> tuple[str, str]:
         """Classify human review response into (action, feedback)."""
         try:
             from projects.POC.scripts.classify_review import classify
-            raw = classify(state, response, dialog_history=dialog_history)
+            raw = classify(
+                state, response,
+                intent_summary=intent_summary,
+                plan_summary=plan_summary,
+                dialog_history=dialog_history,
+            )
             parts = raw.split('\t', 1)
             action = parts[0]
             feedback = parts[1] if len(parts) > 1 else ''

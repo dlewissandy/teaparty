@@ -150,6 +150,181 @@
       "created_at": "2026-03-12T00:24:50.359884+00:00",
       "status": "complete",
       "updated_at": "2026-03-12T01:15:42.072148+00:00"
+    },
+    {
+      "name": "session-881cec3a--the-user-input-dialog-controls-that-are",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-881cec3a--the-user-input-dialog-controls-that-are",
+      "type": "session",
+      "team": "",
+      "task": "The user input dialog controls that are used to collect input at decision gates (INTENT_APPROVE, PLAN_APPROVE, WORK_APPR",
+      "session_id": "20260311-183333",
+      "created_at": "2026-03-12T01:33:33.508568+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T01:48:43.517657+00:00"
+    },
+    {
+      "name": "session-c1310669--goal-have-the-tui-user-interface-be-cros",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-c1310669--goal-have-the-tui-user-interface-be-cros",
+      "type": "session",
+      "team": "",
+      "task": "GOAL: Have the tui user interface be cross platform compatible.   It currently runs on mac, but needs to run on linux an",
+      "session_id": "20260311-185232",
+      "created_at": "2026-03-12T01:52:32.778914+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T03:06:32.183592+00:00"
+    },
+    {
+      "name": "session-3662ec03--session",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-3662ec03--session",
+      "type": "session",
+      "team": "",
+      "task": "\u00a0",
+      "session_id": "20260311-201825",
+      "created_at": "2026-03-12T03:18:25.947785+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T03:43:21.208847+00:00"
+    },
+    {
+      "name": "session-c17e5596--this-is-a-continuation-of-session-202603",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-c17e5596--this-is-a-continuation-of-session-202603",
+      "type": "session",
+      "team": "",
+      "task": "This is a continuation of session 20260311-18232.   YOu can find the intent and plan for that session in projects/POC/.s",
+      "session_id": "20260311-204536",
+      "created_at": "2026-03-12T03:45:36.710022+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T04:16:44.514554+00:00"
+    },
+    {
+      "name": "coding-ecb27466--test",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-ecb27466--test",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "test",
+      "session_id": "20260311-205855",
+      "created_at": "2026-03-12T03:58:55.543718+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T04:00:55.685172+00:00"
+    },
+    {
+      "name": "coding-1ed8bc33--implement-cross-platform-tui-file-open-f",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-1ed8bc33--implement-cross-platform-tui-file-open-f",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Implement cross-platform TUI file-open fix in worktree at: /Users/darrell/git/teaparty/projects/POC/.worktrees/session-c",
+      "session_id": "20260311-205941",
+      "created_at": "2026-03-12T03:59:42.007696+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T04:01:42.150389+00:00"
+    },
+    {
+      "name": "coding-152ad35b--read-the-full-task-instructions-from-the",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-152ad35b--read-the-full-task-instructions-from-the",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Read the full task instructions from the file at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-c17e5596--t",
+      "session_id": "20260311-210017",
+      "created_at": "2026-03-12T04:00:17.412281+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T04:02:17.532271+00:00"
+    },
+    {
+      "name": "coding-5daf2db6--implement-cross-platform-tui-file-open-f",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-5daf2db6--implement-cross-platform-tui-file-open-f",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Implement cross-platform TUI file-open fix in worktree at: /Users/darrell/git/teaparty/projects/POC/.worktrees/session-c",
+      "session_id": "20260311-210243",
+      "created_at": "2026-03-12T04:02:43.872035+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T04:06:17.762307+00:00"
+    },
+    {
+      "name": "coding-262f0f0e--implement-cross-platform-tui-file-open-f",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-262f0f0e--implement-cross-platform-tui-file-open-f",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Implement cross-platform TUI file-open fix in worktree at: /Users/darrell/git/teaparty/projects/POC/.worktrees/session-c",
+      "session_id": "20260311-210634",
+      "created_at": "2026-03-12T04:06:35.197581+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T04:08:35.320379+00:00"
+    },
+    {
+      "name": "session-20926b69--i-want-to-improve-the-intent-team-s-capa",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-20926b69--i-want-to-improve-the-intent-team-s-capa",
+      "type": "session",
+      "team": "",
+      "task": "I want to improve the intent team's capabilities and quality standards. The ideas are in projects/POC/backlog/intent-tea",
+      "session_id": "20260312-051840",
+      "created_at": "2026-03-12T12:18:40.452460+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T13:18:51.990117+00:00"
+    },
+    {
+      "name": "session-6ed0f658--please-review-the-plan-and-intent-docume",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-6ed0f658--please-review-the-plan-and-intent-docume",
+      "type": "session",
+      "team": "",
+      "task": "please review the plan and intent documents in projects/POC/.sessions/20260312-062725.   Complete the unfinished work.",
+      "session_id": "20260312-070846",
+      "created_at": "2026-03-12T14:08:47.002387+00:00",
+      "status": "complete",
+      "updated_at": "2026-03-12T15:50:00.328395+00:00"
+    },
+    {
+      "name": "coding-242431b5--verify-intent-team-capability-changes-ru",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-242431b5--verify-intent-team-capability-changes-ru",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Verify Intent Team Capability Changes: Run unit tests via 'python3 -m pytest scripts/tests/test_human_proxy.py -v' in /Users/darrell/git/teaparty/projects/POC. Then grep for CONFIRM in agents/intent-team.json to confirm marker format. Then test the escalation path by writing a test artifact with '[CONFIRM: some question]' content and calling 'python3 scripts/human_proxy.py --decide' against it \u2014 check ui.sh for exact flags. Then test normal path with a marker-free artifact. Write all results to /Users/darrell/git/teaparty/projects/POC/.sessions/20260312-051840/verification-alignment.md. Full instructions in /Users/darrell/git/teaparty/projects/POC/.worktrees/session-6ed0f658--please-review-the-plan-and-intent-docume/projects/POC/coding_task_verify_intent.txt",
+      "session_id": "20260312-072549",
+      "created_at": "2026-03-12T14:25:49.783030+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T14:29:49.924508+00:00"
+    },
+    {
+      "name": "coding-d64a3ee6--run-verification-steps-and-write-alignme",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-d64a3ee6--run-verification-steps-and-write-alignme",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Run verification steps and write alignment file for intent-team CONFIRM marker feature. Full task details in /tmp/coding_dispatch_task.txt - read that file first for all 6 steps.",
+      "session_id": "20260312-073258",
+      "created_at": "2026-03-12T14:32:58.499786+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T14:36:58.643529+00:00"
+    },
+    {
+      "name": "coding-88a842f2--commit-and-merge-completed-verification",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-88a842f2--commit-and-merge-completed-verification",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Commit and merge completed verification work from a worktree back to the main repository.\n\nThe worktree at this path contains completed verification work that needs to be committed and merged back:\n/Users/darrell/git/teaparty/projects/POC/.worktrees/session-6ed0f658--please-review-the-plan-and-intent-docume\n\nThe only new file produced in this worktree is:\nprojects/POC/.sessions/20260312-051840/verification-alignment.md\n\nSteps:\n1. cd into the worktree at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-6ed0f658--please-review-the-plan-and-intent-docume\n2. Run git status to confirm what changed\n3. Stage the new file: git add projects/POC/.sessions/20260312-051840/verification-alignment.md\n4. Commit with message: 'Add verification alignment for intent team capability changes (session 20260312-051840)'\n5. Check if the project has a specific merge/close-worktree script \u2014 check /Users/darrell/git/teaparty/projects/POC/run.sh and /Users/darrell/git/teaparty/projects/POC/scripts/ for anything like close_worktree.sh or a worktree lifecycle command. Also inspect /Users/darrell/git/teaparty/projects/POC/scripts/worktree_manifest.py or look at existing merged worktrees for the pattern used.\n6. If a close/merge script exists, use that. Otherwise, check out the main branch in the main repo and cherry-pick the commit.\n7. Report the git log of what was committed and whether the merge to main succeeded.\n\nUse absolute paths throughout. The main repo is at /Users/darrell/git/teaparty.",
+      "session_id": "20260312-084148",
+      "created_at": "2026-03-12T15:41:48.538372+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T15:44:48.670228+00:00"
+    },
+    {
+      "name": "coding-d8dfb4c8--commit-and-merge-completed-verification",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/coding-d8dfb4c8--commit-and-merge-completed-verification",
+      "type": "dispatch",
+      "team": "coding",
+      "task": "Commit and merge completed verification work from a worktree back to the main repository. PLAN APPROVED by project-lead: the plan produced in session 20260312-084148 is correct \u2014 follow those steps exactly.\n\nThe worktree at this path contains completed verification work:\n/Users/darrell/git/teaparty/projects/POC/.worktrees/session-6ed0f658--please-review-the-plan-and-intent-docume\n\nThe only new file produced in this worktree is:\nprojects/POC/.sessions/20260312-051840/verification-alignment.md\n\nSteps (from approved plan):\n1. Confirm state: git -C <worktree> status and branch\n2. Stage and commit: git -C <worktree> add <file> && git -C <worktree> commit -m 'Add verification alignment for intent team capability changes (session 20260312-051840)'\n3. Squash-merge the session branch into main: git -C /Users/darrell/git/teaparty merge --squash <SESSION_BRANCH>\n4. Commit the squash in main with the same message (only if staged changes exist)\n5. Mark worktree complete: python3 /Users/darrell/git/teaparty/projects/POC/scripts/worktree_manifest.py complete --name session-6ed0f658--please-review-the-plan-and-intent-docume --repo-dir /Users/darrell/git/teaparty\n6. Remove worktree and branch: git -C /Users/darrell/git/teaparty worktree remove <WORKTREE_PATH> && git -C /Users/darrell/git/teaparty branch -d <SESSION_BRANCH>\n7. Report git log --oneline -5 from main repo\n\nUse absolute paths throughout. The main repo is at /Users/darrell/git/teaparty.",
+      "session_id": "20260312-084543",
+      "created_at": "2026-03-12T15:45:44.093365+00:00",
+      "status": "failed",
+      "updated_at": "2026-03-12T15:51:10.751747+00:00"
+    },
+    {
+      "name": "session-101816--please-review-the-plan-and-int",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-101816--please-review-the-plan-and-int",
+      "type": "session",
+      "team": "",
+      "task": "please review the plan and intent documents for projects/POC/.sessions/20260312-062725.  Complete the unfinished work",
+      "session_id": "20260312-101816",
+      "created_at": "2026-03-12T17:18:16.308727+00:00",
+      "status": "active"
     }
   ]
 }

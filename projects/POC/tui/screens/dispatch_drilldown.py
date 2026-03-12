@@ -111,7 +111,7 @@ class DispatchDrilldownScreen(Screen):
         phase_state = f'{d.cfa_phase} \u25b8 {d.cfa_state}' if d.cfa_state else d.status
         header.update(
             f'[bold]{team} dispatch {dispatch_ts}[/bold]  {phase_state}\n'
-            f'{d.task[:80] if d.task else "(no task)"}'
+            f'{d.task if d.task else "(no task)"}'
         )
 
     def _update_meta(self) -> None:

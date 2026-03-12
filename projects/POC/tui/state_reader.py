@@ -7,6 +7,7 @@ import os
 import subprocess
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 
 # Module-level boot time cache
 _SENTINEL = object()
@@ -102,8 +103,18 @@ class SessionState:
     is_orphaned: bool = False
     dispatches: list = field(default_factory=list)
     stream_age_seconds: int = -1
+    duration_seconds: int = -1
     infra_dir: str = ''
     files_changed: list = field(default_factory=list)
+
+
+def _parse_session_ts(session_id: str) -> float:
+    """Parse a session timestamp like '20260311-184909' to Unix epoch."""
+    try:
+        dt = datetime.strptime(session_id[:15], '%Y%m%d-%H%M%S')
+        return dt.timestamp()
+    except (ValueError, IndexError):
+        return 0.0
 
 
 @dataclass
@@ -183,8 +194,12 @@ class StateReader:
                 attention_count=attention,
             ))
 
-        # Sort: projects with active sessions first, then by slug
-        projects.sort(key=lambda p: (-p.active_count, -p.attention_count, p.slug))
+        # Sort: most recently active projects first (youngest session timestamp)
+        def _newest_session_ts(p):
+            if p.sessions:
+                return max(s.session_id for s in p.sessions)
+            return ''
+        projects.sort(key=lambda p: _newest_session_ts(p), reverse=True)
 
         self._projects = projects
         return projects
@@ -308,8 +323,24 @@ class StateReader:
             else:
                 status = 'complete'
 
-        # Task: prefer worktrees.json, fall back to INTENT.md
-        task = entry.get('task', '')
+        # Duration: wall-clock time from session start to now (active) or
+        # to last activity (complete/failed/withdrawn)
+        start_epoch = _parse_session_ts(session_id)
+        if start_epoch > 0:
+            if status in ('complete', 'failed'):
+                if stream_age >= 0:
+                    # End at last stream activity
+                    duration = max(0, int(now - stream_age - start_epoch))
+                else:
+                    duration = -1  # no stream files — unknown end time
+            else:
+                duration = max(0, int(now - start_epoch))
+        else:
+            duration = -1
+
+        # Task: prefer PROMPT.txt (canonical full prompt), fall back to
+        # worktrees.json, then INTENT.md title
+        task = self._read_prompt(infra_dir) or entry.get('task', '')
         if not task:
             task = self._read_intent(infra_dir)
 
@@ -327,6 +358,7 @@ class StateReader:
             is_orphaned=is_orphaned,
             dispatches=dispatch_states,
             stream_age_seconds=stream_age,
+            duration_seconds=duration,
             infra_dir=infra_dir,
         )
 
@@ -357,6 +389,15 @@ class StateReader:
             infra_dir=infra_dir,
             stream_age_seconds=stream_age,
         )
+
+    def _read_prompt(self, infra_dir: str) -> str:
+        """Read the full original prompt from PROMPT.txt."""
+        prompt_path = os.path.join(infra_dir, 'PROMPT.txt')
+        try:
+            with open(prompt_path) as f:
+                return f.read().strip()
+        except (FileNotFoundError, OSError):
+            return ''
 
     def _read_intent(self, infra_dir: str) -> str:
         """Read the session task from INTENT.md title or session.log."""

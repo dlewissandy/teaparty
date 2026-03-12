@@ -90,13 +90,21 @@ chrome_thinking() {
 _tui_prompt() {
   local varname="$1"
   local prompt_type="$2"  # "prompt" or "approval"
+  local dialog_reply="${3:-}"  # optional agent reply from dialog loop
   local ipc_dir="${POC_SESSION_DIR:-}"
   [[ -z "$ipc_dir" ]] && { eval "$varname=''"; return; }
 
   # Write the input request so the TUI can detect it
   local request_file="$ipc_dir/.input-request.json"
   local fifo_path="$ipc_dir/.input-response.fifo"
-  printf '{"type":"%s"}\n' "$prompt_type" > "$request_file"
+  if [[ -n "$dialog_reply" ]]; then
+    python3 -c "
+import json, sys
+print(json.dumps({'type': sys.argv[1], 'dialog_reply': sys.argv[2]}))
+" "$prompt_type" "$dialog_reply" > "$request_file"
+  else
+    printf '{"type":"%s"}\n' "$prompt_type" > "$request_file"
+  fi
 
   # Create FIFO if it doesn't exist
   [[ -p "$fifo_path" ]] || mkfifo "$fifo_path"
@@ -114,11 +122,12 @@ _tui_prompt() {
 
 chrome_prompt() {
   # Beep + colored prompt, reads into named variable
-  # Usage: chrome_prompt VARNAME
+  # Usage: chrome_prompt VARNAME [dialog_reply]
   local varname="$1"
+  local dialog_reply="${2:-}"
 
   if [[ "${POC_TUI_MODE:-}" == "1" ]]; then
-    _tui_prompt "$varname" "prompt"
+    _tui_prompt "$varname" "prompt" "$dialog_reply"
     return
   fi
 
@@ -215,12 +224,14 @@ cfa_review_loop() {
   local dialog_hist
   dialog_hist=$(mktemp)
   local classify_ok=1
+  local _last_dialog_reply=""
 
   CFA_RESPONSE=""
   REVIEW_DIALOG_HISTORY=""
 
   while true; do
-    chrome_prompt CFA_RESPONSE
+    chrome_prompt CFA_RESPONSE "$_last_dialog_reply"
+    _last_dialog_reply=""
 
     local dh=""
     [[ -s "$dialog_hist" ]] && dh=$(cat "$dialog_hist")
@@ -232,6 +243,7 @@ cfa_review_loop() {
         dialog_response "$state" "$CFA_RESPONSE" "$artifact" "$exec_stream" "$task" "$dh"
         chrome_dialog_reply "$DIALOG_REPLY"
         echo "AGENT: $DIALOG_REPLY" >> "$dialog_hist"
+        _last_dialog_reply="$DIALOG_REPLY"
         # Trim history at 4000 chars
         if [[ $(wc -c < "$dialog_hist") -gt 4000 ]]; then
           tail -c 4000 "$dialog_hist" > "${dialog_hist}.tmp"

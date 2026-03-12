@@ -89,6 +89,10 @@ class Session:
         infra_dir = self.session_info['infra_dir']
         worktree_path = self.session_info['worktree_path']
 
+        # Persist the full prompt so it's never lost to truncation
+        with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:
+            f.write(self.task)
+
         # 5. Start state writer (filesystem persistence)
         state_writer = StateWriter(infra_dir, self.event_bus)
         await state_writer.start()

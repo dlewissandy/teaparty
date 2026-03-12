@@ -42,7 +42,7 @@ class StateWriter:
             self._log('STATE', f"{event.data.get('previous_state','')} → {event.data.get('state','')} [{event.data.get('action','')}]")
         elif event.type == EventType.SESSION_STARTED:
             self._write_running()
-            self._log('SESSION', f"Started -- {event.data.get('task', '')[:100]}")
+            self._log('SESSION', f"Started -- {event.data.get('task', '')}")
         elif event.type == EventType.SESSION_COMPLETED:
             self._remove_running()
             self._log('SESSION', f"Completed -- {event.data.get('terminal_state', '')}")

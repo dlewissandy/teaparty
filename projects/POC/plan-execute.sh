@@ -501,9 +501,12 @@ for b in blocks[:5]: print(b)
 
     # Free-text review with dialog loop
     PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
-    INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
+    # INTENT.md lives in infra dir (run.sh moves it there after approval);
+    # fall back to WORK_DIR for standalone/legacy invocations.
+    INTENT_SUMMARY=$(head -c 500 "$STREAM_TARGET/INTENT.md" 2>/dev/null \
+                  || head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
 
-    if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
+    if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$WORK_SUMMARY_FILE" "$EXEC_STREAM" "$TASK"; then
       case "$REVIEW_ACTION" in
         approve)
           proxy_record "WORK_ASSERT" "approve" "" "$WORK_SUMMARY_FILE"
@@ -1113,9 +1116,10 @@ for b in blocks[:5]: print(b)
 
   # Free-text review with dialog loop
   PLAN_SUMMARY=$(head -c 500 "$PLAN_FILE" 2>/dev/null || true)
-  INTENT_SUMMARY=$(head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
+  INTENT_SUMMARY=$(head -c 500 "$STREAM_TARGET/INTENT.md" 2>/dev/null \
+                || head -c 500 "$WORK_DIR/INTENT.md" 2>/dev/null || true)
 
-  if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$PLAN_FILE" "$EXEC_STREAM" "$TASK"; then
+  if cfa_review_loop "WORK_ASSERT" "$INTENT_SUMMARY" "$PLAN_SUMMARY" "$WORK_SUMMARY_FILE" "$EXEC_STREAM" "$TASK"; then
     case "$REVIEW_ACTION" in
       approve)
         proxy_record "WORK_ASSERT" "approve" "" "$WORK_SUMMARY_FILE"

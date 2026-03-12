@@ -136,9 +136,13 @@ python3 "$SCRIPT_DIR/scripts/worktree_manifest.py" add \
   --name "$SESSION_WORKTREE_NAME" \
   --worktree-path "$SESSION_WORKTREE" \
   --type session \
-  --task "${TASK:0:120}" \
+  --task "$TASK" \
   --session-id "$SESSION_TS" \
   --repo-dir "$POC_REPO_DIR" 2>/dev/null || true
+
+# Persist the full prompt so it's never lost to truncation
+mkdir -p "$INFRA_DIR"
+printf '%s' "$TASK" > "$INFRA_DIR/PROMPT.txt"
 
 # Compute project working directory inside the worktree.
 # Linked-repo: $SESSION_WORKTREE/projects/POC (agent CWD = project subdir)
@@ -534,6 +538,7 @@ while true; do
       --settings "$SETTINGS_FILE" \
       --cwd "$PROJECT_WORKDIR" \
       --add-dir "$SESSION_WORKTREE" \
+      --add-dir "$POC_PROJECT_DIR/.worktrees" \
       --add-dir "$PROJECTS_DIR" \
       --stream-dir "$INFRA_DIR" \
       --proxy-model "$PROXY_MODEL" \
@@ -597,6 +602,7 @@ Original task: $ORIGINAL_TASK"
       --settings "$SETTINGS_FILE" \
       --cwd "$PROJECT_WORKDIR" \
       --add-dir "$SESSION_WORKTREE" \
+      --add-dir "$POC_PROJECT_DIR/.worktrees" \
       --add-dir "$PROJECTS_DIR" \
       --stream-dir "$INFRA_DIR" \
       --proxy-model "$PROXY_MODEL" \

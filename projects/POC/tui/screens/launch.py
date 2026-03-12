@@ -1,8 +1,8 @@
 """Launch screen — start a new session with task prompt."""
 from __future__ import annotations
 
+import asyncio
 import os
-import subprocess
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -61,15 +61,15 @@ class LaunchScreen(Screen):
             options = [('POC', 'POC')]
         return options
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == 'launch-btn':
-            self._launch_session()
+            await self._launch_session()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    async def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == 'task-input':
-            self._launch_session()
+            await self._launch_session()
 
-    def _launch_session(self) -> None:
+    async def _launch_session(self) -> None:
         task = self.query_one('#task-input', Input).value.strip()
         if not task:
             return
@@ -77,25 +77,53 @@ class LaunchScreen(Screen):
         project_select = self.query_one('#project-select', Select)
         project = str(project_select.value) if project_select.value != Select.BLANK else 'POC'
 
-        # Build command
-        run_script = os.path.join(self.app.poc_root, 'run.sh')
-        cmd = ['bash', run_script]
-        if project:
-            cmd.extend(['--project', project])
-        cmd.append(task)
+        from projects.POC.orchestrator.events import EventBus, Event, EventType
+        from projects.POC.orchestrator.tui_bridge import TUIInputProvider, InProcessSession
+        from projects.POC.orchestrator.session import Session
 
-        # Set TUI mode so sessions use FIFO IPC instead of /dev/tty
-        env = os.environ.copy()
-        env['POC_TUI_MODE'] = '1'
+        bus = EventBus()
+        provider = TUIInputProvider()
 
-        # Launch as background process
-        subprocess.Popen(
-            cmd,
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+        session = Session(
+            task=task,
+            poc_root=self.app.poc_root,
+            projects_dir=self.app.projects_dir,
+            project_override=project,
+            event_bus=bus,
+            input_provider=provider,
         )
+
+        in_proc = InProcessSession(
+            session_id='',
+            project=project,
+            task=task,
+            event_bus=bus,
+            input_provider=provider,
+        )
+
+        # Capture session_id when the session starts
+        async def on_session_started(event: Event) -> None:
+            if event.type == EventType.SESSION_STARTED:
+                sid = event.data.get('session_id', '')
+                if sid:
+                    self.app.register_in_process(sid, in_proc)
+                bus.unsubscribe(on_session_started)
+
+        bus.subscribe(on_session_started)
+
+        # Run session as async task — clean up .running on crash
+        async def run_session() -> None:
+            try:
+                await session.run()
+            except Exception:
+                infra_dir = session.session_info.get('infra_dir', '')
+                if infra_dir:
+                    try:
+                        os.unlink(os.path.join(infra_dir, '.running'))
+                    except (FileNotFoundError, OSError):
+                        pass
+
+        in_proc.run_task = asyncio.create_task(run_session())
 
         # Return to dashboard
         self.app.pop_screen()

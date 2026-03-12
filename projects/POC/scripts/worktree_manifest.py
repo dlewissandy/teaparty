@@ -135,7 +135,7 @@ def cmd_add(args: argparse.Namespace) -> None:
         'path':       args.worktree_path,
         'type':       args.type,
         'team':       args.team or '',
-        'task':       (args.task or '')[:120],
+        'task':       args.task or '',
         'session_id': args.session_id or '',
         'created_at': datetime.now(timezone.utc).isoformat(),
         'status':     'active',

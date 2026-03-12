@@ -155,7 +155,7 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_pa
         'status': status,
         'exit_reason': exit_reason,
         'team': team,
-        'task': task[:200],
+        'task': task,
         'terminal_state': result.terminal_state if result else 'unknown',
         'backtrack_count': result.backtrack_count if result else 0,
     }

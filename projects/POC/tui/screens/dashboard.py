@@ -4,6 +4,7 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.coordinate import Coordinate
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Static
 
@@ -56,7 +57,7 @@ def _session_snapshot(proj) -> list[tuple]:
         return []
     return [
         (s.session_id, s.status, s.cfa_phase, s.cfa_state,
-         s.needs_input, len(s.dispatches), s.stream_age_seconds)
+         s.needs_input, len(s.dispatches))
         for s in proj.sessions
     ]
 
@@ -109,7 +110,7 @@ class DashboardScreen(Screen):
         # Session table
         stable = self.query_one('#session-table', DataTable)
         stable.cursor_type = 'row'
-        stable.add_columns('', 'Session', 'State', 'Age')
+        stable.add_columns('', 'Session', 'State', 'Idle', 'Dur')
 
         self._project_slugs: list[str] = []
         self._session_ids: list[str] = []
@@ -134,12 +135,15 @@ class DashboardScreen(Screen):
             self._last_project_snap = proj_snap
             self._rebuild_project_table()
 
-        # Only rebuild session table if data changed
+        # Only rebuild session table if structural data changed
         proj = reader.find_project(self._selected_project)
         sess_snap = _session_snapshot(proj)
         if force or sess_snap != self._last_session_snap:
             self._last_session_snap = sess_snap
             self._rebuild_session_table()
+        else:
+            # Update volatile columns (Idle, Dur) in-place
+            self._update_session_times()
 
         self._update_prompt_panel()
         self._update_projects_dir_label()
@@ -188,16 +192,29 @@ class DashboardScreen(Screen):
         for sess in proj.sessions:
             icon = _status_icon(sess.status, sess.needs_input, getattr(sess, 'is_orphaned', False))
             state = _state_display(sess.cfa_phase, sess.cfa_state)
-            age = _human_age(sess.stream_age_seconds)
-            stable.add_row(icon, sess.session_id, state, age)
+            idle = _human_age(sess.stream_age_seconds)
+            dur = _human_age(sess.duration_seconds)
+            stable.add_row(icon, sess.session_id, state, idle, dur)
             self._session_ids.append(sess.session_id)
 
         if not self._session_ids:
-            stable.add_row('', '(no sessions)', '', '')
+            stable.add_row('', '(no sessions)', '', '', '')
 
         # Restore cursor
         if 0 <= old_cursor < len(self._session_ids):
             stable.move_cursor(row=old_cursor)
+
+    def _update_session_times(self) -> None:
+        """Update Idle and Dur columns in-place without rebuilding."""
+        stable = self.query_one('#session-table', DataTable)
+        proj = self.app.state_reader.find_project(self._selected_project)
+        if not proj:
+            return
+        for row_idx, sess in enumerate(proj.sessions):
+            if row_idx >= len(self._session_ids):
+                break
+            stable.update_cell_at(Coordinate(row_idx, 3), _human_age(sess.stream_age_seconds))
+            stable.update_cell_at(Coordinate(row_idx, 4), _human_age(sess.duration_seconds))
 
     def _update_prompt_panel(self) -> None:
         title = self.query_one('#prompt-title', Static)

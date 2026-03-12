@@ -1,6 +1,7 @@
 """Drilldown screen — single session activity stream + dispatches + input."""
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 
@@ -60,6 +61,8 @@ class DrilldownScreen(Screen):
         self._last_todos: list[dict] = []
         self._input_latched = False  # True while input area is shown
         self._input_cooldown = False  # True briefly after submit to suppress re-show
+        self._shown_dialog_reply = ''  # Track last displayed dialog reply to avoid duplicates
+        self._in_proc = None  # InProcessSession if running via Python orchestrator
 
     def compose(self) -> ComposeResult:
         yield Static('', id='drilldown-header')
@@ -83,6 +86,7 @@ class DrilldownScreen(Screen):
 
     def on_mount(self) -> None:
         self._session = self.app.state_reader.find_session(self.session_id)
+        self._in_proc = self.app.get_in_process(self.session_id)
         self._update_header()
         self._update_meta()
         self._update_tasks()
@@ -144,7 +148,7 @@ class DrilldownScreen(Screen):
             header.update(
                 f'[bold]{s.project} \u25b8 Session {s.session_id}[/bold]  '
                 f'{phase_state}{attention}\n'
-                f'{s.task[:80]}'
+                f'{s.task}'
             )
         else:
             header.update(f'Session {self.session_id} (not found)')
@@ -240,6 +244,30 @@ class DrilldownScreen(Screen):
         prompt_label = self.query_one('#input-prompt', Static)
         was_visible = input_area.has_class('visible')
 
+        # ── In-process path: TUIInputProvider (Python orchestrator) ──
+        if self._in_proc and self._in_proc.input_provider.is_waiting:
+            req = self._in_proc.input_provider.current_request
+            self._input_cooldown = False
+            if not self._input_latched:
+                self._input_latched = True
+                input_area.add_class('visible')
+                state = self._session.cfa_state if self._session else ''
+                prompt_label.update(f'[bold yellow]{state}[/bold yellow]')
+                # Display bridge_text (dialog reply / review summary) in activity log
+                if req and req.bridge_text and req.bridge_text != self._shown_dialog_reply:
+                    self._shown_dialog_reply = req.bridge_text
+                    log = self.query_one('#activity-log', RichLog)
+                    from rich.text import Text
+                    t = Text()
+                    t.append('[agent] ', style='bold cyan')
+                    t.append(req.bridge_text)
+                    log.write(t)
+                    if not self._scroll_locked:
+                        log.scroll_end(animate=False)
+                if not was_visible:
+                    self.query_one('#input-field', Input).focus()
+            return
+
         if self._input_latched:
             return
 
@@ -247,11 +275,31 @@ class DrilldownScreen(Screen):
         # needs_input, OR a new .input-request.json arrives (dialog loop).
         if self._input_cooldown:
             has_request = False
+            request_data = None
             if self._session and self._session.infra_dir:
-                has_request = os.path.exists(
-                    os.path.join(self._session.infra_dir, '.input-request.json'))
+                req_path = os.path.join(self._session.infra_dir, '.input-request.json')
+                if os.path.exists(req_path):
+                    has_request = True
+                    try:
+                        with open(req_path) as _f:
+                            request_data = json.load(_f)
+                    except (OSError, ValueError):
+                        pass
             if has_request:
-                # New request arrived (dialog loop) — fall through to show immediately
+                # New request arrived (dialog loop) — show dialog reply if present
+                if request_data and request_data.get('dialog_reply'):
+                    reply = request_data['dialog_reply']
+                    if reply != self._shown_dialog_reply:
+                        self._shown_dialog_reply = reply
+                        log = self.query_one('#activity-log', RichLog)
+                        from rich.text import Text
+                        t = Text()
+                        t.append('[agent] ', style='bold cyan')
+                        t.append(reply)
+                        log.write(t)
+                        if not self._scroll_locked:
+                            log.scroll_end(animate=False)
+                # Fall through to show input immediately
                 self._input_cooldown = False
             else:
                 # No new request. Stay suppressed while needs_input is still True
@@ -295,7 +343,25 @@ class DrilldownScreen(Screen):
         if not response:
             return
 
-        # Write response via IPC (or handle orphan recovery)
+        # ── In-process path: resolve TUIInputProvider's Future directly ──
+        if self._in_proc and self._in_proc.input_provider.is_waiting:
+            self._in_proc.input_provider.provide_response(response)
+            log = self.query_one('#activity-log', RichLog)
+            from rich.text import Text
+            text = Text()
+            text.append('[you] ', style='bold green')
+            text.append(response)
+            log.write(text)
+            if not self._scroll_locked:
+                log.scroll_end(animate=False)
+            self._input_latched = False
+            self._input_cooldown = True
+            event.input.clear()
+            self.query_one('#input-area').remove_class('visible')
+            self.query_one('#activity-log', RichLog).focus()
+            return
+
+        # ── FIFO IPC / orphan recovery path (shell-launched sessions) ──
         if self._session and self._session.infra_dir:
             if self._session.is_orphaned:
                 from projects.POC.tui.orphan_recovery import handle_orphan_response
@@ -328,6 +394,7 @@ class DrilldownScreen(Screen):
         # Reload session state
         self.app.state_reader.reload()
         self._session = self.app.state_reader.find_session(self.session_id)
+        self._in_proc = self.app.get_in_process(self.session_id)
         self._update_header()
         self._update_meta()
         self._update_dispatches()

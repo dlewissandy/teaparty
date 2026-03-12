@@ -72,7 +72,7 @@ print(t or 'task')
     --worktree-path "$DISPATCH_WORKTREE" \
     --type dispatch \
     --team "$TEAM" \
-    --task "${TASK:0:120}" \
+    --task "$TASK" \
     --session-id "$DISPATCH_TS" \
     --repo-dir "$REPO_DIR" 2>/dev/null || true
   mkdir -p "$INFRA_DIR"
@@ -322,9 +322,13 @@ if [[ -n "$DISPATCH_WORKTREE" && -d "$DISPATCH_WORKTREE" ]]; then
     echo -e "  ${C_DIM}[relay]     Nothing to commit after squash merge${C_RESET}" >&2
   fi
 
-  # Clean up worktree and branch
-  git -C "$REPO_DIR" worktree remove "$DISPATCH_WORKTREE" 2>/dev/null || true
-  git -C "$REPO_DIR" branch -d "$DISPATCH_BRANCH" 2>/dev/null || true
+  # Clean up worktree and branch — skip for escalations so project-lead can inspect
+  if [[ $DISPATCH_EXIT -ne 10 && $DISPATCH_EXIT -ne 11 ]]; then
+    git -C "$REPO_DIR" worktree remove "$DISPATCH_WORKTREE" 2>/dev/null || true
+    git -C "$REPO_DIR" branch -d "$DISPATCH_BRANCH" 2>/dev/null || true
+  else
+    echo -e "  ${C_DIM}[relay]     Keeping worktree for review: $DISPATCH_WORKTREE${C_RESET}" >&2
+  fi
 fi
 
 # ── Relay result immediately ──
@@ -373,11 +377,13 @@ RESULT_JSON=$(jq -n \
   --arg cfa_backtrack "$CFA_BACKTRACK" \
   --arg backtrack_reason "$BACKTRACK_REASON" \
   --arg escalation_context "$ESCALATION_CONTEXT" \
+  --arg worktree_path "${DISPATCH_WORKTREE:-}" \
   --argjson dispatch_retries "$DISPATCH_RETRIES" \
   --argjson exit_code "$DISPATCH_EXIT" \
   '{team: $team, status: $status, summary: $summary, output_files: $output_files,
     cfa_state: $cfa_state, cfa_backtrack: $cfa_backtrack,
     backtrack_reason: $backtrack_reason, escalation_context: $escalation_context,
+    worktree_path: $worktree_path,
     dispatch_retries: $dispatch_retries, exit_code: $exit_code}')
 
 # Write result and clear sentinel — available to parent immediately
