@@ -20,6 +20,8 @@ Delivery validates whether the output satisfied the purpose or merely the stated
 
 ## The Intent Delta Check
 
+Intent anchors are the milestone moments at which this check is performed; the delta check is the act itself — re-reading INTENT.md's success criteria and asking whether the current trajectory still serves the original purpose.
+
 At each major execution milestone, the system should re-read INTENT.md's success criteria and ask a single operational question: is the current trajectory still serving this? Not "are we producing good work" and not "are we following the plan" — but specifically, is the work we are doing still aimed at the purpose that was captured at the start? This check is not overhead. It is the mechanism that prevents the system from optimizing a path that has already diverged from the destination.
 
 The divergence types that this check catches fall into three categories:
