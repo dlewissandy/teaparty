@@ -218,6 +218,11 @@ class ClaudeRunner:
 
         return exit_code
 
+    def _kill_subprocess(self) -> None:
+        """Kill the child subprocess and its process tree if still running."""
+        if self._process and self._process.returncode is None:
+            _kill_process_tree(self._process.pid)
+
     def _maybe_extract_session_id(self, event: dict) -> None:
         if (event.get('type') == 'system'
                 and event.get('subtype') == 'init'

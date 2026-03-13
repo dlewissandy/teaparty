@@ -472,12 +472,10 @@ class DrilldownScreen(Screen):
                 )
             except Exception as exc:
                 _rlog.exception('Resume failed for %s', infra_dir)
-                # Clean up .running on crash
-                try:
-                    os.unlink(os.path.join(infra_dir, '.running'))
-                except (FileNotFoundError, OSError):
-                    pass
-                # Surface error to activity log
+                # Don't remove .running — leave it for orphan detection so the
+                # user gets the recovery UI.  The PID in .running is ours (the
+                # TUI), and has_in_process() will return False since this task
+                # is done, correctly flagging it as orphaned.
                 try:
                     log = self.query_one('#activity-log', RichLog)
                     from rich.text import Text
@@ -487,10 +485,6 @@ class DrilldownScreen(Screen):
                     log.write(t)
                 except Exception:
                     pass  # Screen may have been unmounted
-            finally:
-                # Mark _in_proc as finished so dedup check works on next attempt.
-                # The app's get_in_process() auto-cleans done tasks from the registry.
-                pass
 
         in_proc.run_task = asyncio.create_task(run_resumed())
 

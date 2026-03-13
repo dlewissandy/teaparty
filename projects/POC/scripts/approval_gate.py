@@ -476,9 +476,26 @@ def should_escalate(
 
     confidence = compute_confidence(entry)
 
-    # Content check (Phase 1 / 2a / 2b) — fires regardless of confidence level.
+    # Content checks — fire regardless of confidence level.
     if artifact_path:
         artifact_text = _read_artifact(artifact_path)
+
+        # [CONFIRM:] markers — unconditional escalation before any other check.
+        # The intent-lead writes these to flag uncertainty; they mean "a human
+        # needs to see this" and must never be auto-approved.
+        confirm_markers = re.findall(r'\[CONFIRM:[^\]]+\]', artifact_text or '')
+        if confirm_markers:
+            markers_list = '\n'.join(f'  - {m}' for m in confirm_markers)
+            return ProxyDecision(
+                action='escalate',
+                confidence=confidence,
+                reasoning=(
+                    f"Artifact contains {len(confirm_markers)} unresolved [CONFIRM:] "
+                    f"marker(s) requiring human review:\n{markers_list}"
+                ),
+                predicted_response="human review required (CONFIRM markers)",
+            )
+
         if artifact_text:
             fired, reason = _check_content(artifact_text, entry)
             if fired:

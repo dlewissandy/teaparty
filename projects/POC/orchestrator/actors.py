@@ -277,14 +277,25 @@ class ApprovalGate:
                 intent_summary=intent_summary, plan_summary=plan_summary,
             )
 
-            if action == 'dialog':
-                # Generate agent response to question
+            if action in ('dialog', '__fallback__'):
+                # __fallback__ means classify couldn't parse the response.
+                # Treat like a dialog round — generate a contextual reply or
+                # a generic re-prompt so the human can try again.
                 dialog_history += f'HUMAN: {response}\n'
-                agent_reply = self._generate_dialog_response(
-                    ctx.state, response, artifact_path,
-                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                    ctx.task, dialog_history,
-                )
+                if action == '__fallback__':
+                    agent_reply = (
+                        "I wasn't sure how to interpret that. You can:\n"
+                        "  approve — accept and continue\n"
+                        "  correct — reject with feedback\n"
+                        "  withdraw — abandon this session\n"
+                        "Or ask a question and I'll try to answer."
+                    )
+                else:
+                    agent_reply = self._generate_dialog_response(
+                        ctx.state, response, artifact_path,
+                        os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                        ctx.task, dialog_history,
+                    )
                 dialog_history += f'AGENT: {agent_reply}\n'
                 bridge_text = agent_reply  # Show the reply as the next bridge
                 continue
@@ -311,7 +322,7 @@ class ApprovalGate:
             )
             model = load_model(self.proxy_model_path)
             decision = should_escalate(model, state, project_slug, artifact_path)
-            return 'auto-approve' if not decision.escalate else 'escalate'
+            return decision.action
         except Exception:
             return 'escalate'
 
