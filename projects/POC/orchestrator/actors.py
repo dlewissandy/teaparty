@@ -145,7 +145,16 @@ class AgentRunner:
                 action = self._resolve_action(ctx.state, 'assert')
                 return ActorResult(action=action, data=data)
 
-        # Agent produced output but no artifact or escalation — auto-approve
+            # Artifact was expected but not produced — escalate to approval gate.
+            # Auto-approve here would bypass the gate entirely; instead, assert
+            # into the approval state so the human proxy can decide whether to
+            # correct (ask the agent to retry), withdraw, or approve anyway.
+            data['artifact_missing'] = True
+            data['artifact_expected'] = ctx.phase_spec.artifact
+            action = self._resolve_action(ctx.state, 'assert')
+            return ActorResult(action=action, data=data)
+
+        # No artifact configured — agent produced output, advance normally
         action = self._resolve_action(ctx.state, 'auto-approve')
         return ActorResult(action=action, data=data)
 
@@ -204,6 +213,7 @@ class ApprovalGate:
         """Run the approval gate for the current state."""
         artifact_path = ctx.data.get('artifact_path', '')
         escalation_file = ctx.data.get('escalation_file', '')
+        artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
 
         # For escalation states: present the agent's clarification request directly.
@@ -215,6 +225,14 @@ class ApprovalGate:
             except OSError:
                 bridge_text = f'Agent requested clarification at state: {ctx.state}'
             proxy_decision = 'escalate'
+        elif artifact_missing:
+            # Agent failed to produce the expected artifact — always escalate to
+            # the human. The proxy cannot auto-approve a missing artifact; that
+            # would advance the session with no work product to review.
+            proxy_decision = 'escalate'
+            bridge_text = self._generate_bridge(
+                artifact_path, ctx.state, ctx.task, artifact_missing=True,
+            )
         else:
             # Step 1: Consult proxy
             proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path)
@@ -369,8 +387,23 @@ class ApprovalGate:
         except Exception:
             return 'approve', ''
 
-    def _generate_bridge(self, artifact_path: str, state: str, task: str) -> str:
+    def _generate_bridge(
+        self, artifact_path: str, state: str, task: str, artifact_missing: bool = False,
+    ) -> str:
         """Generate conversational summary of artifact for review."""
+        if artifact_missing:
+            expected_note = (
+                f' (expected path: {artifact_path})'
+                if artifact_path
+                else ''
+            )
+            return (
+                f'The agent did not produce the expected artifact at {state}{expected_note}. '
+                'You can:\n'
+                '  correct — ask the agent to produce the artifact\n'
+                '  withdraw — abandon this session\n'
+                '  approve — advance without the artifact (not recommended)'
+            )
         if not artifact_path or not os.path.exists(artifact_path):
             return f'Ready for review at {state}.'
         try:
