@@ -142,12 +142,26 @@ def _run_summarize(
 
 def _call_promote(scripts_dir: str, scope: str, **kwargs) -> None:
     """Call summarize_session.promote() directly (importable API)."""
+    added_to_path = False
     try:
-        sys.path.insert(0, scripts_dir)
+        if scripts_dir and scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+            added_to_path = True
         from summarize_session import promote
         promote(scope, **kwargs)
     except Exception:
+        # Swallow all exceptions to keep orchestration robust, as before.
         pass
+    finally:
+        if added_to_path:
+            try:
+                if sys.path and sys.path[0] == scripts_dir:
+                    sys.path.pop(0)
+                else:
+                    sys.path.remove(scripts_dir)
+            except ValueError:
+                # scripts_dir was not found in sys.path; nothing to clean up.
+                pass
 
 
 def _promote_team(*, infra_dir: str, scripts_dir: str) -> None:
