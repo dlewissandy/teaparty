@@ -34,6 +34,10 @@ Through collaborative conversation, the agent and human co-construct an intent.m
 
 The intent.md is a prose document written in natural language, not a form with fields to fill in. Its structure should follow the shape of the problem, not a fixed template. Some projects will need extensive escalation guidance and minimal constraints. Others will be constraint-heavy with obvious objectives. The document must capture what matters, not check boxes.
 
+## CfA State Machine
+
+The Conversation for Action protocol is formalized as a three-phase state machine — Intent, Planning, Execution — with explicit backtrack transitions between phases. Each phase has a synthesis loop that refines artifacts through iteration, and escalation paths for human involvement. See [CfA State Machine](cfa-state-machine.md) for the complete state diagrams and transition definitions.
+
 ## Least-Regret Escalation
 
 Every autonomous agent faces a continuous choice: act or ask. Both options carry risk. Acting when the human wanted to be consulted causes wrong work, eroded trust, and violated values. Escalating when the agent could have handled it wastes the human's time and fails to deliver on the promise of autonomy.

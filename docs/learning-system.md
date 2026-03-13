@@ -6,15 +6,21 @@
 
 ## 1. The Problem
 
-Claude Code's built-in memory system (MEMORY.md) fails at retrieval and application. The failure has three causes:
+Agent memory systems that treat all learning as undifferentiated prose in flat files face three structural failures:
 
-**No retrieval discrimination.** The first 200 lines of MEMORY.md are injected verbatim into every session regardless of relevance. As memory grows, signal-to-noise drops — useful learnings are buried in irrelevant ones. There is no embedding, no scoring, no context matching. The word "retrieval" means "the agent reads a file with the Read tool."
+**No retrieval discrimination.** All stored knowledge is injected regardless of relevance. As the store grows, signal-to-noise drops — useful learnings are buried in irrelevant ones. Without embedding, scoring, or context matching, retrieval is indiscriminate.
 
-**Prose is lossy for procedural knowledge.** "Always review code before running tests" as a sentence in a markdown file is a fact the agent knows, not a rule the agent follows. There is a fundamental gap between declarative knowledge (knowing that) and procedural knowledge (knowing how). The memory system stores everything as the former and hopes it activates the latter.
+**Declarative-procedural gap.** "Always review code before running tests" as a sentence in a file is a fact the agent knows, not a rule the agent follows. There is a fundamental gap between declarative knowledge (knowing that) and procedural knowledge (knowing how). Flat memory stores everything as the former and hopes it activates the latter.
 
 **No validation loop.** A learning written once and never tested has the same standing as one confirmed fifty times. There is no reinforcement, no decay, no contradiction detection. Stale or wrong memories persist and actively mislead.
 
-The deeper problem: Claude Code's memory treats learning as **storage** when it is actually a **retrieval** problem. Storing things is easy. Getting the right thing at the right moment and having it actually influence behavior — that is the hard part.
+The deeper problem: flat memory treats learning as **storage** when it is actually a **retrieval** problem. Storing things is easy. Getting the right thing at the right moment and having it actually influence behavior — that is the hard part.
+
+More fundamentally, learning requires differentiation by purpose. Not all knowledge serves the same function:
+
+- **Organizational learning** — learn the organization's values. Institutional norms, conventions, and working agreements that govern all work within scope.
+- **Task learning** — learn the most effective way to perform tasks. Procedural knowledge — rules, procedures, skills, and causal abstractions — that improves with each task outcome.
+- **Proxy learning** — solve the autonomy/oversight dilemma. Learn the human's preferences, risk tolerance, and decision patterns so the system can act as an accurate stand-in.
 
 ---
 
@@ -114,7 +120,7 @@ The horizontal axis (type) determines storage format and retrieval strategy. The
 
 ## 4. Separate Files by Type
 
-Mixing learning types in a single MEMORY.md reintroduces the undiscriminated injection problem. If they share a file, you either load everything (noise) or need retrieval to pick through it (defeating the purpose of the always-loaded types).
+Mixing learning types in a single file reintroduces the undiscriminated injection problem. If they share a file, you either load everything (noise) or need retrieval to pick through it (defeating the purpose of the always-loaded types).
 
 Each type gets its own file or store at each scope level:
 
@@ -239,7 +245,7 @@ That document covers the research foundations and proposes a per-agent memory sy
 
 ### 9.2 POC Memory Hierarchy (projects/POC/)
 
-The POC's promotion chain (dispatch → team → session → project → global) is the structural foundation. This design adds type differentiation within each scope level and replaces flat MEMORY.md injection with typed stores and fuzzy retrieval for task-based learnings.
+The POC's promotion chain (dispatch → team → session → project → global) is the structural foundation. This design adds type differentiation within each scope level and replaces flat injection with typed stores and fuzzy retrieval for task-based learnings.
 
 ### 9.3 Intent Engineering (intent-engineering-spec.md)
 

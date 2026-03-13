@@ -14,17 +14,27 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
 nav:
   - Home: index.md
-  - Pillars:
-    - Intent Engineering (CfA): intent-engineering.md
-    - Learning System: learning-system.md
+  - Four Pillars:
+    - Conversation for Action: intent-engineering.md
+    - CfA State Machine: cfa-state-machine.md
+    - Hierarchical Memory & Learning: learning-system.md
     - Hierarchical Teams: hierarchical-teams.md
+    - Human Proxy Agents: human-proxies.md
+  - Implementation:
+    - POC Architecture: poc-architecture.md
+    - Folder Structure: folder-structure.md
     - Engagements & Partnerships: engagements-and-partnerships.md
+    - Agent Dispatch: agent-dispatch.md
+    - Workflows: workflows.md
   - Research:
     - Cognitive Architecture: cognitive-architecture.md
     - Research Index: research/INDEX.md
-  - Architecture:
-    - POC Architecture: poc-architecture.md
-    - Agent Dispatch: agent-dispatch.md
-    - Workflows: workflows.md
