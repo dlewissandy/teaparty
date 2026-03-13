@@ -145,8 +145,14 @@ class AgentRunner:
                 action = self._resolve_action(ctx.state, 'assert')
                 return ActorResult(action=action, data=data)
 
-        # Agent produced output but no artifact or escalation — auto-approve
-        action = self._resolve_action(ctx.state, 'auto-approve')
+        # No artifact configured — route through approval gate if one is
+        # declared, otherwise auto-advance.  Without this check, phases like
+        # execution (artifact=null, approval_state=WORK_ASSERT) would skip
+        # the gate entirely and the human would never review the work.
+        if ctx.phase_spec.approval_state:
+            action = self._resolve_action(ctx.state, 'assert')
+        else:
+            action = self._resolve_action(ctx.state, 'auto-approve')
         return ActorResult(action=action, data=data)
 
     @staticmethod
