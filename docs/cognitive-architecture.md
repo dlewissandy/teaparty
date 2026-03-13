@@ -1,6 +1,6 @@
 # Cognitive Architecture for Learning Agents
 
-> **FUTURE PHASE** -- This document describes Phase 3 of the [Roadmap](../ROADMAP.md). Agent cognition and memory systems are not part of the current MVP.
+> **FUTURE PHASE** -- This document describes a future phase of the platform (`teaparty_app/`). Agent cognition and memory systems are not part of the current MVP.
 
 A design for giving TeaParty agents the ability to learn, remember, and adapt over time -- grounded in cognitive science research and mapped to the existing system.
 
@@ -329,6 +329,8 @@ agent_runtime.run_agent_auto_responses()
 ---
 
 ## 6. Proposed Cognitive Architecture
+
+> **Superseded by [learning-system.md](learning-system.md).** Sections 6–8 below describe an earlier design for agent memory and learning in `teaparty_app/`. The current design — including the three learning types (institutional, task-based, proxy), the promotion chain, and the 10-scope taxonomy — is in [learning-system.md](learning-system.md). The research foundations in sections 1–5 remain valid background.
 
 ### 6.1 Design Principles
 

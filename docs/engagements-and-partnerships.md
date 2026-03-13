@@ -2,6 +2,8 @@
 
 Engagements are how organizations do work -- both for each other and for their own people. Partnerships are the trust links that enable cross-organization engagements. Together they form the collaboration layer that sits above the internal corporate hierarchy.
 
+> **Platform design.** This document describes specified, designed behavior for the TeaParty platform (`teaparty_app/`). These features are not yet fully implemented in the current codebase.
+
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the full conceptual model.
 
 ---
@@ -43,7 +45,7 @@ A future enhancement may add an org directory for discovery, but the MVP relies 
 
 ## What Is an Engagement
 
-> **Note**: The current implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Phase 1 of the [Roadmap](../ROADMAP.md) will migrate engagements to org-level scoping as described in this document.
+> **Note**: The current `teaparty_app/` implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Org-level scoping as described in this document is a planned platform design, not yet implemented.
 
 An engagement represents "someone asks an organization to do something." The source can be:
 
@@ -293,6 +295,4 @@ organizations/<org>/workgroups/<workgroup>/jobs/<job>/
 
 ## Open Questions
 
-1. **Contract-based visibility implementation**: File-level ACLs? Separate namespaces with explicit sharing? Read-only projections? The `deliverables/` directory is clearly visible to both parties, but the `workspace/` directory needs a visibility model.
-2. **Partnership revocation during active engagement**: Grace period? Forced cancellation? Continue existing engagements but block new ones?
-3. **Engagement pricing and payments**: The current model has `agreed_price_credits` and `payment_status` fields. How do credits flow? Escrow? Per-milestone payments?
+Open research questions for this area are collected in [Research Directions](research-directions.md).

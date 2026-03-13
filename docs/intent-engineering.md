@@ -1,12 +1,12 @@
 # Intent: Automated Intent Engineering Experience
 
+Intent engineering is the first pillar of TeaParty's four-pillar framework: it establishes what an agent should want before any planning or execution begins. Prompt engineering tells agents what to do. Context engineering tells agents what to know. Intent engineering tells agents what to want — what to optimize for, what to protect, and what tradeoffs are acceptable. Without it, agents optimize for what they can measure and destroy what they cannot.
+
 ## Why This Exists
 
 AI agent systems operate on a plan-execute model: the human provides a request, the agent plans how to fulfill it, then executes. This model fails in proportion to the gap between what the human said and what the human meant. That gap contains organizational values, unstated tradeoffs, decision boundaries, domain constraints, and quality expectations that the human has internalized to the point of invisibility.
 
-Prompt engineering tells agents what to do. Context engineering tells agents what to know. Intent engineering tells agents what to want — what to optimize for, what to protect, and what tradeoffs are acceptable. Without it, agents optimize for what they can measure and destroy what they cannot.
-
-This project builds an AI-assisted dialog experience, constrained to under 15 minutes, that produces an intent.md file. That file becomes the governing document for all downstream planning and execution — not a suggestion, but a specification of purpose.
+The intent engineering system is an AI-assisted dialog experience, constrained to under 15 minutes, that produces an `intent.md` file. That file becomes the governing document for all downstream planning and execution — not a suggestion, but a specification of purpose.
 
 A core behavioral principle applies across all phases of this system: the agent brings solutions, not questions. During intent gathering, it researches the problem space and presents alternatives rather than asking open-ended questions. During planning, it investigates open questions and presents well-reasoned options for the human to choose between. During execution, escalation means presenting the situation, a recommended course of action, and the reasoning behind it — never a bare question. The agent's value is in doing the preparatory work so the human makes decisions, not does research.
 
@@ -40,52 +40,25 @@ The Conversation for Action protocol is formalized as a three-phase state machin
 
 ## Least-Regret Escalation
 
-Every autonomous agent faces a continuous choice: act or ask. Both options carry risk. Acting when the human wanted to be consulted causes wrong work, eroded trust, and violated values. Escalating when the agent could have handled it wastes the human's time and fails to deliver on the promise of autonomy.
+Every autonomous agent faces a continuous choice: act or ask. Both carry risk. The agent must choose the option with the least expected regret — weighted by this human's risk tolerance, the reversibility of the action, and its organizational impact. At cold start the agent defaults to escalation; autonomy is earned through demonstrated alignment, not configured in advance.
 
-These failure modes are not symmetric. Their relative costs vary by organization, individual, domain, and specific decision. The agent must choose the option with the least expected regret. This requires three capabilities:
-
-**A model of the human's risk tolerance.** This is learned by observing the human's reactions over time. When the agent acts autonomously and gets corrected, that indicates the escalation threshold was set too low. When the agent escalates and the human responds with "you should have just done that," the threshold was set too high. Both signals calibrate the model.
-
-**A model of action cost.** Before choosing to act or ask, the agent estimates two properties of the decision: how reversible it is, and how much organizational impact it carries. High-reversibility, low-impact decisions default toward autonomy. Low-reversibility, high-impact decisions default toward escalation. What the organization considers "high-impact" is itself a learned property, not a universal constant.
-
-**A default posture that shifts over time.** At cold start, with no observational history, the agent defaults to escalation. As it accumulates data, the threshold shifts toward autonomy in domains where the human has demonstrated consistent preferences. The agent earns autonomy through demonstrated alignment, not through configuration.
-
-The escalation model is one of the highest-value things the institutional memory system stores (see "Relationship to Institutional Memory" below). It encodes not just what a person values but how much latitude they grant, and how that varies by domain and risk level.
+The escalation model is one of the highest-value things the institutional memory system stores. It encodes not just what a person values but how much latitude they grant, and how that varies by domain and risk level. See [Human Proxies — Least-Regret Escalation](human-proxies.md#least-regret-escalation) for the full treatment.
 
 ## How The Conversation Works
 
 ### Cold Start (No Prior Context)
 
-When the system has no history with this human or organization, the human is the sole source of intent. The agent:
-
-- Conducts a responsive dialog that surfaces implicit assumptions, not a scripted questionnaire.
-- Researches the solution space in real time. When the human names a technology, domain, or constraint, the agent uses web search and file access to understand what that means concretely, what its boundaries are, and what adjacent constraints the human may not have mentioned.
-- Pushes back when stated intent is internally contradictory or when success criteria conflict.
-- Identifies gaps: missing rationale, unspecified failure modes, absent qualitative expectations.
-- Surfaces escalation preferences: "Where do you want me to use my judgment and where do you want me to stop and check?"
-- Accepts documents, links, and prior conversations from the human as context sources.
+When the system has no history with this human or organization, the human is the sole source of intent. The agent conducts a responsive dialog — not a scripted questionnaire — that surfaces implicit assumptions, researches the solution space in real time, pushes back on contradictions, identifies gaps, and surfaces escalation preferences. Documents, links, and prior conversations are accepted as context sources.
 
 ### Warm Start (Accumulated Context)
 
-Over time, the system observes how the human responds to completed work: what they correct, what they praise, what they silently accept, and what they reject. These observations accumulate into institutional memory. In warm-start mode, the agent:
-
-- Pre-populates intent elements and escalation posture inferred from prior interactions. These are presented for confirmation, not silently assumed.
-- Reduces the burden on the human, making the 15-minute constraint easier to meet as the system matures.
-- Treats corrections to pre-populated intent as high-value signal that the model has diverged from reality.
+Over time, the system observes how the human responds to completed work: what they correct, what they praise, what they silently accept, and what they reject. These observations accumulate into institutional memory. In warm-start mode, the agent pre-populates intent elements and escalation posture inferred from prior interactions — presented for confirmation, not silently assumed. Corrections to pre-populated intent are high-value signal that the model has diverged from reality. See [Learning System](learning-system.md) for how this memory is stored and retrieved.
 
 ## Relationship to Institutional Memory
 
-Institutional memory, as used in this document, means the persistent store of learned organizational knowledge that accumulates across interactions. It includes observed values, decision patterns, escalation tolerance, domain constraints, and working-style preferences. This is the knowledge layer being designed in the companion project "OpenClaw Memory Architecture Research," which investigates how agentic memory systems store, index, query, and expire knowledge.
+The intent engineering system is the first consumer of proxy learnings from the [learning system](learning-system.md). The relationship is bidirectional: accumulated observations flow into intent gathering as priors that reduce burden on the human, and every intent gathering session produces new signal about what the organization values. Escalation outcomes — every autonomous action accepted or corrected, every escalation warranted or unnecessary — are calibration data points for the escalation model.
 
-The intent engineering system is the first consumer of this memory architecture. The planning phase must account for this dependency — the memory architecture's design will constrain how intent gathering stores and retrieves learned context. The relationship is bidirectional:
-
-**Memory informs intent.** Accumulated observations flow into the intent gathering conversation as priors that reduce the burden on the human.
-
-**Intent informs memory.** Every intent gathering session produces new signal about what the organization values. Corrections to pre-populated intent are especially valuable because they indicate where the model has drifted.
-
-**Escalation outcomes inform memory.** Every autonomous action that is accepted or corrected, and every escalation that proves warranted or unnecessary, becomes a calibration data point for the escalation model.
-
-Institutional memory must operate at three scopes: individual (one person's preferences and risk tolerance), team (shared conventions and decision patterns), and organization (policies and values that apply universally). Intent gathered from an individual may conflict with team or organizational priors. The system must surface these conflicts rather than silently resolving them.
+Institutional memory operates at three scopes: individual (preferences and risk tolerance), team (shared conventions), and organization (universal policies). Intent gathered from an individual may conflict with team or organizational priors. The system must surface these conflicts rather than silently resolving them.
 
 ## Success Criteria
 
@@ -95,29 +68,7 @@ The intent gathering conversation itself has two specific constraints: it must c
 
 ## Open Questions
 
-**Learning from downstream outcomes.** The system must learn whether completed work actually satisfied the intent, without requiring the human to fill out a survey. Passive observation of corrections is necessary but not sufficient — the human may accept mediocre work out of time pressure. Three approaches worth evaluating:
-- Instrument output delivery points (file acceptance, edits, rejections, rollbacks) and treat the edit-to-acceptance ratio as a proxy signal.
-- Compare intent.md success criteria against observable outcomes where possible (tests pass, deploy succeeds, no rework within a time window).
-- Use lightweight periodic check-ins at natural breakpoints ("this phase is complete — does the direction still feel right?") rather than per-task surveys.
-These are not mutually exclusive. The recommendation is to start with delivery-point instrumentation because it requires no human effort and produces signal immediately.
-
-**Divergence between stated and revealed preferences.** The human may say they want X but consistently correct toward Y. Three approaches:
-- Surface the contradiction explicitly during the next intent gathering session: "You've stated X in three prior intents but corrected toward Y five times. Should I update my model?"
-- Weight revealed preferences more heavily than stated ones automatically, on the principle that actions are more reliable than words.
-- Track both and present the divergence without auto-resolving, letting the human decide.
-The recommendation is the first option. Silent auto-correction is paternalistic and risks masking a real change in organizational direction. Explicit surfacing treats the human as the authority while still bringing the observation to the table.
-
-**Minimum viable memory architecture for warm-start.** The full institutional memory system is a large project. Three scoping options for an MVP:
-- Start with the escalation model only. It has the highest value density, clear signal sources (act/ask outcomes), and a well-defined feedback loop.
-- Start with per-user key-value observations ("prefers X over Y") stored in markdown alongside the escalation model. Low infrastructure cost, immediately useful for pre-populating intent.
-- Start with the full OpenClaw-style hybrid search architecture from day one, accepting longer time-to-value in exchange for not having to migrate later.
-The recommendation is the second option. The escalation model alone is too narrow to demonstrate warm-start value in intent gathering, but full hybrid search is premature before the observation corpus is large enough to need it.
-
-**Domain segmentation for escalation.** The escalation model must be domain-indexed — a human may grant broad autonomy for coding but narrow autonomy for communications. Three approaches:
-- Let domains emerge from observation by clustering decisions by topic and tracking tolerance per cluster.
-- Pre-define domains during intent gathering by asking the human to identify areas with different risk tolerances.
-- Use the intent.md project categorization as the domain index, inheriting segmentation from the work itself.
-The recommendation is to start with the third option and evolve toward the first. Project-level categorization is immediately available and requires no upfront taxonomy, while emergent clustering can refine the model as data accumulates.
+Open research questions for this area are collected in [Research Directions](research-directions.md).
 
 ## References
 

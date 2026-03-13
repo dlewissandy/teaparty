@@ -1,5 +1,7 @@
 # Human Proxy Agents
 
+A human proxy agent is a learned model of a specific human's preferences, risk tolerance, and decision patterns — built so the system can act as an accurate stand-in for that human on low-risk decisions, and escalate with precision when the decision exceeds its confidence. This is TeaParty's fourth pillar: the mechanism by which agents earn autonomy rather than assume it.
+
 ## The Autonomy-Oversight Dilemma
 
 Every autonomous agent faces a continuous choice: act or ask. Both carry risk.
@@ -9,6 +11,8 @@ Acting when the human wanted to be consulted causes wrong work, eroded trust, an
 Pure autonomy misses human values. Constant human oversight defeats the purpose of automation. Neither extreme works. The human proxy exists to navigate the space between them.
 
 ## Least-Regret Escalation
+
+Least-regret escalation means the agent chooses whichever option — act or ask — produces less regret in expectation: less wrong work if it acts, less wasted time if it escalates, weighted by the costs specific to this human, domain, and decision. The framing matters because the two failure modes are asymmetric and context-dependent; a single threshold cannot capture both.
 
 The agent must choose the option with the least expected regret. This requires three capabilities:
 

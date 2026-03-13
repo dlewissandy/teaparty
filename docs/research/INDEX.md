@@ -6,6 +6,10 @@ Research is organized by topic file. Each entry includes: title, authors/year, t
 
 See [learning-system.md](../learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
 
+## Scope and Research Positioning
+
+This bibliography covers five areas that directly inform TeaParty's design: cognitive architectures for LLM agents, memory management and retrieval, multi-agent coordination, human-AI collaboration and oversight, and production deployment patterns. It also includes implementation-level references for the specific libraries and frameworks used in the POC. The collection spans foundational academic work (2022–2024) and active 2025–2026 research, reflecting the rapid development of the field. For TeaParty's positioning relative to this body of work — what it builds on and what it adds — see the Research Positioning section in [docs/index.md](../index.md).
+
 ---
 
 ## How to Use This Index

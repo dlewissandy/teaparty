@@ -1,6 +1,8 @@
 # Learning System Design
 
-> This document describes the learning system for TeaParty's hierarchical agent teams. It builds on the research foundations in [cognitive-architecture.md](cognitive-architecture.md) and the team structure in [hierarchical-teams.md](hierarchical-teams.md). The POC implementation is in `projects/POC/`.
+The learning system is TeaParty's second pillar: where hierarchical teams enforce context boundaries, the learning system bridges them — getting the right organizational knowledge to the right agent at the right moment, so scoped agents don't drift from the values and conventions they can no longer see.
+
+> This document describes the full platform design for TeaParty's learning system. The 10-scope taxonomy, three learning types, and promotion chain described here are the target design for `teaparty_app/`. The POC (`projects/POC/`) implements a working subset — see [poc-architecture.md](poc-architecture.md) for what is currently running. Research foundations are in [cognitive-architecture.md](cognitive-architecture.md).
 
 ---
 
@@ -63,19 +65,11 @@ How teams get better at specific types of tasks, with generalization across simi
 
 How the human proxy captures the human's behavior so it can act as an accurate stand-in for low-risk decisions. Proxy learning is further subdivided:
 
-**Preferential** — the human's general traits:
-- Communication style (concise vs verbose, formal vs casual)
-- Risk tolerance (general baseline)
-- Values and priorities ("conceptual clarity always")
-- Trust levels per workgroup, per agent, per domain
-- Delegation boundaries (what they approve vs what they trust agents to decide)
+**Preferential** — the human's general traits: communication style, risk tolerance, values, trust levels, delegation boundaries. Stable, broadly applicable, always loaded.
 
-**Task-based** — the human's domain-specific decision patterns:
-- "For database changes, Darrell wants to be consulted before applying"
-- "For UI work, Darrell trusts the design workgroup — don't escalate unless it touches the nav"
-- "Darrell's bug triage approach: severity first, then recency"
+**Task-based** — the human's domain-specific decision patterns: when to consult vs act, triage heuristics, delegation scope by area. Context-specific, retrieved on demand.
 
-The preferential/task-based split mirrors the institutional/task-based split at the team level. Preferential learnings are stable and broadly applicable. Task-based learnings are context-specific and retrieved on demand.
+The preferential/task-based split mirrors the institutional/task-based split at the team level. See [human-proxies.md](human-proxies.md) for the full proxy model.
 
 ---
 
@@ -107,7 +101,7 @@ Human            Human preferences            Human task patterns
 
 The vertical axis (scope) is handled by the promotion chain — the existing mechanism from the POC that promotes durable learnings upward through dispatch → team → session → project → global, filtering more aggressively at each level.
 
-The horizontal axis (type) determines storage format and retrieval strategy. These are fundamentally different:
+The horizontal axis (type) determines storage format and retrieval strategy:
 
 | Type | Storage | Retrieval | Budget |
 |------|---------|-----------|--------|
@@ -118,11 +112,9 @@ The horizontal axis (type) determines storage format and retrieval strategy. The
 
 ---
 
-## 4. Separate Files by Type
+## 4. File Layout by Type
 
-Mixing learning types in a single file reintroduces the undiscriminated injection problem. If they share a file, you either load everything (noise) or need retrieval to pick through it (defeating the purpose of the always-loaded types).
-
-Each type gets its own file or store at each scope level:
+Mixing learning types in a single file reintroduces the undiscriminated injection problem. Each type gets its own file or store at each scope level:
 
 ```
 projects/
@@ -141,164 +133,54 @@ projects/
         tasks/              # team task-based chunks (memsearch store)
 ```
 
-### 4.1 `institutional.md` — Always Loaded
-
-Prose. Compact. Curated. Changes through consensus or demonstrated pattern. The promotion chain filters and promotes upward within this type only. This is CLAUDE.md's successor for learned norms — not instructions, but observed patterns of how the team/org/project actually works.
-
-### 4.2 `tasks/` — Fuzzy Retrieved
-
-Chunked, embedded, and FTS-indexed via memsearch (the OpenClaw memory module extracted by Zilliz). At retrieval time, the current task context is the query. Only top-scoring chunks are injected. The promotion chain promotes generalizable task learnings upward (team → project → global), but content stays in the chunk store, not in a prose file.
-
-### 4.3 `proxy.md` — Always Loaded
-
-The human's preferential model. Communication style, risk tolerance, trust boundaries, values. Compact and broadly applicable. Lives at the top level because it describes the human, not a project or team — though project-scoped overrides are possible if the human behaves differently in different contexts.
-
-### 4.4 `proxy-tasks/` — Fuzzy Retrieved
-
-The human's domain-specific decision patterns. Chunked and embedded like `tasks/`. Retrieved when the proxy needs to simulate the human's judgment for a specific type of task. These inform escalation and approval, not execution.
+Always-loaded types (institutional, proxy preferential) are compact prose files — no retrieval problem to solve, injected at the appropriate scope like CLAUDE.md. Fuzzy-retrieved types (task-based, proxy task-based) are chunked, embedded, and FTS-indexed via memsearch (sqlite-vec + FTS5 hybrid). At retrieval time, the current task context is the query; top-N chunks (budget-constrained) are injected. Task boundaries bleed — semantic similarity captures cross-type connections that hard classification lookup would miss.
 
 ---
 
-## 5. Retrieval Architecture
+## 5. Learning Moments and Promotion
 
-### 5.1 Always-Loaded Types (Institutional, Proxy Preferential)
+From the POC's learning-evolution analysis, four moments trigger writes to the stores:
 
-No retrieval problem to solve. These are injected at the appropriate scope, like CLAUDE.md. The constraint is keeping them concise and current — they pay their token cost on every session within scope.
+| Moment | When | Signal |
+|--------|------|--------|
+| **Prospective** | Before execution | Retrieval only — useful retrievals get confidence boost |
+| **In-flight** | At milestones | Assumption checkpoints; disconfirmed assumptions amplify corrective signal |
+| **Corrective** | At mismatch (escalation, replan) | Highest confidence — direct evidence of model error with recoverable causal chain |
+| **Retrospective** | After completion | Synthesized learnings promoted through the chain; lowest immediacy but enables cross-session transfer |
 
-### 5.2 Fuzzy-Retrieved Types (Task-Based, Proxy Task-Based)
-
-Retrieval uses the memsearch architecture (sqlite-vec + FTS5 hybrid):
-
-1. **Write time**: when a learning is extracted (at any of the four learning moments), it is chunked (~400 tokens), embedded, and indexed in the appropriate scope's chunk store.
-
-2. **Query time**: the current task context (task description, classification, recent conversation) becomes the query. Cosine similarity + FTS5 scores are fused.
-
-3. **Scope weighting**: each scope level's store is queried independently. Results are merged with a scope multiplier — a team-level chunk at 0.7 similarity beats a global chunk at 0.8 because it is more contextually specific. The promotion chain already ensures that only appropriately general learnings live at higher scopes, so scope is a reliable proxy for specificity.
-
-4. **Injection**: top-N chunks (budget-constrained) are injected into the agent's context alongside the always-loaded institutional and proxy files.
-
-### 5.3 Why Fuzzy, Not Classification-Based Lookup
-
-Task boundaries bleed. A "database migration" learning is relevant during schema redesign, ORM changes, and data backfill — different task types where the learning transfers. Hard classification lookup would miss these cross-type connections. Semantic similarity captures them because the content is related even when the categories are not.
-
----
-
-## 6. Learning Moments (Write Side)
-
-From the POC's learning-evolution analysis, there are four moments when learning occurs. These are the write triggers into the stores:
-
-### 6.1 Prospective
-
-Before execution begins. Query the stores: what do we already know that applies here? This is retrieval, not writing — but retrieval results that prove useful (confirmed by successful execution) get their confidence boosted.
-
-### 6.2 In-Flight
-
-At each major milestone. Model-update notes capture whether working assumptions are holding. These become new chunks with high recency and moderate confidence. If an assumption is disconfirmed, the corrective learning (6.3) carries more weight.
-
-### 6.3 Corrective
-
-At the moment of mismatch — an escalation, a direction change, a replan. The learning is not what happened but what upstream assumption failed. Corrective learnings carry the highest confidence weight because they are direct evidence of a model error: a falsified prediction with a recoverable causal chain.
-
-### 6.4 Retrospective
-
-After completion. Synthesized learnings promoted through the chain. The least valuable of the four moments — by the time learnings are extracted, the opportunity to act on them has closed — but valuable for cross-session transfer.
-
----
-
-## 7. Promotion Within Type
-
-The promotion chain promotes learnings **within type**. An institutional learning never becomes a task-based learning through promotion. A proxy learning never becomes an institutional learning.
+The promotion chain moves learnings **within type** — institutional never becomes task-based, proxy never becomes institutional:
 
 ```
 Team institutional.md  ──promotes──>  Project institutional.md  ──promotes──>  Global institutional.md
 Team tasks/            ──promotes──>  Project tasks/            ──promotes──>  Global tasks/
 ```
 
-Each promotion step filters more aggressively:
-- **Team → Project**: only patterns that held across multiple team sessions
-- **Project → Global**: only patterns that are project-agnostic
-
-Proxy learnings do not promote upward (they describe a specific human), but they can be refined through the same confidence scoring: confirmed observations gain weight, contradicted ones lose it.
+Each step filters more aggressively: team → project requires patterns that held across multiple sessions; project → global requires project-agnostic patterns. Proxy learnings do not promote upward (they describe a specific human).
 
 ---
 
-## 8. Confidence and Decay
+## 7. Relationship to Existing Systems
 
-Learnings are not permanent. They have confidence scores that change over time:
+**[cognitive-architecture.md](cognitive-architecture.md)** — Research foundations; proposes a per-agent memory system (episodic, semantic, procedural). This document supersedes sections 6-8 of that doc; the research survey (sections 1-5) remains valid.
 
-- **Single observation**: 0.5 initial confidence
-- **Confirmed by successful application**: +0.1 (capped at 0.95)
-- **Contradicted by observation**: -0.2
-- **Explicitly stated by human** ("always do X"): 0.95 initial
-- **Time decay**: confidence decreases without reinforcement (FadeMem-inspired)
-- **Corrective learnings**: 0.8 initial (direct evidence of model error)
+**[poc-architecture.md](poc-architecture.md)** — The POC's promotion chain (dispatch → team → session → project → global) is the structural foundation. This design adds type differentiation within each scope level and replaces flat injection with typed stores and fuzzy retrieval for task-based learnings.
 
-Chunks below a confidence threshold are excluded from retrieval results. Chunks that decay below a lower threshold are archived (not deleted — available for review but not surfaced).
+**[intent-engineering.md](intent-engineering.md)** — The first consumer of proxy learnings. Warm-start pre-population draws from `proxy.md` and `proxy-tasks/`. Corrections to pre-populated intent are high-value write signals.
+
+**memsearch** — The fuzzy retrieval layer uses memsearch (sqlite-vec + FTS5), the OpenClaw memory module extracted by Zilliz as a standalone library. Provides chunking, embedding, indexing, and hybrid score fusion.
 
 ---
 
-## 9. Relationship to Existing Systems
+## 8. Open Questions
 
-### 9.1 Cognitive Architecture (cognitive-architecture.md)
-
-That document covers the research foundations and proposes a per-agent memory system (episodic, semantic, procedural). This document supersedes the proposed architecture in sections 6-8 of that doc. The research survey (sections 1-5) remains valid and informs this design.
-
-### 9.2 POC Memory Hierarchy (projects/POC/)
-
-The POC's promotion chain (dispatch → team → session → project → global) is the structural foundation. This design adds type differentiation within each scope level and replaces flat injection with typed stores and fuzzy retrieval for task-based learnings.
-
-### 9.3 Intent Engineering (intent-engineering-spec.md)
-
-The intent engineering system is the first consumer of proxy learnings. Warm-start pre-population draws from `proxy.md` (preferential) and `proxy-tasks/` (task-based). Corrections to pre-populated intent are high-value write signals for both stores.
-
-### 9.4 OpenClaw / memsearch
-
-The fuzzy retrieval layer uses memsearch (sqlite-vec + FTS5) for the task-based stores. This is the OpenClaw memory module extracted by Zilliz as a standalone library. It provides chunking, embedding, indexing, and hybrid score fusion out of the box.
+Open research questions for this area are collected in [Research Directions](research-directions.md).
 
 ---
 
-## 10. Open Questions
+## 9. References
 
-**Embedding model choice.** memsearch uses a local embedding model. The quality of fuzzy retrieval depends on embedding quality. Trade-off: better embeddings cost more; local embeddings are fast but less capable.
-
-**Scope multiplier calibration.** Team-level chunks should score higher than global chunks at equal similarity, but by how much? This needs empirical tuning across real task histories.
-
-**Cross-type retrieval.** Should an institutional learning ever inform task-based retrieval, or vice versa? The current design keeps them strictly separate. There may be cases where institutional norms are relevant to task execution ("our org always does X before Y") that fuzzy retrieval within the task store would miss.
-
-**Proxy model validation.** How do you know the proxy model is accurate? The escalation calibration model (intent-engineering-spec.md) provides one signal (act/ask outcomes), but there is no direct "would the human have made this decision?" validation for low-risk decisions the proxy handles autonomously.
-
-**Cold start.** A new project/team/human has no learnings. The system defaults to escalation (conservative) per the intent engineering spec's cold-start design. But how quickly can the stores accumulate enough signal to be useful? The four learning moments (especially corrective) help, but the rate of useful learning per session is an empirical question.
-
----
-
-## 11. References
-
-### Retrieval Architecture
-
-- **OpenClaw Memory Architecture.** Steinberger et al., 2025-2026. Hybrid sqlite-vec + FTS5 retrieval over chunked Markdown; selective injection vs. Claude Code's flat injection. [docs.openclaw.ai/concepts/memory](https://docs.openclaw.ai/concepts/memory)
-- **memsearch.** Zilliz, 2025. OpenClaw's memory module extracted as a standalone library. Provides chunking, embedding, indexing, and hybrid score fusion. [github.com/zilliztech/memsearch](https://github.com/zilliztech/memsearch)
-- **Claude Code Memory System.** Anthropic, 2025-2026. MEMORY.md first 200 lines injected verbatim; topic files read on demand; no semantic retrieval. [code.claude.com/docs/en/memory](https://code.claude.com/docs/en/memory)
-
-### Learning Mechanisms
-
-- **CLIN: A Continually Learning Language Agent.** Majumder et al., 2024. Causal abstraction learning ("when X, doing Y leads to Z") that persists across episodes and transfers across tasks. Outperforms Reflexion by 23 points on ScienceWorld. [arxiv.org/abs/2310.10134](https://arxiv.org/abs/2310.10134)
-- **ExpeL: LLM Agents Are Experiential Learners.** Zhao et al., AAAI 2024. Contrastive learning from successes vs. failures extracts cross-task insights. [arxiv.org/abs/2308.10144](https://arxiv.org/abs/2308.10144)
-- **Reflexion: Language Agents with Verbal Reinforcement Learning.** Shinn et al., NeurIPS 2023. Self-reflection stored as persistent memory enables learning without weight updates. [arxiv.org/abs/2303.11366](https://arxiv.org/abs/2303.11366)
-- **Generative Agents: Interactive Simulacra of Human Behavior.** Park et al., UIST 2023. Three-factor retrieval (recency x relevance x importance) and periodic reflection. Reflection was the critical ingredient. [arxiv.org/abs/2304.03442](https://arxiv.org/abs/2304.03442)
-
-### Memory Decay and Forgetting
-
-- **FadeMem.** 2025. Biologically-inspired decay: 82.1% retention of critical facts at 55% storage vs. 78.4% at 100% storage. Selective forgetting improves retention quality. [co-r-e.com/method/agent-memory-forgetting](https://www.co-r-e.com/method/agent-memory-forgetting)
-
-### Frameworks
-
-- **Cognitive Architectures for Language Agents (CoALA).** Sumers, Yao, Narasimhan & Griffiths, TMLR 2024. The unifying taxonomy mapping classical cognitive architecture onto LLM agents across memory types, action space, and learning. [arxiv.org/abs/2309.02427](https://arxiv.org/abs/2309.02427)
-- **MemGPT / Letta.** Packer et al., 2023. Agent-managed memory hierarchy via explicit tools — agents decide what to remember, forget, and retrieve. [arxiv.org/abs/2310.08560](https://arxiv.org/abs/2310.08560)
-
-### Internal Documents
-
-- [cognitive-architecture.md](cognitive-architecture.md) — Research foundations, classical and modern cognitive architectures, proposed per-agent memory system (sections 6-8 superseded by this document)
+- [cognitive-architecture.md](cognitive-architecture.md) — Research foundations; proposed per-agent memory system (sections 6-8 superseded by this document); full external citation list (CLIN, ExpeL, Reflexion, Generative Agents, FadeMem, CoALA, MemGPT, OpenClaw)
 - [hierarchical-teams.md](hierarchical-teams.md) — Team structure: organizations, workgroups, liaisons, job/project/engagement teams
-- [POC Architecture](poc-architecture.md) — POC implementation including the memory promotion chain (dispatch → team → session → project → global)
-- [Intent Engineering](intent-engineering.md) — Intent engineering system, least-regret escalation, relationship to institutional memory
+- [poc-architecture.md](poc-architecture.md) — POC implementation including the memory promotion chain (dispatch → team → session → project → global)
+- [intent-engineering.md](intent-engineering.md) — Intent engineering system, least-regret escalation, relationship to institutional memory
 - [Research Index](research/INDEX.md) — Full research catalog with 50+ papers informing the cognitive architecture and learning system design

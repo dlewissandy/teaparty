@@ -1,6 +1,6 @@
 # TeaParty
 
-TeaParty is a research platform exploring how humans and AI agents collaborate on complex, multi-step work. The core thesis: current agent systems fail not because models lack capability, but because the systems around them lack structure for coordination, memory, trust calibration, and human oversight.
+TeaParty is a research platform for durable, scalable agent coordination — the problem of keeping multi-agent systems aligned with human intent as work grows in complexity, duration, and organizational scope. The core thesis: current agent systems fail not because models lack capability, but because the systems around them lack structure for coordination, memory, trust calibration, and human oversight.
 
 ## The Problem
 
@@ -10,7 +10,7 @@ As tasks grow in complexity, two structural failures emerge:
 
 **Context scoping.** Without structural boundaries, every agent sees everything and nothing clearly. A strategic coordinator drowning in raw file diffs cannot maintain clarity about project direction. A code writer buried in cross-team negotiations cannot focus on implementation. Agents need context boundaries — each agent should see only what is relevant to its level and role.
 
-**Context rot.** Even within a properly scoped agent, signal degrades as conversations grow. Every additional message dilutes what matters. The twentieth revision of a plan buries the original intent. Context rot is not a failure of scoping — it is what happens inside a well-scoped context that runs too long or accumulates too much state.
+**Context rot.** Even within a properly scoped agent, signal degrades as conversations grow. Every additional message dilutes what matters. The twentieth revision of a plan buries the original intent. Context rot — the degradation of earlier instructions in long multi-step tasks, where the model begins optimizing for recent context at the expense of the original intent — is not a failure of scoping. It is what happens inside a well-scoped context that runs too long or accumulates too much state.
 
 Hierarchical teams address both: agents serve as context boundaries (scoping), and reducing what each agent works on limits how fast its context degrades (rot).
 
@@ -42,9 +42,11 @@ A promotion chain moves validated learnings up through the organizational hierar
 
 ### Hierarchical Teams
 
+Context isolation via process boundaries is the key structural insight: each team level runs as an independent process with its own context window, so agents cannot be overwhelmed by information irrelevant to their role.
+
 Complex work requires complex team structures. A single flat team trying to plan a project and write every file hits context limits and loses coherence. The fix is structural: separate strategic coordination from tactical execution.
 
-TeaParty organizes agent teams in a hierarchy that mirrors how real organizations operate. An uber team coordinates strategy while subteams execute tactics. Each level runs as a separate process with its own context window. Liaison agents bridge levels, relaying tasks downward and results upward, compressing context at each boundary. The uber lead never sees raw file content; subteam workers never see cross-team coordination.
+TeaParty organizes agent teams in a hierarchy that mirrors how real organizations operate. An uber team (the strategic coordinator) manages strategy while subteams execute tactics. Each level runs as a separate process with its own context window. Liaison agents — lightweight teammates in the upper team whose sole function is communication relay — bridge levels, relaying tasks downward and results upward, compressing context at each boundary. The uber lead never sees raw file content; subteam workers never see cross-team coordination.
 
 Agents serve as context boundaries. The hierarchy provides scoping — each agent sees only what is relevant to its role and level. Reducing the scope of what each agent works on mitigates context rot within each scoped conversation.
 
@@ -57,6 +59,33 @@ Every autonomous agent faces a continuous choice: act or ask. Both carry risk. A
 TeaParty implements a confidence-based proxy model that learns when to auto-approve and when to escalate. The model observes human reactions over time — corrections indicate the threshold was too low, rubber-stamps indicate it was too high. Asymmetric regret weighting ensures false approvals cost more than false escalations. The agent earns autonomy through demonstrated alignment, not configuration.
 
 [Human Proxy Agents →](human-proxies.md) · [Least-Regret Escalation →](intent-engineering.md#least-regret-escalation)
+
+## What's Been Demonstrated
+
+The POC is operational. The uber/subteam hierarchy has run against real tasks — this documentation was produced by the same uber/subteam structure it describes, using live dispatches in isolated worktrees. Learning extraction is automated: agents do not write memory files; a post-session runner (`scripts/summarize_session.py`) reads the conversation stream and promotes durable learnings to the appropriate scope in the hierarchy. The CfA state machine is running — approval gates, backtrack transitions (Execution → Planning → Intent), and proxy-gated planning are all operational. Git worktree isolation is working: concurrent subteam dispatches run in separate branches and merge back without conflict.
+
+The dogfooding story is worth noting: the POC is actively building its own documentation using the same orchestration it documents, which provides a continuous integration test of the coordination model.
+
+### Measurement Targets
+
+These are the signals that will indicate the system is working:
+
+- **Learning quality**: does the proxy model calibrate faster with accumulated learnings vs. cold start? The signal is escalation rate over time — a warming proxy should escalate less on tasks that resemble prior sessions.
+- **Context isolation**: does splitting uber/sub contexts reduce mid-task goal drift? The signal is output consistency across parallel dispatches — drift would appear as divergence between what the uber team directed and what subteams produced.
+- **Escalation convergence**: does the escalation rate decrease over sessions as the proxy model accumulates observations? A flat or rising escalation rate after N sessions indicates the proxy is not learning from outcomes.
+- **Session coherence**: does the CfA structure reduce intent drift — the plan diverging from `intent.md`? The signal is how often backtrack transitions are triggered; a well-calibrated system should require fewer backtracks as teams accumulate task learnings.
+
+---
+
+## Research Positioning
+
+TeaParty builds on established multi-agent coordination research (CoALA, Generative Agents, multi-agent collaboration surveys), context window and memory augmentation work (MemGPT/Letta, Mem0, A-MEM), and human-AI oversight literature (metacognition, trust calibration, uncertainty communication). The prior work establishes that hierarchical teams outperform flat teams, that structured memory augmentation improves long-horizon performance, and that human oversight is necessary but costly.
+
+What TeaParty adds is the combination of four things that have not been demonstrated together: (1) explicit context scoping via process boundaries — each team level is a separate OS process with its own context window, not just a logical role assignment; (2) a formal state machine for structured task delegation with cross-phase backtrack transitions; (3) automated learning extraction scoped by hierarchy level, with a promotion chain that filters aggressively before generalizing; and (4) a calibratable proxy model for human oversight that learns from act/ask outcomes rather than requiring upfront configuration.
+
+The full bibliography is in [Research Library →](research/INDEX.md). The research sections of individual doc files cite specific papers against specific design decisions.
+
+---
 
 ## Folder Structure
 

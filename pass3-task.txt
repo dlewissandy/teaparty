@@ -1,0 +1,31 @@
+Execute Pass 3 (Tone and Register) of the TeaParty docs rewrite. All files are in the worktree at /Users/darrell/git/teaparty/projects/POC/.worktrees/session-112714--the-docs-folder-contains-the-p/. The docs are at docs/ relative to that root.
+
+PURPOSE OF PASS 3: Rewrite for external audiences — not just friendlier, but make the research contribution legible. An external reader (peer researcher, headhunter, prospective collaborator) hitting these docs should not encounter walls: undefined terms, bureaucratic phrasing, passive constructions, or research claims without grounding. Pass 3 does NOT restructure (Pass 1) and does NOT change facts (Pass 2). It rewrites prose for clarity, precision, and appropriate register.
+
+RULES:
+1. Every document must open with a single clear sentence stating its subject. If a doc starts with background or context instead of stating what it IS, rewrite the opening.
+2. Terms defined at first use: CfA -> Conversation for Action (CfA), liaison agent -> define briefly on first use, uber team -> explain what it means when first mentioned, memsearch -> briefly note it is a local hybrid search tool.
+3. Language is confident and direct. Replace passive constructions where they obscure the actor. Replace bureaucratic phrasing (it is the case that, in order to, with respect to) with direct equivalents.
+4. Research contribution is named as a contribution. Do not just describe behavior — state what the design decision IS and why it matters. E.g., not the system uses a state machine but using an explicit state machine makes approval gates and backtrack transitions formal and auditable.
+5. The four-pillar framing from index.md is the anchor. Each of the four pillar docs (hierarchical-teams.md, intent-engineering.md, learning-system.md, human-proxies.md) should open with a sentence that connects it to the pillar. They do not need to repeat the full pillar text — one sentence of orientation is enough.
+6. Context rot must be grounded on first use. When the term appears, explain it briefly: context window degradation over long multi-step tasks, where earlier instructions lose salience and the model begins optimizing for recent context. This is the problem that hierarchical teams and context scoping address.
+7. The dogfooding story, if mentioned, should be framed as interesting — the POC builds itself using the POC's own team structure. One sentence is enough; do not belabor it.
+
+DOCS TO REWRITE - HIGH PRIORITY:
+- docs/index.md — the anchor doc; external reader's first impression
+- docs/hierarchical-teams.md — pillar doc; likely the most technical, needs an accessible opening
+- docs/intent-engineering.md — pillar doc; strongest ideas, check that the research framing is sharp
+- docs/learning-system.md — pillar doc; complex taxonomy, make sure the opening orients before diving in
+- docs/human-proxies.md — pillar doc; short but may be too abstract
+
+DOCS TO REWRITE - LOWER PRIORITY:
+- docs/ARCHITECTURE.md — check opening and term definitions
+- docs/cfa-state-machine.md — check opening and whether the reader knows what CfA is before reading this
+- docs/poc-architecture.md — already condensed in Pass 1; check opening sentence and confirm terminology is grounded
+
+DOCS TO SKIP:
+docs/cognitive-architecture.md, docs/sandbox-design.md, docs/engagements-and-partnerships.md, docs/file-layout.md, docs/folder-structure.md, docs/workflows.md, docs/UX.md, docs/agent-dispatch.md, docs/research-directions.md
+
+WHAT TO PRESERVE: All technical content — do not remove facts, claims, or concepts, only edit how they are expressed. Heading structure must not change. Cross-references must remain intact.
+
+OUTPUT: For each of the 8 docs in scope, write a brief report of what the main issues were (if any) and what was changed. If a doc was already clear and needed minimal changes, say so. Write this report to docs/pass3-report.md in the worktree.

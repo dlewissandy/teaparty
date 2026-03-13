@@ -1,6 +1,6 @@
 # Repositories, Sandboxes, and Code Execution
 
-> **FUTURE PHASE** -- This document describes architecture for Phases 4-5 of the [Roadmap](../ROADMAP.md). The sandbox/Docker system is not part of the current MVP. The workspace system (git repos + worktrees) is partially implemented; Docker containers and Claude Code CLI delegation are future work.
+> **Future Phase (Phases 4–5):** This document describes planned sandbox infrastructure. The sandbox/Docker system is not currently implemented. The workspace system (git repos + worktrees) is partially implemented in the POC; Docker containers and Claude Code CLI delegation are future work.
 
 How TeaParty workgroups get real filesystems, git version control, containerized execution, and Claude Code CLI -- without duplicating what Claude Code already does well.
 
@@ -755,17 +755,7 @@ GET    /api/workgroups/{workgroup_id}/sandboxes    List running sandbox containe
 
 ## Open Questions
 
-1. **Container orchestration**: Docker directly, or use something like Docker Compose / Podman / Kubernetes? Starting with raw Docker API keeps it simple. Can layer orchestration later if needed.
-
-2. **Claude Code invocation mode**: `--print` mode for single-shot, or the Claude Code SDK (`@anthropic-ai/claude-code` npm package) for deeper integration? Start with `--print` for simplicity — it returns structured JSON output and handles its own tool loop internally.
-
-3. **Conflict resolution**: When merging job→main, conflicts can arise. Options: (a) reject the merge and show conflicts in the UI, (b) let an agent resolve conflicts via `sandbox_exec`, (c) create a conflict-resolution job. Start with (a), add (b) later.
-
-4. **File browser source of truth**: For teams with repos, should the file browser read from `workgroup.files` (cached, potentially stale) or from the filesystem (live, requires API call)? Recommendation: read from filesystem for the active job's worktree, from `workgroup.files` for the main branch overview.
-
-5. **Cost attribution**: Claude Code CLI usage inside sandboxes consumes API tokens. How to attribute this to specific users/agents for budget tracking? The container's API key usage can be tracked via Anthropic's API usage endpoints, or by parsing Claude Code's `--output-format json` output which includes token counts.
-
-6. **Warm pool vs on-demand**: How many warm containers to maintain? This depends on deployment context. Default to 0 for development (containers created on demand), configurable for production.
+Open research questions for this area are collected in [Research Directions](research-directions.md).
 
 ## Dependencies
 

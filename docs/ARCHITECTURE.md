@@ -1,6 +1,6 @@
 # TeaParty Architecture
 
-TeaParty is a platform where teams of humans and AI agents co-author files and collaborate in chat. Work is organized through a corporate hierarchy that mirrors how real organizations operate: departments (workgroups) contain specialist agents, organizations coordinate across departments, and partnerships enable cross-organization collaboration.
+TeaParty is a platform where teams of humans and AI agents co-author files and collaborate in chat. A corporate hierarchy organizes all work, mirroring how real organizations operate: departments (workgroups) contain specialist agents, organizations coordinate across departments, and partnerships enable cross-organization collaboration.
 
 ---
 
@@ -59,7 +59,7 @@ The lower-level organizational unit. A workgroup is like a department -- it has 
 
 ### Partnerships
 
-> **Note**: Partnerships are planned for Phase 1 of the [Roadmap](../ROADMAP.md) and are not yet implemented.
+> **Note**: Partnerships are a platform design — they describe behavior planned for `teaparty_app/` and are not yet implemented.
 
 Partnerships are directional trust links between organizations that enable cross-org collaboration.
 
@@ -112,12 +112,12 @@ Cross-workgroup collaboration within a single organization. A project runs as a 
 
 Cross-organization work between two partnered organizations, or top-level internal work. An engagement is the highest level of the hierarchical team structure.
 
-> **Note**: The current implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Phase 1 of the [Roadmap](../ROADMAP.md) will migrate engagements to org-level scoping as described here.
+> **Note**: The current `teaparty_app/` implementation scopes engagements to workgroups (`source_workgroup_id` / `target_workgroup_id`). Org-level scoping as described here is a planned platform design, not yet implemented.
 
 - **Agent team**: When work begins, a Claude Code team session with the target org lead as team lead, **internal liaisons** (one per participating workgroup or project), and **external liaison(s)** (for cross-org engagements, bridging to the source org's representative). During the negotiation phase, no team session is needed -- single-agent dispatch handles the conversation.
 - **Workspace**: Contract-based visibility -- `deliverables/` is visible to both parties; `workspace/` is restricted to the target org.
 - **Created by**: The source org's lead proposes, the target org's lead accepts. Or a human member creates an internal engagement.
-- **Lifecycle**: `proposed -> negotiating -> accepted -> in_progress -> completed -> reviewed` (with `cancelled` and `declined` branches)
+- **Lifecycle and feedback model**: The full engagement lifecycle states, cycle prevention mechanism, and feedback bubble-up model are covered in [Engagements and Partnerships](engagements-and-partnerships.md).
 - **Conversation**: A shared conversation where both org leads (or human + org lead) negotiate terms and track progress. Once work begins, the engagement team session coordinates projects and direct-dispatch jobs.
 - **Internal engagements**: A human member creates an engagement directly -- they describe what they need, and the org lead handles it the same way as external work.
 
@@ -127,21 +127,7 @@ See [engagements-and-partnerships.md](engagements-and-partnerships.md) for the f
 
 ## Conversation Kinds
 
-Every interaction in TeaParty happens through a conversation. Each conversation has a **kind** that determines its participants, dispatch behavior, and scope.
-
-| Kind | Purpose | Participants | Dispatch |
-|------|---------|-------------|----------|
-| `job` | Work execution within a workgroup | Workgroup agents + humans | Team session (multi-agent) or single agent |
-| `project` | Cross-workgroup coordination | Workgroup leads + org lead | Team session |
-| `engagement` | Cross-org negotiation and tracking | Org leads from both orgs | Single agent (org lead) |
-| `direct` | 1:1 conversation with an agent | One agent + one human | Single agent |
-| `task` | Persistent single-agent work session | One agent | Single agent with persistent session |
-| `admin` | Workgroup administration | Admin commands (no LLM selection) | Deterministic command handler |
-| `activity` | Activity log | Read-only | No auto-response |
-
-The three work-unit kinds (`job`, `project`, `engagement`) each have their own workspace and agent team as described in the [Work Hierarchy](#work-hierarchy) above. The remaining kinds (`direct`, `task`, `admin`, `activity`) are supporting conversation types that don't carry their own workspace.
-
-See [agent-dispatch.md](agent-dispatch.md) for the full routing table and dispatch mechanics.
+Agent messages are routed by conversation kind; the full routing model is in [Agent Dispatch](agent-dispatch.md).
 
 ---
 
@@ -167,30 +153,7 @@ Humans interact with TeaParty primarily through agents, not by managing agents d
 | DM workgroup leads directly | No side-jobs. Work goes through the org lead or through a project/job conversation. |
 | Assign work directly to agents | The lead agent decides how to decompose and assign work. |
 
-### Feedback Bubble-Up Model
-
-When agents need human input, feedback requests flow up the hierarchy and responses flow back down:
-
-```
-Human
-  ^  |
-  |  v
-Org Lead
-  ^  |
-  |  v
-Workgroup Lead
-  ^  |
-  |  v
-Job Agent (needs feedback)
-```
-
-1. An agent in a job needs human feedback (e.g., approval, clarification, design direction).
-2. The agent communicates this to the workgroup lead.
-3. The workgroup lead escalates to the org lead.
-4. The org lead notifies the human (via the org-level DM channel or the engagement conversation).
-5. The human responds. The response routes back down: org lead -> workgroup lead -> job agent.
-
-This ensures humans are not bombarded with low-level requests and that all communication passes through agents who can filter, summarize, and contextualize.
+When agents need human input, feedback requests flow up the hierarchy and responses flow back down; the full feedback bubble-up model is described in [Engagements and Partnerships](engagements-and-partnerships.md).
 
 ---
 
@@ -215,20 +178,6 @@ This ensures humans are not bombarded with low-level requests and that all commu
 
 ---
 
-## Cycle Prevention
-
-Engagements can chain: Org A engages Org B, which decomposes its work and engages Org C. Without safeguards, this could create cycles (A -> B -> C -> A) leading to infinite loops.
-
-Prevention is tracked at the engagement level:
-
-- Each engagement carries an **engagement chain** -- the list of organizations involved in the chain of work that led to this engagement.
-- When a new engagement is proposed, the system checks whether the target organization already appears in the chain.
-- If a cycle would be created, the engagement is rejected.
-
-See [Open Questions](#open-questions) for implementation details.
-
----
-
 ## Workspace and Filestore Model
 
 TeaParty has two coexisting file systems:
@@ -236,15 +185,7 @@ TeaParty has two coexisting file systems:
 1. **Virtual files** (JSON column in the database): Documents, workflows, configuration, agent learnings. These are what agents read as prompt context. Managed through file-ops tools.
 2. **Git repositories** (workspace-enabled workgroups): Source code and artifacts that benefit from version history and branch isolation. Each job gets a branch; completed jobs merge to main. See [sandbox-design.md](sandbox-design.md) for the future sandbox architecture.
 
-### Job Workspace Isolation
-
-Multiple jobs within a project or engagement may modify the same files. To prevent clobbering, each job gets its own isolated workspace:
-
-- **Branch-per-job**: Each job creates a branch (or worktree) from the workgroup's shared files. The job's agents work on their branch in isolation.
-- **Merge on completion**: When a job is completed, its changes merge back to the workgroup's shared workspace. Conflicts are resolved at merge time.
-- **Project-level coordination**: The project conversation (where workgroup leads collaborate) serves as the coordination point for sequencing jobs that depend on each other's outputs.
-
-This model applies whether the workgroup uses virtual files or a git repository. The mechanism differs (JSON overlay vs. git worktree), but the principle is the same: jobs are isolated; merging is explicit.
+Each job creates a branch (or worktree) from the workgroup's shared files and merges back on completion. This model applies whether the workgroup uses virtual files or a git repository — jobs are isolated; merging is explicit. See [hierarchical-teams.md](hierarchical-teams.md) for the full workspace isolation model.
 
 The virtual file tree reflects the full corporate hierarchy. See [file-layout.md](file-layout.md).
 
@@ -264,18 +205,6 @@ The virtual file tree reflects the full corporate hierarchy. See [file-layout.md
 
 ---
 
-## Open Questions
-
-These are design questions that need resolution as the system evolves:
-
-1. **Contract-based engagement visibility**: How exactly does file visibility work for engagements? Options include file-level ACLs, separate namespaces with explicit sharing, or read-only projections of selected files.
-2. **Cycle prevention mechanics**: Graph traversal at engagement creation time? Depth limits? How is the engagement chain stored and propagated?
-3. **Home agent capabilities**: How does the home agent discover available org templates? Is there a system-level registry?
-4. **Partnership revocation mid-engagement**: What happens to active engagements when a partnership is revoked? Grace period? Forced cancellation?
-5. **Legacy models**: The codebase contains `CrossGroupTask`, `CrossGroupTaskMessage`, and `AgentTask` models that predate the current engagement and job architecture. These should be evaluated for removal or migration as the engagement model is revised in Phase 1.
-
----
-
 ## Further Reading
 
 - [Hierarchical Teams](hierarchical-teams.md) -- Hierarchical agent team architecture (projects and engagements)
@@ -285,4 +214,4 @@ These are design questions that need resolution as the system evolves:
 - [Agent Dispatch](agent-dispatch.md) -- Message routing and team sessions
 - [Sandbox Design](sandbox-design.md) -- Future: Docker containers and git integration
 - [Cognitive Architecture](cognitive-architecture.md) -- Future: Agent learning and memory
-- [Roadmap](../ROADMAP.md) -- Phased implementation plan
+- [README](../README.md) -- Project overview
