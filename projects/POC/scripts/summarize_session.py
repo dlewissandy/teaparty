@@ -921,6 +921,10 @@ def promote(
         """Return session exec stream path if present, else empty string."""
         if stream_path:
             return stream_path
+        if not session_dir:
+            # Avoid accidentally resolving a relative './.exec-stream.jsonl'
+            # when session_dir is empty; treat this as "no exec stream".
+            return ""
         candidate = os.path.join(session_dir, '.exec-stream.jsonl')
         if os.path.exists(candidate) and os.path.getsize(candidate) > 0:
             return candidate
