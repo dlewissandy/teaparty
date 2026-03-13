@@ -139,7 +139,7 @@ class AgentRunner:
         # the shell version's relocate_new_plans() detected and moved them.
         if ctx.phase_spec.artifact:
             artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
-            if not os.path.exists(artifact_path):
+            if not os.path.exists(artifact_path) and artifact_path.endswith('.plan'):
                 _relocate_plan_file(artifact_path, result.start_time)
 
         # Detect what the agent produced
