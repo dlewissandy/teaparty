@@ -87,6 +87,7 @@ class ClaudeRunner:
                 stderr=asyncio.subprocess.DEVNULL,
                 cwd=self.cwd,
                 env=env,
+                limit=4 * 1024 * 1024,  # 4MB — stream-json lines with large Edit tool calls exceed the 64KB default
             )
 
             # Feed prompt via stdin
