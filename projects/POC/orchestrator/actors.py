@@ -224,7 +224,7 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
     # Find plan files created after start_time (newest first)
     candidates = []
     for f in plans_dir.iterdir():
-        if not f.is_file() or not f.suffix == '.md':
+        if not f.is_file() or f.suffix != '.md':
             continue
         try:
             mtime = f.stat().st_mtime
