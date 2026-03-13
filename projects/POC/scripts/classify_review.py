@@ -26,9 +26,9 @@ STATE_ACTIONS = {
     "PLAN_ASSERT": ["dialog", "approve", "correct", "refine-intent", "withdraw"],
     "WORK_ASSERT": ["dialog", "approve", "correct", "revise-plan", "refine-intent", "withdraw"],
     # ESCALATE states — human answers a question or accepts the work as done
-    "INTENT_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
-    "PLANNING_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
-    "TASK_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
+    "INTENT_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
+    "PLANNING_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
+    "TASK_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
     # FAILURE state — infrastructure failure, human decides next step
     "FAILURE": ["retry", "escalate", "backtrack", "withdraw"],
 }
