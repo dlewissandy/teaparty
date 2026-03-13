@@ -27,6 +27,7 @@ class ClaudeResult:
     session_id: str = ''
     stream_file: str = ''
     stall_killed: bool = False
+    start_time: float = 0.0
 
 
 class ClaudeRunner:
@@ -79,6 +80,7 @@ class ClaudeRunner:
         try:
             args = self._build_args(settings_file.name if settings_file else None)
             env = self._build_env()
+            start_time = time.time()
 
             self._process = await asyncio.create_subprocess_exec(
                 *args,
@@ -108,6 +110,7 @@ class ClaudeRunner:
                 session_id=self._extracted_session_id,
                 stream_file=self.stream_file,
                 stall_killed=stall_killed,
+                start_time=start_time,
             )
         finally:
             if settings_file:
