@@ -86,8 +86,8 @@ class Session:
         os.makedirs(project_dir, exist_ok=True)
         os.makedirs(os.path.join(project_dir, '.sessions'), exist_ok=True)
 
-        # 3. Find repo root
-        repo_root = self._find_repo_root()
+        # 3. Find repo root (project may have its own .git)
+        repo_root = self._find_repo_root(project_dir)
 
         # 4. Create session worktree
         self.session_info = await create_session_worktree(
@@ -228,20 +228,16 @@ class Session:
 
         return 'default', 'normal'
 
-    def _find_repo_root(self) -> str:
-        """Find the git repo root."""
-        try:
-            result = subprocess.run(
-                ['git', 'rev-parse', '--show-toplevel'],
-                cwd=self.poc_root,
-                capture_output=True, text=True,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip()
-        except Exception:
-            pass
-        # Fall back to two levels up from poc_root
-        return os.path.dirname(os.path.dirname(self.poc_root))
+    def _find_repo_root(self, project_dir: str = '') -> str:
+        """Find the git repo root for worktree creation.
+
+        If the project has its own .git (e.g. hierarchical-memory-paper),
+        use that so worktrees are created from the project's repo, not
+        the outer teaparty repo.
+        """
+        if project_dir and os.path.exists(os.path.join(project_dir, '.git')):
+            return _find_repo_root_from(project_dir)
+        return _find_repo_root_from(self.poc_root)
 
     def _retrieve_memory(self, project_dir: str) -> str:
         """Retrieve relevant memory entries for the task."""
@@ -440,7 +436,7 @@ class Session:
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
             try:
-                repo_root = _find_repo_root_from(poc_root)
+                repo_root = _find_repo_root_from(project_dir)
                 await squash_merge(
                     source=worktree_path,
                     target=repo_root,
