@@ -89,7 +89,7 @@ def _make_claude_result(exit_code: int = 0, session_id: str = 'claude-abc') -> C
 
 def _run(coro):
     """Run a coroutine synchronously for testing."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── AgentRunner._interpret_output ─────────────────────────────────────────────
