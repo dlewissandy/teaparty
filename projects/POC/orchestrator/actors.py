@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol
 
 from projects.POC.orchestrator.claude_runner import ClaudeRunner, ClaudeResult
@@ -132,6 +134,14 @@ class AgentRunner:
                 'exit_code': result.exit_code,
             })
 
+        # Relocate plan files from ~/.claude/plans/ if needed.
+        # Claude stores plans internally when running with --permission-mode plan;
+        # the shell version's relocate_new_plans() detected and moved them.
+        if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
+            artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
+            if not os.path.exists(artifact_path) and artifact_path.endswith('.plan'):
+                _relocate_plan_file(artifact_path, result.start_time)
+
         # Detect what the agent produced
         return self._interpret_output(ctx, result)
 
@@ -194,6 +204,47 @@ class AgentRunner:
         if edges:
             return edges[0][0]
         return tentative
+
+
+# ── Plan relocation ──────────────────────────────────────────────────────────
+
+def _relocate_plan_file(target_path: str, start_time: float) -> bool:
+    """Detect a newly created plan in ~/.claude/plans/ and copy it to target_path.
+
+    Claude stores plans in ~/.claude/plans/ when using --permission-mode plan.
+    The shell version (plan-execute.sh) snapshots the directory before/after and
+    moves the newest file. This is the Python equivalent.
+
+    Returns True if a plan was successfully relocated.
+    """
+    plans_dir = Path.home() / '.claude' / 'plans'
+    if not plans_dir.is_dir():
+        return False
+
+    # Find plan files created after start_time (newest first)
+    candidates = []
+    for f in plans_dir.iterdir():
+        if not f.is_file() or f.suffix != '.md':
+            continue
+        try:
+            mtime = f.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= start_time:
+            candidates.append((mtime, f))
+
+    if not candidates:
+        return False
+
+    # Pick the newest
+    candidates.sort(reverse=True)
+    _, best = candidates[0]
+
+    try:
+        shutil.copy2(str(best), target_path)
+        return True
+    except OSError:
+        return False
 
 
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
