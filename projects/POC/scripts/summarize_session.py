@@ -899,7 +899,8 @@ def promote(
     """Importable entry point for the 7 promote_learnings.sh scope implementations.
 
     Mirrors the logic of promote_learnings.sh for each scope. Writes to the
-    appropriate output location and returns 0 on success, 1 on skip.
+    appropriate output location and returns 0 on success (including skip/no-op
+    cases where there is nothing to promote), and a non-zero code on error.
 
     Args:
         scope: One of 'team', 'session', 'project', 'global', 'prospective',
