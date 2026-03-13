@@ -885,6 +885,302 @@ def summarize(stream_path: str, output_path: str, context_files: list[str], scop
     return 0
 
 
+def promote(
+    scope: str,
+    session_dir: str,
+    project_dir: str,
+    output_dir: str,
+    *,
+    stream_path: str = "",
+    context_files: list[str] | None = None,
+    premortem_file: str = "",
+    assumptions_file: str = "",
+) -> int:
+    """Importable entry point for the 7 promote_learnings.sh scope implementations.
+
+    Mirrors the logic of promote_learnings.sh for each scope. Writes to the
+    appropriate output location and returns 0 on success, 1 on skip.
+
+    Args:
+        scope: One of 'team', 'session', 'project', 'global', 'prospective',
+               'in-flight', 'corrective'.
+        session_dir: Path to the session infra directory (POC_SESSION_DIR).
+        project_dir: Path to the project directory (POC_PROJECT_DIR).
+        output_dir: Root output directory (POC_OUTPUT_DIR / projects dir for global).
+        stream_path: Optional exec stream path. Falls back to session_dir exec stream.
+        context_files: Optional explicit context file list (overrides auto-discovery).
+        premortem_file: Path to pre-mortem file for prospective scope.
+        assumptions_file: Path to assumptions checkpoint for in-flight scope.
+    """
+    from datetime import datetime as _dt
+
+    ts = _dt.now().strftime('%Y%m%d-%H%M%S')
+
+    def _exec_stream() -> str:
+        """Return session exec stream path if present, else empty string."""
+        if stream_path:
+            return stream_path
+        candidate = os.path.join(session_dir, '.exec-stream.jsonl')
+        if os.path.exists(candidate) and os.path.getsize(candidate) > 0:
+            return candidate
+        return ""
+
+    def _context_args(paths: list[str]) -> list[str]:
+        """Filter to non-empty existing files."""
+        return [p for p in paths if os.path.isfile(p) and os.path.getsize(p) > 0]
+
+    TEAM_NAMES = ['art', 'writing', 'editorial', 'research', 'coding']
+
+    if scope == 'team':
+        # Dispatch MEMORY.md files → team institutional.md + team/tasks/<ts>.md
+        if not session_dir:
+            print("[promote] session_dir not set, skipping team rollup.", file=sys.stderr)
+            return 1
+
+        promoted = 0
+        for team_name in TEAM_NAMES:
+            team_dir = os.path.join(session_dir, team_name)
+            if not os.path.isdir(team_dir):
+                continue
+
+            # Collect dispatch MEMORY.md files
+            dispatch_mems = []
+            for entry in os.scandir(team_dir):
+                if entry.is_dir():
+                    mem = os.path.join(entry.path, 'MEMORY.md')
+                    if os.path.isfile(mem) and os.path.getsize(mem) > 0:
+                        dispatch_mems.append(mem)
+
+            if not dispatch_mems:
+                continue
+
+            # Find a dispatch exec stream for conversation context
+            exec_stream = ""
+            for entry in os.scandir(team_dir):
+                if entry.is_dir():
+                    candidate = os.path.join(entry.path, '.exec-stream.jsonl')
+                    if os.path.isfile(candidate):
+                        exec_stream = candidate
+                        break
+
+            ctx = _context_args(dispatch_mems)
+            tasks_dir = os.path.join(session_dir, team_name, 'tasks')
+            os.makedirs(tasks_dir, exist_ok=True)
+
+            # Institutional pass
+            summarize(
+                exec_stream,
+                os.path.join(session_dir, team_name, 'institutional.md'),
+                ctx,
+                'team-rollup-institutional',
+            )
+            # Tasks pass
+            summarize(
+                exec_stream,
+                os.path.join(tasks_dir, f'{ts}.md'),
+                ctx,
+                'team-rollup-tasks',
+            )
+            promoted += 1
+
+        if not promoted:
+            print("[promote] No dispatch MEMORYs found for team rollup.", file=sys.stderr)
+        return 0
+
+    elif scope == 'session':
+        # Team typed files → session institutional.md + session/tasks/<ts>.md
+        if not session_dir:
+            print("[promote] session_dir not set, skipping session rollup.", file=sys.stderr)
+            return 1
+
+        if context_files is not None:
+            ctx = _context_args(context_files)
+        else:
+            ctx = []
+            for team_name in TEAM_NAMES:
+                inst = os.path.join(session_dir, team_name, 'institutional.md')
+                legacy = os.path.join(session_dir, team_name, 'MEMORY.md')
+                if os.path.isfile(inst) and os.path.getsize(inst) > 0:
+                    ctx.append(inst)
+                elif os.path.isfile(legacy) and os.path.getsize(legacy) > 0:
+                    ctx.append(legacy)
+                tasks_path = os.path.join(session_dir, team_name, 'tasks')
+                if os.path.isdir(tasks_path):
+                    for f in os.listdir(tasks_path):
+                        fp = os.path.join(tasks_path, f)
+                        if fp.endswith('.md') and os.path.getsize(fp) > 0:
+                            ctx.append(fp)
+
+        if not ctx:
+            print("[promote] No team learnings found for session rollup.", file=sys.stderr)
+            return 0
+
+        exec_s = _exec_stream()
+        tasks_dir = os.path.join(session_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(exec_s, os.path.join(session_dir, 'institutional.md'), ctx, 'session-institutional')
+        summarize(exec_s, os.path.join(tasks_dir, f'{ts}.md'), ctx, 'session-tasks')
+
+        # Compact to prevent monotonic growth
+        _try_compact(os.path.join(session_dir, 'institutional.md'))
+        return 0
+
+    elif scope == 'project':
+        # Session typed files → project institutional.md + project/tasks/<ts>.md
+        if not session_dir or not project_dir:
+            print("[promote] session_dir or project_dir not set, skipping project rollup.", file=sys.stderr)
+            return 1
+
+        if context_files is not None:
+            ctx = _context_args(context_files)
+        else:
+            ctx = []
+            inst = os.path.join(session_dir, 'institutional.md')
+            legacy = os.path.join(session_dir, 'MEMORY.md')
+            if os.path.isfile(inst) and os.path.getsize(inst) > 0:
+                ctx.append(inst)
+            elif os.path.isfile(legacy) and os.path.getsize(legacy) > 0:
+                ctx.append(legacy)
+            tasks_path = os.path.join(session_dir, 'tasks')
+            if os.path.isdir(tasks_path):
+                for f in os.listdir(tasks_path):
+                    fp = os.path.join(tasks_path, f)
+                    if fp.endswith('.md') and os.path.getsize(fp) > 0:
+                        ctx.append(fp)
+
+        if not ctx:
+            print("[promote] No session learnings found for project rollup.", file=sys.stderr)
+            return 0
+
+        exec_s = _exec_stream()
+        tasks_dir = os.path.join(project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(exec_s, os.path.join(project_dir, 'institutional.md'), ctx, 'project-institutional')
+        summarize(exec_s, os.path.join(tasks_dir, f'{ts}.md'), ctx, 'project-tasks')
+
+        _try_compact(os.path.join(project_dir, 'institutional.md'))
+        return 0
+
+    elif scope == 'global':
+        # Project institutional.md → projects/ institutional.md + projects/tasks/<ts>.md
+        if not project_dir:
+            print("[promote] project_dir not set, skipping global rollup.", file=sys.stderr)
+            return 1
+
+        projects_dir = output_dir or os.path.dirname(project_dir)
+
+        if context_files is not None:
+            ctx = _context_args(context_files)
+        else:
+            ctx = []
+            inst = os.path.join(project_dir, 'institutional.md')
+            legacy = os.path.join(project_dir, 'MEMORY.md')
+            if os.path.isfile(inst) and os.path.getsize(inst) > 0:
+                ctx.append(inst)
+            elif os.path.isfile(legacy) and os.path.getsize(legacy) > 0:
+                ctx.append(legacy)
+
+        if not ctx:
+            print("[promote] No project learnings found for global rollup.", file=sys.stderr)
+            return 0
+
+        exec_s = _exec_stream()
+        tasks_dir = os.path.join(projects_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(exec_s, os.path.join(projects_dir, 'institutional.md'), ctx, 'global-institutional')
+        summarize(exec_s, os.path.join(tasks_dir, f'{ts}.md'), ctx, 'global-tasks')
+
+        _try_compact(os.path.join(projects_dir, 'institutional.md'))
+        return 0
+
+    elif scope == 'prospective':
+        # Pre-mortem file + exec stream → project/tasks/<ts>-prospective.md
+        if not session_dir or not project_dir:
+            print("[promote] session_dir or project_dir not set, skipping prospective.", file=sys.stderr)
+            return 1
+
+        premortem = premortem_file or os.path.join(session_dir, '.premortem.md')
+        if not os.path.isfile(premortem) or os.path.getsize(premortem) == 0:
+            print("[promote] No pre-mortem file found, skipping prospective.", file=sys.stderr)
+            return 0
+
+        exec_s = _exec_stream()
+        tasks_dir = os.path.join(project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(
+            exec_s,
+            os.path.join(tasks_dir, f'{ts}-prospective.md'),
+            [premortem],
+            'prospective',
+        )
+        return 0
+
+    elif scope == 'in-flight':
+        # Assumption checkpoint file + exec stream → project/tasks/<ts>-inflight.md
+        if not session_dir or not project_dir:
+            print("[promote] session_dir or project_dir not set, skipping in-flight.", file=sys.stderr)
+            return 1
+
+        assumptions = assumptions_file or os.path.join(session_dir, '.assumptions.jsonl')
+        if not os.path.isfile(assumptions) or os.path.getsize(assumptions) == 0:
+            print("[promote] No assumptions checkpoint file found, skipping in-flight.", file=sys.stderr)
+            return 0
+
+        exec_s = _exec_stream()
+        tasks_dir = os.path.join(project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(
+            exec_s,
+            os.path.join(tasks_dir, f'{ts}-inflight.md'),
+            [assumptions],
+            'in-flight',
+        )
+        return 0
+
+    elif scope == 'corrective':
+        # Exec stream → project/tasks/<ts>-corrective.md
+        if not session_dir or not project_dir:
+            print("[promote] session_dir or project_dir not set, skipping corrective.", file=sys.stderr)
+            return 1
+
+        exec_s = _exec_stream()
+        if not exec_s:
+            print("[promote] No exec stream found, skipping corrective.", file=sys.stderr)
+            return 0
+
+        tasks_dir = os.path.join(project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+
+        summarize(
+            exec_s,
+            os.path.join(tasks_dir, f'{ts}-corrective.md'),
+            [],
+            'corrective',
+        )
+        return 0
+
+    else:
+        print(f"[promote] Unknown scope: {scope}", file=sys.stderr)
+        return 1
+
+
+def _try_compact(path: str) -> None:
+    """Compact a memory file in-place, silently skipping if unavailable."""
+    try:
+        from pathlib import Path as _Path
+        import sys as _sys
+        _sys.path.insert(0, str(_Path(__file__).parent))
+        from compact_memory import compact_file
+        compact_file(path)
+    except Exception:
+        pass
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract session learnings")
     parser.add_argument("--stream", required=True, help="Path to .exec-stream.jsonl or .intent-stream.jsonl")
