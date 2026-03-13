@@ -22,6 +22,16 @@ from projects.POC.orchestrator.events import (
     Event, EventBus, EventType, InputRequest,
 )
 from projects.POC.scripts.cfa_state import TRANSITIONS
+from projects.POC.scripts.approval_gate import (
+    GenerativeResponse,
+    _extract_question_patterns,
+    generate_response,
+    load_model,
+    record_outcome,
+    resolve_team_model_path,
+    save_model,
+    should_escalate,
+)
 
 if TYPE_CHECKING:
     from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
@@ -215,30 +225,41 @@ class ApprovalGate:
         escalation_file = ctx.data.get('escalation_file', '')
         artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
+        team = ctx.env_vars.get('POC_TEAM', '')
 
-        # For escalation states: present the agent's clarification request directly.
-        # Skip proxy — always escalate to human when the agent explicitly requests it.
-        if ctx.state in _ESCALATION_STATES and escalation_file and os.path.exists(escalation_file):
-            try:
-                with open(escalation_file) as _f:
-                    bridge_text = _f.read().strip()
-            except OSError:
+        # For escalation states: try generative response first, then human.
+        if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
+            # Try proxy auto-response from learned patterns
+            gen = self._try_generate_response(project_slug, ctx.state, team)
+            if gen is not None:
+                return ActorResult(
+                    action='clarify',
+                    feedback=gen.text,
+                    data={'generative': True, 'confidence': gen.confidence},
+                )
+
+            # Fall through to human with escalation file as bridge
+            if escalation_file and os.path.exists(escalation_file):
+                try:
+                    with open(escalation_file) as _f:
+                        bridge_text = _f.read().strip()
+                except OSError:
+                    bridge_text = f'Agent requested clarification at state: {ctx.state}'
+            else:
                 bridge_text = f'Agent requested clarification at state: {ctx.state}'
-            proxy_decision = 'escalate'
         elif artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that
             # would advance the session with no work product to review.
-            proxy_decision = 'escalate'
             bridge_text = self._generate_bridge(
                 artifact_path, ctx.state, ctx.task, artifact_missing=True,
             )
         else:
             # Step 1: Consult proxy
-            proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path)
+            proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path, team=team)
 
             if proxy_decision == 'auto-approve':
-                self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path)
+                self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path, team=team)
                 return ActorResult(action='approve')
 
             # Step 2: Generate bridge text for the human
@@ -324,6 +345,7 @@ class ApprovalGate:
                 artifact_path=artifact_path,
                 feedback=feedback,
                 conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
+                team=team,
             )
 
             return ActorResult(
@@ -332,13 +354,12 @@ class ApprovalGate:
                 dialog_history=dialog_history,
             )
 
-    def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '') -> str:
+    def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
+                       team: str = '') -> str:
         """Consult human proxy model.  Returns 'auto-approve' or 'escalate'."""
         try:
-            from projects.POC.scripts.approval_gate import (
-                load_model, should_escalate,
-            )
-            model = load_model(self.proxy_model_path)
+            model_path = resolve_team_model_path(self.proxy_model_path, team)
+            model = load_model(model_path)
             decision = should_escalate(model, state, project_slug, artifact_path)
             return decision.action
         except Exception:
@@ -347,25 +368,35 @@ class ApprovalGate:
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
         artifact_path: str = '', feedback: str = '', conversation: str = '',
+        team: str = '',
     ) -> None:
         """Record human decision for proxy learning."""
         try:
-            from projects.POC.scripts.approval_gate import (
-                load_model, record_outcome, save_model,
-            )
-            model = load_model(self.proxy_model_path)
+            model_path = resolve_team_model_path(self.proxy_model_path, team)
+            model = load_model(model_path)
             artifact_length = 0
             if artifact_path and os.path.exists(artifact_path):
                 artifact_length = os.path.getsize(artifact_path)
+            patterns = _extract_question_patterns(conversation, outcome)
             model = record_outcome(
                 model, state, project_slug, outcome,
                 differential_summary=feedback,
                 artifact_length=artifact_length,
-                conversation_text=conversation,
+                question_patterns=patterns,
             )
-            save_model(model, self.proxy_model_path)
+            save_model(model, model_path)
         except Exception:
             pass
+
+    def _try_generate_response(self, project_slug: str, state: str,
+                                team: str = '') -> 'GenerativeResponse | None':
+        """Try to generate a proxy auto-response for escalation states."""
+        try:
+            model_path = resolve_team_model_path(self.proxy_model_path, team)
+            model = load_model(model_path)
+            return generate_response(model, state, project_slug)
+        except Exception:
+            return None
 
     def _classify_review(
         self, state: str, response: str, dialog_history: str = '',

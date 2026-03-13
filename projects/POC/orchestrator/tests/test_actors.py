@@ -472,5 +472,209 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         self.assertIn('artifact_path', result.data)
 
 
+# ── Import source: approval_gate.py, not human_proxy.py ──────────────────────
+
+class TestApprovalGateImports(unittest.TestCase):
+    """actors.py must import from approval_gate.py, not human_proxy.py."""
+
+    def test_generate_response_importable(self):
+        from projects.POC.scripts.approval_gate import generate_response
+        self.assertTrue(callable(generate_response))
+
+    def test_resolve_team_model_path_importable(self):
+        from projects.POC.scripts.approval_gate import resolve_team_model_path
+        self.assertTrue(callable(resolve_team_model_path))
+
+    def test_extract_question_patterns_importable(self):
+        from projects.POC.scripts.approval_gate import _extract_question_patterns
+        self.assertTrue(callable(_extract_question_patterns))
+
+    def test_generative_response_importable(self):
+        from projects.POC.scripts.approval_gate import GenerativeResponse
+        self.assertTrue(GenerativeResponse is not None)
+
+
+# ── Team-scoped proxy model paths ────────────────────────────────────────────
+
+class TestTeamScopedProxyModel(unittest.TestCase):
+    """_proxy_decide and _proxy_record must use resolve_team_model_path."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_gate(self) -> ApprovalGate:
+        return ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=AsyncMock(),
+            poc_root=self.tmpdir,
+        )
+
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.should_escalate')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path')
+    def test_proxy_decide_resolves_team_path(self, mock_resolve, mock_escalate, mock_load):
+        gate = self._make_gate()
+        mock_resolve.return_value = '/tmp/scoped.json'
+        mock_escalate.return_value = MagicMock(action='escalate')
+
+        gate._proxy_decide('INTENT_ASSERT', 'default', '', team='coding')
+
+        mock_resolve.assert_called_once_with(gate.proxy_model_path, 'coding')
+        mock_load.assert_called_once_with('/tmp/scoped.json')
+
+    @patch('projects.POC.orchestrator.actors.save_model')
+    @patch('projects.POC.orchestrator.actors.record_outcome')
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path')
+    def test_proxy_record_resolves_team_path(self, mock_resolve, mock_load, mock_record, mock_save):
+        gate = self._make_gate()
+        mock_resolve.return_value = '/tmp/scoped.json'
+        mock_record.return_value = MagicMock()
+
+        gate._proxy_record('INTENT_ASSERT', 'default', 'approve', team='coding')
+
+        mock_resolve.assert_called_once_with(gate.proxy_model_path, 'coding')
+        mock_save.assert_called_once()
+        # save_model should use the resolved path, not the base path
+        self.assertEqual(mock_save.call_args[0][1], '/tmp/scoped.json')
+
+
+# ── Question patterns instead of conversation_text ───────────────────────────
+
+class TestQuestionPatternExtraction(unittest.TestCase):
+    """_proxy_record must pass question_patterns, not conversation_text."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_gate(self) -> ApprovalGate:
+        return ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=AsyncMock(),
+            poc_root=self.tmpdir,
+        )
+
+    @patch('projects.POC.orchestrator.actors.save_model')
+    @patch('projects.POC.orchestrator.actors.record_outcome')
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
+    @patch('projects.POC.orchestrator.actors._extract_question_patterns')
+    def test_record_passes_question_patterns(self, mock_extract, mock_resolve, mock_load, mock_record, mock_save):
+        gate = self._make_gate()
+        mock_extract.return_value = [{'question': 'Why?', 'concern': 'scope'}]
+        mock_record.return_value = MagicMock()
+
+        gate._proxy_record('INTENT_ASSERT', 'default', 'correct',
+                           conversation='Why did you do it that way?')
+
+        mock_extract.assert_called_once_with('Why did you do it that way?', 'correct')
+        # record_outcome should receive question_patterns, NOT conversation_text
+        call_kwargs = mock_record.call_args
+        self.assertIn('question_patterns', call_kwargs.kwargs or dict(zip(
+            ['model', 'state', 'task_type', 'outcome'], call_kwargs.args)))
+
+
+# ── Generative response for escalation states ────────────────────────────────
+
+class TestEscalationGenerativeResponse(unittest.TestCase):
+    """Escalation states try generate_response() before falling through to human."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._input_calls = []
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_gate(self, human_response: str = 'clarify') -> ApprovalGate:
+        async def _input_provider(req):
+            self._input_calls.append(req)
+            return human_response
+
+        return ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=_input_provider,
+            poc_root=self.tmpdir,
+        )
+
+    def _make_escalation_ctx(self, state: str = 'INTENT_ESCALATE') -> ActorContext:
+        ctx = _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
+        Path(esc_path).write_text('What database should I use?')
+        ctx.data = {'escalation_file': esc_path}
+        ctx.env_vars = {'POC_PROJECT': 'default', 'POC_TEAM': 'coding'}
+        return ctx
+
+    @patch('projects.POC.orchestrator.actors.generate_response')
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
+    def test_confident_proxy_returns_generative_response(self, mock_resolve, mock_load, mock_gen):
+        from projects.POC.scripts.approval_gate import GenerativeResponse
+        gate = self._make_gate()
+        ctx = self._make_escalation_ctx()
+        mock_gen.return_value = GenerativeResponse(action='clarify', text='Use PostgreSQL', confidence=0.92)
+
+        result = _run(gate.run(ctx))
+
+        self.assertEqual(result.action, 'clarify')
+        self.assertEqual(result.feedback, 'Use PostgreSQL')
+        self.assertTrue(result.data.get('generative'))
+        # Human should NOT have been prompted
+        self.assertEqual(len(self._input_calls), 0)
+
+    @patch('projects.POC.orchestrator.actors.generate_response')
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
+    def test_low_confidence_falls_through_to_human(self, mock_resolve, mock_load, mock_gen):
+        gate = self._make_gate(human_response='Use MySQL')
+        ctx = self._make_escalation_ctx()
+        mock_gen.return_value = None  # Not confident enough
+
+        with patch.object(gate, '_classify_review', return_value=('clarify', 'Use MySQL')):
+            result = _run(gate.run(ctx))
+
+        self.assertEqual(result.action, 'clarify')
+        # Human WAS prompted
+        self.assertEqual(len(self._input_calls), 1)
+
+    @patch('projects.POC.orchestrator.actors.generate_response')
+    @patch('projects.POC.orchestrator.actors.load_model')
+    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
+    def test_generate_exception_falls_through_to_human(self, mock_resolve, mock_load, mock_gen):
+        gate = self._make_gate(human_response='Use SQLite')
+        ctx = self._make_escalation_ctx()
+        mock_gen.side_effect = RuntimeError('model corrupt')
+
+        with patch.object(gate, '_classify_review', return_value=('clarify', 'Use SQLite')):
+            result = _run(gate.run(ctx))
+
+        self.assertEqual(result.action, 'clarify')
+        self.assertEqual(len(self._input_calls), 1)
+
+    def test_non_escalation_state_does_not_try_generative(self):
+        """INTENT_ASSERT (not an escalation state) must never call generate_response."""
+        gate = self._make_gate(human_response='approve')
+        ctx = _make_ctx(state='INTENT_ASSERT', session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent')
+        ctx.data = {'artifact_path': artifact_path}
+
+        with patch.object(gate, '_proxy_decide', return_value='auto-approve'), \
+             patch.object(gate, '_proxy_record'), \
+             patch('projects.POC.orchestrator.actors.generate_response') as mock_gen:
+            _run(gate.run(ctx))
+
+        mock_gen.assert_not_called()
+
+
 if __name__ == '__main__':
     unittest.main()
