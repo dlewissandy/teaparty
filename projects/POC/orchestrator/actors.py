@@ -392,8 +392,13 @@ class ApprovalGate:
     ) -> str:
         """Generate conversational summary of artifact for review."""
         if artifact_missing:
+            expected_note = (
+                f' (expected path: {artifact_path})'
+                if artifact_path
+                else ''
+            )
             return (
-                f'The agent did not produce the expected artifact at {state}. '
+                f'The agent did not produce the expected artifact at {state}{expected_note}. '
                 'You can:\n'
                 '  correct — ask the agent to produce the artifact\n'
                 '  withdraw — abandon this session\n'
