@@ -25,10 +25,10 @@ STATE_ACTIONS = {
     "INTENT_ASSERT": ["dialog", "approve", "correct", "withdraw"],
     "PLAN_ASSERT": ["dialog", "approve", "correct", "refine-intent", "withdraw"],
     "WORK_ASSERT": ["dialog", "approve", "correct", "revise-plan", "refine-intent", "withdraw"],
-    # ESCALATE states — human answers a question
-    "INTENT_ESCALATE": ["dialog", "clarify", "withdraw"],
-    "PLANNING_ESCALATE": ["dialog", "clarify", "withdraw"],
-    "TASK_ESCALATE": ["dialog", "clarify", "withdraw"],
+    # ESCALATE states — human answers a question or accepts the work as done
+    "INTENT_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
+    "PLANNING_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
+    "TASK_ESCALATE": ["dialog", "clarify", "complete", "withdraw"],
     # FAILURE state — infrastructure failure, human decides next step
     "FAILURE": ["retry", "escalate", "backtrack", "withdraw"],
 }
@@ -93,24 +93,37 @@ refine-intent\tChange objective from implementation guide to research paper
 dialog\tHave you tested it?
 dialog\tWhat approach did you use for the caching layer?"""
 
-ESCALATE_PROMPT = """You are a CfA review classifier. A human was asked a clarifying question at the {state} decision point and has responded. Determine if they are answering the question, asking a counter-question, or withdrawing.
+ESCALATE_PROMPT = """You are a CfA review classifier. A human was asked a clarifying question at the {state} decision point and has responded. Determine if they are accepting the work as complete, answering the question, asking a counter-question, or withdrawing.
 
 {dialog_history_block}
 --- HUMAN RESPONSE ---
 {response}
 
 --- CLASSIFICATION RULES ---
-1. WITHDRAW: explicit abandonment ("cancel", "stop", "call it off", "let's not", "never mind", "kill it", "I give up").
-2. DIALOG: the human is asking a counter-question about the agent's question, requesting clarification about what the agent is asking, or making a comment that doesn't directly answer. Signals: "What do you mean by X?", "Can you give me an example?", "Why do you need to know that?", "I'm not sure what you're asking".
-3. CLARIFY: everything else — the human is providing an answer or clarification. This is the default.
+1. COMPLETE: the human is accepting the work as done and wants to move forward without further clarification. Signals: "the work is complete", "it's done", "we're done here", "accept the work", "mark it complete", "looks good, we're done", "done", "ship it", "that's good enough", "let's move on". The human is closing out the escalation by accepting the current state of the work.
+
+2. WITHDRAW: explicit abandonment ("cancel", "stop", "call it off", "let's not", "never mind", "kill it", "I give up").
+
+3. DIALOG: the human is asking a counter-question about the agent's question, requesting clarification about what the agent is asking, or making a comment that doesn't directly answer. Signals: "What do you mean by X?", "Can you give me an example?", "Why do you need to know that?", "I'm not sure what you're asking".
+
+4. CLARIFY: everything else — the human is providing an answer or clarification. This is the default.
+
+COMPLETE vs CLARIFY — CRITICAL:
+- "The work is complete." = complete (acceptance, not an answer to the agent's question)
+- "We're done, mark it complete." = complete
+- "Use PostgreSQL." = clarify (direct answer to the agent's question)
+- "Yes, proceed." = complete (accepting the current state and moving forward)
+- "Yes, use the approach I described." = clarify (answering the agent's question)
 
 --- OUTPUT ---
 Return EXACTLY one line: ACTION<TAB>FEEDBACK_TEXT
+- If complete: complete<TAB>
 - If withdrawing: withdraw<TAB>
 - If dialog: dialog<TAB>(the human's question, verbatim)
 - If clarifying: clarify<TAB>(the full human response, verbatim)
 
 Examples:
+complete\t
 withdraw\t
 dialog\tWhat do you mean by that?
 dialog\tCan you explain why you need to know?
