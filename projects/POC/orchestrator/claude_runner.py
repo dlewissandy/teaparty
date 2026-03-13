@@ -123,8 +123,7 @@ class ClaudeRunner:
             '--verbose',
             '--setting-sources', 'user',
         ]
-        if self.permission_mode != 'default':
-            args.extend(['--permission-mode', self.permission_mode])
+        args.extend(['--permission-mode', self.permission_mode])
         if self.agents_file:
             # --agents takes a JSON string, not a file path.
             # Read the agents definition file and pass its contents.
