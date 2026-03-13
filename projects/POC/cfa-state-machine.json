@@ -31,6 +31,7 @@
     ],
     "INTENT_ESCALATE": [
       { "action": "clarify", "to": "INTENT_RESPONSE", "actor": "human" },
+      { "action": "complete", "to": "INTENT", "actor": "human" },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
     ],
     "INTENT_ASSERT": [
@@ -58,6 +59,7 @@
     ],
     "PLANNING_ESCALATE": [
       { "action": "clarify", "to": "PLANNING_RESPONSE", "actor": "human" },
+      { "action": "complete", "to": "PLAN", "actor": "human" },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
     ],
     "PLAN_ASSERT": [
@@ -89,6 +91,7 @@
     ],
     "TASK_ESCALATE": [
       { "action": "clarify", "to": "TASK_RESPONSE", "actor": "approval_gate" },
+      { "action": "complete", "to": "COMPLETED_WORK", "actor": "approval_gate" },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
     ],
     "TASK_ASSERT": [

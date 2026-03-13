@@ -1400,5 +1400,70 @@ class TestEscalationPaths(unittest.TestCase):
         self.assertEqual(cfa.state, 'PLAN')
 
 
+class TestEscalateCompleteTransitions(unittest.TestCase):
+    """complete action on escalation states exits cleanly to the appropriate phase terminal."""
+
+    def test_task_escalate_complete_goes_to_completed_work(self):
+        cfa = _make_cfa(state='TASK_ESCALATE', phase='execution')
+        cfa = transition(cfa, 'complete')
+        self.assertEqual(cfa.state, 'COMPLETED_WORK')
+
+    def test_intent_escalate_complete_goes_to_intent(self):
+        cfa = _make_cfa(state='INTENT_ESCALATE', phase='intent')
+        cfa = transition(cfa, 'complete')
+        self.assertEqual(cfa.state, 'INTENT')
+
+    def test_planning_escalate_complete_goes_to_plan(self):
+        cfa = _make_cfa(state='PLANNING_ESCALATE', phase='planning')
+        cfa = transition(cfa, 'complete')
+        self.assertEqual(cfa.state, 'PLAN')
+
+    def test_task_escalate_complete_is_globally_terminal(self):
+        cfa = _make_cfa(state='TASK_ESCALATE', phase='execution')
+        cfa = transition(cfa, 'complete')
+        self.assertTrue(is_globally_terminal(cfa.state))
+
+    def test_complete_in_available_actions_for_escalate_states(self):
+        for state in ('TASK_ESCALATE', 'INTENT_ESCALATE', 'PLANNING_ESCALATE'):
+            with self.subTest(state=state):
+                actions = dict(available_actions(state))
+                self.assertIn('complete', actions)
+
+    def test_clarify_still_valid_after_adding_complete(self):
+        """Adding complete should not break the existing clarify path."""
+        for state in ('TASK_ESCALATE', 'INTENT_ESCALATE', 'PLANNING_ESCALATE'):
+            with self.subTest(state=state):
+                actions = dict(available_actions(state))
+                self.assertIn('clarify', actions)
+
+    def test_withdraw_still_valid_after_adding_complete(self):
+        for state in ('TASK_ESCALATE', 'INTENT_ESCALATE', 'PLANNING_ESCALATE'):
+            with self.subTest(state=state):
+                actions = dict(available_actions(state))
+                self.assertIn('withdraw', actions)
+
+    def test_task_escalate_complete_not_a_backtrack(self):
+        """TASK_ESCALATE → complete → COMPLETED_WORK is within execution, not a backtrack."""
+        self.assertFalse(is_backtrack('TASK_ESCALATE', 'complete'))
+
+    def test_task_escalate_complete_preserves_task_id(self):
+        cfa = _make_cfa(state='TASK_ESCALATE', phase='execution', task_id='t-001')
+        cfa = transition(cfa, 'complete')
+        self.assertEqual(cfa.task_id, 't-001')
+
+    def test_full_loop_breaks_on_complete(self):
+        """Simulate the bug scenario: escalate from TASK_IN_PROGRESS, human says complete."""
+        cfa = make_initial_state()
+        cfa = _advance(cfa, 'propose', 'auto-approve', 'plan', 'auto-approve',
+                       'delegate', 'accept')
+        self.assertEqual(cfa.state, 'TASK_IN_PROGRESS')
+        cfa = transition(cfa, 'escalate')
+        self.assertEqual(cfa.state, 'TASK_ESCALATE')
+        # Human says "the work is complete" → complete action
+        cfa = transition(cfa, 'complete')
+        self.assertEqual(cfa.state, 'COMPLETED_WORK')
+        self.assertTrue(is_globally_terminal(cfa.state))
+
+
 if __name__ == '__main__':
     unittest.main()
