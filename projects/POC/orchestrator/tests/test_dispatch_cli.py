@@ -8,9 +8,8 @@ Covers:
  4. --cfa-parent-state arg takes priority over POC_CFA_STATE env var
  5. POC_CFA_STATE env var is used when --cfa-parent-state is not set
  6. Missing infra dir returns failed status without touching CfA state
-"""
+ """
 import asyncio
-import json
 import os
 import sys
 import tempfile
