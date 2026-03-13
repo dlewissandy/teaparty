@@ -1397,5 +1397,86 @@ class TestQuestionPatternLearning(DeterministicProxyTestCase):
         self.assertTrue(len(error_patterns[0].get('reasoning', '')) > 0)
 
 
+# ── 17. [CONFIRM:] marker escalation ──────────────────────────────────────────
+
+class TestConfirmMarkerEscalation(DeterministicProxyTestCase):
+    """Proxy flag awareness: [CONFIRM:] markers in artifacts force escalation
+    regardless of confidence level, per intent-team-improvements backlog."""
+
+    def setUp(self):
+        super().setUp()
+        self._tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmpdir, ignore_errors=True)
+        super().tearDown()
+
+    def _write_artifact(self, text):
+        path = os.path.join(self._tmpdir, 'artifact.md')
+        Path(path).write_text(text)
+        return path
+
+    def _make_trained_model(self, **entry_kw):
+        """Build a model with a trained entry that would normally auto-approve."""
+        entry = _make_entry(
+            approve_count=entry_kw.get('approve_count', 10),
+            total_count=entry_kw.get('total_count', 10),
+            ema_approval_rate=entry_kw.get('ema_approval_rate', 0.9),
+        )
+        return _model_with_entry(entry), entry
+
+    def test_single_confirm_marker_forces_escalation(self):
+        """An artifact with one [CONFIRM:] marker must escalate."""
+        model, entry = self._make_trained_model()
+        path = self._write_artifact(
+            "## Intent\nBuild the widget.\n\n"
+            "[CONFIRM: Should the widget support dark mode?]\n"
+        )
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('CONFIRM', decision.reasoning)
+        self.assertIn('1', decision.reasoning)  # "1 unresolved [CONFIRM:]"
+
+    def test_multiple_confirm_markers_reported(self):
+        """All [CONFIRM:] markers are listed in the reasoning."""
+        model, entry = self._make_trained_model()
+        path = self._write_artifact(
+            "## Intent\nBuild the widget.\n\n"
+            "[CONFIRM: Should the widget support dark mode?]\n"
+            "[CONFIRM: Is the target audience developers or designers?]\n"
+        )
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        self.assertIn('2', decision.reasoning)  # "2 unresolved [CONFIRM:]"
+        self.assertIn('dark mode', decision.reasoning)
+        self.assertIn('target audience', decision.reasoning)
+
+    def test_no_confirm_marker_allows_auto_approve(self):
+        """A clean artifact with no markers auto-approves when confidence is high."""
+        model, entry = self._make_trained_model()
+        path = self._write_artifact(
+            "## Intent\nBuild the widget.\n\n"
+            "All questions have been resolved.\n"
+        )
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'auto-approve')
+
+    def test_confirm_marker_takes_priority_over_content_checks(self):
+        """[CONFIRM:] detection fires before length anomaly or novelty checks."""
+        entry = _make_entry(
+            approve_count=10, total_count=10, ema_approval_rate=0.9,
+        )
+        # Set up artifact lengths so a short artifact would trigger length anomaly
+        entry.artifact_lengths = [1000] * 5
+        model = _model_with_entry(entry)
+        # Artifact is very short (would trigger length anomaly) AND has a CONFIRM marker
+        path = self._write_artifact("[CONFIRM: Is this correct?]")
+        decision = should_escalate(model, entry.state, entry.task_type, artifact_path=path)
+        self.assertEqual(decision.action, 'escalate')
+        # Should mention CONFIRM, not length anomaly — CONFIRM fires first
+        self.assertIn('CONFIRM', decision.reasoning)
+        self.assertNotIn('short', decision.reasoning.lower())
+
+
 if __name__ == '__main__':
     unittest.main()

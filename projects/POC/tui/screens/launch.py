@@ -111,17 +111,14 @@ class LaunchScreen(Screen):
 
         bus.subscribe(on_session_started)
 
-        # Run session as async task — clean up .running on crash
+        # Run session as async task
         async def run_session() -> None:
             try:
                 await session.run()
             except Exception:
-                infra_dir = session.session_info.get('infra_dir', '')
-                if infra_dir:
-                    try:
-                        os.unlink(os.path.join(infra_dir, '.running'))
-                    except (FileNotFoundError, OSError):
-                        pass
+                # Don't remove .running — leave it for orphan detection so the
+                # user gets the recovery UI rather than a silently dead session.
+                pass
 
         in_proc.run_task = asyncio.create_task(run_session())
 

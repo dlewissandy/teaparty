@@ -368,14 +368,10 @@ class Session:
             _log.warning('Could not resolve worktree for session %s', session_id)
             worktree_path = ''
 
-        # 6. Remove stale .running sentinel
-        running_path = os.path.join(infra_dir, '.running')
-        try:
-            os.unlink(running_path)
-        except FileNotFoundError:
-            pass
-
-        # 7. Start state writer + publish SESSION_STARTED with resumed flag
+        # 6. Start state writer + publish SESSION_STARTED with resumed flag
+        # Note: don't delete .running first — _write_running() overwrites it
+        # atomically, avoiding a race where StateReader sees no .running file
+        # and flags the session as orphaned.
         event_bus = event_bus or EventBus()
         state_writer = StateWriter(infra_dir, event_bus)
         await state_writer.start()
