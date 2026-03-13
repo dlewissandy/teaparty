@@ -20,7 +20,7 @@
       "lead": "project-lead",
       "permission_mode": "plan",
       "stream_file": ".plan-stream.jsonl",
-      "artifact": null,
+      "artifact": "PLAN.md",
       "approval_state": "PLAN_ASSERT",
       "escalation_state": "PLANNING_ESCALATE",
       "escalation_file": ".plan-escalation.md",

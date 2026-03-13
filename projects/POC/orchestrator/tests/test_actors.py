@@ -373,5 +373,104 @@ class TestGenerateBridgeMissingArtifact(unittest.TestCase):
         self.assertEqual(text, 'Ready for review at INTENT_ASSERT.')
 
 
+# ── Phase config artifact values ──────────────────────────────────────────────
+
+class TestPhaseConfigArtifacts(unittest.TestCase):
+    """Verify phase-config.json artifact fields are correctly set for approval gates."""
+
+    def _load_config(self) -> dict:
+        config_path = Path(__file__).parent.parent / 'phase-config.json'
+        with open(config_path) as f:
+            import json
+            return json.load(f)
+
+    def test_planning_phase_has_plan_md_artifact(self):
+        """Planning phase must have artifact=PLAN.md so PLAN_ASSERT is not bypassed."""
+        config = self._load_config()
+        artifact = config['phases']['planning']['artifact']
+        self.assertEqual(
+            artifact, 'PLAN.md',
+            f"planning artifact must be 'PLAN.md', got {artifact!r} — "
+            "null here causes _interpret_output to auto-approve and bypass PLAN_ASSERT",
+        )
+
+    def test_intent_phase_has_intent_md_artifact(self):
+        """Intent phase artifact must remain INTENT.md (regression guard)."""
+        config = self._load_config()
+        artifact = config['phases']['intent']['artifact']
+        self.assertEqual(artifact, 'INTENT.md')
+
+    def test_planning_phase_artifact_is_not_null(self):
+        """Explicit null check — the root cause of the bypass bug."""
+        config = self._load_config()
+        self.assertIsNotNone(
+            config['phases']['planning']['artifact'],
+            "planning artifact must not be null",
+        )
+
+
+class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
+    """Verify _interpret_output routes planning output through PLAN_ASSERT, not auto-approve."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.runner = AgentRunner()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_planning_spec(self) -> PhaseSpec:
+        return PhaseSpec(
+            name='planning',
+            agent_file='agents/uber-team.json',
+            lead='project-lead',
+            permission_mode='plan',
+            stream_file='.plan-stream.jsonl',
+            artifact='PLAN.md',
+            approval_state='PLAN_ASSERT',
+            escalation_state='PLANNING_ESCALATE',
+            escalation_file='.plan-escalation.md',
+            settings_overlay={},
+        )
+
+    def test_planning_present_artifact_goes_to_assert(self):
+        """When PLAN.md exists, action is 'assert' (routes to PLAN_ASSERT)."""
+        spec = self._make_planning_spec()
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Plan\nStep 1\nStep 2')
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertIn('artifact_path', result.data)
+        self.assertNotIn('artifact_missing', result.data)
+
+    def test_planning_missing_artifact_goes_to_assert_not_auto_approve(self):
+        """When PLAN.md is absent, must assert (not auto-approve), so human can review."""
+        spec = self._make_planning_spec()
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        # PLAN.md deliberately not written
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertNotEqual(result.action, 'auto-approve',
+                            "Missing PLAN.md must never auto-approve — that bypasses PLAN_ASSERT")
+        self.assertEqual(result.action, 'assert')
+        self.assertTrue(result.data.get('artifact_missing'))
+        self.assertEqual(result.data.get('artifact_expected'), 'PLAN.md')
+
+    def test_intent_phase_present_artifact_still_goes_to_assert(self):
+        """Intent phase is unaffected — present INTENT.md still routes to assert."""
+        spec = _make_phase_spec(artifact='INTENT.md')
+        ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, phase_spec=spec)
+        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertIn('artifact_path', result.data)
+
+
 if __name__ == '__main__':
     unittest.main()
