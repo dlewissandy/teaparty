@@ -852,5 +852,103 @@ class TestExtractLearningsIntegration(unittest.TestCase):
         self.assertEqual(mock_promote.call_count, 7, "Expected 7 _call_promote calls")
 
 
+# ── _run_summarize() direct-call behavior (issue #115 fixes) ─────────────────
+
+class TestRunSummarize(unittest.TestCase):
+    """Verify _run_summarize calls summarize() directly with correct args."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.scripts_dir = os.path.join(self.tmpdir, 'scripts')
+        self.infra_dir = os.path.join(self.tmpdir, 'infra')
+        os.makedirs(self.scripts_dir)
+        os.makedirs(self.infra_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_stream(self, name: str) -> str:
+        path = os.path.join(self.infra_dir, name)
+        Path(path).write_text('{"type":"test"}\n')
+        return path
+
+    def test_observations_uses_intent_stream(self):
+        """observations scope reads .intent-stream.jsonl, not exec stream."""
+        self._make_stream('.intent-stream.jsonl')
+        self._make_stream('.exec-stream.jsonl')
+
+        calls = []
+
+        def fake_summarize(stream_path, output_path, ctx, scope, **kw):
+            calls.append({'stream': stream_path, 'scope': scope})
+            return 0
+
+        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
+            import sys as _sys
+            _sys.modules['summarize_session'].summarize = fake_summarize
+            from projects.POC.orchestrator.learnings import _run_summarize
+            _run_summarize(self.scripts_dir, self.infra_dir,
+                           scope='observations', output='/tmp/out.md')
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('.intent-stream.jsonl', calls[0]['stream'])
+
+    def test_intent_alignment_uses_exec_stream(self):
+        """intent-alignment scope reads .exec-stream.jsonl."""
+        self._make_stream('.exec-stream.jsonl')
+
+        calls = []
+
+        def fake_summarize(stream_path, output_path, ctx, scope, **kw):
+            calls.append({'stream': stream_path, 'scope': scope})
+            return 0
+
+        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
+            sys.modules['summarize_session'].summarize = fake_summarize
+            from projects.POC.orchestrator.learnings import _run_summarize
+            _run_summarize(self.scripts_dir, self.infra_dir,
+                           scope='intent-alignment', output='/tmp/out.md')
+
+        self.assertEqual(len(calls), 1)
+        self.assertIn('.exec-stream.jsonl', calls[0]['stream'])
+
+    def test_skips_when_stream_missing(self):
+        """Returns silently when the required stream file doesn't exist."""
+        # No stream files created
+        calls = []
+
+        def fake_summarize(stream_path, output_path, ctx, scope, **kw):
+            calls.append(scope)
+            return 0
+
+        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
+            sys.modules['summarize_session'].summarize = fake_summarize
+            from projects.POC.orchestrator.learnings import _run_summarize
+            _run_summarize(self.scripts_dir, self.infra_dir,
+                           scope='observations', output='/tmp/out.md')
+
+        self.assertEqual(len(calls), 0)
+
+    def test_logs_errors_instead_of_swallowing(self):
+        """Errors are printed to stderr, not silently swallowed."""
+        self._make_stream('.intent-stream.jsonl')
+
+        def boom(*a, **kw):
+            raise RuntimeError('test explosion')
+
+        with patch.dict('sys.modules', {'summarize_session': type(sys)('summarize_session')}):
+            sys.modules['summarize_session'].summarize = boom
+            from projects.POC.orchestrator.learnings import _run_summarize
+
+            import io
+            captured = io.StringIO()
+            with patch('sys.stderr', captured):
+                _run_summarize(self.scripts_dir, self.infra_dir,
+                               scope='observations', output='/tmp/out.md')
+
+            self.assertIn('test explosion', captured.getvalue())
+
+
 if __name__ == '__main__':
     unittest.main()

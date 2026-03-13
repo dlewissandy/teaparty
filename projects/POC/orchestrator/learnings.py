@@ -22,7 +22,6 @@ memory stores. Implements all 10 scopes of the promote_learnings.sh pipeline:
 from __future__ import annotations
 
 import os
-import subprocess
 import sys
 
 
@@ -44,7 +43,6 @@ async def extract_learnings(
         scripts_dir, infra_dir,
         scope='observations',
         output=os.path.join(project_dir, 'proxy.md'),
-        task=task,
     )
 
     # Extract escalation → proxy-tasks/
@@ -52,7 +50,6 @@ async def extract_learnings(
         scripts_dir, infra_dir,
         scope='escalation',
         output=os.path.join(project_dir, 'proxy-tasks'),
-        task=task,
     )
 
     # Extract intent-alignment → tasks/
@@ -60,7 +57,6 @@ async def extract_learnings(
         scripts_dir, infra_dir,
         scope='intent-alignment',
         output=os.path.join(project_dir, 'tasks'),
-        task=task,
     )
 
     # ── Rollup scopes ─────────────────────────────────────────────────────────
@@ -102,40 +98,50 @@ async def extract_learnings(
 def _run_summarize(
     scripts_dir: str,
     infra_dir: str,
+    *,
     scope: str,
     output: str,
-    task: str,
 ) -> None:
-    """Run summarize_session.py for a specific scope."""
-    script = os.path.join(scripts_dir, 'summarize_session.py')
-    if not os.path.exists(script):
+    """Call summarize_session.summarize() directly for an intent-stream scope.
+
+    Previous implementation shelled out via subprocess with CLI args that
+    didn't match summarize_session.py's argparser (--task doesn't exist,
+    multiple --stream flags but CLI expects one). Errors were swallowed by
+    a bare ``except Exception: pass``.
+
+    Now calls the Python function directly, picking the right stream file
+    for the scope.
+    """
+    # Pick the correct stream for the scope
+    # observations and escalation use the intent stream;
+    # intent-alignment uses the exec stream
+    if scope in ('observations', 'escalation'):
+        stream_name = '.intent-stream.jsonl'
+    else:
+        stream_name = '.exec-stream.jsonl'
+
+    stream_path = os.path.join(infra_dir, stream_name)
+    if not os.path.exists(stream_path) or os.path.getsize(stream_path) == 0:
         return
 
-    # Find stream files
-    streams = []
-    for name in ('.intent-stream.jsonl', '.plan-stream.jsonl', '.exec-stream.jsonl'):
-        path = os.path.join(infra_dir, name)
-        if os.path.exists(path) and os.path.getsize(path) > 0:
-            streams.append(path)
-
-    if not streams:
-        return
-
-    args = [
-        'python3', script,
-        '--scope', scope,
-        '--output', output,
-        '--task', task,
-    ]
-    for s in streams:
-        args.extend(['--stream', s])
-
+    added_to_path = False
     try:
-        subprocess.run(
-            args, capture_output=True, text=True, timeout=60,
+        if scripts_dir and scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+            added_to_path = True
+        from summarize_session import summarize
+        summarize(stream_path, output, [], scope)
+    except Exception as exc:
+        print(
+            f'[learnings] {scope} extraction failed: {exc}',
+            file=sys.stderr,
         )
-    except Exception:
-        pass
+    finally:
+        if added_to_path:
+            try:
+                sys.path.remove(scripts_dir)
+            except ValueError:
+                pass
 
 
 # ── Rollup scope helpers ───────────────────────────────────────────────────────
@@ -149,9 +155,11 @@ def _call_promote(scripts_dir: str, scope: str, **kwargs) -> None:
             added_to_path = True
         from summarize_session import promote
         promote(scope, **kwargs)
-    except Exception:
-        # Swallow all exceptions to keep orchestration robust, as before.
-        pass
+    except Exception as exc:
+        print(
+            f'[learnings] promote {scope} failed: {exc}',
+            file=sys.stderr,
+        )
     finally:
         if added_to_path:
             try:
