@@ -1,0 +1,19 @@
+Add a single clarifying sentence to the file /Users/darrell/git/teaparty/projects/hierarchical-memory-paper/.worktrees/session-102925--we-previously-started-a-sessio/projects/POC/poc-workflow/living-intent.md, at the start of section 3 ("## The Intent Delta Check"), immediately after the section header and before the existing first paragraph.
+
+The sentence should clarify the relationship between "Intent anchors" and "Intent Delta Check" as distinct but related concepts:
+- Intent anchor = the structural milestone moment at which a check is performed
+- Intent Delta Check = the act performed at that moment
+
+Example wording (use as a starting point, not mandatory):
+"Intent anchors are the milestone moments at which this check is performed; the delta check is the act itself -- re-reading INTENT.md success criteria and asking whether the current trajectory still serves the original purpose."
+
+Requirements:
+1. The sentence identifies this practice as the act performed at intent anchors
+2. It briefly distinguishes the two terms: the anchor is the moment; the delta check is what happens at that moment
+3. It reads naturally as the opening of the section, not as a meta-comment
+4. It does NOT cite any editorial report or review process
+5. Add only ONE sentence -- no more
+6. Do NOT rename the section header
+7. Do NOT change any other part of the file
+
+Deliverable: The file edited in place with the single sentence added. Report back: (1) the exact sentence added, and (2) its precise insertion point in the file.
