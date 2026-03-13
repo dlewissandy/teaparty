@@ -13,14 +13,21 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+import logging
+
 from projects.POC.scripts.cfa_state import (
     CfaState,
+    InvalidTransition,
+    TRANSITIONS,
     is_globally_terminal,
+    is_phase_terminal,
     phase_for_state,
     save_state,
     transition,
     set_state_direct,
 )
+
+_log = logging.getLogger('orchestrator')
 from projects.POC.orchestrator.actors import (
     ActorContext,
     ActorResult,
@@ -81,6 +88,8 @@ class Orchestrator:
         session_id: str = '',
         skip_intent: bool = False,
         team_override: str = '',
+        phase_session_ids: dict[str, str] | None = None,
+        last_actor_data: dict[str, Any] | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -105,8 +114,13 @@ class Orchestrator:
             poc_root=poc_root,
         )
 
-        # Track resume session IDs per phase (for --resume on corrections)
-        self._phase_session_ids: dict[str, str] = {}
+        # Track resume session IDs per phase (for --resume on corrections).
+        # Pre-populated on session resume by parsing stream JSONL files.
+        self._phase_session_ids: dict[str, str] = phase_session_ids or {}
+
+        # Track data between actors (e.g., artifact path from agent → approval gate).
+        # Pre-populated on session resume from PhaseSpec + worktree.
+        self._last_actor_data: dict[str, Any] = last_actor_data or {}
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
@@ -116,6 +130,16 @@ class Orchestrator:
                 result = await self._run_phase('intent')
                 if result.terminal:
                     return self._make_result(result.terminal_state)
+                if result.infrastructure_failure:
+                    decision = await self._failure_dialog(result.failure_reason)
+                    if decision == 'withdraw':
+                        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                        save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+                        return self._make_result('WITHDRAWN')
+                    continue  # retry intent
+
+            # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
+            await self._auto_bridge()
 
             # Phase 2: Planning
             result = await self._run_phase('planning')
@@ -124,6 +148,19 @@ class Orchestrator:
             if result.backtrack_to == 'intent':
                 self.skip_intent = False
                 continue
+            if result.infrastructure_failure:
+                decision = await self._failure_dialog(result.failure_reason)
+                if decision == 'backtrack':
+                    self.skip_intent = False
+                    continue
+                if decision == 'withdraw':
+                    self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                    save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+                    return self._make_result('WITHDRAWN')
+                continue  # retry planning
+
+            # Bridge planning → execution (PLAN has one edge: delegate → TASK)
+            await self._auto_bridge()
 
             # Phase 3: Execution
             result = await self._run_phase('execution')
@@ -136,7 +173,6 @@ class Orchestrator:
                 self.skip_intent = True
                 continue
             if result.infrastructure_failure:
-                # Gap 30: CfA-aware failure dialog — offer retry / backtrack / withdraw
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'backtrack':
                     self.skip_intent = False
@@ -145,10 +181,23 @@ class Orchestrator:
                     self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
                     save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
                     return self._make_result('WITHDRAWN')
-                continue  # retry
+                continue  # retry execution
 
             # Should not reach here — but treat as completion
             return self._make_result(self.cfa.state)
+
+    async def _auto_bridge(self) -> None:
+        """Apply deterministic transition at a phase-terminal state to enter the next phase.
+
+        Phase-terminal states with exactly one outgoing edge (INTENT → DRAFT,
+        PLAN → TASK) are structural bridges, not agent decisions.  Apply them
+        automatically so _run_phase for the next phase starts inside its own
+        phase's state space.
+        """
+        edges = TRANSITIONS.get(self.cfa.state, [])
+        if len(edges) == 1:
+            action = edges[0][0]
+            await self._transition(action, ActorResult(action=action))
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
         """Build OrchestratorResult with escalation_type derived from CfA state."""
@@ -188,6 +237,16 @@ class Orchestrator:
                     session_id=self.session_id,
                 ))
                 return PhaseResult(terminal=True, terminal_state=self.cfa.state)
+
+            # Phase-terminal: this phase reached its terminal state
+            # (e.g., INTENT for intent phase, PLAN for planning phase).
+            if is_phase_terminal(self.cfa.state) and phase_for_state(self.cfa.state) == phase_name:
+                await self.event_bus.publish(Event(
+                    type=EventType.PHASE_COMPLETED,
+                    data={'phase': phase_name, 'state': self.cfa.state},
+                    session_id=self.session_id,
+                ))
+                return PhaseResult()
 
             # Check for phase exit (e.g., INTENT → planning, PLAN → execution)
             current_phase = phase_for_state(self.cfa.state)
@@ -258,10 +317,12 @@ class Orchestrator:
 
         try:
             self.cfa = transition(self.cfa, action)
-        except Exception:
-            # Fallback: direct set if transition validation fails
-            # (some orchestration paths bypass strict transitions)
-            pass
+        except InvalidTransition as exc:
+            _log.error(
+                'Invalid CfA transition: action=%r from state=%r: %s',
+                action, old_state, exc,
+            )
+            raise
 
         # Track data from the actor result for the next actor
         self._last_actor_data = actor_result.data
@@ -375,6 +436,3 @@ class Orchestrator:
         if self.session_worktree:
             dirs.append(self.session_worktree)
         return dirs
-
-    # Track data between actors (e.g., artifact path from agent → approval gate)
-    _last_actor_data: dict[str, Any] = {}

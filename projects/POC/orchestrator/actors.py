@@ -21,6 +21,7 @@ from projects.POC.orchestrator.claude_runner import ClaudeRunner, ClaudeResult
 from projects.POC.orchestrator.events import (
     Event, EventBus, EventType, InputRequest,
 )
+from projects.POC.scripts.cfa_state import TRANSITIONS
 
 if TYPE_CHECKING:
     from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
@@ -126,28 +127,54 @@ class AgentRunner:
 
     def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
         """Check for artifacts and escalation files to determine the action."""
+        data: dict = {'claude_session_id': result.session_id}
+
         # Check for escalation file
         if ctx.phase_spec.escalation_file:
             esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
             if os.path.exists(esc_path):
-                return ActorResult(action='escalate', data={
-                    'escalation_file': esc_path,
-                    'claude_session_id': result.session_id,
-                })
+                data['escalation_file'] = esc_path
+                action = self._resolve_action(ctx.state, 'escalate')
+                return ActorResult(action=action, data=data)
 
         # Check for expected artifact
         if ctx.phase_spec.artifact:
             artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
             if os.path.exists(artifact_path):
-                return ActorResult(action='assert', data={
-                    'artifact_path': artifact_path,
-                    'claude_session_id': result.session_id,
-                })
+                data['artifact_path'] = artifact_path
+                action = self._resolve_action(ctx.state, 'assert')
+                return ActorResult(action=action, data=data)
 
         # Agent produced output but no artifact or escalation — auto-approve
-        return ActorResult(action='auto-approve', data={
-            'claude_session_id': result.session_id,
-        })
+        action = self._resolve_action(ctx.state, 'auto-approve')
+        return ActorResult(action=action, data=data)
+
+    @staticmethod
+    def _resolve_action(state: str, tentative: str) -> str:
+        """Validate tentative action against CfA transitions; map to a valid action if needed.
+
+        When the agent returns a generic success signal (assert/auto-approve) but the
+        state expects a specific advancing action (accept, plan, synthesize, delegate),
+        pick the first non-negative valid action from the transition table.
+        """
+        edges = TRANSITIONS.get(state, [])
+        valid = {a for a, _, _ in edges}
+
+        if tentative in valid:
+            return tentative
+
+        # Map generic success signals to the first forward-advancing action
+        if tentative in ('assert', 'auto-approve'):
+            _NEGATIVE = frozenset({'withdraw', 'escalate', 'backtrack', 'failed', 'reject',
+                                   'refine-intent', 'revise-plan'})
+            for action, _, _ in edges:
+                if action not in _NEGATIVE:
+                    return action
+
+        # Fallback: first available action (shouldn't normally reach here)
+        if edges:
+            return edges[0][0]
+        return tentative
 
 
 # ── ApprovalGate ─────────────────────────────────────────────────────────────

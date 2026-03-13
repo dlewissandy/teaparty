@@ -11,11 +11,20 @@ APPROVAL_GATE_SUCCESSORS = {
 WITHDRAW_STATE = 'WITHDRAWN'
 
 
-def handle_orphan_response(session, response: str) -> str:
-    """Interpret user response for orphaned session. Returns message to show."""
+def handle_orphan_response(session, response: str) -> str | tuple[str, str]:
+    """Interpret user response for orphaned session.
+
+    Returns either:
+      - A string message to display, or
+      - A tuple ('resume', infra_dir) signalling the TUI should resume the session.
+    """
     r = response.strip().lower()
     state = session.cfa_state
     phase = session.cfa_phase or 'execution'
+
+    # Resume — available from any non-terminal orphaned state
+    if r in ('resume', 'r'):
+        return ('resume', session.infra_dir)
 
     if state in APPROVAL_GATE_SUCCESSORS:
         if r in ('approve', 'yes', 'y', 'ok'):
@@ -30,14 +39,14 @@ def handle_orphan_response(session, response: str) -> str:
             _set_state_direct(session.infra_dir, WITHDRAW_STATE, phase)
             _cleanup_orphan_files(session.infra_dir)
             return 'Session withdrawn and cleaned up.'
-        return "Type 'approve' to advance or 'abandon' to withdraw."
+        return "Type 'approve', 'resume', or 'abandon'."
 
-    # Mid-execution or transition states — abandon only
+    # Mid-execution or transition states — resume or abandon
     if r in ('abandon', 'withdraw'):
         _set_state_direct(session.infra_dir, WITHDRAW_STATE, phase)
         _cleanup_orphan_files(session.infra_dir)
         return 'Session withdrawn and cleaned up.'
-    return "Type 'abandon' to clean up this interrupted session."
+    return "Type 'resume' to continue or 'abandon' to clean up."
 
 
 def _set_state_direct(infra_dir: str, new_state: str, phase: str) -> None:

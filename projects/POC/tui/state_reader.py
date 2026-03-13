@@ -64,6 +64,21 @@ def _running_file_is_stale(path: str) -> bool:
         return False
 
 
+def _running_pid_is_dead(path: str) -> bool:
+    """Return True if the PID recorded in .running is no longer alive."""
+    try:
+        with open(path) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)  # signal 0 = existence check
+        return False  # process is alive
+    except ProcessLookupError:
+        return True   # process doesn't exist
+    except PermissionError:
+        return False  # process exists, we just can't signal it
+    except (ValueError, OSError):
+        return True   # can't read or parse PID file
+
+
 # States where the human needs to act
 HUMAN_ACTOR_STATES = frozenset([
     'INTENT_ASSERT', 'INTENT_ESCALATE', 'INTENT_QUESTION',
@@ -130,7 +145,8 @@ class ProjectState:
 class StateReader:
     """Reads all project state files and produces unified project/session list."""
 
-    def __init__(self, poc_root: str, projects_dir: str | None = None):
+    def __init__(self, poc_root: str, projects_dir: str | None = None,
+                 in_process_checker=None):
         self.poc_root = poc_root
         # projects_dir: configurable; defaults to dirname(poc_root)
         self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(poc_root)
@@ -138,6 +154,11 @@ class StateReader:
         repo_root = os.path.dirname(os.path.dirname(poc_root))
         self.manifest_path = os.path.join(repo_root, 'worktrees.json')
         self._projects: list[ProjectState] = []
+        # Optional callback: (session_id) -> bool.  Returns True if the session
+        # is actively running as an in-process async task.  Used by orphan
+        # detection to distinguish "TUI alive + orchestrator alive" from
+        # "TUI alive + orchestrator coroutine crashed".
+        self._in_process_checker = in_process_checker
 
     @property
     def projects(self) -> list[ProjectState]:
@@ -294,16 +315,38 @@ class StateReader:
         if os.path.exists(os.path.join(infra_dir, '.input-request.json')):
             needs_input = True
 
-        # Orphan detection: .running file predates boot, or FIFO has no reader
+        # Orphan detection: no live process is driving this non-terminal session.
         running_path = os.path.join(infra_dir, '.running')
         is_orphaned = False
-        if os.path.exists(running_path) and cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
-            is_orphaned = _running_file_is_stale(running_path)
-            if not is_orphaned:
-                fifo_path = os.path.join(infra_dir, '.input-response.fifo')
-                if cfa_state in HUMAN_ACTOR_STATES and os.path.exists(fifo_path):
-                    from projects.POC.tui.ipc import check_fifo_has_reader
-                    is_orphaned = not check_fifo_has_reader(infra_dir)
+        if cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
+            if os.path.exists(running_path):
+                # .running exists: check timestamp vs boot, then PID liveness
+                is_orphaned = _running_file_is_stale(running_path)
+                if not is_orphaned:
+                    is_orphaned = _running_pid_is_dead(running_path)
+                if not is_orphaned:
+                    # PID is alive.  If it matches *our own PID* (in-process
+                    # session running inside this TUI), verify the async task
+                    # is still alive via the in_process_checker.
+                    if self._in_process_checker is not None:
+                        try:
+                            with open(running_path) as _f:
+                                running_pid = int(_f.read().strip())
+                        except (ValueError, OSError):
+                            running_pid = -1
+                        if running_pid == os.getpid():
+                            # Same process — check if coroutine is actually running
+                            if not self._in_process_checker(session_id):
+                                is_orphaned = True
+                if not is_orphaned:
+                    fifo_path = os.path.join(infra_dir, '.input-response.fifo')
+                    if cfa_state in HUMAN_ACTOR_STATES and os.path.exists(fifo_path):
+                        from projects.POC.tui.ipc import check_fifo_has_reader
+                        is_orphaned = not check_fifo_has_reader(infra_dir)
+            else:
+                # No .running but CfA is non-terminal: stalled session
+                # (process died without cleanup, or sentinel was removed)
+                is_orphaned = True
 
         # Stream age
         stream_age = self._stream_age(infra_dir, now)

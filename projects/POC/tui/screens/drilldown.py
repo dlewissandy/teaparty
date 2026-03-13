@@ -318,10 +318,10 @@ class DrilldownScreen(Screen):
                 state = self._session.cfa_state
                 if state in ('WORK_ASSERT', 'PLAN_ASSERT', 'INTENT_ASSERT'):
                     prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
-                                        f"type 'approve' or 'abandon'")
+                                        f"type 'approve', 'resume', or 'abandon'")
                 else:
                     prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
-                                        f"type 'abandon' to clean up")
+                                        f"type 'resume' or 'abandon'")
                 if not was_visible:
                     self.query_one('#input-field', Input).focus()
             return
@@ -365,7 +365,27 @@ class DrilldownScreen(Screen):
         if self._session and self._session.infra_dir:
             if self._session.is_orphaned:
                 from projects.POC.tui.orphan_recovery import handle_orphan_response
-                msg = handle_orphan_response(self._session, response)
+                result = handle_orphan_response(self._session, response)
+
+                # Resume signal — launch the session in-process
+                if isinstance(result, tuple) and result[0] == 'resume':
+                    self._launch_resume(result[1])
+                    log = self.query_one('#activity-log', RichLog)
+                    from rich.text import Text
+                    t = Text()
+                    t.append('[recovery] ', style='bold green')
+                    t.append('Resuming session...')
+                    log.write(t)
+                    if not self._scroll_locked:
+                        log.scroll_end(animate=False)
+                    self._input_latched = False
+                    self._input_cooldown = True
+                    event.input.clear()
+                    self.query_one('#input-area').remove_class('visible')
+                    self.query_one('#activity-log', RichLog).focus()
+                    return
+
+                msg = result
                 log = self.query_one('#activity-log', RichLog)
                 from rich.text import Text
                 t = Text()
@@ -405,6 +425,74 @@ class DrilldownScreen(Screen):
         stream_files = self.app.state_reader.active_stream_files(self.session_id)
         for f in stream_files:
             self.watcher.watch(f)
+
+    def _launch_resume(self, infra_dir: str) -> None:
+        """Resume an orphaned session in-process, mirroring launch.py's pattern."""
+        import asyncio
+        import logging
+        from projects.POC.orchestrator.events import EventBus, Event, EventType
+        from projects.POC.orchestrator.tui_bridge import TUIInputProvider, InProcessSession
+        from projects.POC.orchestrator.session import Session
+
+        _rlog = logging.getLogger('orchestrator.resume')
+
+        # Dedup: don't start a second resume if one is already running
+        if self._in_proc and self._in_proc.run_task and not self._in_proc.run_task.done():
+            log = self.query_one('#activity-log', RichLog)
+            from rich.text import Text
+            t = Text()
+            t.append('[recovery] ', style='bold yellow')
+            t.append('Session is already running. Wait for it to finish.')
+            log.write(t)
+            return
+
+        bus = EventBus()
+        provider = TUIInputProvider()
+
+        in_proc = InProcessSession(
+            session_id=self.session_id,
+            project=self._session.project if self._session else '',
+            task=self._session.task if self._session else '',
+            event_bus=bus,
+            input_provider=provider,
+        )
+
+        # Register immediately since we already know the session_id
+        self.app.register_in_process(self.session_id, in_proc)
+        self._in_proc = in_proc
+
+        async def run_resumed() -> None:
+            try:
+                await Session.resume_from_disk(
+                    infra_dir,
+                    poc_root=self.app.poc_root,
+                    projects_dir=self.app.projects_dir,
+                    event_bus=bus,
+                    input_provider=provider,
+                )
+            except Exception as exc:
+                _rlog.exception('Resume failed for %s', infra_dir)
+                # Clean up .running on crash
+                try:
+                    os.unlink(os.path.join(infra_dir, '.running'))
+                except (FileNotFoundError, OSError):
+                    pass
+                # Surface error to activity log
+                try:
+                    log = self.query_one('#activity-log', RichLog)
+                    from rich.text import Text
+                    t = Text()
+                    t.append('[recovery] ', style='bold red')
+                    t.append(f'Resume failed: {type(exc).__name__}: {exc}')
+                    log.write(t)
+                except Exception:
+                    pass  # Screen may have been unmounted
+            finally:
+                # Mark _in_proc as finished so dedup check works on next attempt.
+                # The app's get_in_process() auto-cleans done tasks from the registry.
+                pass
+
+        in_proc.run_task = asyncio.create_task(run_resumed())
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

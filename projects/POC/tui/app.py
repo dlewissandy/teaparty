@@ -37,14 +37,22 @@ class TeaPartyTUI(App):
         self.poc_root = _find_poc_root()
         # projects_dir: configurable parent of project folders; defaults to dirname(poc_root)
         self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(self.poc_root)
-        self.state_reader = StateReader(self.poc_root, projects_dir=self.projects_dir)
         self._in_process: dict[str, InProcessSession] = {}
+        self.state_reader = StateReader(
+            self.poc_root,
+            projects_dir=self.projects_dir,
+            in_process_checker=self.has_in_process,
+        )
 
     def set_projects_dir(self, new_dir: str) -> None:
         """Change the active projects directory mid-session."""
         resolved = os.path.realpath(os.path.abspath(new_dir))
         self.projects_dir = resolved
-        self.state_reader = StateReader(self.poc_root, projects_dir=resolved)
+        self.state_reader = StateReader(
+            self.poc_root,
+            projects_dir=resolved,
+            in_process_checker=self.has_in_process,
+        )
 
     def on_mount(self) -> None:
         from projects.POC.tui.screens.dashboard import DashboardScreen
