@@ -48,11 +48,11 @@ class TestStateActions(unittest.TestCase):
         self.assertIn("revise-plan", actions)
         self.assertIn("refine-intent", actions)
 
-    def test_escalate_states_have_dialog_clarify_complete_withdraw(self):
+    def test_escalate_states_have_dialog_clarify_withdraw(self):
         for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:
             self.assertEqual(
                 mod.STATE_ACTIONS[state],
-                ["dialog", "clarify", "complete", "withdraw"])
+                ["dialog", "clarify", "withdraw"])
 
 
 class TestParseOutput(unittest.TestCase):
@@ -361,100 +361,6 @@ class TestDialogAction(unittest.TestCase):
         block = mod.build_dialog_history_block("HUMAN: hi\nAGENT: hello")
         self.assertIn("DIALOG HISTORY", block)
         self.assertIn("HUMAN: hi", block)
-
-
-class TestEscalateCompleteAction(unittest.TestCase):
-    """complete action is present in escalate states and classified correctly."""
-
-    def _mock_llm(self, stdout, returncode=0):
-        mock = MagicMock()
-        mock.returncode = returncode
-        mock.stdout = stdout
-        return mock
-
-    # ── STATE_ACTIONS ──────────────────────────────────────────────────────────
-
-    def test_complete_in_task_escalate_actions(self):
-        self.assertIn("complete", mod.STATE_ACTIONS["TASK_ESCALATE"])
-
-    def test_complete_in_intent_escalate_actions(self):
-        self.assertIn("complete", mod.STATE_ACTIONS["INTENT_ESCALATE"])
-
-    def test_complete_in_planning_escalate_actions(self):
-        self.assertIn("complete", mod.STATE_ACTIONS["PLANNING_ESCALATE"])
-
-    def test_escalate_states_now_have_four_actions(self):
-        for state in ("INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"):
-            with self.subTest(state=state):
-                actions = mod.STATE_ACTIONS[state]
-                self.assertIn("dialog", actions)
-                self.assertIn("clarify", actions)
-                self.assertIn("complete", actions)
-                self.assertIn("withdraw", actions)
-
-    # ── parse_output ───────────────────────────────────────────────────────────
-
-    def test_parse_complete_valid_at_task_escalate(self):
-        valid = set(mod.STATE_ACTIONS["TASK_ESCALATE"])
-        action, feedback = mod.parse_output("complete\t", valid)
-        self.assertEqual(action, "complete")
-        self.assertEqual(feedback, "")
-
-    def test_parse_complete_valid_at_intent_escalate(self):
-        valid = set(mod.STATE_ACTIONS["INTENT_ESCALATE"])
-        action, feedback = mod.parse_output("complete\t", valid)
-        self.assertEqual(action, "complete")
-
-    def test_parse_complete_invalid_at_assert_states(self):
-        """complete is not a valid action at ASSERT states — should fallback."""
-        for state in ("INTENT_ASSERT", "PLAN_ASSERT", "WORK_ASSERT"):
-            with self.subTest(state=state):
-                valid = set(mod.STATE_ACTIONS[state])
-                action, _ = mod.parse_output("complete\t", valid)
-                self.assertEqual(action, "__fallback__")
-
-    # ── classify ───────────────────────────────────────────────────────────────
-
-    def test_classify_complete_at_task_escalate(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("complete\t")):
-            result = mod.classify("TASK_ESCALATE", "the work is complete")
-        self.assertEqual(result, "complete\t")
-
-    def test_classify_complete_at_intent_escalate(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("complete\t")):
-            result = mod.classify("INTENT_ESCALATE", "done, let's move on")
-        self.assertEqual(result, "complete\t")
-
-    def test_classify_complete_at_planning_escalate(self):
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("complete\t")):
-            result = mod.classify("PLANNING_ESCALATE", "looks good, proceed")
-        self.assertEqual(result, "complete\t")
-
-    def test_classify_clarify_still_works_at_task_escalate(self):
-        """Existing clarify path must not be broken."""
-        with patch('subprocess.run',
-                   return_value=self._mock_llm("clarify\tUse PostgreSQL")):
-            result = mod.classify("TASK_ESCALATE", "Use PostgreSQL")
-        self.assertTrue(result.startswith("clarify\t"))
-
-    # ── build_prompt ───────────────────────────────────────────────────────────
-
-    def test_escalate_prompt_mentions_complete(self):
-        prompt = mod.build_prompt("TASK_ESCALATE", "the work is complete")
-        self.assertIn("complete", prompt.lower())
-
-    def test_escalate_prompt_has_complete_signals(self):
-        prompt = mod.build_prompt("TASK_ESCALATE", "done")
-        self.assertIn("work is complete", prompt.lower())
-
-    def test_escalate_prompt_distinguishes_complete_from_clarify(self):
-        """The prompt should explain the COMPLETE vs CLARIFY distinction."""
-        prompt = mod.build_prompt("TASK_ESCALATE", "done")
-        self.assertIn("CLARIFY", prompt.upper())
-        self.assertIn("COMPLETE", prompt.upper())
 
 
 class TestFailureStateDefinition(unittest.TestCase):

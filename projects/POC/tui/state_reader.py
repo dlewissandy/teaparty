@@ -260,11 +260,16 @@ class StateReader:
         dispatch timestamps back to worktrees.json entries.
         """
         matched = []
-        teams = ('art', 'writing', 'editorial', 'research', 'coding')
 
-        for team in teams:
+        # Discover team directories dynamically instead of hardcoding names.
+        try:
+            candidates = sorted(os.listdir(sess_dir))
+        except OSError:
+            return matched
+
+        for team in candidates:
             team_dir = os.path.join(sess_dir, team)
-            if not os.path.isdir(team_dir):
+            if not os.path.isdir(team_dir) or team.startswith('.') or team[0].isdigit():
                 continue
             try:
                 for dispatch_ts in sorted(os.listdir(team_dir)):

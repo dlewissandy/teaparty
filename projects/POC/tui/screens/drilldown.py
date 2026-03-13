@@ -74,7 +74,7 @@ class DrilldownScreen(Screen):
                 Static('', id='tasks-panel'),
                 Static('DISPATCHES', classes='section-title'),
                 OptionList(id='dispatch-list'),
-                id='right-pane',
+                id='drilldown-sidebar',
             ),
         )
         yield Horizontal(
