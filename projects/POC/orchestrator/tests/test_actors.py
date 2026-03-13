@@ -472,6 +472,108 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
         self.assertIn('artifact_path', result.data)
 
 
+# ── Artifact path resolution: session_worktree for both phases ────────────────
+
+class TestArtifactPathResolution(unittest.TestCase):
+    """Both intent and planning phases must look for artifacts in session_worktree.
+
+    This guards against CWD confusion: the agent's cwd IS session_worktree, so
+    writing PLAN.md / INTENT.md in cwd is the same as session_worktree/PLAN.md.
+    _interpret_output must resolve the same way.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.runner = AgentRunner()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_intent_spec(self) -> PhaseSpec:
+        return _make_phase_spec(artifact='INTENT.md')
+
+    def _make_planning_spec(self) -> PhaseSpec:
+        return PhaseSpec(
+            name='planning',
+            agent_file='agents/uber-team.json',
+            lead='project-lead',
+            permission_mode='plan',
+            stream_file='.plan-stream.jsonl',
+            artifact='PLAN.md',
+            approval_state='PLAN_ASSERT',
+            escalation_state='PLANNING_ESCALATE',
+            escalation_file='.plan-escalation.md',
+            settings_overlay={},
+        )
+
+    def test_intent_artifact_resolved_from_session_worktree(self):
+        """INTENT.md written to session_worktree is found by _interpret_output."""
+        spec = self._make_intent_spec()
+        ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, phase_spec=spec)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent\nObjective: test')
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertEqual(result.data['artifact_path'], artifact_path)
+
+    def test_plan_artifact_resolved_from_session_worktree(self):
+        """PLAN.md written to session_worktree is found by _interpret_output."""
+        spec = self._make_planning_spec()
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
+        Path(artifact_path).write_text('# Plan\n1. Research\n2. Write')
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertEqual(result.data['artifact_path'], artifact_path)
+
+    def test_plan_and_intent_resolve_to_same_directory(self):
+        """Intent and planning phases use the same session_worktree as artifact root."""
+        intent_spec = self._make_intent_spec()
+        plan_spec = self._make_planning_spec()
+
+        intent_ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, phase_spec=intent_spec)
+        plan_ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=plan_spec)
+
+        # Write both artifacts
+        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
+        Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Plan')
+
+        intent_result = self.runner._interpret_output(intent_ctx, _make_claude_result())
+        plan_result = self.runner._interpret_output(plan_ctx, _make_claude_result())
+
+        # Both must resolve to files within the same session_worktree
+        intent_dir = os.path.dirname(intent_result.data['artifact_path'])
+        plan_dir = os.path.dirname(plan_result.data['artifact_path'])
+        self.assertEqual(intent_dir, plan_dir,
+                         "INTENT.md and PLAN.md must resolve to the same directory")
+        self.assertEqual(intent_dir, self.tmpdir)
+
+    def test_plan_in_wrong_directory_is_not_found(self):
+        """PLAN.md in a different directory (not session_worktree) is not found."""
+        spec = self._make_planning_spec()
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+
+        # Write PLAN.md in a sibling directory (simulates wrong CWD)
+        other_dir = tempfile.mkdtemp()
+        try:
+            Path(os.path.join(other_dir, 'PLAN.md')).write_text('# Plan in wrong dir')
+            # session_worktree does NOT have PLAN.md
+
+            result = self.runner._interpret_output(ctx, _make_claude_result())
+
+            # Should be missing, not found
+            self.assertTrue(result.data.get('artifact_missing'),
+                            "PLAN.md in wrong directory must not be detected")
+        finally:
+            import shutil
+            shutil.rmtree(other_dir, ignore_errors=True)
+
+
 # ── Import source: approval_gate.py, not human_proxy.py ──────────────────────
 
 class TestApprovalGateImports(unittest.TestCase):
