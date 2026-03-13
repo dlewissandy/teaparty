@@ -28,6 +28,7 @@ teaparty.db-wal
 
 # Generated Documents
 output/
+site/
 
 # POC runtime projects (each has own .git; POC itself is tracked)
 projects/*

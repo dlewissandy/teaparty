@@ -1,0 +1,30 @@
+site_name: TeaParty
+site_description: "Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents"
+repo_url: https://github.com/dlewissandy/teaparty
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+nav:
+  - Home: index.md
+  - Pillars:
+    - Intent Engineering (CfA): intent-engineering.md
+    - Learning System: learning-system.md
+    - Hierarchical Teams: hierarchical-teams.md
+    - Engagements & Partnerships: engagements-and-partnerships.md
+  - Research:
+    - Cognitive Architecture: cognitive-architecture.md
+    - Research Index: research/INDEX.md
+  - Architecture:
+    - POC Architecture: poc-architecture.md
+    - Agent Dispatch: agent-dispatch.md
+    - Workflows: workflows.md

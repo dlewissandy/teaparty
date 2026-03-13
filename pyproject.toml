@@ -28,5 +28,6 @@ packages = ["teaparty_app"]
 
 [tool.uv]
 dev-dependencies = [
+    "mkdocs-material>=9.7.5",
     "pytest>=9.0.2",
 ]
