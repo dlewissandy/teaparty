@@ -26,6 +26,7 @@ See [learning-system.md](../learning-system.md) for the conceptual design of Tea
 `#human-ai` `#trust` `#teaparty-direct`
 `#context-injection` `#retrieval` `#claude-code` `#openclaw`
 `#tui` `#ui-events` `#textual` `#widget`
+`#state-machine` `#async` `#orchestration` `#workflow`
 
 ---
 
@@ -165,6 +166,21 @@ See [learning-system.md](../learning-system.md) for the conceptual design of Tea
 | Textual SelectionList.SelectionHighlighted Event | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` `#widget` | Designed for multi-select checkbox lists; wrong widget for single-selection panel-update patterns. | `textual-tui-selection-widgets.md` §4 |
 | Textual prevent() Context Manager | Textualize docs, 2024-2025 | `#tui` `#ui-events` `#textual` | Universal gate for suppressing spurious events during programmatic widget rebuilds; canonical solution for clear/repopulate refresh patterns. | `textual-tui-selection-widgets.md` §5 |
 | OptionList as DataTable Replacement for Project List | Synthesized, 2025 | `#tui` `#widget` `#teaparty-direct` | OptionList + set_options() + prevent(OptionHighlighted) eliminates the DataTable CursorMoved async race condition in dashboard.py; Option(id=slug) removes parallel index list. | `textual-tui-selection-widgets.md` §6 |
+
+---
+
+## Python State Machine and Workflow Libraries
+
+| Library | Year surveyed | Tags | One-line Summary | Source |
+|---------|--------------|------|-----------------|--------|
+| python-statemachine (fgmacedo) v3.0.0 | 2026 | `#state-machine` `#async` `#orchestration` `#teaparty-direct` | **Recommended.** Native asyncio auto-detection, fluent declarative DSL, full statecharts (compound/parallel/history states), guards, enter/exit actions. MIT, actively maintained. | `python-state-machine-libraries.md` |
+| transitions (pytransitions) v0.9.x | 2026 | `#state-machine` `#async` `#orchestration` | Battle-tested (6,500 stars), native AsyncMachine + HierarchicalAsyncMachine, dict-based API, MIT. Solid second choice; more ceremony than python-statemachine. | `python-state-machine-libraries.md` |
+| sismic v1.6.11 | 2026 | `#state-machine` `#workflow` | Academic SCXML statechart interpreter; thread-based async incompatible with asyncio; YAML-file DSL; LGPL. Reject for asyncio-first code. | `python-state-machine-libraries.md` |
+| temporalio (Temporal Python SDK) | 2026 | `#workflow` `#orchestration` | Durable async workflow execution with first-class asyncio; requires Temporal server cluster; determinism constraints; correct for distributed multi-service orchestration, overkill for in-process. | `python-state-machine-libraries.md` |
+| dramatiq v2.1.0 | 2026 | `#workflow` | Distributed task queue (Redis/RabbitMQ), not a state machine. Wrong tool for in-process state management. | `python-state-machine-libraries.md` |
+| prefect | 2026 | `#workflow` `#orchestration` | Data pipeline orchestration framework; requires Prefect server; designed for DAG-style batch jobs, not agent session lifecycle. | `python-state-machine-libraries.md` |
+| automat (glyph) | 2026 | `#state-machine` | Twisted-era, callback-model async; no hierarchical states; MIT. Reject for asyncio projects. | `python-state-machine-libraries.md` |
+| xstate-python (Stately) | 2026 | `#state-machine` | Official Python port of XState; explicitly "work in progress" as of 2026; not production-ready. | `python-state-machine-libraries.md` |
 
 ---
 
