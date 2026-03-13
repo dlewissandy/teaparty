@@ -740,13 +740,9 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
 
         mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
 
-        with patch.object(runner, '_interpret_output') as mock_interp, \
-             patch('projects.POC.orchestrator.actors._relocate_plan_file') as mock_relocate:
-            mock_interp.return_value = ActorResult(action='assert')
-            # Simulate: runner.run() calls _relocate_plan_file because PLAN.md missing
-            # We need to test the code between runner.run() and _interpret_output
-            # Test it via _interpret_output being called with the right context
-            pass
+        # Note: earlier versions of this test used additional patch blocks that did
+        # not assert any behavior. Those have been removed to keep the test focused
+        # on observable effects.
 
         # More direct test: verify the code path in run()
         # The artifact check + relocation happens between exit_code check and _interpret_output
@@ -762,31 +758,24 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             # Before _interpret_output, run() would have called _relocate_plan_file
             # But we're testing _interpret_output directly. Let's verify via the full path.
 
-        # Actually test the full integration: artifact missing → relocation writes it → interpret finds it
-        with patch('projects.POC.orchestrator.actors._relocate_plan_file') as mock_relocate:
-            def write_plan_to_worktree(target, start_time):
-                Path(target).write_text('# Relocated Plan')
-                return True
-            mock_relocate.side_effect = write_plan_to_worktree
+        # Actually test the integration we care about: when the artifact is present
+        # in the session worktree, _interpret_output should treat it as found and
+        # not mark it as missing.
+        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
+        self.assertFalse(os.path.exists(artifact_path))
 
-            # Simulate what run() does after exit_code check:
-            artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-            self.assertFalse(os.path.exists(artifact_path))
+        # Use the real relocation helper (or, if its behavior changes, this call
+        # still represents the same observable contract for the test).
+        _relocate_plan_file(artifact_path, mock_result.start_time)
 
-            # This is the code from run():
-            if spec.artifact:
-                ap = os.path.join(ctx.session_worktree, spec.artifact)
-                if not os.path.exists(ap):
-                    _relocate_plan_file(ap, mock_result.start_time)
+        # Now artifact should exist
+        self.assertTrue(os.path.exists(artifact_path))
 
-            # Now artifact should exist
-            self.assertTrue(os.path.exists(artifact_path))
-
-            # And _interpret_output should find it
-            result = runner._interpret_output(ctx, mock_result)
-            self.assertEqual(result.action, 'assert')
-            self.assertEqual(result.data.get('artifact_path'), artifact_path)
-            self.assertNotIn('artifact_missing', result.data)
+        # And _interpret_output should find it
+        result = runner._interpret_output(ctx, mock_result)
+        self.assertEqual(result.action, 'assert')
+        self.assertEqual(result.data.get('artifact_path'), artifact_path)
+        self.assertNotIn('artifact_missing', result.data)
 
     def test_no_relocation_when_artifact_already_exists(self):
         """If PLAN.md already exists in session_worktree, don't relocate."""
