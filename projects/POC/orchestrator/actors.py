@@ -245,15 +245,12 @@ class ApprovalGate:
                         bridge_text = _f.read().strip()
                 except OSError:
                     bridge_text = f'Agent requested clarification at state: {ctx.state}'
-                proxy_decision = 'escalate'
             else:
                 bridge_text = f'Agent requested clarification at state: {ctx.state}'
-                proxy_decision = 'escalate'
         elif artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that
             # would advance the session with no work product to review.
-            proxy_decision = 'escalate'
             bridge_text = self._generate_bridge(
                 artifact_path, ctx.state, ctx.task, artifact_missing=True,
             )
