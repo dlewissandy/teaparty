@@ -228,7 +228,7 @@ class ApprovalGate:
         team = ctx.env_vars.get('POC_TEAM', '')
 
         # For escalation states: try generative response first, then human.
-        if ctx.state in _ESCALATION_STATES:
+        if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
             # Try proxy auto-response from learned patterns
             gen = self._try_generate_response(project_slug, ctx.state, team)
             if gen is not None:
