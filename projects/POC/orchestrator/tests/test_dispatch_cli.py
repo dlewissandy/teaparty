@@ -22,7 +22,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from projects.POC.orchestrator.dispatch_cli import dispatch
 from projects.POC.scripts.cfa_state import (
-    make_child_state,
     make_initial_state,
     load_state,
     save_state,
