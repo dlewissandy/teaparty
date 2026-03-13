@@ -968,6 +968,9 @@ def promote(
                         exec_stream = candidate
                         break
 
+            if not exec_stream:
+                exec_stream = os.devnull
+
             ctx = _context_args(dispatch_mems)
             tasks_dir = os.path.join(session_dir, team_name, 'tasks')
             os.makedirs(tasks_dir, exist_ok=True)
