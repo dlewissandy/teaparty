@@ -137,7 +137,7 @@ class AgentRunner:
         # Relocate plan files from ~/.claude/plans/ if needed.
         # Claude stores plans internally when running with --permission-mode plan;
         # the shell version's relocate_new_plans() detected and moved them.
-        if ctx.phase_spec.artifact:
+        if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
             artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
             if not os.path.exists(artifact_path) and artifact_path.endswith('.plan'):
                 _relocate_plan_file(artifact_path, result.start_time)
