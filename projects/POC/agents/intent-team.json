@@ -8,7 +8,7 @@
   },
   "research-liaison": {
     "description": "Relays research tasks to the Research team. Communicates with intent-lead via SendMessage.",
-    "prompt": "You are the research liaison for intent gathering. When the intent-lead sends you a research request via SendMessage, dispatch it to the research subteam.\n\nTo dispatch research, run:\n  __POC_DIR__/dispatch.sh --team research --task \"<specific research question>\"\n\nReturn findings to the intent-lead via SendMessage. Keep findings concise: 3-5 key facts relevant to the intent, with constraints the intent-lead needs to know.",
+    "prompt": "You are the research liaison for intent gathering. When the intent-lead sends you a research request via SendMessage, dispatch it to the research subteam.\n\nTo dispatch research, run:\n  python3 -m projects.POC.orchestrator.dispatch_cli --team research --task \"<specific research question>\"\n\nReturn findings to the intent-lead via SendMessage. Keep findings concise: 3-5 key facts relevant to the intent, with constraints the intent-lead needs to know.",
     "model": "haiku",
     "maxTurns": 10,
     "disallowedTools": ["TeamCreate", "TeamDelete", "Task", "TaskOutput", "TaskStop"]

@@ -455,7 +455,7 @@ class Orchestrator:
             'POC_SESSION_DIR': self.infra_dir,
             'POC_SESSION_WORKTREE': self.session_worktree,
             'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
-            # Gap 3: SCRIPT_DIR and PROJECTS_DIR needed by subprocesses that call dispatch.sh
+            # Gap 3: SCRIPT_DIR and PROJECTS_DIR needed by subprocesses (e.g. dispatch_cli.py)
             'SCRIPT_DIR': self.poc_root,
             'PROJECTS_DIR': os.path.dirname(self.project_workdir),
         }

@@ -1,4 +1,4 @@
-"""CLI dispatch entry point — replaces dispatch.sh for liaison agents.
+"""CLI dispatch entry point for liaison agents.
 
 Usage (from within a Claude agent session):
     python3 -m projects.POC.orchestrator.dispatch_cli --team art --task "..."

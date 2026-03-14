@@ -628,9 +628,9 @@ class DispatchRunner:
     """In-process dispatch path — creates a child orchestrator for subteam delegation.
 
     NOTE (Gap 58): This class is NOT currently wired to the engine's _invoke_actor routing.
-    The live dispatch path today is subprocess-based: agents invoke dispatch.sh, which calls
-    dispatch_cli.py as a subprocess. DispatchRunner is the intended future in-process path
-    when the engine manages dispatch routing directly without a shell intermediary.
+    The live dispatch path today is: liaisons invoke dispatch_cli.py (via Bash) as a
+    subprocess. DispatchRunner is the intended future in-process path when the engine
+    manages dispatch routing directly without a subprocess intermediary.
 
     Do not delete — it already uses make_child_state correctly and implements the full
     dispatch lifecycle. Wire into _invoke_actor when in-process dispatch is ready.

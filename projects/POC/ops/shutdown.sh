@@ -90,10 +90,10 @@ while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
 done < <(pgrep -f 'claude.*-p.*--agents' 2>/dev/null || true)
 
-# dispatch.sh processes
+# dispatch_cli.py processes
 while IFS= read -r pid; do
   [[ -n "$pid" ]] && PIDS+=("$pid")
-done < <(pgrep -f 'dispatch\.sh|relay\.sh' 2>/dev/null || true)
+done < <(pgrep -f 'dispatch_cli|dispatch\.sh|relay\.sh' 2>/dev/null || true)
 
 # extract_result.py orphans
 while IFS= read -r pid; do

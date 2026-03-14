@@ -133,7 +133,7 @@ class ClaudeRunner:
             try:
                 with open(self.agents_file) as f:
                     agents_json = f.read()
-                # Gaps 12/67: apply placeholder substitution (mirrors run.sh / dispatch.sh sed)
+                # Gaps 12/67: apply placeholder substitution (mirrors run.sh sed)
                 poc_root = self.env_vars.get('SCRIPT_DIR', '')
                 session_dir = self.env_vars.get('POC_SESSION_DIR', '')
                 if poc_root:

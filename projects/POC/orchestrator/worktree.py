@@ -1,6 +1,6 @@
 """Git worktree management for sessions and dispatches.
 
-Replaces the worktree creation/cleanup logic in run.sh and dispatch.sh.
+Replaces the worktree creation/cleanup logic from the shell orchestrator.
 """
 from __future__ import annotations
 
