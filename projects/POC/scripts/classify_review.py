@@ -13,25 +13,50 @@ Usage:
 Returns ACTION<TAB>FEEDBACK_TEXT on stdout.
 """
 import argparse
+import json
+import os
 import subprocess
 import sys
 
 MAX_SUMMARY_CHARS = 500
 
-# ── Valid actions per CfA state ──
+# ── Valid actions per CfA state (derived from cfa-state-machine.json) ──
 
-STATE_ACTIONS = {
-    # ASSERT states — human reviews an artifact
-    "INTENT_ASSERT": ["dialog", "approve", "correct", "withdraw"],
-    "PLAN_ASSERT": ["dialog", "approve", "correct", "refine-intent", "withdraw"],
-    "WORK_ASSERT": ["dialog", "approve", "correct", "revise-plan", "refine-intent", "withdraw"],
-    # ESCALATE states — human answers a question or accepts the work as done
-    "INTENT_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
-    "PLANNING_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
-    "TASK_ESCALATE": ["dialog", "clarify", "approve", "withdraw"],
-    # FAILURE state — infrastructure failure, human decides next step
-    "FAILURE": ["retry", "escalate", "backtrack", "withdraw"],
-}
+# States where "dialog" is a valid gate-internal action (not a state machine edge).
+_DIALOG_STATE_SUFFIXES = ('_ASSERT', '_ESCALATE')
+
+
+def _derive_state_actions() -> dict[str, list[str]]:
+    """Derive valid classifier actions per state from the CfA state machine.
+
+    For ASSERT and ESCALATE states, prepends "dialog" (a gate-internal action
+    that keeps the review loop open for questions).  The FAILURE state gets
+    its actions directly from the state machine with no dialog.
+    """
+    machine_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'cfa-state-machine.json',
+    )
+    with open(machine_path) as f:
+        machine = json.load(f)
+
+    result: dict[str, list[str]] = {}
+    for state, edges in machine['transitions'].items():
+        if not edges:
+            continue  # terminal states
+        actions = [e['action'] for e in edges]
+        # Prepend "dialog" for review states (ASSERT / ESCALATE)
+        if any(state.endswith(sfx) for sfx in _DIALOG_STATE_SUFFIXES):
+            actions = ['dialog'] + actions
+        result[state] = actions
+
+    # FAILURE is a synthetic decision state (not in the state machine)
+    result['FAILURE'] = ['retry', 'escalate', 'backtrack', 'withdraw']
+
+    return result
+
+
+STATE_ACTIONS = _derive_state_actions()
 
 # ── Prompt templates ──
 
@@ -53,8 +78,9 @@ CfA state: {state}
    - At PLAN_ASSERT: edits to the plan ("add error handling to step 3", "remove the caching layer", "change the success metric").
    - At WORK_ASSERT: fixes to the delivered work ("fix the bug in the output", "the formatting is wrong", "add tests").
    - At INTENT_ASSERT: edits to the intent document ("add a constraint about latency", "clarify the success criteria").
+   - At TASK_ASSERT: fixes to the task deliverables ("the output is incomplete", "fix the test failures", "clean up the formatting").
 
-4. REVISE-PLAN (WORK_ASSERT only): the PLAN was wrong, not just the execution. Signals: "the approach is wrong", "we should have used X instead of Y", "rethink the architecture", "the design doesn't work".
+4. REVISE-PLAN (WORK_ASSERT and TASK_ASSERT): the PLAN was wrong, not just the execution. Signals: "the approach is wrong", "we should have used X instead of Y", "rethink the architecture", "the design doesn't work".
 
 5. REFINE-INTENT: the OBJECTIVE or PURPOSE needs changing. This can occur at ANY assert state. Signals: "actually, let's build X instead", "the goal should be Y", "change the objective", "on second thought the problem is really Z". This is a scope-level change to WHAT we're doing, not HOW.
 

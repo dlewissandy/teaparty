@@ -65,6 +65,7 @@
     "PLAN_ASSERT": [
       { "action": "approve", "to": "PLAN", "actor": "human" },
       { "action": "correct", "to": "PLANNING_RESPONSE", "actor": "human" },
+      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "human", "backtrack": true },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "human" }
     ],
     "PLANNING_RESPONSE": [
@@ -97,7 +98,10 @@
     "TASK_ASSERT": [
       { "action": "approve", "to": "COMPLETED_TASK", "actor": "execution_lead" },
       { "action": "correct", "to": "TASK_RESPONSE", "actor": "execution_lead" },
-      { "action": "reject", "to": "FAILED_TASK", "actor": "execution_lead" }
+      { "action": "reject", "to": "FAILED_TASK", "actor": "execution_lead" },
+      { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "execution_lead", "backtrack": true },
+      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "execution_lead", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "execution_lead" }
     ],
     "TASK_RESPONSE": [
       { "action": "synthesize", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" }

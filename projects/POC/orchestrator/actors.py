@@ -427,26 +427,30 @@ class ApprovalGate:
             )
 
             if action in ('dialog', '__fallback__'):
-                # __fallback__ means classify couldn't parse the response.
-                # Treat like a dialog round — generate a contextual reply or
-                # a generic re-prompt so the human can try again.
+                # Both dialog and __fallback__ mean the human said something
+                # that isn't a clear decision.  Generate a contextual reply
+                # so the human can refine or ask follow-up questions.
                 dialog_history += f'HUMAN: {response}\n'
-                if action == '__fallback__':
-                    agent_reply = (
-                        "I wasn't sure how to interpret that. You can:\n"
-                        "  approve — accept and continue\n"
-                        "  correct — reject with feedback\n"
-                        "  withdraw — abandon this session\n"
-                        "Or ask a question and I'll try to answer."
-                    )
-                else:
-                    agent_reply = self._generate_dialog_response(
-                        ctx.state, response, artifact_path,
-                        os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                        ctx.task, dialog_history,
-                    )
+                agent_reply = self._generate_dialog_response(
+                    ctx.state, response, artifact_path,
+                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                    ctx.task, dialog_history,
+                )
                 dialog_history += f'AGENT: {agent_reply}\n'
                 bridge_text = agent_reply  # Show the reply as the next bridge
+
+                # Log the dialog exchange for post-hoc debugging (#120)
+                await ctx.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'approval_dialog',
+                        'state': ctx.state,
+                        'human_input': response,
+                        'classification': action,
+                        'agent_reply': agent_reply,
+                    },
+                    session_id=ctx.session_id,
+                ))
                 continue
 
             # Non-dialog action — record and return
@@ -542,7 +546,8 @@ class ApprovalGate:
             feedback = parts[1] if len(parts) > 1 else ''
             return action, feedback
         except Exception:
-            return 'approve', ''
+            _actor_log.warning('Classification failed — falling back to re-prompt', exc_info=True)
+            return '__fallback__', ''
 
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str, artifact_missing: bool = False,

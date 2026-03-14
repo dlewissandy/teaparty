@@ -14,7 +14,7 @@ class TestStateActions(unittest.TestCase):
     """STATE_ACTIONS covers all documented CfA review states."""
 
     def test_all_assert_states_present(self):
-        for state in ["INTENT_ASSERT", "PLAN_ASSERT", "WORK_ASSERT"]:
+        for state in ["INTENT_ASSERT", "PLAN_ASSERT", "TASK_ASSERT", "WORK_ASSERT"]:
             self.assertIn(state, mod.STATE_ACTIONS)
 
     def test_all_escalate_states_present(self):
@@ -31,22 +31,56 @@ class TestStateActions(unittest.TestCase):
         self.assertIn("refine-intent", actions)
         self.assertNotIn("revise-plan", actions)
 
-    def test_dialog_in_all_states(self):
-        # FAILURE is a decision state (retry/escalate/backtrack/withdraw), not an
-        # assert or escalate state — it deliberately has no "dialog" action.
-        DECISION_STATES = {"FAILURE"}
+    def test_dialog_in_all_gate_states(self):
+        """dialog is present in all ASSERT and ESCALATE states (review gates)."""
         for state in mod.STATE_ACTIONS:
-            if state in DECISION_STATES:
-                continue
-            self.assertIn("dialog", mod.STATE_ACTIONS[state],
-                          f"dialog missing from {state}")
+            if state.endswith('_ASSERT') or state.endswith('_ESCALATE'):
+                self.assertIn("dialog", mod.STATE_ACTIONS[state],
+                              f"dialog missing from {state}")
 
-    def test_work_assert_has_all_six(self):
+    def test_work_assert_has_all_actions(self):
         actions = mod.STATE_ACTIONS["WORK_ASSERT"]
-        self.assertEqual(len(actions), 6)
         self.assertIn("dialog", actions)
+        self.assertIn("approve", actions)
+        self.assertIn("correct", actions)
         self.assertIn("revise-plan", actions)
         self.assertIn("refine-intent", actions)
+        self.assertIn("withdraw", actions)
+
+    def test_task_assert_has_reject_and_backtrack(self):
+        actions = mod.STATE_ACTIONS["TASK_ASSERT"]
+        self.assertIn("dialog", actions)
+        self.assertIn("approve", actions)
+        self.assertIn("correct", actions)
+        self.assertIn("reject", actions)
+        self.assertIn("revise-plan", actions)
+        self.assertIn("refine-intent", actions)
+        self.assertIn("withdraw", actions)
+
+    def test_escalate_states_no_approve(self):
+        """ESCALATE states use 'complete' not 'approve' — approve has no state machine edge."""
+        for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:
+            self.assertNotIn("approve", mod.STATE_ACTIONS[state],
+                             f"approve should not be in {state}")
+
+    def test_state_actions_derived_from_state_machine(self):
+        """STATE_ACTIONS should be derived, not hardcoded — verify key invariant."""
+        # Every action in STATE_ACTIONS (except dialog) must be a valid
+        # state machine edge for that state
+        import json
+        machine_path = os.path.join(
+            os.path.dirname(__file__), '..', '..', 'cfa-state-machine.json')
+        with open(machine_path) as f:
+            machine = json.load(f)
+        for state, actions in mod.STATE_ACTIONS.items():
+            if state == 'FAILURE':
+                continue  # synthetic state, not in state machine
+            sm_actions = {e['action'] for e in machine['transitions'].get(state, [])}
+            for action in actions:
+                if action == 'dialog':
+                    continue  # gate-internal, not a state machine edge
+                self.assertIn(action, sm_actions,
+                              f"{action} in STATE_ACTIONS[{state}] but not in state machine")
 
     def test_escalate_states_have_dialog_clarify_complete_withdraw(self):
         for state in ["INTENT_ESCALATE", "PLANNING_ESCALATE", "TASK_ESCALATE"]:

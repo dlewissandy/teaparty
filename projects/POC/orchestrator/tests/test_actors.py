@@ -880,5 +880,212 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
         mock_gen.assert_not_called()
 
 
+# ── Regression tests for #120: approval gate classification failures ──────────
+
+class TestClassifyReviewFallbackOnException(unittest.TestCase):
+    """_classify_review must return __fallback__, never approve, on exception.
+
+    Root cause of #120: the old code caught all exceptions and returned
+    ('approve', ''), silently auto-approving when classification crashed.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_gate(self) -> ApprovalGate:
+        return ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=AsyncMock(),
+            poc_root=self.tmpdir,
+        )
+
+    def test_import_error_returns_fallback_not_approve(self):
+        """If classify_review cannot be imported, must NOT auto-approve."""
+        gate = self._make_gate()
+        with patch('projects.POC.scripts.classify_review.classify',
+                   side_effect=ImportError('module not found')):
+            action, feedback = gate._classify_review('PLAN_ASSERT', 'looks good')
+        self.assertEqual(action, '__fallback__')
+        self.assertNotEqual(action, 'approve')
+
+    def test_runtime_error_returns_fallback_not_approve(self):
+        """If classify() raises RuntimeError, must NOT auto-approve."""
+        gate = self._make_gate()
+        with patch('projects.POC.scripts.classify_review.classify',
+                   side_effect=RuntimeError('subprocess crashed')):
+            action, feedback = gate._classify_review('PLAN_ASSERT', 'the plan is great')
+        self.assertEqual(action, '__fallback__')
+
+    def test_timeout_error_returns_fallback_not_approve(self):
+        """If classify() times out, must NOT auto-approve."""
+        gate = self._make_gate()
+        import subprocess
+        with patch('projects.POC.scripts.classify_review.classify',
+                   side_effect=subprocess.TimeoutExpired('claude', 30)):
+            action, feedback = gate._classify_review('WORK_ASSERT', 'approve this')
+        self.assertEqual(action, '__fallback__')
+
+    def test_normal_classification_still_works(self):
+        """Sanity check: normal classify output is parsed correctly."""
+        gate = self._make_gate()
+        with patch('projects.POC.scripts.classify_review.classify',
+                   return_value='correct\tFix the tests'):
+            action, feedback = gate._classify_review('PLAN_ASSERT', 'fix the tests')
+        self.assertEqual(action, 'correct')
+        self.assertEqual(feedback, 'Fix the tests')
+
+
+class TestDialogLoopLogging(unittest.TestCase):
+    """Dialog loop must emit LOG events for post-hoc debugging (#120 bug 4)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._input_index = 0
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_gate_with_responses(self, responses: list[str]) -> ApprovalGate:
+        """Create a gate whose input_provider returns responses in sequence."""
+        async def _input_provider(req):
+            idx = self._input_index
+            self._input_index += 1
+            return responses[idx] if idx < len(responses) else 'approve'
+
+        return ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=_input_provider,
+            poc_root=self.tmpdir,
+        )
+
+    def test_dialog_turn_emits_log_event(self):
+        """When classify returns 'dialog', a LOG event must be published."""
+        gate = self._make_gate_with_responses(['Have you tested it?', 'approve'])
+        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
+                        infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
+        Path(artifact_path).write_text('# Plan')
+        ctx.data = {'artifact_path': artifact_path}
+
+        classify_returns = iter([
+            ('dialog', 'Have you tested it?'),
+            ('approve', ''),
+        ])
+
+        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
+             patch.object(gate, '_generate_dialog_response', return_value='Yes, all tests pass.'), \
+             patch.object(gate, '_proxy_record'):
+            _run(gate.run(ctx))
+
+        # Find LOG events among all published events
+        log_events = [
+            call for call in ctx.event_bus.publish.call_args_list
+            if call.args and hasattr(call.args[0], 'type')
+            and call.args[0].type == EventType.LOG
+        ]
+        self.assertGreaterEqual(len(log_events), 1,
+                                "Dialog turn must emit at least one LOG event")
+        log_data = log_events[0].args[0].data
+        self.assertEqual(log_data['category'], 'approval_dialog')
+        self.assertEqual(log_data['classification'], 'dialog')
+
+    def test_fallback_turn_emits_log_event(self):
+        """When classify returns '__fallback__', a LOG event must be published."""
+        gate = self._make_gate_with_responses(['something weird', 'approve'])
+        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
+                        infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
+        Path(artifact_path).write_text('# Plan')
+        ctx.data = {'artifact_path': artifact_path}
+
+        classify_returns = iter([
+            ('__fallback__', ''),
+            ('approve', ''),
+        ])
+
+        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
+             patch.object(gate, '_generate_dialog_response', return_value='Could you rephrase?'), \
+             patch.object(gate, '_proxy_record'):
+            _run(gate.run(ctx))
+
+        log_events = [
+            call for call in ctx.event_bus.publish.call_args_list
+            if call.args and hasattr(call.args[0], 'type')
+            and call.args[0].type == EventType.LOG
+        ]
+        self.assertGreaterEqual(len(log_events), 1)
+        self.assertEqual(log_events[0].args[0].data['classification'], '__fallback__')
+
+
+class TestFallbackUsesDialogGenerator(unittest.TestCase):
+    """__fallback__ must use _generate_dialog_response, not a static menu (#120 bug 5)."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._input_index = 0
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_fallback_calls_dialog_generator_not_static_menu(self):
+        """When __fallback__ fires, _generate_dialog_response must be called."""
+        responses = ['confusing input', 'approve']
+
+        async def _input_provider(req):
+            idx = self._input_index
+            self._input_index += 1
+            return responses[idx] if idx < len(responses) else 'approve'
+
+        gate = ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=_input_provider,
+            poc_root=self.tmpdir,
+        )
+        ctx = _make_ctx(state='WORK_ASSERT', session_worktree=self.tmpdir,
+                        infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'output.txt')
+        Path(artifact_path).write_text('delivered work')
+        ctx.data = {'artifact_path': artifact_path}
+
+        classify_returns = iter([
+            ('__fallback__', ''),
+            ('approve', ''),
+        ])
+
+        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_bridge', return_value='Review work'), \
+             patch.object(gate, '_generate_dialog_response', return_value='Let me try to help.') as mock_dialog, \
+             patch.object(gate, '_proxy_record'):
+            _run(gate.run(ctx))
+
+        mock_dialog.assert_called_once()
+        # Verify the static menu text is NOT in the bridge (old behavior)
+        # The dialog generator's response should be used instead
+        bridge_calls = [
+            call for call in ctx.event_bus.publish.call_args_list
+            if call.args and hasattr(call.args[0], 'type')
+            and call.args[0].type == EventType.INPUT_REQUESTED
+        ]
+        # Second INPUT_REQUESTED (after fallback) should use dialog generator output
+        if len(bridge_calls) >= 2:
+            bridge_text = bridge_calls[1].args[0].data.get('bridge_text', '')
+            self.assertNotIn("approve — accept and continue", bridge_text,
+                             "Static menu must not appear — dialog generator should be used")
+
+
+from projects.POC.orchestrator.events import EventType
+
+
 if __name__ == '__main__':
     unittest.main()
