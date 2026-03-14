@@ -22,7 +22,7 @@ Learning also requires differentiation by purpose. Not all knowledge serves the 
 
 ### Institutional Learning
 
-How organizations and workgroups get better at working together. Institutional learnings change slowly, are broadly applicable within scope, and are curated rather than automatically generated. In the POC, institutional learnings are stored in `institutional.md` at each scope level and always loaded into agent context — the same injection pattern as CLAUDE.md.
+How organizations and workgroups get better at working together. Institutional learnings change slowly, are broadly applicable within scope, and are curated rather than automatically generated. In the POC, institutional learnings are stored in `institutional.md` at each scope level and always loaded into agent context — the same injection pattern as CLAUDE.md. Post-write compaction is not yet wired ([#80](https://github.com/dlewissandy/teaparty/issues/80), [#86](https://github.com/dlewissandy/teaparty/issues/86)).
 
 Examples from the POC's actual `institutional.md`:
 - Dispatch coordination norms (how the uber team sequences work across liaisons)
@@ -41,7 +41,7 @@ The POC currently has 36+ task learning files, structured as:
 
 ### Proxy Learning
 
-How the system learns to stand in for the human — not just at approval gates, but in the ongoing dialog between the human and agent teams. The richest learning signal comes from the proxy's intake dialog, where the proxy formulates predictions about what the human wants and compares them against the human's actual answers. The delta between prediction and reality is direct evidence of where the proxy's model is wrong — more specific and more actionable than a binary gate outcome.
+How the system learns to stand in for the human — not just at approval gates, but in the ongoing dialog between the human and agent teams ([#11](https://github.com/dlewissandy/teaparty/issues/11)). The richest learning signal comes from the proxy's intake dialog, where the proxy formulates predictions about what the human wants and compares them against the human's actual answers. The delta between prediction and reality is direct evidence of where the proxy's model is wrong — more specific and more actionable than a binary gate outcome.
 
 Proxy learning is further subdivided:
 
@@ -61,7 +61,7 @@ Proxy learning is stored in the same file-based format as other learning types: 
 
 The other three learning types capture knowledge as text — facts, norms, preferences. Procedural learning captures knowledge as executable structure. It operates through two mechanisms:
 
-**Skill crystallization.** When multiple plans for the same category of work converge on the same decomposition, the system generalizes the pattern into a Claude Code skill — a parameterized workflow with fixed structure (sequencing, gates, fan-out/fan-in) and variable parameters (topic, audience, depth). This is how cold-start plans become warm-start templates. A single successful plan is an anecdote. Three successful plans with the same shape are a candidate skill. The [strategic planning](strategic-planning.md#warm-start-accumulated-skills) document describes how these skills seed future planning conversations.
+**Skill crystallization.** When multiple plans for the same category of work converge on the same decomposition, the system generalizes the pattern into a Claude Code skill — a parameterized workflow with fixed structure (sequencing, gates, fan-out/fan-in) and variable parameters (topic, audience, depth). This is how cold-start plans become warm-start templates. A single successful plan is an anecdote. Three successful plans with the same shape are a candidate skill. The [strategic planning](strategic-planning.md#warm-start-accumulated-skills) document describes how these skills seed future planning conversations. See [#101](https://github.com/dlewissandy/teaparty/issues/101) and [#96](https://github.com/dlewissandy/teaparty/issues/96) for the implementation plan.
 
 **Skill refinement.** When execution under a skill fails at a specific point — a contingency the skill didn't anticipate, a gate that consistently triggers escalation, a decomposition step that produces work requiring rework — the corrective learning targets the skill itself, not just the session. The failure is traced back to the skill's structure: which step produced the failure, what the skill assumed that turned out to be wrong, and what structural change would prevent recurrence. The refined skill replaces the original, carrying forward the correction.
 
@@ -101,12 +101,12 @@ Four moments trigger learning writes, each capturing a different kind of signal:
 
 | Moment | When | Signal |
 |--------|------|--------|
-| **Prospective** | Before execution | Retrieval of relevant prior learnings; useful retrievals get confidence boost |
-| **In-flight** | At milestones | Assumption checkpoints; disconfirmed assumptions amplify corrective signal |
-| **Corrective** | At mismatch | Highest confidence — direct evidence of model error with recoverable causal chain |
+| **Prospective** | Before execution | Retrieval of relevant prior learnings; useful retrievals get confidence boost ([#77](https://github.com/dlewissandy/teaparty/issues/77)) |
+| **In-flight** | At milestones | Assumption checkpoints; disconfirmed assumptions amplify corrective signal ([#78](https://github.com/dlewissandy/teaparty/issues/78)) |
+| **Corrective** | At mismatch | Highest confidence — direct evidence of model error with recoverable causal chain ([#79](https://github.com/dlewissandy/teaparty/issues/79)) |
 | **Retrospective** | After completion | Synthesized learnings promoted through the chain |
 
-Corrective learnings are the most valuable because they come with causal chains: what went wrong, why, and what would have prevented it. Corrective learnings receive higher importance weight (0.8) than single-observation learnings (0.5) to reflect this.
+Corrective learnings are the most valuable because they come with causal chains: what went wrong, why, and what would have prevented it. Corrective learnings receive higher importance weight (0.8) than single-observation learnings (0.5) to reflect this. Reinforcement tracking — boosting confidence on learnings that prove useful across sessions — is not yet implemented ([#35](https://github.com/dlewissandy/teaparty/issues/35), [#91](https://github.com/dlewissandy/teaparty/issues/91)).
 
 ## Promotion Chain
 
@@ -119,7 +119,7 @@ Team tasks/            ──promotes──>  Project tasks/            ──pr
 
 Each step filters more aggressively: team → project requires patterns that held across multiple sessions; project → global requires project-agnostic patterns. Proxy learnings do not promote upward (they describe a specific human).
 
-After each completed session, the system orchestrates extraction across multiple scopes: streams (observations, escalation, intent-alignment), rollups (team, session, project, global), and temporal (prospective, in-flight, corrective). Each scope extracts structured entries with YAML frontmatter, filtering for the patterns that are durable enough to warrant promotion.
+After each completed session, the system orchestrates extraction across multiple scopes: streams (observations, escalation, intent-alignment), rollups (team, session, project, global), and temporal (prospective, in-flight, corrective). Each scope extracts structured entries with YAML frontmatter, filtering for the patterns that are durable enough to warrant promotion. The extraction pipeline currently fails silently ([#115](https://github.com/dlewissandy/teaparty/issues/115)), the `promote()` function is missing for 7 scopes ([#85](https://github.com/dlewissandy/teaparty/issues/85)), and the individual rollup scopes are not yet wired: team ([#73](https://github.com/dlewissandy/teaparty/issues/73)), session ([#74](https://github.com/dlewissandy/teaparty/issues/74)), project ([#75](https://github.com/dlewissandy/teaparty/issues/75)), global ([#76](https://github.com/dlewissandy/teaparty/issues/76)).
 
 ## Retrieval Architecture
 
@@ -130,11 +130,11 @@ TeaParty adapts this architecture in three ways:
 2. **Hierarchical scope with promotion** replaces OpenClaw's flat per-agent model — a team-level chunk should score higher than a global chunk at equal similarity, because it was generated closer to the current context.
 3. **Four learning moments** replace OpenClaw's single write-on-compaction trigger — learnings are captured at the points where signal is strongest, not just when the context window is about to overflow.
 
-The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extracted by Zilliz as a standalone library, providing chunking, embedding, indexing, and hybrid score fusion. See `projects/agentic-memory/` for the detailed research on OpenClaw's architecture and how it was adapted.
+The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extracted by Zilliz as a standalone library, providing chunking, embedding, indexing, and hybrid score fusion. See `projects/agentic-memory/` for the detailed research on OpenClaw's architecture and how it was adapted. The retrieval function is not yet importable ([#84](https://github.com/dlewissandy/teaparty/issues/84)) and the CLI flags used to invoke it don't match the actual interface ([#28](https://github.com/dlewissandy/teaparty/issues/28)).
 
 ## Relationship to Other Pillars
 
-**[Intent engineering](intent-engineering.md)** is the first consumer of proxy learnings. Warm-start pre-population draws from the proxy model. Corrections to pre-populated intent are high-value write signals.
+**[Intent engineering](intent-engineering.md)** is the first consumer of proxy learnings. Warm-start pre-population draws from the proxy model. Corrections to pre-populated intent are high-value write signals. Background extraction after intent approval is not yet wired ([#45](https://github.com/dlewissandy/teaparty/issues/45)).
 
 **[Strategic planning](strategic-planning.md)** is the second consumer. Task-based learnings inform decomposition; institutional learnings inform coordination. Plans that succeed graduate into reusable skills — the highest-value form of procedural learning.
 
