@@ -37,9 +37,11 @@ async def create_session_worktree(
     os.makedirs(os.path.dirname(worktree_path), exist_ok=True)
     await _run_git(repo_root, 'worktree', 'add', '-b', branch_name, worktree_path)
 
-    # Create infra directory
+    # Create infra directory and team subdirs for dispatch MEMORY.md rollup
     infra_dir = os.path.join(project_dir, '.sessions', session_id)
     os.makedirs(infra_dir, exist_ok=True)
+    for team_name in ('art', 'writing', 'editorial', 'research', 'coding'):
+        os.makedirs(os.path.join(infra_dir, team_name), exist_ok=True)
 
     # Register in manifest
     _register_worktree(repo_root, {

@@ -46,6 +46,28 @@ def _find_poc_root() -> str:
     return os.path.dirname(os.path.abspath(__file__))
 
 
+def _write_dispatch_memory(dispatch_infra: str, team: str, task: str, result) -> None:
+    """Write a MEMORY.md summarizing the dispatch for the rollup chain.
+
+    promote('team') reads dispatch MEMORY.md files as context when rolling up
+    learnings into team-level institutional.md and tasks/ files.
+    """
+    from datetime import date
+    memory_path = os.path.join(dispatch_infra, 'MEMORY.md')
+    today = date.today().isoformat()
+    content = (
+        f"## [{today}] Dispatch: {team}\n"
+        f"**Task:** {task}\n"
+        f"**Result:** {result.terminal_state}\n"
+        f"**Backtracks:** {result.backtrack_count}\n"
+    )
+    try:
+        with open(memory_path, 'w') as f:
+            f.write(content)
+    except OSError:
+        pass
+
+
 async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_parent_state: str = '') -> dict:
     """Run a dispatch and return a status dict."""
     poc_root = _find_poc_root()
@@ -146,6 +168,12 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_pa
             )
         except Exception:
             pass
+
+    # Write dispatch MEMORY.md for the rollup chain.
+    # promote('team') reads these as context when rolling up dispatch learnings
+    # into team-level institutional.md and tasks/ files.
+    if result and result.terminal_state == 'COMPLETED_WORK':
+        _write_dispatch_memory(dispatch_infra, team, task, result)
 
     # Clean up
     await cleanup_worktree(worktree_path)
