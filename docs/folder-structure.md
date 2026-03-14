@@ -64,7 +64,7 @@ Each session and dispatch runs in an isolated git worktree. This provides:
 - **Branch isolation** — each session's changes are on a separate branch until approved and merged
 - **Clean rollback** — if a session fails, its worktree is discarded with no impact on the main branch
 
-Completed sessions merge their worktree back into the parent branch. See [POC Architecture](poc-architecture.md) for the full worktree lifecycle.
+Completed sessions merge their worktree back into the parent branch.
 
 ---
 

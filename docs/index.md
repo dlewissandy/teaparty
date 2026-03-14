@@ -52,7 +52,7 @@ TeaParty organizes agent teams in a hierarchy that mirrors how real organization
 
 Agents serve as context boundaries. The hierarchy provides scoping — each agent sees only what is relevant to its role and level. Reducing the scope of what each agent works on mitigates context rot within each scoped conversation.
 
-[Hierarchical Teams →](hierarchical-teams.md) · [POC Architecture →](poc-architecture.md)
+[Hierarchical Teams →](hierarchical-teams.md)
 
 ### Human Proxy Agents
 
@@ -71,8 +71,6 @@ TeaParty eats its own dogfood. The platform's documentation, design artifacts, a
 The POC runs on Claude Code CLI with minimal scaffolding: a dispatch script for inter-process communication, a plan-execute lifecycle script implementing the CfA state machine, and git worktree isolation for safe concurrent execution. An uber team decomposes work and coordinates strategy; subteams of specialized agents (writers, coders, artists, researchers) execute in parallel, each in their own process with their own context window. Learning extraction runs after every session, feeding validated insights back into the memory hierarchy that informs the next round of work.
 
 This is bootstrapping in progress. Every page in this documentation, every architectural decision, and every line of application code has been produced or reviewed by agent teams operating under the protocols described above. The result is a tight feedback loop: the system we're building is also the system we're testing, and the failures we encounter are the failures we're designing solutions for.
-
-[POC Architecture →](poc-architecture.md)
 
 ### Project History
 

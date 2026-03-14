@@ -41,15 +41,21 @@ The POC currently has 36+ task learning files, structured as:
 
 ### Proxy Learning
 
-How the system learns to stand in for the human — not just at approval gates, but in the ongoing dialog between the human and agent teams. Proxy learning is further subdivided:
+How the system learns to stand in for the human — not just at approval gates, but in the ongoing dialog between the human and agent teams. The richest learning signal comes from the proxy's intake dialog, where the proxy formulates predictions about what the human wants and compares them against the human's actual answers. The delta between prediction and reality is direct evidence of where the proxy's model is wrong — more specific and more actionable than a binary gate outcome.
+
+Proxy learning is further subdivided:
 
 **Preferential** — the human's general traits: communication style, risk tolerance, values, delegation boundaries. Stable, broadly applicable, always loaded.
 
 **Behavioral** — how the human interacts with the team during work, not just at decision points. When the human questions a team's approach, redirects a line of investigation, asks for more detail on a specific aspect, or pushes back on an assumption, each interaction reveals something about what the human pays attention to and how they think about the work. These patterns are as valuable as gate decisions — an approval tells the system "this was acceptable," but a question during planning tells the system "this is what I scrutinize."
 
+**Predictive** — the proxy's track record of anticipating the human's answers during intake dialog. For each question type and task domain, the proxy records its predictions, the human's actual answers, and the delta. After each comparison, the proxy reflects on what it learned — *what additional information about this human would have improved my prediction?* — and that reflection is stored as a text derivative, scoped and indexed for future retrieval. Over time, these reflections accumulate into a map of where the proxy's model is accurate (and can be trusted to act autonomously) and where it systematically diverges (and must continue asking). Predictive accuracy is the mechanism by which the intake dialog compresses from full conversation to near-silent confirmation as the proxy earns understanding.
+
+**Ritual** — invariant behavioral patterns tied to specific CfA states, independent of task content. A human who always asks for a TLDR before reviewing a plan, always leads delegation with quality principles, or always checks test coverage before approving code is performing rituals that reveal their operational DNA. Ritual learning detects these patterns by tracking per-state behavior frequencies across sessions and, once detected with sufficient confidence, enables the proxy to perform them preemptively. Preemptive rituals that match the human's behavior save time and demonstrate understanding; preemptive rituals the human corrects ("I don't need a TLDR for this one") produce deltas that refine the model — the ritual was context-dependent, not invariant.
+
 **Task-based** — domain-specific decision patterns: when to consult vs act, triage heuristics, delegation scope by area. Context-specific, retrieved on demand.
 
-Proxy learning is stored in the same file-based format as other learning types: `proxy.md` for preferential (always loaded) and `proxy-tasks/` for task-based (fuzzy-retrieved). The confidence model tracks approval rates, correction history, conversation patterns, and question patterns per CfA state — capturing not just what the human decided but how they reasoned about it, so that behavioral patterns can inform future proxy decisions alongside gate outcomes. See [human-proxies.md](human-proxies.md) for the full proxy model.
+Proxy learning is stored in the same file-based format as other learning types: `proxy.md` for preferential (always loaded) and `proxy-tasks/` for task-based and ritual patterns (fuzzy-retrieved). The confidence model tracks approval rates, correction history, prediction accuracy, ritual frequencies, conversation patterns, and question patterns per CfA state — capturing not just what the human decided but how they reasoned about it, and where the proxy's anticipation of their reasoning was correct or wrong. See [human-proxies.md](human-proxies.md) for the full proxy model.
 
 ### Procedural Learning
 

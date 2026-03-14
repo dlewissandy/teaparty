@@ -221,7 +221,7 @@ This means:
 4. Referenced workflow templates are copied into the workgroup's `files/workflows/`
 5. Initial files from the workgroup template are copied in
 
-Every org template should include an **Administration workgroup** with an org lead agent that has orchestration tools. See [engagements-and-partnerships.md](engagements-and-partnerships.md).
+Every org template should include an **Administration workgroup** with an org lead agent that has orchestration tools.
 
 **Adding a workgroup** to an existing org picks from the same workgroup template catalog. An org owner selects a workgroup template and gets its agents, workflows, and files. This is independent of which org template was used at creation.
 
@@ -234,7 +234,7 @@ Workflow definitions are markdown files that live in a workgroup's `files/workfl
 - Manual authoring by a workgroup member or agent
 - Editing an existing workflow
 
-Workflows describe multi-step playbooks that agents follow -- see [workflows.md](workflows.md) for the full specification. They are content, not code. Agents discover and execute them through the workflow toolkit tools.
+Workflows describe multi-step playbooks that agents follow. They are content, not code. Agents discover and execute them through the workflow toolkit tools.
 
 Workflow state is tracked per-job in `_workflow_state.md` within the job's folder. Each job gets its own independent workflow state, so the same workgroup can run different workflows across different jobs simultaneously.
 
@@ -311,4 +311,3 @@ Engagements use contract-based visibility. The target org controls what the sour
 - The `workspace/` directory and internal project/job files are only visible to the target org.
 - The target org's org lead decides what to place in `deliverables/` when the engagement is completed.
 
-See [engagements-and-partnerships.md](engagements-and-partnerships.md) for the full engagement lifecycle and visibility model.

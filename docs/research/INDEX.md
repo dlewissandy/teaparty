@@ -32,6 +32,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 `#tui` `#ui-events` `#textual` `#widget`
 `#state-machine` `#async` `#orchestration` `#workflow`
 `#adjustable-autonomy` `#concept-drift` `#implicit-feedback` `#bandit` `#proxy-agent`
+`#active-learning` `#preference-learning` `#calibration` `#prediction` `#cold-start` `#bayesian`
 
 ---
 
@@ -148,6 +149,35 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Cognitive Challenges in Human-AI Collaboration | Logg et al., 2022 | `#human-ai` `#trust` | Teams improve only when AI delegates to humans, not when humans delegate to AI — challenges assumptions about AI as pure assistant. | SUPPLEMENT §Theme 7 |
 | Theory of Mind for Multi-Agent Collaboration | 2024 | `#multi-agent` `#human-ai` | MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open. | COGARCH §5.1 |
 | Supporting Effortless Coordination (25 years of CSCW awareness research) | Gross, 2013 | `#human-ai` `#coordination` | Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture. | COGARCH §5.1 |
+
+---
+
+## Proxy Prediction and Active Learning
+
+Research on forming explicit predictions about human responses, using prediction error (delta) as a learning signal, and calibrating confidence to regulate question-asking. Covers Bayesian preference models, active learning / uncertainty sampling, instance-based cognitive architectures, RLHF/DPO (contrasted as negative examples), conformal calibration, and practical deployed systems. See `docs/research/proxy-prediction-and-active-learning.md` for full citations and synthesis.
+
+| Title | Authors, Year | Tags | One-line Summary | Source |
+|-------|--------------|------|-----------------|--------|
+| Preference Learning with Gaussian Processes | Chu & Ghahramani, ICML 2005 | `#preference-learning` `#bayesian` `#cold-start` `#proxy-agent` | Foundational GP model for latent utility from pairwise comparisons; posterior variance is calibrated confidence; works at N=5-50. | `proxy-prediction-and-active-learning.md` §1 |
+| Tutorial: Learning from Preferences with Gaussian Processes | Benavoli et al., 2024 | `#preference-learning` `#bayesian` `#cold-start` | GPs train on small datasets; complexity grows automatically with data; PrefGP Python library available. | `proxy-prediction-and-active-learning.md` §1 |
+| Active Preference-Based GP Regression for Reward Learning | Biyik, Huynh, Kochenderfer & Sadigh, IJRR 2024 | `#preference-learning` `#active-learning` `#bayesian` `#teaparty-direct` | GP + active query selection; demonstrated on real humans; 10-30 queries to reliable prediction; directly implements ask-when-uncertain. | `proxy-prediction-and-active-learning.md` §1 |
+| Beta-Bernoulli Bayesian Updating | Classical (Gundersen review, 2020) | `#bayesian` `#cold-start` `#prediction` `#proxy-agent` | Binary prediction with posterior variance; works at N=1; update rule is addition; no library needed. | `proxy-prediction-and-active-learning.md` §1 |
+| Active Learning Literature Survey | Settles, 2009 | `#active-learning` `#uncertainty` `#proxy-agent` | Canonical taxonomy of query strategies: uncertainty sampling, QBC, expected model change, information gain. | `proxy-prediction-and-active-learning.md` §2 |
+| Understanding Uncertainty Sampling | Nguyen & Huynh, arXiv 2023 | `#active-learning` `#uncertainty` `#calibration` | First formal generalization bounds for uncertainty sampling; calibration required for guarantees. | `proxy-prediction-and-active-learning.md` §2 |
+| BALD: Bayesian Active Learning by Disagreement | Houlsby et al., 2011 | `#active-learning` `#bayesian` `#uncertainty` `#proxy-agent` | Query the point that maximally reduces epistemic uncertainty; information-theoretic ask/skip criterion. | `proxy-prediction-and-active-learning.md` §2 |
+| Expected Predictive Information Gain (EPIG) | Bickford Smith et al., AISTATS 2023 | `#active-learning` `#bayesian` `#uncertainty` | BALD improved: conditions on actual future query distribution; avoids wasteful outlier queries. | `proxy-prediction-and-active-learning.md` §2 |
+| Active Learning Benchmark for Small-Sample Regression | Dunn et al., Scientific Reports 2025 | `#active-learning` `#cold-start` | Empirical: active learning advantages largest in 10-50 observation range; QBC needs ≥15 initial samples. | `proxy-prediction-and-active-learning.md` §2 |
+| Instance-Based Learning in Dynamic Decision Making | Gonzalez, Lerch & Lebiere, Cognitive Science 2003 | `#episodic` `#prediction` `#cold-start` `#proxy-agent` | IBLT: store (situation, decision, utility) triplets; blending predicts from similar past instances; works with very few examples. | `proxy-prediction-and-active-learning.md` §3 |
+| SpeedyIBL: Implementation of IBLT | Nguyen et al., Behavior Research Methods 2022 | `#episodic` `#prediction` `#proxy-agent` | Python library for IBLT; decay parameter controls recency weighting; off-the-shelf for small-N prediction. | `proxy-prediction-and-active-learning.md` §3 |
+| RLHF Deciphered | Casper et al., ACM CSUR 2023 | `#preference-learning` `#calibration` | RLHF is population-level, not individual-level; needs thousands of examples; not the right approach for per-individual proxy. | `proxy-prediction-and-active-learning.md` §4 |
+| Direct Preference Optimization (DPO) | Rafailov et al., NeurIPS 2023 | `#preference-learning` | Simpler than RLHF but still large-data; confirms calibration as first-class concern. Not for per-individual small-data use. | `proxy-prediction-and-active-learning.md` §4 |
+| Deep Bayesian Active Learning for Preference Modeling | Cao et al., NeurIPS 2024 | `#active-learning` `#bayesian` `#preference-learning` | Bayesian active learning + preference modeling reduces human feedback needed; validates GP + BALD for preference use case. | `proxy-prediction-and-active-learning.md` §4 |
+| Conformal Prediction (Introduction) | Angelopoulos & Bates, JMLR 2021 | `#calibration` `#uncertainty` | Distribution-free calibrated intervals; guaranteed coverage at any N; wraps any predictor. | `proxy-prediction-and-active-learning.md` §5 |
+| Conformal Prediction for NLP (Survey) | Giovannotti, TACL 2024 | `#calibration` `#uncertainty` | Conformal prediction applied to NLP tasks; inductive (split) variant is practical; LLM softmax probabilities as input. | `proxy-prediction-and-active-learning.md` §5 |
+| Generative Agent Simulations of 1,000 People | Park et al., arXiv 2024 | `#prediction` `#human-ai` `#teaparty-direct` | Two-hour interview → LLM agent → 85% response prediction accuracy; empirical ceiling for interview-to-model pipelines. | `proxy-prediction-and-active-learning.md` §6 |
+| PersonalLLM: Tailoring LLMs to Individual Preferences | Kumar et al., ICLR 2025 | `#preference-learning` `#cold-start` `#teaparty-direct` | Personalization under continual data sparsity; PREF method converges with ~10 examples; population prior bootstraps cold start. | `proxy-prediction-and-active-learning.md` §6 |
+| Few-Shot Personalization with Mis-aligned Responses (Fermi) | Salemi et al., 2024 | `#preference-learning` `#implicit-feedback` `#proxy-agent` | Misaligned (wrong) predictions are the most informative learning signal; validates delta-as-learning-signal design principle. | `proxy-prediction-and-active-learning.md` §6 |
+| Training Proactive and Personalized LLM Agents (PPP) | Sun et al., 2025 | `#adjustable-autonomy` `#active-learning` `#human-ai` | Explicitly training ask-vs-predict decision is critical; threshold should be learned, not static. | `proxy-prediction-and-active-learning.md` §6 |
 
 ---
 

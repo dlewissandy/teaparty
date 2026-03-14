@@ -49,9 +49,11 @@ The strategic plan follows the shape of the problem, not a fixed template. Some 
 
 ### Cold Start (No Prior Context)
 
-When the system has no history with this type of work, the planning team starts from the approved intent and the problem space. The project lead explores the solution space, identifies structural dependencies, surfaces assumptions the intent did not address, and proposes a decomposition. Research liaisons dispatch to investigate open questions from the intent phase, technical feasibility, and prior art.
+When the system has no history with this type of work, the planning phase begins with exploration, not artifact production. The project lead explores the solution space — reading the codebase, identifying structural dependencies, surfacing assumptions the intent did not address. Research liaisons dispatch to investigate open questions from the intent phase, technical feasibility, and prior art.
 
-The project lead proposes rather than asks — it presents a decomposition, explains the rationale, identifies the assumptions it rests on, and asks the human to validate or correct.
+Before producing `PLAN.md`, the [human proxy](human-proxies.md#understand-first-act-second) runs an intake dialog that shares what the team found and checks its understanding with the human: "Here's what I'm seeing in the codebase. Here's what's harder than it looks. Here are two viable approaches — which direction feels right?" On cold start, the proxy has no predictions about the human's planning preferences, so every directional question goes to the human. The human's answers inform the decomposition and become the first data points for the proxy's model of how this human thinks about planning.
+
+The project lead proposes rather than asks — it presents a decomposition, explains the rationale, identifies the assumptions it rests on. But the proposal is informed by the intake conversation, not a one-shot guess. The intake dialog has already resolved the ambiguities that would otherwise surface as backtrack-triggering surprises during execution.
 
 ### Warm Start (Accumulated Skills)
 
@@ -59,7 +61,7 @@ Over time, the [learning system](learning-system.md) observes which plans led to
 
 A skill is a materialized generalization of plans that worked. When multiple cold-start sessions for "write a research paper" converge on the same decomposition — survey, argue, draft, edit, typeset — the system extracts that pattern into a reusable skill with parameters for the parts that vary (topic, audience, depth) and invariants for the parts that do not (sequencing, review gates, fan-out/fan-in structure). The planning team can adopt, adapt, or override a skill with stated rationale.
 
-In warm-start mode, the planning conversation shifts from "how should we decompose this work?" to "here is how we have successfully decomposed similar work before — does this apply, and what needs to change?" Corrections to skill-seeded plans refine either the skill's applicability criteria or its content, converging over successive applications toward the organization's actual best practice.
+In warm-start mode, both the intake dialog and the planning conversation compress. The proxy predicts the human's planning preferences from prior sessions — "Based on our past work, I'm assuming you'd want parallel dispatch here with a sync gate before integration" — and only asks about genuinely novel aspects. The planning conversation shifts from "how should we decompose this work?" to "here is how we have successfully decomposed similar work before — does this apply, and what needs to change?" Corrections to proxy predictions or to skill-seeded plans refine the proxy's model and the skill's content, converging over successive applications toward the organization's actual best practice.
 
 ### The First-Move Problem
 

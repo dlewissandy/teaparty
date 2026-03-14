@@ -66,4 +66,4 @@ When a liaison dispatches to a subteam for the first time, a job and job convers
 
 ## Feedback Routing
 
-When agents need human input, feedback flows up the hierarchy: job agent → workgroup lead → org lead → human. The response routes back down the same path. Each level filters and contextualizes before escalating. See [Engagements and Partnerships](engagements-and-partnerships.md) for the full feedback bubble-up model.
+When agents need human input, feedback flows up the hierarchy: job agent → workgroup lead → org lead → human. The response routes back down the same path. Each level filters and contextualizes before escalating.

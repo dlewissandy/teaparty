@@ -117,11 +117,11 @@ Cross-organization work between two partnered organizations, or top-level intern
 - **Agent team**: When work begins, a Claude Code team session with the target org lead as team lead, **internal liaisons** (one per participating workgroup or project), and **external liaison(s)** (for cross-org engagements, bridging to the source org's representative). During the negotiation phase, no team session is needed -- single-agent dispatch handles the conversation.
 - **Workspace**: Contract-based visibility -- `deliverables/` is visible to both parties; `workspace/` is restricted to the target org.
 - **Created by**: The source org's lead proposes, the target org's lead accepts. Or a human member creates an internal engagement.
-- **Lifecycle and feedback model**: The full engagement lifecycle states, cycle prevention mechanism, and feedback bubble-up model are covered in [Engagements and Partnerships](engagements-and-partnerships.md).
+- **Lifecycle and feedback model**: The engagement lifecycle includes states from proposed through reviewed, with cycle prevention via engagement chains and feedback bubble-up through the agent hierarchy.
 - **Conversation**: A shared conversation where both org leads (or human + org lead) negotiate terms and track progress. Once work begins, the engagement team session coordinates projects and direct-dispatch jobs.
 - **Internal engagements**: A human member creates an engagement directly -- they describe what they need, and the org lead handles it the same way as external work.
 
-See [engagements-and-partnerships.md](engagements-and-partnerships.md) for the full engagement and partnership model.
+
 
 ---
 
@@ -153,7 +153,7 @@ Humans interact with TeaParty primarily through agents, not by managing agents d
 | DM workgroup leads directly | No side-jobs. Work goes through the org lead or through a project/job conversation. |
 | Assign work directly to agents | The lead agent decides how to decompose and assign work. |
 
-When agents need human input, feedback requests flow up the hierarchy and responses flow back down; the full feedback bubble-up model is described in [Engagements and Partnerships](engagements-and-partnerships.md).
+When agents need human input, feedback requests flow up the hierarchy and responses flow back down.
 
 ---
 
@@ -161,7 +161,7 @@ When agents need human input, feedback requests flow up the hierarchy and respon
 
 - **Agents are autonomous**, not scripted. They decide what to do based on conversation context, workflow state, and their own judgment. No prescriptive prompts or retry loops.
 - **Agent output is never truncated.** Output rules are minimal -- no format constraints, length limits, or plain-text-only directives.
-- **Workflows are advisory, not mandatory.** Agents follow them by choice, not enforcement. See [workflows.md](workflows.md).
+- **Workflows are advisory, not mandatory.** Agents follow them by choice, not enforcement.
 - **Lead agents coordinate.** Every workgroup has a lead agent; every organization has an org lead. Lead agents manage work decomposition, progress tracking, and cross-boundary communication.
 - **Agent teams use Claude Code CLI.** Multi-agent collaboration happens through persistent team sessions with bidirectional `stream-json` I/O. See [agent-dispatch.md](agent-dispatch.md).
 - **Liaison agents bridge hierarchy levels.** Projects and engagements create hierarchical teams where each level runs as an independent Claude Code team session. Liaison agents are ephemeral teammates in the upper team whose sole function is to communicate with a lower team via the `relay_to_subteam` tool. They do not write code or make decisions -- they relay tasks downward and results upward, compressing context at each boundary. See [hierarchical-teams.md](hierarchical-teams.md).
@@ -207,11 +207,21 @@ The virtual file tree reflects the full corporate hierarchy. See [file-layout.md
 
 ## Further Reading
 
+### Conceptual Design
 - [Hierarchical Teams](hierarchical-teams.md) -- Hierarchical agent team architecture (projects and engagements)
-- [Engagements and Partnerships](engagements-and-partnerships.md) -- Cross-org collaboration model
+- [CfA State Machine](cfa-state-machine.md) -- Three-phase Conversation for Action protocol
+- [Intent Engineering](intent-engineering.md) -- AI-assisted intent capture dialog
+- [Strategic Planning](strategic-planning.md) -- Bridge from intent to execution
+- [Human Proxies](human-proxies.md) -- Learned proxy agents that stand in for humans
+- [Learning System](learning-system.md) -- Hierarchical memory, scoped retrieval, promotion chain
 - [File Layout](file-layout.md) -- Virtual file tree structure
-- [Workflows](workflows.md) -- Workgroup-internal playbooks
 - [Agent Dispatch](agent-dispatch.md) -- Message routing and team sessions
 - [Sandbox Design](sandbox-design.md) -- Future: Docker containers and git integration
 - [Cognitive Architecture](cognitive-architecture.md) -- Future: Agent learning and memory
+
+### Detailed Design
+- [Detailed Design](detailed-design/index.md) -- Data models, API surface, implementation status, and gap analysis against the conceptual design
+
+### Reference
+- [POC Implementation Reference](../projects/POC/docs/poc-architecture.md) -- CLI flags, env vars, stream-JSON format, file layout, failure modes
 - [README](../README.md) -- Project overview

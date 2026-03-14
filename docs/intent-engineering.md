@@ -38,11 +38,17 @@ The intent.md is a prose document written in natural language, not a form with f
 
 ### Cold Start (No Prior Context)
 
-When the system has no history with this human or organization, the human is the sole source of intent. The agent conducts a responsive dialog — not a scripted questionnaire — that surfaces implicit assumptions, researches the solution space in real time, pushes back on contradictions, identifies gaps, and surfaces escalation preferences. Documents, links, and prior conversations are accepted as context sources.
+When the system has no history with this human or organization, the intent phase begins with understanding, not artifact production. The agent does its homework first — exploring the codebase, reading related files, investigating the problem space — and then engages the human in a conversation about what it found. This is not a scripted questionnaire. It is a colleague who did their research and is checking their understanding before going off to write the specification.
+
+The [human proxy](human-proxies.md#understand-first-act-second) drives this conversation through an intake dialog. The proxy formulates questions the agent team needs answered to produce a high-quality intent document, and for each question it also forms a prediction — what it thinks the human's answer will be. On cold start, the proxy has no predictions, so every question goes to the human. The human's answers become the raw material for the intent document and the first data points for the proxy's model of this human.
+
+The intake dialog continues until the proxy reaches high certainty across the open questions. Only then does the intent lead produce `INTENT.md` — informed by the conversation, not guessing at what the human meant. The resulting document reflects shared understanding, not a one-shot interpretation of a task description.
 
 ### Warm Start (Accumulated Context)
 
-Over time, the system observes how the human responds to completed work: what they correct, what they praise, what they silently accept, and what they reject. These observations accumulate into institutional memory. In warm-start mode, the agent pre-populates intent elements and escalation posture inferred from prior interactions — presented for confirmation, not silently assumed. Corrections to pre-populated intent are high-value signal that the model has diverged from reality. See [Learning System](learning-system.md) for how this memory is stored and retrieved.
+Over time, the proxy observes how the human responds — what they correct, what they praise, what they silently accept, and what they reject — and builds a model of their preferences and priorities. In warm-start mode, the proxy can predict most of the human's answers from prior interactions. The intake dialog compresses: the proxy answers its own questions, surfacing predictions as assumptions ("Based on our past work, I'm assuming X — correct me if wrong"). Only genuinely uncertain questions reach the human.
+
+The intent lead pre-populates intent elements and escalation posture inferred from the proxy's predictions — presented for confirmation, not silently assumed. Corrections to pre-populated intent or to proxy assumptions are high-value signal that the model has diverged from reality. See [Learning System](learning-system.md) for how this memory is stored and retrieved, and [Human Proxies](human-proxies.md) for how the prediction-comparison loop calibrates the proxy over time.
 
 ### Least-Regret Escalation
 
