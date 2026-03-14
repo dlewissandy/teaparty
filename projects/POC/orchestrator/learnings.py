@@ -21,6 +21,7 @@ memory stores. Implements all 10 scopes of the promote_learnings.sh pipeline:
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 
@@ -33,27 +34,36 @@ async def extract_learnings(
     task: str,
     poc_root: str,
 ) -> None:
-    """Run the full learning extraction pipeline for a completed session."""
+    """Run the full learning extraction pipeline for a completed session.
+
+    Each extraction step calls synchronous code that blocks on subprocess.run()
+    (claude CLI invocations).  We run each step via asyncio.to_thread() so the
+    event loop stays responsive — the TUI can render, process input, and show
+    progress while extraction proceeds in background threads.
+    """
     scripts_dir = os.path.join(poc_root, 'scripts')
 
     # ── Intent-stream scopes (original 3) ─────────────────────────────────────
 
     # Extract observations → proxy.md
-    _run_summarize(
+    await asyncio.to_thread(
+        _run_summarize,
         scripts_dir, infra_dir,
         scope='observations',
         output=os.path.join(project_dir, 'proxy.md'),
     )
 
     # Extract escalation → proxy-tasks/
-    _run_summarize(
+    await asyncio.to_thread(
+        _run_summarize,
         scripts_dir, infra_dir,
         scope='escalation',
         output=os.path.join(project_dir, 'proxy-tasks'),
     )
 
     # Extract intent-alignment → tasks/
-    _run_summarize(
+    await asyncio.to_thread(
+        _run_summarize,
         scripts_dir, infra_dir,
         scope='intent-alignment',
         output=os.path.join(project_dir, 'tasks'),
@@ -61,14 +71,16 @@ async def extract_learnings(
 
     # ── Rollup scopes ─────────────────────────────────────────────────────────
 
-    _promote_team(infra_dir=infra_dir, scripts_dir=scripts_dir)
-    _promote_session(infra_dir=infra_dir, scripts_dir=scripts_dir)
-    _promote_project(
+    await asyncio.to_thread(_promote_team, infra_dir=infra_dir, scripts_dir=scripts_dir)
+    await asyncio.to_thread(_promote_session, infra_dir=infra_dir, scripts_dir=scripts_dir)
+    await asyncio.to_thread(
+        _promote_project,
         infra_dir=infra_dir,
         project_dir=project_dir,
         scripts_dir=scripts_dir,
     )
-    _promote_global(
+    await asyncio.to_thread(
+        _promote_global,
         project_dir=project_dir,
         scripts_dir=scripts_dir,
         session_dir=infra_dir,
@@ -76,17 +88,20 @@ async def extract_learnings(
 
     # ── Temporal scopes ───────────────────────────────────────────────────────
 
-    _promote_prospective(
+    await asyncio.to_thread(
+        _promote_prospective,
         infra_dir=infra_dir,
         project_dir=project_dir,
         scripts_dir=scripts_dir,
     )
-    _promote_in_flight(
+    await asyncio.to_thread(
+        _promote_in_flight,
         infra_dir=infra_dir,
         project_dir=project_dir,
         scripts_dir=scripts_dir,
     )
-    _promote_corrective(
+    await asyncio.to_thread(
+        _promote_corrective,
         infra_dir=infra_dir,
         project_dir=project_dir,
         scripts_dir=scripts_dir,
