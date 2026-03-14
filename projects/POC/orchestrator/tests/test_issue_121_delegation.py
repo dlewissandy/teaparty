@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
 """Regression tests for issue #121: execution lead must delegate, not do work itself.
 
-Root causes:
+Root causes (original):
  1. Execution phase permissions.allow missing SendMessage and Bash —
     the lead can't talk to liaisons, liaisons can't run dispatch_cli.py
  2. Project-lead prompt doesn't mention SendMessage as a delegation tool
  3. Liaison prompts reference nonexistent dispatch.sh instead of dispatch_cli.py
+
+Corrected dispatch mechanism (follow-up fix):
+ 4. The lead was told to use SendMessage to delegate — but SendMessage only queues
+    inbox messages; it doesn't spawn agent processes.  Liaisons were never started.
+    Fix: the lead now uses Task to spawn each liaison as a background agent, then
+    uses SendMessage for follow-up coordination with already-running agents.
+    Task and TaskOutput must be in execution phase permissions.allow.
 
 These tests verify the configuration is correct at the source-of-truth level
 (phase-config.json, agent definition files) so the bug cannot silently regress.
@@ -49,9 +56,9 @@ class TestExecutionPhasePermissions(unittest.TestCase):
         self.allowed = self.exec_spec.settings_overlay.get('permissions', {}).get('allow', [])
 
     def test_sendmessage_is_allowed(self):
-        """SendMessage must be in permissions.allow — the lead uses it to delegate to liaisons."""
+        """SendMessage must be in permissions.allow — the lead uses it to coordinate with running liaisons."""
         self.assertIn('SendMessage', self.allowed,
-                      "Execution lead cannot delegate without SendMessage permission")
+                      "Execution lead cannot coordinate without SendMessage permission")
 
     def test_bash_is_allowed(self):
         """Bash must be in permissions.allow — liaisons use it to run dispatch_cli.py."""
@@ -66,41 +73,159 @@ class TestExecutionPhasePermissions(unittest.TestCase):
         """Edit must be in permissions.allow."""
         self.assertIn('Edit', self.allowed)
 
+    def test_task_is_allowed(self):
+        """Task must be in permissions.allow — the lead uses it to spawn liaison background agents."""
+        self.assertIn('Task', self.allowed,
+                      "Execution lead cannot spawn liaisons without Task permission")
+
+    def test_taskoutput_is_allowed(self):
+        """TaskOutput must be in permissions.allow — the lead uses it to check liaison progress."""
+        self.assertIn('TaskOutput', self.allowed,
+                      "Execution lead cannot monitor liaisons without TaskOutput permission")
+
 
 # ── Test: project-lead prompt mentions SendMessage ────────────────────────────
 
 class TestProjectLeadPrompt(unittest.TestCase):
-    """The project-lead prompt must instruct delegation via SendMessage."""
+    """The project-lead prompt must instruct correct delegation: Task to spawn, SendMessage to coordinate."""
 
     def setUp(self):
         agents = _load_agents_file('uber-team.json')
         self.prompt = agents['project-lead']['prompt']
+        exec_idx = self.prompt.find('EXECUTION PHASE')
+        self.assertGreater(exec_idx, -1, "Prompt must contain an EXECUTION PHASE section")
+        self.exec_section = self.prompt[exec_idx:]
 
     def test_prompt_mentions_sendmessage(self):
         """The prompt must tell the lead that SendMessage is available."""
         self.assertIn('SendMessage', self.prompt,
-                      "Lead prompt must mention SendMessage so the agent knows how to delegate")
+                      "Lead prompt must mention SendMessage so the agent knows how to coordinate")
 
     def test_prompt_instructs_delegation_via_sendmessage(self):
-        """The execution phase section must explicitly instruct SendMessage-based delegation."""
-        # Find the execution phase section
-        exec_idx = self.prompt.find('EXECUTION PHASE')
-        self.assertGreater(exec_idx, -1, "Prompt must contain an EXECUTION PHASE section")
-        exec_section = self.prompt[exec_idx:]
-        self.assertIn('SendMessage', exec_section,
-                      "EXECUTION PHASE section must reference SendMessage for delegation")
+        """The execution phase section must reference SendMessage (for follow-up coordination)."""
+        self.assertIn('SendMessage', self.exec_section,
+                      "EXECUTION PHASE section must reference SendMessage for coordination")
 
     def test_prompt_discourages_direct_file_reading(self):
         """The prompt must tell the lead NOT to read source files directly."""
-        exec_idx = self.prompt.find('EXECUTION PHASE')
-        exec_section = self.prompt[exec_idx:]
-        # Should contain guidance against reading source files
         self.assertTrue(
-            'NOT read source files' in exec_section or
-            'Do not read source files' in exec_section or
-            'not read source' in exec_section.lower(),
+            'NOT read source files' in self.exec_section or
+            'Do not read source files' in self.exec_section or
+            'not read source' in self.exec_section.lower(),
             "EXECUTION PHASE must discourage direct source file reading"
         )
+
+    def test_prompt_mentions_task_tool_in_execution_phase(self):
+        """The execution phase section must mention the Task tool for spawning liaisons."""
+        self.assertIn('Task', self.exec_section,
+                      "EXECUTION PHASE must mention Task tool for spawning liaison agents")
+
+    def test_prompt_mentions_taskoutput_in_execution_phase(self):
+        """The execution phase section must mention TaskOutput for monitoring liaison progress."""
+        self.assertIn('TaskOutput', self.exec_section,
+                      "EXECUTION PHASE must mention TaskOutput to monitor liaison progress")
+
+
+# ── Test: project-lead prompt — correct spawn/coordination split ──────────────
+
+class TestProjectLeadSpawnsLiaisons(unittest.TestCase):
+    """The project-lead prompt must use Task to spawn liaisons, not SendMessage."""
+
+    def setUp(self):
+        agents = _load_agents_file('uber-team.json')
+        self.prompt = agents['project-lead']['prompt']
+        exec_idx = self.prompt.find('EXECUTION PHASE')
+        self.assertGreater(exec_idx, -1, "Prompt must contain an EXECUTION PHASE section")
+        self.exec_section = self.prompt[exec_idx:]
+
+    def test_execution_phase_has_spawning_liaisons_section(self):
+        """The execution phase must have a SPAWNING LIAISONS section."""
+        self.assertIn('SPAWNING LIAISONS', self.exec_section,
+                      "EXECUTION PHASE must contain a SPAWNING LIAISONS section")
+
+    def test_task_is_spawn_mechanism(self):
+        """The SPAWNING LIAISONS section must identify Task as the tool used to spawn liaisons."""
+        spawn_idx = self.exec_section.find('SPAWNING LIAISONS')
+        self.assertGreater(spawn_idx, -1)
+        # Grab text from that section heading forward
+        spawn_section = self.exec_section[spawn_idx:]
+        self.assertTrue(
+            'Task tool' in spawn_section or
+            'Task(' in spawn_section or
+            'spawn' in spawn_section,
+            "SPAWNING LIAISONS section must describe the Task tool as the spawn mechanism"
+        )
+
+    def test_taskoutput_mentioned_for_monitoring(self):
+        """The prompt must tell the lead to use TaskOutput to check liaison progress."""
+        self.assertTrue(
+            'TaskOutput' in self.exec_section,
+            "EXECUTION PHASE must tell the lead to use TaskOutput to monitor liaison progress"
+        )
+
+    def test_task_is_not_cfa_task(self):
+        """The prompt must distinguish the Task tool from a CfA (Commit for Approval) task."""
+        # The prompt should contain language clarifying Task-tool vs CfA task
+        self.assertTrue(
+            'NOT a CfA task' in self.exec_section or
+            'not a CfA task' in self.exec_section or
+            'background agent' in self.exec_section or
+            'runs independently' in self.exec_section,
+            "EXECUTION PHASE must clarify that Task spawns a background agent, not a CfA task"
+        )
+
+    def test_sendmessage_not_used_to_start_work(self):
+        """The prompt must warn against using SendMessage alone to start work."""
+        self.assertTrue(
+            'do NOT use SendMessage to start' in self.exec_section or
+            'do not use SendMessage to start' in self.exec_section.lower() or
+            'not running, nobody reads it' in self.exec_section or
+            'SendMessage to start work' in self.exec_section,
+            "EXECUTION PHASE must warn that SendMessage cannot start work on its own"
+        )
+
+    def test_coordination_section_present(self):
+        """The execution phase must have a COORDINATION section."""
+        self.assertIn('COORDINATION', self.exec_section,
+                      "EXECUTION PHASE must contain a COORDINATION section")
+
+    def test_dispatch_pattern_section_present(self):
+        """The execution phase must have a DISPATCH PATTERN section."""
+        self.assertIn('DISPATCH PATTERN', self.exec_section,
+                      "EXECUTION PHASE must contain a DISPATCH PATTERN section")
+
+    def test_dispatch_pattern_starts_with_task(self):
+        """The DISPATCH PATTERN section must instruct spawning via Task as the first step."""
+        pattern_idx = self.exec_section.find('DISPATCH PATTERN')
+        self.assertGreater(pattern_idx, -1)
+        pattern_section = self.exec_section[pattern_idx:]
+        # The first substantive action step should mention Task or spawn
+        self.assertTrue(
+            'Task' in pattern_section,
+            "DISPATCH PATTERN must include the Task tool in its step-by-step instructions"
+        )
+
+    def test_dispatch_pattern_includes_taskoutput_step(self):
+        """The DISPATCH PATTERN section must include a TaskOutput monitoring step."""
+        pattern_idx = self.exec_section.find('DISPATCH PATTERN')
+        self.assertGreater(pattern_idx, -1)
+        pattern_section = self.exec_section[pattern_idx:]
+        self.assertIn('TaskOutput', pattern_section,
+                      "DISPATCH PATTERN must include a TaskOutput step for monitoring progress")
+
+    def test_each_liaison_mentioned_in_prompt(self):
+        """All five liaison names must appear in the project-lead prompt."""
+        liaison_names = [
+            'art-liaison',
+            'writing-liaison',
+            'editorial-liaison',
+            'research-liaison',
+            'coding-liaison',
+        ]
+        for name in liaison_names:
+            with self.subTest(liaison=name):
+                self.assertIn(name, self.prompt,
+                              f"project-lead prompt must reference {name} so the lead knows it can be spawned")
 
 
 # ── Test: liaison prompts reference dispatch_cli.py, not dispatch.sh ──────────

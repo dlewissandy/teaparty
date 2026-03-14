@@ -41,7 +41,7 @@
       "escalation_file": ".task-escalation.md",
       "settings_overlay": {
         "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "SendMessage", "Bash"]
+          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "SendMessage", "Bash", "Task", "TaskOutput"]
         }
       }
     }
