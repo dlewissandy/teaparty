@@ -91,9 +91,7 @@ Humans interact primarily through agents. They can participate in job, project, 
 ## Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) -- Full conceptual model
-- [Engagements and Partnerships](docs/engagements-and-partnerships.md) -- Cross-org collaboration
 - [File Layout](docs/file-layout.md) -- Virtual file tree structure
-- [Workflows](docs/workflows.md) -- Workgroup-internal playbooks
 - [Agent Dispatch](docs/agent-dispatch.md) -- Message routing and team sessions
 - [Sandbox Design](docs/sandbox-design.md) -- Future: Docker containers and git integration
 - [Cognitive Architecture](docs/cognitive-architecture.md) -- Future: Agent learning and memory

@@ -152,7 +152,7 @@ Note: Codes 10 and 11 are agent-mode-only exits that bubble up through dispatch.
 | Remove `.running` sentinel on completion | yes | yes | [PASS] |
 | Output JSON result with CfA fields to stdout | yes (jq-built JSON with 10+ fields) | yes (simpler dict with 5 fields) | [GAP] Missing fields: `output_files`, `cfa_state`, `cfa_backtrack`, `backtrack_reason`, `escalation_context`, `dispatch_retries`, `exit_code` |
 | Post-dispatch: `summarize_session.py` in background | yes | not done | [GAP] |
-| `DispatchRunner` class in actors.py | — | exists but is not called by `dispatch_cli.py` or `engine.py`; `dispatch_cli.py` creates `Orchestrator` directly | [GAP] `DispatchRunner` is dead code relative to the current wiring |
+| `DispatchRunner` class in actors.py | — | Deleted — subprocess isolation via `dispatch_cli.py` is the intended design (process boundary = context isolation) | [RESOLVED] |
 
 ---
 
@@ -327,7 +327,7 @@ claude -p
 55. Worktree manifest `complete`/`fail` update absent
 56. JSON result missing 7 fields vs shell version
 57. Post-dispatch `summarize_session.py` background call absent
-58. `DispatchRunner` (actors.py) is dead code — not wired into dispatch_cli.py or engine.py
+58. ~~`DispatchRunner` (actors.py) is dead code~~ — RESOLVED: deleted. Subprocess isolation is the intended design.
 
 **A5 — learnings.py (8 gaps):**
 59. `--scope team` rollup absent

@@ -37,12 +37,11 @@ nav:
     - Hierarchical Memory & Learning: learning-system.md
     - Hierarchical Teams: hierarchical-teams.md
     - Human Proxy Agents: human-proxies.md
-  - Implementation:
-    - POC Architecture: poc-architecture.md
+  - Detailed Design:
+    - Overview: detailed-design/index.md
+    - Agent Runtime: detailed-design/agent-runtime.md
+    - CfA State Machine: detailed-design/cfa-state-machine.md
+    - Approval Gate: detailed-design/approval-gate.md
+    - Learning System: detailed-design/learning-system.md
     - Folder Structure: folder-structure.md
-    - Engagements & Partnerships: engagements-and-partnerships.md
     - Agent Dispatch: agent-dispatch.md
-    - Workflows: workflows.md
-  - Research:
-    - Cognitive Architecture: cognitive-architecture.md
-    - Research Index: research/INDEX.md

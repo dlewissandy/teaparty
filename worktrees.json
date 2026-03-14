@@ -345,6 +345,36 @@
       "session_id": "20260313-142239",
       "created_at": "2026-03-13T21:22:40.008122+00:00",
       "status": "active"
+    },
+    {
+      "name": "session-102137--i-would-like-to-create-a-short",
+      "path": "/Users/darrell/git/teaparty/projects/joke-book/.worktrees/session-102137--i-would-like-to-create-a-short",
+      "type": "session",
+      "team": "",
+      "task": "I would like to create a short (5-7 chapter) book on the history of the knock-knock joke.",
+      "session_id": "20260314-102137",
+      "created_at": "2026-03-14T17:21:37.475384+00:00",
+      "status": "active"
+    },
+    {
+      "name": "session-110222--i-would-like-to-write-a-short-",
+      "path": "/Users/darrell/git/teaparty/projects/joke-book/.worktrees/session-110222--i-would-like-to-write-a-short-",
+      "type": "session",
+      "team": "",
+      "task": "I would like to write a short, well researched book ( 5- 7 chapters) on the history of the knock-knock joke.",
+      "session_id": "20260314-110222",
+      "created_at": "2026-03-14T18:02:22.587096+00:00",
+      "status": "active"
+    },
+    {
+      "name": "session-111100--i-would-like-your-assistance-i",
+      "path": "/Users/darrell/git/teaparty/projects/joke-book/.worktrees/session-111100--i-would-like-your-assistance-i",
+      "type": "session",
+      "team": "",
+      "task": "I would like your assistance in writing a well researched book (5-7 chapters) on the history of the knock-knock joke.",
+      "session_id": "20260314-111100",
+      "created_at": "2026-03-14T18:11:01.073072+00:00",
+      "status": "active"
     }
   ]
 }
