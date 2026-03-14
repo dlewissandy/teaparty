@@ -82,3 +82,15 @@ This is bootstrapping in progress. Every page in this documentation, every archi
 {% endif %}{% endfor %}
 
 The full research bibliography is in [Research Library →](research/INDEX.md).
+
+## Experimental Results
+
+The architectural claims above are testable. The [Experimental Results](experimental-results/index.md) section defines ablative experiments for each pillar — isolating individual design choices and measuring their impact on quality, cost, and human time.
+
+- [CfA Backtrack Effectiveness →](experimental-results/cfa-backtrack-effectiveness.md)
+- [Hierarchical vs. Flat Coordination →](experimental-results/hierarchical-vs-flat-coordination.md)
+- [Liaison Context Compression →](experimental-results/liaison-context-compression.md)
+- [Proxy Convergence →](experimental-results/proxy-convergence.md)
+- [Asymmetric Regret Calibration →](experimental-results/asymmetric-regret-calibration.md)
+- [Scoped vs. Flat Retrieval →](experimental-results/scoped-vs-flat-retrieval.md)
+- [Cost-Quality Frontier →](experimental-results/cost-quality-frontier.md)

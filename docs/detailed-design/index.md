@@ -33,6 +33,12 @@ The conceptual design rests on four pillars. Here is an honest assessment of eac
 
 **Learning as foundation.** The human proxy's retrieval-backed prediction depends on the learning system's scoped retrieval. The intake dialog depends on having proxy learnings to predict from. The planning warm start depends on procedural learning (skills). These dependencies mean the learning system is a prerequisite for the other three pillars to reach their full conceptual design — and the learning system has the largest implementation gap.
 
+---
+
+## Experimental Results
+
+Ablative experiments designed to validate each pillar's architectural claims are documented in [Experimental Results →](../experimental-results/index.md).
+
 **Engagement orchestration.** The conceptual design describes a full engagement lifecycle (proposed → accepted → in_progress → completed → reviewed) with partnerships (directional trust, cycle prevention) and org lead orchestration (negotiation, decomposition into projects/jobs, feedback bubble-up). The POC implements two-level dispatch but not the full engagement orchestration loop.
 
 **Dispatch completeness.** The subprocess dispatch path works but has gaps against the original shell scripts: missing merge conflict retry, LLM-generated commit messages, worktree manifest updates, and 7 JSON result fields. Issues [#15–#71](https://github.com/dlewissandy/teaparty/issues/15) track these at a granular level.

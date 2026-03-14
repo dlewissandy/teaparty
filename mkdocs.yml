@@ -45,3 +45,12 @@ nav:
     - Learning System: detailed-design/learning-system.md
     - Folder Structure: folder-structure.md
     - Agent Dispatch: agent-dispatch.md
+  - Experimental Results:
+    - Overview: experimental-results/index.md
+    - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
+    - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
+    - Liaison Context Compression: experimental-results/liaison-context-compression.md
+    - Proxy Convergence: experimental-results/proxy-convergence.md
+    - Asymmetric Regret Calibration: experimental-results/asymmetric-regret-calibration.md
+    - Scoped vs. Flat Retrieval: experimental-results/scoped-vs-flat-retrieval.md
+    - Cost-Quality Frontier: experimental-results/cost-quality-frontier.md
