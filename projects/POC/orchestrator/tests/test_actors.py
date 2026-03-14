@@ -1194,9 +1194,13 @@ class TestGenerateWorkSummary(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        # Create a bare git repo so git log commands work
-        _run_sync('git', 'init', cwd=self.tmpdir)
+        # Simulate real session branching: commits on main, then branch off.
+        # This ensures _generate_work_summary scopes to session-only commits
+        # and doesn't leak main's history (Issue #127).
+        _run_sync('git', 'init', '-b', 'main', cwd=self.tmpdir)
         _run_sync('git', 'commit', '--allow-empty', '-m', 'initial', cwd=self.tmpdir)
+        _run_sync('git', 'commit', '--allow-empty', '-m', 'main: unrelated work', cwd=self.tmpdir)
+        _run_sync('git', 'checkout', '-b', 'session-branch', cwd=self.tmpdir)
 
     def tearDown(self):
         import shutil
@@ -1259,6 +1263,18 @@ class TestGenerateWorkSummary(unittest.TestCase):
         self.assertTrue(os.path.exists(summary_path))
         content = Path(summary_path).read_text()
         self.assertIn('Work Summary', content)
+
+    def test_excludes_main_history(self):
+        """Work summary must not include commits from main (Issue #127)."""
+        from projects.POC.orchestrator.actors import _generate_work_summary
+        self._add_dispatch_commit('coding: session work')
+
+        _run(_generate_work_summary(self.tmpdir))
+
+        content = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
+        self.assertIn('session work', content)
+        self.assertNotIn('initial', content)
+        self.assertNotIn('unrelated work', content)
 
 
 class TestInterpretOutputExecutionArtifact(unittest.TestCase):

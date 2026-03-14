@@ -95,10 +95,17 @@ async def _generate_work_summary(worktree: str) -> None:
     """
     from projects.POC.orchestrator.merge import git_output
 
+    # Scope the log to session-only commits by finding where the branch
+    # diverged from main.  Without this, the entire main history leaks
+    # into the work summary (Issue #127).
+    merge_base = (await git_output(worktree, 'merge-base', 'HEAD', 'main')).strip()
+    range_spec = f'{merge_base}..HEAD' if merge_base else 'HEAD'
+
     # Get dispatch merge commits with per-commit file stats,
     # filtering out WIP infrastructure commits from merge.py.
     log_output = await git_output(
         worktree, 'log',
+        range_spec,
         '--format=### %s%n%n%b',
         '--stat',
         '--reverse',
