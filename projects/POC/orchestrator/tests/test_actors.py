@@ -1317,6 +1317,200 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
         self.assertTrue(result.data.get('artifact_missing'))
 
 
+class TestRelocateMisplacedArtifact(unittest.TestCase):
+    """Artifacts written anywhere must be moved to the worktree via stream parsing."""
+
+    def setUp(self):
+        self.worktree = tempfile.mkdtemp()
+        self.stream_dir = tempfile.mkdtemp()
+        self.stream_file = os.path.join(self.stream_dir, '.intent-stream.jsonl')
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.worktree, ignore_errors=True)
+        shutil.rmtree(self.stream_dir, ignore_errors=True)
+
+    def _write_stream_with_write_call(self, file_path: str):
+        """Write a stream JSONL with a Write tool call to file_path."""
+        import json as _json
+        event = {
+            'type': 'assistant',
+            'message': {
+                'content': [{
+                    'type': 'tool_use',
+                    'name': 'Write',
+                    'input': {'file_path': file_path, 'content': '# test'},
+                }],
+            },
+        }
+        with open(self.stream_file, 'w') as f:
+            f.write(_json.dumps(event) + '\n')
+
+    def test_relocates_artifact_found_via_stream(self):
+        """INTENT.md written to arbitrary path is moved to worktree root."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        # Agent wrote to some random absolute path
+        wrong_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(wrong_dir, 'INTENT.md')
+        Path(misplaced).write_text('# Intent\nObjective: test')
+        self._write_stream_with_write_call(misplaced)
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
+        self.assertFalse(os.path.exists(misplaced))
+        import shutil
+        shutil.rmtree(wrong_dir, ignore_errors=True)
+
+    def test_relocates_from_repo_root(self):
+        """INTENT.md written to repo root (real failure case) is relocated."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        repo_root = tempfile.mkdtemp()
+        misplaced = os.path.join(repo_root, 'INTENT.md')
+        Path(misplaced).write_text('# Intent\nRepo root write')
+        self._write_stream_with_write_call(misplaced)
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
+        self.assertFalse(os.path.exists(misplaced))
+        import shutil
+        shutil.rmtree(repo_root, ignore_errors=True)
+
+    def test_relocates_from_project_dir(self):
+        """INTENT.md written to project dir (other real failure case) is relocated."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        project_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(project_dir, 'INTENT.md')
+        Path(misplaced).write_text('# Intent\nProject dir write')
+        self._write_stream_with_write_call(misplaced)
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
+        import shutil
+        shutil.rmtree(project_dir, ignore_errors=True)
+
+    def test_no_op_when_artifact_already_in_worktree(self):
+        """If artifact is already in the worktree, nothing is moved."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        correct = os.path.join(self.worktree, 'INTENT.md')
+        Path(correct).write_text('# Intent\nCorrect location')
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        self.assertFalse(result)
+        self.assertEqual(Path(correct).read_text(), '# Intent\nCorrect location')
+
+    def test_no_op_when_no_write_in_stream(self):
+        """If stream has no Write calls for the artifact, returns False."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        # Empty stream
+        with open(self.stream_file, 'w') as f:
+            f.write('')
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        self.assertFalse(result)
+
+    def test_no_op_when_stream_file_missing(self):
+        """If stream file doesn't exist, returns False."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, '/nonexistent/stream.jsonl', 'INTENT.md',
+        )
+
+        self.assertFalse(result)
+
+    def test_works_for_plan_artifact(self):
+        """Relocation works for PLAN.md too."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        wrong_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(wrong_dir, 'PLAN.md')
+        Path(misplaced).write_text('# Plan\nStep 1')
+        self._write_stream_with_write_call(misplaced)
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'PLAN.md',
+        )
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(os.path.join(self.worktree, 'PLAN.md')))
+        import shutil
+        shutil.rmtree(wrong_dir, ignore_errors=True)
+
+    def test_works_for_escalation_file(self):
+        """Relocation works for escalation files."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        wrong_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(wrong_dir, '.intent-escalation.md')
+        Path(misplaced).write_text('Question 1')
+        self._write_stream_with_write_call(misplaced)
+
+        result = _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, '.intent-escalation.md',
+        )
+
+        self.assertTrue(result)
+        self.assertTrue(os.path.exists(
+            os.path.join(self.worktree, '.intent-escalation.md')))
+        import shutil
+        shutil.rmtree(wrong_dir, ignore_errors=True)
+
+    def test_end_to_end_relocate_then_interpret(self):
+        """End-to-end: misplaced artifact is relocated, then _interpret_output finds it."""
+        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
+
+        wrong_dir = tempfile.mkdtemp()
+        misplaced = os.path.join(wrong_dir, 'INTENT.md')
+        Path(misplaced).write_text('# Intent\nObjective: end-to-end test')
+        self._write_stream_with_write_call(misplaced)
+
+        _relocate_misplaced_artifact(
+            self.worktree, self.stream_file, 'INTENT.md',
+        )
+
+        runner = AgentRunner()
+        spec = _make_phase_spec(artifact='INTENT.md')
+        ctx = _make_ctx(
+            state='PROPOSAL',
+            session_worktree=self.worktree,
+            phase_spec=spec,
+        )
+
+        result = runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertNotIn('artifact_missing', result.data)
+        self.assertEqual(
+            result.data.get('artifact_path'),
+            os.path.join(self.worktree, 'INTENT.md'),
+        )
+        import shutil
+        shutil.rmtree(wrong_dir, ignore_errors=True)
+
+
 def _run_sync(*args, cwd=None):
     """Run a command synchronously for test setup."""
     import subprocess as sp

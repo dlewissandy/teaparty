@@ -191,6 +191,22 @@ class AgentRunner:
             if not os.path.exists(artifact_path):
                 _relocate_plan_file(artifact_path, result.start_time)
 
+        # Relocate misplaced artifacts: agents sometimes write to arbitrary
+        # absolute paths instead of the session worktree (their cwd).  Parse
+        # the stream JSONL to find where the agent actually wrote, and move
+        # the file to the worktree so the approval gate and TUI always find it.
+        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+        if ctx.phase_spec.artifact:
+            _relocate_misplaced_artifact(
+                ctx.session_worktree, stream_path,
+                ctx.phase_spec.artifact,
+            )
+            if ctx.phase_spec.escalation_file:
+                _relocate_misplaced_artifact(
+                    ctx.session_worktree, stream_path,
+                    ctx.phase_spec.escalation_file,
+                )
+
         # Generate work summary for execution phase (Issue #116).
         # Only at WORK_IN_PROGRESS — this is where the lead has finished
         # delegating and the summary should reflect all dispatch merges.
@@ -325,6 +341,81 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
 
 
 # ── Artifact search ─────────────────────────────────────────────────────────
+
+
+def _relocate_misplaced_artifact(
+    worktree: str, stream_file: str, artifact_name: str,
+) -> bool:
+    """Move an artifact to the worktree if the agent wrote it elsewhere.
+
+    Parses the stream JSONL to find the actual path the agent used in its
+    Write tool call.  If the file was written outside the worktree, moves
+    it to worktree/<artifact_name>.
+
+    This is deterministic and location-agnostic — it doesn't guess where
+    the agent might have written; it reads where it actually did write.
+
+    Returns True if a file was relocated.
+    """
+    expected = os.path.join(worktree, artifact_name)
+    if os.path.exists(expected):
+        return False  # already in the right place
+
+    # Parse stream JSONL for Write tool calls matching the artifact name
+    actual_path = _find_write_path_in_stream(stream_file, artifact_name)
+    if not actual_path:
+        return False
+
+    if not os.path.isfile(actual_path):
+        return False  # agent wrote it but file is gone (shouldn't happen)
+
+    try:
+        shutil.move(actual_path, expected)
+        _actor_log.info(
+            'Relocated misplaced artifact: %s → %s', actual_path, expected,
+        )
+        return True
+    except OSError:
+        _actor_log.warning(
+            'Failed to relocate artifact: %s → %s', actual_path, expected,
+            exc_info=True,
+        )
+        return False
+
+
+def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
+    """Scan a stream JSONL file for the last Write tool call that wrote artifact_name.
+
+    Returns the absolute file_path from the Write tool input, or '' if not found.
+    """
+    import json as _json
+
+    if not stream_file or not os.path.isfile(stream_file):
+        return ''
+
+    last_path = ''
+    try:
+        with open(stream_file) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except ValueError:
+                    continue
+                for block in evt.get('message', {}).get('content', []):
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get('name') != 'Write':
+                        continue
+                    file_path = block.get('input', {}).get('file_path', '')
+                    if file_path and os.path.basename(file_path) == artifact_name:
+                        last_path = file_path
+    except OSError:
+        pass
+
+    return last_path
 
 
 def _find_artifact(worktree: str, artifact_name: str) -> str:
