@@ -1,13 +1,20 @@
-"""Unit tests for merge.py and the ApprovalGate elapsed-time guard in actors.py.
+"""Tests for merge.py and the ApprovalGate elapsed-time guard in actors.py.
 
 Covers:
   - _is_excluded() filter logic
   - MergeConflictEscalation exception attributes
   - ApprovalGate._proxy_decide() elapsed-time guard (Issue #122)
+  - Integration: squash_merge with real git repos reproducing #123 scenario
+  - Integration: infrastructure files excluded from merge
+  - Integration: -X theirs conflict resolution
+  - Integration: post-merge verification catches missing/truncated files
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -20,7 +27,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from projects.POC.orchestrator.merge import _is_excluded, MergeConflictEscalation
+from projects.POC.orchestrator.merge import (
+    _is_excluded, MergeConflictEscalation, squash_merge, commit_deliverables,
+    _verify_merge,
+)
 from projects.POC.orchestrator.actors import ApprovalGate, MIN_EXECUTION_SECONDS
 from projects.POC.scripts.approval_gate import make_model, record_outcome, save_model
 
@@ -364,6 +374,373 @@ class TestElapsedTimeGuard(unittest.TestCase):
         finally:
             if os.path.exists(proxy_path):
                 os.unlink(proxy_path)
+
+
+# ── Integration test helpers ──────────────────────────────────────────────────
+
+def _git(cwd, *args):
+    """Run a git command synchronously, raise on failure."""
+    result = subprocess.run(
+        ['git'] + list(args),
+        cwd=cwd,
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f'git {" ".join(args)} failed in {cwd}: {result.stderr}'
+        )
+    return result.stdout.strip()
+
+
+def _make_repo(path):
+    """Initialize a bare-minimum git repo with one commit on 'main' branch."""
+    os.makedirs(path, exist_ok=True)
+    _git(path, 'init', '-b', 'main')
+    _git(path, 'config', 'user.email', 'test@test.com')
+    _git(path, 'config', 'user.name', 'Test')
+    # Initial commit so we have a HEAD
+    with open(os.path.join(path, 'README.md'), 'w') as f:
+        f.write('# Test repo\n')
+    _git(path, 'add', 'README.md')
+    _git(path, 'commit', '-m', 'initial commit')
+
+
+def _make_source_worktree(repo_root, branch_name='session-branch'):
+    """Create a worktree branching from the repo, simulating a session worktree."""
+    worktree_path = os.path.join(
+        os.path.dirname(repo_root), f'worktree-{branch_name}',
+    )
+    _git(repo_root, 'worktree', 'add', '-b', branch_name, worktree_path)
+    _git(worktree_path, 'config', 'user.email', 'test@test.com')
+    _git(worktree_path, 'config', 'user.name', 'Test')
+    return worktree_path
+
+
+# ── Integration tests: reproduce #123 scenario ──────────────────────────────
+
+class TestSquashMergeIntegration(unittest.TestCase):
+    """Integration tests that create real git repos and run squash_merge.
+
+    These reproduce the exact scenario from issue #123: a source worktree
+    with agent-produced source files plus infrastructure junk in the target.
+    """
+
+    def setUp(self):
+        """Create a temporary directory for each test's git repos."""
+        self.test_dir = tempfile.mkdtemp(prefix='merge-integration-')
+
+    def tearDown(self):
+        """Clean up temporary directories."""
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def _make_repos(self):
+        """Set up target repo + source worktree with initial commit."""
+        target = os.path.join(self.test_dir, 'target-repo')
+        _make_repo(target)
+        source = _make_source_worktree(target, 'session-branch')
+        return target, source
+
+    # ── Test: #123 reproduction — infrastructure files must NOT land ──────
+
+    def test_infrastructure_files_excluded_from_merge(self):
+        """Reproduce #123: source has real code, target has .DS_Store etc.
+
+        The merge must land the source code files and NOT include the
+        infrastructure files that exist in the target directory.
+        """
+        target, source = self._make_repos()
+
+        # Agent produces real source code in the source worktree
+        src_dir = os.path.join(source, 'src', 'entities')
+        os.makedirs(src_dir)
+        with open(os.path.join(src_dir, 'Snake.js'), 'w') as f:
+            f.write('// Snake entity\n' * 124)  # 124 lines like in #123
+        with open(os.path.join(src_dir, 'Crocodile.js'), 'w') as f:
+            f.write('// Crocodile entity\n' * 117)
+        scenes_dir = os.path.join(source, 'src', 'scenes')
+        os.makedirs(scenes_dir, exist_ok=True)
+        with open(os.path.join(scenes_dir, 'GameScene.js'), 'w') as f:
+            f.write('// Game scene - the core logic\n' * 533)
+        with open(os.path.join(source, 'PLAN.md'), 'w') as f:
+            f.write('# Plan\nImplement frogger features\n')
+        with open(os.path.join(source, 'INTENT.md'), 'w') as f:
+            f.write('# Intent\nAdd new game entities\n')
+
+        # Infrastructure junk in the TARGET (this is what #123 picked up)
+        with open(os.path.join(target, '.DS_Store'), 'wb') as f:
+            f.write(b'\x00\x00\x00\x01Bud1')
+        with open(os.path.join(target, '.memory.db'), 'wb') as f:
+            f.write(b'SQLite format 3\x00')
+        with open(os.path.join(target, '.proxy-confidence.json'), 'w') as f:
+            f.write('{"entries": {}}')
+        with open(os.path.join(target, 'worktrees.json'), 'w') as f:
+            f.write('{"worktrees": []}')
+
+        # Run the merge
+        asyncio.run(squash_merge(
+            source=source,
+            target=target,
+            message='Session test: frogger entities',
+        ))
+
+        # VERIFY: source code files MUST exist in target
+        self.assertTrue(
+            os.path.exists(os.path.join(target, 'src', 'entities', 'Snake.js')),
+            'Snake.js missing from target after merge',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(target, 'src', 'entities', 'Crocodile.js')),
+            'Crocodile.js missing from target after merge',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(target, 'src', 'scenes', 'GameScene.js')),
+            'GameScene.js missing from target after merge',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(target, 'PLAN.md')),
+            'PLAN.md missing from target after merge',
+        )
+        self.assertTrue(
+            os.path.exists(os.path.join(target, 'INTENT.md')),
+            'INTENT.md missing from target after merge',
+        )
+
+        # VERIFY: source code content is correct (not truncated)
+        with open(os.path.join(target, 'src', 'entities', 'Snake.js')) as f:
+            snake_lines = f.readlines()
+        self.assertEqual(len(snake_lines), 124,
+                         f'Snake.js should have 124 lines, got {len(snake_lines)}')
+
+        with open(os.path.join(target, 'src', 'scenes', 'GameScene.js')) as f:
+            scene_lines = f.readlines()
+        self.assertEqual(len(scene_lines), 533,
+                         f'GameScene.js should have 533 lines, got {len(scene_lines)}')
+
+        # VERIFY: infrastructure files are NOT in the git history
+        committed_files = _git(target, 'diff', '--name-only', 'HEAD~1', 'HEAD')
+        committed_list = committed_files.strip().splitlines()
+        for junk in ['.DS_Store', '.memory.db', '.proxy-confidence.json', 'worktrees.json']:
+            self.assertNotIn(junk, committed_list,
+                             f'{junk} should NOT be in the merge commit')
+
+    # ── Test: all source files land (no files dropped) ───────────────────
+
+    def test_all_source_files_land_on_target(self):
+        """Verify that ALL files from the source worktree are present in
+        the target after merge — not just a subset.
+
+        Issue #123 showed only 4 of 15 files landing. This test creates
+        15 files (matching the issue) and verifies all 15 are present.
+        """
+        target, source = self._make_repos()
+
+        # Create the exact file set from issue #123
+        files = {
+            'INTENT.md': '# Intent\n' * 50,
+            'PLAN.md': '# Plan\n' * 30,
+            'src/art/ui.js': '// UI art\n' * 25,
+            'src/config/levels.js': '// Level config\n' * 175,
+            'src/entities/Crocodile.js': '// Crocodile\n' * 117,
+            'src/entities/HomeCell.js': '// HomeCell\n' * 53,
+            'src/entities/LadyFrog.js': '// LadyFrog\n' * 90,
+            'src/entities/Otter.js': '// Otter\n' * 128,
+            'src/entities/PinkToad.js': '// PinkToad\n' * 98,
+            'src/entities/Snake.js': '// Snake\n' * 124,
+            'src/scenes/GameOverScene.js': '// GameOver\n' * 9,
+            'src/scenes/GameScene.js': '// GameScene\n' * 533,
+            'src/systems/CollisionSystem.js': '// Collision\n' * 273,
+            'src/systems/LaneSystem.js': '// Lane\n' * 3,
+            'style.css': 'body { margin: 0; }\n' * 24,
+        }
+
+        for relpath, content in files.items():
+            full = os.path.join(source, relpath)
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, 'w') as f:
+                f.write(content)
+
+        asyncio.run(squash_merge(
+            source=source,
+            target=target,
+            message='Session test: full frogger implementation',
+        ))
+
+        # Every single file must be present in target
+        for relpath, content in files.items():
+            full = os.path.join(target, relpath)
+            self.assertTrue(
+                os.path.exists(full),
+                f'{relpath} missing from target after merge',
+            )
+            with open(full) as f:
+                actual = f.read()
+            self.assertEqual(
+                actual, content,
+                f'{relpath} content differs — expected {len(content)} chars, '
+                f'got {len(actual)} chars',
+            )
+
+    # ── Test: merge with conflicts uses -X theirs ────────────────────────
+
+    def test_merge_with_conflicts_resolves_with_x_theirs(self):
+        """When target has diverged and both sides edit the same file,
+        the merge should resolve by taking the source (session) version.
+        """
+        target, source = self._make_repos()
+
+        # Both branches start with the same file (from initial commit base).
+        # Create the file on main first, then cherry-pick to session branch.
+        with open(os.path.join(target, 'shared.js'), 'w') as f:
+            f.write('// original version\nconst x = 1;\n')
+        _git(target, 'add', 'shared.js')
+        _git(target, 'commit', '-m', 'add shared.js on main')
+        base_sha = _git(target, 'rev-parse', 'HEAD')
+
+        # Cherry-pick the base commit into the source branch
+        _git(source, 'cherry-pick', base_sha)
+
+        # Now diverge: edit differently in source
+        with open(os.path.join(source, 'shared.js'), 'w') as f:
+            f.write('// session version - the completed work\nconst x = 42;\n')
+        _git(source, 'add', 'shared.js')
+        _git(source, 'commit', '-m', 'edit shared.js in session')
+
+        # And diverge on target too
+        with open(os.path.join(target, 'shared.js'), 'w') as f:
+            f.write('// target version - should be overwritten\nconst x = 999;\n')
+        _git(target, 'add', 'shared.js')
+        _git(target, 'commit', '-m', 'edit shared.js on main again')
+
+        asyncio.run(squash_merge(
+            source=source,
+            target=target,
+            message='Merge with conflict',
+        ))
+
+        # Source (session) version should win
+        with open(os.path.join(target, 'shared.js')) as f:
+            content = f.read()
+        self.assertIn('session version', content,
+                      'Source version should win on conflict')
+        self.assertNotIn('target version', content,
+                         'Target version should be overwritten')
+
+    # ── Test: commit_deliverables excludes infrastructure ────────────────
+
+    def test_commit_deliverables_excludes_infrastructure(self):
+        """commit_deliverables() should NOT stage .DS_Store, .memory.db, etc."""
+        target, source = self._make_repos()
+
+        # Create both real files and infrastructure junk in source
+        with open(os.path.join(source, 'app.js'), 'w') as f:
+            f.write('console.log("hello");\n')
+        with open(os.path.join(source, '.DS_Store'), 'wb') as f:
+            f.write(b'\x00\x00\x00\x01Bud1')
+        with open(os.path.join(source, '.memory.db'), 'wb') as f:
+            f.write(b'SQLite format 3\x00')
+
+        sha = asyncio.run(commit_deliverables(source, 'test commit'))
+        self.assertIsNotNone(sha, 'Should have committed something')
+
+        # Check what was committed
+        committed = _git(source, 'diff', '--name-only', 'HEAD~1', 'HEAD')
+        committed_list = committed.strip().splitlines()
+        self.assertIn('app.js', committed_list)
+        self.assertNotIn('.DS_Store', committed_list,
+                         '.DS_Store should not be committed')
+        self.assertNotIn('.memory.db', committed_list,
+                         '.memory.db should not be committed')
+
+    # ── Test: post-merge verification detects missing files ──────────────
+
+    def test_verify_merge_detects_missing_files(self):
+        """_verify_merge should log errors when source files are missing
+        from target after a merge.
+        """
+        target, source = self._make_repos()
+
+        # Source has a tracked file
+        with open(os.path.join(source, 'important.js'), 'w') as f:
+            f.write('// important code\n' * 100)
+        _git(source, 'add', 'important.js')
+        _git(source, 'commit', '-m', 'add important.js')
+
+        # Target does NOT have important.js (simulating a failed merge)
+        # We call _verify_merge directly
+        with self.assertLogs('orchestrator.merge', level='ERROR') as cm:
+            asyncio.run(_verify_merge(source, target))
+
+        # Should have logged an error about the missing file
+        error_messages = ' '.join(cm.output)
+        self.assertIn('important.js', error_messages)
+        self.assertIn('missing', error_messages.lower())
+
+    # ── Test: post-merge verification detects truncated files ────────────
+
+    def test_verify_merge_detects_truncated_files(self):
+        """_verify_merge should warn when files are significantly smaller
+        in target than in source (truncated during merge).
+        """
+        target, source = self._make_repos()
+
+        # Source has a large file
+        with open(os.path.join(source, 'GameScene.js'), 'w') as f:
+            f.write('// game scene\n' * 533)
+        _git(source, 'add', 'GameScene.js')
+        _git(source, 'commit', '-m', 'add GameScene')
+
+        # Target has a truncated version (< 50% of source size)
+        with open(os.path.join(target, 'GameScene.js'), 'w') as f:
+            f.write('// game scene\n' * 35)  # 35 lines vs 533 = ~6.5%
+        _git(target, 'add', 'GameScene.js')
+        _git(target, 'commit', '-m', 'add truncated GameScene')
+
+        with self.assertLogs('orchestrator.merge', level='ERROR') as cm:
+            asyncio.run(_verify_merge(source, target))
+
+        error_messages = ' '.join(cm.output)
+        self.assertIn('GameScene.js', error_messages)
+        self.assertIn('truncated', error_messages.lower())
+
+    # ── Test: conflict callback with escalation ──────────────────────────
+
+    def test_conflict_callback_escalation_raises(self):
+        """When conflict_callback returns 'escalate', squash_merge should
+        raise MergeConflictEscalation.
+        """
+        target, source = self._make_repos()
+
+        # Create a shared base: add config.js on main, cherry-pick to session
+        with open(os.path.join(target, 'config.js'), 'w') as f:
+            f.write('// original config\n')
+        _git(target, 'add', 'config.js')
+        _git(target, 'commit', '-m', 'add config on main')
+        base_sha = _git(target, 'rev-parse', 'HEAD')
+        _git(source, 'cherry-pick', base_sha)
+
+        # Diverge: different edits on both sides
+        with open(os.path.join(source, 'config.js'), 'w') as f:
+            f.write('// source version\n')
+        _git(source, 'add', 'config.js')
+        _git(source, 'commit', '-m', 'edit config in session')
+
+        with open(os.path.join(target, 'config.js'), 'w') as f:
+            f.write('// diverged target version\n')
+        _git(target, 'add', 'config.js')
+        _git(target, 'commit', '-m', 'diverge config on main')
+
+        async def escalate_callback(conflicted, src, tgt):
+            return 'escalate'
+
+        with self.assertRaises(MergeConflictEscalation) as ctx:
+            asyncio.run(squash_merge(
+                source=source,
+                target=target,
+                message='should escalate',
+                conflict_callback=escalate_callback,
+            ))
+
+        self.assertIn('config.js', ctx.exception.conflicted_files)
 
 
 if __name__ == '__main__':
