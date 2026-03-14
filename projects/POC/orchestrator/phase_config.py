@@ -32,6 +32,7 @@ class TeamSpec:
     name: str
     agent_file: str
     lead: str
+    planning_permission_mode: str = ''
 
 
 class PhaseConfig:
@@ -80,6 +81,7 @@ class PhaseConfig:
                 name=name,
                 agent_file=spec['agent_file'],
                 lead=spec['lead'],
+                planning_permission_mode=spec.get('planning_permission_mode', ''),
             )
 
         self.stall_timeout = raw.get('stall_timeout_seconds', 1800)

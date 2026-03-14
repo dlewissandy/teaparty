@@ -159,17 +159,13 @@ class Session:
         # 11. Commit deliverables
         await commit_deliverables(worktree_path, f'Session {self.session_id}: {self.task[:80]}')
 
-        # 12. Squash-merge session into main
+        # 12. Squash-merge session into main — the work is done, get it merged.
         if result.terminal_state == 'COMPLETED_WORK':
-            try:
-                main_worktree = repo_root
-                await squash_merge(
-                    source=worktree_path,
-                    target=main_worktree,
-                    message=f'Session {self.session_id}: {self.task[:80]}',
-                )
-            except Exception:
-                pass
+            await squash_merge(
+                source=worktree_path,
+                target=repo_root,
+                message=f'Session {self.session_id}: {self.task[:80]}',
+            )
 
         # 13. Extract learnings
         if result.terminal_state == 'COMPLETED_WORK':
@@ -435,15 +431,12 @@ class Session:
             )
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
-            try:
-                repo_root = _find_repo_root_from(project_dir)
-                await squash_merge(
-                    source=worktree_path,
-                    target=repo_root,
-                    message=f'Session {session_id} (resumed): {task[:80]}',
-                )
-            except Exception:
-                pass
+            repo_root = _find_repo_root_from(project_dir)
+            await squash_merge(
+                source=worktree_path,
+                target=repo_root,
+                message=f'Session {session_id} (resumed): {task[:80]}',
+            )
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
             await extract_learnings(

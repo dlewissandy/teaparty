@@ -31,6 +31,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 `#context-injection` `#retrieval` `#claude-code` `#openclaw`
 `#tui` `#ui-events` `#textual` `#widget`
 `#state-machine` `#async` `#orchestration` `#workflow`
+`#adjustable-autonomy` `#concept-drift` `#implicit-feedback` `#bandit` `#proxy-agent`
 
 ---
 
@@ -147,6 +148,33 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Cognitive Challenges in Human-AI Collaboration | Logg et al., 2022 | `#human-ai` `#trust` | Teams improve only when AI delegates to humans, not when humans delegate to AI — challenges assumptions about AI as pure assistant. | SUPPLEMENT §Theme 7 |
 | Theory of Mind for Multi-Agent Collaboration | 2024 | `#multi-agent` `#human-ai` | MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open. | COGARCH §5.1 |
 | Supporting Effortless Coordination (25 years of CSCW awareness research) | Gross, 2013 | `#human-ai` `#coordination` | Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture. | COGARCH §5.1 |
+
+---
+
+## Human Proxy Agent Design — Research Provenance
+
+Traces the research lineage behind specific mechanisms in TeaParty's human proxy agent (EMA confidence, asymmetric regret, exploration rate, cold start, staleness guard, adjustable autonomy, act-or-ask dilemma, dialog-pattern learning). See `docs/research/human-proxy-agent-design.md` for full citations and mapping notes.
+
+| Title | Authors, Year | Tags | One-line Summary | Source |
+|-------|--------------|------|-----------------|--------|
+| Trust, control strategies and allocation of function in human-machine systems | Lee & Moray, 1992 | `#trust` `#human-ai` `#proxy-agent` | ARMAV time-series model of trust: trust at t is a function of trust at t−1, task performance, and automation failures. Direct ancestor of EMA confidence tracking. | `human-proxy-agent-design.md` §1 |
+| Trust, self-confidence, and operators' adaptation to automation | Lee & Moray, 1994 | `#trust` `#human-ai` `#proxy-agent` | Trust and self-confidence jointly predict delegation decisions; confirms dynamic trust model from 1992 paper. | `human-proxy-agent-design.md` §1 |
+| The theory of statistical decision | Savage, 1951 | `#proxy-agent` | Minimax regret: choose the action minimizing worst-case opportunity cost. Conceptual ancestor of asymmetric regret weighting. | `human-proxy-agent-design.md` §2 |
+| Learning to Optimize Autonomy in Competence-Aware Systems | Basich et al., AAMAS 2020 | `#adjustable-autonomy` `#trust` `#proxy-agent` `#teaparty-direct` | CAS learns autonomy levels online via introspective competence model; formally treats asymmetric costs of acting-wrong vs. escalating-unnecessarily. | `human-proxy-agent-design.md` §2, §6 |
+| Finite-time analysis of the multiarmed bandit problem | Auer, Cesa-Bianchi & Fischer, 2002 | `#bandit` `#proxy-agent` | Proves ongoing exploration is necessary even after strong estimates; epsilon-greedy with fixed epsilon is a valid strategy for non-stationary settings. | `human-proxy-agent-design.md` §3 |
+| Reinforcement Learning: An Introduction | Sutton & Barto, 2018 | `#bandit` `#proxy-agent` | Canonical formalization of epsilon-greedy exploration-exploitation tradeoff in bandit and RL settings. | `human-proxy-agent-design.md` §3 |
+| Methods and metrics for cold-start recommendations | Schein et al., SIGIR 2002 | `#proxy-agent` | Cold-start regime: predictions from fewer than a minimum observation count are statistically unreliable; default to safe fallback. | `human-proxy-agent-design.md` §4 |
+| Learning from time-changing data with adaptive windowing (ADWIN) | Bifet & Gavalda, SDM 2007 | `#concept-drift` `#proxy-agent` | ADWIN: variable-length window detects drift by comparing old vs. recent sub-window statistics; time-based forgetting is the simplest drift-adaptive strategy. | `human-proxy-agent-design.md` §5 |
+| A survey on concept drift adaptation | Gama et al., ACM CSUR 2014 | `#concept-drift` `#proxy-agent` | Human preference drift is typically gradual/recurring; periodic forced re-calibration is necessary even without obvious failure. | `human-proxy-agent-design.md` §5 |
+| FadeMem: Biologically-Inspired Forgetting for Efficient Agent Memory | Wei et al., 2026 | `#forgetting` `#proxy-agent` | Biologically-inspired exponential decay for agent memories; validates time-based staleness as a principled design choice. Preprint only. | `human-proxy-agent-design.md` §5 |
+| Human and Computer Control of Undersea Teleoperators | Sheridan & Verplank, 1978 | `#adjustable-autonomy` `#human-ai` | Origin of the 10-level automation taxonomy; levels 5–6 correspond to the proxy's conditional auto-approve behavior. | `human-proxy-agent-design.md` §6 |
+| A model for types and levels of human interaction with automation | Parasuraman, Sheridan & Wickens, 2000 | `#adjustable-autonomy` `#trust` `#human-ai` | 2D framework for automation (type × level); misuse and disuse are both failure modes; appropriate reliance is the goal. | `human-proxy-agent-design.md` §6 |
+| Adjustable autonomy for human-centered autonomous systems on Mars | Dorais, Bonasso, Kortenkamp, Pell & Schreckenghost, 1999 | `#adjustable-autonomy` `#human-ai` | Coined "adjustable autonomy" as the principle that systems vary autonomy level based on task context and demonstrated performance. | `human-proxy-agent-design.md` §6 |
+| Principles of mixed-initiative user interfaces | Horvitz, CHI 1999 | `#adjustable-autonomy` `#human-ai` `#proxy-agent` | Expected-utility framework for act-vs-ask decisions; both acting wrongly and interrupting unnecessarily have costs. Closest single source for the act-or-ask dilemma framing. | `human-proxy-agent-design.md` §7 |
+| Principles of adjustable interactions | Crandall & Goodrich, AAAI 2002 | `#adjustable-autonomy` `#proxy-agent` | Explicitly names the act-or-ask dilemma in HRI: acting autonomously risks task failure; asking risks operator overload. Both are costs to minimize. | `human-proxy-agent-design.md` §7 |
+| Optimizing search engines using clickthrough data | Joachims, KDD 2002 | `#implicit-feedback` `#proxy-agent` | Implicit signals (click patterns) encode preference without explicit ratings; relative signals are more reliable than absolute ones. Conceptual ancestor of dialog-pattern learning. | `human-proxy-agent-design.md` §8 |
+| Leveraging implicit feedback from deployment data in dialogue | Pang, Roller, Cho, He & Weston, EACL 2024 | `#implicit-feedback` `#proxy-agent` | Follow-up question type and content are informative about what the prior system turn failed to address; closest peer-reviewed precedent for learning from dialog review patterns. | `human-proxy-agent-design.md` §8 |
+| Logic and conversation | Grice, 1975 | `#implicit-feedback` `#proxy-agent` | Cooperative Principle and Quantity maxim: questions asked reveal what information is missing from the interlocutor's model; linguistic foundation for treating review questions as implicit feedback. | `human-proxy-agent-design.md` §8 |
 
 ---
 

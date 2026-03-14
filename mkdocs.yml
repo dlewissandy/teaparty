@@ -4,6 +4,8 @@ repo_url: https://github.com/dlewissandy/teaparty
 
 theme:
   name: material
+  logo: images/teaparty.png
+  favicon: images/teaparty.png
   palette:
     - scheme: default
       toggle:
@@ -14,6 +16,11 @@ theme:
         icon: material/brightness-4
         name: Switch to light mode
 
+plugins:
+  - search
+  - macros:
+      module_name: docs/hooks/macros
+
 markdown_extensions:
   - pymdownx.superfences:
       custom_fences:
@@ -23,9 +30,10 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Four Pillars:
-    - Conversation for Action: intent-engineering.md
-    - CfA State Machine: cfa-state-machine.md
+  - Conceptual Design:
+    - Agentic Conversation for Action: cfa-state-machine.md
+    - Intent Engineering: intent-engineering.md
+    - Strategic Planning: strategic-planning.md
     - Hierarchical Memory & Learning: learning-system.md
     - Hierarchical Teams: hierarchical-teams.md
     - Human Proxy Agents: human-proxies.md

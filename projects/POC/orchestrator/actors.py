@@ -139,7 +139,7 @@ class AgentRunner:
         # the shell version's relocate_new_plans() detected and moved them.
         if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
             artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
-            if not os.path.exists(artifact_path) and artifact_path.endswith('.plan'):
+            if not os.path.exists(artifact_path):
                 _relocate_plan_file(artifact_path, result.start_time)
 
         # Detect what the agent produced
@@ -159,8 +159,10 @@ class AgentRunner:
 
         # Check for expected artifact
         if ctx.phase_spec.artifact:
-            artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
-            if os.path.exists(artifact_path):
+            artifact_path = _find_artifact(
+                ctx.session_worktree, ctx.phase_spec.artifact,
+            )
+            if artifact_path:
                 data['artifact_path'] = artifact_path
                 action = self._resolve_action(ctx.state, 'assert')
                 return ActorResult(action=action, data=data)
@@ -245,6 +247,53 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
         return True
     except OSError:
         return False
+
+
+# ── Artifact search ─────────────────────────────────────────────────────────
+
+import logging as _logging
+
+_actor_log = _logging.getLogger('orchestrator.actors')
+
+
+def _find_artifact(worktree: str, artifact_name: str) -> str:
+    """Find an artifact in the worktree.  Checks the root first, then
+    searches up to one level deep.  Returns the path or '' if not found.
+
+    Agents sometimes write artifacts to subdirectories or with slightly
+    different casing.  This search ensures the approval gate always gets
+    the artifact if the agent produced it anywhere in the worktree.
+    """
+    # 1. Check the expected location (worktree root)
+    expected = os.path.join(worktree, artifact_name)
+    if os.path.exists(expected):
+        return expected
+
+    # 2. Case-insensitive check at root
+    name_lower = artifact_name.lower()
+    try:
+        for entry in os.listdir(worktree):
+            if entry.lower() == name_lower and os.path.isfile(os.path.join(worktree, entry)):
+                found = os.path.join(worktree, entry)
+                _actor_log.info('Artifact found with different casing: %s', found)
+                return found
+    except OSError:
+        pass
+
+    # 3. Search one level of subdirectories
+    try:
+        for entry in os.listdir(worktree):
+            subdir = os.path.join(worktree, entry)
+            if not os.path.isdir(subdir) or entry.startswith('.'):
+                continue
+            candidate = os.path.join(subdir, artifact_name)
+            if os.path.exists(candidate):
+                _actor_log.info('Artifact found in subdirectory: %s', candidate)
+                return candidate
+    except OSError:
+        pass
+
+    return ''
 
 
 # ── ApprovalGate ─────────────────────────────────────────────────────────────

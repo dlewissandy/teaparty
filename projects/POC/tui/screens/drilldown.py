@@ -498,12 +498,16 @@ class DrilldownScreen(Screen):
         # Explicit worktree path from manifest
         if self._session.worktree_path and os.path.isdir(self._session.worktree_path):
             return self._session.worktree_path
-        # Conventional worktree path: {project}/.worktrees/session-{id}/
+        # Fallback: glob for session-{short_id}--* in .worktrees/
+        # (worktrees use session_id[-6:], not the full session_id)
         proj = self.app.state_reader.find_project(self._session.project)
         if proj:
-            wt = os.path.join(proj.path, '.worktrees', f'session-{self._session.session_id}')
-            if os.path.isdir(wt):
-                return wt
+            import glob as _glob
+            short_id = self._session.session_id[-6:]
+            pattern = os.path.join(proj.path, '.worktrees', f'session-{short_id}--*')
+            matches = _glob.glob(pattern)
+            if matches and os.path.isdir(matches[0]):
+                return matches[0]
         return None
 
     def _find_doc(self, filename: str) -> str | None:

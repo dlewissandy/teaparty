@@ -335,6 +335,16 @@
       "session_id": "20260312-102925",
       "created_at": "2026-03-12T17:29:25.213110+00:00",
       "status": "active"
+    },
+    {
+      "name": "session-142239--the-first-page-of-the-github-d",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-142239--the-first-page-of-the-github-d",
+      "type": "session",
+      "team": "",
+      "task": "The first page of the github documents for this project is way too large.   and has multiple errors.   First, the problem that we are solving is not just context rot and scoping,   There is the problem of human escalation -- too much and the human starts rubber stamping, too little and the intent diverges.   3) importance of backtracking - when errors are discovered you need to go back sometimes to the very beginning.   This is not captured well in the plan-execute model 4) intent gap - human's arent partners in the conversation.   The agent builds what it wants to build with little understanding of what was requested.",
+      "session_id": "20260313-142239",
+      "created_at": "2026-03-13T21:22:40.008122+00:00",
+      "status": "active"
     }
   ]
 }

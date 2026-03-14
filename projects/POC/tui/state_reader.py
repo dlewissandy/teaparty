@@ -200,6 +200,22 @@ class StateReader:
             if not os.path.isdir(sessions_dir):
                 continue
 
+            # Projects with their own .git write worktrees.json locally —
+            # merge those entries so the TUI can resolve worktree paths.
+            proj_manifest_path = os.path.join(proj_path, 'worktrees.json')
+            if proj_manifest_path != self.manifest_path:
+                try:
+                    with open(proj_manifest_path) as f:
+                        proj_manifest = json.load(f)
+                    for entry in proj_manifest.get('worktrees', []):
+                        sid = entry.get('session_id', '')
+                        if entry.get('type') == 'session' and sid not in session_entries:
+                            session_entries[sid] = entry
+                        elif entry.get('type') == 'dispatch' and sid not in dispatch_by_sid:
+                            dispatch_by_sid[sid] = entry
+                except (FileNotFoundError, json.JSONDecodeError):
+                    pass
+
             proj_sessions = self._scan_project_sessions(
                 slug, sessions_dir, session_entries, dispatch_by_sid, now,
             )

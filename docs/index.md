@@ -1,6 +1,6 @@
 # TeaParty
 
-TeaParty is a research platform for durable, scalable agent coordination — the problem of keeping multi-agent systems aligned with human intent as work grows in complexity, duration, and organizational scope. The core thesis: current agent systems fail not because models lack capability, but because the systems around them lack structure for coordination, memory, trust calibration, and human oversight.
+TeaParty is a research platform for durable, scalable agent coordination — the problem of keeping multi-agent systems aligned with human intent as work grows in complexity, duration, and organizational scope. We are building toward a future where teams of humans and AI agents work together on increasingly difficult projects: not agents as tools wielded by humans, and not agents as autonomous replacements, but genuine mixed teams where each member contributes what they do best.
 
 ## The Problem
 
@@ -12,7 +12,7 @@ TeaParty is a research platform for durable, scalable agent coordination — the
 
 **Context rot and scoping.** Without structural boundaries, agents see everything and nothing clearly. Even within a well-scoped context, signal degrades as conversations grow — the twentieth revision of a plan buries the original intent. Hierarchical teams address both: each agent sees only what is relevant to its role (scoping), and limiting what each agent works on slows degradation (rot). But scoping without retrieval creates its own drift: scoped agents lose access to the organizational knowledge that should inform every decision.
 
-## Four Pillars
+## Our Contributions
 
 TeaParty addresses these failures through four research pillars, each targeting a distinct structural gap.
 
@@ -20,11 +20,11 @@ TeaParty addresses these failures through four research pillars, each targeting 
 
 *Addresses: intent gap, backtracking*
 
-Prompt engineering tells agents what to do. Context engineering tells agents what to know. **Intent engineering tells agents what to want** — what to optimize for, what to protect, and what tradeoffs are acceptable.
+Winograd and Flores (*Understanding Computers and Cognition*, 1986) recognized that conversations follow structured patterns of request, commitment, and fulfillment, and modeled human coordination as a state machine of speech acts. But they designed for human-to-human coordination, where participants share an ocean of unspoken context — organizational norms, shared history, cultural assumptions, professional conventions. Mixed agent-human teams have no such shared substrate. What humans leave implicit, agents cannot infer.
 
-TeaParty implements a three-phase Conversation for Action (CfA) protocol — Intent, Planning, Execution — formalized as a state machine with explicit transitions and cross-phase backtracks. Each phase produces artifacts that constrain downstream work. The result: agents operate from a shared specification of purpose, not an ambiguous request.
+TeaParty adapts their Conversation for Action framework for this reality. A three-phase protocol — Intent, Planning, Execution — is formalized as a state machine with explicit transitions and cross-phase backtracks. Each phase produces artifacts that make implicit context explicit: what to optimize for, what to protect, and what tradeoffs are acceptable. Approval gates between phases are not just checkpoints — they are learning opportunities where the system observes human corrections and preferences, feeding the memory and proxy systems described below. The result is intent engineering — agents operating from a shared specification of purpose, not an ambiguous request.
 
-[Intent Engineering →](intent-engineering.md) · [CfA State Machine →](cfa-state-machine.md)
+[Intent Engineering →](intent-engineering.md) · [Strategic Planning →](strategic-planning.md) · [CfA State Machine →](cfa-state-machine.md)
 
 ### Hierarchical Memory and Learning
 
@@ -58,10 +58,29 @@ Agents serve as context boundaries. The hierarchy provides scoping — each agen
 
 *Addresses: human escalation failure*
 
-Every autonomous agent faces a continuous choice: act or ask. Both carry risk. Acting when the human wanted to be consulted causes wrong work and eroded trust. Escalating when the agent could have handled it wastes time and fails to deliver on the promise of autonomy. Neither pure autonomy nor constant oversight works.
+As agent teams grow, the human becomes a bottleneck. Other agents escalate questions about preferences, constraints, and tradeoffs. Plans need approval. Ambiguous situations need judgment calls. The human cannot be in every conversation, but their intent must be represented in all of them.
 
-TeaParty implements a confidence-based proxy model that learns when to auto-approve and when to escalate. The model observes human reactions over time — corrections indicate the threshold was too low, rubber-stamps indicate it was too high. Asymmetric regret weighting ensures false approvals cost more than false escalations. The agent earns autonomy through demonstrated alignment, not configuration.
+The human proxy agent's single job is to learn to stand in for the human. It answers clarifying questions from other agents, responds to escalations, engages in dialog about the human's preferences, and approves or rejects plans — all based on an evolving model of what the human would decide. Over time it observes human reactions: corrections indicate the model was wrong, rubber-stamps indicate it was right. Asymmetric regret weighting ensures false approvals cost more than false escalations. The proxy earns autonomy through demonstrated alignment, reducing the burden on the human without removing them from the loop.
 
 [Human Proxy Agents →](human-proxies.md) · [Least-Regret Escalation →](intent-engineering.md#least-regret-escalation)
+
+## Proof of Concept
+
+TeaParty eats its own dogfood. The platform's documentation, design artifacts, and implementation are produced by hierarchical agent teams running the TeaParty POC — the same coordination patterns we're researching are the ones we use to build.
+
+The POC runs on Claude Code CLI with minimal scaffolding: a dispatch script for inter-process communication, a plan-execute lifecycle script implementing the CfA state machine, and git worktree isolation for safe concurrent execution. An uber team decomposes work and coordinates strategy; subteams of specialized agents (writers, coders, artists, researchers) execute in parallel, each in their own process with their own context window. Learning extraction runs after every session, feeding validated insights back into the memory hierarchy that informs the next round of work.
+
+This is bootstrapping in progress. Every page in this documentation, every architectural decision, and every line of application code has been produced or reviewed by agent teams operating under the protocols described above. The result is a tight feedback loop: the system we're building is also the system we're testing, and the failures we encounter are the failures we're designing solutions for.
+
+[POC Architecture →](poc-architecture.md)
+
+### Project History
+
+{{ project_count }} projects, {{ total_sessions }} sessions to date.
+
+| Category | Projects | Sessions |
+|----------|----------|----------|
+{% for category, projects in project_categories.items() %}{% if projects %}| {{ category }} | {{ projects | length }} | {{ projects | sum(attribute=1) }} |
+{% endif %}{% endfor %}
 
 The full research bibliography is in [Research Library →](research/INDEX.md).

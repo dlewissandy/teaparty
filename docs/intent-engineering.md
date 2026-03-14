@@ -1,4 +1,4 @@
-# Intent: Automated Intent Engineering Experience
+# Assistive Intent Engineering Experience
 
 Intent engineering is the first pillar of TeaParty's four-pillar framework: it establishes what an agent should want before any planning or execution begins. Prompt engineering tells agents what to do. Context engineering tells agents what to know. Intent engineering tells agents what to want — what to optimize for, what to protect, and what tradeoffs are acceptable. Without it, agents optimize for what they can measure and destroy what they cannot.
 
@@ -8,8 +8,6 @@ AI agent systems operate on a plan-execute model: the human provides a request, 
 
 The intent engineering system is an AI-assisted dialog experience, constrained to under 15 minutes, that produces an `intent.md` file. That file becomes the governing document for all downstream planning and execution — not a suggestion, but a specification of purpose.
 
-A core behavioral principle applies across all phases of this system: the agent brings solutions, not questions. During intent gathering, it researches the problem space and presents alternatives rather than asking open-ended questions. During planning, it investigates open questions and presents well-reasoned options for the human to choose between. During execution, escalation means presenting the situation, a recommended course of action, and the reasoning behind it — never a bare question. The agent's value is in doing the preparatory work so the human makes decisions, not does research.
-
 Three principles govern the quality of all artifacts this system produces, including the intent.md itself:
 
 **Every sentence must earn its place.** If removing a sentence would not change the reader's ability to understand the intent, remove it. This applies to the intent.md, to plans, and to all agent-generated output.
@@ -17,6 +15,8 @@ Three principles govern the quality of all artifacts this system produces, inclu
 **Would a reasonable person find this sufficient?** Read every artifact as someone who wasn't in the room. If they cannot proceed with what they've been given, the document is incomplete.
 
 **Bring solutions, not questions.** Never present a problem without researched alternatives and a recommendation. This applies to the agent during intent gathering, during planning, during escalation, and in every open question it surfaces.
+
+**Would the human recognize the document as the intent behind their idea, articulated well?** The intent.md is not a translation into agent-speak or a decomposition into subtasks. It is the human's own intent, rendered with clarity and completeness they may not have had time to produce themselves. If the human reads it and thinks "that's not what I meant," the document has failed regardless of how thorough it is.
 
 ## What The System Produces
 
@@ -34,16 +34,6 @@ Through collaborative conversation, the agent and human co-construct an intent.m
 
 The intent.md is a prose document written in natural language, not a form with fields to fill in. Its structure should follow the shape of the problem, not a fixed template. Some projects will need extensive escalation guidance and minimal constraints. Others will be constraint-heavy with obvious objectives. The document must capture what matters, not check boxes.
 
-## CfA State Machine
-
-The Conversation for Action protocol is formalized as a three-phase state machine — Intent, Planning, Execution — with explicit backtrack transitions between phases. Each phase has a synthesis loop that refines artifacts through iteration, and escalation paths for human involvement. See [CfA State Machine](cfa-state-machine.md) for the complete state diagrams and transition definitions.
-
-## Least-Regret Escalation
-
-Every autonomous agent faces a continuous choice: act or ask. Both carry risk. The agent must choose the option with the least expected regret — weighted by this human's risk tolerance, the reversibility of the action, and its organizational impact. At cold start the agent defaults to escalation; autonomy is earned through demonstrated alignment, not configured in advance.
-
-The escalation model is one of the highest-value things the institutional memory system stores. It encodes not just what a person values but how much latitude they grant, and how that varies by domain and risk level. See [Human Proxies — Least-Regret Escalation](human-proxies.md#least-regret-escalation) for the full treatment.
-
 ## How The Conversation Works
 
 ### Cold Start (No Prior Context)
@@ -53,6 +43,12 @@ When the system has no history with this human or organization, the human is the
 ### Warm Start (Accumulated Context)
 
 Over time, the system observes how the human responds to completed work: what they correct, what they praise, what they silently accept, and what they reject. These observations accumulate into institutional memory. In warm-start mode, the agent pre-populates intent elements and escalation posture inferred from prior interactions — presented for confirmation, not silently assumed. Corrections to pre-populated intent are high-value signal that the model has diverged from reality. See [Learning System](learning-system.md) for how this memory is stored and retrieved.
+
+### Least-Regret Escalation
+
+As the conversation progresses — whether cold or warm — the agent continuously faces a choice: act or ask. Both carry risk. The agent must choose the option with the least expected regret, weighted by this human's risk tolerance, the reversibility of the action, and its organizational impact. In cold-start mode, the agent defaults to escalation; autonomy is earned through demonstrated alignment, not configured in advance. Miscalibration in either direction is costly: if the agent escalates too often, the human begins rubber-stamping approvals and alignment erodes silently; if the agent acts too freely, it rubber-stamps its own decisions and alignment erodes catastrophically.
+
+This calibration is one of the highest-value things the institutional memory system stores. It encodes not just what a person values but how much latitude they grant, and how that varies by domain and risk level. Each intent gathering session refines the model further — every escalation warranted or unnecessary becomes a data point. See [Human Proxies — Least-Regret Escalation](human-proxies.md#least-regret-escalation) for the full treatment.
 
 ## Relationship to Institutional Memory
 

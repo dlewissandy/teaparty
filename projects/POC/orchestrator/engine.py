@@ -356,13 +356,18 @@ class Orchestrator:
         if self.team_override:
             team = self.config.team(self.team_override)
             base = self.config.phase(phase_name)
-            # Override agent file and lead from team config
+            # Override agent file and lead from team config.
+            # Teams can specify their own planning permission mode
+            # (e.g., subteams use 'plan' for tactical planning).
+            perm = base.permission_mode
+            if phase_name == 'planning' and team.planning_permission_mode:
+                perm = team.planning_permission_mode
             from projects.POC.orchestrator.phase_config import PhaseSpec
             return PhaseSpec(
                 name=base.name,
                 agent_file=team.agent_file,
                 lead=team.lead,
-                permission_mode=base.permission_mode,
+                permission_mode=perm,
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
@@ -376,17 +381,37 @@ class Orchestrator:
         """Get the task description for a phase.
 
         Intent phase: uses the original task description.
-        Planning/execution: reads INTENT.md (the intent phase's output).
+        Planning phase: reads INTENT.md (the intent phase's output).
+        Execution phase: reads PLAN.md as the workflow to follow,
+            with INTENT.md appended as reference context.
         """
-        if phase_name != 'intent':
+        if phase_name == 'execution':
+            plan_path = os.path.join(self.session_worktree, 'PLAN.md')
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
-            if os.path.exists(intent_path):
-                try:
-                    with open(intent_path) as f:
-                        return f.read()
-                except OSError:
-                    pass
-        # Intent phase, or INTENT.md not yet written
+            parts = []
+            try:
+                with open(plan_path) as f:
+                    parts.append(f.read())
+            except OSError:
+                pass
+            try:
+                with open(intent_path) as f:
+                    parts.append(
+                        '---\nReference: INTENT.md (for success criteria and constraints)\n---\n'
+                        + f.read()
+                    )
+            except OSError:
+                pass
+            if parts:
+                return '\n\n'.join(parts)
+        elif phase_name == 'planning':
+            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+            try:
+                with open(intent_path) as f:
+                    return f.read()
+            except OSError:
+                pass
+        # Intent phase, or artifacts not yet written
         return self.task or self.project_slug
 
     async def _failure_dialog(self, reason: str) -> str:
@@ -435,4 +460,6 @@ class Orchestrator:
         dirs = []
         if self.session_worktree:
             dirs.append(self.session_worktree)
+        if self.project_workdir and self.project_workdir != self.session_worktree:
+            dirs.append(self.project_workdir)
         return dirs
