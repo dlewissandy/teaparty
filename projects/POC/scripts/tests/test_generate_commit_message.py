@@ -4,7 +4,7 @@ import os
 import subprocess
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import AsyncMock, patch, MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import generate_commit_message as mod
@@ -95,6 +95,65 @@ class TestGenerate(unittest.TestCase):
         call_args = mock_run.call_args
         prompt = call_args.kwargs.get('input', call_args[1].get('input', ''))
         self.assertIn("art", prompt)
+
+
+class TestBuildPrompt(unittest.TestCase):
+
+    def test_basic_prompt(self):
+        prompt = mod._build_prompt("Add feature", "coding")
+        self.assertIn("coding", prompt)
+        self.assertIn("Add feature", prompt)
+
+    def test_dispatch_log_in_prompt(self):
+        prompt = mod._build_prompt("Task", "coding", dispatch_log="- commit 1")
+        self.assertIn("commit 1", prompt)
+
+    def test_empty_team_defaults(self):
+        prompt = mod._build_prompt("Task", "")
+        self.assertIn("task", prompt)
+
+
+class TestGenerateAsync(unittest.TestCase):
+
+    def _run(self, coro):
+        import asyncio
+        return asyncio.run(coro)
+
+    def test_generates_message(self):
+        """When claude CLI succeeds, returns its output."""
+        mock_proc = MagicMock()
+        mock_proc.returncode = 0
+        mock_proc.communicate = AsyncMock(
+            return_value=(b"coding: add feature\n\nAdded new feature.", b''))
+
+        async def _test():
+            with patch('asyncio.wait_for', side_effect=[
+                mock_proc,   # first wait_for: process creation
+                (b"coding: add feature\n\nAdded new feature.", b''),  # second: communicate
+            ]):
+                return await mod.generate_async("Build feature", "coding")
+
+        result = self._run(_test())
+        self.assertIn("coding: add feature", result)
+
+    def test_fallback_on_missing_binary(self):
+        """When claude binary is not found, returns fallback."""
+        async def _test():
+            with patch('asyncio.wait_for', side_effect=FileNotFoundError()):
+                return await mod.generate_async("Build feature", "coding")
+
+        result = self._run(_test())
+        self.assertEqual(result, mod.build_fallback("coding", "Build feature"))
+
+    def test_fallback_on_timeout(self):
+        """When subprocess times out, returns fallback."""
+        import asyncio as aio
+        async def _test():
+            with patch('asyncio.wait_for', side_effect=aio.TimeoutError()):
+                return await mod.generate_async("Build feature", "coding")
+
+        result = self._run(_test())
+        self.assertEqual(result, mod.build_fallback("coding", "Build feature"))
 
 
 if __name__ == "__main__":

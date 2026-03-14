@@ -13,11 +13,13 @@ Usage:
 Returns plain text response on stdout (2-4 sentences, first person).
 """
 import argparse
+import os
 import subprocess
 import sys
 
 MAX_ARTIFACT_CHARS = 4000
 MAX_EXEC_CHARS = 2000
+MAX_FILE_CHARS = 3000
 MAX_OUTPUT_CHARS = 600
 
 FALLBACK_RESPONSE = (
@@ -96,9 +98,65 @@ def truncate_output(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
     return truncated.strip()
 
 
+def _get_changed_files(worktree: str) -> list[str]:
+    """Get list of files changed in the worktree (from git log)."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "--name-only", "--format=", "--reverse",
+             "--grep=^WIP:", "--invert-grep"],
+            cwd=worktree, capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return sorted(set(
+                f.strip() for f in result.stdout.splitlines() if f.strip()
+            ))
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+    return []
+
+
+def _find_referenced_files(question: str, changed_files: list[str]) -> list[str]:
+    """Find files from the changed list that the question seems to reference."""
+    question_lower = question.lower()
+    matched = []
+    for filepath in changed_files:
+        # Match against basename or full path
+        basename = os.path.basename(filepath).lower()
+        name_no_ext = os.path.splitext(basename)[0]
+        if basename in question_lower or name_no_ext in question_lower or filepath.lower() in question_lower:
+            matched.append(filepath)
+    return matched
+
+
+def _build_source_context(worktree: str, question: str) -> str:
+    """Build source file context from the worktree for the dialog prompt."""
+    changed_files = _get_changed_files(worktree)
+    if not changed_files:
+        return ""
+
+    parts = ["\n--- CHANGED FILES ---"]
+    parts.append("\n".join(changed_files))
+
+    # If the question references specific files, include their content
+    referenced = _find_referenced_files(question, changed_files)
+    chars_used = 0
+    for filepath in referenced:
+        if chars_used >= MAX_FILE_CHARS:
+            break
+        full_path = os.path.join(worktree, filepath)
+        content = read_file_content(full_path, MAX_FILE_CHARS - chars_used)
+        if content:
+            parts.append(f"\n--- {filepath} ---")
+            parts.append(content)
+            chars_used += len(content)
+
+    return "\n".join(parts) + "\n"
+
+
 def build_context(state: str, artifact_path: str = "",
                   exec_stream_path: str = "", task: str = "",
-                  dialog_history: str = "") -> dict:
+                  dialog_history: str = "", worktree: str = "",
+                  question: str = "") -> dict:
     """Build context dict for the prompt."""
     artifact_content = ""
     if artifact_path:
@@ -114,6 +172,10 @@ def build_context(state: str, artifact_path: str = "",
                 "\n--- EXECUTION LOG (recent) ---\n"
                 f"{stream_tail}\n"
             )
+
+    # Include source file context from the worktree
+    if worktree:
+        extra_context += _build_source_context(worktree, question)
 
     dialog_history_block = ""
     if dialog_history and dialog_history.strip():
@@ -132,13 +194,15 @@ def build_context(state: str, artifact_path: str = "",
 
 def generate(state: str, question: str,
              artifact_path: str = "", exec_stream_path: str = "",
-             task: str = "", dialog_history: str = "") -> str:
+             task: str = "", dialog_history: str = "",
+             worktree: str = "") -> str:
     """Generate an agent-voice response to the human's question."""
     if not question or not question.strip():
         return FALLBACK_RESPONSE
 
     ctx = build_context(state, artifact_path, exec_stream_path,
-                        task, dialog_history)
+                        task, dialog_history, worktree=worktree,
+                        question=question)
 
     prompt = DIALOG_PROMPT.format(
         state=state,
@@ -175,6 +239,9 @@ if __name__ == "__main__":
                         help="Original task description")
     parser.add_argument("--dialog-history", default="",
                         help="Prior Q&A turns (HUMAN:/AGENT: lines)")
+    parser.add_argument("--worktree", default="",
+                        help="Path to session worktree for source file access")
     args = parser.parse_args()
     print(generate(args.state, args.question, args.artifact,
-                   args.exec_stream, args.task, args.dialog_history))
+                   args.exec_stream, args.task, args.dialog_history,
+                   worktree=args.worktree))

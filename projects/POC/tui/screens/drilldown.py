@@ -47,6 +47,7 @@ class DrilldownScreen(Screen):
         Binding('f2', 'open_vscode', 'VSCode', show=True, priority=True),
         Binding('f3', 'open_intent', 'Intent', show=True, priority=True),
         Binding('f4', 'open_plan', 'Plan', show=True, priority=True),
+        Binding('f5', 'open_work_summary', 'Work', show=True, priority=True),
         Binding('s', 'toggle_scroll', 'Scroll Lock', show=True),
     ]
 
@@ -540,6 +541,11 @@ class DrilldownScreen(Screen):
 
     def action_open_plan(self) -> None:
         path = self._find_doc('plan.md')
+        if path:
+            open_file(path)
+
+    def action_open_work_summary(self) -> None:
+        path = self._find_doc('.work-summary.md')
         if path:
             open_file(path)
 

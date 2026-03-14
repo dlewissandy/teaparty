@@ -1187,5 +1187,141 @@ class TestClaudeResultHadErrors(unittest.TestCase):
         self.assertFalse(r.had_errors)
 
 
+# ── _generate_work_summary ────────────────────────────────────────────────────
+
+class TestGenerateWorkSummary(unittest.TestCase):
+    """Work summary is generated from git log for WORK_ASSERT gate."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Create a bare git repo so git log commands work
+        _run_sync('git', 'init', cwd=self.tmpdir)
+        _run_sync('git', 'commit', '--allow-empty', '-m', 'initial', cwd=self.tmpdir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _add_dispatch_commit(self, message: str):
+        """Simulate a dispatch squash-merge commit."""
+        _run_sync('git', 'commit', '--allow-empty', '-m', message, cwd=self.tmpdir)
+
+    def test_creates_summary_from_dispatch_commits(self):
+        from projects.POC.orchestrator.actors import _generate_work_summary
+        self._add_dispatch_commit('coding: implement API endpoint\n\nAdds REST API for users.')
+        self._add_dispatch_commit('art: create logo assets\n\nPixel art sprites for all entities.')
+
+        _run(_generate_work_summary(self.tmpdir))
+
+        summary_path = os.path.join(self.tmpdir, '.work-summary.md')
+        self.assertTrue(os.path.exists(summary_path))
+        content = Path(summary_path).read_text()
+        self.assertIn('coding: implement API endpoint', content)
+        self.assertIn('art: create logo assets', content)
+
+    def test_includes_all_rounds_on_regeneration(self):
+        """After correction, re-generation includes both old and new commits."""
+        from projects.POC.orchestrator.actors import _generate_work_summary
+        self._add_dispatch_commit('coding: first pass')
+
+        _run(_generate_work_summary(self.tmpdir))
+        content1 = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
+        self.assertIn('first pass', content1)
+
+        # Simulate correction round — more dispatch work
+        self._add_dispatch_commit('coding: fix validation')
+        _run(_generate_work_summary(self.tmpdir))
+
+        content2 = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
+        self.assertIn('first pass', content2)
+        self.assertIn('fix validation', content2)
+
+    def test_filters_wip_commits(self):
+        """WIP infrastructure commits from merge.py should not appear."""
+        from projects.POC.orchestrator.actors import _generate_work_summary
+        _run_sync('git', 'commit', '--allow-empty', '-m',
+                  'WIP: [coding] some task', cwd=self.tmpdir)
+        self._add_dispatch_commit('coding: real work')
+
+        _run(_generate_work_summary(self.tmpdir))
+
+        content = Path(os.path.join(self.tmpdir, '.work-summary.md')).read_text()
+        self.assertNotIn('WIP:', content)
+        self.assertIn('real work', content)
+
+    def test_placeholder_when_no_work(self):
+        """Empty git log still creates a summary file for the artifact check."""
+        from projects.POC.orchestrator.actors import _generate_work_summary
+        # Only the initial commit exists — filtered because no dispatch commits
+        _run(_generate_work_summary(self.tmpdir))
+
+        summary_path = os.path.join(self.tmpdir, '.work-summary.md')
+        self.assertTrue(os.path.exists(summary_path))
+        content = Path(summary_path).read_text()
+        self.assertIn('Work Summary', content)
+
+
+class TestInterpretOutputExecutionArtifact(unittest.TestCase):
+    """Execution phase with .work-summary.md routes to assert, not auto-approve."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.runner = AgentRunner()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_execution_spec(self):
+        return PhaseSpec(
+            name='execution',
+            agent_file='agents/uber-team.json',
+            lead='project-lead',
+            permission_mode='acceptEdits',
+            stream_file='.exec-stream.jsonl',
+            artifact='.work-summary.md',
+            approval_state='WORK_ASSERT',
+            escalation_state='TASK_ESCALATE',
+            escalation_file='.task-escalation.md',
+            settings_overlay={},
+        )
+
+    def test_work_summary_present_routes_to_assert(self):
+        spec = self._make_execution_spec()
+        ctx = _make_ctx(
+            state='WORK_IN_PROGRESS',
+            session_worktree=self.tmpdir,
+            phase_spec=spec,
+        )
+        # Write the work summary
+        Path(os.path.join(self.tmpdir, '.work-summary.md')).write_text('# Work Summary\n')
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertIn('.work-summary.md', result.data.get('artifact_path', ''))
+
+    def test_work_summary_missing_still_routes_to_assert(self):
+        """If .work-summary.md is expected but missing, still route to assert
+        with artifact_missing=True so the gate can handle it."""
+        spec = self._make_execution_spec()
+        ctx = _make_ctx(
+            state='WORK_IN_PROGRESS',
+            session_worktree=self.tmpdir,
+            phase_spec=spec,
+        )
+
+        result = self.runner._interpret_output(ctx, _make_claude_result())
+
+        self.assertEqual(result.action, 'assert')
+        self.assertTrue(result.data.get('artifact_missing'))
+
+
+def _run_sync(*args, cwd=None):
+    """Run a command synchronously for test setup."""
+    import subprocess as sp
+    sp.run(args, cwd=cwd, capture_output=True, check=True)
+
+
 if __name__ == '__main__':
     unittest.main()

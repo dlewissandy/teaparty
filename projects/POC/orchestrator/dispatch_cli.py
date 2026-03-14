@@ -16,7 +16,8 @@ import sys
 
 from projects.POC.orchestrator.engine import Orchestrator
 from projects.POC.orchestrator.events import EventBus, EventType, InputRequest
-from projects.POC.orchestrator.merge import squash_merge
+from projects.POC.orchestrator.merge import git_output, squash_merge
+from projects.POC.scripts.generate_commit_message import generate_async, build_fallback
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.worktree import (
     create_dispatch_worktree,
@@ -127,10 +128,21 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_pa
     # Merge back into parent session worktree
     if result and result.terminal_state == 'COMPLETED_WORK':
         try:
+            # Generate a rich commit message from the dispatch work
+            dispatch_log = await git_output(worktree_path, 'log', '--oneline')
+            changed_files = await git_output(
+                worktree_path, 'diff', '--name-only', 'HEAD',
+            )
+            message = await generate_async(
+                task, team, dispatch_log, changed_files,
+            )
+            if not message:
+                message = build_fallback(team, task)
+
             await squash_merge(
                 source=worktree_path,
                 target=session_worktree,
-                message=f'[{team}] {task[:80]}',
+                message=message,
             )
         except Exception:
             pass

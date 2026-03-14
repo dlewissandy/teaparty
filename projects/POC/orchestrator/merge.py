@@ -60,6 +60,7 @@ _MERGE_EXCLUDE = frozenset({
     '.memory.db-shm',
     '.memory.db-wal',
     '.proxy-confidence.json',
+    '.work-summary.md',
     'ESCALATION.md',
     'OBSERVATIONS.md',
     'worktrees.json',
@@ -363,3 +364,7 @@ async def _git_output(cwd: str, *args: str) -> str:
                       cmd, proc.returncode, cwd, stderr.decode().strip())
         return ''
     return stdout.decode()
+
+
+# Public alias for use by other modules (dispatch_cli, actors).
+git_output = _git_output

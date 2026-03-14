@@ -148,6 +148,10 @@ class TestIsExcluded(unittest.TestCase):
         """worktrees.json nested under a subdirectory is still excluded by basename."""
         self.assertTrue(_is_excluded('deep/nested/worktrees.json'))
 
+    def test_work_summary_excluded(self):
+        """Work summary is an infrastructure artifact, not a deliverable."""
+        self.assertTrue(_is_excluded('.work-summary.md'))
+
 
 # ── Tests: MergeConflictEscalation ───────────────────────────────────────────
 

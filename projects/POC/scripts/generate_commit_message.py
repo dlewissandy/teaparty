@@ -8,6 +8,7 @@ Usage:
 Returns a commit message on stdout. Falls back to a structured message on LLM error.
 """
 import argparse
+import asyncio
 import subprocess
 import sys
 
@@ -67,6 +68,52 @@ def generate(task: str, team: str, dispatch_log: str = "", files: str = "") -> s
 
     output = result.stdout.strip()
     if result.returncode != 0 or not output:
+        return build_fallback(team, task)
+    return output
+
+
+def _build_prompt(task: str, team: str, dispatch_log: str = "", files: str = "") -> str:
+    """Build the LLM prompt for commit message generation."""
+    if not team.strip():
+        team = "task"
+    dispatch_log_block = ""
+    if dispatch_log.strip():
+        dispatch_log_block = f"\nSquashed commits:\n{dispatch_log.strip()[:MAX_LOG_CHARS]}\n"
+    files_text = files.strip()[:MAX_FILES_CHARS] if files.strip() else "(none)"
+    task_text = task.strip()[:MAX_TASK_CHARS] if task.strip() else "(no task)"
+
+    return COMMIT_PROMPT.format(
+        team=team,
+        task=task_text,
+        dispatch_log_block=dispatch_log_block,
+        files=files_text,
+    )
+
+
+async def generate_async(task: str, team: str, dispatch_log: str = "", files: str = "") -> str:
+    """Async version of generate() for use in the orchestrator."""
+    prompt = _build_prompt(task, team, dispatch_log, files)
+
+    try:
+        proc = await asyncio.wait_for(
+            asyncio.create_subprocess_exec(
+                "claude", "-p", "--model", "claude-haiku-4-5",
+                "--output-format", "text",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            ),
+            timeout=5,
+        )
+        stdout, _ = await asyncio.wait_for(
+            proc.communicate(input=prompt.encode()),
+            timeout=30,
+        )
+    except (FileNotFoundError, asyncio.TimeoutError):
+        return build_fallback(team, task)
+
+    output = stdout.decode().strip()
+    if proc.returncode != 0 or not output:
         return build_fallback(team, task)
     return output
 

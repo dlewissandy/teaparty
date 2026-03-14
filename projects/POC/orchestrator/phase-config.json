@@ -35,7 +35,7 @@
       "lead": "project-lead",
       "permission_mode": "acceptEdits",
       "stream_file": ".exec-stream.jsonl",
-      "artifact": null,
+      "artifact": ".work-summary.md",
       "approval_state": "WORK_ASSERT",
       "escalation_state": "TASK_ESCALATE",
       "escalation_file": ".task-escalation.md",

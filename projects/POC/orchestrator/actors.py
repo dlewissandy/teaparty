@@ -79,6 +79,45 @@ class ActorContext:
     data: dict[str, Any] = field(default_factory=dict)
 
 
+# ── Work summary generation ──────────────────────────────────────────────────
+
+import logging as _logging
+
+_actor_log = _logging.getLogger('orchestrator.actors')
+
+
+async def _generate_work_summary(worktree: str) -> None:
+    """Generate .work-summary.md from dispatch merge commits in the worktree.
+
+    Called before _interpret_output() during the execution phase so that
+    the artifact exists for the approval gate (WORK_ASSERT) to review.
+    Regenerated on every pass so correction rounds accumulate.
+    """
+    from projects.POC.orchestrator.merge import git_output
+
+    # Get dispatch merge commits with per-commit file stats,
+    # filtering out WIP infrastructure commits from merge.py.
+    log_output = await git_output(
+        worktree, 'log',
+        '--format=### %s%n%n%b',
+        '--stat',
+        '--reverse',
+        '--grep=^WIP:', '--invert-grep',
+    )
+
+    if not log_output.strip():
+        # No work to summarize — write a minimal placeholder so the
+        # artifact still exists for the approval gate.
+        content = '# Work Summary\n\nNo dispatch work recorded.\n'
+    else:
+        content = '# Work Summary\n\n' + log_output.strip() + '\n'
+
+    summary_path = os.path.join(worktree, '.work-summary.md')
+    with open(summary_path, 'w') as f:
+        f.write(content)
+    _actor_log.info('Generated work summary: %s', summary_path)
+
+
 # ── AgentRunner ──────────────────────────────────────────────────────────────
 
 # Minimum seconds an execution phase must run before the proxy can auto-approve.
@@ -151,6 +190,14 @@ class AgentRunner:
             artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
             if not os.path.exists(artifact_path):
                 _relocate_plan_file(artifact_path, result.start_time)
+
+        # Generate work summary for execution phase (Issue #116).
+        # Only at WORK_IN_PROGRESS — this is where the lead has finished
+        # delegating and the summary should reflect all dispatch merges.
+        # Other execution states (TASK_IN_PROGRESS, COMPLETED_TASK) don't
+        # need the summary and would produce stale content.
+        if ctx.state == 'WORK_IN_PROGRESS':
+            await _generate_work_summary(ctx.session_worktree)
 
         # Detect what the agent produced
         actor_result = self._interpret_output(ctx, result)
@@ -278,10 +325,6 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
 
 
 # ── Artifact search ─────────────────────────────────────────────────────────
-
-import logging as _logging
-
-_actor_log = _logging.getLogger('orchestrator.actors')
 
 
 def _find_artifact(worktree: str, artifact_name: str) -> str:
@@ -480,6 +523,7 @@ class ApprovalGate:
                     ctx.state, response, artifact_path,
                     os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
                     ctx.task, dialog_history,
+                    session_worktree=ctx.session_worktree,
                 )
                 dialog_history += f'AGENT: {agent_reply}\n'
                 bridge_text = agent_reply  # Show the reply as the next bridge
@@ -633,6 +677,7 @@ class ApprovalGate:
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,
         exec_stream_path: str, task: str, dialog_history: str,
+        session_worktree: str = '',
     ) -> str:
         """Generate agent-voice response to human question."""
         try:
@@ -643,6 +688,7 @@ class ApprovalGate:
                 exec_stream_path=exec_stream_path,
                 task=task,
                 dialog_history=dialog_history,
+                worktree=session_worktree,
             )
         except Exception:
             return "I'm not sure I can answer that. Could you rephrase?"
