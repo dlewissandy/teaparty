@@ -10,6 +10,7 @@ review cycle), and plan-execute.sh (planning/execution review cycles).
 from __future__ import annotations
 
 import os
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -215,6 +216,7 @@ class Orchestrator:
     async def _run_phase(self, phase_name: str) -> PhaseResult:
         """Run a single CfA phase to completion or backtrack."""
         spec = self._phase_spec(phase_name)
+        phase_start_time = time.monotonic()
 
         await self.event_bus.publish(Event(
             type=EventType.PHASE_STARTED,
@@ -267,7 +269,7 @@ class Orchestrator:
                 return PhaseResult()
 
             # Determine which actor should run
-            actor_result = await self._invoke_actor(spec, phase_name)
+            actor_result = await self._invoke_actor(spec, phase_name, phase_start_time)
 
             # Handle the actor result
             if actor_result.action == 'failed':
@@ -281,7 +283,8 @@ class Orchestrator:
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
-    async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str) -> ActorResult:
+    async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
+                             phase_start_time: float = 0.0) -> ActorResult:
         """Dispatch to the correct actor based on current state."""
         state = self.cfa.state
         actor = self.cfa.actor
@@ -301,6 +304,7 @@ class Orchestrator:
             resume_session=self._phase_session_ids.get(phase_name),
             env_vars=self._build_env_vars(),
             add_dirs=self._build_add_dirs(),
+            phase_start_time=phase_start_time,
         )
 
         if state in self.config.human_actor_states:

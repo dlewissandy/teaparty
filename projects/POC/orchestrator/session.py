@@ -25,7 +25,9 @@ from projects.POC.orchestrator.actors import InputProvider
 from projects.POC.orchestrator.engine import Orchestrator, OrchestratorResult
 from projects.POC.orchestrator.events import Event, EventBus, EventType
 from projects.POC.orchestrator.learnings import extract_learnings
-from projects.POC.orchestrator.merge import commit_deliverables, squash_merge
+from projects.POC.orchestrator.merge import (
+    commit_deliverables, squash_merge, MergeConflictEscalation,
+)
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.state_writer import StateWriter
 from projects.POC.orchestrator.worktree import (
@@ -161,11 +163,25 @@ class Session:
 
         # 12. Squash-merge session into main — the work is done, get it merged.
         if result.terminal_state == 'COMPLETED_WORK':
-            await squash_merge(
-                source=worktree_path,
-                target=repo_root,
-                message=f'Session {self.session_id}: {self.task[:80]}',
-            )
+            callback = self._make_conflict_callback() if self.input_provider else None
+            try:
+                await squash_merge(
+                    source=worktree_path,
+                    target=repo_root,
+                    message=f'Session {self.session_id}: {self.task[:80]}',
+                    conflict_callback=callback,
+                )
+            except MergeConflictEscalation as exc:
+                _log.warning(
+                    'Merge conflict escalated to human: %s',
+                    ', '.join(exc.conflicted_files[:5]),
+                )
+                # Fall back to -X theirs after human sees the conflict
+                await squash_merge(
+                    source=worktree_path,
+                    target=repo_root,
+                    message=f'Session {self.session_id}: {self.task[:80]}',
+                )
 
         # 13. Extract learnings
         if result.terminal_state == 'COMPLETED_WORK':
@@ -196,6 +212,38 @@ class Session:
             session_id=self.session_id,
             backtrack_count=result.backtrack_count,
         )
+
+    def _make_conflict_callback(self):
+        """Build a merge conflict callback that asks the human via input_provider."""
+        async def _callback(conflicted_files, source, target):
+            bridge_text = (
+                f'Merge conflict in {len(conflicted_files)} file(s):\n'
+                + '\n'.join(f'  - {f}' for f in conflicted_files[:10])
+                + '\n\nOptions:\n'
+                '  approve — resolve by taking the session version (theirs)\n'
+                '  escalate — stop and review the conflicts manually\n'
+            )
+            await self.event_bus.publish(Event(
+                type=EventType.INPUT_REQUESTED,
+                data={
+                    'state': 'MERGE_CONFLICT',
+                    'bridge_text': bridge_text,
+                    'conflicted_files': conflicted_files,
+                },
+                session_id=self.session_id,
+            ))
+            from projects.POC.orchestrator.events import InputRequest
+            response = await self.input_provider(InputRequest(
+                type='merge_conflict',
+                state='MERGE_CONFLICT',
+                artifact='',
+                bridge_text=bridge_text,
+            ))
+            r = response.strip().lower()
+            if 'escalate' in r or 'stop' in r or 'review' in r:
+                return 'escalate'
+            return 'theirs'
+        return _callback
 
     def _classify_task(self) -> tuple[str, str]:
         """Classify task to determine (project_slug, task_mode).
@@ -432,11 +480,26 @@ class Session:
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
             repo_root = _find_repo_root_from(project_dir)
-            await squash_merge(
-                source=worktree_path,
-                target=repo_root,
-                message=f'Session {session_id} (resumed): {task[:80]}',
-            )
+            conflict_cb = _make_conflict_callback_static(
+                input_provider, event_bus, session_id,
+            ) if input_provider else None
+            try:
+                await squash_merge(
+                    source=worktree_path,
+                    target=repo_root,
+                    message=f'Session {session_id} (resumed): {task[:80]}',
+                    conflict_callback=conflict_cb,
+                )
+            except MergeConflictEscalation as exc:
+                _log.warning(
+                    'Merge conflict escalated to human: %s',
+                    ', '.join(exc.conflicted_files[:5]),
+                )
+                await squash_merge(
+                    source=worktree_path,
+                    target=repo_root,
+                    message=f'Session {session_id} (resumed): {task[:80]}',
+                )
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
             await extract_learnings(
@@ -522,6 +585,39 @@ class Session:
 
 
 # ── Module-level helpers ──────────────────────────────────────────────────────
+
+
+def _make_conflict_callback_static(input_provider, event_bus, session_id):
+    """Build a merge conflict callback for the static resume path."""
+    async def _callback(conflicted_files, source, target):
+        bridge_text = (
+            f'Merge conflict in {len(conflicted_files)} file(s):\n'
+            + '\n'.join(f'  - {f}' for f in conflicted_files[:10])
+            + '\n\nOptions:\n'
+            '  approve — resolve by taking the session version (theirs)\n'
+            '  escalate — stop and review the conflicts manually\n'
+        )
+        await event_bus.publish(Event(
+            type=EventType.INPUT_REQUESTED,
+            data={
+                'state': 'MERGE_CONFLICT',
+                'bridge_text': bridge_text,
+                'conflicted_files': conflicted_files,
+            },
+            session_id=session_id,
+        ))
+        from projects.POC.orchestrator.events import InputRequest
+        response = await input_provider(InputRequest(
+            type='merge_conflict',
+            state='MERGE_CONFLICT',
+            artifact='',
+            bridge_text=bridge_text,
+        ))
+        r = response.strip().lower()
+        if 'escalate' in r or 'stop' in r or 'review' in r:
+            return 'escalate'
+        return 'theirs'
+    return _callback
 
 
 def _extract_phase_session_ids(infra_dir: str) -> dict[str, str]:

@@ -75,9 +75,16 @@ class ActorContext:
     env_vars: dict[str, str] = field(default_factory=dict)
     add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
+    phase_start_time: float = 0.0  # monotonic timestamp when phase started
 
 
 # ── AgentRunner ──────────────────────────────────────────────────────────────
+
+# Minimum seconds an execution phase must run before the proxy can auto-approve.
+# If TASK_ASSERT or WORK_ASSERT fires faster than this, always escalate — the
+# elapsed time is too short relative to any non-trivial plan.  (Issue #122)
+MIN_EXECUTION_SECONDS = 120
+
 
 class AgentRunner:
     """Invokes Claude CLI as a subprocess, streams output."""
@@ -356,7 +363,10 @@ class ApprovalGate:
             )
         else:
             # Step 1: Consult proxy
-            proxy_decision = self._proxy_decide(ctx.state, project_slug, artifact_path, team=team)
+            proxy_decision = self._proxy_decide(
+                ctx.state, project_slug, artifact_path, team=team,
+                phase_start_time=ctx.phase_start_time,
+            )
 
             if proxy_decision == 'auto-approve':
                 self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path, team=team)
@@ -455,8 +465,24 @@ class ApprovalGate:
             )
 
     def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
-                       team: str = '') -> str:
-        """Consult human proxy model.  Returns 'auto-approve' or 'escalate'."""
+                       team: str = '', phase_start_time: float = 0.0) -> str:
+        """Consult human proxy model.  Returns 'auto-approve' or 'escalate'.
+
+        For execution-phase states (TASK_ASSERT, WORK_ASSERT), enforces a
+        minimum elapsed-time guard: if the phase ran for less than
+        MIN_EXECUTION_SECONDS, always escalate.  (Issue #122)
+        """
+        # Elapsed-time guard for execution states
+        if state in ('TASK_ASSERT', 'WORK_ASSERT') and phase_start_time > 0:
+            import time
+            elapsed = time.monotonic() - phase_start_time
+            if elapsed < MIN_EXECUTION_SECONDS:
+                _actor_log.info(
+                    'Elapsed-time guard: %s after %.0fs (min %ds) — escalating',
+                    state, elapsed, MIN_EXECUTION_SECONDS,
+                )
+                return 'escalate'
+
         try:
             model_path = resolve_team_model_path(self.proxy_model_path, team)
             model = load_model(model_path)
