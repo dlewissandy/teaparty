@@ -8,12 +8,8 @@ dependencies = [
     "pyyaml>=6.0",
 ]
 
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
-
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "mkdocs-material>=9.7.5",
     "pytest>=9.0.2",
 ]
