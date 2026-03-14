@@ -88,6 +88,10 @@ class Orchestrator:
         task: str = '',
         session_id: str = '',
         skip_intent: bool = False,
+        intent_only: bool = False,
+        plan_only: bool = False,
+        execute_only: bool = False,
+        flat: bool = False,
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
@@ -105,6 +109,10 @@ class Orchestrator:
         self.task = task
         self.session_id = session_id
         self.skip_intent = skip_intent
+        self.intent_only = intent_only
+        self.plan_only = plan_only
+        self.execute_only = execute_only
+        self.flat = flat
         self.team_override = team_override
 
         # Agent runners
@@ -139,29 +147,39 @@ class Orchestrator:
                         return self._make_result('WITHDRAWN')
                     continue  # retry intent
 
-            # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
-            await self._auto_bridge()
+            # Stop here if intent-only
+            if self.intent_only:
+                return self._make_result('COMPLETED_WORK')
 
-            # Phase 2: Planning
-            result = await self._run_phase('planning')
-            if result.terminal:
-                return self._make_result(result.terminal_state)
-            if result.backtrack_to == 'intent':
-                self.skip_intent = False
-                continue
-            if result.infrastructure_failure:
-                decision = await self._failure_dialog(result.failure_reason)
-                if decision == 'backtrack':
+            # Phase 2: Planning (skip if execute-only)
+            if not self.execute_only:
+                # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
+                await self._auto_bridge()
+
+                result = await self._run_phase('planning')
+                if result.terminal:
+                    return self._make_result(result.terminal_state)
+                if result.backtrack_to == 'intent':
                     self.skip_intent = False
                     continue
-                if decision == 'withdraw':
-                    self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
-                    save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
-                    return self._make_result('WITHDRAWN')
-                continue  # retry planning
+                if result.infrastructure_failure:
+                    decision = await self._failure_dialog(result.failure_reason)
+                    if decision == 'backtrack':
+                        self.skip_intent = False
+                        continue
+                    if decision == 'withdraw':
+                        self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
+                        save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+                        return self._make_result('WITHDRAWN')
+                    continue  # retry planning
 
-            # Bridge planning → execution (PLAN has one edge: delegate → TASK)
-            await self._auto_bridge()
+                # Stop here if plan-only
+                if self.plan_only:
+                    return self._make_result('COMPLETED_WORK')
+
+                # Bridge planning → execution (PLAN has one edge: delegate → TASK)
+                await self._auto_bridge()
+            # else: CfA is already at TASK (set_state_direct in Session.run)
 
             # Phase 3: Execution
             result = await self._run_phase('execution')
@@ -198,6 +216,15 @@ class Orchestrator:
         edges = TRANSITIONS.get(self.cfa.state, [])
         if len(edges) == 1:
             action = edges[0][0]
+            await self.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'auto_bridge',
+                    'state': self.cfa.state,
+                    'action': action,
+                },
+                session_id=self.session_id,
+            ))
             await self._transition(action, ActorResult(action=action))
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
@@ -356,7 +383,7 @@ class Orchestrator:
         ))
 
     def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
-        """Get the phase spec, accounting for team overrides."""
+        """Get the phase spec, accounting for team and flat overrides."""
         if self.team_override:
             team = self.config.team(self.team_override)
             base = self.config.phase(phase_name)
@@ -379,7 +406,28 @@ class Orchestrator:
                 escalation_file=base.escalation_file,
                 settings_overlay=base.settings_overlay,
             )
-        return self.config.phase(phase_name)
+
+        base = self.config.phase(phase_name)
+
+        # --flat: swap hierarchical team (uber-team with liaisons) for a flat
+        # team where the lead recruits agents dynamically via the Agent tool.
+        # Only affects phases that use uber-team.json (planning, execution).
+        if self.flat and 'uber-team' in base.agent_file:
+            from projects.POC.orchestrator.phase_config import PhaseSpec
+            return PhaseSpec(
+                name=base.name,
+                agent_file='agents/flat-team.json',
+                lead='project-lead',
+                permission_mode=base.permission_mode,
+                stream_file=base.stream_file,
+                artifact=base.artifact,
+                approval_state=base.approval_state,
+                escalation_state=base.escalation_state,
+                escalation_file=base.escalation_file,
+                settings_overlay=base.settings_overlay,
+            )
+
+        return base
 
     def _task_for_phase(self, phase_name: str) -> str:
         """Get the task description for a phase.

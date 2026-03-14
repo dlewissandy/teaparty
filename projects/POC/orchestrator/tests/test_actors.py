@@ -984,15 +984,16 @@ class TestDialogLoopLogging(unittest.TestCase):
              patch.object(gate, '_proxy_record'):
             _run(gate.run(ctx))
 
-        # Find LOG events among all published events
-        log_events = [
+        # Find approval_dialog LOG events among all published events
+        dialog_log_events = [
             call for call in ctx.event_bus.publish.call_args_list
             if call.args and hasattr(call.args[0], 'type')
             and call.args[0].type == EventType.LOG
+            and call.args[0].data.get('category') == 'approval_dialog'
         ]
-        self.assertGreaterEqual(len(log_events), 1,
-                                "Dialog turn must emit at least one LOG event")
-        log_data = log_events[0].args[0].data
+        self.assertGreaterEqual(len(dialog_log_events), 1,
+                                "Dialog turn must emit at least one approval_dialog LOG event")
+        log_data = dialog_log_events[0].args[0].data
         self.assertEqual(log_data['category'], 'approval_dialog')
         self.assertEqual(log_data['classification'], 'dialog')
 
@@ -1017,13 +1018,14 @@ class TestDialogLoopLogging(unittest.TestCase):
              patch.object(gate, '_proxy_record'):
             _run(gate.run(ctx))
 
-        log_events = [
+        dialog_log_events = [
             call for call in ctx.event_bus.publish.call_args_list
             if call.args and hasattr(call.args[0], 'type')
             and call.args[0].type == EventType.LOG
+            and call.args[0].data.get('category') == 'approval_dialog'
         ]
-        self.assertGreaterEqual(len(log_events), 1)
-        self.assertEqual(log_events[0].args[0].data['classification'], '__fallback__')
+        self.assertGreaterEqual(len(dialog_log_events), 1)
+        self.assertEqual(dialog_log_events[0].args[0].data['classification'], '__fallback__')
 
 
 class TestFallbackUsesDialogGenerator(unittest.TestCase):

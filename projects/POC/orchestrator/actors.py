@@ -150,7 +150,23 @@ class AgentRunner:
                 _relocate_plan_file(artifact_path, result.start_time)
 
         # Detect what the agent produced
-        return self._interpret_output(ctx, result)
+        actor_result = self._interpret_output(ctx, result)
+
+        # Emit artifact detection for --verbose tracing
+        await ctx.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'artifact_detection',
+                'state': ctx.state,
+                'action': actor_result.action,
+                'artifact_path': actor_result.data.get('artifact_path', ''),
+                'artifact_missing': actor_result.data.get('artifact_missing', False),
+                'artifact_expected': actor_result.data.get('artifact_expected', ''),
+            },
+            session_id=ctx.session_id,
+        ))
+
+        return actor_result
 
     def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
         """Check for artifacts and escalation files to determine the action."""
@@ -338,6 +354,15 @@ class ApprovalGate:
         if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
             # Try proxy auto-response from learned patterns
             gen = self._try_generate_response(project_slug, ctx.state, team)
+            await ctx.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'generative_response',
+                    'state': ctx.state,
+                    'result': f'generated (confidence={gen.confidence:.3f})' if gen else 'insufficient data',
+                },
+                session_id=ctx.session_id,
+            ))
             if gen is not None:
                 return ActorResult(
                     action='clarify',
@@ -368,8 +393,23 @@ class ApprovalGate:
                 phase_start_time=ctx.phase_start_time,
             )
 
-            if proxy_decision == 'auto-approve':
-                self._proxy_record(ctx.state, project_slug, 'approve', artifact_path=artifact_path, team=team)
+            # Emit proxy decision for --verbose tracing
+            _pd_action = getattr(proxy_decision, 'action', proxy_decision)
+            await ctx.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'proxy_decision',
+                    'state': ctx.state,
+                    'decision': _pd_action,
+                    'confidence': getattr(proxy_decision, 'confidence', 0.0),
+                    'reasoning': getattr(proxy_decision, 'reasoning', ''),
+                },
+                session_id=ctx.session_id,
+            ))
+
+            if _pd_action == 'auto-approve':
+                self._proxy_record(ctx.state, project_slug, 'approve',
+                                   artifact_path=artifact_path, team=team)
                 return ActorResult(action='approve')
 
             # Step 2: Generate bridge text for the human
@@ -469,13 +509,15 @@ class ApprovalGate:
             )
 
     def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
-                       team: str = '', phase_start_time: float = 0.0) -> str:
-        """Consult human proxy model.  Returns 'auto-approve' or 'escalate'.
+                       team: str = '', phase_start_time: float = 0.0) -> 'ProxyDecision':
+        """Consult human proxy model.  Returns full ProxyDecision.
 
         For execution-phase states (TASK_ASSERT, WORK_ASSERT), enforces a
         minimum elapsed-time guard: if the phase ran for less than
         MIN_EXECUTION_SECONDS, always escalate.  (Issue #122)
         """
+        from projects.POC.scripts.approval_gate import ProxyDecision
+
         # Elapsed-time guard for execution states
         if state in ('TASK_ASSERT', 'WORK_ASSERT') and phase_start_time > 0:
             import time
@@ -485,15 +527,24 @@ class ApprovalGate:
                     'Elapsed-time guard: %s after %.0fs (min %ds) — escalating',
                     state, elapsed, MIN_EXECUTION_SECONDS,
                 )
-                return 'escalate'
+                return ProxyDecision(
+                    action='escalate',
+                    confidence=0.0,
+                    reasoning=f'Elapsed-time guard: {elapsed:.0f}s < {MIN_EXECUTION_SECONDS}s minimum',
+                    predicted_response='escalate (too fast)',
+                )
 
         try:
             model_path = resolve_team_model_path(self.proxy_model_path, team)
             model = load_model(model_path)
-            decision = should_escalate(model, state, project_slug, artifact_path)
-            return decision.action
+            return should_escalate(model, state, project_slug, artifact_path)
         except Exception:
-            return 'escalate'
+            return ProxyDecision(
+                action='escalate',
+                confidence=0.0,
+                reasoning='Exception loading proxy model',
+                predicted_response='escalate (error)',
+            )
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,

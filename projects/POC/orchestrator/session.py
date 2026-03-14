@@ -8,7 +8,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -56,6 +58,17 @@ class Session:
         projects_dir: str | None = None,
         project_override: str | None = None,
         skip_intent: bool = False,
+        intent_file: str | None = None,
+        plan_file: str | None = None,
+        intent_only: bool = False,
+        plan_only: bool = False,
+        execute_only: bool = False,
+        show_memory: bool = False,
+        show_proxy: bool = False,
+        dry_run: bool = False,
+        skip_learnings: bool = False,
+        verbose: bool = False,
+        flat: bool = False,
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
     ):
@@ -64,6 +77,17 @@ class Session:
         self.projects_dir = projects_dir or os.path.dirname(poc_root)
         self.project_override = project_override
         self.skip_intent = skip_intent
+        self.intent_file = intent_file
+        self.plan_file = plan_file
+        self.intent_only = intent_only
+        self.plan_only = plan_only
+        self.execute_only = execute_only
+        self.show_memory = show_memory
+        self.show_proxy = show_proxy
+        self.dry_run = dry_run
+        self.skip_learnings = skip_learnings
+        self.verbose = verbose
+        self.flat = flat
         self.event_bus = event_bus or EventBus()
         self.input_provider = input_provider
 
@@ -103,6 +127,12 @@ class Session:
         infra_dir = self.session_info['infra_dir']
         worktree_path = self.session_info['worktree_path']
 
+        # 4b. Copy pre-written artifacts into worktree (context injection)
+        if self.intent_file:
+            shutil.copy2(self.intent_file, os.path.join(worktree_path, 'INTENT.md'))
+        if self.plan_file:
+            shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
+
         # Persist the full prompt so it's never lost to truncation
         with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:
             f.write(self.task)
@@ -123,15 +153,46 @@ class Session:
             session_id=self.session_id,
         ))
 
-        # 7. Initialize CfA state
+        # 7. Initialize CfA state at the correct starting point
+        from projects.POC.scripts.cfa_state import transition, set_state_direct
         cfa = make_initial_state(task_id=self.session_id)
-        # Advance to PROPOSAL (the agent's first turn)
-        from projects.POC.scripts.cfa_state import transition
-        cfa = transition(cfa, 'propose')
+
+        if self.execute_only or self.plan_file:
+            # Skip intent + planning: jump directly to TASK (execution start)
+            cfa = set_state_direct(cfa, 'TASK')
+        elif self.intent_file or self.skip_intent:
+            # Skip intent: set state to INTENT (planning entry point)
+            # _auto_bridge() in Orchestrator will apply INTENT → DRAFT
+            cfa = set_state_direct(cfa, 'INTENT')
+        else:
+            # Normal path: IDEA → PROPOSAL (agent's first turn)
+            cfa = transition(cfa, 'propose')
+
         save_state(cfa, os.path.join(infra_dir, '.cfa-state.json'))
 
         # 8. Retrieve memory context
         memory_context = self._retrieve_memory(project_dir)
+
+        # 8b. Show memory context if requested
+        if self.show_memory or self.dry_run:
+            self._print_memory_context(memory_context)
+
+        # 8c. Show proxy confidence model if requested
+        if self.show_proxy or self.dry_run:
+            self._print_proxy_model(project_dir)
+
+        if self.dry_run:
+            await self.event_bus.publish(Event(
+                type=EventType.SESSION_COMPLETED,
+                data={'terminal_state': 'DRY_RUN', 'backtrack_count': 0},
+                session_id=self.session_id,
+            ))
+            await state_writer.stop()
+            return SessionResult(
+                terminal_state='DRY_RUN',
+                project=self.project_slug,
+                session_id=self.session_id,
+            )
 
         # 9. Build task prompt with context
         task_prompt = self.task
@@ -154,6 +215,10 @@ class Session:
             task=task_prompt,
             session_id=self.session_id,
             skip_intent=self.skip_intent,
+            intent_only=self.intent_only,
+            plan_only=self.plan_only,
+            execute_only=self.execute_only,
+            flat=self.flat,
         )
 
         result = await orchestrator.run()
@@ -183,8 +248,8 @@ class Session:
                     message=f'Session {self.session_id}: {self.task[:80]}',
                 )
 
-        # 13. Extract learnings
-        if result.terminal_state == 'COMPLETED_WORK':
+        # 13. Extract learnings (skippable for test runs)
+        if result.terminal_state == 'COMPLETED_WORK' and not self.skip_learnings:
             await extract_learnings(
                 infra_dir=infra_dir,
                 project_dir=project_dir,
@@ -345,6 +410,72 @@ class Session:
                         pass
 
         return '\n\n'.join(parts)
+
+    @staticmethod
+    def _print_memory_context(memory_context: str) -> None:
+        """Print memory context to stderr for debugging."""
+        print('\n── MEMORY CONTEXT ──', file=sys.stderr)
+        if memory_context:
+            print(memory_context, file=sys.stderr)
+        else:
+            print('  (no memory context retrieved)', file=sys.stderr)
+        print('── END MEMORY CONTEXT ──\n', file=sys.stderr)
+
+    @staticmethod
+    def _print_proxy_model(project_dir: str) -> None:
+        """Print proxy confidence model state to stderr for debugging."""
+        from projects.POC.scripts.approval_gate import (
+            load_model, compute_confidence, is_generative_state,
+            ConfidenceEntry, COLD_START_THRESHOLD,
+        )
+        print('\n── PROXY CONFIDENCE MODEL ──', file=sys.stderr)
+        model_path = os.path.join(project_dir, '.proxy-confidence.json')
+        if not os.path.exists(model_path):
+            print(f'  (no model file at {model_path})', file=sys.stderr)
+            print('── END PROXY MODEL ──\n', file=sys.stderr)
+            return
+
+        model = load_model(model_path)
+        if not model.entries:
+            print('  (model exists but has no entries)', file=sys.stderr)
+            print('── END PROXY MODEL ──\n', file=sys.stderr)
+            return
+
+        header = f"  {'STATE':<22} {'TASK_TYPE':<20} {'CONF':>6} {'APP':>4} {'TOT':>4} {'DIFFS':>5} {'UPDATED'}"
+        print(header, file=sys.stderr)
+        print('  ' + '-' * (len(header) - 2), file=sys.stderr)
+
+        for key, raw in sorted(model.entries.items()):
+            if isinstance(raw, dict):
+                if 'differentials' not in raw:
+                    raw['differentials'] = []
+                if 'artifact_lengths' not in raw:
+                    raw['artifact_lengths'] = []
+                if 'question_patterns' not in raw:
+                    raw['question_patterns'] = []
+                entry = ConfidenceEntry(**raw)
+            else:
+                entry = raw
+            conf = compute_confidence(entry)
+            threshold = (
+                model.generative_threshold
+                if is_generative_state(entry.state)
+                else model.global_threshold
+            )
+            diff_count = len(entry.differentials)
+            marker = '*' if conf >= threshold and entry.total_count >= COLD_START_THRESHOLD else ' '
+            print(
+                f'  {entry.state:<22} {entry.task_type:<20} {conf:>6.3f} '
+                f'{entry.approve_count:>4} {entry.total_count:>4} {diff_count:>5}  '
+                f'{entry.last_updated} {marker}',
+                file=sys.stderr,
+            )
+        print(
+            f'\n  thresholds: binary={model.global_threshold}  '
+            f'generative={model.generative_threshold}  (* = would auto-approve)',
+            file=sys.stderr,
+        )
+        print('── END PROXY MODEL ──\n', file=sys.stderr)
 
     # ── Resume from disk ─────────────────────────────────────────────────────
 
