@@ -23,6 +23,7 @@ class EventType(Enum):
     DISPATCH_COMPLETED = 'dispatch_completed'
     SESSION_STARTED = 'session_started'
     SESSION_COMPLETED = 'session_completed'
+    STREAM_ERROR = 'stream_error'
     FAILURE = 'failure'
     LOG = 'log'
 

@@ -339,6 +339,15 @@ class Orchestrator:
             ctx.data = self._last_actor_data
             return await self._approval_gate.run(ctx)
 
+        # Inject stderr from previous turn so the agent can see CLI errors
+        prev_stderr = self._last_actor_data.get('stderr_lines', [])
+        if prev_stderr:
+            stderr_block = '\n'.join(prev_stderr)
+            ctx.backtrack_context = (
+                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
+                + f'[stderr from previous turn]\n{stderr_block}'
+            )
+
         # Agent actor — run agent
         return await self._agent_runner.run(ctx)
 

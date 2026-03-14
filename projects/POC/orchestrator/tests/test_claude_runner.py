@@ -24,6 +24,7 @@ def _make_runner(
     agents_file: str | None = None,
     permission_mode: str = 'default',
     env_vars: dict | None = None,
+    event_bus=None,
 ) -> ClaudeRunner:
     return ClaudeRunner(
         prompt='test prompt',
@@ -32,6 +33,7 @@ def _make_runner(
         agents_file=agents_file,
         permission_mode=permission_mode,
         env_vars=env_vars or {},
+        event_bus=event_bus,
     )
 
 
@@ -185,6 +187,181 @@ class TestPermissionModeAlwaysPresent(unittest.TestCase):
         self.assertIn('--permission-mode', args)
         idx = args.index('--permission-mode')
         self.assertEqual(args[idx + 1], 'dontAsk')
+
+
+class TestClaudeResultDataclass(unittest.TestCase):
+    """ClaudeResult dataclass — default values and had_errors property."""
+
+    def test_stderr_lines_default_empty(self):
+        """ClaudeResult defaults to empty stderr_lines."""
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        r = ClaudeResult(exit_code=0)
+        self.assertEqual(r.stderr_lines, [])
+        self.assertFalse(r.had_errors)
+
+    def test_stderr_lines_populated(self):
+        """ClaudeResult carries stderr_lines when set."""
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        r = ClaudeResult(exit_code=1, stderr_lines=['error: something broke'])
+        self.assertEqual(r.stderr_lines, ['error: something broke'])
+        self.assertTrue(r.had_errors)
+
+    def test_had_errors_false_for_empty(self):
+        """had_errors is False when stderr_lines is explicitly empty."""
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        r = ClaudeResult(exit_code=0, stderr_lines=[])
+        self.assertFalse(r.had_errors)
+
+    def test_had_errors_true_for_multiple_lines(self):
+        """had_errors is True when there are multiple stderr lines."""
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        r = ClaudeResult(exit_code=0, stderr_lines=['line1', 'line2', 'line3'])
+        self.assertTrue(r.had_errors)
+        self.assertEqual(len(r.stderr_lines), 3)
+
+
+def _run(coro):
+    """Run a coroutine synchronously for testing."""
+    import asyncio
+    return asyncio.run(coro)
+
+
+class TestStreamWithWatchdogStderr(unittest.TestCase):
+    """_stream_with_watchdog collects stderr lines and publishes STREAM_ERROR events."""
+
+    def _make_runner_with_fake_process(self, stdout_lines, stderr_lines, event_bus=None):
+        """Build a ClaudeRunner whose _process is a mock with fake stdout/stderr."""
+        import asyncio
+        import io
+        from unittest.mock import AsyncMock, MagicMock
+
+        runner = _make_runner(event_bus=event_bus)
+
+        # Build async iterators that yield encoded lines then stop
+        async def _async_iter(lines):
+            for line in lines:
+                yield line.encode() if isinstance(line, str) else line
+
+        proc = MagicMock()
+        proc.returncode = None
+        proc.stdout = _async_iter(stdout_lines)
+        proc.stderr = _async_iter(stderr_lines)
+
+        # Make proc.wait() set returncode=0 and return immediately
+        async def _wait():
+            proc.returncode = 0
+            return 0
+
+        proc.wait = _wait
+        runner._process = proc
+
+        # Write stream output to a temp file
+        import tempfile
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.jsonl')
+        tmp.close()
+        runner.stream_file = tmp.name
+
+        return runner
+
+    def test_stderr_lines_collected(self):
+        """stderr lines from the subprocess are collected into the list."""
+        runner = self._make_runner_with_fake_process(
+            stdout_lines=[],
+            stderr_lines=['Error: tool execution failed', 'Warning: rate limited'],
+        )
+        stderr_lines = []
+        _run(runner._stream_with_watchdog(stderr_lines))
+        self.assertEqual(stderr_lines, ['Error: tool execution failed', 'Warning: rate limited'])
+
+    def test_empty_stderr_lines_skipped(self):
+        """Blank lines from stderr are not collected."""
+        runner = self._make_runner_with_fake_process(
+            stdout_lines=[],
+            stderr_lines=['', 'real error', '', ''],
+        )
+        stderr_lines = []
+        _run(runner._stream_with_watchdog(stderr_lines))
+        self.assertEqual(stderr_lines, ['real error'])
+
+    def test_stream_error_events_published(self):
+        """Each stderr line causes a STREAM_ERROR event on the event bus."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from projects.POC.orchestrator.events import EventBus, EventType
+
+        bus = MagicMock(spec=EventBus)
+        published = []
+
+        async def capture(event):
+            published.append(event)
+
+        bus.publish = capture
+
+        runner = self._make_runner_with_fake_process(
+            stdout_lines=[],
+            stderr_lines=['fatal: API key invalid', 'Connection refused'],
+            event_bus=bus,
+        )
+        runner.session_id = 'sess-abc'
+        stderr_lines = []
+        _run(runner._stream_with_watchdog(stderr_lines))
+
+        stream_error_events = [e for e in published if e.type == EventType.STREAM_ERROR]
+        self.assertEqual(len(stream_error_events), 2)
+
+        lines_in_events = [e.data['line'] for e in stream_error_events]
+        self.assertIn('fatal: API key invalid', lines_in_events)
+        self.assertIn('Connection refused', lines_in_events)
+
+    def test_stream_error_events_carry_session_id(self):
+        """STREAM_ERROR events carry the runner's session_id."""
+        from unittest.mock import MagicMock
+        from projects.POC.orchestrator.events import EventBus, EventType
+
+        bus = MagicMock(spec=EventBus)
+        published = []
+
+        async def capture(event):
+            published.append(event)
+
+        bus.publish = capture
+
+        runner = self._make_runner_with_fake_process(
+            stdout_lines=[],
+            stderr_lines=['tool failed'],
+            event_bus=bus,
+        )
+        runner.session_id = 'my-session-id'
+        stderr_lines = []
+        _run(runner._stream_with_watchdog(stderr_lines))
+
+        error_events = [e for e in published if e.type == EventType.STREAM_ERROR]
+        self.assertEqual(len(error_events), 1)
+        self.assertEqual(error_events[0].session_id, 'my-session-id')
+
+    def test_no_stream_error_events_when_no_stderr(self):
+        """No STREAM_ERROR events are published when stderr is silent."""
+        from unittest.mock import MagicMock
+        from projects.POC.orchestrator.events import EventBus, EventType
+
+        bus = MagicMock(spec=EventBus)
+        published = []
+
+        async def capture(event):
+            published.append(event)
+
+        bus.publish = capture
+
+        runner = self._make_runner_with_fake_process(
+            stdout_lines=[],
+            stderr_lines=[],
+            event_bus=bus,
+        )
+        stderr_lines = []
+        _run(runner._stream_with_watchdog(stderr_lines))
+
+        error_events = [e for e in published if e.type == EventType.STREAM_ERROR]
+        self.assertEqual(error_events, [])
 
 
 if __name__ == '__main__':

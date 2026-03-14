@@ -28,6 +28,11 @@ class ClaudeResult:
     stream_file: str = ''
     stall_killed: bool = False
     start_time: float = 0.0
+    stderr_lines: list[str] = field(default_factory=list)
+
+    @property
+    def had_errors(self) -> bool:
+        return bool(self.stderr_lines)
 
 
 class ClaudeRunner:
@@ -86,7 +91,7 @@ class ClaudeRunner:
                 *args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=self.cwd,
                 env=env,
                 limit=4 * 1024 * 1024,  # 4MB — stream-json lines with large Edit tool calls exceed the 64KB default
@@ -99,8 +104,9 @@ class ClaudeRunner:
 
             # Stream output with stall watchdog
             stall_killed = False
+            stderr_lines: list[str] = []
             try:
-                exit_code = await self._stream_with_watchdog()
+                exit_code = await self._stream_with_watchdog(stderr_lines)
             except _StallTimeout:
                 stall_killed = True
                 exit_code = -1
@@ -111,6 +117,7 @@ class ClaudeRunner:
                 stream_file=self.stream_file,
                 stall_killed=stall_killed,
                 start_time=start_time,
+                stderr_lines=stderr_lines,
             )
         finally:
             if settings_file:
@@ -161,14 +168,14 @@ class ClaudeRunner:
         env.update(self.env_vars)
         return env
 
-    async def _stream_with_watchdog(self) -> int:
-        """Stream stdout while monitoring for stalls."""
+    async def _stream_with_watchdog(self, stderr_lines: list[str]) -> int:
+        """Stream stdout while monitoring for stalls.  Captures stderr."""
         proc = self._process
         assert proc and proc.stdout
 
         last_output_time = time.time()
 
-        async def read_stream():
+        async def read_stdout():
             nonlocal last_output_time
             with open(self.stream_file, 'a') as f:
                 async for line in proc.stdout:
@@ -196,6 +203,21 @@ class ClaudeRunner:
                     except json.JSONDecodeError:
                         pass
 
+        async def read_stderr():
+            assert proc.stderr
+            async for line in proc.stderr:
+                line_str = line.decode().rstrip()
+                if not line_str:
+                    continue
+                stderr_lines.append(line_str)
+                # Publish each stderr line as an event for live observability
+                if self.event_bus:
+                    await self.event_bus.publish(Event(
+                        type=EventType.STREAM_ERROR,
+                        data={'line': line_str},
+                        session_id=self.session_id,
+                    ))
+
         async def watchdog():
             nonlocal last_output_time
             while proc.returncode is None:
@@ -205,12 +227,13 @@ class ClaudeRunner:
                     _kill_process_tree(proc.pid)
                     raise _StallTimeout()
 
-        # Run reader and watchdog concurrently
-        reader_task = asyncio.create_task(read_stream())
+        # Run readers and watchdog concurrently
+        stdout_task = asyncio.create_task(read_stdout())
+        stderr_task = asyncio.create_task(read_stderr())
         watchdog_task = asyncio.create_task(watchdog())
 
         try:
-            await reader_task
+            await asyncio.gather(stdout_task, stderr_task)
             exit_code = await proc.wait()
         finally:
             watchdog_task.cancel()

@@ -76,6 +76,7 @@ class ActorContext:
     add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 # ── AgentRunner ──────────────────────────────────────────────────────────────
@@ -133,12 +134,14 @@ class AgentRunner:
             return ActorResult(action='failed', data={
                 'reason': 'stall_timeout',
                 'exit_code': result.exit_code,
+                'stderr_lines': result.stderr_lines,
             })
 
         if result.exit_code != 0:
             return ActorResult(action='failed', data={
                 'reason': 'nonzero_exit',
                 'exit_code': result.exit_code,
+                'stderr_lines': result.stderr_lines,
             })
 
         # Relocate plan files from ~/.claude/plans/ if needed.
@@ -171,6 +174,8 @@ class AgentRunner:
     def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
         """Check for artifacts and escalation files to determine the action."""
         data: dict = {'claude_session_id': result.session_id}
+        if result.stderr_lines:
+            data['stderr_lines'] = result.stderr_lines
 
         # Check for escalation file
         if ctx.phase_spec.escalation_file:

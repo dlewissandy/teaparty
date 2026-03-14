@@ -1089,5 +1089,103 @@ class TestFallbackUsesDialogGenerator(unittest.TestCase):
 from projects.POC.orchestrator.events import EventType
 
 
+# ── Stderr surfacing ─────────────────────────────────────────────────────────
+
+class TestStderrInActorResult(unittest.TestCase):
+    """ClaudeResult.stderr_lines flows through to ActorResult.data."""
+
+    def test_interpret_output_includes_stderr(self):
+        """When ClaudeResult has stderr_lines, they appear in ActorResult.data."""
+        runner = AgentRunner()
+        ctx = _make_ctx()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.session_worktree = tmpdir
+            result = ClaudeResult(
+                exit_code=0,
+                session_id='s1',
+                stderr_lines=['Error: tool execution failed', 'Warning: rate limited'],
+            )
+            actor_result = runner._interpret_output(ctx, result)
+            self.assertEqual(
+                actor_result.data['stderr_lines'],
+                ['Error: tool execution failed', 'Warning: rate limited'],
+            )
+
+    def test_interpret_output_omits_stderr_when_empty(self):
+        """When ClaudeResult has no stderr, data should not contain stderr_lines."""
+        runner = AgentRunner()
+        ctx = _make_ctx()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.session_worktree = tmpdir
+            result = ClaudeResult(exit_code=0, session_id='s1', stderr_lines=[])
+            actor_result = runner._interpret_output(ctx, result)
+            self.assertNotIn('stderr_lines', actor_result.data)
+
+    def test_agent_runner_run_propagates_stderr_on_nonzero_exit(self):
+        """AgentRunner.run() includes stderr_lines in the failed ActorResult when exit_code != 0."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+        runner = AgentRunner()
+        ctx = _make_ctx()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.session_worktree = tmpdir
+            fake_claude_result = ClaudeResult(
+                exit_code=1,
+                session_id='s1',
+                stderr_lines=['fatal: API key invalid', 'Permission denied'],
+            )
+            with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
+                actor_result = _run(runner.run(ctx))
+
+        self.assertEqual(actor_result.action, 'failed')
+        self.assertEqual(
+            actor_result.data['stderr_lines'],
+            ['fatal: API key invalid', 'Permission denied'],
+        )
+        self.assertEqual(actor_result.data['reason'], 'nonzero_exit')
+
+    def test_agent_runner_run_propagates_stderr_on_stall_killed(self):
+        """AgentRunner.run() includes stderr_lines in the failed ActorResult when stall_killed."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+        runner = AgentRunner()
+        ctx = _make_ctx()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ctx.session_worktree = tmpdir
+            fake_claude_result = ClaudeResult(
+                exit_code=-1,
+                session_id='s1',
+                stall_killed=True,
+                stderr_lines=['subprocess timed out after 1800s'],
+            )
+            with patch.object(ClaudeRunner, 'run', new=AsyncMock(return_value=fake_claude_result)):
+                actor_result = _run(runner.run(ctx))
+
+        self.assertEqual(actor_result.action, 'failed')
+        self.assertEqual(
+            actor_result.data['stderr_lines'],
+            ['subprocess timed out after 1800s'],
+        )
+        self.assertEqual(actor_result.data['reason'], 'stall_timeout')
+
+
+class TestClaudeResultHadErrors(unittest.TestCase):
+    """ClaudeResult.had_errors convenience property."""
+
+    def test_had_errors_true(self):
+        r = ClaudeResult(exit_code=0, stderr_lines=['oops'])
+        self.assertTrue(r.had_errors)
+
+    def test_had_errors_false(self):
+        r = ClaudeResult(exit_code=0, stderr_lines=[])
+        self.assertFalse(r.had_errors)
+
+    def test_had_errors_default(self):
+        r = ClaudeResult(exit_code=0)
+        self.assertFalse(r.had_errors)
+
+
 if __name__ == '__main__':
     unittest.main()
