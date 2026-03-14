@@ -108,6 +108,7 @@ async def squash_merge(
         if rc == 0:
             await _git_try(target, 'commit', '-m', message, '--allow-empty')
             _log.info('Squash-merge succeeded: %s -> %s', source_branch, target)
+            await _verify_merge(source, target)
             return
 
         # Conflicts detected — consult callback if provided (Issue #6)
@@ -128,6 +129,7 @@ async def squash_merge(
         if rc == 0:
             await _git_try(target, 'commit', '-m', message, '--allow-empty')
             _log.info('Squash-merge with -X theirs succeeded: %s -> %s', source_branch, target)
+            await _verify_merge(source, target)
             return
 
         # Strategy 2: merge had conflicts even with -X theirs — resolve manually
@@ -141,6 +143,7 @@ async def squash_merge(
             rc = await _git_rc(target, 'commit', '-m', message, '--allow-empty')
             if rc == 0:
                 _log.info('Conflict-resolved merge succeeded: %s -> %s', source_branch, target)
+                await _verify_merge(source, target)
                 return
 
         # Conflict resolution didn't work — abort and fall through
@@ -149,6 +152,57 @@ async def squash_merge(
     # Strategy 3: file-copy fallback — diff source against merge-base, copy to target
     _log.warning('Git merge strategies failed, falling back to file-copy')
     await _file_copy_merge(source, target, message)
+
+    # Post-merge verification: compare source files against what landed.
+    # This catches silent data loss where a merge "succeeds" but drops files.
+    await _verify_merge(source, target)
+
+
+async def _verify_merge(source: str, target: str) -> None:
+    """Post-merge verification: check that source files exist in target.
+
+    Compares tracked source files against the target working tree.
+    Logs warnings for any files present in source but missing or
+    different-sized in target.  This catches silent data loss where
+    a merge reports success but drops or truncates files.
+    """
+    # Get list of tracked files in source (these are the deliverables)
+    output = await _git_output(source, 'ls-files')
+    if not output.strip():
+        return
+
+    source_files = [f for f in output.strip().splitlines()
+                    if f.strip() and not _is_excluded(f.strip())]
+
+    missing = []
+    truncated = []
+    for relpath in source_files:
+        src_file = os.path.join(source, relpath)
+        dst_file = os.path.join(target, relpath)
+        if not os.path.exists(src_file):
+            continue  # deleted in source, skip
+        if not os.path.exists(dst_file):
+            missing.append(relpath)
+            continue
+        # Check for significant size difference (>50% smaller = truncated)
+        src_size = os.path.getsize(src_file)
+        dst_size = os.path.getsize(dst_file)
+        if src_size > 0 and dst_size < src_size * 0.5:
+            truncated.append((relpath, src_size, dst_size))
+
+    if missing:
+        _log.error(
+            'MERGE VERIFICATION FAILED: %d file(s) missing from target after merge: %s',
+            len(missing), ', '.join(missing[:10]),
+        )
+    if truncated:
+        details = [f'{f} (src={s}B, dst={d}B)' for f, s, d in truncated[:10]]
+        _log.error(
+            'MERGE VERIFICATION WARNING: %d file(s) appear truncated after merge: %s',
+            len(truncated), ', '.join(details),
+        )
+    if not missing and not truncated:
+        _log.info('Merge verification passed: all %d source files present in target', len(source_files))
 
 
 async def _get_conflicted_files(worktree: str) -> list[str]:

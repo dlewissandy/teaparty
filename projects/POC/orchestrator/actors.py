@@ -715,18 +715,37 @@ class DispatchRunner:
                 continue
             break
 
-        # Merge child worktree back
+        # Merge child worktree back.
+        # This MUST succeed — the dispatch produced completed work.
+        # If the merge fails, we MUST NOT clean up the worktree (it's
+        # the only copy of the work).  Log the failure loudly and
+        # leave the worktree for manual recovery.  (Root cause of #123)
+        merge_succeeded = False
         try:
             await squash_merge(
                 source=dispatch_info['worktree_path'],
                 target=ctx.session_worktree,
                 message=f'[{self.team}] {self.task[:80]}',
             )
+            merge_succeeded = True
         except Exception:
-            pass
+            _actor_log.error(
+                'CRITICAL: Dispatch merge FAILED for team=%s. '
+                'Work is preserved in worktree: %s — DO NOT delete it. '
+                'Manual merge required.',
+                self.team, dispatch_info['worktree_path'],
+                exc_info=True,
+            )
 
-        # Cleanup worktree
-        await cleanup_worktree(dispatch_info['worktree_path'])
+        # Only clean up the worktree if the merge succeeded.
+        # If it failed, the worktree is the only copy of the work.
+        if merge_succeeded:
+            await cleanup_worktree(dispatch_info['worktree_path'])
+        else:
+            _actor_log.warning(
+                'Preserving dispatch worktree for manual recovery: %s',
+                dispatch_info['worktree_path'],
+            )
 
         # Publish dispatch complete
         await ctx.event_bus.publish(Event(
