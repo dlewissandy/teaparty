@@ -273,7 +273,11 @@ class DrilldownScreen(Screen):
                 self._input_latched = True
                 input_area.add_class('visible')
                 state = self._session.cfa_state if self._session else ''
-                label = _human_label(state)
+                # Use bridge_text as the prompt when available (issue #137)
+                if req and req.bridge_text:
+                    label = req.bridge_text[:200]
+                else:
+                    label = _human_label(state)
                 prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
                 # Display bridge_text (dialog reply / review summary) in activity log
                 if req and req.bridge_text and req.bridge_text != self._shown_dialog_reply:
