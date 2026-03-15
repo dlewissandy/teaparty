@@ -139,8 +139,13 @@ class TestDispatchManifestLocation(unittest.TestCase):
         async def fake_run_git(cwd, *args):
             pass
 
+        repo_root = self.layout['repo_root']
+
         async def fake_run_git_output(cwd, *args):
-            # Simulate: git rev-parse --show-toplevel returns worktree root
+            # --git-common-dir returns the shared .git dir (fix uses this)
+            if 'rev-parse' in args and '--git-common-dir' in args:
+                return os.path.join(repo_root, '.git') + '\n'
+            # --show-toplevel returns worktree root (the old buggy path)
             if 'rev-parse' in args and '--show-toplevel' in args:
                 return session_wt + '\n'
             return '\n'

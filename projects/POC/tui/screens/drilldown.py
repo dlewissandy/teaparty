@@ -528,11 +528,15 @@ class DrilldownScreen(Screen):
         path = self._session_worktree()
         if path:
             open_file(path)
+        else:
+            self.notify('Worktree not found', severity='warning')
 
     def action_open_vscode(self) -> None:
         path = self._session_worktree()
         if path:
             subprocess.Popen(['code', path])
+        else:
+            self.notify('Worktree not found', severity='warning')
 
     def action_open_intent(self) -> None:
         path = self._find_doc('INTENT.md')

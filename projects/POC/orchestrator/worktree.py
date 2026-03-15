@@ -70,10 +70,16 @@ async def create_dispatch_worktree(
     task: str,
     session_worktree: str,
     infra_dir: str,
+    repo_root: str = '',
 ) -> dict:
     """Create a dispatch worktree branched from the session.
 
     Returns dict with: worktree_path, infra_dir, branch_name, dispatch_id.
+
+    Args:
+        repo_root: Main repository root for manifest registration.  If empty,
+            falls back to ``git rev-parse --path-format=absolute --git-common-dir``
+            which returns the shared .git dir even from inside a worktree.
     """
     dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S')
     task_slug = _slugify(task)[:25]
@@ -84,10 +90,16 @@ async def create_dispatch_worktree(
     parent = os.path.dirname(session_worktree)
     worktree_path = os.path.join(parent, worktree_name)
 
-    # Get the repo root from the session worktree
-    repo_root = (await _run_git_output(
-        session_worktree, 'rev-parse', '--show-toplevel'
-    )).strip()
+    # Resolve the true repo root for manifest registration.
+    # git rev-parse --show-toplevel returns the *worktree* root (wrong).
+    # --git-common-dir returns the shared .git directory; its parent is the
+    # actual repo root.
+    if not repo_root:
+        git_common = (await _run_git_output(
+            session_worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir'
+        )).strip()
+        # git_common is e.g. /path/to/repo/.git → parent is the repo root
+        repo_root = os.path.dirname(git_common)
 
     await _run_git(session_worktree, 'worktree', 'add', '-b', branch_name, worktree_path)
 
