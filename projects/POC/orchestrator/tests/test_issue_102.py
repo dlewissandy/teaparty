@@ -128,76 +128,33 @@ class TestApprovalGateBridgeContextInjection(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    def test_plan_assert_bridge_passes_intent_context(self):
-        """At PLAN_ASSERT, _generate_bridge must pass INTENT.md content
-        to generate_review_bridge.generate()."""
+    def test_plan_assert_returns_alignment_question(self):
+        """At PLAN_ASSERT, _generate_bridge returns the direct alignment question."""
         gate = self._make_gate()
-        # Write INTENT.md and PLAN.md
-        Path(os.path.join(self.worktree, 'INTENT.md')).write_text(
-            '# Intent\nBuild a widget factory.'
-        )
         artifact_path = os.path.join(self.worktree, 'PLAN.md')
         Path(artifact_path).write_text('# Plan\nStep 1: Build widgets.')
 
-        with patch('projects.POC.scripts.generate_review_bridge.generate') as mock_gen:
-            mock_gen.return_value = 'bridge text'
-            gate._generate_bridge(
-                artifact_path, 'PLAN_ASSERT', 'Build widgets',
-                session_worktree=self.worktree,
-                infra_dir=self.infra_dir,
-            )
-            # The generate function must receive intent_context
-            call_kwargs = mock_gen.call_args
-            # Check that intent context was passed (either as kwarg or positional)
-            all_args = list(call_kwargs.args) + list(call_kwargs.kwargs.values())
-            intent_found = any('widget factory' in str(a).lower() for a in all_args)
-            self.assertTrue(intent_found,
-                            "PLAN_ASSERT bridge must pass INTENT.md content to generate()")
+        text = gate._generate_bridge(artifact_path, 'PLAN_ASSERT', 'Build widgets')
 
-    def test_work_assert_bridge_passes_intent_and_plan_context(self):
-        """At WORK_ASSERT, _generate_bridge must pass both INTENT.md and
-        PLAN.md content to generate_review_bridge.generate()."""
+        self.assertIn('Do you recognize this plan', text)
+        self.assertIn(artifact_path, text)
+
+    def test_work_assert_returns_alignment_question(self):
+        """At WORK_ASSERT, _generate_bridge returns the direct alignment question."""
         gate = self._make_gate()
-        Path(os.path.join(self.worktree, 'INTENT.md')).write_text(
-            '# Intent\nBuild a widget factory.'
-        )
-        Path(os.path.join(self.worktree, 'PLAN.md')).write_text(
-            '# Plan\nStep 1: Build widgets.'
-        )
         artifact_path = os.path.join(self.worktree, '.work-summary.md')
         Path(artifact_path).write_text('# Work Summary\nWidgets built.')
 
-        with patch('projects.POC.scripts.generate_review_bridge.generate') as mock_gen:
-            mock_gen.return_value = 'bridge text'
-            gate._generate_bridge(
-                artifact_path, 'WORK_ASSERT', 'Build widgets',
-                session_worktree=self.worktree,
-                infra_dir=self.infra_dir,
-            )
-            call_kwargs = mock_gen.call_args
-            all_args = list(call_kwargs.args) + list(call_kwargs.kwargs.values())
-            all_text = ' '.join(str(a) for a in all_args).lower()
-            self.assertIn('widget factory', all_text,
-                          "WORK_ASSERT bridge must pass INTENT.md content")
-            self.assertIn('build widgets', all_text,
-                          "WORK_ASSERT bridge must pass PLAN.md content")
+        text = gate._generate_bridge(artifact_path, 'WORK_ASSERT', 'Build widgets')
 
-    def test_bridge_degrades_when_context_files_missing(self):
-        """When upstream context files don't exist, _generate_bridge must
-        still produce output without crashing."""
+        self.assertIn('Do you recognize the deliverables', text)
+        self.assertIn(artifact_path, text)
+
+    def test_bridge_works_without_artifact_path(self):
+        """When no artifact path given, the alignment question is still returned."""
         gate = self._make_gate()
-        artifact_path = os.path.join(self.worktree, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan\nDo stuff.')
-
-        with patch('projects.POC.scripts.generate_review_bridge.generate',
-                   return_value='bridge text') as mock_gen:
-            # Should not raise even though INTENT.md doesn't exist
-            text = gate._generate_bridge(
-                artifact_path, 'PLAN_ASSERT', 'task',
-                session_worktree=self.worktree,
-                infra_dir=self.infra_dir,
-            )
-            self.assertTrue(text)  # Some output produced
+        text = gate._generate_bridge('', 'PLAN_ASSERT', 'task')
+        self.assertIn('Do you recognize this plan', text)
 
 
 # ── Fallback bridge alignment framing ───────────────────────────────────────

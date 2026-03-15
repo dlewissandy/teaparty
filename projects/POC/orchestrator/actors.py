@@ -840,16 +840,18 @@ class ApprovalGate:
             _actor_log.warning('Classification failed — falling back to re-prompt', exc_info=True)
             return '__fallback__', ''
 
+    _ASSERT_QUESTIONS = {
+        'INTENT_ASSERT': 'Do you recognize this intent document as your idea, completely and accurately articulated?',
+        'PLAN_ASSERT': 'Do you recognize this plan as a strategic plan to operationalize your idea well?',
+        'WORK_ASSERT': 'Do you recognize the deliverables as your idea, completely and well implemented?',
+    }
+
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str,
         artifact_missing: bool = False,
         session_worktree: str = '', infra_dir: str = '',
     ) -> str:
-        """Generate alignment validation bridge for review.
-
-        Reads upstream context files (INTENT.md, PLAN.md) so the reviewer
-        can compare the artifact under review against its source of truth.
-        """
+        """Return the alignment validation question for this gate."""
         if artifact_missing:
             expected_note = (
                 f' (expected path: {artifact_path})'
@@ -863,43 +865,12 @@ class ApprovalGate:
                 '  withdraw — abandon this session\n'
                 '  approve — advance without the artifact (not recommended)'
             )
-        if not artifact_path or not os.path.exists(artifact_path):
-            return f'Ready for review at {state}.'
 
-        # Read upstream context for alignment comparison
-        intent_context = self._read_context_file(
-            'INTENT.md', session_worktree, infra_dir,
-        )
-        plan_context = self._read_context_file(
-            'PLAN.md', session_worktree, infra_dir,
-        )
+        question = self._ASSERT_QUESTIONS.get(state, f'Review artifact at {state}.')
+        if artifact_path:
+            return f'{question}\n\nArtifact: {artifact_path}'
+        return question
 
-        try:
-            from projects.POC.scripts.generate_review_bridge import generate
-            return generate(
-                artifact_path, state, task,
-                intent_context=intent_context,
-                plan_context=plan_context,
-            )
-        except Exception:
-            return f'Please review: {artifact_path}'
-
-    @staticmethod
-    def _read_context_file(
-        filename: str, session_worktree: str, infra_dir: str,
-    ) -> str:
-        """Read a context file from session_worktree or infra_dir."""
-        for base in (session_worktree, infra_dir):
-            if not base:
-                continue
-            path = os.path.join(base, filename)
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        return f.read()
-                except OSError:
-                    pass
-        return ''
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,
