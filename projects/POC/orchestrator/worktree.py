@@ -146,6 +146,36 @@ async def create_dispatch_worktree(
     }
 
 
+async def commit_artifact(worktree: str, paths: list[str], message: str) -> None:
+    """Stage and commit artifact files in the session worktree.
+
+    Uses --allow-empty-message as a safety net, but callers should always
+    provide a meaningful message.  No-ops silently if nothing changed
+    (git commit exits 1 when there's nothing to commit).
+    """
+    await _run_git(worktree, 'add', '--', *paths)
+    # git commit exits 1 if nothing to commit — that's fine, not an error.
+    proc = await asyncio.create_subprocess_exec(
+        'git', 'commit', '-m', message, '--allow-empty-message',
+        cwd=worktree,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    await proc.wait()
+
+
+async def artifact_version(worktree: str, path: str) -> int:
+    """Return the next version number for an artifact file.
+
+    Counts existing commits that touched ``path`` and adds 1.
+    """
+    output = await _run_git_output(worktree, 'rev-list', '--count', 'HEAD', '--', path)
+    try:
+        return int(output.strip()) + 1
+    except (ValueError, TypeError):
+        return 1
+
+
 async def cleanup_worktree(worktree_path: str) -> None:
     """Remove a worktree and its branch."""
     if not os.path.isdir(worktree_path):

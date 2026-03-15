@@ -39,6 +39,7 @@ from projects.POC.orchestrator.actors import (
     ApprovalGate,
     InputProvider,
 )
+from projects.POC.orchestrator.worktree import artifact_version, commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
@@ -485,9 +486,37 @@ class Orchestrator:
             session_id=self.session_id,
         ))
 
+        # Auto-commit artifacts to the session worktree after writes
+        await self._commit_artifacts(old_state, action)
+
         # Post-intent-approval: detect project stage and retire old-stage memory
         if old_state == 'INTENT_ASSERT' and action == 'approve':
             self._detect_and_retire_stage()
+
+    async def _commit_artifacts(self, old_state: str, action: str) -> None:
+        """Auto-commit artifacts to the session worktree after writes.
+
+        Integration points (from issue #40):
+          1. Post-intent write  → commit INTENT.md
+          2. Post-plan write    → commit PLAN.md
+          3. Post-execution     → commit all deliverables
+        """
+        wt = self.session_worktree
+        if not wt:
+            return
+
+        new_state = self.cfa.state
+        try:
+            if new_state == 'INTENT_ASSERT':
+                v = await artifact_version(wt, 'INTENT.md')
+                await commit_artifact(wt, ['INTENT.md'], f'Intent v{v}: {action}')
+            elif new_state == 'PLAN_ASSERT':
+                v = await artifact_version(wt, 'PLAN.md')
+                await commit_artifact(wt, ['PLAN.md'], f'Plan v{v}: {action}')
+            elif new_state == 'TASK_ASSERT':
+                await commit_artifact(wt, ['.'], f'Execution: {action}')
+        except Exception as exc:
+            _log.warning('Artifact commit failed (non-fatal): %s', exc)
 
     def _detect_and_retire_stage(self) -> None:
         """Detect the project stage from INTENT.md and retire old-stage memory."""
