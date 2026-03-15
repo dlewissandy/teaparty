@@ -319,13 +319,14 @@ class TestBridgeTextReframing(unittest.TestCase):
 
             self.assertTrue(len(captured_bridge) > 0, 'No bridge text captured')
             bridge = captured_bridge[0]
-            # Must use engagement framing
-            self.assertIn('discuss', bridge.lower())
+            # Bridge should contain the extracted questions, not boilerplate
+            self.assertIn('offline support', bridge.lower())
+            self.assertIn('target audience', bridge.lower())
             # Must NOT use escalation framing
             self.assertNotIn('escalated', bridge.lower())
 
-    def test_planning_escalate_bridge_uses_discuss_framing(self):
-        """At PLANNING_ESCALATE, bridge text says 'wants to discuss'."""
+    def test_planning_escalate_bridge_extracts_questions(self):
+        """At PLANNING_ESCALATE, bridge text contains extracted questions."""
         with tempfile.TemporaryDirectory() as tmpdir:
             esc_path = os.path.join(tmpdir, '.plan-escalation.md')
             Path(esc_path).write_text(
@@ -362,7 +363,8 @@ class TestBridgeTextReframing(unittest.TestCase):
 
             self.assertTrue(len(captured_bridge) > 0, 'No bridge text captured')
             bridge = captured_bridge[0]
-            self.assertIn('discuss', bridge.lower())
+            # Just the question, no boilerplate wrapping
+            self.assertIn('which direction feels right', bridge.lower())
             self.assertNotIn('escalated', bridge.lower())
 
 

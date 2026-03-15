@@ -18,6 +18,22 @@ from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_strea
 from projects.POC.tui.platform_utils import open_file
 
 
+_STATE_LABELS: dict[str, str] = {
+    'INTENT_ESCALATE': 'Agent has questions about intent',
+    'PLANNING_ESCALATE': 'Agent has questions about the plan',
+    'TASK_REVIEW_ESCALATE': 'Agent has questions about the task',
+    'TASK_ESCALATE': 'Agent has questions about the task',
+    'INTENT_ASSERT': 'Review intent',
+    'PLAN_ASSERT': 'Review plan',
+    'WORK_ASSERT': 'Review completed work',
+}
+
+
+def _human_label(state: str) -> str:
+    """Map CfA state to a human-readable prompt label."""
+    return _STATE_LABELS.get(state, state)
+
+
 def _human_age(seconds: int) -> str:
     if seconds < 0:
         return '\u2014'
@@ -253,7 +269,8 @@ class DrilldownScreen(Screen):
                 self._input_latched = True
                 input_area.add_class('visible')
                 state = self._session.cfa_state if self._session else ''
-                prompt_label.update(f'[bold yellow]{state}[/bold yellow]')
+                label = _human_label(state)
+                prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
                 # Display bridge_text (dialog reply / review summary) in activity log
                 if req and req.bridge_text and req.bridge_text != self._shown_dialog_reply:
                     self._shown_dialog_reply = req.bridge_text
@@ -331,7 +348,8 @@ class DrilldownScreen(Screen):
             self._input_latched = True
             input_area.add_class('visible')
             state = self._session.cfa_state if self._session else ''
-            prompt_label.update(f'[bold yellow]{state}[/bold yellow]')
+            label = _human_label(state)
+            prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
             if not was_visible:
                 self.query_one('#input-field', Input).focus()
         else:

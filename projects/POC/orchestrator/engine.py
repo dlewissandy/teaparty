@@ -434,6 +434,22 @@ class Orchestrator:
             ctx.data = self._last_actor_data
             return await self._approval_gate.run(ctx)
 
+        # Inject human feedback from escalation/correction so the agent
+        # can see what the human said (feedback + optional dialog transcript).
+        prev_feedback = self._last_actor_data.get('feedback', '')
+        prev_dialog = self._last_actor_data.get('dialog_history', '')
+        if prev_feedback or prev_dialog:
+            parts = []
+            if prev_dialog:
+                parts.append(f'[escalation dialog]\n{prev_dialog}')
+            if prev_feedback:
+                parts.append(f'[human feedback]\n{prev_feedback}')
+            feedback_block = '\n\n'.join(parts)
+            ctx.backtrack_context = (
+                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
+                + feedback_block
+            )
+
         # Inject stderr from previous turn so the agent can see CLI errors
         prev_stderr = self._last_actor_data.get('stderr_lines', [])
         if prev_stderr:
@@ -461,6 +477,10 @@ class Orchestrator:
 
         # Track data from the actor result for the next actor
         self._last_actor_data = actor_result.data
+        if actor_result.feedback:
+            self._last_actor_data['feedback'] = actor_result.feedback
+        if actor_result.dialog_history:
+            self._last_actor_data['dialog_history'] = actor_result.dialog_history
 
         # Track claude session ID for --resume
         claude_sid = actor_result.data.get('claude_session_id', '')
