@@ -228,10 +228,15 @@ class TestProjectLeadSpawnsLiaisons(unittest.TestCase):
                               f"project-lead prompt must reference {name} so the lead knows it can be spawned")
 
 
-# ── Test: liaison prompts reference dispatch_cli.py, not dispatch.sh ──────────
+# ── Test: liaison prompts reference dispatch mechanism, not dispatch.sh ───────
 
 class TestLiaisonDispatchCommand(unittest.TestCase):
-    """All liaison prompts must reference dispatch_cli.py, not the defunct dispatch.sh."""
+    """All liaison prompts must reference a dispatch mechanism, not the defunct dispatch.sh.
+
+    Note: uber-team.json liaisons were updated in issue #144 to use the AskTeam
+    MCP tool instead of dispatch_cli subprocess calls.  project-team.json and
+    intent-team.json still use dispatch_cli directly.
+    """
 
     def _assert_liaison_uses_dispatch_cli(self, agents: dict, liaison_name: str):
         prompt = agents[liaison_name]['prompt']
@@ -240,13 +245,21 @@ class TestLiaisonDispatchCommand(unittest.TestCase):
         self.assertIn('dispatch_cli', prompt,
                       f"{liaison_name} prompt must reference dispatch_cli for dispatching")
 
+    def _assert_liaison_uses_ask_team(self, agents: dict, liaison_name: str):
+        """uber-team liaisons use AskTeam MCP tool (issue #144)."""
+        prompt = agents[liaison_name]['prompt']
+        self.assertNotIn('dispatch.sh', prompt,
+                         f"{liaison_name} prompt references nonexistent dispatch.sh")
+        self.assertIn('AskTeam', prompt,
+                      f"{liaison_name} prompt must reference AskTeam for dispatching")
+
     def test_uber_team_liaisons(self):
-        """All liaisons in uber-team.json must use dispatch_cli."""
+        """All liaisons in uber-team.json must use AskTeam (issue #144 migration)."""
         agents = _load_agents_file('uber-team.json')
         for name in ['art-liaison', 'writing-liaison', 'editorial-liaison',
                       'research-liaison', 'coding-liaison']:
             with self.subTest(liaison=name):
-                self._assert_liaison_uses_dispatch_cli(agents, name)
+                self._assert_liaison_uses_ask_team(agents, name)
 
     def test_project_team_liaisons(self):
         """All liaisons in project-team.json must use dispatch_cli."""
@@ -308,28 +321,32 @@ class TestExecutionPhaseWiring(unittest.TestCase):
         self.assertEqual(self.exec_spec.permission_mode, 'acceptEdits')
 
 
-# ── Test: uber-team.json liaisons have dispatch_cli with correct team names ───
+# ── Test: uber-team.json liaisons dispatch to the correct team name ───────────
 
 class TestLiaisonDispatchTeamNames(unittest.TestCase):
-    """Each liaison's dispatch command must reference the correct team name."""
+    """Each liaison must dispatch to the correct team.
+
+    After issue #144 migration, uber-team liaisons use AskTeam(team="X", ...)
+    instead of dispatch_cli --team X.
+    """
 
     def setUp(self):
         self.agents = _load_agents_file('uber-team.json')
 
     def test_art_liaison_dispatches_to_art(self):
-        self.assertIn('--team art', self.agents['art-liaison']['prompt'])
+        self.assertIn('team="art"', self.agents['art-liaison']['prompt'])
 
     def test_writing_liaison_dispatches_to_writing(self):
-        self.assertIn('--team writing', self.agents['writing-liaison']['prompt'])
+        self.assertIn('team="writing"', self.agents['writing-liaison']['prompt'])
 
     def test_editorial_liaison_dispatches_to_editorial(self):
-        self.assertIn('--team editorial', self.agents['editorial-liaison']['prompt'])
+        self.assertIn('team="editorial"', self.agents['editorial-liaison']['prompt'])
 
     def test_research_liaison_dispatches_to_research(self):
-        self.assertIn('--team research', self.agents['research-liaison']['prompt'])
+        self.assertIn('team="research"', self.agents['research-liaison']['prompt'])
 
     def test_coding_liaison_dispatches_to_coding(self):
-        self.assertIn('--team coding', self.agents['coding-liaison']['prompt'])
+        self.assertIn('team="coding"', self.agents['coding-liaison']['prompt'])
 
 
 if __name__ == '__main__':

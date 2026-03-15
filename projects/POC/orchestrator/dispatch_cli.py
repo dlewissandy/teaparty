@@ -94,15 +94,38 @@ def _write_dispatch_memory(dispatch_infra: str, team: str, task: str, result) ->
         pass
 
 
-async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_parent_state: str = '') -> dict:
-    """Run a dispatch and return a status dict."""
+async def dispatch(
+    team: str,
+    task: str,
+    auto_approve_plan: bool = False,
+    cfa_parent_state: str = '',
+    session_worktree: str = '',
+    infra_dir: str = '',
+    project_slug: str = '',
+) -> dict:
+    """Run a dispatch and return a status dict.
+
+    Args:
+        team: The team name to dispatch to (art, writing, etc.).
+        task: The task description.
+        auto_approve_plan: Skip proxy check for plan approval.
+        cfa_parent_state: Path to parent CfA state JSON.
+        session_worktree: Parent session worktree path.  Falls back to
+            the POC_SESSION_WORKTREE env var, then os.getcwd().
+        infra_dir: Parent session infra directory.  Falls back to
+            the POC_SESSION_DIR env var.
+        project_slug: Project identifier.  Falls back to POC_PROJECT env var.
+    """
     poc_root = _find_poc_root()
     config = PhaseConfig(poc_root)
 
-    # Read parent session context from environment
-    session_worktree = os.environ.get('POC_SESSION_WORKTREE', os.getcwd())
-    infra_dir = os.environ.get('POC_SESSION_DIR', '')
-    project_slug = os.environ.get('POC_PROJECT', 'default')
+    # Resolve session context — explicit parameters take precedence over env vars
+    if not session_worktree:
+        session_worktree = os.environ.get('POC_SESSION_WORKTREE', os.getcwd())
+    if not infra_dir:
+        infra_dir = os.environ.get('POC_SESSION_DIR', '')
+    if not project_slug:
+        project_slug = os.environ.get('POC_PROJECT', 'default')
 
     if not infra_dir:
         return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}
