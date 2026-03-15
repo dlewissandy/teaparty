@@ -143,7 +143,13 @@ class DispatchListener:
                 pass
 
     async def _handle_dispatch(self, team: str, task: str) -> dict:
-        """Call dispatch() with the session context passed explicitly."""
+        """Call dispatch() with the session context, then run post-dispatch lifecycle.
+
+        After dispatch completes:
+        1. Roll up team learnings (dispatch MEMORY.md → team institutional + tasks)
+        2. Compact accumulated memory files
+        3. Merge child events into parent event stream
+        """
         _log.info('Dispatching to team %r: %s', team, task[:80])
 
         await self.event_bus.publish(Event(
@@ -164,6 +170,12 @@ class DispatchListener:
             project_slug=self.project_slug,
         )
 
+        # Post-dispatch lifecycle: learning rollup and compaction.
+        # These run in the orchestrator process with full access to the
+        # session context — no subprocess, no env var issues.
+        if result.get('status') == 'completed':
+            await self._post_dispatch_lifecycle(team)
+
         await self.event_bus.publish(Event(
             type=EventType.LOG,
             data={
@@ -177,3 +189,98 @@ class DispatchListener:
 
         _log.info('Dispatch to %r completed: %s', team, result.get('status', '?'))
         return result
+
+    async def _post_dispatch_lifecycle(self, team: str) -> None:
+        """Run learning rollup and compaction after a successful dispatch.
+
+        1. promote('team') — rolls dispatch MEMORY.md files into team-level
+           institutional.md and tasks/ files
+        2. compact_file() — compresses accumulated team memory
+
+        Errors are logged but don't fail the dispatch — the deliverables
+        are already merged; learning is best-effort.
+        """
+        try:
+            from projects.POC.scripts.summarize_session import promote
+
+            # Determine the project directory (parent of infra_dir)
+            project_dir = os.path.dirname(self.infra_dir)
+
+            promote(
+                scope='team',
+                session_dir=self.infra_dir,
+                project_dir=project_dir,
+                output_dir=project_dir,
+            )
+            _log.info('Learning rollup completed for team %r', team)
+
+            await self.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'learning_rollup',
+                    'team': team,
+                    'scope': 'team',
+                },
+                session_id=self.session_id,
+            ))
+        except Exception:
+            _log.debug('Learning rollup failed for team %r', team, exc_info=True)
+
+        # Compact team memory files
+        try:
+            from projects.POC.scripts.compact_memory import compact_file
+
+            team_dir = os.path.join(self.infra_dir, team)
+            institutional_path = os.path.join(team_dir, 'institutional.md')
+            if os.path.isfile(institutional_path):
+                before, after = compact_file(institutional_path)
+                if before > after:
+                    _log.info(
+                        'Compacted %s: %d → %d entries', institutional_path,
+                        before, after,
+                    )
+                    await self.event_bus.publish(Event(
+                        type=EventType.LOG,
+                        data={
+                            'category': 'memory_compaction',
+                            'team': team,
+                            'file': institutional_path,
+                            'before': before,
+                            'after': after,
+                        },
+                        session_id=self.session_id,
+                    ))
+        except Exception:
+            _log.debug('Memory compaction failed for team %r', team, exc_info=True)
+
+        # Merge child events into parent event stream
+        try:
+            team_dir = os.path.join(self.infra_dir, team)
+            if os.path.isdir(team_dir):
+                for entry in os.scandir(team_dir):
+                    if not entry.is_dir():
+                        continue
+                    events_path = os.path.join(entry.path, 'events.jsonl')
+                    if not os.path.isfile(events_path):
+                        continue
+                    with open(events_path) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line:
+                                continue
+                            try:
+                                child_event = json.loads(line)
+                                await self.event_bus.publish(Event(
+                                    type=EventType.LOG,
+                                    data={
+                                        'category': 'child_event',
+                                        'team': team,
+                                        'source': os.path.basename(entry.path),
+                                        **child_event,
+                                    },
+                                    session_id=self.session_id,
+                                ))
+                            except (json.JSONDecodeError, Exception):
+                                pass
+        except Exception:
+            _log.debug('Child event merge failed for team %r', team, exc_info=True)
