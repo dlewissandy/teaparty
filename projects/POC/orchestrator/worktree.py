@@ -81,9 +81,23 @@ async def create_dispatch_worktree(
             falls back to ``git rev-parse --path-format=absolute --git-common-dir``
             which returns the shared .git dir even from inside a worktree.
     """
-    dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S')
+    import hashlib
+    base_dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
     task_slug = _slugify(task)[:25]
-    worktree_name = f'{team}-{dispatch_id[:6]}--{task_slug}'
+
+    # Collision detection: if the infra dir already exists, append a counter.
+    # Handles parallel dispatches that land in the same microsecond.
+    dispatch_id = base_dispatch_id
+    for attempt in range(1, 100):
+        dispatch_infra_candidate = os.path.join(infra_dir, team, dispatch_id)
+        if not os.path.exists(dispatch_infra_candidate):
+            break
+        dispatch_id = f'{base_dispatch_id}-{attempt}'
+
+    # Derive 8-char unique hash from dispatch_id for the worktree name.
+    # Similar to the shell's 8-char UUID prefix but deterministic.
+    short_hash = hashlib.md5(dispatch_id.encode()).hexdigest()[:8]
+    worktree_name = f'{team}-{short_hash}--{task_slug}'
     branch_name = worktree_name
 
     # Dispatch worktree is a sibling of the session worktree
