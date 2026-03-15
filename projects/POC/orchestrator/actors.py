@@ -532,6 +532,35 @@ class ApprovalGate:
                 artifact_path, ctx.state, ctx.task, artifact_missing=True,
             )
         else:
+            # Step 0.5: At PLAN_ASSERT, cross-reference INTENT.md [RESOLVE]
+            # questions against PLAN.md.  Unaddressed questions → escalate.
+            if ctx.state == 'PLAN_ASSERT' and artifact_path:
+                intent_path = os.path.join(ctx.infra_dir, 'INTENT.md')
+                if not os.path.exists(intent_path):
+                    intent_path = os.path.join(ctx.session_worktree, 'INTENT.md')
+                if os.path.exists(intent_path):
+                    try:
+                        with open(intent_path) as _f:
+                            intent_text = _f.read()
+                        with open(artifact_path) as _f:
+                            plan_text = _f.read()
+                        from projects.POC.scripts.approval_gate import check_resolve_coverage
+                        missing = check_resolve_coverage(intent_text, plan_text)
+                        if missing:
+                            nums = ', '.join(str(n) for n in missing)
+                            return ActorResult(
+                                action='reject',
+                                feedback=(
+                                    f'INTENT.md has [RESOLVE] questions ({nums}) that '
+                                    f'are not assigned to workflow steps in PLAN.md. '
+                                    f'The plan must include an "Open question resolution" '
+                                    f'section mapping each [RESOLVE] question to the '
+                                    f'phase where execution will resolve it.'
+                                ),
+                            )
+                    except OSError:
+                        pass
+
             # Step 1: Consult proxy
             proxy_decision = self._proxy_decide(
                 ctx.state, project_slug, artifact_path, team=team,

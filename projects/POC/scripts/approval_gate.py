@@ -295,6 +295,46 @@ def _extract_question_patterns(dialog_text: str, disposition: str) -> list:
     return patterns
 
 
+def extract_resolve_questions(intent_text: str) -> list[tuple[int, str]]:
+    """Extract numbered [RESOLVE] questions from INTENT.md text.
+
+    Returns list of (number, question_text) tuples.
+    Matches patterns like: '1. [RESOLVE] Should we use SQLite?'
+    """
+    pattern = r'(\d+)\.\s*\[RESOLVE\]\s*(.*)'
+    return [(int(m.group(1)), m.group(2).strip()) for m in re.finditer(pattern, intent_text)]
+
+
+def check_resolve_coverage(intent_text: str, plan_text: str) -> list[int]:
+    """Check which [RESOLVE] questions from INTENT.md are NOT addressed in PLAN.md.
+
+    Returns list of unaddressed question numbers.
+    A question is considered addressed if its number appears in the plan's
+    open question resolution section (e.g., 'Question 1', 'question 1',
+    '#1', or just the number near 'resolve'/'open question').
+    """
+    questions = extract_resolve_questions(intent_text)
+    if not questions:
+        return []
+
+    plan_lower = plan_text.lower()
+    missing = []
+    for num, _text in questions:
+        # Check for common references to this question number in the plan
+        patterns = [
+            f'question {num}',
+            f'question #{num}',
+            f'#{num}',
+            f'open question {num}',
+            f'resolve.*{num}',
+            f'{num}.*resolve',
+        ]
+        found = any(re.search(p, plan_lower) for p in patterns)
+        if not found:
+            missing.append(num)
+    return missing
+
+
 def _check_content(artifact_text: str, entry: ConfidenceEntry) -> tuple:
     """Run all Phase 1 + 2a + 2b content checks. Returns (fired: bool, reason: str).
 

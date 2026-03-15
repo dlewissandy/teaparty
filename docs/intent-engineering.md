@@ -30,7 +30,7 @@ Through collaborative conversation, the agent and human co-construct an intent.m
 
 **Constraints** — technical, organizational, temporal, and resource boundaries the solution must satisfy.
 
-**Open questions** — ambiguities and design decisions that cannot be resolved during intent gathering. These are not a parking lot. The planning phase must actively research each open question, develop well-reasoned alternatives, and present them to the human for decision before execution begins.
+**Open questions** — ambiguities and design decisions that cannot be resolved during intent gathering. These are not a parking lot. The planning phase must assign each open question to a specific workflow step. The execution team resolves them during that step through investigation and ground truth — before acting on the assumptions they guard.
 
 The intent.md is a prose document written in natural language, not a form with fields to fill in. Its structure should follow the shape of the problem, not a fixed template. Some projects will need extensive escalation guidance and minimal constraints. Others will be constraint-heavy with obvious objectives. The document must capture what matters, not check boxes.
 
