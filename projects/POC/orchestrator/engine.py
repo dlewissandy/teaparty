@@ -135,6 +135,9 @@ class Orchestrator:
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human
         self._escalation_listener: EscalationListener | None = None
+        # MCP dispatch listener — bridges AskTeam calls to dispatch()
+        # Type annotation uses string to avoid circular import at module level
+        self._dispatch_listener: Any | None = None
         self._mcp_config: dict | None = None
 
         # Track resume session IDs per phase (for --resume on corrections).
@@ -147,6 +150,15 @@ class Orchestrator:
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
+        # The MCP server runs as a subprocess of Claude Code, whose cwd
+        # is the session worktree — not the repo root.  Two fixes:
+        # 1. Use the venv Python (system python3 lacks the mcp package)
+        # 2. Set PYTHONPATH to repo root so the module path resolves
+        repo_root = os.path.dirname(os.path.dirname(self.poc_root))
+        venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
+        if not os.path.isfile(venv_python):
+            venv_python = 'python3'  # fallback
+
         # Start the MCP escalation listener so agents can call AskQuestion
         if self.input_provider:
             self._escalation_listener = EscalationListener(
@@ -160,21 +172,29 @@ class Orchestrator:
                 infra_dir=self.infra_dir,
                 team=self.team_override,
             )
-            socket_path = await self._escalation_listener.start()
-            # The MCP server runs as a subprocess of Claude Code, whose cwd
-            # is the session worktree — not the repo root.  Two fixes:
-            # 1. Use the venv Python (system python3 lacks the mcp package)
-            # 2. Set PYTHONPATH to repo root so the module path resolves
-            repo_root = os.path.dirname(os.path.dirname(self.poc_root))
-            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
-            if not os.path.isfile(venv_python):
-                venv_python = 'python3'  # fallback
+            ask_question_socket = await self._escalation_listener.start()
+
+            # Start the MCP dispatch listener so liaison agents can call AskTeam
+            # Lazy import avoids circular: engine → dispatch_listener → dispatch_cli → engine
+            from projects.POC.orchestrator.dispatch_listener import DispatchListener  # noqa: PLC0415
+            self._dispatch_listener = DispatchListener(
+                event_bus=self.event_bus,
+                session_worktree=self.session_worktree,
+                infra_dir=self.infra_dir,
+                project_slug=self.project_slug,
+                session_id=self.session_id,
+                poc_root=self.poc_root,
+                proxy_model_path=self.proxy_model_path,
+            )
+            ask_team_socket = await self._dispatch_listener.start()
+
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
                     'args': ['-m', 'projects.POC.orchestrator.mcp_server'],
                     'env': {
-                        'ASK_QUESTION_SOCKET': socket_path,
+                        'ASK_QUESTION_SOCKET': ask_question_socket,
+                        'ASK_TEAM_SOCKET': ask_team_socket,
                         'PYTHONPATH': repo_root,
                     },
                 },
@@ -185,6 +205,8 @@ class Orchestrator:
         finally:
             if self._escalation_listener:
                 await self._escalation_listener.stop()
+            if self._dispatch_listener:
+                await self._dispatch_listener.stop()
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""
