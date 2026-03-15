@@ -177,7 +177,7 @@ async def artifact_version(worktree: str, path: str) -> int:
 
 
 async def cleanup_worktree(worktree_path: str) -> None:
-    """Remove a worktree and its branch."""
+    """Remove a worktree, its branch, and its manifest entry."""
     if not os.path.isdir(worktree_path):
         return
     try:
@@ -190,6 +190,7 @@ async def cleanup_worktree(worktree_path: str) -> None:
         await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
         if branch and branch != 'HEAD' and branch != 'main':
             await _run_git(repo_root, 'branch', '-D', branch)
+        _unregister_worktree(repo_root, worktree_path)
     except Exception:
         pass
 
@@ -217,6 +218,68 @@ def _register_worktree(repo_root: str, entry: dict) -> None:
         manifest['worktrees'].append(entry)
         with open(manifest_path, 'w') as f:
             json.dump(manifest, f, indent=2)
+
+
+def _unregister_worktree(repo_root: str, worktree_path: str) -> None:
+    """Remove the entry for worktree_path from worktrees.json under file lock."""
+    from filelock import FileLock
+
+    manifest_path = os.path.join(repo_root, 'worktrees.json')
+    lock = FileLock(manifest_path + '.lock', timeout=30)
+
+    with lock:
+        try:
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            return
+
+        # Normalize for comparison
+        norm = os.path.normpath(worktree_path)
+        manifest['worktrees'] = [
+            e for e in manifest.get('worktrees', [])
+            if os.path.normpath(e.get('path', '')) != norm
+        ]
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
+
+
+def find_orphaned_worktrees(repo_root: str) -> list[dict]:
+    """Find manifest entries whose worktrees are orphaned.
+
+    A worktree is considered orphaned if:
+    - Its path no longer exists on disk, OR
+    - It has no .running sentinel, OR
+    - Its .running sentinel contains a PID that is no longer alive.
+    """
+    manifest_path = os.path.join(repo_root, 'worktrees.json')
+    try:
+        with open(manifest_path) as f:
+            manifest = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+    orphans = []
+    for entry in manifest.get('worktrees', []):
+        path = entry.get('path', '')
+        if not path or not os.path.isdir(path):
+            orphans.append(entry)
+            continue
+
+        running_path = os.path.join(path, '.running')
+        if not os.path.exists(running_path):
+            orphans.append(entry)
+            continue
+
+        # Check if the PID in .running is still alive
+        try:
+            with open(running_path) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, 0)  # signal 0 = check existence
+        except (ValueError, ProcessLookupError, PermissionError, OSError):
+            orphans.append(entry)
+
+    return orphans
 
 
 async def _run_git(cwd: str, *args: str) -> None:
