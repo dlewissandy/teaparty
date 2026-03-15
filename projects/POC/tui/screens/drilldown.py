@@ -59,7 +59,7 @@ class DrilldownScreen(Screen):
 
     BINDINGS = [
         Binding('escape', 'go_back', 'Back', show=True),
-        Binding('w', 'withdraw', 'Withdraw', show=True),
+        Binding('f6', 'withdraw', 'Withdraw', show=True, priority=True),
         Binding('f1', 'open_finder', 'Finder', show=True, priority=True),
         Binding('f2', 'open_vscode', 'VSCode', show=True, priority=True),
         Binding('f3', 'open_intent', 'Intent', show=True, priority=True),
