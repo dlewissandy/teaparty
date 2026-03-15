@@ -167,15 +167,13 @@ class TestApprovalGateBridgeContextInjection(unittest.TestCase):
         artifact_path = os.path.join(self.worktree, 'PLAN.md')
         Path(artifact_path).write_text('# Plan\nDo stuff.')
 
-        with patch('projects.POC.scripts.generate_review_bridge.generate',
-                   return_value='bridge text') as mock_gen:
-            # Should not raise even though INTENT.md doesn't exist
-            text = gate._generate_bridge(
-                artifact_path, 'PLAN_ASSERT', 'task',
-                session_worktree=self.worktree,
-                infra_dir=self.infra_dir,
-            )
-            self.assertTrue(text)  # Some output produced
+        # Should not raise even though INTENT.md doesn't exist
+        text = gate._generate_bridge(
+            artifact_path, 'PLAN_ASSERT', 'task',
+            session_worktree=self.worktree,
+            infra_dir=self.infra_dir,
+        )
+        self.assertTrue(text)  # Canonical question returned
 
 
 # ── Fallback bridge alignment framing ───────────────────────────────────────
