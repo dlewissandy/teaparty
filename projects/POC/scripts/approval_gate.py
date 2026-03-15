@@ -179,6 +179,8 @@ class ConfidenceEntry:
     ema_approval_rate: float = 0.5  # exponential moving average — recency-weighted approval rate
     artifact_lengths: list = field(default_factory=list)   # [int, ...] char counts of reviewed artifacts
     question_patterns: list = field(default_factory=list)  # [QuestionPattern dicts]
+    prediction_correct_count: int = 0   # times proxy prediction matched actual outcome
+    prediction_total_count: int = 0     # total predictions made (enables accuracy = correct/total)
 
 
 @dataclass
@@ -648,6 +650,7 @@ def record_outcome(
     differential_reasoning: str = '',
     artifact_length: int = 0,
     question_patterns: list = None,
+    prediction: str = '',
 ) -> ConfidenceModel:
     """Record a human decision outcome and return the updated model.
 
@@ -684,6 +687,10 @@ def record_outcome(
             raw['artifact_lengths'] = []
         if 'question_patterns' not in raw:
             raw['question_patterns'] = []
+        if 'prediction_correct_count' not in raw:
+            raw['prediction_correct_count'] = 0
+        if 'prediction_total_count' not in raw:
+            raw['prediction_total_count'] = 0
         entry = ConfidenceEntry(**raw)
     else:
         # Already a ConfidenceEntry — copy it to avoid mutation
@@ -699,6 +706,8 @@ def record_outcome(
             ema_approval_rate=getattr(raw, 'ema_approval_rate', 0.5),
             artifact_lengths=list(getattr(raw, 'artifact_lengths', [])),
             question_patterns=list(getattr(raw, 'question_patterns', [])),
+            prediction_correct_count=getattr(raw, 'prediction_correct_count', 0),
+            prediction_total_count=getattr(raw, 'prediction_total_count', 0),
         )
 
     # Update counters
@@ -756,6 +765,14 @@ def record_outcome(
         if len(stored_patterns) > MAX_DIFFERENTIALS_PER_ENTRY:
             stored_patterns = stored_patterns[-MAX_DIFFERENTIALS_PER_ENTRY:]
 
+    # Track prediction accuracy (#11: proxy alignment memory)
+    pred_correct = entry.prediction_correct_count
+    pred_total = entry.prediction_total_count
+    if prediction:
+        pred_total += 1
+        if prediction == outcome:
+            pred_correct += 1
+
     updated_entry = ConfidenceEntry(
         state=state,
         task_type=task_type,
@@ -768,6 +785,8 @@ def record_outcome(
         ema_approval_rate=ema,
         artifact_lengths=artifact_lengths,
         question_patterns=stored_patterns,
+        prediction_correct_count=pred_correct,
+        prediction_total_count=pred_total,
     )
 
     new_entries = dict(model.entries)
