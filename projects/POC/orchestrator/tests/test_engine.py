@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for engine.py — Orchestrator._invoke_actor stderr injection.
+"""Tests for engine.py — Orchestrator._invoke_actor context injection.
 
 Covers:
  1. When _last_actor_data contains stderr_lines, _invoke_actor appends
@@ -9,6 +9,12 @@ Covers:
     modified (remains empty string by default).
  3. Stderr is injected in addition to any existing backtrack_context,
     not as a replacement.
+ 4. When _last_actor_data contains feedback (from an escalation clarify
+    response), it appears in ctx.backtrack_context under [human feedback].
+ 5. When _last_actor_data contains dialog_history, it appears in
+    ctx.backtrack_context under [escalation dialog].
+ 6. When neither feedback nor dialog_history is present, backtrack_context
+    is not polluted (regression guard for the escalation feedback bug).
 """
 import asyncio
 import sys
@@ -265,6 +271,276 @@ class TestInvokeActorStderrInjection(unittest.TestCase):
         self.assertEqual(captured_agent_ctx, [])
         # Approval gate was called
         self.assertEqual(len(gate_ctx), 1)
+
+
+class TestInvokeActorEscalationFeedbackInjection(unittest.TestCase):
+    """Engine injects escalation feedback into ctx.backtrack_context.
+
+    Bug fixed: when the approval gate returned ActorResult(action='clarify',
+    feedback="human's answer") after an escalation, _transition stored only
+    actor_result.data into _last_actor_data, silently dropping feedback and
+    dialog_history.  The agent never received the human's answer.
+
+    Fix: _transition now also stores feedback and dialog_history into
+    _last_actor_data, and _invoke_actor reads them back and injects them
+    into ctx.backtrack_context before running the agent.
+    """
+
+    def test_feedback_injected_into_backtrack_context(self):
+        """When _last_actor_data has feedback, it appears in ctx.backtrack_context."""
+        orch = _make_orchestrator(
+            last_actor_data={'feedback': "Please focus on the authentication module."},
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        self.assertEqual(len(captured_ctx), 1)
+        ctx = captured_ctx[0]
+        self.assertIn('[human feedback]', ctx.backtrack_context)
+        self.assertIn('Please focus on the authentication module.', ctx.backtrack_context)
+
+    def test_dialog_history_injected_into_backtrack_context(self):
+        """When _last_actor_data has dialog_history, it appears in ctx.backtrack_context."""
+        dialog = "Human: What scope?\nProxy: Should we include auth?\nHuman: Yes, auth only."
+        orch = _make_orchestrator(
+            last_actor_data={'dialog_history': dialog},
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        self.assertIn('[escalation dialog]', ctx.backtrack_context)
+        self.assertIn('Human: What scope?', ctx.backtrack_context)
+        self.assertIn('Human: Yes, auth only.', ctx.backtrack_context)
+
+    def test_feedback_and_dialog_history_both_injected(self):
+        """When both feedback and dialog_history are present, both appear in backtrack_context."""
+        dialog = "Human: Can you clarify the scope?\nProxy: Should it cover auth?\nHuman: Auth only."
+        feedback = "Limit scope to authentication module only."
+        orch = _make_orchestrator(
+            last_actor_data={
+                'feedback': feedback,
+                'dialog_history': dialog,
+            },
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        self.assertIn('[escalation dialog]', ctx.backtrack_context)
+        self.assertIn('[human feedback]', ctx.backtrack_context)
+        self.assertIn(dialog, ctx.backtrack_context)
+        self.assertIn(feedback, ctx.backtrack_context)
+
+    def test_dialog_appears_before_feedback(self):
+        """Dialog transcript is placed before the feedback summary in backtrack_context."""
+        dialog = "Human: Narrow the scope."
+        feedback = "Focus on auth only."
+        orch = _make_orchestrator(
+            last_actor_data={
+                'feedback': feedback,
+                'dialog_history': dialog,
+            },
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        dialog_pos = ctx.backtrack_context.index('[escalation dialog]')
+        feedback_pos = ctx.backtrack_context.index('[human feedback]')
+        self.assertLess(dialog_pos, feedback_pos)
+
+    def test_no_feedback_injection_when_absent(self):
+        """When _last_actor_data has no feedback or dialog_history, backtrack_context stays empty."""
+        orch = _make_orchestrator(
+            last_actor_data={'artifact_path': '/tmp/INTENT.md'},
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        self.assertNotIn('[human feedback]', ctx.backtrack_context)
+        self.assertNotIn('[escalation dialog]', ctx.backtrack_context)
+
+    def test_no_feedback_injection_when_last_actor_data_empty(self):
+        """When _last_actor_data is empty, backtrack_context is empty (regression guard)."""
+        orch = _make_orchestrator(last_actor_data={})
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        self.assertEqual(ctx.backtrack_context, '')
+
+    def test_feedback_injected_alongside_stderr(self):
+        """Feedback and stderr are both injected when both are present in _last_actor_data."""
+        orch = _make_orchestrator(
+            last_actor_data={
+                'feedback': 'Narrow the scope to auth.',
+                'stderr_lines': ['Error: permission denied'],
+            },
+        )
+
+        captured_ctx = []
+
+        async def capture_ctx(ctx: ActorContext) -> ActorResult:
+            captured_ctx.append(ctx)
+            return ActorResult(action='assert')
+
+        orch._agent_runner = MagicMock(spec=AgentRunner)
+        orch._agent_runner.run = capture_ctx
+
+        spec = _make_phase_spec()
+        _run(orch._invoke_actor(spec, 'intent'))
+
+        ctx = captured_ctx[0]
+        self.assertIn('[human feedback]', ctx.backtrack_context)
+        self.assertIn('Narrow the scope to auth.', ctx.backtrack_context)
+        self.assertIn('[stderr from previous turn]', ctx.backtrack_context)
+        self.assertIn('Error: permission denied', ctx.backtrack_context)
+
+
+class TestTransitionStoresFeedbackInLastActorData(unittest.TestCase):
+    """_transition stores feedback and dialog_history from ActorResult into _last_actor_data.
+
+    This is the other half of the escalation feedback bug fix: if _transition
+    does not persist feedback onto _last_actor_data, _invoke_actor can never
+    inject it — even though the injection logic is correct.
+    """
+
+    def test_transition_stores_feedback(self):
+        """After _transition with an ActorResult carrying feedback, _last_actor_data has it."""
+        orch = _make_orchestrator(
+            cfa_state=_make_cfa_state(state='PROPOSAL'),
+        )
+        # Patch save_state and commit so _transition does not touch the filesystem
+        with patch('projects.POC.orchestrator.engine.save_state'), \
+             patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
+             patch.object(orch, '_detect_and_retire_stage'):
+            result = ActorResult(
+                action='assert',
+                feedback="Please focus on auth only.",
+                data={'artifact_path': '/tmp/INTENT.md'},
+            )
+            _run(orch._transition('assert', result))
+
+        self.assertEqual(
+            orch._last_actor_data.get('feedback'),
+            "Please focus on auth only.",
+        )
+
+    def test_transition_stores_dialog_history(self):
+        """After _transition with dialog_history in ActorResult, _last_actor_data has it."""
+        orch = _make_orchestrator(
+            cfa_state=_make_cfa_state(state='PROPOSAL'),
+        )
+        dialog = "Human: Narrow scope.\nProxy: Auth only?\nHuman: Yes."
+        with patch('projects.POC.orchestrator.engine.save_state'), \
+             patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
+             patch.object(orch, '_detect_and_retire_stage'):
+            result = ActorResult(
+                action='assert',
+                dialog_history=dialog,
+                data={},
+            )
+            _run(orch._transition('assert', result))
+
+        self.assertEqual(orch._last_actor_data.get('dialog_history'), dialog)
+
+    def test_transition_preserves_data_alongside_feedback(self):
+        """_transition stores both actor_result.data fields and feedback together."""
+        orch = _make_orchestrator(
+            cfa_state=_make_cfa_state(state='PROPOSAL'),
+        )
+        with patch('projects.POC.orchestrator.engine.save_state'), \
+             patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
+             patch.object(orch, '_detect_and_retire_stage'):
+            result = ActorResult(
+                action='assert',
+                feedback='Auth only.',
+                data={'artifact_path': '/tmp/INTENT.md', 'version': 2},
+            )
+            _run(orch._transition('assert', result))
+
+        self.assertEqual(orch._last_actor_data.get('feedback'), 'Auth only.')
+        self.assertEqual(orch._last_actor_data.get('artifact_path'), '/tmp/INTENT.md')
+        self.assertEqual(orch._last_actor_data.get('version'), 2)
+
+    def test_transition_no_feedback_does_not_set_key(self):
+        """When ActorResult has no feedback, _last_actor_data does not gain a feedback key."""
+        orch = _make_orchestrator(
+            cfa_state=_make_cfa_state(state='PROPOSAL'),
+        )
+        with patch('projects.POC.orchestrator.engine.save_state'), \
+             patch.object(orch, '_commit_artifacts', new=AsyncMock()), \
+             patch.object(orch, '_detect_and_retire_stage'):
+            result = ActorResult(
+                action='assert',
+                data={'artifact_path': '/tmp/INTENT.md'},
+            )
+            _run(orch._transition('assert', result))
+
+        self.assertNotIn('feedback', orch._last_actor_data)
+        self.assertNotIn('dialog_history', orch._last_actor_data)
 
 
 if __name__ == '__main__':

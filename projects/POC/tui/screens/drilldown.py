@@ -18,6 +18,22 @@ from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_strea
 from projects.POC.tui.platform_utils import open_file
 
 
+_STATE_LABELS: dict[str, str] = {
+    'INTENT_ESCALATE': 'Agent has questions about intent',
+    'PLANNING_ESCALATE': 'Agent has questions about the plan',
+    'TASK_REVIEW_ESCALATE': 'Agent has questions about the task',
+    'TASK_ESCALATE': 'Agent has questions about the task',
+    'INTENT_ASSERT': 'Review intent',
+    'PLAN_ASSERT': 'Review plan',
+    'WORK_ASSERT': 'Review completed work',
+}
+
+
+def _human_label(state: str) -> str:
+    """Map CfA state to a human-readable prompt label."""
+    return _STATE_LABELS.get(state, state)
+
+
 def _human_age(seconds: int) -> str:
     if seconds < 0:
         return '\u2014'
@@ -43,6 +59,7 @@ class DrilldownScreen(Screen):
 
     BINDINGS = [
         Binding('escape', 'go_back', 'Back', show=True),
+        Binding('w', 'withdraw', 'Withdraw', show=True),
         Binding('f1', 'open_finder', 'Finder', show=True, priority=True),
         Binding('f2', 'open_vscode', 'VSCode', show=True, priority=True),
         Binding('f3', 'open_intent', 'Intent', show=True, priority=True),
@@ -105,6 +122,9 @@ class DrilldownScreen(Screen):
 
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         """Gray out bindings when their targets don't exist."""
+        if action == 'withdraw':
+            if not self._session or self._session.cfa_state in ('COMPLETED_WORK', 'WITHDRAWN', ''):
+                return None
         if action in ('open_finder', 'open_vscode'):
             if self._session_worktree() is None:
                 return None
@@ -253,7 +273,8 @@ class DrilldownScreen(Screen):
                 self._input_latched = True
                 input_area.add_class('visible')
                 state = self._session.cfa_state if self._session else ''
-                prompt_label.update(f'[bold yellow]{state}[/bold yellow]')
+                label = _human_label(state)
+                prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
                 # Display bridge_text (dialog reply / review summary) in activity log
                 if req and req.bridge_text and req.bridge_text != self._shown_dialog_reply:
                     self._shown_dialog_reply = req.bridge_text
@@ -331,7 +352,8 @@ class DrilldownScreen(Screen):
             self._input_latched = True
             input_area.add_class('visible')
             state = self._session.cfa_state if self._session else ''
-            prompt_label.update(f'[bold yellow]{state}[/bold yellow]')
+            label = _human_label(state)
+            prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
             if not was_visible:
                 self.query_one('#input-field', Input).focus()
         else:
@@ -488,6 +510,50 @@ class DrilldownScreen(Screen):
                     pass  # Screen may have been unmounted
 
         in_proc.run_task = asyncio.create_task(run_resumed())
+
+    def action_withdraw(self) -> None:
+        if not self._session:
+            self.notify('No session', severity='warning')
+            return
+        if self._session.cfa_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+            self.notify('Session is already terminal', severity='warning')
+            return
+
+        from projects.POC.tui.screens.confirm_withdraw import ConfirmWithdrawScreen
+        self.app.push_screen(
+            ConfirmWithdrawScreen(self.session_id),
+            callback=lambda confirmed: self._do_withdraw() if confirmed else None,
+        )
+
+    def _do_withdraw(self) -> None:
+        import asyncio
+        from projects.POC.tui.withdraw import withdraw_session
+
+        session = self._session
+        if not session:
+            return
+
+        in_proc = self._in_proc
+        in_task = in_proc.run_task if in_proc else None
+        bus = in_proc.event_bus if in_proc else None
+
+        async def _withdraw():
+            await withdraw_session(
+                session,
+                event_bus=bus,
+                in_process_task=in_task,
+            )
+
+        asyncio.create_task(_withdraw())
+
+        log = self.query_one('#activity-log', RichLog)
+        from rich.text import Text
+        t = Text()
+        t.append('[withdraw] ', style='bold red')
+        t.append(f'Session {self.session_id} withdrawn')
+        log.write(t)
+        if not self._scroll_locked:
+            log.scroll_end(animate=False)
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

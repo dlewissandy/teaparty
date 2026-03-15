@@ -144,8 +144,14 @@ class AgentRunner:
         # Build prompt
         prompt = ctx.task
         if ctx.backtrack_context:
+            # Distinguish escalation responses from downstream backtracks
+            has_human_feedback = '[human feedback]' in ctx.backtrack_context
+            if has_human_feedback:
+                header = '[CfA RESPONSE: The human has responded to your escalation.]'
+            else:
+                header = '[CfA BACKTRACK: Re-entering from a downstream phase.]'
             prompt = (
-                f"[CfA BACKTRACK: Re-entering from a downstream phase.]\n\n"
+                f"{header}\n\n"
                 f"Feedback:\n{ctx.backtrack_context}\n\n"
                 f"Original task: {ctx.task}"
             )
@@ -465,6 +471,58 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
     return ''
 
 
+# ── Escalation question extraction ───────────────────────────────────────────
+
+import re as _re
+
+
+def _extract_questions(content: str) -> list[str]:
+    """Pull the concrete questions out of an escalation file.
+
+    Heuristics (applied in order of specificity):
+    1. Lines ending with ``?`` (after stripping markdown bold/italic).
+    2. Lines starting with a numbered prefix (``1.``, ``**1.**``) that
+       contain a ``?``, even if the ``?`` is mid-line.
+    3. Lines whose heading (``##``, ``**...**``) contains "blocker" — for
+       task-escalation blockers that aren't phrased as questions.
+    """
+    questions: list[str] = []
+    seen: set[str] = set()
+    for raw_line in content.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        # Strip leading markdown heading markers, bold wrappers, and
+        # numbered prefixes (we re-number in the bridge text).
+        display = _re.sub(r'^#{1,4}\s*', '', line)
+        display = _re.sub(r'^\*{0,2}\d+[\.\)]\s*\*{0,2}\s*', '', display)
+        display = display.strip().lstrip('*_').strip()
+
+        # Blocker headings (task escalations)
+        if _re.match(r'^#{1,4}\s+.*(?i:blocker)', line):
+            if display not in seen:
+                seen.add(display)
+                questions.append(display)
+            continue
+
+        # Lines ending with ? (strip trailing bold/italic markers first)
+        check = _re.sub(r'[\*_`]+$', '', display).rstrip()
+        if check.endswith('?'):
+            if check not in seen:
+                seen.add(check)
+                questions.append(check)
+            continue
+
+        # Numbered items with an embedded ?
+        if _re.match(r'^\*{0,2}\d+[\.\)]\s+', line) and '?' in line:
+            if display not in seen:
+                seen.add(display)
+                questions.append(display)
+
+    return questions
+
+
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
 _ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_REVIEW_ESCALATE'})
@@ -519,7 +577,7 @@ class ApprovalGate:
                 )
 
             # Fall through to human with escalation file as bridge.
-            # Frame as engagement ("wants to discuss"), not escalation.
+            # Extract questions so the human sees what they're being asked.
             if escalation_file and os.path.exists(escalation_file):
                 try:
                     with open(escalation_file) as _f:
@@ -527,18 +585,19 @@ class ApprovalGate:
                 except OSError:
                     file_content = ''
                 if file_content:
-                    bridge_text = (
-                        'The agent wants to discuss this with you before proceeding:\n\n'
-                        + file_content
-                    )
+                    questions = _extract_questions(file_content)
+                    if questions:
+                        bridge_text = '\n'.join(
+                            f'{i}. {q}' for i, q in enumerate(questions, 1)
+                        )
+                    else:
+                        bridge_text = file_content
                 else:
                     bridge_text = (
-                        'The agent wants to discuss this with you before proceeding.'
+                        'The agent needs your input before proceeding.'
                     )
             else:
-                bridge_text = (
-                    'The agent wants to discuss this with you before proceeding.'
-                )
+                bridge_text = 'The agent has a question for you.'
         elif artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that
