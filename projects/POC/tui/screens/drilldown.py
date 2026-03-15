@@ -436,13 +436,14 @@ class DrilldownScreen(Screen):
         self.query_one('#input-area').remove_class('visible')
         self.query_one('#activity-log', RichLog).focus()
 
-    def on_key(self, event) -> None:
-        """Submit on Enter when TextArea is focused."""
-        if event.key == 'enter':
-            focused = self.app.focused
-            if isinstance(focused, TextArea):
-                event.prevent_default()
-                self._submit_input()
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        """Submit when the user presses Enter (newline appears in text)."""
+        if event.text_area.id != 'input-field':
+            return
+        if '\n' in event.text_area.text:
+            # Strip the newline the TextArea inserted, then submit
+            event.text_area.text = event.text_area.text.replace('\n', '')
+            self._submit_input()
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
