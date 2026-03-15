@@ -12,13 +12,29 @@ Two entry points feed into this pattern, but they use **different proxy function
 
 ---
 
+## Why Retrieval-Backed Question Answering Is the Priority
+
+Park et al. (2024) built AI agents representing 1,052 real people from two-hour qualitative interviews. Those agents replicated individual survey responses with **85% accuracy** using LLM in-context reasoning over interview transcripts — no explicit ML model, no fine-tuning, just retrieval + reasoning.
+
+This result is the empirical basis for the proxy's architecture. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. At steady state (sufficient accumulated interactions), this approach should reach the same ~85% accuracy Park demonstrated: the proxy predicts what the human would say, and is right 85% of the time.
+
+The 85% figure also explains the priority ordering:
+
+1. **Retrieval-backed prediction is the path to autonomy.** A proxy that can answer 85% of questions correctly handles 85% of human involvement automatically. The remaining 15% escalates to the human, and each escalation produces a new differential that improves future predictions.
+
+2. **The statistical heuristic is a stepping stone, not the destination.** `should_escalate()` uses keyword matching, length anomalies, and confidence counters — it can detect obvious signals but cannot reason about whether the human would approve a specific artifact. It reads the artifact for pattern matching (CONFIRM markers, correction keywords, concern vocabulary) but does not understand it. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing this with a Claude agent that reads and reasons.
+
+3. **The differential is the highest-value learning signal.** Salemi & Zamani (2024, Fermi) showed that misaligned responses — where the model predicted incorrectly — are more valuable for learning than correct predictions. Every proxy prediction that diverges from the human's actual answer tells the system exactly where its model is wrong. This is why both entry points record the differential.
+
+---
+
 ## Entry Point 1: ApprovalGate (artifact review)
 
-`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`. In practice this means: INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT, and the ESCALATE states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE).
+`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`. Currently this means: INTENT_ASSERT, PLAN_ASSERT, and WORK_ASSERT.
 
-Note: the ESCALATE states are **currently unreachable**. The only path to them was through escalation file detection in `_interpret_output()`, which was removed in #137. Agents now use the AskQuestion MCP tool for mid-turn questions instead of writing escalation files and exiting. The ESCALATE states remain in the CfA state machine but no transition produces the `escalate` action.
+The ESCALATE states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE) are also in `human_actor_states` but are **currently unreachable** — the only path to them was through escalation file detection in `_interpret_output()`, removed in #137. Agents now use AskQuestion for mid-turn questions.
 
-TASK_ASSERT is **not** routed to ApprovalGate — its actor in the state machine is `execution_worker`, not `human` or `approval_gate`.
+TASK_ASSERT is **not** routed to ApprovalGate — its CfA actor is `execution_worker`.
 
 **Flow:**
 
@@ -57,13 +73,13 @@ TASK_ASSERT is **not** routed to ApprovalGate — its actor in the state machine
 5. Record differential via `record_outcome()` — stores prediction alongside human answer
 6. Return answer to agent as MCP tool result
 
-**Key difference from ApprovalGate:** Uses `generate_response()` instead of `should_escalate()`. `generate_response()` only checks cold start threshold and confidence — it lacks the content checks, staleness guard, exploration rate, tier 1/tier 2 pattern checks, prediction drift detection, and elapsed-time guard that `should_escalate()` has. No interaction log is written. Issue [#143](https://github.com/dlewissandy/teaparty/issues/143) tracks unifying these paths.
+**Key difference from ApprovalGate:** Uses `generate_response()` instead of `should_escalate()`. `generate_response()` requires cold start threshold passed, stored differentials or question patterns to exist, and confidence above threshold — but lacks the content checks, staleness guard, exploration rate, tier 1/tier 2 pattern checks, prediction drift detection, and elapsed-time guard that `should_escalate()` has. No interaction log is written. Issue [#143](https://github.com/dlewissandy/teaparty/issues/143) tracks unifying these paths.
 
 ---
 
 ## Proxy Decision Model
 
-The proxy is a statistical heuristic in `approval_gate.py`. It does not read artifacts or reason about their content. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing it with an actual Claude agent.
+The proxy is a statistical heuristic in `approval_gate.py`. It reads artifacts for mechanical pattern matching (CONFIRM markers, keyword overlap with past corrections, concern vocabulary, length anomalies) but does not reason about content semantically. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing it with a Claude agent that reads and reasons — the step required to reach the 85% prediction accuracy Park et al. demonstrated.
 
 ### `should_escalate()` — used by ApprovalGate
 
@@ -88,7 +104,7 @@ Returns `ProxyDecision`. Decision rules in priority order:
 
 ### `generate_response()` — used by EscalationListener
 
-Constructs a predicted human response from stored question patterns and text differentials. Returns `GenerativeResponse` (action, text, confidence) or None. Only checks cold start threshold and confidence — none of the content checks, pattern matching, or guards from `should_escalate()`.
+Constructs a predicted human response from stored question patterns and text differentials. Returns `GenerativeResponse` (action, text, confidence) or None. Returns None if: cold start (< 5 observations), no stored differentials or question patterns, or confidence below threshold. When it does return, it assembles text from the most recent question pattern (with reasoning) and the most recent differential.
 
 ### Confidence computation
 
@@ -130,8 +146,13 @@ Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outco
 | Differential recording (proxy prediction vs. human actual) | Done | [#138](https://github.com/dlewissandy/teaparty/issues/138) |
 | Alignment validation framing at gates | Done | [#102](https://github.com/dlewissandy/teaparty/issues/102) |
 | Cold-start intake dialog (Phase 1) | Done | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
+| Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
 | Unify proxy paths (should_escalate vs. generate_response) | Open | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
 | Proxy must be an actual agent (reads artifacts, reasons) | Open | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
 | Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
-| Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
 | Text derivative learning (proxy self-assessment) | Design target | |
+
+### References
+
+- Park, J. S. et al. (2024). Generative agent simulations of 1,000 people. *arXiv:2411.10109*. 85% accuracy from conversational data + LLM reasoning.
+- Salemi, A. & Zamani, H. (2024). Few-shot personalization of LLMs with mis-aligned responses — Fermi. *arXiv:2406.18678*. Misaligned responses are the highest-value learning signal.
