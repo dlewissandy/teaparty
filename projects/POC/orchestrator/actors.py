@@ -497,139 +497,110 @@ class ApprovalGate:
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        if not self.proxy_enabled:
-            # Proxy disabled — skip proxy consultation, go straight to human.
-            # Used for no-proxy baseline condition in experiments.
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'proxy_decision',
-                    'state': ctx.state,
-                    'decision': 'proxy-disabled',
-                    'confidence': 0.0,
-                    'confidence_laplace': 0.0,
-                    'confidence_ema': 0.0,
-                    'exploration_forced': False,
-                    'reasoning': 'Proxy disabled for this session',
-                },
-                session_id=ctx.session_id,
-            ))
-            artifact_missing_flag = bool(ctx.data.get('artifact_missing'))
-            bridge_text = self._generate_bridge(
-                artifact_path, ctx.state, ctx.task,
-                artifact_missing=artifact_missing_flag,
-                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-            )
-        else:
-            # Step 1: Consult proxy agent — the ONE path for all proxy decisions.
-            from projects.POC.orchestrator.proxy_agent import (
-                consult_proxy, run_proxy_agent, PROXY_AGENT_CONFIDENCE_THRESHOLD,
-            )
-            gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
+        # ONE path: consult the proxy agent.  proxy_enabled=False skips the
+        # agent inside consult_proxy and goes straight to the human.
+        from projects.POC.orchestrator.proxy_agent import (
+            consult_proxy, run_proxy_agent, PROXY_AGENT_CONFIDENCE_THRESHOLD,
+        )
+        gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
 
-            proxy_result = await consult_proxy(
-                question=gate_question,
-                state=ctx.state,
-                project_slug=project_slug,
-                artifact_path=artifact_path,
-                session_worktree=ctx.session_worktree,
-                infra_dir=ctx.infra_dir,
-                proxy_model_path=self.proxy_model_path,
-                team=team,
-                phase_start_time=ctx.phase_start_time,
-            )
+        proxy_result = await consult_proxy(
+            question=gate_question,
+            state=ctx.state,
+            project_slug=project_slug,
+            artifact_path=artifact_path,
+            session_worktree=ctx.session_worktree,
+            infra_dir=ctx.infra_dir,
+            proxy_model_path=self.proxy_model_path,
+            team=team,
+            phase_start_time=ctx.phase_start_time,
+            proxy_enabled=self.proxy_enabled,
+        )
 
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'proxy_decision',
-                    'state': ctx.state,
-                    'decision': 'agent' if proxy_result.from_agent else 'escalate',
-                    'confidence': proxy_result.confidence,
-                    'reasoning': f'Proxy agent confidence: {proxy_result.confidence:.2f}' if proxy_result.from_agent else 'Statistical pre-filter escalated',
-                },
-                session_id=ctx.session_id,
-            ))
+        await ctx.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'proxy_decision',
+                'state': ctx.state,
+                'decision': 'agent' if proxy_result.from_agent else 'escalate',
+                'confidence': proxy_result.confidence,
+                'reasoning': f'Proxy agent confidence: {proxy_result.confidence:.2f}' if proxy_result.from_agent else 'Escalated to human',
+            },
+            session_id=ctx.session_id,
+        ))
 
-            if proxy_result.from_agent and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD:
-                # The proxy agent generated text.  Run the dialog loop:
-                # classify the text, and if it's a question, get a reply
-                # from the requester and give the proxy another turn.
-                agent_text = proxy_result.text
-                proxy_dialog_history = ''
-                max_proxy_turns = 5
+        if proxy_result.from_agent and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD:
+            # The proxy agent generated text.  Run the dialog loop:
+            # classify the text, and if it's a question, get a reply
+            # from the requester and give the proxy another turn.
+            agent_text = proxy_result.text
+            proxy_dialog_history = ''
+            max_proxy_turns = 5
 
-                for _turn in range(max_proxy_turns):
-                    action, feedback = self._classify_review(
-                        ctx.state, agent_text,
-                        intent_summary='', plan_summary='',
+            for _turn in range(max_proxy_turns):
+                action, feedback = self._classify_review(
+                    ctx.state, agent_text,
+                    intent_summary='', plan_summary='',
+                    dialog_history=proxy_dialog_history,
+                )
+
+                if action not in ('dialog', '__fallback__'):
+                    self._proxy_record(
+                        ctx.state, project_slug, action,
+                        artifact_path=artifact_path, team=team,
+                        prediction='approve',
+                        predicted_response=agent_text,
+                        conversation=proxy_dialog_history,
+                    )
+                    self._log_interaction(
+                        ctx, project_slug, prediction='approve', outcome=action,
+                        delta=feedback if action != 'approve' else '',
+                        exploration=False,
+                    )
+                    return ActorResult(
+                        action=action, feedback=feedback,
                         dialog_history=proxy_dialog_history,
                     )
 
-                    if action not in ('dialog', '__fallback__'):
-                        # Terminal action — the proxy agent has decided.
-                        self._proxy_record(
-                            ctx.state, project_slug, action,
-                            artifact_path=artifact_path, team=team,
-                            prediction='approve',
-                            predicted_response=agent_text,
-                            conversation=proxy_dialog_history,
-                        )
-                        self._log_interaction(
-                            ctx, project_slug, prediction='approve', outcome=action,
-                            delta=feedback if action != 'approve' else '',
-                            exploration=False,
-                        )
-                        return ActorResult(
-                            action=action, feedback=feedback,
-                            dialog_history=proxy_dialog_history,
-                        )
+                # Proxy asked a question — get requester's answer
+                proxy_dialog_history += f'PROXY: {agent_text}\n'
+                requester_reply = self._generate_dialog_response(
+                    ctx.state, agent_text, artifact_path,
+                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                    ctx.task, proxy_dialog_history,
+                    session_worktree=ctx.session_worktree,
+                )
+                proxy_dialog_history += f'REQUESTER: {requester_reply}\n'
 
-                    # Proxy asked a question — get requester's answer
-                    proxy_dialog_history += f'PROXY: {agent_text}\n'
-                    requester_reply = self._generate_dialog_response(
-                        ctx.state, agent_text, artifact_path,
-                        os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                        ctx.task, proxy_dialog_history,
-                        session_worktree=ctx.session_worktree,
-                    )
-                    proxy_dialog_history += f'REQUESTER: {requester_reply}\n'
+                await ctx.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'proxy_dialog',
+                        'state': ctx.state,
+                        'proxy_question': agent_text,
+                        'requester_reply': requester_reply,
+                        'turn': _turn,
+                    },
+                    session_id=ctx.session_id,
+                ))
 
-                    await ctx.event_bus.publish(Event(
-                        type=EventType.LOG,
-                        data={
-                            'category': 'proxy_dialog',
-                            'state': ctx.state,
-                            'proxy_question': agent_text,
-                            'requester_reply': requester_reply,
-                            'turn': _turn,
-                        },
-                        session_id=ctx.session_id,
-                    ))
+                agent_text, agent_confidence = await run_proxy_agent(
+                    question=gate_question,
+                    state=ctx.state,
+                    artifact_path=artifact_path,
+                    session_worktree=ctx.session_worktree,
+                    infra_dir=ctx.infra_dir,
+                    dialog_history=proxy_dialog_history,
+                )
 
-                    # Give the proxy another turn
-                    agent_text, agent_confidence = await run_proxy_agent(
-                        question=gate_question,
-                        state=ctx.state,
-                        artifact_path=artifact_path,
-                        session_worktree=ctx.session_worktree,
-                        infra_dir=ctx.infra_dir,
-                        dialog_history=proxy_dialog_history,
-                    )
+                if agent_confidence < PROXY_AGENT_CONFIDENCE_THRESHOLD:
+                    break
 
-                    if agent_confidence < PROXY_AGENT_CONFIDENCE_THRESHOLD:
-                        break
-
-                # Falls through to human review (proxy text was empty,
-                # confidence dropped, or turns exhausted).
-
-            # Step 2: Generate bridge text for the human
-            artifact_missing = bool(ctx.data.get('artifact_missing'))
-            bridge_text = self._generate_bridge(
-                artifact_path, ctx.state, ctx.task,
-                artifact_missing=artifact_missing,
-                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-            )
+        # Falls through to human review.
+        bridge_text = self._generate_bridge(
+            artifact_path, ctx.state, ctx.task,
+            session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+        )
 
         # Step 3: Build context summaries for classification accuracy
         intent_summary = ''

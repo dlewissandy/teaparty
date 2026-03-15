@@ -249,32 +249,19 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
         # Human input was requested
         self.assertEqual(len(self._input_calls), 1)
 
-    def test_missing_artifact_bridge_text_explains_problem(self):
-        """Bridge text presented to human must mention the missing artifact."""
+    def test_missing_artifact_still_goes_through_proxy(self):
+        """Missing artifact is handled by the proxy agent, not a special case."""
         gate = self._make_gate(human_response='correct')
         ctx = self._make_approval_ctx('INTENT_ASSERT')
 
-        captured_requests: list[Any] = []
-
-        async def capturing_input(req):
-            captured_requests.append(req)
-            return 'correct'
-
-        gate.input_provider = capturing_input
-
-        # Proxy escalates (low confidence) so human is asked; artifact_missing=True
-        # in ctx.data causes _generate_bridge to produce a descriptive message.
+        # Proxy is consulted even when artifact is missing — the agent will
+        # see the missing file and respond appropriately.
         with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
+                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))) as mock_cp, \
              patch.object(gate, '_classify_review', return_value=('correct', '')):
             _run(gate.run(ctx))
 
-        self.assertEqual(len(captured_requests), 1)
-        bridge = captured_requests[0].bridge_text
-        # Must not just say "Ready for review" — it must explain the artifact is missing
-        self.assertNotEqual(bridge, 'Ready for review at INTENT_ASSERT.')
-        self.assertIn('artifact', bridge.lower(),
-                      f"Bridge text should mention artifact, got: {bridge!r}")
+        mock_cp.assert_called_once()
 
     def test_missing_artifact_gate_returns_correct_action(self):
         """When human says 'correct', gate returns correct action."""

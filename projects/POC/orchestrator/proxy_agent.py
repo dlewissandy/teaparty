@@ -55,6 +55,7 @@ async def consult_proxy(
     proxy_model_path: str = '',
     team: str = '',
     phase_start_time: float = 0.0,
+    proxy_enabled: bool = True,
 ) -> ProxyResult:
     """Consult the proxy agent.  The ONE entry point for all proxy decisions.
 
@@ -66,6 +67,10 @@ async def consult_proxy(
     - confidence >= threshold → use the text
     - confidence < threshold → ask the human
     """
+    # Proxy disabled — skip agent, go straight to human.
+    if not proxy_enabled:
+        return ProxyResult(text='', confidence=0.0, from_agent=False)
+
     from projects.POC.scripts.approval_gate import (
         ProxyDecision,
         load_model,
