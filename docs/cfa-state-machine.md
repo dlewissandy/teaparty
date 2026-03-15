@@ -242,6 +242,7 @@ stateDiagram-v2
         p1: DRAFT
         p2: PLANNING_QUESTION
         p3: PLANNING_RESPONSE
+        p4: PLAN_ASSERT
     }
 
     state "Execution Phase" as execution {
@@ -249,25 +250,31 @@ stateDiagram-v2
         e2: FAILED_TASK
         e3: WORK_IN_PROGRESS
         e4: WORK_ASSERT
+        e5: TASK_ASSERT
     }
 
     p1 --> i1 : refine-intent
     p2 --> i2 : backtrack
+    p4 --> i1 : refine-intent
 
     e1 --> p2 : backtrack
     e2 --> p2 : backtrack
     e3 --> p2 : backtrack
+    e5 --> p3 : revise-plan
+    e5 --> i1 : refine-intent
     e4 --> p3 : revise-plan
     e4 --> i1 : refine-intent
 ```
 
-There are seven backtrack transitions, grouped by how far back they reach.
+There are ten backtrack transitions, grouped by how far back they reach.
 
-**Planning → Intent (2 transitions).** Sometimes planning reveals that the intent itself is flawed. The project lead begins drafting a plan and realizes the objective is ambiguous or internally contradictory — the intent needs revision, not a better plan. Separately, a research question raised during planning may uncover an unresolved intent question — the planning team thought it was investigating a planning detail, but the answer changes what the project is trying to achieve. Both transitions return to the intent phase's synthesis loop so the intent can be renegotiated with the human.
+**Planning → Intent (3 transitions).** Sometimes planning reveals that the intent itself is flawed. The project lead begins drafting a plan and realizes the objective is ambiguous or internally contradictory — the intent needs revision, not a better plan. A research question raised during planning may uncover an unresolved intent question — the planning team thought it was investigating a planning detail, but the answer changes what the project is trying to achieve. Or the human reviews the plan at PLAN_ASSERT and determines the intent itself needs refinement before any plan can be correct. All three transitions return to the intent phase's synthesis loop so the intent can be renegotiated with the human.
 
 **Execution → Planning (3 transitions).** Execution is where plans meet reality. A worker may raise a question that reveals a gap in the plan — something the plan assumed but never specified. A task may fail not because the worker did it wrong but because the plan asked for something that cannot be done as specified. Or the execution lead, assembling completed work, may discover that the pieces don't fit together — the plan decomposed the work incorrectly. All three transitions return to the planning phase so the plan can be revised with the benefit of what execution revealed.
 
-**Final review → Planning or Intent (2 transitions).** The most consequential backtracks happen at the end. During final assertion, the human or proxy reviews the assembled work and determines either that the plan needs revision (the work was executed correctly but the plan was wrong) or that the intent itself was wrong (the work faithfully implements an intent that turns out not to be what was wanted). The second case — backtracking all the way from final review to intent — is the most expensive transition in the system, but without it, the only option would be to ship work that misses the point.
+**Task review → Planning or Intent (2 transitions).** When task-level review (TASK_ASSERT) reveals that the problem is not with this specific task but with the plan or intent, the execution lead can backtrack: revise-plan returns to PLANNING_RESPONSE so the plan can be revised, or refine-intent returns all the way to INTENT_RESPONSE.
+
+**Final review → Planning or Intent (2 transitions).** The most consequential backtracks happen at the end. During final assertion (WORK_ASSERT), the human or proxy reviews the assembled work and determines either that the plan needs revision (the work was executed correctly but the plan was wrong) or that the intent itself was wrong (the work faithfully implements an intent that turns out not to be what was wanted). The second case — backtracking all the way from final review to intent — is the most expensive transition in the system, but without it, the only option would be to ship work that misses the point.
 
 ---
 

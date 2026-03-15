@@ -32,7 +32,7 @@ TeaParty is building toward mixed teams where humans and AI agents collaborate o
 
 *Addresses: intent gap, backtracking*
 
-A three-phase protocol — **Intent**, **Planning**, **Execution** — formalized as a state machine with explicit transitions and seven cross-phase backtracks. Each phase produces artifacts that make implicit context explicit. Approval gates between phases are learning opportunities where the system observes human corrections and preferences.
+A three-phase protocol — **Intent**, **Planning**, **Execution** — formalized as a state machine with explicit transitions and ten cross-phase backtracks. Each phase produces artifacts that make implicit context explicit. Approval gates between phases are learning opportunities where the system observes human corrections and preferences.
 
 The key insight is backtracking. When execution reveals a flawed plan, the system returns to planning. When planning reveals a flawed intent, the system returns to intent. When final review reveals that the work faithfully implements an intent that turns out to be wrong, the system backtracks all the way from the end to the beginning. This is the most expensive transition — and without it, the only option is to ship work that misses the point.
 
@@ -40,7 +40,7 @@ The key insight is backtracking. When execution reveals a flawed plan, the syste
   <img src="docs/images/cfa-backtrack-overview.svg" alt="CfA three-phase protocol with cross-phase backtracks" width="900" />
 </p>
 
-<p align="center"><em>The CfA state machine: three phases with synthesis loops and seven cross-phase backtrack transitions. <a href="https://dlewissandy.github.io/teaparty/cfa-state-machine/">Full specification &rarr;</a></em></p>
+<p align="center"><em>The CfA state machine: three phases with synthesis loops and ten cross-phase backtrack transitions. <a href="https://dlewissandy.github.io/teaparty/cfa-state-machine/">Full specification &rarr;</a></em></p>
 
 ### Hierarchical Teams
 
