@@ -243,5 +243,188 @@ class TestPredictionAccuracyTracking(unittest.TestCase):
                              'Wrong prediction should not increment prediction_correct_count')
 
 
+# ── Tests: Drift detection ────────────────────────────────────────────────────
+
+class TestPredictionDriftDetection(unittest.TestCase):
+    """When prediction accuracy drops, should_escalate increases escalation rate."""
+
+    def test_low_accuracy_forces_escalation(self):
+        """A model with high approval rate but low prediction accuracy escalates."""
+        from projects.POC.scripts.approval_gate import (
+            should_escalate, ConfidenceModel, ConfidenceEntry,
+        )
+
+        # High approval rate (would normally auto-approve) but terrible
+        # prediction accuracy (predictions are mostly wrong)
+        entry = {
+            'state': 'PLAN_ASSERT',
+            'task_type': 'test-project',
+            'approve_count': 18,
+            'correct_count': 2,
+            'reject_count': 0,
+            'total_count': 20,
+            'last_updated': __import__('datetime').date.today().isoformat(),
+            'ema_approval_rate': 0.9,
+            'differentials': [],
+            'artifact_lengths': [2000] * 20,
+            'question_patterns': [],
+            'prediction_correct_count': 2,   # only 2 of 20 predictions correct
+            'prediction_total_count': 20,     # accuracy = 10% — very bad
+        }
+
+        model = ConfidenceModel(
+            entries={'PLAN_ASSERT|test-project': entry},
+            global_threshold=0.7,
+            generative_threshold=0.95,
+        )
+
+        # Run many trials — with drift detection, escalation should happen
+        # much more often than the normal 15% exploration rate
+        escalation_count = 0
+        trials = 100
+        for _ in range(trials):
+            decision = should_escalate(model, 'PLAN_ASSERT', 'test-project')
+            if decision.action == 'escalate':
+                escalation_count += 1
+
+        # With 10% prediction accuracy, drift detection should escalate
+        # significantly more than the base 15% exploration rate
+        self.assertGreater(
+            escalation_count, 30,
+            f'Low prediction accuracy should trigger more escalation, '
+            f'but only {escalation_count}/{trials} escalated',
+        )
+
+
+# ── Tests: Two-tier retrieval ─────────────────────────────────────────────────
+
+class TestTwoTierRetrieval(unittest.TestCase):
+    """Proxy retrieves similar past interactions for richer decision context."""
+
+    def test_retrieve_similar_interactions_exists(self):
+        """retrieve_similar_interactions function exists in approval_gate."""
+        from projects.POC.scripts.approval_gate import retrieve_similar_interactions
+        self.assertTrue(callable(retrieve_similar_interactions))
+
+    def test_retrieves_matching_state_interactions(self):
+        """Retrieves past interactions matching the current state."""
+        from projects.POC.scripts.approval_gate import retrieve_similar_interactions
+
+        with tempfile.TemporaryDirectory() as td:
+            log_path = os.path.join(td, '.proxy-interactions.jsonl')
+            entries = [
+                {'state': 'PLAN_ASSERT', 'project': 'p1', 'prediction': 'approve',
+                 'outcome': 'correct', 'delta': 'missing tests', 'timestamp': '2026-03-14T00:00:00Z'},
+                {'state': 'INTENT_ASSERT', 'project': 'p1', 'prediction': 'approve',
+                 'outcome': 'approve', 'delta': '', 'timestamp': '2026-03-14T00:01:00Z'},
+                {'state': 'PLAN_ASSERT', 'project': 'p2', 'prediction': 'approve',
+                 'outcome': 'approve', 'delta': '', 'timestamp': '2026-03-14T00:02:00Z'},
+            ]
+            with open(log_path, 'w') as f:
+                for e in entries:
+                    f.write(json.dumps(e) + '\n')
+
+            results = retrieve_similar_interactions(
+                log_path=log_path,
+                state='PLAN_ASSERT',
+                top_k=10,
+            )
+            # Should return PLAN_ASSERT entries, not INTENT_ASSERT
+            self.assertEqual(len(results), 2)
+            for r in results:
+                self.assertEqual(r['state'], 'PLAN_ASSERT')
+
+
+# ── Tests: Pattern compaction ─────────────────────────────────────────────────
+
+class TestPatternCompaction(unittest.TestCase):
+    """End-of-session pattern extraction from interaction log."""
+
+    def test_compact_proxy_patterns_exists(self):
+        """compact_proxy_patterns function exists in learnings.py."""
+        from projects.POC.orchestrator.learnings import _compact_proxy_patterns
+        self.assertTrue(callable(_compact_proxy_patterns))
+
+    def test_compaction_produces_patterns_file(self):
+        """Compaction reads interaction log and produces/updates proxy-patterns.md."""
+        from projects.POC.orchestrator.learnings import _compact_proxy_patterns
+
+        with tempfile.TemporaryDirectory() as td:
+            log_path = os.path.join(td, '.proxy-interactions.jsonl')
+            entries = [
+                {'state': 'PLAN_ASSERT', 'project': 'p1', 'prediction': 'approve',
+                 'outcome': 'correct', 'delta': 'missing error handling',
+                 'timestamp': '2026-03-14T00:00:00Z'},
+                {'state': 'PLAN_ASSERT', 'project': 'p1', 'prediction': 'approve',
+                 'outcome': 'correct', 'delta': 'no error handling section',
+                 'timestamp': '2026-03-14T01:00:00Z'},
+                {'state': 'PLAN_ASSERT', 'project': 'p1', 'prediction': 'approve',
+                 'outcome': 'correct', 'delta': 'error handling missing from plan',
+                 'timestamp': '2026-03-14T02:00:00Z'},
+            ]
+            with open(log_path, 'w') as f:
+                for e in entries:
+                    f.write(json.dumps(e) + '\n')
+
+            _compact_proxy_patterns(
+                project_dir=td,
+                log_path=log_path,
+            )
+
+            patterns_path = os.path.join(td, 'proxy-patterns.md')
+            self.assertTrue(
+                os.path.exists(patterns_path),
+                'proxy-patterns.md should be created by compaction',
+            )
+
+
+# ── Tests: Retrospective learning ────────────────────────────────────────────
+
+class TestRetrospectiveLearning(unittest.TestCase):
+    """Session backtracks mark prior auto-approvals as false positives."""
+
+    def test_mark_false_positives_exists(self):
+        """mark_false_positive_approvals function exists."""
+        from projects.POC.scripts.approval_gate import mark_false_positive_approvals
+        self.assertTrue(callable(mark_false_positive_approvals))
+
+    def test_backtrack_marks_auto_approvals(self):
+        """When a session backtracks, prior auto-approvals in the log get flagged."""
+        from projects.POC.scripts.approval_gate import mark_false_positive_approvals
+
+        with tempfile.TemporaryDirectory() as td:
+            log_path = os.path.join(td, '.proxy-interactions.jsonl')
+            entries = [
+                {'session_id': 'sess-1', 'state': 'PLAN_ASSERT',
+                 'prediction': 'approve', 'outcome': 'approve',
+                 'delta': '', 'timestamp': '2026-03-14T00:00:00Z'},
+                {'session_id': 'sess-1', 'state': 'WORK_ASSERT',
+                 'prediction': 'approve', 'outcome': 'approve',
+                 'delta': '', 'timestamp': '2026-03-14T01:00:00Z'},
+            ]
+            with open(log_path, 'w') as f:
+                for e in entries:
+                    f.write(json.dumps(e) + '\n')
+
+            mark_false_positive_approvals(
+                log_path=log_path,
+                session_id='sess-1',
+                reason='session backtracked to planning',
+            )
+
+            # Re-read log — entries should have false_positive flag
+            updated = []
+            with open(log_path) as f:
+                for line in f:
+                    if line.strip():
+                        updated.append(json.loads(line))
+
+            flagged = [e for e in updated if e.get('false_positive')]
+            self.assertGreater(
+                len(flagged), 0,
+                'At least one auto-approve should be flagged as false positive',
+            )
+
+
 if __name__ == '__main__':
     unittest.main()

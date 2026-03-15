@@ -139,6 +139,14 @@ async def extract_learnings(
         session_id=os.path.basename(infra_dir),
     )
 
+    # ── Proxy pattern compaction (#11) ────────────────────────────────────────
+
+    await _run_scope(
+        'proxy-patterns', _compact_proxy_patterns,
+        project_dir=project_dir,
+        log_path=os.path.join(project_dir, '.proxy-interactions.jsonl'),
+    )
+
     # ── Summary diagnostic ────────────────────────────────────────────────────
 
     total = succeeded + failed
@@ -443,3 +451,71 @@ def _archive_skill_candidate(
         task=task,
         session_id=session_id,
     )
+
+
+# ── Proxy pattern compaction (#11) ────────────────────────────────────────────
+
+def _compact_proxy_patterns(*, project_dir: str, log_path: str) -> None:
+    """Extract recurring proxy correction patterns from the interaction log.
+
+    Groups interactions by state, identifies recurring deltas (corrections
+    the human makes repeatedly), and writes distilled patterns to
+    proxy-patterns.md.  This is the compaction step that converts raw
+    interaction history into actionable proxy behavioral knowledge.
+    """
+    from pathlib import Path
+    import json
+    from collections import defaultdict
+
+    if not os.path.isfile(log_path):
+        return
+
+    # Read all interactions
+    interactions = []
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    interactions.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return
+
+    if not interactions:
+        return
+
+    # Group corrections by state
+    corrections_by_state = defaultdict(list)
+    for entry in interactions:
+        if entry.get('outcome') in ('correct', 'reject') and entry.get('delta'):
+            corrections_by_state[entry.get('state', 'unknown')].append(entry['delta'])
+
+    if not corrections_by_state:
+        return
+
+    # Build patterns file — recurring corrections become proxy patterns
+    lines = ['# Proxy Behavioral Patterns\n']
+    lines.append('Extracted from proxy interaction history. These represent\n')
+    lines.append('recurring human corrections that the proxy should anticipate.\n\n')
+
+    for state, deltas in sorted(corrections_by_state.items()):
+        lines.append(f'## {state}\n\n')
+        # Deduplicate similar deltas (simple exact match for now)
+        seen = []
+        for d in deltas:
+            d_lower = d.strip().lower()
+            if d_lower not in [s.lower() for s in seen]:
+                seen.append(d.strip())
+        for d in seen:
+            lines.append(f'- {d}\n')
+        lines.append('\n')
+
+    patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
+    from filelock import FileLock
+    lock = FileLock(patterns_path + '.lock', timeout=30)
+    with lock:
+        Path(patterns_path).write_text(''.join(lines))
