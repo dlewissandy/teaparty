@@ -161,11 +161,18 @@ class Orchestrator:
                 team=self.team_override,
             )
             socket_path = await self._escalation_listener.start()
+            # The MCP server runs as a subprocess of Claude Code, whose cwd
+            # is the session worktree — not the repo root.  PYTHONPATH must
+            # include the repo root so `python3 -m projects.POC...` resolves.
+            repo_root = os.path.dirname(os.path.dirname(self.poc_root))
             self._mcp_config = {
                 'ask-question': {
                     'command': 'python3',
                     'args': ['-m', 'projects.POC.orchestrator.mcp_server'],
-                    'env': {'ASK_QUESTION_SOCKET': socket_path},
+                    'env': {
+                        'ASK_QUESTION_SOCKET': socket_path,
+                        'PYTHONPATH': repo_root,
+                    },
                 },
             }
 
