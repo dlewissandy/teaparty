@@ -11,6 +11,7 @@ Actor types:
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
@@ -606,7 +607,12 @@ class ApprovalGate:
 
             if _pd_action == 'auto-approve':
                 self._proxy_record(ctx.state, project_slug, 'approve',
-                                   artifact_path=artifact_path, team=team)
+                                   artifact_path=artifact_path, team=team,
+                                   prediction='approve')
+                self._log_interaction(
+                    ctx, project_slug, prediction='approve', outcome='approve',
+                    delta='', exploration=False,
+                )
                 return ActorResult(action='approve')
 
             # Step 2: Generate bridge text for the human
@@ -692,12 +698,22 @@ class ApprovalGate:
                 continue
 
             # Non-dialog action — record and return
+            prediction = 'escalate'  # proxy predicted escalation (that's why human was asked)
             self._proxy_record(
                 ctx.state, project_slug, action,
                 artifact_path=artifact_path,
                 feedback=feedback,
                 conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
                 team=team,
+                prediction=prediction,
+            )
+            self._log_interaction(
+                ctx, project_slug,
+                prediction=prediction,
+                outcome=action,
+                delta=feedback if action != 'approve' else '',
+                exploration=getattr(proxy_decision, 'exploration_forced', False)
+                    if 'proxy_decision' in dir() else False,
             )
 
             return ActorResult(
@@ -747,7 +763,7 @@ class ApprovalGate:
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
         artifact_path: str = '', feedback: str = '', conversation: str = '',
-        team: str = '',
+        team: str = '', prediction: str = '',
     ) -> None:
         """Record human decision for proxy learning."""
         try:
@@ -762,9 +778,42 @@ class ApprovalGate:
                 differential_summary=feedback,
                 artifact_length=artifact_length,
                 question_patterns=patterns,
+                prediction=prediction,
             )
             save_model(model, model_path)
         except Exception:
+            pass
+
+    def _log_interaction(
+        self, ctx: ActorContext, project_slug: str,
+        prediction: str, outcome: str, delta: str,
+        exploration: bool = False,
+    ) -> None:
+        """Append a proxy interaction log entry (JSONL) for learning.
+
+        Each entry records: what the proxy predicted, what actually happened,
+        and the delta between them.  This is the foundation for prediction
+        accuracy tracking and retrospective learning (#11).
+        """
+        from datetime import datetime, timezone
+        log_path = os.path.join(
+            os.path.dirname(self.proxy_model_path),
+            '.proxy-interactions.jsonl',
+        )
+        entry = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'session_id': ctx.session_id,
+            'project': project_slug,
+            'state': ctx.state,
+            'prediction': prediction,
+            'outcome': outcome,
+            'delta': delta,
+            'exploration': exploration,
+        }
+        try:
+            with open(log_path, 'a') as f:
+                f.write(json.dumps(entry) + '\n')
+        except OSError:
             pass
 
     def _try_generate_response(self, project_slug: str, state: str,
