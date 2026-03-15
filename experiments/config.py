@@ -44,6 +44,9 @@ class ExperimentConfig:
     default_rate: float = 0.85
     scripted_decisions: dict[str, list[str]] = field(default_factory=dict)
 
+    # Proxy state persistence (corpus runs)
+    proxy_model_path: str = ''  # shared path for cross-task proxy persistence
+
     # Results location
     results_base: str = ''
 
@@ -100,7 +103,8 @@ class CorpusConfig:
             **{k: v for k, v in overrides.items()
                if k in ('flat', 'skip_intent', 'skip_learnings', 'execute_only',
                          'regret_weight', 'backtracks_enabled', 'proxy_enabled',
-                         'project', 'results_base', 'scripted_decisions')},
+                         'project', 'results_base', 'scripted_decisions',
+                         'proxy_model_path')},
         )
 
 

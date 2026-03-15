@@ -138,11 +138,40 @@ class ExperimentRunner:
         # 9. Write summary metrics
         metrics_path = collector.write_metrics()
 
-        # 10. Augment metrics with timing
+        # 10. Augment metrics with timing and cumulative proxy state
         metrics = collector.summarize()
         metrics['elapsed_seconds'] = round(elapsed, 2)
 
-        # Re-write with elapsed included
+        # Include cumulative proxy state from the model file (for corpus runs)
+        proxy_path = config.proxy_model_path
+        if not proxy_path:
+            poc_root = self._find_poc_root()
+            projects_dir = os.path.join(os.path.dirname(poc_root), 'projects')
+            project_dir = os.path.join(projects_dir, config.project)
+            proxy_path = os.path.join(project_dir, '.proxy-confidence.json')
+        if os.path.isfile(proxy_path):
+            try:
+                with open(proxy_path) as f:
+                    proxy_model = json.load(f)
+                entries = proxy_model.get('entries', {})
+                total = sum(e.get('total_decisions', 0) for e in entries.values())
+                metrics['proxy_cumulative'] = {
+                    'total_decisions': total,
+                    'states_seen': list(entries.keys()),
+                    'model_path': proxy_path,
+                    'per_state': {
+                        state: {
+                            'total_decisions': e.get('total_decisions', 0),
+                            'auto_approved': e.get('auto_approved', 0),
+                            'escalated': e.get('escalated', 0),
+                        }
+                        for state, e in entries.items()
+                    },
+                }
+            except Exception:
+                pass
+
+        # Re-write with elapsed and proxy_cumulative included
         with open(metrics_path, 'w') as f:
             json.dump(metrics, f, indent=2, default=str)
 
@@ -211,6 +240,7 @@ async def run_corpus(
     condition: str = '',
     *,
     verbose: bool = False,
+    proxy_model_path: str = '',
     **overrides: Any,
 ) -> list[dict[str, Any]]:
     """Run all tasks in a corpus file under a single condition.
@@ -219,6 +249,9 @@ async def run_corpus(
         corpus_path: path to the YAML corpus file
         condition: condition name (overrides corpus default)
         verbose: enable verbose event printing
+        proxy_model_path: shared proxy model path for cross-task persistence.
+            When set, all tasks in the corpus share this proxy model file
+            so the proxy's confidence evolves across the full corpus.
         **overrides: passed to CorpusConfig.make_config()
 
     Returns:
@@ -228,6 +261,10 @@ async def run_corpus(
 
     corpus = load_corpus(corpus_path)
     results = []
+
+    # Pass shared proxy model path to all tasks for cross-task persistence
+    if proxy_model_path:
+        overrides['proxy_model_path'] = proxy_model_path
 
     for i, task in enumerate(corpus.tasks):
         config = corpus.make_config(task, condition=condition, **overrides)

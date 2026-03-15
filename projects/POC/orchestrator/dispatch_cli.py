@@ -37,6 +37,32 @@ class _NoInputProvider:
         return 'approve'
 
 
+def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
+    """Attach a simple JSONL event writer to the child's EventBus.
+
+    Writes all events to events.jsonl in the child's infra_dir so the
+    parent's EventCollector can merge them post-hoc for experiment analysis.
+    """
+    import time as _time
+    events_path = os.path.join(infra_dir, 'events.jsonl')
+
+    async def _write_event(event) -> None:
+        record = {
+            'timestamp': getattr(event, 'timestamp', None) or _time.time(),
+            'type': event.type.value if hasattr(event.type, 'value') else str(event.type),
+            'session_id': getattr(event, 'session_id', ''),
+            'source': os.path.basename(infra_dir),
+            **getattr(event, 'data', {}),
+        }
+        try:
+            with open(events_path, 'a') as f:
+                f.write(json.dumps(record, default=str) + '\n')
+        except OSError:
+            pass
+
+    event_bus.subscribe(_write_event)
+
+
 def _find_poc_root() -> str:
     d = os.path.dirname(os.path.abspath(__file__))
     while d != '/':
@@ -112,8 +138,11 @@ async def dispatch(team: str, task: str, auto_approve_plan: bool = False, cfa_pa
     )
     save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
-    # Run child orchestrator
+    # Run child orchestrator with event collection for experiment visibility.
+    # Events are written to events.jsonl in the dispatch infra_dir so the
+    # parent's EventCollector can merge them post-hoc (issue #133).
     event_bus = EventBus()
+    _attach_event_writer(event_bus, dispatch_infra)
     input_provider = _NoInputProvider()
 
     orchestrator = Orchestrator(
