@@ -28,7 +28,7 @@
 | Parse `--project`, `--skip-intent`, `--with-intent` CLI flags | yes | yes (constructor params) | [PASS] |
 | Classify task via `classify_task.py` → project slug + mode | yes, returns `slug\tmode` | yes, calls subprocess but discards mode (only reads `parts[0]`) | [GAP] Task mode (`workflow`/`conversational`) never read; conversational short-circuit path missing |
 | Conversational mode short-circuit (pipe to `claude -p` directly) | yes (`TASK_MODE=conversational`) | not implemented | [GAP] No conversational path |
-| Detect linked-repo vs standalone repo (`.linked-repo` file) | yes, three-branch logic | not implemented; always calls `git rev-parse --show-toplevel` from `poc_root` | [GAP] Linked-repo detection absent; new-project init (git init + CLAUDE.md) absent |
+| Detect linked-repo vs standalone repo (`.linked-repo` file) | yes, three-branch logic | yes, `_ensure_project_repo` checks `.linked-repo` first, then `.git`, then `git init` | [PASS] Linked-repo detection implemented (issue #136) |
 | Compute `POC_RELATIVE_PATH` | yes | not computed | [GAP] |
 | Session worktree name: `session-SHORT_ID--SLUG` (8-char UUID prefix + 40-char task slug) | yes | uses last 6 chars of session_id timestamp, not a UUID | [GAP] Naming scheme differs; timestamp suffix != random UUID prefix |
 | Register worktree in `worktrees.json` manifest | yes, via `worktree_manifest.py` | yes, via `_register_worktree()` in `worktree.py` | [PASS] (different implementation, same effect) |
@@ -269,7 +269,7 @@ claude -p
 3. `PROJECTS_DIR`, `SCRIPT_DIR` absent from env injection (breaks agent subprocesses)
 4. `POC_TASK_MODE`, `POC_PREMORTEM_FILE`, `POC_ASSUMPTIONS_FILE` missing
 5. Task mode (`workflow`/`conversational`) discarded after classify; no conversational short-circuit
-6. Linked-repo detection (`.linked-repo`) and new-project git init absent
+6. ~~Linked-repo detection (`.linked-repo`) and new-project git init absent~~ — fixed in issue #136
 7. `POC_RELATIVE_PATH` not computed
 8. Session worktree short ID uses timestamp suffix, not 8-char UUID prefix
 9. Team infra subdirectories not created at session start
