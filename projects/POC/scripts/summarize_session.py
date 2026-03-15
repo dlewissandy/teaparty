@@ -144,15 +144,23 @@ def _wrap_learnings_with_frontmatter(
 def extract_human_turns(stream_path: str, max_chars: int = 12000) -> str:
     """Extract human-authored text from an intent stream.
 
-    The intent stream records the full multi-agent conversation. Human speech
-    appears in two forms:
-    1. The initial task prompt injected into the first system/init event's
-       surrounding context (captured via the first user-role text block).
-    2. Follow-on human replies: type=="user" events whose content contains a
-       text block (not a tool_result) with parent_tool_use_id == null.
+    The intent stream records the full multi-agent conversation. In practice,
+    ALL user events in the stream contain tool_result blocks — human approvals,
+    corrections, and instructions arrive this way. Text blocks (type=="text")
+    are rare or absent.
 
-    Agent-to-agent traffic (Task spawns, tool results, SendMessage) is excluded.
+    Human-authored content is distinguished from agent-to-agent traffic by:
+    1. Event-level parent_tool_use_id is None (not a sub-agent response).
+    2. Content is short — human approvals ("approve"), corrections, and
+       instructions are typically under 500 chars. File reads, command output,
+       and other agent traffic is much longer.
+
+    Agent-to-agent traffic (parent_tool_use_id set) is excluded entirely.
     """
+    # Threshold: tool_result content longer than this is likely agent traffic
+    # (file reads, command output, etc.), not human-authored text.
+    HUMAN_CONTENT_MAX_LEN = 500
+
     parts = []
     total = 0
     initial_task_captured = False
@@ -170,45 +178,51 @@ def extract_human_turns(stream_path: str, max_chars: int = 12000) -> str:
 
                 ev_type = ev.get("type", "")
 
-                # Capture the initial task from the first user message
-                # (type=="user", content is a text block, no parent tool)
-                if ev_type == "user" and not initial_task_captured:
-                    msg = ev.get("message", {})
-                    content = msg.get("content", [])
-                    parent = ev.get("parent_tool_use_id")
-                    # The very first human text turn has no parent tool and
-                    # content is a list with a text block (not a tool_result)
-                    if not parent and isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "").strip()
-                                if text:
-                                    parts.append(f"[Human task/input]: {text}")
-                                    total += len(text)
-                                    initial_task_captured = True
-                                    break
+                if ev_type != "user":
+                    continue
 
-                # Capture follow-on human replies (no parent tool, text content)
-                elif ev_type == "user" and initial_task_captured:
-                    parent = ev.get("parent_tool_use_id")
-                    if parent is not None:
-                        # Tool result — skip, this is agent-to-agent traffic
-                        continue
-                    msg = ev.get("message", {})
-                    content = msg.get("content", [])
-                    if isinstance(content, list):
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                text = block.get("text", "").strip()
-                                if text:
-                                    parts.append(f"[Human]: {text}")
-                                    total += len(text)
-                                    break
-                    elif isinstance(content, str):
-                        text = content.strip()
-                        if text:
-                            parts.append(f"[Human]: {text}")
-                            total += len(text)
+                parent = ev.get("parent_tool_use_id")
+                if parent is not None:
+                    # Sub-agent response — skip
+                    continue
+
+                msg = ev.get("message", {})
+                content = msg.get("content", [])
+                if isinstance(content, str):
+                    text = content.strip()
+                    if text:
+                        label = "[Human task/input]" if not initial_task_captured else "[Human]"
+                        parts.append(f"{label}: {text}")
+                        total += len(text)
+                        initial_task_captured = True
+                elif isinstance(content, list):
+                    for block in content:
+                        if not isinstance(block, dict):
+                            continue
+                        block_type = block.get("type", "")
+
+                        if block_type == "text":
+                            text = block.get("text", "").strip()
+                            if text:
+                                label = "[Human task/input]" if not initial_task_captured else "[Human]"
+                                parts.append(f"{label}: {text}")
+                                total += len(text)
+                                initial_task_captured = True
+                                break
+
+                        elif block_type == "tool_result":
+                            text = block.get("content", "")
+                            if isinstance(text, str):
+                                text = text.strip()
+                            else:
+                                # Content can be a list of blocks (e.g. images) — skip
+                                continue
+                            if text and len(text) <= HUMAN_CONTENT_MAX_LEN:
+                                label = "[Human task/input]" if not initial_task_captured else "[Human]"
+                                parts.append(f"{label}: {text}")
+                                total += len(text)
+                                initial_task_captured = True
+                                break
 
                 if total > max_chars:
                     break
