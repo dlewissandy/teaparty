@@ -13,12 +13,20 @@ Usage:
         --corpus experiments/corpus/proxy-convergence.yaml \\
         --condition dual-signal
 
+    # Add quality ratings to completed runs
+    python -m experiments rate \\
+        --experiment proxy-convergence
+
     # Analyze collected results
     python -m experiments analyze \\
         --experiment proxy-convergence
 
     # Generate markdown report
     python -m experiments report \\
+        --experiment proxy-convergence
+
+    # Generate plots
+    python -m experiments plot \\
         --experiment proxy-convergence
 """
 from __future__ import annotations
@@ -55,6 +63,10 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
                         help='Override REGRET_WEIGHT for proxy experiments')
     parser.add_argument('--no-backtracks', action='store_true',
                         help='Suppress CfA backtracks (forward-only baseline)')
+
+    # Rating collection
+    parser.add_argument('--collect-ratings', action='store_true',
+                        help='Prompt for human quality ratings after each run')
 
 
 def _build_overrides(args: argparse.Namespace) -> dict:
@@ -105,7 +117,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         results_base=args.results_base,
     )
 
-    runner = ExperimentRunner(config, verbose=args.verbose)
+    runner = ExperimentRunner(
+        config, verbose=args.verbose, collect_ratings=args.collect_ratings,
+    )
     metrics = asyncio.run(runner.run())
 
     # Print summary to stdout
@@ -169,6 +183,60 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rate(args: argparse.Namespace) -> int:
+    """Add or update quality ratings for experiment results."""
+    import os
+    from experiments.analyze import _default_results_base, load_all_runs
+    from experiments.ratings import (
+        collect_rating_interactive,
+        load_ratings,
+        write_ratings,
+    )
+
+    base = args.results_base or _default_results_base()
+    runs = load_all_runs(args.experiment, results_base=base)
+
+    if not runs:
+        print(f'No results found for experiment {args.experiment!r}', file=sys.stderr)
+        return 1
+
+    rated = 0
+    skipped = 0
+    for run in runs:
+        results_dir = run.get('results_dir', '')
+        if not results_dir:
+            continue
+
+        existing = load_ratings(results_dir)
+        if existing and existing.is_valid() and not args.force:
+            skipped += 1
+            continue
+
+        task = run.get('task', run.get('task_id', '?'))
+        cond = run.get('condition', '?')
+        task_id = run.get('task_id', os.path.basename(results_dir))
+
+        print(f'\n--- {args.experiment}/{cond}/{task_id} ---', file=sys.stderr)
+
+        rating = collect_rating_interactive(task_description=task)
+        write_ratings(results_dir, rating)
+
+        # Update metrics.json with quality_rating
+        metrics_path = os.path.join(results_dir, 'metrics.json')
+        if os.path.isfile(metrics_path):
+            with open(metrics_path) as f:
+                metrics = json.load(f)
+            metrics['quality_rating'] = rating.overall
+            metrics['ratings'] = rating.to_dict()
+            with open(metrics_path, 'w') as f:
+                json.dump(metrics, f, indent=2, default=str)
+
+        rated += 1
+
+    print(f'\nRated {rated} runs, skipped {skipped} (already rated)', file=sys.stderr)
+    return 0
+
+
 def cmd_plot(args: argparse.Namespace) -> int:
     """Generate plots for an experiment."""
     from experiments.plotting import save_experiment_plots
@@ -222,6 +290,13 @@ def main() -> int:
     p_report.add_argument('--experiment', required=True, help='Experiment name')
     p_report.add_argument('--results-base', default='', help='Results directory override')
 
+    # ── rate ──
+    p_rate = sub.add_parser('rate', help='Add quality ratings to experiment results')
+    p_rate.add_argument('--experiment', required=True, help='Experiment name')
+    p_rate.add_argument('--results-base', default='', help='Results directory override')
+    p_rate.add_argument('--force', action='store_true',
+                        help='Re-rate runs that already have ratings')
+
     # ── plot ──
     p_plot = sub.add_parser('plot', help='Generate plots for an experiment')
     p_plot.add_argument('--experiment', required=True, help='Experiment name')
@@ -238,6 +313,7 @@ def main() -> int:
         'run-corpus': cmd_run_corpus,
         'analyze': cmd_analyze,
         'report': cmd_report,
+        'rate': cmd_rate,
         'plot': cmd_plot,
     }
     return commands[args.command](args)

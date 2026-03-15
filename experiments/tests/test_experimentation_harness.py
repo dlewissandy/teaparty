@@ -1640,5 +1640,161 @@ class TestPlotting(unittest.TestCase):
         shutil.rmtree(tmp)
 
 
+# ── ratings.py ────────────────────────────────────────────────────────────────
+
+from experiments.ratings import QualityRating, write_ratings, load_ratings
+
+
+class TestQualityRating(unittest.TestCase):
+    """QualityRating dataclass and validation."""
+
+    def test_valid_rating(self):
+        r = QualityRating(overall=4, correctness=3, completeness=5, code_quality=4)
+        self.assertTrue(r.is_valid())
+
+    def test_invalid_rating_zero(self):
+        r = QualityRating(overall=0, correctness=3, completeness=3, code_quality=3)
+        self.assertFalse(r.is_valid())
+
+    def test_invalid_rating_too_high(self):
+        r = QualityRating(overall=6, correctness=3, completeness=3, code_quality=3)
+        self.assertFalse(r.is_valid())
+
+    def test_default_rating_invalid(self):
+        """Default-constructed rating is invalid (all zeros)."""
+        r = QualityRating()
+        self.assertFalse(r.is_valid())
+
+    def test_to_dict(self):
+        r = QualityRating(overall=4, correctness=3, completeness=5, code_quality=2,
+                          notes='good', rater='alice')
+        d = r.to_dict()
+        self.assertEqual(d['overall'], 4)
+        self.assertEqual(d['notes'], 'good')
+        self.assertEqual(d['rater'], 'alice')
+
+    def test_boundary_values(self):
+        """Rating values 1 and 5 are both valid."""
+        r1 = QualityRating(overall=1, correctness=1, completeness=1, code_quality=1)
+        r5 = QualityRating(overall=5, correctness=5, completeness=5, code_quality=5)
+        self.assertTrue(r1.is_valid())
+        self.assertTrue(r5.is_valid())
+
+
+class TestWriteLoadRatings(unittest.TestCase):
+    """Write and load ratings.json round-trip."""
+
+    def test_write_and_load(self):
+        tmp = tempfile.mkdtemp()
+        rating = QualityRating(overall=4, correctness=3, completeness=5,
+                               code_quality=4, notes='looks good')
+        path = write_ratings(tmp, rating)
+        self.assertTrue(os.path.isfile(path))
+
+        loaded = load_ratings(tmp)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.overall, 4)
+        self.assertEqual(loaded.correctness, 3)
+        self.assertEqual(loaded.completeness, 5)
+        self.assertEqual(loaded.code_quality, 4)
+        self.assertEqual(loaded.notes, 'looks good')
+        shutil.rmtree(tmp)
+
+    def test_load_missing(self):
+        """load_ratings returns None when ratings.json doesn't exist."""
+        tmp = tempfile.mkdtemp()
+        self.assertIsNone(load_ratings(tmp))
+        shutil.rmtree(tmp)
+
+    def test_load_corrupt(self):
+        """load_ratings returns None for corrupt JSON."""
+        tmp = tempfile.mkdtemp()
+        with open(os.path.join(tmp, 'ratings.json'), 'w') as f:
+            f.write('{not valid json')
+        self.assertIsNone(load_ratings(tmp))
+        shutil.rmtree(tmp)
+
+
+class TestCollectRatingInteractive(unittest.TestCase):
+    """Interactive rating collection with simulated stdin."""
+
+    def test_collect_rating(self):
+        """Simulated user input produces correct rating."""
+        from io import StringIO
+        from experiments.ratings import collect_rating_interactive
+
+        # Simulate: overall=4, correctness=3, completeness=5, code_quality=4, notes="great"
+        fake_input = StringIO('4\n3\n5\n4\ngreat\n')
+        rating = collect_rating_interactive(
+            task_description='Test task',
+            stream=fake_input,
+        )
+        self.assertEqual(rating.overall, 4)
+        self.assertEqual(rating.correctness, 3)
+        self.assertEqual(rating.completeness, 5)
+        self.assertEqual(rating.code_quality, 4)
+        self.assertEqual(rating.notes, 'great')
+        self.assertTrue(rating.is_valid())
+
+    def test_collect_rating_empty_notes(self):
+        """Empty notes are accepted."""
+        from io import StringIO
+        from experiments.ratings import collect_rating_interactive
+
+        fake_input = StringIO('3\n3\n3\n3\n\n')
+        rating = collect_rating_interactive(stream=fake_input)
+        self.assertEqual(rating.notes, '')
+        self.assertTrue(rating.is_valid())
+
+    def test_collect_rating_retries_invalid(self):
+        """Invalid input is retried until valid."""
+        from io import StringIO
+        from experiments.ratings import collect_rating_interactive
+
+        # "abc" and "0" are invalid, then "3" is valid for each dimension
+        fake_input = StringIO('abc\n0\n3\n3\n3\n3\nnotes\n')
+        rating = collect_rating_interactive(stream=fake_input)
+        self.assertEqual(rating.overall, 3)
+
+
+class TestAnalyzeWithRatings(unittest.TestCase):
+    """condition_summary includes quality ratings when present."""
+
+    def test_summary_includes_quality(self):
+        runs = [
+            {'condition': 'a', 'quality_rating': 4,
+             'ratings': {'overall': 4, 'correctness': 3, 'completeness': 5,
+                         'code_quality': 4}},
+            {'condition': 'a', 'quality_rating': 3,
+             'ratings': {'overall': 3, 'correctness': 4, 'completeness': 3,
+                         'code_quality': 3}},
+        ]
+        summary = condition_summary(runs)
+        self.assertIn('quality_overall', summary)
+        self.assertEqual(summary['rated_runs'], 2)
+        self.assertAlmostEqual(summary['quality_overall']['mean'], 3.5)
+
+    def test_summary_without_ratings(self):
+        runs = [
+            {'condition': 'a', 'backtrack_count': 1},
+            {'condition': 'a', 'backtrack_count': 2},
+        ]
+        summary = condition_summary(runs)
+        self.assertNotIn('quality_overall', summary)
+        self.assertNotIn('rated_runs', summary)
+
+    def test_summary_partial_ratings(self):
+        """Only rated runs contribute to quality stats."""
+        runs = [
+            {'condition': 'a', 'quality_rating': 5,
+             'ratings': {'overall': 5, 'correctness': 5, 'completeness': 5,
+                         'code_quality': 5}},
+            {'condition': 'a'},  # no rating
+        ]
+        summary = condition_summary(runs)
+        self.assertEqual(summary['rated_runs'], 1)
+        self.assertEqual(summary['quality_overall']['mean'], 5.0)
+
+
 if __name__ == '__main__':
     unittest.main()

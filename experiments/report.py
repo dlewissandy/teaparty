@@ -91,6 +91,15 @@ def format_analysis(report: dict[str, Any]) -> str:
                 stats = summary.get(metric_name, {})
                 if stats and stats.get('n', 0) > 0:
                     lines.append(f'- {format_stats(stats, metric_name)}')
+
+            # Quality ratings (if any runs were rated)
+            if summary.get('rated_runs'):
+                lines.append(f'\n**Quality ratings** ({summary["rated_runs"]} rated):')
+                for qm in ['quality_overall', 'quality_correctness',
+                            'quality_completeness', 'quality_code']:
+                    stats = summary.get(qm, {})
+                    if stats and stats.get('n', 0) > 0:
+                        lines.append(f'- {format_stats(stats, qm)}')
             lines.append('')
 
     # Comparisons
@@ -139,12 +148,14 @@ def full_report(report: dict[str, Any]) -> str:
     conditions = report.get('conditions', {})
     if conditions:
         lines.append('## Overview\n')
+        has_quality = any(s.get('quality_overall') for s in conditions.values())
         overview_rows = []
         for cond, summary in sorted(conditions.items()):
             bt = summary.get('backtracks', {})
             elapsed = summary.get('elapsed_seconds', {})
             proxy = summary.get('proxy_mean_confidence', {})
-            overview_rows.append({
+            quality = summary.get('quality_overall', {})
+            row = {
                 'Condition': cond,
                 'N': summary.get('n', 0),
                 'Completed': summary.get('completed', 0),
@@ -152,12 +163,16 @@ def full_report(report: dict[str, Any]) -> str:
                 'Backtracks (mean)': f'{bt.get("mean", 0):.1f}',
                 'Time (mean)': f'{elapsed.get("mean", 0):.0f}s',
                 'Proxy Conf (mean)': f'{proxy.get("mean", 0):.3f}',
-            })
-        lines.append(markdown_table(
-            overview_rows,
-            ['Condition', 'N', 'Completed', 'Rate',
-             'Backtracks (mean)', 'Time (mean)', 'Proxy Conf (mean)'],
-        ))
+            }
+            if has_quality:
+                row['Quality (mean)'] = f'{quality.get("mean", 0):.1f}'
+            overview_rows.append(row)
+
+        columns = ['Condition', 'N', 'Completed', 'Rate',
+                    'Backtracks (mean)', 'Time (mean)', 'Proxy Conf (mean)']
+        if has_quality:
+            columns.append('Quality (mean)')
+        lines.append(markdown_table(overview_rows, columns))
         lines.append('')
 
     # Detailed analysis

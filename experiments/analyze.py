@@ -79,6 +79,15 @@ def condition_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     output_tokens = [r.get('tokens', {}).get('output_tokens', 0) for r in runs]
     cost_usd = [r.get('tokens', {}).get('cost_usd', 0) for r in runs]
 
+    # Quality ratings (only include runs that have ratings)
+    quality_overall = [r['quality_rating'] for r in runs if 'quality_rating' in r]
+    quality_correctness = [r.get('ratings', {}).get('correctness', 0) for r in runs
+                           if 'ratings' in r]
+    quality_completeness = [r.get('ratings', {}).get('completeness', 0) for r in runs
+                            if 'ratings' in r]
+    quality_code = [r.get('ratings', {}).get('code_quality', 0) for r in runs
+                    if 'ratings' in r]
+
     terminal_states = {}
     for r in runs:
         ts = r.get('terminal_state', 'unknown')
@@ -86,7 +95,7 @@ def condition_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
 
     completed = terminal_states.get('COMPLETED_WORK', 0)
 
-    return {
+    summary = {
         'n': n,
         'completed': completed,
         'completion_rate': completed / n if n else 0,
@@ -102,6 +111,16 @@ def condition_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         'output_tokens': _descriptive_stats(output_tokens),
         'cost_usd': _descriptive_stats(cost_usd),
     }
+
+    # Only include quality stats if any ratings exist
+    if quality_overall:
+        summary['quality_overall'] = _descriptive_stats(quality_overall)
+        summary['quality_correctness'] = _descriptive_stats(quality_correctness)
+        summary['quality_completeness'] = _descriptive_stats(quality_completeness)
+        summary['quality_code'] = _descriptive_stats(quality_code)
+        summary['rated_runs'] = len(quality_overall)
+
+    return summary
 
 
 def _descriptive_stats(values: list[float]) -> dict[str, float]:
@@ -255,6 +274,7 @@ def analyze_experiment(
         'proxy.auto_approvals',
         'tokens.total_tokens',
         'tokens.cost_usd',
+        'quality_rating',
     ]
 
     comparisons = {}

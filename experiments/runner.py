@@ -36,9 +36,16 @@ class ExperimentRunner:
         # Results are written to config.results_dir/
     """
 
-    def __init__(self, config: ExperimentConfig, *, verbose: bool = False):
+    def __init__(
+        self,
+        config: ExperimentConfig,
+        *,
+        verbose: bool = False,
+        collect_ratings: bool = False,
+    ):
         self.config = config
         self.verbose = verbose
+        self.collect_ratings = collect_ratings
         self._original_regret_weight: int | None = None
         self._collector: EventCollector | None = None
 
@@ -138,6 +145,17 @@ class ExperimentRunner:
         # Re-write with elapsed included
         with open(metrics_path, 'w') as f:
             json.dump(metrics, f, indent=2, default=str)
+
+        # 11. Collect human quality ratings if requested
+        if self.collect_ratings:
+            from experiments.ratings import collect_rating_interactive, write_ratings
+            rating = collect_rating_interactive(task_description=config.task)
+            write_ratings(results_dir, rating)
+            metrics['quality_rating'] = rating.overall
+            metrics['ratings'] = rating.to_dict()
+            # Re-write metrics with ratings included
+            with open(metrics_path, 'w') as f:
+                json.dump(metrics, f, indent=2, default=str)
 
         _log.info(
             'Run complete: %s/%s/%s → %s (%.1fs)',
