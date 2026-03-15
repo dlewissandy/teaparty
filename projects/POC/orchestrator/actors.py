@@ -587,9 +587,9 @@ class ApprovalGate:
                 if file_content:
                     questions = _extract_questions(file_content)
                     if questions:
-                        bridge_text = '\n'.join(
-                            f'{i}. {q}' for i, q in enumerate(questions, 1)
-                        )
+                        # One question at a time — it's a dialog.
+                        # The answer to Q1 may resolve Q2.
+                        bridge_text = questions[0]
                     else:
                         bridge_text = file_content
                 else:

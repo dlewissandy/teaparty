@@ -319,9 +319,9 @@ class TestBridgeTextReframing(unittest.TestCase):
 
             self.assertTrue(len(captured_bridge) > 0, 'No bridge text captured')
             bridge = captured_bridge[0]
-            # Bridge should contain the extracted questions, not boilerplate
+            # Only the first question — it's a dialog, one at a time
             self.assertIn('offline support', bridge.lower())
-            self.assertIn('target audience', bridge.lower())
+            self.assertNotIn('target audience', bridge.lower())
             # Must NOT use escalation framing
             self.assertNotIn('escalated', bridge.lower())
 
