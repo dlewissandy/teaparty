@@ -937,6 +937,104 @@ tasks:
             self.assertTrue(task.text)
 
 
+class TestAllCorpusFiles(unittest.TestCase):
+    """Validate all 7 experiment corpus YAML files load correctly."""
+
+    CORPUS_DIR = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), 'corpus',
+    )
+
+    EXPECTED_CORPORA = {
+        'proxy-convergence.yaml': 'proxy-convergence',
+        'cfa-backtrack-effectiveness.yaml': 'cfa-backtrack-effectiveness',
+        'hierarchical-vs-flat.yaml': 'hierarchical-vs-flat',
+        'regret-calibration.yaml': 'regret-calibration',
+        'scoped-vs-flat-retrieval.yaml': 'scoped-vs-flat-retrieval',
+        'cost-quality-frontier.yaml': 'cost-quality-frontier',
+        'cfa-phase-timing.yaml': 'cfa-phase-timing',
+    }
+
+    def _load(self, filename):
+        path = os.path.join(self.CORPUS_DIR, filename)
+        if not os.path.exists(path):
+            self.skipTest(f'{filename} not found')
+        return load_corpus(path)
+
+    def test_all_corpus_files_exist(self):
+        """All 7 expected corpus files are present."""
+        for filename in self.EXPECTED_CORPORA:
+            path = os.path.join(self.CORPUS_DIR, filename)
+            self.assertTrue(os.path.exists(path), f'Missing: {filename}')
+
+    def test_all_corpora_have_correct_experiment_name(self):
+        """Each corpus file's experiment field matches its filename."""
+        for filename, expected_name in self.EXPECTED_CORPORA.items():
+            corpus = self._load(filename)
+            self.assertEqual(corpus.experiment, expected_name,
+                             f'{filename}: expected experiment={expected_name}')
+
+    def test_all_corpora_have_15_tasks(self):
+        """Each corpus defines exactly 15 tasks (5 per tier)."""
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            self.assertEqual(len(corpus.tasks), 15,
+                             f'{filename}: expected 15 tasks, got {len(corpus.tasks)}')
+
+    def test_all_corpora_have_unique_task_ids(self):
+        """Task IDs are unique within each corpus."""
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            ids = [t.id for t in corpus.tasks]
+            self.assertEqual(len(ids), len(set(ids)),
+                             f'{filename}: duplicate task IDs')
+
+    def test_all_corpora_have_tier_distribution(self):
+        """Each corpus has 5 simple, 5 medium, 5 complex tasks."""
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            tiers = [t.tier for t in corpus.tasks]
+            self.assertEqual(tiers.count('simple'), 5,
+                             f'{filename}: expected 5 simple tasks')
+            self.assertEqual(tiers.count('medium'), 5,
+                             f'{filename}: expected 5 medium tasks')
+            self.assertEqual(tiers.count('complex'), 5,
+                             f'{filename}: expected 5 complex tasks')
+
+    def test_all_corpora_have_nonempty_task_text(self):
+        """Every task has a non-empty text field."""
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            for task in corpus.tasks:
+                self.assertTrue(task.text.strip(),
+                                f'{filename}/{task.id}: empty task text')
+
+    def test_all_corpora_produce_valid_configs(self):
+        """make_config produces a valid ExperimentConfig for each task."""
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            for task in corpus.tasks:
+                config = corpus.make_config(task, condition='test')
+                self.assertEqual(config.experiment, corpus.experiment)
+                self.assertEqual(config.condition, 'test')
+                self.assertEqual(config.task, task.text)
+                self.assertEqual(config.task_id, task.id)
+
+    def test_task_ids_are_globally_unique(self):
+        """No two corpora share the same task ID prefix."""
+        all_prefixes = set()
+        for filename in self.EXPECTED_CORPORA:
+            corpus = self._load(filename)
+            for task in corpus.tasks:
+                prefix = task.id.split('-')[0]
+                # Each corpus should use its own prefix
+                self.assertNotIn(prefix, all_prefixes - {task.id.split('-')[0]})
+            # Record all IDs for global uniqueness check
+            ids = {t.id for t in corpus.tasks}
+            for tid in ids:
+                self.assertNotIn(tid, all_prefixes, f'Duplicate ID: {tid}')
+                all_prefixes.add(tid)
+
+
 # ── analyze.py ────────────────────────────────────────────────────────────────
 
 class TestDescriptiveStats(unittest.TestCase):

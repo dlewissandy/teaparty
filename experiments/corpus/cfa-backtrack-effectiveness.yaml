@@ -1,0 +1,92 @@
+# CfA Backtrack Effectiveness Task Corpus
+#
+# Tests whether the CfA backtrack mechanism (returning to a previous phase
+# when quality gates fail) improves final output quality compared to
+# forward-only execution.
+#
+# Conditions:
+#   backtrack:     Normal CfA with backtracks enabled (treatment)
+#   forward-only:  CfA with backtracks suppressed (control)
+#
+# Tasks are designed to trigger backtracks in the treatment condition:
+# ambiguous requirements, under-specified plans, missing error handling.
+# The forward-only condition must proceed despite quality gate failures.
+
+experiment: cfa-backtrack-effectiveness
+
+default_condition: backtrack
+default_input_mode: pattern
+default_approval_rates:
+  INTENT_ASSERT: 0.90
+  PLAN_ASSERT: 0.70
+  WORK_ASSERT: 0.75
+default_approval_seed: 42
+default_correction_feedback: "The requirements are ambiguous — please clarify edge cases"
+default_rate: 0.75
+
+tasks:
+  # ── Simple tier ──
+  # Even simple tasks can trigger backtracks if requirements are vague
+  - id: cb-001
+    text: "Add input validation to the user registration endpoint"
+    tier: simple
+
+  - id: cb-002
+    text: "Create a function to parse and normalize phone numbers"
+    tier: simple
+
+  - id: cb-003
+    text: "Add error responses with appropriate HTTP status codes to all endpoints"
+    tier: simple
+
+  - id: cb-004
+    text: "Implement a simple cache with TTL expiration for frequently accessed data"
+    tier: simple
+
+  - id: cb-005
+    text: "Add request ID tracking through the middleware stack"
+    tier: simple
+
+  # ── Medium tier ──
+  # Medium tasks are more likely to need plan revision
+  - id: cb-006
+    text: "Implement a file upload system with type validation and size limits"
+    tier: medium
+
+  - id: cb-007
+    text: "Create a search endpoint with filtering, sorting, and fuzzy matching"
+    tier: medium
+
+  - id: cb-008
+    text: "Add database migration support with rollback capability"
+    tier: medium
+
+  - id: cb-009
+    text: "Implement graceful shutdown with in-flight request draining"
+    tier: medium
+
+  - id: cb-010
+    text: "Create an API versioning system that supports multiple active versions"
+    tier: medium
+
+  # ── Complex tier ──
+  # Complex tasks almost always require plan iteration
+  - id: cb-011
+    text: "Build a multi-tenant data isolation layer with per-tenant configuration"
+    tier: complex
+
+  - id: cb-012
+    text: "Implement an event sourcing system for order state management"
+    tier: complex
+
+  - id: cb-013
+    text: "Create a distributed locking mechanism for concurrent resource access"
+    tier: complex
+
+  - id: cb-014
+    text: "Build a plugin system with dynamic loading, dependency resolution, and lifecycle hooks"
+    tier: complex
+
+  - id: cb-015
+    text: "Implement a circuit breaker pattern with half-open state and per-service thresholds"
+    tier: complex
