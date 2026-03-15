@@ -237,7 +237,18 @@ async def dispatch(
     except FileNotFoundError:
         pass
 
-    # Return JSON status
+    # Build deliverables summary from changed files in the worktree
+    deliverables = ''
+    try:
+        changed = await git_output(
+            session_worktree, 'diff', '--name-only', 'HEAD~1', 'HEAD',
+        )
+        if changed.strip():
+            deliverables = changed.strip()
+    except Exception:
+        pass
+
+    # Return JSON status with deliverables summary and escalation context
     status = 'completed' if result and result.terminal_state == 'COMPLETED_WORK' else 'failed'
     escalation_type = result.escalation_type if result else ''
     exit_reason = 'completed' if status == 'completed' else (
@@ -250,6 +261,8 @@ async def dispatch(
         'task': task,
         'terminal_state': result.terminal_state if result else 'unknown',
         'backtrack_count': result.backtrack_count if result else 0,
+        'deliverables': deliverables,
+        'escalation_type': escalation_type,
     }
 
 
