@@ -169,8 +169,9 @@ async def run_proxy_agent(
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
 
-    # Upstream context — INTENT.md for PLAN_ASSERT, both for WORK_ASSERT
-    if state in ('PLAN_ASSERT', 'WORK_ASSERT'):
+    # Upstream context — INTENT.md for PLAN_ASSERT and TASK_ASSERT,
+    # INTENT.md + PLAN.md for WORK_ASSERT and TASK_ASSERT.
+    if state in ('PLAN_ASSERT', 'WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
         for name in ('INTENT.md',):
             for search_dir in (infra_dir, session_worktree):
                 if not search_dir:
@@ -179,7 +180,7 @@ async def run_proxy_agent(
                 if os.path.isfile(path):
                     context_parts.append(f'Upstream context: {path}')
                     break
-    if state == 'WORK_ASSERT':
+    if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
         for name in ('PLAN.md', '.work-summary.md'):
             for search_dir in (infra_dir, session_worktree):
                 if not search_dir:
