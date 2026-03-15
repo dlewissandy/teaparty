@@ -72,6 +72,8 @@ Concern vocabulary covers 8 categories: error_handling, rollback, security, idem
 
 ## Gaps Against Conceptual Design
 
+**Alignment validation framing.** The bridge prompts currently summarize the artifact from the agent's perspective ("I've drafted a plan...") rather than asking the proxy/human to validate alignment. The conceptual design describes each gate as an alignment validation question: "Do you recognize this as your idea?" at INTENT_ASSERT, "Do you recognize this as a strategic plan to operationalize your idea?" at PLAN_ASSERT, "Do you recognize the deliverables as your idea, well implemented?" at WORK_ASSERT. The prompts should also inject the upstream artifacts as context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT) so the proxy can compare across the full chain. Issue [#102](https://github.com/dlewissandy/teaparty/issues/102) tracks this.
+
 **Intake dialog.** The proxy runs only at assertion states *after* artifacts are produced. The conceptual design describes an intake calibration loop *before* artifact production — predicting, comparing, learning from the delta. Issue [#125](https://github.com/dlewissandy/teaparty/issues/125) tracks this.
 
 **Retrieval-backed prediction.** `generate_response` constructs predictions from locally stored differentials and question patterns. The conceptual design describes prediction through scoped retrieval from the learning system. Depends on the learning pipeline (issues [#73–#80](https://github.com/dlewissandy/teaparty/issues/73), [#115](https://github.com/dlewissandy/teaparty/issues/115)).
