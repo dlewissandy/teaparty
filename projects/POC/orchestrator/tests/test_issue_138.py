@@ -55,8 +55,6 @@ def _make_phase_spec() -> PhaseSpec:
         stream_file='.intent-stream.jsonl',
         artifact='INTENT.md',
         approval_state='INTENT_ASSERT',
-        escalation_state='INTENT_ESCALATE',
-        escalation_file='.intent-escalation.md',
         settings_overlay={},
     )
 
@@ -178,63 +176,10 @@ class TestDifferentialStoresPrediction(unittest.TestCase):
                          "Differential must store the proxy's predicted response text")
 
 
-# ── Integration: escalation flow stores prediction in differential ────────────
 
-class TestEscalationFlowStoresPrediction(unittest.TestCase):
-    """When proxy falls through to human on escalation, the predicted response
-    text (not just 'escalate') must be recorded in the learning system."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self._input_calls = []
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def _make_gate(self, human_response: str = 'Use PostgreSQL') -> ApprovalGate:
-        async def _input_provider(req):
-            self._input_calls.append(req)
-            return human_response
-
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-
-    def test_escalation_records_predicted_text_not_just_label(self):
-        """When proxy generates a low-confidence prediction and falls through
-        to the human, _proxy_record must include the predicted response text."""
-        gate = self._make_gate(human_response='Use PostgreSQL')
-        ctx = _make_ctx(self.tmpdir, state='INTENT_ESCALATE')
-
-        # Write escalation file
-        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
-        Path(esc_path).write_text('What database should I use?')
-        ctx.data = {'escalation_file': esc_path}
-        ctx.env_vars = {'POC_PROJECT': 'default', 'POC_TEAM': ''}
-
-        predicted_text = 'Use MySQL based on past patterns'
-        low_confidence_gen = GenerativeResponse(
-            action='clarify', text=predicted_text, confidence=0.3,
-        )
-
-        with patch('projects.POC.orchestrator.actors.generate_response', return_value=low_confidence_gen), \
-             patch('projects.POC.orchestrator.actors.load_model', return_value=_make_empty_model()), \
-             patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b), \
-             patch.object(gate, '_classify_review', return_value=('clarify', 'Use PostgreSQL')), \
-             patch.object(gate, '_proxy_record') as mock_record:
-            _run(gate.run(ctx))
-
-        # Verify _proxy_record was called with the predicted response text
-        mock_record.assert_called_once()
-        call_kwargs = mock_record.call_args
-        args, kwargs = call_kwargs
-        # predicted_response kwarg must contain the proxy's predicted text
-        predicted_value = kwargs.get('predicted_response', '')
-        self.assertEqual(predicted_value, predicted_text,
-                         "predicted_response must contain the proxy's predicted text")
+# TestEscalationFlowStoresPrediction removed — file-based escalation flow
+# replaced by AskQuestion MCP tool. Differential recording is now tested
+# in test_mcp_ask_question.py.
 
 
 if __name__ == '__main__':
