@@ -3,13 +3,16 @@
 Every time the system needs the human's input — whether it's an approval gate,
 an agent escalation, or a clarifying question — it goes through the same path:
 
-  1. Statistical pre-filters (cold start, staleness, low confidence, exploration)
-  2. If stats say escalate → skip agent, go straight to human
-  3. If stats pass → invoke the proxy agent (Claude CLI with tools)
-  4. Agent generates text + confidence
+  1. Gather context: learned patterns, similar past interactions
+  2. Invoke the proxy agent (Claude CLI with tools)
+  3. Agent generates text + self-assessed confidence
+  4. Statistical calibration adjusts confidence based on historical accuracy
   5. If confident → agent's text IS the answer
   6. If not confident → same question goes to the human
   7. Both predicted text and actual text feed into learning
+
+The proxy agent always runs.  Statistics never gate whether the agent is
+consulted — they calibrate confidence after the agent has spoken.
 
 The proxy agent has file-read tools, receives learned behavioral patterns and
 past interaction history, and can engage in multi-turn dialog with the requester
@@ -60,9 +63,9 @@ async def consult_proxy(
 ) -> ProxyResult:
     """Consult the proxy agent.  The ONE entry point for all proxy decisions.
 
-    Runs the statistical pre-filters first.  If they pass, invokes the proxy
-    agent (Claude CLI with tools).  Returns a ProxyResult with the agent's
-    text and confidence.
+    Always invokes the proxy agent.  After the agent responds, uses
+    statistical history to calibrate the agent's self-assessed confidence.
+    Returns a ProxyResult with the agent's text and calibrated confidence.
 
     The caller decides what to do based on confidence:
     - confidence >= threshold → use the text
@@ -73,11 +76,13 @@ async def consult_proxy(
         return ProxyResult(text='', confidence=0.0, from_agent=False)
 
     from projects.POC.scripts.approval_gate import (
-        ProxyDecision,
+        COLD_START_THRESHOLD,
         load_model,
         resolve_team_model_path,
         retrieve_similar_interactions,
-        should_escalate,
+        compute_confidence_components,
+        _entry_key,
+        _make_entry,
     )
     from projects.POC.orchestrator.actors import MIN_EXECUTION_SECONDS
 
@@ -92,14 +97,15 @@ async def consult_proxy(
             )
             return ProxyResult(text='', confidence=0.0, from_agent=False)
 
+    # Gather learning context (patterns, similar interactions) for the agent.
+    learned_patterns = ''
+    similar: list = []
     try:
         model_path = resolve_team_model_path(proxy_model_path, team)
-        model = load_model(model_path)
+        project_dir = os.path.dirname(model_path)
 
         # Tier 1: read flat behavioral patterns
-        project_dir = os.path.dirname(model_path)
         patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
-        learned_patterns = ''
         if os.path.isfile(patterns_path):
             try:
                 with open(patterns_path) as _f:
@@ -112,19 +118,12 @@ async def consult_proxy(
         similar = retrieve_similar_interactions(
             log_path=log_path, state=state, project=project_slug, top_k=5,
         )
+    except Exception:
+        _log.debug('Failed to load learning context', exc_info=True)
 
-        stats_decision = should_escalate(
-            model, state, project_slug, artifact_path,
-            similar_interactions=similar,
-            tier1_patterns=learned_patterns,
-        )
-
-        # If the statistical model says escalate, respect it — no agent needed.
-        if stats_decision.action != 'auto-approve':
-            return ProxyResult(text='', confidence=0.0, from_agent=False)
-
-        # Stats passed — invoke the proxy agent.
-        text, confidence = await run_proxy_agent(
+    # Always invoke the proxy agent.
+    try:
+        text, agent_confidence = await run_proxy_agent(
             question=question,
             state=state,
             artifact_path=artifact_path,
@@ -134,12 +133,84 @@ async def consult_proxy(
             similar_interactions=similar,
             dialog_history=dialog_history,
         )
-
-        return ProxyResult(text=text, confidence=confidence, from_agent=True)
-
     except Exception:
-        _log.debug('Exception in proxy consultation', exc_info=True)
+        _log.debug('Exception invoking proxy agent', exc_info=True)
         return ProxyResult(text='', confidence=0.0, from_agent=False)
+
+    if not text:
+        return ProxyResult(text='', confidence=0.0, from_agent=True)
+
+    # Statistical calibration: adjust the agent's self-assessed confidence
+    # based on historical accuracy at this gate.  The agent always speaks;
+    # statistics only modulate how much the caller trusts the response.
+    confidence = _calibrate_confidence(
+        agent_confidence, state, project_slug, proxy_model_path, team,
+    )
+
+    return ProxyResult(text=text, confidence=confidence, from_agent=True)
+
+
+def _calibrate_confidence(
+    agent_confidence: float,
+    state: str,
+    project_slug: str,
+    proxy_model_path: str,
+    team: str,
+) -> float:
+    """Adjust agent confidence using statistical history.
+
+    The agent's self-assessed confidence is the starting point.  Historical
+    data can only reduce it — never inflate it above what the agent claimed.
+
+    - Cold start (< COLD_START_THRESHOLD samples): cap at 0.5 so the caller
+      knows there's no track record yet.
+    - With history: take the minimum of the agent's confidence and the
+      statistical confidence (Laplace/EMA).  If the model has been wrong
+      before at this gate, the calibrated score reflects that.
+    """
+    from projects.POC.scripts.approval_gate import (
+        COLD_START_THRESHOLD,
+        ConfidenceEntry,
+        compute_confidence_components,
+        load_model,
+        resolve_team_model_path,
+        _entry_key,
+        _make_entry,
+    )
+
+    try:
+        model_path = resolve_team_model_path(proxy_model_path, team)
+        model = load_model(model_path)
+    except Exception:
+        # No model at all — cap at cold-start level.
+        return min(agent_confidence, 0.5)
+
+    key = _entry_key(state, project_slug)
+    raw = model.entries.get(key)
+
+    if raw is None:
+        entry = _make_entry(state, project_slug)
+    elif isinstance(raw, dict):
+        # Backward compat
+        for field, default in [
+            ('differentials', []), ('ema_approval_rate', 0.5),
+            ('artifact_lengths', []), ('question_patterns', []),
+            ('prediction_correct_count', 0), ('prediction_total_count', 0),
+        ]:
+            if field not in raw:
+                raw[field] = default
+        entry = ConfidenceEntry(**raw)
+    else:
+        entry = raw
+
+    # Cold start — not enough history to trust the agent's self-assessment.
+    if entry.total_count < COLD_START_THRESHOLD:
+        return min(agent_confidence, 0.5)
+
+    # Enough history — use statistical confidence as a ceiling.
+    laplace, ema = compute_confidence_components(entry)
+    stats_confidence = min(laplace, ema)
+    return min(agent_confidence, stats_confidence)
 
 
 async def run_proxy_agent(

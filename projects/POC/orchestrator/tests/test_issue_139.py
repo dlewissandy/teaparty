@@ -5,14 +5,15 @@ There is ONE proxy invocation path (proxy_agent.consult_proxy) used by both
 ApprovalGate and EscalationListener.  Every time the system needs the human's
 input, it goes through the same flow:
 
-  1. Statistical pre-filters (cold start, staleness, low confidence, exploration)
-  2. If stats pass → invoke proxy agent (Claude CLI with file-read tools)
-  3. Agent generates text + confidence
-  4. If confident → agent's text IS the answer
-  5. If not confident → same question goes to human
-  6. Both feed into learning
+  1. Gather context: learned patterns, similar past interactions
+  2. Invoke the proxy agent (Claude CLI with file-read tools) — always
+  3. Agent generates text + self-assessed confidence
+  4. Statistical calibration adjusts confidence based on historical accuracy
+  5. If confident → agent's text IS the answer
+  6. If not confident → same question goes to human
+  7. Both feed into learning
 
-The proxy agent can engage in multi-turn dialog before deciding.
+The proxy agent always runs.  Statistics never gate it.
 """
 import asyncio
 import json
@@ -316,8 +317,8 @@ class TestProxyAgentDialog(unittest.TestCase):
 
 # ── consult_proxy internals ─────────────────────────────────────────────────
 
-class TestConsultProxyPreFilters(unittest.TestCase):
-    """Statistical pre-filters gate agent invocation."""
+class TestAgentAlwaysInvoked(unittest.TestCase):
+    """The proxy agent is always invoked.  Statistics never gate it."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -325,32 +326,147 @@ class TestConsultProxyPreFilters(unittest.TestCase):
     def tearDown(self):
         import shutil; shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_cold_start_returns_no_agent(self):
-        """On cold start, consult_proxy returns from_agent=False."""
+    def _make_model_file(self, model_json=None):
         model_path = os.path.join(self.tmpdir, '.proxy.json')
+        data = model_json or {'entries': {}, 'global_threshold': 0.8, 'generative_threshold': 0.95}
         with open(model_path, 'w') as f:
-            json.dump({'entries': {}, 'global_threshold': 0.8, 'generative_threshold': 0.95}, f)
+            json.dump(data, f)
+        return model_path
 
-        result = _run(consult_proxy(
-            question='Do you approve?', state='INTENT_ASSERT',
-            proxy_model_path=model_path,
-        ))
-        self.assertFalse(result.from_agent)
-        self.assertEqual(result.confidence, 0.0)
+    def test_agent_invoked_on_cold_start(self):
+        """Cold start (no history) — agent still runs."""
+        model_path = self._make_model_file()  # empty entries = cold start
+        mock_agent = AsyncMock(return_value=('Looks good to me.', 0.9))
 
-    def test_stale_model_returns_no_agent(self):
-        """Stale model → from_agent=False."""
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        mock_agent.assert_called_once()
+        self.assertTrue(result.from_agent)
+        self.assertEqual(result.text, 'Looks good to me.')
+
+    def test_agent_invoked_with_no_model_file(self):
+        """No model file at all — agent still runs."""
+        model_path = os.path.join(self.tmpdir, 'nonexistent.json')
+        mock_agent = AsyncMock(return_value=('Approved.', 0.85))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='PLAN_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        mock_agent.assert_called_once()
+        self.assertTrue(result.from_agent)
+        self.assertEqual(result.text, 'Approved.')
+
+    def test_agent_invoked_with_low_stats_confidence(self):
+        """Stats confidence below threshold — agent still runs."""
+        # Model with high correction rate → stats would have said "escalate"
         model = _make_warm_model_json()
-        model['entries']['INTENT_ASSERT|default']['last_updated'] = '2020-01-01'
-        model_path = os.path.join(self.tmpdir, '.proxy.json')
-        with open(model_path, 'w') as f:
-            json.dump(model, f)
+        entry = model['entries']['INTENT_ASSERT|default']
+        entry['approve_count'] = 2
+        entry['correct_count'] = 7
+        entry['reject_count'] = 1
+        entry['total_count'] = 10
+        entry['ema_approval_rate'] = 0.2
+        model_path = self._make_model_file(model)
 
-        result = _run(consult_proxy(
-            question='Do you approve?', state='INTENT_ASSERT',
-            proxy_model_path=model_path,
-        ))
-        self.assertFalse(result.from_agent)
+        mock_agent = AsyncMock(return_value=('I have concerns about section 3.', 0.7))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        mock_agent.assert_called_once()
+        self.assertTrue(result.from_agent)
+        self.assertEqual(result.text, 'I have concerns about section 3.')
+
+
+class TestStatisticalCalibration(unittest.TestCase):
+    """Statistics calibrate confidence after the agent responds."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil; shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_model_file(self, model_json=None):
+        model_path = os.path.join(self.tmpdir, '.proxy.json')
+        data = model_json or {'entries': {}, 'global_threshold': 0.8, 'generative_threshold': 0.95}
+        with open(model_path, 'w') as f:
+            json.dump(data, f)
+        return model_path
+
+    def test_cold_start_caps_at_half(self):
+        """Cold start caps confidence at 0.5 regardless of agent self-assessment."""
+        model_path = self._make_model_file()  # empty = cold start
+        mock_agent = AsyncMock(return_value=('Approved.', 0.95))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        self.assertLessEqual(result.confidence, 0.5)
+
+    def test_warm_model_high_approval_preserves_confidence(self):
+        """Warm model with high approval rate preserves agent confidence."""
+        model = _make_warm_model_json()  # 10/10 approvals
+        model_path = self._make_model_file(model)
+        mock_agent = AsyncMock(return_value=('Approved.', 0.85))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        # Stats confidence is high (10/10 approvals), so agent's 0.85 should survive
+        self.assertGreater(result.confidence, 0.8)
+
+    def test_warm_model_low_approval_reduces_confidence(self):
+        """Warm model with low approval rate reduces agent confidence."""
+        model = _make_warm_model_json()
+        entry = model['entries']['INTENT_ASSERT|default']
+        entry['approve_count'] = 2
+        entry['correct_count'] = 7
+        entry['reject_count'] = 1
+        entry['total_count'] = 10
+        entry['ema_approval_rate'] = 0.2
+        model_path = self._make_model_file(model)
+        mock_agent = AsyncMock(return_value=('Approved.', 0.9))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        # Stats show mostly corrections → confidence should be well below agent's 0.9
+        self.assertLess(result.confidence, 0.5)
+
+    def test_calibration_never_inflates(self):
+        """Calibration can only reduce confidence, never inflate it."""
+        model = _make_warm_model_json()  # 10/10 approvals → high stats confidence
+        model_path = self._make_model_file(model)
+        mock_agent = AsyncMock(return_value=('Looks okay I guess.', 0.3))
+
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+            result = _run(consult_proxy(
+                question='Do you approve?', state='INTENT_ASSERT',
+                proxy_model_path=model_path,
+            ))
+
+        # Agent said 0.3 — stats are high but should not inflate above 0.3
+        self.assertLessEqual(result.confidence, 0.3)
 
 
 # ── parse_proxy_agent_output ────────────────────────────────────────────────
