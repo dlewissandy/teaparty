@@ -751,7 +751,30 @@ class ApprovalGate:
         try:
             model_path = resolve_team_model_path(self.proxy_model_path, team)
             model = load_model(model_path)
-            return should_escalate(model, state, project_slug, artifact_path)
+
+            # Tier 1: read flat behavioral patterns (#11)
+            project_dir = os.path.dirname(model_path)
+            patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
+            tier1_patterns = ''
+            if os.path.isfile(patterns_path):
+                try:
+                    with open(patterns_path) as _f:
+                        tier1_patterns = _f.read()
+                except OSError:
+                    pass
+
+            # Tier 2: retrieve similar past interactions for richer context (#11)
+            from projects.POC.scripts.approval_gate import retrieve_similar_interactions
+            log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
+            similar = retrieve_similar_interactions(
+                log_path=log_path, state=state, project=project_slug, top_k=5,
+            )
+
+            return should_escalate(
+                model, state, project_slug, artifact_path,
+                similar_interactions=similar,
+                tier1_patterns=tier1_patterns,
+            )
         except Exception:
             return ProxyDecision(
                 action='escalate',

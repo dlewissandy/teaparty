@@ -175,6 +175,7 @@ class Orchestrator:
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.backtrack_to == 'intent':
+                    self._mark_false_positives('planning backtracked to intent')
                     if self.suppress_backtracks:
                         _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
                     else:
@@ -204,12 +205,14 @@ class Orchestrator:
             if result.terminal:
                 return self._make_result(result.terminal_state)
             if result.backtrack_to == 'intent':
+                self._mark_false_positives('execution backtracked to intent')
                 if self.suppress_backtracks:
                     _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
                 else:
                     self.skip_intent = False
                     continue
             if result.backtrack_to == 'planning':
+                self._mark_false_positives('execution backtracked to planning')
                 if self.suppress_backtracks:
                     _log.info('Suppressing backtrack to planning (suppress_backtracks=True)')
                 else:
@@ -652,6 +655,27 @@ class Orchestrator:
         if 'withdraw' in r:
             return 'withdraw'
         return 'retry'
+
+    def _mark_false_positives(self, reason: str) -> None:
+        """Mark prior auto-approvals as false positives on backtrack (#11)."""
+        try:
+            from projects.POC.scripts.approval_gate import mark_false_positive_approvals
+            log_path = os.path.join(
+                os.path.dirname(self.proxy_model_path),
+                '.proxy-interactions.jsonl',
+            )
+            count = mark_false_positive_approvals(
+                log_path=log_path,
+                session_id=self.session_id,
+                reason=reason,
+            )
+            if count > 0:
+                _log.info(
+                    'Marked %d prior auto-approvals as false positives: %s',
+                    count, reason,
+                )
+        except Exception:
+            pass
 
     def _build_env_vars(self) -> dict[str, str]:
         return {

@@ -488,6 +488,8 @@ def should_escalate(
     state: str,
     task_type: str,
     artifact_path: str = '',
+    similar_interactions: list[dict] | None = None,
+    tier1_patterns: str = '',
 ) -> ProxyDecision:
     """Decide whether to auto-approve or escalate to the human.
 
@@ -495,6 +497,13 @@ def should_escalate(
     1. Cold start (< COLD_START_THRESHOLD samples) — always escalate.
     2. Choose threshold based on whether the state is generative or binary.
     3. If confidence >= threshold → auto-approve; otherwise → escalate.
+
+    similar_interactions: tier 2 retrieval results — past interactions at the
+    same state, used to check for recurring correction patterns that the
+    statistical model might not capture (#11).
+
+    tier1_patterns: flat behavioral patterns from proxy-patterns.md —
+    distilled correction patterns that are checked against the artifact (#11).
     """
     key = _entry_key(state, task_type)
     raw = model.entries.get(key)
@@ -569,6 +578,58 @@ def should_escalate(
                     confidence_laplace=laplace,
                     confidence_ema=ema,
                 )
+
+    # Tier 1: check flat behavioral patterns from proxy-patterns.md.
+    # If the patterns file contains correction patterns for this state and
+    # the artifact text doesn't address them, escalate (#11).
+    if tier1_patterns and artifact_path:
+        artifact_text_for_patterns = _read_artifact(artifact_path) or ''
+        # Extract patterns for the current state
+        state_patterns = _extract_state_patterns(tier1_patterns, state)
+        if state_patterns and artifact_text_for_patterns:
+            # Check if any known correction pattern keywords are missing
+            missing = []
+            for pattern in state_patterns:
+                # Each pattern is a correction the human made before
+                # Check if key terms from the pattern appear in the artifact
+                pattern_words = set(re.findall(r'[a-z]{4,}', pattern.lower()))
+                artifact_lower = artifact_text_for_patterns.lower()
+                covered = sum(1 for w in pattern_words if w in artifact_lower)
+                if pattern_words and covered / len(pattern_words) < 0.3:
+                    missing.append(pattern)
+            if missing:
+                return ProxyDecision(
+                    action='escalate',
+                    confidence=confidence,
+                    reasoning=(
+                        f"Tier 1 pattern match: artifact may not address known "
+                        f"correction patterns:\n"
+                        + '\n'.join(f'  - {p}' for p in missing[:3])
+                    ),
+                    predicted_response="human review required (tier 1 pattern)",
+                    confidence_laplace=laplace,
+                    confidence_ema=ema,
+                )
+
+    # Tier 2: check similar past interactions for recurring correction patterns.
+    # If recent interactions at this state show a high correction rate,
+    # escalate even if the statistical model says to auto-approve (#11).
+    if similar_interactions:
+        recent = similar_interactions[-5:]  # last 5 similar interactions
+        corrections = sum(1 for i in recent if i.get('outcome') in ('correct', 'reject'))
+        if len(recent) >= 3 and corrections / len(recent) > 0.5:
+            return ProxyDecision(
+                action='escalate',
+                confidence=confidence,
+                reasoning=(
+                    f"Tier 2 retrieval: {corrections}/{len(recent)} recent similar "
+                    f"interactions at {state} resulted in corrections. "
+                    f"Pattern suggests human review is needed."
+                ),
+                predicted_response="human review required (tier 2 pattern)",
+                confidence_laplace=laplace,
+                confidence_ema=ema,
+            )
 
     threshold = (
         model.generative_threshold
@@ -920,6 +981,19 @@ def mark_false_positive_approvals(
 DRIFT_ACCURACY_THRESHOLD = 0.5   # below this, proxy is guessing — escalate more
 DRIFT_MIN_PREDICTIONS = 10       # need at least this many predictions before drift kicks in
 DRIFT_ESCALATION_BOOST = 0.5     # additional escalation probability when drifting
+
+
+def _extract_state_patterns(patterns_text: str, state: str) -> list[str]:
+    """Extract correction patterns for a specific CfA state from proxy-patterns.md."""
+    patterns = []
+    in_state = False
+    for line in patterns_text.split('\n'):
+        if line.startswith('## '):
+            in_state = state in line
+            continue
+        if in_state and line.startswith('- '):
+            patterns.append(line[2:].strip())
+    return patterns
 
 
 def _check_prediction_drift(entry) -> bool:
