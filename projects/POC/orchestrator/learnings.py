@@ -133,6 +133,7 @@ async def extract_learnings(
 
     await _run_scope(
         'skill-archive', _archive_skill_candidate,
+        infra_dir=infra_dir,
         session_worktree=session_worktree,
         project_dir=project_dir,
         task=task,
@@ -438,7 +439,8 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
 
 def _archive_skill_candidate(
     *,
-    session_worktree: str,
+    infra_dir: str = '',
+    session_worktree: str = '',
     project_dir: str,
     task: str,
     session_id: str,
@@ -446,6 +448,7 @@ def _archive_skill_candidate(
     """Archive the session's PLAN.md as a skill candidate for procedural learning."""
     from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
     archive_skill_candidate(
+        infra_dir=infra_dir,
         session_worktree=session_worktree,
         project_dir=project_dir,
         task=task,

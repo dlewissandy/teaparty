@@ -178,14 +178,14 @@ def _make_actor_result(action='approve'):
 
 
 class TestEngineCommitOnIntentAssert(unittest.TestCase):
-    """Engine auto-commits INTENT.md when transitioning to INTENT_ASSERT."""
+    """Engine no longer commits INTENT.md to worktree (lives in infra_dir, Issue #147)."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_intent_committed_on_assert(self):
-        """When agent asserts intent (PROPOSAL → INTENT_ASSERT),
-        INTENT.md is committed to the session worktree."""
+        """INTENT.md now lives in infra_dir, not the session worktree.
+        No git commit for INTENT.md should appear in the worktree log."""
         # Start at PROPOSAL so assert → INTENT_ASSERT
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')  # → PROPOSAL
@@ -197,19 +197,18 @@ class TestEngineCommitOnIntentAssert(unittest.TestCase):
 
         self.assertEqual(orch.cfa.state, 'INTENT_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'INTENT.md')
-        self.assertEqual(len(log), 1)
-        self.assertIn('Intent v1: assert', log[0])
+        self.assertEqual(len(log), 0)
 
 
 class TestEngineCommitOnPlanAssert(unittest.TestCase):
-    """Engine auto-commits PLAN.md when transitioning to PLAN_ASSERT."""
+    """Engine no longer commits PLAN.md to worktree (lives in infra_dir, Issue #147)."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_plan_committed_on_assert(self):
-        """When agent asserts plan (DRAFT → PLAN_ASSERT),
-        PLAN.md is committed to the session worktree."""
+        """PLAN.md now lives in infra_dir, not the session worktree.
+        No git commit for PLAN.md should appear in the worktree log."""
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')       # → PROPOSAL
         cfa = transition(cfa, 'auto-approve')   # → INTENT
@@ -222,8 +221,7 @@ class TestEngineCommitOnPlanAssert(unittest.TestCase):
 
         self.assertEqual(orch.cfa.state, 'PLAN_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'PLAN.md')
-        self.assertEqual(len(log), 1)
-        self.assertIn('Plan v1: assert', log[0])
+        self.assertEqual(len(log), 0)
 
 
 class TestEngineCommitOnTaskAssert(unittest.TestCase):
@@ -277,13 +275,14 @@ class TestEngineCommitFailureNonFatal(unittest.TestCase):
 
 
 class TestEngineVersionIncrementsOnCorrection(unittest.TestCase):
-    """Version numbers increment through the correction cycle."""
+    """INTENT.md lives in infra_dir (Issue #147); no worktree commits happen for it."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_intent_version_increments_on_correction(self):
-        """After correct → synthesize → re-assert, intent version is 2."""
+        """INTENT.md is no longer committed to the worktree on assert transitions.
+        After two assert cycles the worktree git log for INTENT.md remains empty."""
         # First assertion: PROPOSAL → INTENT_ASSERT
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')  # → PROPOSAL
@@ -301,10 +300,9 @@ class TestEngineVersionIncrementsOnCorrection(unittest.TestCase):
         Path(orch.session_worktree, 'INTENT.md').write_text('v2 intent (corrected)\n')
         _run(orch._transition('assert', _make_actor_result(action='assert')))
 
+        self.assertEqual(orch.cfa.state, 'INTENT_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'INTENT.md')
-        self.assertEqual(len(log), 2)
-        self.assertIn('Intent v2: assert', log[0])
-        self.assertIn('Intent v1: assert', log[1])
+        self.assertEqual(len(log), 0)
 
 
 if __name__ == '__main__':

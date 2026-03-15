@@ -135,11 +135,12 @@ class Session:
         infra_dir = self.session_info['infra_dir']
         worktree_path = self.session_info['worktree_path']
 
-        # 4b. Copy pre-written artifacts into worktree (context injection)
+        # 4b. Copy pre-written artifacts into infra_dir (Issue #147).
+        # Session artifacts live in the session folder, not the worktree.
         if self.intent_file:
-            shutil.copy2(self.intent_file, os.path.join(worktree_path, 'INTENT.md'))
+            shutil.copy2(self.intent_file, os.path.join(infra_dir, 'INTENT.md'))
         if self.plan_file:
-            shutil.copy2(self.plan_file, os.path.join(worktree_path, 'PLAN.md'))
+            shutil.copy2(self.plan_file, os.path.join(infra_dir, 'PLAN.md'))
 
         # Persist the full prompt so it's never lost to truncation
         with open(os.path.join(infra_dir, 'PROMPT.txt'), 'w') as f:

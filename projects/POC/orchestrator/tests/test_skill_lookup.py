@@ -205,7 +205,7 @@ class TestLookupSkill(unittest.TestCase):
 class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
     """Engine routes between System 1 (skill) and System 2 (cold-start planning)."""
 
-    def _make_orchestrator(self, worktree, project_dir):
+    def _make_orchestrator(self, worktree, project_dir, infra_dir=None):
         """Build an Orchestrator with mocked runners for routing tests."""
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
@@ -213,6 +213,9 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         from projects.POC.orchestrator.events import EventBus
         from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
         from projects.POC.scripts.cfa_state import CfaState
+
+        if infra_dir is None:
+            infra_dir = '/tmp/infra'
 
         cfg = MagicMock(spec=PhaseConfig)
         cfg.stall_timeout = 1800
@@ -230,7 +233,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
             phase_config=cfg,
             event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
             input_provider=AsyncMock(),
-            infra_dir='/tmp/infra',
+            infra_dir=infra_dir,
             project_workdir=project_dir,
             session_worktree=worktree,
             proxy_model_path='/tmp/proxy.json',
@@ -242,11 +245,12 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         return orch
 
     def test_skill_match_writes_plan_md(self):
-        """When a skill matches, its template is written as PLAN.md."""
+        """When a skill matches, its template is written as PLAN.md in infra_dir."""
         with tempfile.TemporaryDirectory() as worktree, \
-             tempfile.TemporaryDirectory() as project_dir:
-            # Write INTENT.md
-            with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
+             tempfile.TemporaryDirectory() as project_dir, \
+             tempfile.TemporaryDirectory() as infra_dir:
+            # Write INTENT.md to infra_dir (Issue #147: artifacts live there)
+            with open(os.path.join(infra_dir, 'INTENT.md'), 'w') as f:
                 f.write('Research and write a paper surveying distributed consensus.')
 
             # Create skill library
@@ -260,11 +264,11 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
                     body='## Decomposition\n\n1. Survey\n2. Argue\n3. Draft',
                 ))
 
-            orch = self._make_orchestrator(worktree, project_dir)
+            orch = self._make_orchestrator(worktree, project_dir, infra_dir=infra_dir)
             result = asyncio.run(orch._try_skill_lookup())
 
             self.assertTrue(result)
-            plan_path = os.path.join(worktree, 'PLAN.md')
+            plan_path = os.path.join(infra_dir, 'PLAN.md')
             self.assertTrue(os.path.exists(plan_path))
             with open(plan_path) as f:
                 plan_content = f.read()
