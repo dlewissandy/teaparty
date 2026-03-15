@@ -45,7 +45,6 @@ def _make_event_bus() -> EventBus:
 
 def _make_phase_spec(
     artifact: str | None = 'INTENT.md',
-    escalation_file: str = '.intent-escalation.md',
 ) -> PhaseSpec:
     return PhaseSpec(
         name='intent',
@@ -55,8 +54,6 @@ def _make_phase_spec(
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
         approval_state='INTENT_ASSERT',
-        escalation_state='INTENT_ESCALATE',
-        escalation_file=escalation_file,
         settings_overlay={},
     )
 
@@ -172,20 +169,6 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertEqual(result.action, 'auto-approve')
         self.assertNotIn('artifact_missing', result.data)
 
-    def test_escalation_file_takes_priority_over_missing_artifact(self):
-        """If escalation file exists, escalate action wins before artifact check."""
-        spec = _make_phase_spec(artifact='INTENT.md', escalation_file='.intent-escalation.md')
-        ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
-
-        # Write escalation file but NOT artifact
-        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
-        Path(esc_path).write_text('Agent needs clarification')
-
-        result = self.runner._interpret_output(ctx, _make_claude_result())
-
-        self.assertEqual(result.action, 'escalate')
-        self.assertNotIn('artifact_missing', result.data)
-
 
 class TestInterpretOutputMissingArtifactPlanAssert(unittest.TestCase):
     """Verify the bug is fixed for PLAN_ASSERT state (planning phase)."""
@@ -208,8 +191,6 @@ class TestInterpretOutputMissingArtifactPlanAssert(unittest.TestCase):
             stream_file='.plan-stream.jsonl',
             artifact='PLAN.md',
             approval_state='PLAN_ASSERT',
-            escalation_state='PLANNING_ESCALATE',
-            escalation_file='.plan-escalation.md',
             settings_overlay={},
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
@@ -430,8 +411,6 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
             stream_file='.plan-stream.jsonl',
             artifact='PLAN.md',
             approval_state='PLAN_ASSERT',
-            escalation_state='PLANNING_ESCALATE',
-            escalation_file='.plan-escalation.md',
             settings_overlay={},
         )
 
@@ -732,8 +711,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', escalation_state='PLANNING_ESCALATE',
-            escalation_file='.plan-escalation.md', settings_overlay={},
+            approval_state='PLAN_ASSERT', settings_overlay={},
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
         runner = AgentRunner()
@@ -783,8 +761,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             name='planning', agent_file='agents/uber-team.json',
             lead='project-lead', permission_mode='plan',
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-            approval_state='PLAN_ASSERT', escalation_state='PLANNING_ESCALATE',
-            escalation_file='.plan-escalation.md', settings_overlay={},
+            approval_state='PLAN_ASSERT', settings_overlay={},
         )
         ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
 
@@ -799,85 +776,6 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
                 _relocate_plan_file(artifact_path, mock_result.start_time)
 
             mock_relocate.assert_not_called()
-    def _make_gate(self, human_response: str = 'clarify') -> ApprovalGate:
-        async def _input_provider(req):
-            self._input_calls.append(req)
-            return human_response
-
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-
-    def _make_escalation_ctx(self, state: str = 'INTENT_ESCALATE') -> ActorContext:
-        ctx = _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir)
-        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
-        Path(esc_path).write_text('What database should I use?')
-        ctx.data = {'escalation_file': esc_path}
-        ctx.env_vars = {'POC_PROJECT': 'default', 'POC_TEAM': 'coding'}
-        return ctx
-
-    @patch('projects.POC.orchestrator.actors.generate_response')
-    @patch('projects.POC.orchestrator.actors.load_model')
-    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
-    def test_confident_proxy_returns_generative_response(self, mock_resolve, mock_load, mock_gen):
-        from projects.POC.scripts.approval_gate import GenerativeResponse
-        gate = self._make_gate()
-        ctx = self._make_escalation_ctx()
-        mock_gen.return_value = GenerativeResponse(action='clarify', text='Use PostgreSQL', confidence=0.92)
-
-        result = _run(gate.run(ctx))
-
-        self.assertEqual(result.action, 'clarify')
-        self.assertEqual(result.feedback, 'Use PostgreSQL')
-        self.assertTrue(result.data.get('generative'))
-        # Human should NOT have been prompted
-        self.assertEqual(len(self._input_calls), 0)
-
-    @patch('projects.POC.orchestrator.actors.generate_response')
-    @patch('projects.POC.orchestrator.actors.load_model')
-    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
-    def test_low_confidence_falls_through_to_human(self, mock_resolve, mock_load, mock_gen):
-        gate = self._make_gate(human_response='Use MySQL')
-        ctx = self._make_escalation_ctx()
-        mock_gen.return_value = None  # Not confident enough
-
-        with patch.object(gate, '_classify_review', return_value=('clarify', 'Use MySQL')):
-            result = _run(gate.run(ctx))
-
-        self.assertEqual(result.action, 'clarify')
-        # Human WAS prompted
-        self.assertEqual(len(self._input_calls), 1)
-
-    @patch('projects.POC.orchestrator.actors.generate_response')
-    @patch('projects.POC.orchestrator.actors.load_model')
-    @patch('projects.POC.orchestrator.actors.resolve_team_model_path', side_effect=lambda b, t: b)
-    def test_generate_exception_falls_through_to_human(self, mock_resolve, mock_load, mock_gen):
-        gate = self._make_gate(human_response='Use SQLite')
-        ctx = self._make_escalation_ctx()
-        mock_gen.side_effect = RuntimeError('model corrupt')
-
-        with patch.object(gate, '_classify_review', return_value=('clarify', 'Use SQLite')):
-            result = _run(gate.run(ctx))
-
-        self.assertEqual(result.action, 'clarify')
-        self.assertEqual(len(self._input_calls), 1)
-
-    def test_non_escalation_state_does_not_try_generative(self):
-        """INTENT_ASSERT (not an escalation state) must never call generate_response."""
-        gate = self._make_gate(human_response='approve')
-        ctx = _make_ctx(state='INTENT_ASSERT', session_worktree=self.tmpdir, infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
-        Path(artifact_path).write_text('# Intent')
-        ctx.data = {'artifact_path': artifact_path}
-
-        with patch.object(gate, '_proxy_decide', return_value='auto-approve'), \
-             patch.object(gate, '_proxy_record'), \
-             patch('projects.POC.orchestrator.actors.generate_response') as mock_gen:
-            _run(gate.run(ctx))
-
-        mock_gen.assert_not_called()
 
 
 # ── Regression tests for #120: approval gate classification failures ──────────
@@ -1297,8 +1195,6 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
             stream_file='.exec-stream.jsonl',
             artifact='.work-summary.md',
             approval_state='WORK_ASSERT',
-            escalation_state='TASK_ESCALATE',
-            escalation_file='.task-escalation.md',
             settings_overlay={},
         )
 
@@ -1472,25 +1368,6 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'PLAN.md')))
-        import shutil
-        shutil.rmtree(wrong_dir, ignore_errors=True)
-
-    def test_works_for_escalation_file(self):
-        """Relocation works for escalation files."""
-        from projects.POC.orchestrator.actors import _relocate_misplaced_artifact
-
-        wrong_dir = tempfile.mkdtemp()
-        misplaced = os.path.join(wrong_dir, '.intent-escalation.md')
-        Path(misplaced).write_text('Question 1')
-        self._write_stream_with_write_call(misplaced)
-
-        result = _relocate_misplaced_artifact(
-            self.worktree, self.stream_file, '.intent-escalation.md',
-        )
-
-        self.assertTrue(result)
-        self.assertTrue(os.path.exists(
-            os.path.join(self.worktree, '.intent-escalation.md')))
         import shutil
         shutil.rmtree(wrong_dir, ignore_errors=True)
 

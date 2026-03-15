@@ -39,6 +39,7 @@ from projects.POC.orchestrator.actors import (
     ApprovalGate,
     InputProvider,
 )
+from projects.POC.orchestrator.escalation_listener import EscalationListener
 from projects.POC.orchestrator.worktree import artifact_version, commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.phase_config import PhaseConfig
@@ -132,6 +133,10 @@ class Orchestrator:
             proxy_enabled=proxy_enabled,
         )
 
+        # MCP escalation listener — bridges AskQuestion calls to proxy/human
+        self._escalation_listener: EscalationListener | None = None
+        self._mcp_config: dict | None = None
+
         # Track resume session IDs per phase (for --resume on corrections).
         # Pre-populated on session resume by parsing stream JSONL files.
         self._phase_session_ids: dict[str, str] = phase_session_ids or {}
@@ -142,6 +147,30 @@ class Orchestrator:
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
+        # Start the MCP escalation listener so agents can call AskQuestion
+        if self.input_provider:
+            self._escalation_listener = EscalationListener(
+                event_bus=self.event_bus,
+                input_provider=self.input_provider,
+                session_id=self.session_id,
+            )
+            socket_path = await self._escalation_listener.start()
+            self._mcp_config = {
+                'ask-question': {
+                    'command': 'python3',
+                    'args': ['-m', 'projects.POC.orchestrator.mcp_server'],
+                    'env': {'ASK_QUESTION_SOCKET': socket_path},
+                },
+            }
+
+        try:
+            return await self._run_loop()
+        finally:
+            if self._escalation_listener:
+                await self._escalation_listener.stop()
+
+    async def _run_loop(self) -> OrchestratorResult:
+        """Inner loop — separated so the listener cleanup is guaranteed."""
         while True:
             # Phase 1: Intent alignment
             if not self.skip_intent:
@@ -427,6 +456,7 @@ class Orchestrator:
             env_vars=self._build_env_vars(),
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
+            mcp_config=self._mcp_config,
         )
 
         if state in self.config.human_actor_states:
@@ -611,8 +641,6 @@ class Orchestrator:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                escalation_state=base.escalation_state,
-                escalation_file=base.escalation_file,
                 settings_overlay=base.settings_overlay,
             )
 
@@ -631,8 +659,6 @@ class Orchestrator:
                 stream_file=base.stream_file,
                 artifact=base.artifact,
                 approval_state=base.approval_state,
-                escalation_state=base.escalation_state,
-                escalation_file=base.escalation_file,
                 settings_overlay=base.settings_overlay,
             )
 

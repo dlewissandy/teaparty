@@ -76,6 +76,7 @@ class ActorContext:
     add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
+    mcp_config: dict[str, Any] | None = None
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -178,6 +179,7 @@ class AgentRunner:
             event_bus=ctx.event_bus,
             stall_timeout=self.stall_timeout,
             session_id=ctx.session_id,
+            mcp_config=ctx.mcp_config,
         )
 
         result = await runner.run()
@@ -214,11 +216,6 @@ class AgentRunner:
                 ctx.session_worktree, stream_path,
                 ctx.phase_spec.artifact,
             )
-            if ctx.phase_spec.escalation_file:
-                _relocate_misplaced_artifact(
-                    ctx.session_worktree, stream_path,
-                    ctx.phase_spec.escalation_file,
-                )
 
         # Generate work summary for execution phase (Issue #116).
         # Only at WORK_IN_PROGRESS — this is where the lead has finished
@@ -248,18 +245,10 @@ class AgentRunner:
         return actor_result
 
     def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
-        """Check for artifacts and escalation files to determine the action."""
+        """Check for artifacts to determine the action."""
         data: dict = {'claude_session_id': result.session_id}
         if result.stderr_lines:
             data['stderr_lines'] = result.stderr_lines
-
-        # Check for escalation file
-        if ctx.phase_spec.escalation_file:
-            esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
-            if os.path.exists(esc_path):
-                data['escalation_file'] = esc_path
-                action = self._resolve_action(ctx.state, 'escalate')
-                return ActorResult(action=action, data=data)
 
         # Check for expected artifact
         if ctx.phase_spec.artifact:
@@ -471,61 +460,7 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
     return ''
 
 
-# ── Escalation question extraction ───────────────────────────────────────────
-
-import re as _re
-
-
-def _extract_questions(content: str) -> list[str]:
-    """Pull the concrete questions out of an escalation file.
-
-    Heuristics (applied in order of specificity):
-    1. Lines ending with ``?`` (after stripping markdown bold/italic).
-    2. Lines starting with a numbered prefix (``1.``, ``**1.**``) that
-       contain a ``?``, even if the ``?`` is mid-line.
-    3. Lines whose heading (``##``, ``**...**``) contains "blocker" — for
-       task-escalation blockers that aren't phrased as questions.
-    """
-    questions: list[str] = []
-    seen: set[str] = set()
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        # Strip leading markdown heading markers, bold wrappers, and
-        # numbered prefixes (we re-number in the bridge text).
-        display = _re.sub(r'^#{1,4}\s*', '', line)
-        display = _re.sub(r'^\*{0,2}\d+[\.\)]\s*\*{0,2}\s*', '', display)
-        display = display.strip().lstrip('*_').strip()
-
-        # Blocker headings (task escalations)
-        if _re.match(r'^#{1,4}\s+.*(?i:blocker)', line):
-            if display not in seen:
-                seen.add(display)
-                questions.append(display)
-            continue
-
-        # Lines ending with ? (strip trailing bold/italic markers first)
-        check = _re.sub(r'[\*_`]+$', '', display).rstrip()
-        if check.endswith('?'):
-            if check not in seen:
-                seen.add(check)
-                questions.append(check)
-            continue
-
-        # Numbered items with an embedded ?
-        if _re.match(r'^\*{0,2}\d+[\.\)]\s+', line) and '?' in line:
-            if display not in seen:
-                seen.add(display)
-                questions.append(display)
-
-    return questions
-
-
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
-
-_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_REVIEW_ESCALATE'})
 
 
 class ApprovalGate:
@@ -551,54 +486,11 @@ class ApprovalGate:
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state."""
         artifact_path = ctx.data.get('artifact_path', '')
-        escalation_file = ctx.data.get('escalation_file', '')
         artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        # For escalation states: try generative response first, then human.
-        if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
-            # Try proxy auto-response from learned patterns
-            gen = self._try_generate_response(project_slug, ctx.state, team)
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'generative_response',
-                    'state': ctx.state,
-                    'result': f'generated (confidence={gen.confidence:.3f})' if gen else 'insufficient data',
-                },
-                session_id=ctx.session_id,
-            ))
-            if gen is not None:
-                return ActorResult(
-                    action='clarify',
-                    feedback=gen.text,
-                    data={'generative': True, 'confidence': gen.confidence},
-                )
-
-            # Fall through to human with escalation file as bridge.
-            # Extract questions so the human sees what they're being asked.
-            if escalation_file and os.path.exists(escalation_file):
-                try:
-                    with open(escalation_file) as _f:
-                        file_content = _f.read().strip()
-                except OSError:
-                    file_content = ''
-                if file_content:
-                    questions = _extract_questions(file_content)
-                    if questions:
-                        # One question at a time — it's a dialog.
-                        # The answer to Q1 may resolve Q2.
-                        bridge_text = questions[0]
-                    else:
-                        bridge_text = file_content
-                else:
-                    bridge_text = (
-                        'The agent needs your input before proceeding.'
-                    )
-            else:
-                bridge_text = 'The agent has a question for you.'
-        elif artifact_missing:
+        if artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that
             # would advance the session with no work product to review.
@@ -793,14 +685,6 @@ class ApprovalGate:
                 exploration=getattr(proxy_decision, 'exploration_forced', False)
                     if 'proxy_decision' in dir() else False,
             )
-
-            # Clean up escalation file so stale questions don't resurface
-            # on the next agent cycle. (Issue #137)
-            if escalation_file and os.path.exists(escalation_file):
-                try:
-                    os.remove(escalation_file)
-                except OSError:
-                    pass
 
             return ActorResult(
                 action=action,
