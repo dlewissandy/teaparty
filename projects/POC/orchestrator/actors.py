@@ -25,14 +25,11 @@ from projects.POC.orchestrator.events import (
 )
 from projects.POC.scripts.cfa_state import TRANSITIONS
 from projects.POC.scripts.approval_gate import (
-    GenerativeResponse,
     _extract_question_patterns,
-    generate_response,
     load_model,
     record_outcome,
     resolve_team_model_path,
     save_model,
-    should_escalate,
 )
 
 if TYPE_CHECKING:
@@ -463,12 +460,23 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
 
-class ApprovalGate:
-    """Proxy decision + human review loop.
+# Canonical alignment questions for each approval gate.  These are the
+# questions the proxy and human both see — no LLM rephrasing.
+_GATE_QUESTIONS: dict[str, str] = {
+    'INTENT_ASSERT': 'Do you recognize this as your idea, completely and accurately articulated?',
+    'PLAN_ASSERT': 'Do you recognize this as a strategic plan to operationalize your idea well?',
+    'WORK_ASSERT': 'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
+}
 
-    Consults the human proxy model first.  If confident, auto-approves.
-    Otherwise, generates a conversational bridge and asks the human.
-    The human's response is classified into a CfA action.
+
+class ApprovalGate:
+    """Proxy agent + human review loop.
+
+    The proxy is a Claude agent that generates the same kind of text response
+    a human would give.  When confident, the agent's text IS the answer.
+    When not confident, the same question goes to the human.  Both the
+    agent's predicted text and the actual answer feed into learning.
+    The final text (from either source) is classified by _classify_review.
     """
 
     def __init__(
@@ -484,122 +492,38 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
 
     async def run(self, ctx: ActorContext) -> ActorResult:
-        """Run the approval gate for the current state."""
+        """Run the approval gate for the current state.
+
+        ONE loop.  Every turn: ask the human through the proxy.  Classify
+        the response.  If terminal, done.  If dialog, loop.
+
+        "Ask the human through the proxy" means: call consult_proxy, which
+        either returns the proxy agent's text (if confident) or escalates
+        to the actual human (if not).  The approval gate does not know or
+        care which source produced the text.
+        """
         artifact_path = ctx.data.get('artifact_path', '')
-        artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        if artifact_missing:
-            # Agent failed to produce the expected artifact — always escalate to
-            # the human. The proxy cannot auto-approve a missing artifact; that
-            # would advance the session with no work product to review.
-            bridge_text = self._generate_bridge(
-                artifact_path, ctx.state, ctx.task, artifact_missing=True,
-                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-            )
-        elif not self.proxy_enabled:
-            # Proxy disabled — skip proxy consultation, go straight to human.
-            # Used for no-proxy baseline condition in experiments.
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'proxy_decision',
-                    'state': ctx.state,
-                    'decision': 'proxy-disabled',
-                    'confidence': 0.0,
-                    'confidence_laplace': 0.0,
-                    'confidence_ema': 0.0,
-                    'exploration_forced': False,
-                    'reasoning': 'Proxy disabled for this session',
-                },
-                session_id=ctx.session_id,
-            ))
-            bridge_text = self._generate_bridge(
-                artifact_path, ctx.state, ctx.task,
-                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-            )
-        else:
-            # Step 0.5: At PLAN_ASSERT, cross-reference INTENT.md [RESOLVE]
-            # questions against PLAN.md.  Unaddressed questions → escalate.
-            if ctx.state == 'PLAN_ASSERT' and artifact_path:
-                intent_path = os.path.join(ctx.infra_dir, 'INTENT.md')
-                if not os.path.exists(intent_path):
-                    intent_path = os.path.join(ctx.session_worktree, 'INTENT.md')
-                if os.path.exists(intent_path):
-                    try:
-                        with open(intent_path) as _f:
-                            intent_text = _f.read()
-                        with open(artifact_path) as _f:
-                            plan_text = _f.read()
-                        from projects.POC.scripts.approval_gate import check_resolve_coverage
-                        missing = check_resolve_coverage(intent_text, plan_text)
-                        if missing:
-                            nums = ', '.join(str(n) for n in missing)
-                            return ActorResult(
-                                action='reject',
-                                feedback=(
-                                    f'INTENT.md has [RESOLVE] questions ({nums}) that '
-                                    f'are not assigned to workflow steps in PLAN.md. '
-                                    f'The plan must include an "Open question resolution" '
-                                    f'section mapping each [RESOLVE] question to the '
-                                    f'phase where execution will resolve it.'
-                                ),
-                            )
-                    except OSError:
-                        pass
+        from projects.POC.orchestrator.proxy_agent import consult_proxy
+        gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
+        dialog_history = ''
+        next_bridge = ''  # set after dialog turns to show the agent's reply
 
-            # Step 1: Consult proxy
-            proxy_decision = self._proxy_decide(
-                ctx.state, project_slug, artifact_path, team=team,
-                phase_start_time=ctx.phase_start_time,
-            )
-
-            # Emit proxy decision for --verbose tracing and experiment collection
-            _pd_action = getattr(proxy_decision, 'action', proxy_decision)
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'proxy_decision',
-                    'state': ctx.state,
-                    'decision': _pd_action,
-                    'confidence': getattr(proxy_decision, 'confidence', 0.0),
-                    'confidence_laplace': getattr(proxy_decision, 'confidence_laplace', 0.0),
-                    'confidence_ema': getattr(proxy_decision, 'confidence_ema', 0.0),
-                    'exploration_forced': getattr(proxy_decision, 'exploration_forced', False),
-                    'reasoning': getattr(proxy_decision, 'reasoning', ''),
-                },
-                session_id=ctx.session_id,
-            ))
-
-            if _pd_action == 'auto-approve':
-                self._proxy_record(ctx.state, project_slug, 'approve',
-                                   artifact_path=artifact_path, team=team,
-                                   prediction='approve')
-                self._log_interaction(
-                    ctx, project_slug, prediction='approve', outcome='approve',
-                    delta='', exploration=False,
-                )
-                return ActorResult(action='approve')
-
-            # Step 2: Generate bridge text for the human
-            bridge_text = self._generate_bridge(
-                artifact_path, ctx.state, ctx.task,
-                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-            )
-
-        # Step 3: Build context summaries for classification accuracy
+        # Build context summaries for classification accuracy — the classifier
+        # needs these to distinguish correct vs refine-intent vs revise-plan.
         intent_summary = ''
         plan_summary = ''
-        intent_path = os.path.join(ctx.infra_dir, 'INTENT.md')
-        if not os.path.exists(intent_path):
-            intent_path = os.path.join(ctx.session_worktree, 'INTENT.md')
-        if os.path.exists(intent_path):
-            try:
-                with open(intent_path) as _f:
-                    intent_summary = _f.read(500)
-            except OSError:
-                pass
+        for search_dir in (ctx.infra_dir, ctx.session_worktree):
+            if not intent_summary:
+                p = os.path.join(search_dir, 'INTENT.md')
+                if os.path.exists(p):
+                    try:
+                        with open(p) as _f:
+                            intent_summary = _f.read(500)
+                    except OSError:
+                        pass
         if artifact_path and os.path.exists(artifact_path):
             try:
                 with open(artifact_path) as _f:
@@ -607,156 +531,138 @@ class ApprovalGate:
             except OSError:
                 pass
 
-        # Step 4: Dialog loop — ask human, classify, maybe dialog more
-        dialog_history = ''
         while True:
+            # Ask the human — through the proxy.
+            response_text = await self._ask_human_through_proxy(
+                ctx=ctx,
+                question=gate_question,
+                artifact_path=artifact_path,
+                project_slug=project_slug,
+                team=team,
+                dialog_history=dialog_history,
+                bridge_override=next_bridge,
+            )
+            next_bridge = ''  # consumed
+
+            # Classify the response.
+            action, feedback = self._classify_review(
+                ctx.state, response_text, dialog_history,
+                intent_summary=intent_summary, plan_summary=plan_summary,
+            )
+
             await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
+                type=EventType.LOG,
                 data={
+                    'category': 'approval_dialog',
                     'state': ctx.state,
-                    'artifact': artifact_path,
-                    'bridge_text': bridge_text,
+                    'response': response_text[:200],
+                    'classification': action,
                 },
                 session_id=ctx.session_id,
             ))
 
-            response = await self.input_provider(InputRequest(
-                type='approval',
-                state=ctx.state,
-                artifact=artifact_path,
-                bridge_text=bridge_text,
-            ))
+            if action not in ('dialog', '__fallback__'):
+                # Terminal action.  But if there was dialog, the human was
+                # providing clarification — feed that back to the agent phase
+                # as "correct" so the agent gets another pass with context.
+                if dialog_history and action == 'approve':
+                    action = 'correct'
+                    feedback = dialog_history + f'HUMAN: {response_text}\n'
 
-            await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_RECEIVED,
-                data={'response': response},
-                session_id=ctx.session_id,
-            ))
-
-            # Classify the response
-            action, feedback = self._classify_review(
-                ctx.state, response, dialog_history,
-                intent_summary=intent_summary, plan_summary=plan_summary,
-            )
-
-            if action in ('dialog', '__fallback__'):
-                # Both dialog and __fallback__ mean the human said something
-                # that isn't a clear decision.  Generate a contextual reply
-                # so the human can refine or ask follow-up questions.
-                dialog_history += f'HUMAN: {response}\n'
-                agent_reply = self._generate_dialog_response(
-                    ctx.state, response, artifact_path,
-                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                    ctx.task, dialog_history,
-                    session_worktree=ctx.session_worktree,
+                self._proxy_record(
+                    ctx.state, project_slug, action,
+                    artifact_path=artifact_path, team=team,
+                    feedback=feedback,
+                    conversation=dialog_history + response_text,
                 )
-                dialog_history += f'AGENT: {agent_reply}\n'
-                bridge_text = agent_reply  # Show the reply as the next bridge
+                self._log_interaction(
+                    ctx, project_slug,
+                    prediction='proxy', outcome=action,
+                    delta=feedback if action != 'approve' else '',
+                )
+                return ActorResult(
+                    action=action, feedback=feedback,
+                    dialog_history=dialog_history,
+                )
 
-                # Log the dialog exchange for post-hoc debugging (#120)
-                await ctx.event_bus.publish(Event(
-                    type=EventType.LOG,
-                    data={
-                        'category': 'approval_dialog',
-                        'state': ctx.state,
-                        'human_input': response,
-                        'classification': action,
-                        'agent_reply': agent_reply,
-                    },
-                    session_id=ctx.session_id,
-                ))
-                continue
-
-            # Non-dialog action — record and return
-            prediction = 'escalate'  # proxy predicted escalation (that's why human was asked)
-            self._proxy_record(
-                ctx.state, project_slug, action,
-                artifact_path=artifact_path,
-                feedback=feedback,
-                conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
-                team=team,
-                prediction=prediction,
+            # Dialog — generate a reply, then loop back.  The reply becomes
+            # the bridge text for the next turn so the human sees the answer.
+            dialog_history += f'HUMAN: {response_text}\n'
+            agent_reply = self._generate_dialog_response(
+                ctx.state, response_text, artifact_path,
+                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                ctx.task, dialog_history,
+                session_worktree=ctx.session_worktree,
             )
-            self._log_interaction(
-                ctx, project_slug,
-                prediction=prediction,
-                outcome=action,
-                delta=feedback if action != 'approve' else '',
-                exploration=getattr(proxy_decision, 'exploration_forced', False)
-                    if 'proxy_decision' in dir() else False,
-            )
+            dialog_history += f'AGENT: {agent_reply}\n'
+            next_bridge = agent_reply
 
-            return ActorResult(
-                action=action,
-                feedback=feedback,
-                dialog_history=dialog_history,
-            )
+    async def _ask_human_through_proxy(
+        self, ctx: ActorContext, question: str, artifact_path: str,
+        project_slug: str, team: str, dialog_history: str,
+        bridge_override: str = '',
+    ) -> str:
+        """Ask the human through the proxy.  Returns the response text.
 
-    def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
-                       team: str = '', phase_start_time: float = 0.0) -> 'ProxyDecision':
-        """Consult human proxy model.  Returns full ProxyDecision.
-
-        For execution-phase states (TASK_ASSERT, WORK_ASSERT), enforces a
-        minimum elapsed-time guard: if the phase ran for less than
-        MIN_EXECUTION_SECONDS, always escalate.  (Issue #122)
+        consult_proxy handles everything: statistical pre-filters, agent
+        invocation, confidence check, and escalation to the actual human
+        if the proxy can't answer.  This method is the single interface
+        between the approval gate and the proxy system.
         """
-        from projects.POC.scripts.approval_gate import ProxyDecision
+        from projects.POC.orchestrator.proxy_agent import (
+            consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
+        )
 
-        # Elapsed-time guard for execution states
-        if state in ('TASK_ASSERT', 'WORK_ASSERT') and phase_start_time > 0:
-            import time
-            elapsed = time.monotonic() - phase_start_time
-            if elapsed < MIN_EXECUTION_SECONDS:
-                _actor_log.info(
-                    'Elapsed-time guard: %s after %.0fs (min %ds) — escalating',
-                    state, elapsed, MIN_EXECUTION_SECONDS,
-                )
-                return ProxyDecision(
-                    action='escalate',
-                    confidence=0.0,
-                    reasoning=f'Elapsed-time guard: {elapsed:.0f}s < {MIN_EXECUTION_SECONDS}s minimum',
-                    predicted_response='escalate (too fast)',
-                )
+        proxy_result = await consult_proxy(
+            question=question,
+            state=ctx.state,
+            project_slug=project_slug,
+            artifact_path=artifact_path,
+            session_worktree=ctx.session_worktree,
+            infra_dir=ctx.infra_dir,
+            proxy_model_path=self.proxy_model_path,
+            team=team,
+            phase_start_time=ctx.phase_start_time,
+            proxy_enabled=self.proxy_enabled,
+            dialog_history=dialog_history,
+        )
 
-        try:
-            model_path = resolve_team_model_path(self.proxy_model_path, team)
-            model = load_model(model_path)
+        proxy_confident = (
+            proxy_result.from_agent
+            and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD
+            and proxy_result.text
+        )
 
-            # Tier 1: read flat behavioral patterns (#11)
-            project_dir = os.path.dirname(model_path)
-            patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
-            tier1_patterns = ''
-            if os.path.isfile(patterns_path):
-                try:
-                    with open(patterns_path) as _f:
-                        tier1_patterns = _f.read()
-                except OSError:
-                    pass
+        if proxy_confident:
+            return proxy_result.text
 
-            # Tier 2: retrieve similar past interactions for richer context (#11)
-            from projects.POC.scripts.approval_gate import retrieve_similar_interactions
-            log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
-            similar = retrieve_similar_interactions(
-                log_path=log_path, state=state, project=project_slug, top_k=5,
-            )
-
-            return should_escalate(
-                model, state, project_slug, artifact_path,
-                similar_interactions=similar,
-                tier1_patterns=tier1_patterns,
-            )
-        except Exception:
-            return ProxyDecision(
-                action='escalate',
-                confidence=0.0,
-                reasoning='Exception loading proxy model',
-                predicted_response='escalate (error)',
-            )
+        # Proxy can't answer — escalate to the actual human.
+        # If there's a bridge override (e.g., the agent's reply to a prior
+        # question), show that instead of the generic gate question.
+        bridge_text = bridge_override or self._generate_bridge(
+            artifact_path, ctx.state, ctx.task,
+            session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+        )
+        await ctx.event_bus.publish(Event(
+            type=EventType.INPUT_REQUESTED,
+            data={'state': ctx.state, 'artifact': artifact_path, 'bridge_text': bridge_text},
+            session_id=ctx.session_id,
+        ))
+        response_text = await self.input_provider(InputRequest(
+            type='approval', state=ctx.state,
+            artifact=artifact_path, bridge_text=bridge_text,
+        ))
+        await ctx.event_bus.publish(Event(
+            type=EventType.INPUT_RECEIVED,
+            data={'response': response_text},
+            session_id=ctx.session_id,
+        ))
+        return response_text
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
         artifact_path: str = '', feedback: str = '', conversation: str = '',
-        team: str = '', prediction: str = '',
+        team: str = '', prediction: str = '', predicted_response: str = '',
     ) -> None:
         """Record human decision for proxy learning."""
         try:
@@ -772,6 +678,7 @@ class ApprovalGate:
                 artifact_length=artifact_length,
                 question_patterns=patterns,
                 prediction=prediction,
+                predicted_response=predicted_response,
             )
             save_model(model, model_path)
         except Exception:
@@ -809,16 +716,6 @@ class ApprovalGate:
         except OSError:
             pass
 
-    def _try_generate_response(self, project_slug: str, state: str,
-                                team: str = '') -> 'GenerativeResponse | None':
-        """Try to generate a proxy auto-response for escalation states."""
-        try:
-            model_path = resolve_team_model_path(self.proxy_model_path, team)
-            model = load_model(model_path)
-            return generate_response(model, state, project_slug)
-        except Exception:
-            return None
-
     def _classify_review(
         self, state: str, response: str, dialog_history: str = '',
         intent_summary: str = '', plan_summary: str = '',
@@ -840,18 +737,16 @@ class ApprovalGate:
             _actor_log.warning('Classification failed — falling back to re-prompt', exc_info=True)
             return '__fallback__', ''
 
-    _ASSERT_QUESTIONS = {
-        'INTENT_ASSERT': 'Do you recognize this intent document as your idea, completely and accurately articulated?',
-        'PLAN_ASSERT': 'Do you recognize this plan as a strategic plan to operationalize your idea well?',
-        'WORK_ASSERT': 'Do you recognize the deliverables as your idea, completely and well implemented?',
-    }
-
     def _generate_bridge(
         self, artifact_path: str, state: str, task: str,
         artifact_missing: bool = False,
         session_worktree: str = '', infra_dir: str = '',
     ) -> str:
-        """Return the alignment validation question for this gate."""
+        """Generate alignment validation bridge for review.
+
+        Reads upstream context files (INTENT.md, PLAN.md) so the reviewer
+        can compare the artifact under review against its source of truth.
+        """
         if artifact_missing:
             expected_note = (
                 f' (expected path: {artifact_path})'
@@ -865,12 +760,14 @@ class ApprovalGate:
                 '  withdraw — abandon this session\n'
                 '  approve — advance without the artifact (not recommended)'
             )
+        if not artifact_path or not os.path.exists(artifact_path):
+            return f'Ready for review at {state}.'
 
-        question = self._ASSERT_QUESTIONS.get(state, f'Review artifact at {state}.')
-        if artifact_path:
-            return f'{question}\n\nArtifact: {artifact_path}'
-        return question
+        # Use canonical gate question if one exists for this state.
+        if state in _GATE_QUESTIONS:
+            return _GATE_QUESTIONS[state]
 
+        return f'Please review: {artifact_path}'
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,
