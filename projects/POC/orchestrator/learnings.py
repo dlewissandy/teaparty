@@ -182,13 +182,17 @@ def _run_summarize(
     if not os.path.exists(stream_path) or os.path.getsize(stream_path) == 0:
         return
 
+    from filelock import FileLock
+
+    lock = FileLock(output + '.lock', timeout=30)
     added_to_path = False
     try:
         if scripts_dir and scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
             added_to_path = True
         from summarize_session import summarize
-        summarize(stream_path, output, [], scope)
+        with lock:
+            summarize(stream_path, output, [], scope)
     except Exception as exc:
         print(
             f'[learnings] {scope} extraction failed: {exc}',
@@ -206,13 +210,25 @@ def _run_summarize(
 
 def _call_promote(scripts_dir: str, scope: str, **kwargs) -> None:
     """Call summarize_session.promote() directly (importable API)."""
+    from filelock import FileLock
+
+    # Determine the output directory to lock on. promote() writes to
+    # institutional.md and tasks/ within the target directory.
+    lock_dir = kwargs.get('output_dir') or kwargs.get('project_dir') or kwargs.get('session_dir', '')
+    lock_path = os.path.join(lock_dir, f'.promote-{scope}.lock') if lock_dir else ''
+
     added_to_path = False
     try:
         if scripts_dir and scripts_dir not in sys.path:
             sys.path.insert(0, scripts_dir)
             added_to_path = True
         from summarize_session import promote
-        promote(scope, **kwargs)
+        if lock_path:
+            lock = FileLock(lock_path, timeout=30)
+            with lock:
+                promote(scope, **kwargs)
+        else:
+            promote(scope, **kwargs)
     except Exception as exc:
         print(
             f'[learnings] promote {scope} failed: {exc}',
@@ -376,21 +392,25 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
             if f.endswith('.md'):
                 memory_files.append(os.path.join(proxy_tasks_dir, f))
 
+    from filelock import FileLock
+
     total_reinforced = 0
     for mem_path in memory_files:
-        try:
-            text = Path(mem_path).read_text(errors='replace')
-        except OSError:
-            continue
-
-        entries = parse_memory_file(text)
-        if not entries:
-            continue
-
-        updated, count = reinforce_entries(entries, retrieved_ids)
-        if count > 0:
+        lock = FileLock(mem_path + '.lock', timeout=30)
+        with lock:
             try:
-                Path(mem_path).write_text(serialize_memory_file(updated))
-                total_reinforced += count
+                text = Path(mem_path).read_text(errors='replace')
             except OSError:
-                pass
+                continue
+
+            entries = parse_memory_file(text)
+            if not entries:
+                continue
+
+            updated, count = reinforce_entries(entries, retrieved_ids)
+            if count > 0:
+                try:
+                    Path(mem_path).write_text(serialize_memory_file(updated))
+                    total_reinforced += count
+                except OSError:
+                    pass
