@@ -14,10 +14,15 @@ import subprocess
 import sys
 
 MAX_FILE_CHARS = 4000
+MAX_CONTEXT_CHARS = 2000
 MAX_OUTPUT_CHARS = 800
 MAX_FALLBACK_LINES = 5
 
 # ── Prompt templates keyed by CfA state ──
+#
+# Each approval gate is framed as an alignment validation question:
+# the reviewer must decide whether the artifact faithfully represents
+# the human's intent at that stage of the pipeline.
 
 STATE_CONFIG = {
     "INTENT_ASSERT": {
@@ -42,43 +47,84 @@ STATE_CONFIG = {
     },
     "WORK_ASSERT": {
         "template": "work_assert",
-        "noun": "work",
+        "noun": "deliverables",
     },
 }
 
-ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
-You have just drafted an intent document and saved it to disk. Write 2-3 sentences
-that tell the human what you've captured and where to find it.
+ASSERT_PROMPT = """You are presenting an intent document for alignment validation.
+The reviewer must decide: do they recognize this as their idea, completely and
+accurately articulated?
+
+Write 2-3 sentences that frame the review as an alignment question. The reviewer
+should engage critically — asking questions, suggesting changes, or flagging
+concerns — before deciding whether to approve, correct, or withdraw.
 
 Rules:
-- First person voice ("I've drafted...", "I believe...")
+- Frame as alignment validation: "Do you recognize this as your idea?"
 - Include the file path: {file_path}
-- Summarize the core problem/objective in one sentence
-- Do NOT reproduce the document content — the human will read it themselves
+- Summarize what the document captures so the reviewer can compare against their intent
+- Do NOT reproduce the document content — the reviewer will read it themselves
 - No markdown, no bullet points, no headers — just plain conversational text
 - 2-3 sentences maximum
+- End with: "Think carefully about this. If you are wrong, it creates a permanent record of your failure."
 
 Task: {task}
 
 Document content (for your understanding only — do not reproduce):
 {content}"""
 
-PLAN_ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
-You have just drafted a plan and saved it to disk. Write 2-3 sentences
-that tell the human what the plan covers and where to find it.
+PLAN_ASSERT_PROMPT = """You are presenting a plan for alignment validation.
+The reviewer must decide: do they recognize this as a strategic plan to
+operationalize their idea well?
+
+Write 2-3 sentences that frame the review as an alignment question. The reviewer
+has the approved intent document below for comparison — they should verify that
+the plan faithfully operationalizes the intent.
 
 Rules:
-- First person voice ("I've drafted...", "The plan covers...")
+- Frame as alignment validation: "Do you recognize this as a plan to operationalize your idea well?"
 - Include the file path: {file_path}
-- Summarize the approach in one sentence
-- Do NOT reproduce the plan content — the human will read it themselves
+- Summarize the plan's approach so the reviewer can compare against the intent
+- Do NOT reproduce the plan content — the reviewer will read it themselves
 - No markdown, no bullet points, no headers — just plain conversational text
 - 2-3 sentences maximum
+- End with: "Think carefully about this. If you are wrong, it creates a permanent record of your failure."
 
 Task: {task}
 
 Plan content (for your understanding only — do not reproduce):
-{content}"""
+{content}
+
+Intent document (approved upstream — compare the plan against this):
+{intent_context}"""
+
+WORK_ASSERT_PROMPT = """You are presenting completed deliverables for alignment validation.
+The reviewer must decide: do they recognize the deliverables and project files
+as their idea, completely and well implemented?
+
+Write 2-3 sentences that frame the review as an alignment question. The reviewer
+has both the approved intent and the approved plan below for comparison — they
+should verify the full chain: intent → plan → execution.
+
+Rules:
+- Frame as alignment validation: "Do you recognize these deliverables as your idea, well implemented?"
+- Include the file path: {file_path}
+- Summarize what was produced so the reviewer can compare against intent and plan
+- Do NOT reproduce the full output or list individual files — just the essence
+- No markdown, no bullet points, no headers — just plain conversational text
+- 2-3 sentences maximum
+- End with: "Think carefully about this. If you are wrong, it creates a permanent record of your failure."
+
+Task: {task}
+
+Work summary (for your understanding only — do not reproduce):
+{content}
+
+Intent document (approved upstream — compare deliverables against this):
+{intent_context}
+
+Plan document (approved upstream — compare deliverables against this):
+{plan_context}"""
 
 ESCALATE_PROMPT = """You are an AI agent speaking directly to the human you're working with.
 You've hit a point where you need the human's input before you can proceed.
@@ -96,23 +142,6 @@ Rules:
 Task: {task}
 
 Questions/escalation content (for your understanding only — do not reproduce):
-{content}"""
-
-WORK_ASSERT_PROMPT = """You are an AI agent speaking directly to the human you're working with.
-The execution phase has finished. Write 2-3 sentences summarizing what happened
-during execution so the human can review.
-
-Rules:
-- First person voice ("I worked on...", "The execution produced...")
-- Summarize what actions were taken — do not judge whether the work is complete or successful
-- Your job is to DESCRIBE what happened, not to EVALUATE it — the human decides if it's done
-- Do NOT reproduce the full output or list individual files — just the essence
-- No markdown, no bullet points, no headers — just plain conversational text
-- 2-3 sentences maximum
-
-Task: {task}
-
-Execution output (for your understanding only — do not reproduce):
 {content}"""
 
 TEMPLATES = {
@@ -135,10 +164,19 @@ def read_file_content(file_path: str) -> str:
         return ""
 
 
+_FALLBACK_QUESTIONS = {
+    "INTENT_ASSERT": "Do you recognize this intent document as your idea, completely and accurately articulated?",
+    "PLAN_ASSERT": "Do you recognize this plan as a strategic plan to operationalize your idea well?",
+    "WORK_ASSERT": "Do you recognize the deliverables as your idea, completely and well implemented?",
+}
+
+
 def fallback_bridge(file_path: str, state: str) -> str:
     """Static fallback when LLM is unavailable."""
     config = STATE_CONFIG.get(state, {"noun": "document"})
     noun = config["noun"]
+
+    question = _FALLBACK_QUESTIONS.get(state, '')
     lines = []
     try:
         with open(file_path, 'r') as f:
@@ -150,9 +188,13 @@ def fallback_bridge(file_path: str, state: str) -> str:
         pass
 
     preview = '\n'.join(lines)
+    parts = []
+    if question:
+        parts.append(question)
+    parts.append(f"Review {noun} at: {file_path}")
     if preview:
-        return f"[{state}] Review {noun} at: {file_path}\n{preview}\n..."
-    return f"[{state}] Review {noun} at: {file_path}"
+        parts.append(preview + "\n...")
+    return '\n'.join(parts)
 
 
 def truncate_output(text: str) -> str:
@@ -170,8 +212,18 @@ def truncate_output(text: str) -> str:
     return text[:MAX_OUTPUT_CHARS]
 
 
-def generate(file_path: str, state: str, task: str) -> str:
-    """Generate a conversational bridge for the given CfA state."""
+def generate(
+    file_path: str, state: str, task: str,
+    intent_context: str = '', plan_context: str = '',
+) -> str:
+    """Generate a conversational bridge for the given CfA state.
+
+    For PLAN_ASSERT, intent_context should contain the approved INTENT.md
+    so the reviewer can compare plan against intent.
+
+    For WORK_ASSERT, both intent_context and plan_context should be provided
+    so the reviewer can evaluate the full chain: intent → plan → execution.
+    """
     content = read_file_content(file_path)
     if not content:
         return fallback_bridge(file_path, state)
@@ -182,11 +234,19 @@ def generate(file_path: str, state: str, task: str) -> str:
         config = {"template": "assert", "noun": "document"}
 
     template = TEMPLATES[config["template"]]
-    prompt = template.format(
-        file_path=file_path,
-        task=task or "(no task description)",
-        content=content,
-    )
+
+    # Build format kwargs — only include context slots that the template expects
+    fmt = {
+        'file_path': file_path,
+        'task': task or "(no task description)",
+        'content': content,
+    }
+    if '{intent_context}' in template:
+        fmt['intent_context'] = (intent_context or '(not available)')[:MAX_CONTEXT_CHARS]
+    if '{plan_context}' in template:
+        fmt['plan_context'] = (plan_context or '(not available)')[:MAX_CONTEXT_CHARS]
+
+    prompt = template.format(**fmt)
 
     try:
         result = subprocess.run(
