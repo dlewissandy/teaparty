@@ -852,6 +852,160 @@ class TestExtractLearningsIntegration(unittest.TestCase):
         self.assertEqual(mock_promote.call_count, 7, "Expected 7 _call_promote calls")
 
 
+# ── compact_file() wiring through promote path (issue #86) ───────────────────
+
+class TestCompactFileWiring(unittest.TestCase):
+    """Verify compact_file() is called after institutional.md writes.
+
+    compact_file() is called inside promote() via _try_compact() for the
+    session, project, and global scopes. Because _call_promote imports
+    promote() via sys.path (not the dotted module path), standard
+    unittest.mock.patch cannot intercept _try_compact. These tests verify
+    the behavior by monkey-patching the sys.path-loaded module directly.
+    """
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # POC scripts directory: tests/ -> orchestrator/ -> POC/ -> scripts/
+        self.scripts_dir = str(
+            Path(__file__).parent.parent.parent / 'scripts'
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _load_summarize_session(self):
+        """Get the summarize_session module that _call_promote will use.
+
+        _call_promote adds scripts_dir to sys.path and does
+        'from summarize_session import promote'. To intercept _try_compact,
+        we pre-load the module into sys.modules so _call_promote's import
+        reuses the same instance we can monkey-patch.
+        """
+        if self.scripts_dir not in sys.path:
+            sys.path.insert(0, self.scripts_dir)
+        # Always reload to ensure we get the real module with all attributes
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'summarize_session',
+            os.path.join(self.scripts_dir, 'summarize_session.py'),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules['summarize_session'] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_session_scope_calls_try_compact_on_institutional(self):
+        """promote('session') calls _try_compact on session/institutional.md."""
+        mod = self._load_summarize_session()
+        original_compact = mod._try_compact
+        original_summarize = mod.summarize
+
+        compact_calls = []
+        mod._try_compact = lambda path: compact_calls.append(path)
+        mod.summarize = lambda *a, **kw: 0
+
+        try:
+            # Create team institutional.md so session has input
+            team_dir = os.path.join(self.tmpdir, 'coding')
+            os.makedirs(team_dir)
+            _nonempty(os.path.join(team_dir, 'institutional.md'))
+
+            from projects.POC.orchestrator.learnings import _call_promote
+            _call_promote(self.scripts_dir, 'session',
+                          session_dir=self.tmpdir, project_dir='', output_dir='')
+
+            expected = os.path.join(self.tmpdir, 'institutional.md')
+            self.assertIn(expected, compact_calls,
+                          f"Expected compact on {expected}, got: {compact_calls}")
+        finally:
+            mod._try_compact = original_compact
+            mod.summarize = original_summarize
+
+    def test_project_scope_calls_try_compact_on_institutional(self):
+        """promote('project') calls _try_compact on project/institutional.md."""
+        mod = self._load_summarize_session()
+        original_compact = mod._try_compact
+        original_summarize = mod.summarize
+
+        compact_calls = []
+        mod._try_compact = lambda path: compact_calls.append(path)
+        mod.summarize = lambda *a, **kw: 0
+
+        try:
+            session_dir = os.path.join(self.tmpdir, 'session')
+            project_dir = os.path.join(self.tmpdir, 'project')
+            os.makedirs(session_dir)
+            os.makedirs(project_dir)
+            _nonempty(os.path.join(session_dir, 'institutional.md'))
+
+            from projects.POC.orchestrator.learnings import _call_promote
+            _call_promote(self.scripts_dir, 'project',
+                          session_dir=session_dir, project_dir=project_dir, output_dir='')
+
+            expected = os.path.join(project_dir, 'institutional.md')
+            self.assertIn(expected, compact_calls,
+                          f"Expected compact on {expected}, got: {compact_calls}")
+        finally:
+            mod._try_compact = original_compact
+            mod.summarize = original_summarize
+
+    def test_global_scope_calls_try_compact_on_institutional(self):
+        """promote('global') calls _try_compact on projects/institutional.md."""
+        mod = self._load_summarize_session()
+        original_compact = mod._try_compact
+        original_summarize = mod.summarize
+
+        compact_calls = []
+        mod._try_compact = lambda path: compact_calls.append(path)
+        mod.summarize = lambda *a, **kw: 0
+
+        try:
+            projects_dir = os.path.join(self.tmpdir, 'projects')
+            project_dir = os.path.join(projects_dir, 'myproj')
+            os.makedirs(project_dir)
+            _nonempty(os.path.join(project_dir, 'institutional.md'))
+
+            from projects.POC.orchestrator.learnings import _call_promote
+            _call_promote(self.scripts_dir, 'global',
+                          session_dir='', project_dir=project_dir,
+                          output_dir=projects_dir)
+
+            expected = os.path.join(projects_dir, 'institutional.md')
+            self.assertIn(expected, compact_calls,
+                          f"Expected compact on {expected}, got: {compact_calls}")
+        finally:
+            mod._try_compact = original_compact
+            mod.summarize = original_summarize
+
+    def test_team_scope_does_not_compact(self):
+        """promote('team') does NOT call _try_compact (no institutional.md at team level)."""
+        mod = self._load_summarize_session()
+        original_compact = mod._try_compact
+        original_summarize = mod.summarize
+
+        compact_calls = []
+        mod._try_compact = lambda path: compact_calls.append(path)
+        mod.summarize = lambda *a, **kw: 0
+
+        try:
+            # Create dispatch memory
+            dispatch_dir = os.path.join(self.tmpdir, 'coding', 'dispatch-001')
+            os.makedirs(dispatch_dir)
+            _nonempty(os.path.join(dispatch_dir, 'MEMORY.md'))
+
+            from projects.POC.orchestrator.learnings import _call_promote
+            _call_promote(self.scripts_dir, 'team',
+                          session_dir=self.tmpdir, project_dir='', output_dir='')
+
+            self.assertEqual(compact_calls, [],
+                             f"team scope should not compact, but got: {compact_calls}")
+        finally:
+            mod._try_compact = original_compact
+            mod.summarize = original_summarize
+
+
 # ── _call_promote import path (issue #85 verification) ───────────────────────
 
 class TestCallPromoteImportPath(unittest.TestCase):
