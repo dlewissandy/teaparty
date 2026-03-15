@@ -9,6 +9,7 @@ Covers:
  5. Multiple skills: the highest-scoring one is returned.
  6. lookup_skill is fail-safe: malformed skill files are skipped.
 """
+import asyncio
 import os
 import sys
 import tempfile
@@ -202,10 +203,10 @@ class TestLookupSkill(unittest.TestCase):
 
 
 class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
-    """Engine includes matched skill context in planning task."""
+    """Engine routes between System 1 (skill) and System 2 (cold-start planning)."""
 
-    def test_task_for_planning_includes_skill_when_present(self):
-        """When SKILL.md exists in worktree, _task_for_phase('planning') includes it."""
+    def _make_orchestrator(self, worktree, project_dir):
+        """Build an Orchestrator with mocked runners for routing tests."""
         import asyncio
         from unittest.mock import AsyncMock, MagicMock
         from projects.POC.orchestrator.engine import Orchestrator
@@ -213,85 +214,113 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
         from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
         from projects.POC.scripts.cfa_state import CfaState
 
-        with tempfile.TemporaryDirectory() as worktree:
+        cfg = MagicMock(spec=PhaseConfig)
+        cfg.stall_timeout = 1800
+        cfg.human_actor_states = frozenset()
+        cfg.phase.return_value = PhaseSpec(
+            name='planning', agent_file='agents/uber-team.json',
+            lead='project-lead', permission_mode='acceptEdits',
+            stream_file='.plan-stream.jsonl', artifact='PLAN.md',
+            approval_state='PLAN_ASSERT', escalation_state='PLANNING_ESCALATE',
+            escalation_file='', settings_overlay={},
+        )
+
+        orch = Orchestrator(
+            cfa_state=CfaState(state='DRAFT', phase='planning', actor='agent',
+                               history=[], backtrack_count=0),
+            phase_config=cfg,
+            event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
+            input_provider=AsyncMock(),
+            infra_dir='/tmp/infra',
+            project_workdir=project_dir,
+            session_worktree=worktree,
+            proxy_model_path='/tmp/proxy.json',
+            project_slug='test',
+            poc_root='/tmp/poc',
+            task='Write a research paper on distributed systems',
+            session_id='test-session',
+        )
+        return orch
+
+    def test_skill_match_writes_plan_md(self):
+        """When a skill matches, its template is written as PLAN.md."""
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as project_dir:
             # Write INTENT.md
             with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
-                f.write('## Intent\n\nWrite a research paper.')
+                f.write('Research and write a paper surveying distributed consensus.')
 
-            # Write SKILL.md (as if skill lookup placed it)
-            with open(os.path.join(worktree, 'SKILL.md'), 'w') as f:
-                f.write('## Matched Skill: research-paper\n\n1. Survey\n2. Draft')
+            # Create skill library
+            skills_dir = os.path.join(project_dir, 'skills')
+            os.makedirs(skills_dir)
+            with open(os.path.join(skills_dir, 'research-paper.md'), 'w') as f:
+                f.write(_make_skill_content(
+                    name='research-paper',
+                    description='Write a research paper with literature survey and argument construction',
+                    category='writing',
+                    body='## Decomposition\n\n1. Survey\n2. Argue\n3. Draft',
+                ))
 
-            cfg = MagicMock(spec=PhaseConfig)
-            cfg.stall_timeout = 1800
-            cfg.human_actor_states = frozenset()
-            cfg.phase.return_value = PhaseSpec(
-                name='planning', agent_file='agents/uber-team.json',
-                lead='project-lead', permission_mode='acceptEdits',
-                stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-                approval_state='PLAN_ASSERT', escalation_state='PLANNING_ESCALATE',
-                escalation_file='', settings_overlay={},
-            )
+            orch = self._make_orchestrator(worktree, project_dir)
+            result = asyncio.run(orch._try_skill_lookup())
 
-            orch = Orchestrator(
-                cfa_state=CfaState(state='DRAFT', phase='planning', actor='agent',
-                                   history=[], backtrack_count=0),
-                phase_config=cfg,
-                event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
-                input_provider=AsyncMock(),
-                infra_dir='/tmp/infra',
-                project_workdir='/tmp/project',
-                session_worktree=worktree,
-                proxy_model_path='/tmp/proxy.json',
-                project_slug='test',
-                poc_root='/tmp/poc',
-                task='Write a paper',
-                session_id='test-session',
-            )
+            self.assertTrue(result)
+            plan_path = os.path.join(worktree, 'PLAN.md')
+            self.assertTrue(os.path.exists(plan_path))
+            with open(plan_path) as f:
+                plan_content = f.read()
+            self.assertIn('Survey', plan_content)
+            self.assertIn('Argue', plan_content)
 
-            result = orch._task_for_phase('planning')
-            self.assertIn('Matched Skill', result)
-            self.assertIn('Survey', result)
-            self.assertIn('Write a research paper', result)
-
-    def test_task_for_planning_unchanged_without_skill(self):
-        """When no SKILL.md exists, _task_for_phase('planning') returns only INTENT.md."""
-        import asyncio
-        from unittest.mock import AsyncMock, MagicMock
-        from projects.POC.orchestrator.engine import Orchestrator
-        from projects.POC.orchestrator.events import EventBus
-        from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
-        from projects.POC.scripts.cfa_state import CfaState
-
-        with tempfile.TemporaryDirectory() as worktree:
-            intent_content = '## Intent\n\nWrite a research paper.'
+    def test_skill_match_advances_cfa_to_plan_assert(self):
+        """When a skill matches, CfA state advances to PLAN_ASSERT."""
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as project_dir:
             with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
-                f.write(intent_content)
+                f.write('Research and write a paper surveying distributed consensus.')
 
-            cfg = MagicMock(spec=PhaseConfig)
-            cfg.stall_timeout = 1800
-            cfg.human_actor_states = frozenset()
+            skills_dir = os.path.join(project_dir, 'skills')
+            os.makedirs(skills_dir)
+            with open(os.path.join(skills_dir, 'research-paper.md'), 'w') as f:
+                f.write(_make_skill_content(
+                    name='research-paper',
+                    description='Write a research paper with literature survey and argument construction',
+                    category='writing',
+                    body='## Decomposition\n\n1. Survey\n2. Argue\n3. Draft',
+                ))
 
-            orch = Orchestrator(
-                cfa_state=CfaState(state='DRAFT', phase='planning', actor='agent',
-                                   history=[], backtrack_count=0),
-                phase_config=cfg,
-                event_bus=MagicMock(spec=EventBus, publish=AsyncMock()),
-                input_provider=AsyncMock(),
-                infra_dir='/tmp/infra',
-                project_workdir='/tmp/project',
-                session_worktree=worktree,
-                proxy_model_path='/tmp/proxy.json',
-                project_slug='test',
-                poc_root='/tmp/poc',
-                task='Write a paper',
-                session_id='test-session',
-            )
+            orch = self._make_orchestrator(worktree, project_dir)
+            asyncio.run(orch._try_skill_lookup())
 
-            result = orch._task_for_phase('planning')
-            # Should be exactly the intent content, no skill preamble
-            self.assertEqual(result, intent_content)
-            self.assertNotIn('Skill', result)
+            self.assertEqual(orch.cfa.state, 'PLAN_ASSERT')
+
+    def test_no_skill_match_returns_false_state_unchanged(self):
+        """When no skill matches, returns False and CfA stays at DRAFT."""
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as project_dir:
+            with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
+                f.write('Design a logo for the company.')
+
+            # Empty skills dir
+            os.makedirs(os.path.join(project_dir, 'skills'))
+
+            orch = self._make_orchestrator(worktree, project_dir)
+            result = asyncio.run(orch._try_skill_lookup())
+
+            self.assertFalse(result)
+            self.assertEqual(orch.cfa.state, 'DRAFT')
+            # No PLAN.md written
+            self.assertFalse(os.path.exists(os.path.join(worktree, 'PLAN.md')))
+
+    def test_no_skills_dir_returns_false(self):
+        """When skills/ doesn't exist, returns False silently."""
+        with tempfile.TemporaryDirectory() as worktree, \
+             tempfile.TemporaryDirectory() as project_dir:
+            orch = self._make_orchestrator(worktree, project_dir)
+            result = asyncio.run(orch._try_skill_lookup())
+
+            self.assertFalse(result)
+            self.assertEqual(orch.cfa.state, 'DRAFT')
 
 
 if __name__ == '__main__':

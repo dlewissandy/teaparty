@@ -157,8 +157,11 @@ class Orchestrator:
                 # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
                 await self._auto_bridge()
 
-                # Skill lookup: System 1 fast path — check if a learned
-                # skill covers this task before cold-start planning.
+                # System 1 fast path: if a learned skill covers this task,
+                # write it as PLAN.md and advance to PLAN_ASSERT.  The
+                # planning agent never runs — the skill IS the plan.
+                # _run_phase('planning') picks up at PLAN_ASSERT (human review).
+                # If the human corrects, it falls back to System 2 (planning agent).
                 await self._try_skill_lookup()
 
                 result = await self._run_phase('planning')
@@ -232,16 +235,23 @@ class Orchestrator:
             ))
             await self._transition(action, ActorResult(action=action))
 
-    async def _try_skill_lookup(self) -> None:
-        """Check the skill library for a matching skill (System 1 fast path).
+    async def _try_skill_lookup(self) -> bool:
+        """System 1 fast path: check the skill library for a matching skill.
 
-        If a match is found, writes SKILL.md to the session worktree so that
-        _task_for_phase('planning') can include it as warm-start context.
-        Fail-safe: any error falls through silently to cold-start planning.
+        If a match is found:
+          1. Writes the skill template as PLAN.md (the skill IS the plan)
+          2. Advances CfA state to PLAN_ASSERT for human review
+          3. Returns True — the caller skips cold-start planning
+
+        If no match or any error: returns False (fall through to System 2).
+
+        The human still reviews the skill-as-plan at PLAN_ASSERT.  If they
+        correct it, the correction goes to PLANNING_RESPONSE → DRAFT and the
+        planning agent runs (System 2 fallback).
         """
         skills_dir = os.path.join(self.project_workdir, 'skills')
         if not os.path.isdir(skills_dir):
-            return
+            return False
 
         # Read the approved intent
         intent = ''
@@ -260,31 +270,37 @@ class Orchestrator:
             )
         except Exception:
             _log.debug('Skill lookup failed, falling through to cold start')
-            return
+            return False
 
         if not match:
-            return
+            return False
 
-        # Write matched skill to worktree for _task_for_phase to pick up
-        skill_path = os.path.join(self.session_worktree, 'SKILL.md')
-        header = (
-            f'## Matched Skill: {match.name}\n'
-            f'**Score:** {match.score:.3f}\n'
-            f'**Description:** {match.description}\n\n'
-        )
-        with open(skill_path, 'w') as f:
-            f.write(header + match.template)
+        # Write the skill template as PLAN.md — the skill IS the plan
+        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
+        with open(plan_path, 'w') as f:
+            f.write(match.template)
+
+        # Advance CfA: DRAFT → assert → PLAN_ASSERT
+        # This bypasses the planning agent entirely — the skill is the plan,
+        # presented directly to the human for approval.
+        await self._transition('assert', ActorResult(
+            action='assert',
+            data={'artifact_path': plan_path, 'skill_name': match.name},
+        ))
 
         await self.event_bus.publish(Event(
             type=EventType.LOG,
             data={
                 'category': 'skill_lookup',
+                'result': 'matched',
                 'skill_name': match.name,
                 'skill_score': match.score,
                 'skill_path': match.path,
             },
             session_id=self.session_id,
         ))
+
+        return True
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
         """Build OrchestratorResult with escalation_type derived from CfA state."""
@@ -525,32 +541,12 @@ class Orchestrator:
             if parts:
                 return '\n\n'.join(parts)
         elif phase_name == 'planning':
-            parts = []
-            # Include matched skill context if present (warm start)
-            skill_path = os.path.join(self.session_worktree, 'SKILL.md')
-            try:
-                with open(skill_path) as f:
-                    skill_content = f.read()
-                if skill_content.strip():
-                    parts.append(
-                        '--- Matched Skill (warm start) ---\n'
-                        + skill_content
-                        + '\n--- end ---\n\n'
-                        'This skill matched the current task. Adapt it to the '
-                        'specific intent below, or plan from scratch if it does '
-                        'not apply.'
-                    )
-            except OSError:
-                pass
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
                 with open(intent_path) as f:
-                    parts.append(f.read())
+                    return f.read()
             except OSError:
                 pass
-            if parts:
-                return '\n\n'.join(parts)
-            return self.task or self.project_slug
         # Intent phase, or artifacts not yet written
         return self.task or self.project_slug
 
