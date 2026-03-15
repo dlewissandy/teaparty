@@ -8,7 +8,7 @@ Covers:
     but leaves worktree intact
  4. withdraw_session() emits SESSION_COMPLETED with terminal_state=WITHDRAWN
  5. Dashboard screen has a 'w' binding mapped to withdraw action
- 6. Drilldown screen has a 'w' binding mapped to withdraw action
+ 6. Drilldown screen has an 'f6' binding (priority) mapped to withdraw action
  7. Withdraw on a terminal session (COMPLETED_WORK/WITHDRAWN) is a no-op
 """
 import asyncio
@@ -267,10 +267,10 @@ class TestWithdrawBindings(unittest.TestCase):
         self.assertIn('w', keys)
 
     def test_drilldown_has_withdraw_binding(self):
-        """DrilldownScreen must have a 'w' binding."""
+        """DrilldownScreen must have an 'f6' binding for withdraw (not 'w', which conflicts with Input)."""
         from projects.POC.tui.screens.drilldown import DrilldownScreen
         keys = [b.key for b in DrilldownScreen.BINDINGS]
-        self.assertIn('w', keys)
+        self.assertIn('f6', keys)
 
     def test_dashboard_withdraw_binding_label(self):
         """Dashboard 'w' binding must be labeled 'Withdraw'."""
@@ -283,14 +283,24 @@ class TestWithdrawBindings(unittest.TestCase):
             self.fail("No 'w' binding found on DashboardScreen")
 
     def test_drilldown_withdraw_binding_label(self):
-        """Drilldown 'w' binding must be labeled 'Withdraw'."""
+        """Drilldown 'f6' binding must be labeled 'Withdraw'."""
         from projects.POC.tui.screens.drilldown import DrilldownScreen
         for b in DrilldownScreen.BINDINGS:
-            if b.key == 'w':
+            if b.key == 'f6':
                 self.assertEqual(b.description, 'Withdraw')
                 break
         else:
-            self.fail("No 'w' binding found on DrilldownScreen")
+            self.fail("No 'f6' binding found on DrilldownScreen")
+
+    def test_drilldown_withdraw_binding_has_priority(self):
+        """Drilldown withdraw binding must have priority=True to show over Input widget."""
+        from projects.POC.tui.screens.drilldown import DrilldownScreen
+        for b in DrilldownScreen.BINDINGS:
+            if b.key == 'f6' and b.action == 'withdraw':
+                self.assertTrue(b.priority, "Withdraw binding must have priority=True")
+                break
+        else:
+            self.fail("No 'f6' withdraw binding found on DrilldownScreen")
 
 
 if __name__ == '__main__':
