@@ -1,14 +1,20 @@
 # Approval Gate and Human Proxy
 
-Every question that needs a human decision follows the same pattern:
+Every question that needs a human decision follows one path:
 
-1. **Ask the proxy** (if enabled) — proxy generates a predicted answer
-2. **If confident** — return the proxy's answer
-3. **If not confident** — ask the human
-4. **Record the differential** (proxy prediction vs. human actual) for learning
-5. **Return the answer**
+1. **Statistical pre-filters** — cold start, staleness, content checks, exploration rate
+2. **If stats say escalate** → skip the proxy agent, go straight to the human
+3. **If stats pass** → invoke the **proxy agent** (a Claude session with file-read tools and learned patterns)
+4. **Proxy agent generates text + confidence** — what it predicts the human would say
+5. **If confident** → the agent's text IS the answer
+6. **If not confident** → the same question goes to the human
+7. **Both predicted text and actual text feed into learning**
 
-Two entry points feed into this pattern, but they use **different proxy functions** — this is a known gap ([#143](https://github.com/dlewissandy/teaparty/issues/143)).
+This is implemented in `proxy_agent.py:consult_proxy()` — the single entry point for all proxy decisions. `ApprovalGate` (artifact review at ASSERT states) and `EscalationListener` (agent questions via AskQuestion MCP tool) both use it.
+
+### Never-escalate states
+
+TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy still runs through the full path (statistical filters, agent invocation, confidence check) but if it's not confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. The human should never be interrupted for task-level review during execution — that would defeat the purpose of hierarchical delegation.
 
 ---
 
@@ -22,119 +28,102 @@ This explains the priority ordering:
 
 1. **Retrieval-backed prediction is the path to autonomy.** A proxy that predicts correctly most of the time handles most human involvement automatically. Each escalation produces a new differential that improves future predictions — the system gets better with use.
 
-2. **The statistical heuristic is a stepping stone, not the destination.** `should_escalate()` uses keyword matching, length anomalies, and confidence counters — it can detect obvious signals but cannot reason about whether the human would approve a specific artifact. It reads the artifact for pattern matching (CONFIRM markers, correction keywords, concern vocabulary) but does not understand it. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing this with a Claude agent that reads and reasons.
-
-3. **The differential is the highest-value learning signal.** Salemi & Zamani (2024, Fermi) showed that misaligned responses — where the model predicted incorrectly — are more valuable for learning than correct predictions. Every proxy prediction that diverges from the human's actual answer tells the system exactly where its model is wrong. This is why both entry points record the differential.
+2. **The differential is the highest-value learning signal.** Salemi & Zamani (2024, Fermi) showed that misaligned responses — where the model predicted incorrectly — are more valuable for learning than correct predictions. Every proxy prediction that diverges from the human's actual answer tells the system exactly where its model is wrong.
 
 ---
 
-## Entry Point 1: ApprovalGate (artifact review)
+## The Proxy Agent
 
-`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`. Currently this means: INTENT_ASSERT, PLAN_ASSERT, and WORK_ASSERT.
+`proxy_agent.py:consult_proxy()` is the single proxy invocation path:
 
-The ESCALATE states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE) are also in `human_actor_states` but are **currently unreachable** — the only path to them was through escalation file detection in `_interpret_output()`, removed in #137. Agents now use AskQuestion for mid-turn questions.
+1. **Proxy disabled?** → return empty result (experiment baseline)
+2. **Elapsed-time guard**: TASK_ASSERT and WORK_ASSERT — if execution phase ran < 120 seconds, skip agent, escalate
+3. **Load proxy model** and tier 1 patterns (`proxy-patterns.md`), tier 2 interactions (`.proxy-interactions.jsonl`)
+4. **Statistical pre-filters** via `should_escalate()` — if stats say escalate, return empty result (no agent needed)
+5. **Invoke proxy agent** via `run_proxy_agent()` — a Claude CLI session with file-read tools. The agent receives:
+   - The gate question (e.g., "Do you recognize this as your idea?")
+   - The artifact path and upstream context paths (INTENT.md, PLAN.md)
+   - Learned behavioral patterns and similar past interactions
+   - Dialog history (for multi-turn conversations)
+6. **Agent returns** text (what the human would say) + confidence (0.0–1.0)
 
-TASK_ASSERT is **not** routed to ApprovalGate — its CfA actor is `execution_worker`.
+The caller (`ApprovalGate._ask_human_through_proxy`) decides based on confidence:
+- confidence >= `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8) → agent's text is the answer
+- confidence < threshold AND state in `_NEVER_ESCALATE_STATES` → agent's text is still the answer (or 'Approved.' if empty)
+- confidence < threshold → escalate to the actual human
+
+---
+
+## ApprovalGate (ASSERT states)
+
+`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`: INTENT_ASSERT, PLAN_ASSERT, TASK_ASSERT, TASK_ESCALATE, and WORK_ASSERT.
+
+ONE loop. Every turn: ask the human through the proxy. Classify the response. If terminal, done. If dialog, loop.
+
+**Gate questions** (`_GATE_QUESTIONS`):
+- INTENT_ASSERT: "Do you recognize this as your idea, completely and accurately articulated?"
+- PLAN_ASSERT: "Do you recognize this as a strategic plan to operationalize your idea well?"
+- TASK_ASSERT: "Does this work look like your task, correctly executed?"
+- WORK_ASSERT: "Do you recognize the deliverables and project files as your idea, completely and well implemented?"
 
 **Flow:**
 
-1. **Artifact missing?** → skip proxy, ask human directly
-2. **Proxy disabled?** → skip proxy, ask human directly (experiment baseline)
-3. **PLAN_ASSERT only:** cross-reference [RESOLVE] questions from INTENT.md against PLAN.md via `check_resolve_coverage()`. Unaddressed questions → reject back to planning agent.
-4. **Consult proxy** via `_proxy_decide()` → calls `should_escalate()` from `approval_gate.py`
-5. **Auto-approve** → record outcome via `_proxy_record()`, log interaction, return approve
-6. **Escalate** → generate bridge text → enter dialog loop
-
-**Dialog loop (step 6):**
-
-- Generate bridge text via `_generate_bridge()` — LLM call (Haiku) via `generate_review_bridge.generate()`. Reads the artifact and upstream context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT). Falls back to a static string if LLM unavailable.
-- Show bridge text to human via `input_provider` (TUI)
-- Human responds
-- Classify response via `_classify_review()` — LLM call (Haiku) via `classify_review.classify()`. Valid actions are derived from the CfA state machine per state, with `dialog` prepended for multi-turn conversation. `__fallback__` on classification failure.
-- If `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop
-- If clear action → record outcome via `_proxy_record()`, log interaction via `_log_interaction()`, return
-
-**Elapsed-time guard:** At TASK_ASSERT and WORK_ASSERT, if the execution phase ran for less than `MIN_EXECUTION_SECONDS` (120s), the proxy always escalates.
-
-**Recording:** `_proxy_record()` calls `record_outcome()` with outcome, differential summary, artifact length, extracted question patterns, and proxy prediction. `_log_interaction()` appends to `.proxy-interactions.jsonl` for tier 2 retrieval.
+1. Call `_ask_human_through_proxy()` with the gate question
+2. `consult_proxy()` runs the full path (stats → agent → confidence check → maybe human)
+3. Classify the response via `_classify_review()` (Haiku LLM call). Valid actions derived from CfA state machine per state.
+4. If `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop back to step 1
+5. If dialog occurred and final action is `approve` → convert to `correct` with the dialog as feedback, so the agent gets another pass with the human's context
+6. Record outcome via `_proxy_record()` + `_log_interaction()`, return
 
 ---
 
-## Entry Point 2: EscalationListener (AskQuestion MCP tool)
+## EscalationListener (AskQuestion MCP tool)
 
 `EscalationListener._route_through_proxy()` in `escalation_listener.py`. Invoked when an agent calls the `AskQuestion` MCP tool during its turn. The agent is still running — the answer returns as a tool result in the same turn.
 
-**Flow:**
-
-1. Load proxy model via `load_model()`
-2. Call `generate_response()` for a prediction — returns `GenerativeResponse` (action, text, confidence) or None
-3. **Confident** (confidence >= `model.generative_threshold`) → return prediction text directly
-4. **Not confident** → ask human via `_ask_human()` → `input_provider` (TUI)
-5. Record differential via `record_outcome()` — stores prediction alongside human answer
-6. Return answer to agent as MCP tool result
-
-**Key difference from ApprovalGate:** Uses `generate_response()` instead of `should_escalate()`. `generate_response()` requires cold start threshold passed, stored differentials or question patterns to exist, and confidence above threshold — but lacks the content checks, staleness guard, exploration rate, tier 1/tier 2 pattern checks, prediction drift detection, and elapsed-time guard that `should_escalate()` has. No interaction log is written. Issue [#143](https://github.com/dlewissandy/teaparty/issues/143) tracks unifying these paths.
+Uses the same `consult_proxy()` path as ApprovalGate.
 
 ---
 
-## Proxy Decision Model
+## Statistical Pre-Filters
 
-The proxy is a statistical heuristic in `approval_gate.py`. It reads artifacts for mechanical pattern matching (CONFIRM markers, keyword overlap with past corrections, concern vocabulary, length anomalies) but does not reason about content semantically. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing it with a Claude agent that reads and reasons — the step required to reach the 85% prediction accuracy Park et al. demonstrated.
-
-### `should_escalate()` — used by ApprovalGate
-
-Returns `ProxyDecision`. Decision rules in priority order:
+`should_escalate()` in `approval_gate.py`. Returns `ProxyDecision`. Decision rules in priority order:
 
 1. **Cold start guard**: < 5 observations for this (state, task_type) pair → escalate
 2. **[CONFIRM:] markers**: artifact contains unresolved `[CONFIRM:...]` markers → escalate unconditionally
-3. **Content checks** (`_check_content()`), in sub-priority order:
-   - Length anomaly: artifact < 50% or > 200% of historical mean character count
-   - Principle violation (Phase 2a): past corrections with reasoning — if the artifact doesn't contain keywords from the human's stated standard, escalate
-   - Keyword match (Phase 2a fallback): past corrections without reasoning — if correction summary keywords appear in the artifact, escalate (signal the artifact may repeat a past mistake)
-   - Concern patterns (Phase 2b): concern categories from question history (e.g., error_handling, security) raised >= 2 times — if the artifact doesn't contain keywords from the concern vocabulary, escalate
-4. **Tier 1 pattern match**: flat behavioral patterns from `proxy-patterns.md` — if the artifact doesn't address known correction patterns for this state (< 30% keyword coverage), escalate
-5. **Tier 2 retrieval**: past interactions from `.proxy-interactions.jsonl` — if > 50% of last 5 similar interactions at this state resulted in corrections, escalate
-6. **Confidence threshold**: confidence < threshold → escalate. Binary states (ASSERT) require 0.8; generative states require 0.95
-7. **Staleness guard**: > 7 days since last human signal → escalate to recalibrate
+3. **Content checks** (`_check_content()`):
+   - Length anomaly: artifact < 50% or > 200% of historical mean
+   - Principle violation (Phase 2a): past corrections with reasoning — artifact doesn't contain keywords from the human's stated standard
+   - Keyword match (Phase 2a fallback): correction summary keywords appear in the artifact
+   - Concern patterns (Phase 2b): concern categories raised >= 2 times, artifact doesn't contain concern vocabulary
+4. **Tier 1 pattern match**: `proxy-patterns.md` — artifact doesn't address known correction patterns (< 30% keyword coverage)
+5. **Tier 2 retrieval**: `.proxy-interactions.jsonl` — > 50% of last 5 similar interactions resulted in corrections
+6. **Confidence threshold**: confidence < threshold → escalate. ASSERT states require 0.8; generative states require 0.95
+7. **Staleness guard**: > 7 days since last human signal → escalate
 8. **Prediction drift**: prediction accuracy below 50% (min 5 predictions) → escalate
 9. **Exploration rate**: 15% random escalation even when confident
-10. **Auto-approve**: all checks passed
-
-`_proxy_decide()` in `actors.py` wraps this with an elapsed-time guard (< 120s at execution states → escalate) and loads tier 1 patterns from `proxy-patterns.md` and tier 2 interactions from `.proxy-interactions.jsonl`.
-
-### `generate_response()` — used by EscalationListener
-
-Constructs a predicted human response from stored question patterns and text differentials. Returns `GenerativeResponse` (action, text, confidence) or None. Returns None if: cold start (< 5 observations), no stored differentials or question patterns, or confidence below threshold. When it does return, it assembles text from the most recent question pattern (with reasoning) and the most recent differential.
+10. **Auto-approve**: all checks passed → proxy agent runs
 
 ### Confidence computation
 
-`compute_confidence()` returns the minimum of two signals:
-- **Laplace estimate**: `(approve_count + 1) / (total_count + 2)` — stable long-term
-- **EMA** (alpha=0.3): approval nudges up by 1 step; correction nudges down by 3 steps (asymmetric regret)
-
-### Design choices
-
-- **Dual-signal confidence (Laplace + EMA)**: Taking the minimum ensures both signals agree before auto-approving — least-regret strategy.
-- **Asymmetric regret (REGRET_WEIGHT=3)**: A false approval costs 3x more than a false escalation. Bias toward caution.
-- **Exploration rate (15%)**: Prevents permanent overconfidence. Floor on human interruption.
-- **Per-team JSON persistence**: `.proxy-confidence-{team}.json` — one file per team, each evolving independently.
+`compute_confidence()` = min(Laplace, EMA):
+- **Laplace**: `(approve_count + 1) / (total_count + 2)`
+- **EMA** (alpha=0.3): approval → +1 step; correction → -3 steps (asymmetric regret, REGRET_WEIGHT=3)
 
 ---
 
 ## Learning from Outcomes
 
-`record_outcome()` records after every human decision:
+`record_outcome()` records after every decision:
 
 - Counter increments (approve, correct, reject, total)
-- EMA update (approval → +1 step; correction → -3 steps)
-- **Text differentials**: summary of what the human changed, reasoning, timestamped, with the proxy's prediction stored as `predicted_response`
-- **Artifact lengths**: historical char counts (max 20 per entry)
-- **Question patterns**: extracted questions with concern category and disposition (max 20 per entry)
-- **Prediction accuracy tracking**: `prediction_correct_count` / `prediction_total_count`
+- EMA update
+- **Text differentials**: what the human changed, with the proxy's prediction as `predicted_response`
+- **Artifact lengths**: historical char counts (max 20)
+- **Question patterns**: extracted questions with concern category (max 20)
+- **Prediction accuracy**: `prediction_correct_count` / `prediction_total_count`
 
 Concern vocabulary: error_handling, rollback, security, idempotency, testing, documentation, sequencing, external_dependencies.
-
-Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outcome()` + `_log_interaction()`, EscalationListener via `record_outcome()` directly (no interaction log — another [#143](https://github.com/dlewissandy/teaparty/issues/143) gap).
 
 ---
 
@@ -142,13 +131,14 @@ Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outco
 
 | Area | Status | Issue |
 |------|--------|-------|
-| AskQuestion MCP tool replaces file-based escalation | Done (open) | [#137](https://github.com/dlewissandy/teaparty/issues/137) |
+| AskQuestion MCP tool replaces file-based escalation | Done | [#137](https://github.com/dlewissandy/teaparty/issues/137) |
+| Proxy is a real Claude agent with tools | Done | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
 | Differential recording (proxy prediction vs. human actual) | Done | [#138](https://github.com/dlewissandy/teaparty/issues/138) |
-| Alignment validation framing at gates | Done | [#102](https://github.com/dlewissandy/teaparty/issues/102) |
+| Alignment validation questions at gates | Done | [#102](https://github.com/dlewissandy/teaparty/issues/102) |
 | Cold-start intake dialog (Phase 1) | Done | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
 | Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
-| Unify proxy paths (should_escalate vs. generate_response) | Open | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
-| Proxy must be an actual agent (reads artifacts, reasons) | Open | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
+| Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE) | Done | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
+| Unified proxy path (consult_proxy for all entry points) | Done | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
 | Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
 | Text derivative learning (proxy self-assessment) | Design target | |
 
