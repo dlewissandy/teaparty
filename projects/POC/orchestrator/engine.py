@@ -29,6 +29,7 @@ from projects.POC.scripts.cfa_state import (
 )
 
 _log = logging.getLogger('orchestrator')
+from projects.POC.orchestrator.skill_lookup import lookup_skill
 from projects.POC.orchestrator.actors import (
     ActorContext,
     ActorResult,
@@ -156,6 +157,10 @@ class Orchestrator:
                 # Bridge intent → planning (INTENT has one edge: plan → DRAFT)
                 await self._auto_bridge()
 
+                # Skill lookup: System 1 fast path — check if a learned
+                # skill covers this task before cold-start planning.
+                await self._try_skill_lookup()
+
                 result = await self._run_phase('planning')
                 if result.terminal:
                     return self._make_result(result.terminal_state)
@@ -226,6 +231,60 @@ class Orchestrator:
                 session_id=self.session_id,
             ))
             await self._transition(action, ActorResult(action=action))
+
+    async def _try_skill_lookup(self) -> None:
+        """Check the skill library for a matching skill (System 1 fast path).
+
+        If a match is found, writes SKILL.md to the session worktree so that
+        _task_for_phase('planning') can include it as warm-start context.
+        Fail-safe: any error falls through silently to cold-start planning.
+        """
+        skills_dir = os.path.join(self.project_workdir, 'skills')
+        if not os.path.isdir(skills_dir):
+            return
+
+        # Read the approved intent
+        intent = ''
+        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+        try:
+            with open(intent_path) as f:
+                intent = f.read()
+        except OSError:
+            pass
+
+        try:
+            match = lookup_skill(
+                task=self.task,
+                intent=intent,
+                skills_dir=skills_dir,
+            )
+        except Exception:
+            _log.debug('Skill lookup failed, falling through to cold start')
+            return
+
+        if not match:
+            return
+
+        # Write matched skill to worktree for _task_for_phase to pick up
+        skill_path = os.path.join(self.session_worktree, 'SKILL.md')
+        header = (
+            f'## Matched Skill: {match.name}\n'
+            f'**Score:** {match.score:.3f}\n'
+            f'**Description:** {match.description}\n\n'
+        )
+        with open(skill_path, 'w') as f:
+            f.write(header + match.template)
+
+        await self.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'skill_lookup',
+                'skill_name': match.name,
+                'skill_score': match.score,
+                'skill_path': match.path,
+            },
+            session_id=self.session_id,
+        ))
 
     def _make_result(self, terminal_state: str) -> OrchestratorResult:
         """Build OrchestratorResult with escalation_type derived from CfA state."""
@@ -466,12 +525,32 @@ class Orchestrator:
             if parts:
                 return '\n\n'.join(parts)
         elif phase_name == 'planning':
+            parts = []
+            # Include matched skill context if present (warm start)
+            skill_path = os.path.join(self.session_worktree, 'SKILL.md')
+            try:
+                with open(skill_path) as f:
+                    skill_content = f.read()
+                if skill_content.strip():
+                    parts.append(
+                        '--- Matched Skill (warm start) ---\n'
+                        + skill_content
+                        + '\n--- end ---\n\n'
+                        'This skill matched the current task. Adapt it to the '
+                        'specific intent below, or plan from scratch if it does '
+                        'not apply.'
+                    )
+            except OSError:
+                pass
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
                 with open(intent_path) as f:
-                    return f.read()
+                    parts.append(f.read())
             except OSError:
                 pass
+            if parts:
+                return '\n\n'.join(parts)
+            return self.task or self.project_slug
         # Intent phase, or artifacts not yet written
         return self.task or self.project_slug
 
