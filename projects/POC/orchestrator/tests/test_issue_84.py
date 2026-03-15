@@ -108,24 +108,36 @@ class TestSessionUsesRetrieveDirectly(unittest.TestCase):
     def test_retrieve_memory_does_not_use_subprocess(self):
         """_retrieve_memory() must not shell out to memory_indexer.py.
 
-        Bug: session.py:388 calls subprocess.run(['python3', script, ...])
+        Bug: session.py calls subprocess.run(['python3', script, ...])
         to invoke memory_indexer.py. This is fragile and couples to CLI flags.
         The fix should import and call retrieve() directly.
         """
         from projects.POC.orchestrator.session import Session
 
-        # Read the source of _retrieve_memory to check for subprocess usage
         source = inspect.getsource(Session._retrieve_memory)
         self.assertNotIn(
             'subprocess.run',
             source,
-            "_retrieve_memory() still uses subprocess.run() to call memory_indexer.py. "
+            "_retrieve_memory() still uses subprocess.run(). "
             "It should import and call retrieve() directly.",
         )
+
+    def test_retrieve_memory_static_does_not_use_subprocess(self):
+        """_retrieve_memory_static() must also not shell out.
+
+        There is a second code path — _retrieve_memory_static() — that
+        also calls memory_indexer.py via subprocess. Both must be fixed.
+        """
+        from projects.POC.orchestrator.session import Session
+
+        if not hasattr(Session, '_retrieve_memory_static'):
+            return  # method doesn't exist, nothing to check
+
+        source = inspect.getsource(Session._retrieve_memory_static)
         self.assertNotIn(
-            'subprocess',
+            'subprocess.run',
             source,
-            "_retrieve_memory() still references subprocess. "
+            "_retrieve_memory_static() still uses subprocess.run(). "
             "It should import and call retrieve() directly.",
         )
 

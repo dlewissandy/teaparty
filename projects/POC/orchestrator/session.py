@@ -664,39 +664,26 @@ class Session:
                 except OSError:
                     pass
 
-        import tempfile
-        script = os.path.join(poc_root, 'scripts', 'memory_indexer.py')
+        # Fuzzy memory retrieval via importable retrieve()
         db_path = os.path.join(project_dir, '.memory.db')
-        if os.path.exists(script) and os.path.exists(db_path):
-            output_path = None
+        if os.path.exists(db_path):
             try:
-                with tempfile.NamedTemporaryFile(
-                    mode='w', suffix='.md', delete=False,
-                ) as out_f:
-                    output_path = out_f.name
-                mem_result = subprocess.run(
-                    ['python3', script,
-                     '--db', db_path,
-                     '--task', task,
-                     '--top-k', '10',
-                     '--output', output_path,
-                     '--scope-base-dir', project_dir,
-                    ],
-                    capture_output=True, text=True, timeout=15,
+                from projects.POC.scripts.memory_indexer import retrieve
+                source_paths = [
+                    os.path.join(project_dir, 'institutional.md'),
+                    os.path.join(project_dir, 'tasks'),
+                ]
+                mem_content = retrieve(
+                    task=task,
+                    db_path=db_path,
+                    source_paths=source_paths,
+                    top_k=10,
+                    scope_base_dir=project_dir,
                 )
-                if mem_result.returncode == 0 and os.path.exists(output_path):
-                    with open(output_path) as f:
-                        mem_content = f.read().strip()
-                    if mem_content:
-                        parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
-            except Exception:
-                pass
-            finally:
-                if output_path:
-                    try:
-                        os.unlink(output_path)
-                    except OSError:
-                        pass
+                if mem_content and mem_content.strip():
+                    parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
+            except Exception as exc:
+                print(f'[session] memory retrieval failed: {exc}', file=sys.stderr)
 
         return '\n\n'.join(parts)
 
