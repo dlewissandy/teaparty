@@ -12,6 +12,7 @@ Covers:
  8. analyze.py — descriptive stats (sample variance), Cohen's d, condition summary
  9. suppress_backtracks — Orchestrator skips backtrack loops when flag is set
 10. report.py — markdown_table formatting
+11. plotting.py — convergence curves, box plots, cost-quality frontier, phase timing
 
 Uses unittest.TestCase with _make_*() helpers per project conventions.
 """
@@ -1446,6 +1447,197 @@ class TestProxyEnabled(unittest.TestCase):
         task = TaskDefinition(id='t-001', text='do stuff')
         config = corpus.make_config(task, condition='no-proxy', proxy_enabled=False)
         self.assertFalse(config.proxy_enabled)
+
+
+# ── plotting.py ───────────────────────────────────────────────────────────────
+
+class TestPlotting(unittest.TestCase):
+    """Tests for the plotting module."""
+
+    def _make_runs(self, n_per_condition=5, conditions=None):
+        """Create synthetic run data for plotting tests."""
+        conditions = conditions or ['treatment', 'control']
+        runs = []
+        rng = random.Random(42)
+        for cond in conditions:
+            for i in range(n_per_condition):
+                runs.append({
+                    'condition': cond,
+                    'task_id': f'{cond[:1]}-{i+1:03d}',
+                    'elapsed_seconds': rng.uniform(30, 300),
+                    'backtrack_count': rng.randint(0, 5),
+                    'state_transitions': rng.randint(3, 20),
+                    'quality_rating': rng.randint(1, 5),
+                    'proxy': {
+                        'mean_confidence': rng.uniform(0.3, 0.95),
+                        'mean_confidence_laplace': rng.uniform(0.3, 0.9),
+                        'mean_confidence_ema': rng.uniform(0.4, 0.95),
+                        'auto_approvals': rng.randint(0, 10),
+                        'escalations': rng.randint(0, 5),
+                    },
+                    'tokens': {
+                        'total_tokens': rng.randint(1000, 50000),
+                        'input_tokens': rng.randint(500, 30000),
+                        'output_tokens': rng.randint(500, 20000),
+                        'cost_usd': round(rng.uniform(0.01, 1.0), 4),
+                        'phases': {
+                            'intent': {'total_tokens': rng.randint(100, 5000)},
+                            'planning': {'total_tokens': rng.randint(200, 10000)},
+                            'execution': {'total_tokens': rng.randint(500, 30000)},
+                        },
+                    },
+                })
+        return runs
+
+    def test_plot_convergence_returns_figure(self):
+        """plot_convergence returns a matplotlib Figure."""
+        from experiments.plotting import plot_convergence
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs()
+        fig = plot_convergence(runs, metric_path='proxy.mean_confidence')
+        self.assertIsNotNone(fig)
+        self.assertEqual(type(fig).__name__, 'Figure')
+        plt.close(fig)
+
+    def test_plot_convergence_handles_missing_metric(self):
+        """plot_convergence defaults to 0.0 for missing metric values."""
+        from experiments.plotting import plot_convergence
+        import matplotlib.pyplot as plt
+
+        runs = [{'condition': 'a'}, {'condition': 'a'}]
+        fig = plot_convergence(runs, metric_path='nonexistent.metric')
+        self.assertIsNotNone(fig)
+        plt.close(fig)
+
+    def test_plot_box_returns_figure(self):
+        """plot_box returns a matplotlib Figure."""
+        from experiments.plotting import plot_box
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs()
+        fig = plot_box(runs, metric_path='elapsed_seconds')
+        self.assertIsNotNone(fig)
+        self.assertEqual(type(fig).__name__, 'Figure')
+        plt.close(fig)
+
+    def test_plot_box_multiple_conditions(self):
+        """plot_box handles 3+ conditions."""
+        from experiments.plotting import plot_box
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs(conditions=['a', 'b', 'c'])
+        fig = plot_box(runs, metric_path='backtrack_count')
+        self.assertIsNotNone(fig)
+        plt.close(fig)
+
+    def test_plot_cost_quality_returns_figure(self):
+        """plot_cost_quality returns a matplotlib Figure."""
+        from experiments.plotting import plot_cost_quality
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs()
+        fig = plot_cost_quality(
+            runs,
+            cost_metric='tokens.total_tokens',
+            quality_metric='quality_rating',
+        )
+        self.assertIsNotNone(fig)
+        self.assertEqual(type(fig).__name__, 'Figure')
+        plt.close(fig)
+
+    def test_plot_cost_quality_empty_runs(self):
+        """plot_cost_quality handles empty runs list."""
+        from experiments.plotting import plot_cost_quality
+        import matplotlib.pyplot as plt
+
+        runs = [{'condition': 'a'}]  # no metrics
+        fig = plot_cost_quality(runs)
+        self.assertIsNotNone(fig)
+        plt.close(fig)
+
+    def test_plot_proxy_decisions_returns_figure(self):
+        """plot_proxy_decisions returns a matplotlib Figure."""
+        from experiments.plotting import plot_proxy_decisions
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs(n_per_condition=8, conditions=['dual-signal'])
+        # Filter to single condition
+        fig = plot_proxy_decisions(runs)
+        self.assertIsNotNone(fig)
+        self.assertEqual(type(fig).__name__, 'Figure')
+        plt.close(fig)
+
+    def test_plot_phase_timing_returns_figure(self):
+        """plot_phase_timing returns a matplotlib Figure."""
+        from experiments.plotting import plot_phase_timing
+        import matplotlib.pyplot as plt
+
+        runs = self._make_runs(n_per_condition=5, conditions=['full-cfa'])
+        fig = plot_phase_timing(runs)
+        self.assertIsNotNone(fig)
+        self.assertEqual(type(fig).__name__, 'Figure')
+        plt.close(fig)
+
+    def test_pareto_frontier_basic(self):
+        """_pareto_frontier computes correct frontier."""
+        from experiments.plotting import _pareto_frontier
+
+        points = [(1, 5), (2, 3), (3, 4), (4, 2), (5, 6)]
+        # minimize x, maximize y: (1,5) and (5,6) are on frontier
+        frontier = _pareto_frontier(points, minimize_x=True, maximize_y=True)
+        self.assertIn((1, 5), frontier)
+        self.assertIn((5, 6), frontier)
+
+    def test_pareto_frontier_empty(self):
+        """_pareto_frontier returns empty list for no points."""
+        from experiments.plotting import _pareto_frontier
+
+        self.assertEqual(_pareto_frontier([]), [])
+
+    def test_pareto_frontier_single_point(self):
+        """_pareto_frontier returns the single point."""
+        from experiments.plotting import _pareto_frontier
+
+        self.assertEqual(_pareto_frontier([(3, 7)]), [(3, 7)])
+
+    def test_save_experiment_plots_no_data(self):
+        """save_experiment_plots returns empty list when no results exist."""
+        from experiments.plotting import save_experiment_plots
+
+        saved = save_experiment_plots(
+            experiment='nonexistent-experiment',
+            results_base=tempfile.mkdtemp(),
+        )
+        self.assertEqual(saved, [])
+
+    def test_save_experiment_plots_with_data(self):
+        """save_experiment_plots generates PNG files from synthetic data."""
+        from experiments.plotting import save_experiment_plots
+
+        # Create synthetic results on disk
+        tmp = tempfile.mkdtemp()
+        exp_dir = os.path.join(tmp, 'test-exp', 'treatment')
+        for i in range(3):
+            task_dir = os.path.join(exp_dir, f't-{i:03d}')
+            os.makedirs(task_dir)
+            metrics = self._make_runs(n_per_condition=1, conditions=['treatment'])[0]
+            with open(os.path.join(task_dir, 'metrics.json'), 'w') as f:
+                json.dump(metrics, f)
+
+        output_dir = os.path.join(tmp, 'plots')
+        saved = save_experiment_plots(
+            experiment='test-exp',
+            results_base=tmp,
+            output_dir=output_dir,
+        )
+
+        self.assertGreater(len(saved), 0)
+        for path in saved:
+            self.assertTrue(os.path.isfile(path), f'Missing: {path}')
+            self.assertTrue(path.endswith('.png'))
+
+        shutil.rmtree(tmp)
 
 
 if __name__ == '__main__':

@@ -28,6 +28,7 @@ packages = ["teaparty_app"]
 
 [tool.uv]
 dev-dependencies = [
+    "matplotlib>=3.9.0",
     "mkdocs-material>=9.7.5",
     "pytest>=9.0.2",
     "scipy>=1.14.0",

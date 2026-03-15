@@ -169,6 +169,26 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_plot(args: argparse.Namespace) -> int:
+    """Generate plots for an experiment."""
+    from experiments.plotting import save_experiment_plots
+
+    saved = save_experiment_plots(
+        experiment=args.experiment,
+        results_base=args.results_base,
+        output_dir=args.output_dir,
+    )
+
+    if not saved:
+        print(f'No results found for experiment {args.experiment!r}', file=sys.stderr)
+        return 1
+
+    for path in saved:
+        print(path)
+    print(f'\n{len(saved)} plots saved', file=sys.stderr)
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog='python -m experiments',
@@ -202,6 +222,12 @@ def main() -> int:
     p_report.add_argument('--experiment', required=True, help='Experiment name')
     p_report.add_argument('--results-base', default='', help='Results directory override')
 
+    # ── plot ──
+    p_plot = sub.add_parser('plot', help='Generate plots for an experiment')
+    p_plot.add_argument('--experiment', required=True, help='Experiment name')
+    p_plot.add_argument('--results-base', default='', help='Results directory override')
+    p_plot.add_argument('--output-dir', default='', help='Output directory for PNGs')
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -212,6 +238,7 @@ def main() -> int:
         'run-corpus': cmd_run_corpus,
         'analyze': cmd_analyze,
         'report': cmd_report,
+        'plot': cmd_plot,
     }
     return commands[args.command](args)
 
