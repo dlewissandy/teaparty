@@ -37,3 +37,7 @@ projects/*
 projects/POC/MEMORY.md
 .memory.db
 INTENT.md
+
+# Experiment results (collected data, not source)
+experiments/results/
+!experiments/results/.gitkeep
