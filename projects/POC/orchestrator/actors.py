@@ -509,6 +509,7 @@ class ApprovalGate:
         from projects.POC.orchestrator.proxy_agent import consult_proxy
         gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
         dialog_history = ''
+        next_bridge = ''  # set after dialog turns to show the agent's reply
 
         while True:
             # Ask the human — through the proxy.
@@ -519,7 +520,9 @@ class ApprovalGate:
                 project_slug=project_slug,
                 team=team,
                 dialog_history=dialog_history,
+                bridge_override=next_bridge,
             )
+            next_bridge = ''  # consumed
 
             # Classify the response.
             action, feedback = self._classify_review(
@@ -555,12 +558,22 @@ class ApprovalGate:
                     dialog_history=dialog_history,
                 )
 
-            # Dialog — loop back.
-            dialog_history += f'RESPONSE: {response_text}\n'
+            # Dialog — generate a reply, then loop back.  The reply becomes
+            # the bridge text for the next turn so the human sees the answer.
+            dialog_history += f'HUMAN: {response_text}\n'
+            agent_reply = self._generate_dialog_response(
+                ctx.state, response_text, artifact_path,
+                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                ctx.task, dialog_history,
+                session_worktree=ctx.session_worktree,
+            )
+            dialog_history += f'AGENT: {agent_reply}\n'
+            next_bridge = agent_reply
 
     async def _ask_human_through_proxy(
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
+        bridge_override: str = '',
     ) -> str:
         """Ask the human through the proxy.  Returns the response text.
 
@@ -597,7 +610,9 @@ class ApprovalGate:
             return proxy_result.text
 
         # Proxy can't answer — escalate to the actual human.
-        bridge_text = self._generate_bridge(
+        # If there's a bridge override (e.g., the agent's reply to a prior
+        # question), show that instead of the generic gate question.
+        bridge_text = bridge_override or self._generate_bridge(
             artifact_path, ctx.state, ctx.task,
             session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
         )
