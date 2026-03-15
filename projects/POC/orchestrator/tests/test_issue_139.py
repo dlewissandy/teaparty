@@ -211,7 +211,8 @@ class TestProxyAgentGeneratesText(unittest.TestCase):
 
         agent_text = 'Yes, this captures my idea completely and accurately.'
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
             # Agent returns high-confidence text
             mock_agent.return_value = (agent_text, 0.95)
 
@@ -248,7 +249,8 @@ class TestProxyAgentGeneratesText(unittest.TestCase):
         Path(artifact_path).write_text('# Intent\nBuild something')
         ctx.data = {'artifact_path': artifact_path}
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
             # Agent returns low-confidence text
             mock_agent.return_value = ("I'm not sure about this one.", 0.3)
 
@@ -278,7 +280,8 @@ class TestProxyAgentGeneratesText(unittest.TestCase):
 
         agent_prediction = 'Yes, this looks correct.'
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent:
             mock_agent.return_value = (agent_prediction, 0.3)  # low confidence → human asked
 
             with patch.object(gate, '_classify_review',
@@ -381,7 +384,8 @@ class TestProxyAgentInputs(unittest.TestCase):
         Path(artifact_path).write_text('# Intent\nDo something useful')
         ctx.data = {'artifact_path': artifact_path}
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
              patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             mock_agent.return_value = ('Looks good.', 0.95)
@@ -400,7 +404,8 @@ class TestProxyAgentInputs(unittest.TestCase):
         Path(artifact_path).write_text('# Intent\nBuild it')
         ctx.data = {'artifact_path': artifact_path}
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
              patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             mock_agent.return_value = ('Yes, approved.', 0.95)
@@ -418,7 +423,8 @@ class TestProxyAgentInputs(unittest.TestCase):
         Path(artifact_path).write_text('# Intent')
         ctx.data = {'artifact_path': artifact_path}
 
-        with patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
              patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             mock_agent.return_value = ('Approved.', 0.95)
