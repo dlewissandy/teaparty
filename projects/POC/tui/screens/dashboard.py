@@ -285,11 +285,7 @@ class DashboardScreen(Screen):
             self.notify('Session is already terminal', severity='warning')
             return
 
-        from projects.POC.tui.screens.confirm_withdraw import ConfirmWithdrawScreen
-        self.app.push_screen(
-            ConfirmWithdrawScreen(sid),
-            callback=lambda confirmed: self._do_withdraw(sid) if confirmed else None,
-        )
+        self._do_withdraw(sid)
 
     def _do_withdraw(self, session_id: str) -> None:
         import asyncio

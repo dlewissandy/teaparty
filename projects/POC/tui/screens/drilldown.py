@@ -523,11 +523,7 @@ class DrilldownScreen(Screen):
             self.notify('Session is already terminal', severity='warning')
             return
 
-        from projects.POC.tui.screens.confirm_withdraw import ConfirmWithdrawScreen
-        self.app.push_screen(
-            ConfirmWithdrawScreen(self.session_id),
-            callback=lambda confirmed: self._do_withdraw() if confirmed else None,
-        )
+        self._do_withdraw()
 
     def _do_withdraw(self) -> None:
         import asyncio
