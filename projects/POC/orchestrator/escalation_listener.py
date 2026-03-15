@@ -64,6 +64,9 @@ class EscalationListener:
         proxy_model_path: str = '',
         project_slug: str = '',
         cfa_state: str = '',
+        session_worktree: str = '',
+        infra_dir: str = '',
+        team: str = '',
     ):
         self.event_bus = event_bus
         self.input_provider = input_provider
@@ -71,6 +74,9 @@ class EscalationListener:
         self.proxy_model_path = proxy_model_path
         self.project_slug = project_slug
         self.cfa_state = cfa_state
+        self.session_worktree = session_worktree
+        self.infra_dir = infra_dir
+        self.team = team
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
 
@@ -138,28 +144,36 @@ class EscalationListener:
     async def _route_through_proxy(self, question: str, context: str = '') -> str:
         """Route a question through the proxy, escalating to human if needed.
 
-        1. Load proxy model and generate a predicted response (always)
-        2. If confident → return prediction, log it
-        3. If not confident → ask human, record differential, return human answer
+        Uses the same proxy agent path as the approval gate — consult_proxy
+        runs the statistical pre-filters, invokes the Claude agent if they
+        pass, and returns (text, confidence).  If confident, the agent's text
+        is the answer.  If not, the human is asked and the differential is
+        recorded.
         """
+        from projects.POC.orchestrator.proxy_agent import (
+            consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
+        )
         from projects.POC.scripts.approval_gate import (
-            generate_response,
             load_model,
             record_outcome,
             save_model,
         )
 
-        # Always generate a prediction (even on cold start, it may be None)
-        prediction = ''
-        confident = False
-        try:
-            model = load_model(self.proxy_model_path)
-            gen = generate_response(model, self.cfa_state, self.project_slug)
-            if gen is not None:
-                prediction = gen.text
-                confident = gen.confidence >= model.generative_threshold
-        except Exception:
-            _log.debug('Proxy prediction failed (cold start or missing model)')
+        proxy_result = await consult_proxy(
+            question=question,
+            state=self.cfa_state,
+            project_slug=self.project_slug,
+            proxy_model_path=self.proxy_model_path,
+            session_worktree=self.session_worktree,
+            infra_dir=self.infra_dir,
+            team=self.team,
+        )
+
+        prediction = proxy_result.text
+        confident = (
+            proxy_result.from_agent
+            and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD
+        )
 
         await self.event_bus.publish(Event(
             type=EventType.LOG,
@@ -193,6 +207,7 @@ class EscalationListener:
                     differential_summary=human_answer[:500],
                     differential_reasoning=question,
                     prediction=prediction or '(no prediction)',
+                    predicted_response=prediction,
                 )
                 save_model(model, self.proxy_model_path)
                 _log.info('Recorded escalation differential for %s', self.cfa_state)
