@@ -49,7 +49,7 @@ The strategic plan follows the shape of the problem, not a fixed template. Some 
 
 ### Cold Start (No Prior Context)
 
-When the system has no history with this type of work, the planning phase begins with exploration, not artifact production. The project lead explores the solution space — reading the codebase, identifying structural dependencies, surfacing assumptions the intent did not address. Research liaisons dispatch to investigate open questions from the intent phase, technical feasibility, and prior art.
+When the system has no history with this type of work, the planning phase begins with exploration, not artifact production. The project lead explores the solution space — reading the codebase, identifying structural dependencies, surfacing assumptions the intent did not address. Open questions from the intent phase (marked `[RESOLVE]`) are not resolved during planning — they are assigned to specific workflow steps where the execution team will resolve them through investigation and ground truth. Research liaisons dispatch to investigate technical feasibility and prior art.
 
 Before producing `PLAN.md`, the [human proxy](human-proxies.md#understand-first-act-second) runs an intake dialog that shares what the team found and checks its understanding with the human: "Here's what I'm seeing in the codebase. Here's what's harder than it looks. Here are two viable approaches — which direction feels right?" On cold start, the proxy has no predictions about the human's planning preferences, so every directional question goes to the human. The human's answers inform the decomposition and become the first data points for the proxy's model of how this human thinks about planning.
 

@@ -106,7 +106,7 @@ Four moments trigger learning writes, each capturing a different kind of signal:
 | **Corrective** | At mismatch | Highest confidence — direct evidence of model error with recoverable causal chain ([#79](https://github.com/dlewissandy/teaparty/issues/79)) |
 | **Retrospective** | After completion | Synthesized learnings promoted through the chain |
 
-Corrective learnings are the most valuable because they come with causal chains: what went wrong, why, and what would have prevented it. Corrective learnings receive higher importance weight (0.8) than single-observation learnings (0.5) to reflect this. Reinforcement tracking — boosting confidence on learnings that prove useful across sessions — is not yet implemented ([#35](https://github.com/dlewissandy/teaparty/issues/35), [#91](https://github.com/dlewissandy/teaparty/issues/91)).
+Corrective learnings are the most valuable because they come with causal chains: what went wrong, why, and what would have prevented it. Corrective learnings receive higher importance weight (0.8) than single-observation learnings (0.5) to reflect this. Reinforcement tracking — boosting confidence on learnings that prove useful across sessions — is wired into the post-session pipeline: `extract_learnings()` calls `reinforce_entries()` to increment `reinforcement_count` for entries that were retrieved and used during the session ([#91](https://github.com/dlewissandy/teaparty/issues/91), resolved).
 
 ## Promotion Chain
 

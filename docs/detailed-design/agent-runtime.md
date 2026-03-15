@@ -17,11 +17,15 @@ Session.run()
   └─ Orchestrator.run() — CfA state loop
        ├─ Intent phase    → AgentRunner → ClaudeRunner → claude -p
        │                    → ApprovalGate (INTENT_ASSERT)
-       ├─ Planning phase  → AgentRunner → ClaudeRunner → claude -p
+       ├─ Planning phase  → Skill lookup (System 1 fast path)
+       │                    ├─ Match found → write PLAN.md from skill, skip planning agent
+       │                    └─ No match   → AgentRunner → ClaudeRunner → claude -p
        │                    → ApprovalGate (PLAN_ASSERT)
        └─ Execution phase → AgentRunner → ClaudeRunner → claude -p
                             → ApprovalGate (WORK_ASSERT)
 ```
+
+Before entering cold-start planning, the orchestrator queries the skill library for matching skills ([#97](https://github.com/dlewissandy/teaparty/issues/97)). When a skill matches, the skill template is written directly as `PLAN.md` and CfA advances to `PLAN_ASSERT`, bypassing the planning agent entirely. The human reviews the skill-as-plan at the approval gate. If corrected, the system falls back to the cold-start planning path (System 2). When no skill matches, planning proceeds via the existing agent-driven path.
 
 Each phase invokes an **AgentRunner** (which wraps `ClaudeRunner`) to run a Claude agent team, then routes to the **ApprovalGate** at assertion states for proxy review.
 

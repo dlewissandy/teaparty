@@ -96,5 +96,5 @@ scope_multiplier: team=1.5, project=1.2, global=1.0
 - [#84](https://github.com/dlewissandy/teaparty/issues/84): memory_indexer.py needs retrieve() function
 - ~~[#85](https://github.com/dlewissandy/teaparty/issues/85): summarize_session.py needs promote() function~~ — resolved
 - [#86](https://github.com/dlewissandy/teaparty/issues/86): compact_memory.py not wired in
-- [#91](https://github.com/dlewissandy/teaparty/issues/91): track_reinforcement.py not wired in
+- ~~[#91](https://github.com/dlewissandy/teaparty/issues/91): track_reinforcement.py not wired in~~ — resolved: `reinforce_entries()` called from `extract_learnings()` at session end
 - [#101](https://github.com/dlewissandy/teaparty/issues/101): Enable procedural learning (plans → skills)
