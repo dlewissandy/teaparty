@@ -876,8 +876,9 @@ class TestDialogLoopsBackThroughProxy(unittest.TestCase):
             result = _run(gate.run(ctx))
 
         # Human asked twice — once per loop turn (proxy escalated both times).
+        # After dialog, "approve" becomes "correct" to feed back to the agent.
         self.assertEqual(input_count[0], 2)
-        self.assertEqual(result.action, 'approve')
+        self.assertEqual(result.action, 'correct')
 
 
 from projects.POC.orchestrator.events import EventType

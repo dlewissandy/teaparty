@@ -541,7 +541,13 @@ class ApprovalGate:
             ))
 
             if action not in ('dialog', '__fallback__'):
-                # Terminal action — done.
+                # Terminal action.  But if there was dialog, the human was
+                # providing clarification — feed that back to the agent phase
+                # as "correct" so the agent gets another pass with context.
+                if dialog_history and action == 'approve':
+                    action = 'correct'
+                    feedback = dialog_history + f'HUMAN: {response_text}\n'
+
                 self._proxy_record(
                     ctx.state, project_slug, action,
                     artifact_path=artifact_path, team=team,

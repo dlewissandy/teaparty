@@ -276,7 +276,8 @@ class TestProxyAgentDialog(unittest.TestCase):
              patch.object(gate, '_proxy_record'):
             result = _run(gate.run(ctx))
 
-        self.assertEqual(result.action, 'approve')
+        # After dialog, "approve" becomes "correct" to feed back to the agent.
+        self.assertEqual(result.action, 'correct')
 
     def test_proxy_loses_confidence_human_asked_on_next_turn(self):
         """If proxy loses confidence, the next loop turn escalates to human."""
