@@ -293,6 +293,53 @@ class TestPreRunEscalationCleanup(unittest.TestCase):
         self.assertEqual(result.action, 'escalate',
                          "Agent-written escalation file must be detected")
 
+    def test_misplaced_copy_from_previous_turn_also_cleaned(self):
+        """Pre-run cleanup must also delete misplaced copies from wrong paths.
+
+        Without this, _relocate_misplaced_artifact scans the full stream,
+        finds a Write from a PREVIOUS turn to /home/user/.intent-escalation.md,
+        and re-copies it into the worktree — defeating the cleanup.
+        """
+        import json as _json
+
+        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
+        misplaced_path = os.path.join(self.tmpdir, 'wrong-location', '.intent-escalation.md')
+        os.makedirs(os.path.dirname(misplaced_path), exist_ok=True)
+        Path(misplaced_path).write_text('# Stale from wrong path')
+
+        # Write a fake stream with a Write event pointing to the misplaced path
+        stream_path = os.path.join(self.tmpdir, '.intent-stream.jsonl')
+        evt = {
+            'type': 'assistant',
+            'message': {
+                'content': [{
+                    'type': 'tool_use',
+                    'name': 'Write',
+                    'input': {'file_path': misplaced_path},
+                }],
+            },
+        }
+        Path(stream_path).write_text(_json.dumps(evt) + '\n')
+
+        ctx = _make_ctx(self.tmpdir, state='PROPOSAL')
+
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        mock_result = ClaudeResult(exit_code=0, session_id='s1')
+
+        with patch('projects.POC.orchestrator.actors.ClaudeRunner') as MockRunner:
+            mock_instance = MagicMock()
+            mock_instance.run = AsyncMock(return_value=mock_result)
+            MockRunner.return_value = mock_instance
+
+            result = _run(self.runner.run(ctx))
+
+        # The misplaced copy should be gone
+        self.assertFalse(os.path.isfile(misplaced_path),
+                         "Misplaced escalation copy must be deleted in pre-run cleanup")
+        # And the relocation should NOT have re-copied it
+        self.assertNotEqual(result.action, 'escalate',
+                            "Stale misplaced copy should not trigger escalation")
+
 
 # ── Tests: Escalation files excluded from merge ──────────────────────────────
 

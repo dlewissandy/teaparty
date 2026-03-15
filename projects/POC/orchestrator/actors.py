@@ -144,12 +144,24 @@ class AgentRunner:
         # Pre-run cleanup: remove any stale escalation file so that
         # _interpret_output only sees files written by THIS turn.
         # This is the handshake: absent before run → present after = agent escalated.
+        # Also delete any misplaced copies the agent wrote to wrong paths in
+        # previous turns — _relocate_misplaced_artifact scans the full stream
+        # and would re-copy them into the worktree after we cleaned up.
         if ctx.phase_spec.escalation_file:
             esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
             try:
                 os.remove(esc_path)
             except FileNotFoundError:
                 pass
+            stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+            misplaced = _find_write_path_in_stream(
+                stream_path, ctx.phase_spec.escalation_file,
+            )
+            if misplaced and os.path.isfile(misplaced):
+                try:
+                    os.remove(misplaced)
+                except OSError:
+                    pass
 
         # Build prompt
         prompt = ctx.task
@@ -537,13 +549,22 @@ def _extract_questions(content: str) -> list[str]:
 
 _ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_REVIEW_ESCALATE'})
 
+# Canonical alignment questions for each approval gate.  These are the
+# questions the proxy and human both see — no LLM rephrasing.
+_GATE_QUESTIONS: dict[str, str] = {
+    'INTENT_ASSERT': 'Do you recognize this intent document as your idea, completely and accurately articulated?',
+    'PLAN_ASSERT': 'Do you recognize this plan as a strategic plan to operationalize your idea well?',
+    'WORK_ASSERT': 'Do you recognize the deliverables as your idea, completely and well implemented?',
+    'TASK_ASSERT': 'Do you recognize this task result as complete and correct?',
+}
+
 
 class ApprovalGate:
     """Proxy decision + human review loop.
 
-    Consults the human proxy model first.  If confident, auto-approves.
-    Otherwise, generates a conversational bridge and asks the human.
-    The human's response is classified into a CfA action.
+    Every gate — approval or escalation, any phase — follows the same
+    chain: ask the proxy first, then escalate to the human if the proxy
+    can't answer.  The question is the same for both.
     """
 
     def __init__(
