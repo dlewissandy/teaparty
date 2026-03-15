@@ -54,6 +54,7 @@ class ClaudeRunner:
         event_bus: EventBus | None = None,
         stall_timeout: int = 1800,
         session_id: str = '',
+        mcp_config: dict[str, Any] | None = None,
     ):
         self.prompt = prompt
         self.cwd = cwd
@@ -65,6 +66,8 @@ class ClaudeRunner:
         self.add_dirs = add_dirs or []
         self.resume_session = resume_session
         self.env_vars = env_vars or {}
+        self.mcp_config = mcp_config
+        self._mcp_config_file: str | None = None
         self.event_bus = event_bus
         self.stall_timeout = stall_timeout
         self.session_id = session_id
@@ -125,6 +128,12 @@ class ClaudeRunner:
                     os.unlink(settings_file.name)
                 except OSError:
                     pass
+            if self._mcp_config_file:
+                try:
+                    os.unlink(self._mcp_config_file)
+                except OSError:
+                    pass
+                self._mcp_config_file = None
 
     def _build_args(self, settings_path: str | None) -> list[str]:
         args = [
@@ -159,6 +168,17 @@ class ClaudeRunner:
                 args.extend(['--add-dir', d])
         if self.resume_session:
             args.extend(['--resume', self.resume_session])
+        if self.mcp_config:
+            # Write MCP server config to a temp file for --mcp-config.
+            # The temp file is cleaned up in run() alongside the settings file.
+            mcp_file = tempfile.NamedTemporaryFile(
+                mode='w', suffix='.json', delete=False,
+            )
+            mcp_wrapper = {'mcpServers': self.mcp_config}
+            json.dump(mcp_wrapper, mcp_file)
+            mcp_file.close()
+            self._mcp_config_file = mcp_file.name
+            args.extend(['--mcp-config', mcp_file.name])
         return args
 
     def _build_env(self) -> dict[str, str]:

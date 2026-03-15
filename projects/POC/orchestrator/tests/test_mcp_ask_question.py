@@ -253,9 +253,8 @@ class TestMCPServerRegistration(unittest.TestCase):
         """The MCP server must expose an 'AskQuestion' tool."""
         from projects.POC.orchestrator.mcp_server import create_server
         server = create_server()
-        # FastMCP stores tools in a dict-like structure
-        tools = server.list_tools()
-        tool_names = [t.name if hasattr(t, 'name') else t for t in tools]
+        tools = _run(server.list_tools())
+        tool_names = [t.name for t in tools]
         self.assertIn('AskQuestion', tool_names)
 
 
@@ -265,8 +264,8 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
     """ClaudeRunner must wire the MCP server into Claude Code's args."""
 
     def test_mcp_server_config_in_build_args(self):
-        """When an mcp_server_command is provided, ClaudeRunner must include
-        --mcp-config in the CLI args pointing to a config with the server."""
+        """When mcp_config is provided, ClaudeRunner must include
+        --mcp-config in the CLI args pointing to a temp file."""
         from projects.POC.orchestrator.claude_runner import ClaudeRunner
 
         runner = ClaudeRunner(
@@ -279,8 +278,25 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
             }},
         )
         args = runner._build_args(None)
-        # Should include --mcp-config pointing to a temp file with the server config
         self.assertIn('--mcp-config', args)
+        # Clean up the temp file created by _build_args
+        if runner._mcp_config_file:
+            try:
+                os.unlink(runner._mcp_config_file)
+            except OSError:
+                pass
+
+    def test_no_mcp_config_when_not_provided(self):
+        """When mcp_config is not provided, --mcp-config should not appear."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+
+        runner = ClaudeRunner(
+            prompt='test',
+            cwd='/tmp',
+            stream_file='/tmp/stream.jsonl',
+        )
+        args = runner._build_args(None)
+        self.assertNotIn('--mcp-config', args)
 
 
 if __name__ == '__main__':
