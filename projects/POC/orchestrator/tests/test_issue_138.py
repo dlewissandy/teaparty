@@ -230,15 +230,11 @@ class TestEscalationFlowStoresPrediction(unittest.TestCase):
         # Verify _proxy_record was called with the predicted response text
         mock_record.assert_called_once()
         call_kwargs = mock_record.call_args
-        # Check that predicted_response text was passed (not just 'escalate')
         args, kwargs = call_kwargs
-        all_args = {**kwargs}
-        # prediction should be the text, not just the decision label
-        prediction_value = all_args.get('prediction', '')
-        self.assertNotEqual(prediction_value, 'escalate',
-                            "prediction must be the predicted response text, not just 'escalate'")
-        self.assertIn(predicted_text, str(call_kwargs),
-                      "Predicted response text must be passed to _proxy_record")
+        # predicted_response kwarg must contain the proxy's predicted text
+        predicted_value = kwargs.get('predicted_response', '')
+        self.assertEqual(predicted_value, predicted_text,
+                         "predicted_response must contain the proxy's predicted text")
 
 
 if __name__ == '__main__':

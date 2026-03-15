@@ -146,7 +146,8 @@ class TextDifferential:
     """A record of what the human changed when they corrected/edited output."""
     outcome: str             # 'correct', 'reject', 'clarify'
     summary: str             # brief description of the change
-    reasoning: str = ''      # NEW — why it needed to change
+    reasoning: str = ''      # why it needed to change
+    predicted_response: str = ''  # what the proxy would have said (Issue #138)
     timestamp: str = ''      # ISO date e.g. '2026-03-04'
 
 
@@ -734,6 +735,7 @@ def record_outcome(
     artifact_length: int = 0,
     question_patterns: list = None,
     prediction: str = '',
+    predicted_response: str = '',
 ) -> ConfidenceModel:
     """Record a human decision outcome and return the updated model.
 
@@ -827,6 +829,7 @@ def record_outcome(
             outcome=outcome,
             summary=differential_summary[:500],
             reasoning=differential_reasoning[:500],
+            predicted_response=predicted_response[:500] if predicted_response else '',
             timestamp=date.today().isoformat(),
         ))
         differentials.append(diff_entry)
@@ -1020,21 +1023,32 @@ def generate_response(
     model: ConfidenceModel,
     state: str,
     task_type: str,
-) -> 'GenerativeResponse | None':
-    """Generate a predicted human response based on differential history.
+) -> GenerativeResponse:
+    """Generate a predicted human response for escalation states.
 
-    For generative states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE),
-    the proxy can predict what the human would say based on patterns in past
-    corrections. Returns None if confidence is too low or insufficient data.
+    Always returns a GenerativeResponse — never None. On cold start or low
+    confidence the response will have low confidence, but it still exists.
+    This is essential: the differential between the proxy's prediction and
+    the human's actual response is the highest-value learning signal. Without
+    a prediction, there is no differential. (Issue #138)
 
-    This is the foundation for future auto-correction without human involvement.
-    Currently returns the most recent differential as the predicted response.
+    Confidence reflects how much the proxy trusts its own prediction:
+    - Cold start (no history): confidence 0.0
+    - History but below threshold: actual computed confidence
+    - Above threshold: actual computed confidence (eligible for auto-response)
     """
     key = _entry_key(state, task_type)
     raw = model.entries.get(key)
 
+    # Cold start — no history at all for this state/task pair.
+    # Return a generic low-confidence response. The prediction will be
+    # wrong, the diff will be large, and that's exactly the point.
     if raw is None:
-        return None
+        return GenerativeResponse(
+            action='clarify',
+            text='I don\'t have enough context to predict what the human would say here.',
+            confidence=0.0,
+        )
 
     if isinstance(raw, dict):
         if 'differentials' not in raw:
@@ -1047,25 +1061,12 @@ def generate_response(
     else:
         entry = raw
 
-    # Need sufficient history AND differentials or question_patterns to generate
-    if entry.total_count < COLD_START_THRESHOLD:
-        return None
-    if not entry.differentials and not getattr(entry, 'question_patterns', []):
-        return None
+    confidence = compute_confidence(entry) if entry.total_count > 0 else 0.0
 
-    confidence = compute_confidence(entry)
-    threshold = (
-        model.generative_threshold
-        if is_generative_state(state)
-        else model.global_threshold
-    )
-
-    if confidence < threshold:
-        return None
-
+    # Build response text from whatever history we have
     text_parts = []
 
-    # Prepend from question_patterns — most recent with both reasoning and question
+    # From question_patterns — most recent with both reasoning and question
     qps = getattr(entry, 'question_patterns', [])
     for qp in reversed(qps):
         q = qp.get('question', '') if isinstance(qp, dict) else ''
@@ -1076,7 +1077,7 @@ def generate_response(
             )
             break
 
-    # Append from differentials — most recent
+    # From differentials — most recent
     if entry.differentials:
         latest = entry.differentials[-1]
         r = latest.get('reasoning', '') if isinstance(latest, dict) else ''
@@ -1086,8 +1087,13 @@ def generate_response(
         elif s:
             text_parts.append(s)
 
+    # If no history to draw from, return a generic low-confidence response
     if not text_parts:
-        return None
+        return GenerativeResponse(
+            action='clarify',
+            text='I don\'t have enough context to predict what the human would say here.',
+            confidence=min(confidence, 0.1),
+        )
 
     return GenerativeResponse(
         action=entry.differentials[-1].get('outcome', 'correct') if entry.differentials else 'correct',

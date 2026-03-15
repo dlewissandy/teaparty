@@ -825,7 +825,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
         from projects.POC.scripts.approval_gate import GenerativeResponse
         gate = self._make_gate()
         ctx = self._make_escalation_ctx()
-        mock_gen.return_value = GenerativeResponse(action='clarify', text='Use PostgreSQL', confidence=0.92)
+        mock_gen.return_value = GenerativeResponse(action='clarify', text='Use PostgreSQL', confidence=0.96)
 
         result = _run(gate.run(ctx))
 
