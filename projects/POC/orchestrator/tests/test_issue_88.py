@@ -128,6 +128,10 @@ class TestStageDetectionOnIntentApproval(unittest.TestCase):
         stage_file = os.path.join(orch.infra_dir, '.current-stage')
         Path(stage_file).write_text('specification\n')
 
+        # Create a project institutional.md so retirement has a target
+        institutional = os.path.join(orch.project_workdir, 'institutional.md')
+        Path(institutional).write_text('# Memory\nSome entries\n')
+
         with patch('projects.POC.orchestrator.engine.detect_stage_from_content',
                    return_value='implementation'), \
              patch('projects.POC.orchestrator.engine.retire_stage_entries',

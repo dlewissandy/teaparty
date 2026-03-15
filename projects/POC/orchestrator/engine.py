@@ -29,6 +29,8 @@ from projects.POC.scripts.cfa_state import (
 )
 
 _log = logging.getLogger('orchestrator')
+from projects.POC.scripts.detect_stage import detect_stage_from_content
+from projects.POC.scripts.retire_stage import retire_stage_entries
 from projects.POC.orchestrator.skill_lookup import lookup_skill
 from projects.POC.orchestrator.actors import (
     ActorContext,
@@ -465,6 +467,63 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+        # Post-intent-approval: detect project stage and retire old-stage memory
+        if old_state == 'INTENT_ASSERT' and action == 'approve':
+            self._detect_and_retire_stage()
+
+    def _detect_and_retire_stage(self) -> None:
+        """Detect the project stage from INTENT.md and retire old-stage memory."""
+        from pathlib import Path
+
+        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+        if not os.path.exists(intent_path):
+            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
+        if not os.path.exists(intent_path):
+            return
+
+        try:
+            content = Path(intent_path).read_text(errors='replace')
+        except OSError:
+            return
+
+        new_stage = detect_stage_from_content(content)
+
+        # Track stage in infra dir
+        stage_file = os.path.join(self.infra_dir, '.current-stage')
+        old_stage = ''
+        if os.path.exists(stage_file):
+            try:
+                old_stage = Path(stage_file).read_text().strip()
+            except OSError:
+                pass
+        Path(stage_file).write_text(new_stage + '\n')
+
+        _log.info('Stage detection: %s → %s', old_stage or '(none)', new_stage)
+
+        # Retire old-stage task-domain memory entries on transition
+        if old_stage and old_stage != new_stage and old_stage != 'unknown':
+            institutional = os.path.join(self.project_workdir, 'institutional.md')
+            if os.path.exists(institutional):
+                try:
+                    from projects.POC.scripts.memory_entry import (
+                        parse_memory_file, serialize_memory_file,
+                    )
+                    text = Path(institutional).read_text(errors='replace')
+                    entries = parse_memory_file(text)
+                    if entries:
+                        # Use module-level retire_stage_entries for testability
+                        updated, count = retire_stage_entries(entries, old_stage)
+                        if count > 0:
+                            Path(institutional).write_text(
+                                serialize_memory_file(updated),
+                            )
+                            _log.info(
+                                'Retired %d task-domain "%s" entries from %s',
+                                count, old_stage, institutional,
+                            )
+                except Exception as exc:
+                    _log.warning('Stage retirement failed: %s', exc)
 
     def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
         """Get the phase spec, accounting for team and flat overrides."""
