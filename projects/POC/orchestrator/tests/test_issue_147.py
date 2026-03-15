@@ -133,6 +133,41 @@ class TestProceduralLearningReadsInfraDir(unittest.TestCase):
 # ── Merge exclusion safety net ─────────────────────────────────────────────
 
 
+# ── Agent --add-dir includes infra_dir ──────────────────────────────────
+
+
+class TestAddDirsIncludesInfraDir(unittest.TestCase):
+    """Agents must receive infra_dir via --add-dir so they can read artifacts."""
+
+    def test_build_add_dirs_includes_infra_dir(self):
+        """_build_add_dirs includes infra_dir so agents can read INTENT.md/PLAN.md."""
+        from projects.POC.orchestrator.engine import Orchestrator
+
+        # Minimal orchestrator with distinct paths
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.session_worktree = '/tmp/worktree'
+        orch.project_workdir = '/tmp/project'
+        orch.infra_dir = '/tmp/infra'
+
+        dirs = orch._build_add_dirs()
+        self.assertIn('/tmp/infra', dirs)
+
+    def test_build_add_dirs_no_duplicate(self):
+        """infra_dir is not duplicated if it equals another dir."""
+        from projects.POC.orchestrator.engine import Orchestrator
+
+        orch = Orchestrator.__new__(Orchestrator)
+        orch.session_worktree = '/tmp/same'
+        orch.project_workdir = '/tmp/same'
+        orch.infra_dir = '/tmp/same'
+
+        dirs = orch._build_add_dirs()
+        self.assertEqual(dirs.count('/tmp/same'), 1)
+
+
+# ── Merge exclusion safety net ─────────────────────────────────────────────
+
+
 class TestMergeExcludesSessionArtifacts(unittest.TestCase):
     """Merge exclusion list should include session artifacts as safety net.
 
