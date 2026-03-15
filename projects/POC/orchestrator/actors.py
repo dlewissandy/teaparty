@@ -545,6 +545,7 @@ class ApprovalGate:
             # would advance the session with no work product to review.
             bridge_text = self._generate_bridge(
                 artifact_path, ctx.state, ctx.task, artifact_missing=True,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
             )
         elif not self.proxy_enabled:
             # Proxy disabled — skip proxy consultation, go straight to human.
@@ -563,7 +564,10 @@ class ApprovalGate:
                 },
                 session_id=ctx.session_id,
             ))
-            bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
+            bridge_text = self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
         else:
             # Step 0.5: At PLAN_ASSERT, cross-reference INTENT.md [RESOLVE]
             # questions against PLAN.md.  Unaddressed questions → escalate.
@@ -628,7 +632,10 @@ class ApprovalGate:
                 return ActorResult(action='approve')
 
             # Step 2: Generate bridge text for the human
-            bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
+            bridge_text = self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
 
         # Step 3: Build context summaries for classification accuracy
         intent_summary = ''
@@ -883,9 +890,15 @@ class ApprovalGate:
             return '__fallback__', ''
 
     def _generate_bridge(
-        self, artifact_path: str, state: str, task: str, artifact_missing: bool = False,
+        self, artifact_path: str, state: str, task: str,
+        artifact_missing: bool = False,
+        session_worktree: str = '', infra_dir: str = '',
     ) -> str:
-        """Generate conversational summary of artifact for review."""
+        """Generate alignment validation bridge for review.
+
+        Reads upstream context files (INTENT.md, PLAN.md) so the reviewer
+        can compare the artifact under review against its source of truth.
+        """
         if artifact_missing:
             expected_note = (
                 f' (expected path: {artifact_path})'
@@ -901,11 +914,41 @@ class ApprovalGate:
             )
         if not artifact_path or not os.path.exists(artifact_path):
             return f'Ready for review at {state}.'
+
+        # Read upstream context for alignment comparison
+        intent_context = self._read_context_file(
+            'INTENT.md', session_worktree, infra_dir,
+        )
+        plan_context = self._read_context_file(
+            'PLAN.md', session_worktree, infra_dir,
+        )
+
         try:
             from projects.POC.scripts.generate_review_bridge import generate
-            return generate(artifact_path, state, task)
+            return generate(
+                artifact_path, state, task,
+                intent_context=intent_context,
+                plan_context=plan_context,
+            )
         except Exception:
             return f'Please review: {artifact_path}'
+
+    @staticmethod
+    def _read_context_file(
+        filename: str, session_worktree: str, infra_dir: str,
+    ) -> str:
+        """Read a context file from session_worktree or infra_dir."""
+        for base in (session_worktree, infra_dir):
+            if not base:
+                continue
+            path = os.path.join(base, filename)
+            if os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        return f.read()
+                except OSError:
+                    pass
+        return ''
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,
