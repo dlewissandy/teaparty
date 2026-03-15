@@ -794,6 +794,14 @@ class ApprovalGate:
                     if 'proxy_decision' in dir() else False,
             )
 
+            # Clean up escalation file so stale questions don't resurface
+            # on the next agent cycle. (Issue #137)
+            if escalation_file and os.path.exists(escalation_file):
+                try:
+                    os.remove(escalation_file)
+                except OSError:
+                    pass
+
             return ActorResult(
                 action=action,
                 feedback=feedback,
