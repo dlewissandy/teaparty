@@ -779,6 +779,85 @@ def apply_scope_multipliers(
     ]
 
 
+def retrieve(
+    task: str,
+    db_path: str,
+    source_paths: list[str],
+    top_k: int = 5,
+    scope_base_dir: str = '',
+) -> str:
+    """Importable retrieval entry point for the memory system.
+
+    Indexes source files (if changed), retrieves relevant chunks for the task,
+    applies prominence weighting and scope multipliers, and returns formatted
+    context as a string.  Returns empty string if no relevant memory is found.
+
+    Args:
+        task: Task description used to construct the retrieval query.
+        db_path: Path to the SQLite FTS5 database file.
+        source_paths: Markdown files (or directories of .md files) to index.
+        top_k: Number of chunks to return after MMR reranking.
+        scope_base_dir: Project base directory for scope-level score multipliers.
+    """
+    # Expand directories to contained .md files and filter to non-empty
+    sources = []
+    for s in source_paths:
+        p = Path(s)
+        if p.is_dir():
+            for f in sorted(p.glob('*.md')):
+                if f.is_file() and f.stat().st_size > 0:
+                    sources.append(str(f))
+        elif p.is_file() and p.stat().st_size > 0:
+            sources.append(str(s))
+    if not sources:
+        return ''
+
+    try:
+        conn = open_db(db_path)
+    except Exception:
+        return ''
+
+    try:
+        # Refresh index for changed source files
+        refresh_index(conn, sources)
+
+        # Check if anything is indexed
+        total = conn.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        if total == 0:
+            return ''
+
+        if not task.strip():
+            return ''
+
+        query = build_retrieval_query(task)
+        if not query.strip():
+            return ''
+
+        # Hybrid retrieval (embedding + BM25) with BM25 fallback
+        query_embedding = try_embed(query, conn=conn)
+        if query_embedding:
+            try:
+                results = retrieve_hybrid(conn, query, query_embedding, top_k=top_k * 4)
+            except Exception:
+                results = retrieve_bm25(conn, query, top_k=top_k * 4)
+        else:
+            results = retrieve_bm25(conn, query, top_k=top_k * 4)
+
+        # Apply prominence weighting and scope multipliers
+        results = apply_prominence_weights(results, conn)
+        if scope_base_dir:
+            results = apply_scope_multipliers(results, scope_base_dir)
+        results.sort(key=lambda x: x[2], reverse=True)
+        results = mmr_rerank(results, top_k=top_k)
+
+        if not results:
+            return ''
+
+        return format_chunks(results)
+    finally:
+        conn.close()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Memory indexer and retriever")
     parser.add_argument("--db", required=True, help="Path to SQLite database file")
