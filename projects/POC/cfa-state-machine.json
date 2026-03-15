@@ -96,12 +96,12 @@
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
     ],
     "TASK_ASSERT": [
-      { "action": "approve", "to": "COMPLETED_TASK", "actor": "execution_lead" },
-      { "action": "correct", "to": "TASK_RESPONSE", "actor": "execution_lead" },
-      { "action": "reject", "to": "FAILED_TASK", "actor": "execution_lead" },
-      { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "execution_lead", "backtrack": true },
-      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "execution_lead", "backtrack": true },
-      { "action": "withdraw", "to": "WITHDRAWN", "actor": "execution_lead" }
+      { "action": "approve", "to": "COMPLETED_TASK", "actor": "approval_gate" },
+      { "action": "correct", "to": "TASK_RESPONSE", "actor": "approval_gate" },
+      { "action": "reject", "to": "FAILED_TASK", "actor": "approval_gate" },
+      { "action": "revise-plan", "to": "PLANNING_RESPONSE", "actor": "approval_gate", "backtrack": true },
+      { "action": "refine-intent", "to": "INTENT_RESPONSE", "actor": "approval_gate", "backtrack": true },
+      { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
     ],
     "TASK_RESPONSE": [
       { "action": "synthesize", "to": "TASK_IN_PROGRESS", "actor": "execution_worker" }

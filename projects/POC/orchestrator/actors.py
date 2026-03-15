@@ -465,8 +465,17 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
 _GATE_QUESTIONS: dict[str, str] = {
     'INTENT_ASSERT': 'Do you recognize this as your idea, completely and accurately articulated?',
     'PLAN_ASSERT': 'Do you recognize this as a strategic plan to operationalize your idea well?',
+    'TASK_ASSERT': 'Does this work look like your task, correctly executed?',
     'WORK_ASSERT': 'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
 }
+
+# States where the proxy runs but never escalates to the human.
+# The proxy still reads deliverables, asks questions, and uses learned
+# patterns — but if it's not confident, it goes with its best guess.
+_NEVER_ESCALATE_STATES: frozenset[str] = frozenset({
+    'TASK_ASSERT',
+    'TASK_ESCALATE',
+})
 
 
 class ApprovalGate:
@@ -614,6 +623,12 @@ class ApprovalGate:
 
         if proxy_confident:
             return proxy_result.text
+
+        # For never-escalate states (TASK_ASSERT, TASK_ESCALATE), the proxy's
+        # text is always the answer — even at low confidence.  If the proxy
+        # returned nothing, default to approval.  Never bother the human.
+        if ctx.state in _NEVER_ESCALATE_STATES:
+            return proxy_result.text or 'Approved.'
 
         # Proxy can't answer — escalate to the actual human.
         # If there's a bridge override (e.g., the agent's reply to a prior
