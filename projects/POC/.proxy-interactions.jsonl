@@ -1,0 +1,3 @@
+{"timestamp": "2026-03-15T06:32:27.076001+00:00", "session_id": "20260314-233100", "project": "POC", "state": "INTENT_ASSERT", "prediction": "escalate", "outcome": "approve", "delta": "", "exploration": false}
+{"timestamp": "2026-03-15T06:33:00.266702+00:00", "session_id": "20260314-233100", "project": "POC", "state": "PLAN_ASSERT", "prediction": "escalate", "outcome": "approve", "delta": "", "exploration": false}
+{"timestamp": "2026-03-15T06:34:55.898760+00:00", "session_id": "20260314-233100", "project": "POC", "state": "WORK_ASSERT", "prediction": "escalate", "outcome": "approve", "delta": "", "exploration": false}
