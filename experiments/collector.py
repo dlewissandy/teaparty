@@ -29,6 +29,40 @@ class PhaseTimings:
         return 0.0
 
 
+@dataclass
+class TokenUsage:
+    """Accumulated token counts and cost for a scope (phase or session)."""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_creation_tokens: int = 0
+    cost_usd: float = 0.0
+    num_turns: int = 0
+    invocations: int = 0
+
+    def add_usage(self, usage: dict[str, Any], cost: float = 0.0, turns: int = 0) -> None:
+        """Accumulate from a stream-json usage dict."""
+        self.input_tokens += usage.get('input_tokens', 0)
+        self.output_tokens += usage.get('output_tokens', 0)
+        self.cache_read_tokens += usage.get('cache_read_input_tokens', 0)
+        self.cache_creation_tokens += usage.get('cache_creation_input_tokens', 0)
+        self.cost_usd += cost
+        self.num_turns += turns
+        self.invocations += 1
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            'input_tokens': self.input_tokens,
+            'output_tokens': self.output_tokens,
+            'cache_read_tokens': self.cache_read_tokens,
+            'cache_creation_tokens': self.cache_creation_tokens,
+            'total_tokens': self.input_tokens + self.output_tokens,
+            'cost_usd': round(self.cost_usd, 6),
+            'num_turns': self.num_turns,
+            'invocations': self.invocations,
+        }
+
+
 class EventCollector:
     """Captures EventBus events to JSONL and computes summary metrics.
 
@@ -58,6 +92,11 @@ class EventCollector:
         self._proxy_decisions: list[dict[str, Any]] = []
         self._state_transitions: list[dict[str, Any]] = []
         self._input_responses: list[dict[str, Any]] = []
+
+        # Token accounting
+        self._session_tokens = TokenUsage()
+        self._phase_tokens: dict[str, TokenUsage] = {}
+        self._current_phase: str = ''
 
         # Ensure output directory exists
         os.makedirs(output_dir, exist_ok=True)
@@ -98,14 +137,21 @@ class EventCollector:
 
         elif event.type == EventType.PHASE_STARTED:
             phase = event.data.get('phase', '')
+            self._current_phase = phase
             self._phase_timings[phase] = PhaseTimings(
                 phase=phase, start=event.timestamp,
             )
+            if phase not in self._phase_tokens:
+                self._phase_tokens[phase] = TokenUsage()
 
         elif event.type == EventType.PHASE_COMPLETED:
             phase = event.data.get('phase', '')
             if phase in self._phase_timings:
                 self._phase_timings[phase].end = event.timestamp
+            self._current_phase = ''
+
+        elif event.type == EventType.STREAM_DATA:
+            self._handle_stream_data(event.data)
 
         elif event.type == EventType.LOG:
             category = event.data.get('category', '')
@@ -128,6 +174,33 @@ class EventCollector:
             self._terminal_state = event.data.get('terminal_state', '')
             self._backtrack_count = event.data.get('backtrack_count', 0)
 
+    def _handle_stream_data(self, data: dict[str, Any]) -> None:
+        """Extract token/cost data from stream-json events.
+
+        Captures data from:
+        - result/success: total_cost_usd, num_turns, usage (per-invocation final)
+        - system/task_notification: usage (background task completion)
+        """
+        event_type = data.get('type', '')
+        subtype = data.get('subtype', '')
+
+        if event_type == 'result' and subtype == 'success':
+            usage = data.get('usage', {})
+            cost = data.get('total_cost_usd', 0.0)
+            turns = data.get('num_turns', 0)
+            self._session_tokens.add_usage(usage, cost=cost, turns=turns)
+            if self._current_phase and self._current_phase in self._phase_tokens:
+                self._phase_tokens[self._current_phase].add_usage(
+                    usage, cost=cost, turns=turns,
+                )
+
+        elif event_type == 'system' and subtype == 'task_notification':
+            usage = data.get('usage', {})
+            if usage:
+                self._session_tokens.add_usage(usage)
+                if self._current_phase and self._current_phase in self._phase_tokens:
+                    self._phase_tokens[self._current_phase].add_usage(usage)
+
     def summarize(self) -> dict[str, Any]:
         """Compute summary metrics from collected events."""
         phase_durations = {}
@@ -149,6 +222,13 @@ class EventCollector:
             ),
         }
 
+        # Token accounting
+        tokens_summary = self._session_tokens.to_dict()
+        tokens_summary['by_phase'] = {
+            phase: usage.to_dict()
+            for phase, usage in self._phase_tokens.items()
+        }
+
         return {
             'experiment': self.experiment,
             'condition': self.condition,
@@ -159,6 +239,7 @@ class EventCollector:
             'state_transitions': len(self._state_transitions),
             'phase_durations': phase_durations,
             'proxy': proxy_summary,
+            'tokens': tokens_summary,
             'input_responses': len(self._input_responses),
         }
 

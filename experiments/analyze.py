@@ -73,6 +73,12 @@ def condition_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
     proxy_confs = [r.get('proxy', {}).get('mean_confidence', 0) for r in runs]
     transitions = [r.get('state_transitions', 0) for r in runs]
 
+    # Token accounting
+    total_tokens = [r.get('tokens', {}).get('total_tokens', 0) for r in runs]
+    input_tokens = [r.get('tokens', {}).get('input_tokens', 0) for r in runs]
+    output_tokens = [r.get('tokens', {}).get('output_tokens', 0) for r in runs]
+    cost_usd = [r.get('tokens', {}).get('cost_usd', 0) for r in runs]
+
     terminal_states = {}
     for r in runs:
         ts = r.get('terminal_state', 'unknown')
@@ -91,6 +97,10 @@ def condition_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
         'proxy_auto_approvals': _descriptive_stats(proxy_autos),
         'proxy_escalations': _descriptive_stats(proxy_escalations),
         'proxy_mean_confidence': _descriptive_stats(proxy_confs),
+        'total_tokens': _descriptive_stats(total_tokens),
+        'input_tokens': _descriptive_stats(input_tokens),
+        'output_tokens': _descriptive_stats(output_tokens),
+        'cost_usd': _descriptive_stats(cost_usd),
     }
 
 
@@ -243,6 +253,8 @@ def analyze_experiment(
         'state_transitions',
         'proxy.mean_confidence',
         'proxy.auto_approvals',
+        'tokens.total_tokens',
+        'tokens.cost_usd',
     ]
 
     comparisons = {}

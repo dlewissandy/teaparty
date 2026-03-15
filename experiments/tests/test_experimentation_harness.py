@@ -30,7 +30,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add repo root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from experiments.collector import EventCollector, PhaseTimings
+from experiments.collector import EventCollector, PhaseTimings, TokenUsage
 from experiments.config import ExperimentConfig, TaskDefinition, CorpusConfig, load_corpus
 from experiments.input_providers import (
     AlwaysApproveProvider,
@@ -262,6 +262,268 @@ class TestEventCollector(unittest.TestCase):
         )
         _run(collector.on_event(event))
         self.assertEqual(len(collector._input_responses), 1)
+
+    def test_stream_data_result_success_captures_tokens(self):
+        """STREAM_DATA with result/success captures token usage and cost."""
+        collector = self._make_collector()
+
+        # Start a phase so tokens are attributed
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED,
+            data={'phase': 'intent'},
+            timestamp=1000.0,
+        )))
+
+        # Simulate a result/success stream event
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result',
+                'subtype': 'success',
+                'total_cost_usd': 0.0325,
+                'num_turns': 5,
+                'usage': {
+                    'input_tokens': 1500,
+                    'output_tokens': 800,
+                    'cache_read_input_tokens': 200,
+                    'cache_creation_input_tokens': 50,
+                },
+            },
+        )))
+
+        # Session-level tokens
+        self.assertEqual(collector._session_tokens.input_tokens, 1500)
+        self.assertEqual(collector._session_tokens.output_tokens, 800)
+        self.assertEqual(collector._session_tokens.cache_read_tokens, 200)
+        self.assertEqual(collector._session_tokens.cache_creation_tokens, 50)
+        self.assertAlmostEqual(collector._session_tokens.cost_usd, 0.0325)
+        self.assertEqual(collector._session_tokens.num_turns, 5)
+        self.assertEqual(collector._session_tokens.invocations, 1)
+
+        # Phase-level tokens
+        self.assertIn('intent', collector._phase_tokens)
+        self.assertEqual(collector._phase_tokens['intent'].input_tokens, 1500)
+        self.assertEqual(collector._phase_tokens['intent'].output_tokens, 800)
+
+    def test_stream_data_accumulates_across_invocations(self):
+        """Multiple result/success events accumulate tokens and cost."""
+        collector = self._make_collector()
+
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED, data={'phase': 'planning'}, timestamp=1000.0,
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.01, 'num_turns': 3,
+                'usage': {'input_tokens': 500, 'output_tokens': 200},
+            },
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.02, 'num_turns': 4,
+                'usage': {'input_tokens': 700, 'output_tokens': 300},
+            },
+        )))
+
+        self.assertEqual(collector._session_tokens.input_tokens, 1200)
+        self.assertEqual(collector._session_tokens.output_tokens, 500)
+        self.assertAlmostEqual(collector._session_tokens.cost_usd, 0.03)
+        self.assertEqual(collector._session_tokens.num_turns, 7)
+        self.assertEqual(collector._session_tokens.invocations, 2)
+
+    def test_stream_data_task_notification_captures_usage(self):
+        """STREAM_DATA with system/task_notification captures token usage."""
+        collector = self._make_collector()
+
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED, data={'phase': 'execution'}, timestamp=1000.0,
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'system', 'subtype': 'task_notification',
+                'usage': {'input_tokens': 300, 'output_tokens': 100},
+            },
+        )))
+
+        self.assertEqual(collector._session_tokens.input_tokens, 300)
+        self.assertEqual(collector._session_tokens.output_tokens, 100)
+        self.assertEqual(collector._phase_tokens['execution'].input_tokens, 300)
+
+    def test_stream_data_no_phase_still_tracks_session_tokens(self):
+        """Token data outside a phase still accumulates at session level."""
+        collector = self._make_collector()
+
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.05, 'num_turns': 2,
+                'usage': {'input_tokens': 1000, 'output_tokens': 500},
+            },
+        )))
+
+        self.assertEqual(collector._session_tokens.input_tokens, 1000)
+        self.assertAlmostEqual(collector._session_tokens.cost_usd, 0.05)
+        # No phase tokens since no phase was started
+        self.assertEqual(len(collector._phase_tokens), 0)
+
+    def test_stream_data_per_phase_attribution(self):
+        """Tokens are attributed to the correct phase when phases change."""
+        collector = self._make_collector()
+
+        # Intent phase
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED, data={'phase': 'intent'}, timestamp=1000.0,
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.01, 'num_turns': 2,
+                'usage': {'input_tokens': 400, 'output_tokens': 100},
+            },
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_COMPLETED, data={'phase': 'intent'}, timestamp=1010.0,
+        )))
+
+        # Planning phase
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED, data={'phase': 'planning'}, timestamp=1010.0,
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.03, 'num_turns': 5,
+                'usage': {'input_tokens': 1200, 'output_tokens': 600},
+            },
+        )))
+
+        # Check per-phase attribution
+        self.assertEqual(collector._phase_tokens['intent'].input_tokens, 400)
+        self.assertEqual(collector._phase_tokens['planning'].input_tokens, 1200)
+
+        # Session totals
+        self.assertEqual(collector._session_tokens.input_tokens, 1600)
+        self.assertEqual(collector._session_tokens.output_tokens, 700)
+        self.assertAlmostEqual(collector._session_tokens.cost_usd, 0.04)
+
+    def test_summarize_includes_token_accounting(self):
+        """summarize() includes tokens dict with session totals and per-phase."""
+        collector = self._make_collector()
+
+        _run(collector.on_event(_make_event(
+            EventType.PHASE_STARTED, data={'phase': 'intent'}, timestamp=1000.0,
+        )))
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'result', 'subtype': 'success',
+                'total_cost_usd': 0.025, 'num_turns': 3,
+                'usage': {
+                    'input_tokens': 1000,
+                    'output_tokens': 500,
+                    'cache_read_input_tokens': 100,
+                    'cache_creation_input_tokens': 20,
+                },
+            },
+        )))
+
+        metrics = collector.summarize()
+        self.assertIn('tokens', metrics)
+        tokens = metrics['tokens']
+
+        self.assertEqual(tokens['input_tokens'], 1000)
+        self.assertEqual(tokens['output_tokens'], 500)
+        self.assertEqual(tokens['total_tokens'], 1500)
+        self.assertEqual(tokens['cache_read_tokens'], 100)
+        self.assertEqual(tokens['cache_creation_tokens'], 20)
+        self.assertAlmostEqual(tokens['cost_usd'], 0.025)
+        self.assertEqual(tokens['num_turns'], 3)
+        self.assertEqual(tokens['invocations'], 1)
+
+        # Per-phase breakdown
+        self.assertIn('by_phase', tokens)
+        self.assertIn('intent', tokens['by_phase'])
+        self.assertEqual(tokens['by_phase']['intent']['input_tokens'], 1000)
+
+    def test_stream_data_ignores_irrelevant_events(self):
+        """STREAM_DATA events without result/success or task_notification are ignored."""
+        collector = self._make_collector()
+
+        # assistant event (not token-relevant)
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={'type': 'assistant', 'message': {'content': []}},
+        )))
+
+        # system/init (not token-relevant)
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={'type': 'system', 'subtype': 'init', 'session_id': 'abc'},
+        )))
+
+        # system/task_progress (skipped — too noisy, only capture final)
+        _run(collector.on_event(_make_event(
+            EventType.STREAM_DATA,
+            data={
+                'type': 'system', 'subtype': 'task_progress',
+                'usage': {'input_tokens': 999, 'output_tokens': 999},
+            },
+        )))
+
+        self.assertEqual(collector._session_tokens.input_tokens, 0)
+        self.assertEqual(collector._session_tokens.output_tokens, 0)
+
+
+# ── TokenUsage ───────────────────────────────────────────────────────────────
+
+class TestTokenUsage(unittest.TestCase):
+    """TokenUsage dataclass accumulation and serialization."""
+
+    def test_add_usage_accumulates(self):
+        """add_usage() accumulates tokens, cost, and turns."""
+        tu = TokenUsage()
+        tu.add_usage({'input_tokens': 100, 'output_tokens': 50}, cost=0.01, turns=2)
+        tu.add_usage({'input_tokens': 200, 'output_tokens': 75}, cost=0.02, turns=3)
+        self.assertEqual(tu.input_tokens, 300)
+        self.assertEqual(tu.output_tokens, 125)
+        self.assertAlmostEqual(tu.cost_usd, 0.03)
+        self.assertEqual(tu.num_turns, 5)
+        self.assertEqual(tu.invocations, 2)
+
+    def test_add_usage_handles_missing_fields(self):
+        """add_usage() handles missing fields in usage dict gracefully."""
+        tu = TokenUsage()
+        tu.add_usage({})
+        self.assertEqual(tu.input_tokens, 0)
+        self.assertEqual(tu.output_tokens, 0)
+        self.assertEqual(tu.cache_read_tokens, 0)
+        self.assertEqual(tu.invocations, 1)
+
+    def test_to_dict_includes_total(self):
+        """to_dict() includes computed total_tokens field."""
+        tu = TokenUsage()
+        tu.add_usage({'input_tokens': 500, 'output_tokens': 200}, cost=0.015, turns=3)
+        d = tu.to_dict()
+        self.assertEqual(d['total_tokens'], 700)
+        self.assertEqual(d['input_tokens'], 500)
+        self.assertEqual(d['output_tokens'], 200)
+        self.assertAlmostEqual(d['cost_usd'], 0.015)
+        self.assertEqual(d['invocations'], 1)
+
+    def test_to_dict_rounds_cost(self):
+        """to_dict() rounds cost to 6 decimal places."""
+        tu = TokenUsage()
+        tu.add_usage({}, cost=0.00123456789)
+        d = tu.to_dict()
+        self.assertEqual(d['cost_usd'], 0.001235)
 
 
 # ── PhaseTimings ──────────────────────────────────────────────────────────────
