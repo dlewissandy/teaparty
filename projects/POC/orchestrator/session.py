@@ -73,6 +73,8 @@ class Session:
         proxy_enabled: bool = True,
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
+        learning_retrieval_mode: str = 'flat',
+        skip_learning_retrieval: bool = False,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -94,6 +96,8 @@ class Session:
         self.proxy_enabled = proxy_enabled
         self.event_bus = event_bus or EventBus()
         self.input_provider = input_provider
+        self.learning_retrieval_mode = learning_retrieval_mode
+        self.skip_learning_retrieval = skip_learning_retrieval
 
         # Resolved during run
         self.project_slug = ''
@@ -356,6 +360,9 @@ class Session:
 
     def _retrieve_memory(self, project_dir: str) -> str:
         """Retrieve relevant memory entries for the task."""
+        if self.skip_learning_retrieval or self.learning_retrieval_mode == 'disabled':
+            return ''
+
         parts = []
 
         # Institutional memory
@@ -393,12 +400,13 @@ class Session:
                 ids_path = ''
                 if hasattr(self, 'session_info') and self.session_info.get('infra_dir'):
                     ids_path = os.path.join(self.session_info['infra_dir'], '.retrieved-ids.txt')
+                scope_dir = project_dir if self.learning_retrieval_mode == 'scoped' else ''
                 mem_content = retrieve(
                     task=self.task,
                     db_path=db_path,
                     source_paths=source_paths,
                     top_k=10,
-                    scope_base_dir=project_dir,
+                    scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
                 )
                 if mem_content and mem_content.strip():
