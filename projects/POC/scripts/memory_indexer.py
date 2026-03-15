@@ -785,6 +785,7 @@ def retrieve(
     source_paths: list[str],
     top_k: int = 5,
     scope_base_dir: str = '',
+    ids_output_path: str = '',
 ) -> str:
     """Importable retrieval entry point for the memory system.
 
@@ -798,6 +799,8 @@ def retrieve(
         source_paths: Markdown files (or directories of .md files) to index.
         top_k: Number of chunks to return after MMR reranking.
         scope_base_dir: Project base directory for scope-level score multipliers.
+        ids_output_path: If provided, write retrieved entry IDs (one per line)
+            to this path for reinforcement tracking at session end.
     """
     # Expand directories to contained .md files and filter to non-empty
     sources = []
@@ -852,6 +855,25 @@ def retrieve(
 
         if not results:
             return ''
+
+        # Write retrieved entry IDs to sidecar file for reinforcement tracking
+        if ids_output_path:
+            entry_ids = []
+            for source, content, _score in results:
+                row = conn.execute(
+                    "SELECT metadata FROM chunks WHERE source = ? AND content = ? LIMIT 1",
+                    (source, content),
+                ).fetchone()
+                if row and row[0]:
+                    try:
+                        meta = json.loads(row[0])
+                        eid = meta.get('id', '')
+                        if eid:
+                            entry_ids.append(eid)
+                    except Exception:
+                        pass
+            if entry_ids:
+                Path(ids_output_path).write_text('\n'.join(entry_ids) + '\n')
 
         return format_chunks(results)
     finally:

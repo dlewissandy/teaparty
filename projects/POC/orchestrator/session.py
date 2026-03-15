@@ -383,12 +383,17 @@ class Session:
                     os.path.join(project_dir, 'institutional.md'),
                     os.path.join(project_dir, 'tasks'),
                 ]
+                # Save retrieved entry IDs for reinforcement tracking at session end
+                ids_path = ''
+                if hasattr(self, 'session_info') and self.session_info.get('infra_dir'):
+                    ids_path = os.path.join(self.session_info['infra_dir'], '.retrieved-ids.txt')
                 mem_content = retrieve(
                     task=self.task,
                     db_path=db_path,
                     source_paths=source_paths,
                     top_k=10,
                     scope_base_dir=project_dir,
+                    ids_output_path=ids_path,
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
@@ -559,7 +564,7 @@ class Session:
         )
 
         # 11. Retrieve memory
-        memory_context = cls._retrieve_memory_static(task, poc_root, project_dir)
+        memory_context = cls._retrieve_memory_static(task, poc_root, project_dir, infra_dir)
 
         # 12. Build task prompt
         task_prompt = task
@@ -646,7 +651,7 @@ class Session:
         )
 
     @staticmethod
-    def _retrieve_memory_static(task: str, poc_root: str, project_dir: str) -> str:
+    def _retrieve_memory_static(task: str, poc_root: str, project_dir: str, infra_dir: str = '') -> str:
         """Retrieve memory without requiring a Session instance."""
         parts = []
 
@@ -673,12 +678,14 @@ class Session:
                     os.path.join(project_dir, 'institutional.md'),
                     os.path.join(project_dir, 'tasks'),
                 ]
+                ids_path = os.path.join(infra_dir, '.retrieved-ids.txt') if infra_dir else ''
                 mem_content = retrieve(
                     task=task,
                     db_path=db_path,
                     source_paths=source_paths,
                     top_k=10,
                     scope_base_dir=project_dir,
+                    ids_output_path=ids_path,
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')

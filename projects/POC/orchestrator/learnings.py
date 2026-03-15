@@ -122,6 +122,13 @@ async def extract_learnings(
         infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
 
+    # ── Reinforcement tracking ─────────────────────────────────────────────────
+
+    await _run_scope(
+        'reinforcement', _reinforce_retrieved,
+        infra_dir=infra_dir, project_dir=project_dir,
+    )
+
     # ── Summary diagnostic ────────────────────────────────────────────────────
 
     total = succeeded + failed
@@ -326,3 +333,64 @@ def _promote_corrective(
         project_dir=project_dir,
         output_dir='',
     )
+
+
+# ── Reinforcement tracking ────────────────────────────────────────────────────
+
+def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
+    """Increment reinforcement_count for entries retrieved at session start.
+
+    Reads the .retrieved-ids.txt sidecar file (written by memory_indexer.retrieve)
+    and updates matching entries in the project's memory files.  Implements the
+    "use it or lose it" memory strengthening signal.
+    """
+    from pathlib import Path
+
+    ids_path = os.path.join(infra_dir, '.retrieved-ids.txt')
+    if not os.path.exists(ids_path):
+        return
+
+    from projects.POC.scripts.track_reinforcement import reinforce_entries, load_ids
+    from projects.POC.scripts.memory_entry import parse_memory_file, serialize_memory_file
+
+    retrieved_ids = load_ids(ids_path)
+    if not retrieved_ids:
+        return
+
+    # Collect memory files to scan
+    memory_files = []
+    for name in ('institutional.md', 'proxy.md'):
+        p = os.path.join(project_dir, name)
+        if os.path.isfile(p):
+            memory_files.append(p)
+
+    tasks_dir = os.path.join(project_dir, 'tasks')
+    if os.path.isdir(tasks_dir):
+        for f in sorted(os.listdir(tasks_dir)):
+            if f.endswith('.md'):
+                memory_files.append(os.path.join(tasks_dir, f))
+
+    proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+    if os.path.isdir(proxy_tasks_dir):
+        for f in sorted(os.listdir(proxy_tasks_dir)):
+            if f.endswith('.md'):
+                memory_files.append(os.path.join(proxy_tasks_dir, f))
+
+    total_reinforced = 0
+    for mem_path in memory_files:
+        try:
+            text = Path(mem_path).read_text(errors='replace')
+        except OSError:
+            continue
+
+        entries = parse_memory_file(text)
+        if not entries:
+            continue
+
+        updated, count = reinforce_entries(entries, retrieved_ids)
+        if count > 0:
+            try:
+                Path(mem_path).write_text(serialize_memory_file(updated))
+                total_reinforced += count
+            except OSError:
+                pass
