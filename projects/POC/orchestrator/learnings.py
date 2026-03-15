@@ -33,6 +33,7 @@ async def extract_learnings(
     session_worktree: str,
     task: str,
     poc_root: str,
+    event_bus=None,
 ) -> None:
     """Run the full learning extraction pipeline for a completed session.
 
@@ -40,72 +41,107 @@ async def extract_learnings(
     (claude CLI invocations).  We run each step via asyncio.to_thread() so the
     event loop stays responsive — the TUI can render, process input, and show
     progress while extraction proceeds in background threads.
+
+    If event_bus is provided, per-scope results and a summary diagnostic are
+    published as LOG events so they appear in the session log.
     """
+    from projects.POC.orchestrator.events import EventType, Event
+
     scripts_dir = os.path.join(poc_root, 'scripts')
+    succeeded = 0
+    failed = 0
+    failed_scopes = []
+
+    async def _run_scope(scope_name: str, fn, *args, **kwargs):
+        """Run a scope function, track and emit its result."""
+        nonlocal succeeded, failed
+        try:
+            await asyncio.to_thread(fn, *args, **kwargs)
+            succeeded += 1
+            if event_bus:
+                await event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={'category': 'LEARN', 'scope': scope_name,
+                          'status': 'success',
+                          'message': f'{scope_name} learning extraction succeeded'},
+                ))
+        except Exception as exc:
+            failed += 1
+            failed_scopes.append(scope_name)
+            if event_bus:
+                await event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={'category': 'LEARN', 'scope': scope_name,
+                          'status': 'failed',
+                          'message': f'{scope_name} learning extraction failed: {exc}'},
+                ))
 
     # ── Intent-stream scopes (original 3) ─────────────────────────────────────
 
-    # Extract observations → proxy.md
-    await asyncio.to_thread(
-        _run_summarize,
-        scripts_dir, infra_dir,
+    await _run_scope(
+        'observations', _run_summarize, scripts_dir, infra_dir,
         scope='observations',
         output=os.path.join(project_dir, 'proxy.md'),
     )
-
-    # Extract escalation → proxy-tasks/
-    await asyncio.to_thread(
-        _run_summarize,
-        scripts_dir, infra_dir,
+    await _run_scope(
+        'escalation', _run_summarize, scripts_dir, infra_dir,
         scope='escalation',
         output=os.path.join(project_dir, 'proxy-tasks'),
     )
-
-    # Extract intent-alignment → tasks/
-    await asyncio.to_thread(
-        _run_summarize,
-        scripts_dir, infra_dir,
+    await _run_scope(
+        'intent-alignment', _run_summarize, scripts_dir, infra_dir,
         scope='intent-alignment',
         output=os.path.join(project_dir, 'tasks'),
     )
 
     # ── Rollup scopes ─────────────────────────────────────────────────────────
 
-    await asyncio.to_thread(_promote_team, infra_dir=infra_dir, scripts_dir=scripts_dir)
-    await asyncio.to_thread(_promote_session, infra_dir=infra_dir, scripts_dir=scripts_dir)
-    await asyncio.to_thread(
-        _promote_project,
-        infra_dir=infra_dir,
-        project_dir=project_dir,
-        scripts_dir=scripts_dir,
+    await _run_scope('team', _promote_team, infra_dir=infra_dir, scripts_dir=scripts_dir)
+    await _run_scope('session', _promote_session, infra_dir=infra_dir, scripts_dir=scripts_dir)
+    await _run_scope(
+        'project', _promote_project,
+        infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
-    await asyncio.to_thread(
-        _promote_global,
-        project_dir=project_dir,
-        scripts_dir=scripts_dir,
-        session_dir=infra_dir,
+    await _run_scope(
+        'global', _promote_global,
+        project_dir=project_dir, scripts_dir=scripts_dir, session_dir=infra_dir,
     )
 
     # ── Temporal scopes ───────────────────────────────────────────────────────
 
-    await asyncio.to_thread(
-        _promote_prospective,
-        infra_dir=infra_dir,
-        project_dir=project_dir,
-        scripts_dir=scripts_dir,
+    await _run_scope(
+        'prospective', _promote_prospective,
+        infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
-    await asyncio.to_thread(
-        _promote_in_flight,
-        infra_dir=infra_dir,
-        project_dir=project_dir,
-        scripts_dir=scripts_dir,
+    await _run_scope(
+        'in-flight', _promote_in_flight,
+        infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
-    await asyncio.to_thread(
-        _promote_corrective,
-        infra_dir=infra_dir,
-        project_dir=project_dir,
-        scripts_dir=scripts_dir,
+    await _run_scope(
+        'corrective', _promote_corrective,
+        infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
+
+    # ── Summary diagnostic ────────────────────────────────────────────────────
+
+    total = succeeded + failed
+    if event_bus:
+        failed_list = f' ({", ".join(failed_scopes)})' if failed_scopes else ''
+        await event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'LEARN',
+                'scope': 'summary',
+                'message': (
+                    f'Learning extraction complete: '
+                    f'{succeeded}/{total} scopes succeeded, '
+                    f'{failed} failed{failed_list}'
+                ),
+                'succeeded': succeeded,
+                'failed': failed,
+                'failed_scopes': failed_scopes,
+            },
+        ))
 
 
 # ── Original 3 scopes (intent-stream via summarize_session.py subprocess) ─────
