@@ -98,6 +98,7 @@ class ExperimentRunner:
                 execute_only=config.execute_only,
                 flat=config.flat,
                 suppress_backtracks=not config.backtracks_enabled,
+                proxy_enabled=config.proxy_enabled,
                 event_bus=event_bus,
                 input_provider=provider,
             )

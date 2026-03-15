@@ -1264,5 +1264,91 @@ class TestSuppressBacktracks(unittest.TestCase):
                          'should be 1 when backtracks are suppressed')
 
 
+# ── ProxyEnabled ─────────────────────────────────────────────────────────────
+
+class TestProxyEnabled(unittest.TestCase):
+    """proxy_enabled toggle for no-proxy baseline condition."""
+
+    def _make_orchestrator(self, proxy_enabled=True, **kwargs):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.phase_config import PhaseSpec
+
+        from projects.POC.scripts.cfa_state import CfaState
+
+        cfa = CfaState(
+            state='PROPOSAL',
+            phase='intent',
+            actor='agent',
+            history=[],
+            backtrack_count=0,
+        )
+
+        phase_config = MagicMock()
+        phase_config.stall_timeout = 1800
+        phase_config.human_actor_states = frozenset()
+        phase_config.phase.return_value = PhaseSpec(
+            name='intent',
+            agent_file='agents/intent-team.json',
+            lead='intent-lead',
+            permission_mode='acceptEdits',
+            stream_file='.intent-stream.jsonl',
+            artifact=None,
+            approval_state='INTENT_ASSERT',
+            escalation_state='INTENT_ESCALATE',
+            escalation_file='.intent-escalation.md',
+            settings_overlay={},
+        )
+
+        event_bus = MagicMock(spec=EventBus)
+        event_bus.publish = AsyncMock()
+
+        return Orchestrator(
+            cfa_state=cfa,
+            phase_config=phase_config,
+            event_bus=event_bus,
+            input_provider=AsyncMock(return_value='approve'),
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='/tmp/proxy.json',
+            project_slug='test-project',
+            poc_root='/tmp/poc',
+            task='Do the thing',
+            session_id='test-session',
+            proxy_enabled=proxy_enabled,
+            **kwargs,
+        )
+
+    def test_proxy_enabled_default_true(self):
+        orch = self._make_orchestrator()
+        self.assertTrue(orch.proxy_enabled)
+        self.assertTrue(orch._approval_gate.proxy_enabled)
+
+    def test_proxy_disabled_stored(self):
+        orch = self._make_orchestrator(proxy_enabled=False)
+        self.assertFalse(orch.proxy_enabled)
+        self.assertFalse(orch._approval_gate.proxy_enabled)
+
+    def test_config_proxy_enabled_default(self):
+        config = ExperimentConfig(
+            experiment='test', condition='ctrl', task='do stuff', task_id='t-001',
+        )
+        self.assertTrue(config.proxy_enabled)
+
+    def test_config_proxy_disabled(self):
+        config = ExperimentConfig(
+            experiment='test', condition='no-proxy', task='do stuff', task_id='t-001',
+            proxy_enabled=False,
+        )
+        self.assertFalse(config.proxy_enabled)
+
+    def test_corpus_make_config_passes_proxy_enabled(self):
+        """CorpusConfig.make_config forwards proxy_enabled override."""
+        corpus = CorpusConfig(experiment='test')
+        task = TaskDefinition(id='t-001', text='do stuff')
+        config = corpus.make_config(task, condition='no-proxy', proxy_enabled=False)
+        self.assertFalse(config.proxy_enabled)
+
+
 if __name__ == '__main__':
     unittest.main()

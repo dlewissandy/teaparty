@@ -93,6 +93,7 @@ class Orchestrator:
         execute_only: bool = False,
         flat: bool = False,
         suppress_backtracks: bool = False,
+        proxy_enabled: bool = True,
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
@@ -115,6 +116,7 @@ class Orchestrator:
         self.execute_only = execute_only
         self.flat = flat
         self.suppress_backtracks = suppress_backtracks
+        self.proxy_enabled = proxy_enabled
         self.team_override = team_override
 
         # Agent runners
@@ -123,6 +125,7 @@ class Orchestrator:
             proxy_model_path=proxy_model_path,
             input_provider=input_provider,
             poc_root=poc_root,
+            proxy_enabled=proxy_enabled,
         )
 
         # Track resume session IDs per phase (for --resume on corrections).
