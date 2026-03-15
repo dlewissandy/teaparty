@@ -435,5 +435,131 @@ class TestProxyAgentInputs(unittest.TestCase):
                       "Proxy agent must receive the session worktree path")
 
 
+class TestProxyAgentReceivesLearningContext(unittest.TestCase):
+    """The proxy agent must receive learned patterns and past interactions."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        model_path = os.path.join(self.tmpdir, '.proxy.json')
+        with open(model_path, 'w') as f:
+            json.dump(_make_warm_model_json(), f)
+        # Write learned patterns — use patterns that won't conflict with
+        # the artifact content (tier 1 pattern matching checks for keyword
+        # coverage, and will escalate if the artifact doesn't address them).
+        patterns_path = os.path.join(self.tmpdir, 'proxy-patterns.md')
+        Path(patterns_path).write_text(
+            '## INTENT_ASSERT\n'
+            '- Human prefers concise intent documents\n'
+        )
+        # Write interaction history
+        log_path = os.path.join(self.tmpdir, '.proxy-interactions.jsonl')
+        entries = [
+            {'state': 'INTENT_ASSERT', 'project': 'default',
+             'outcome': 'approve', 'delta': '', 'timestamp': '2026-03-14T12:00:00Z'},
+            {'state': 'INTENT_ASSERT', 'project': 'default',
+             'outcome': 'correct', 'delta': 'Intent was too verbose',
+             'timestamp': '2026-03-13T12:00:00Z'},
+        ]
+        with open(log_path, 'w') as f:
+            for e in entries:
+                f.write(json.dumps(e) + '\n')
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_agent_receives_learned_patterns(self):
+        """The proxy agent must be given the learned behavioral patterns."""
+        gate = _make_gate(self.tmpdir)
+        ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        # Artifact must contain enough keywords to pass tier 1 pattern matching
+        Path(artifact_path).write_text(
+            '# Intent\nBuild a concise intent document for the platform')
+        ctx.data = {'artifact_path': artifact_path}
+
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
+             patch.object(gate, '_classify_review', return_value=('approve', '')), \
+             patch.object(gate, '_proxy_record'):
+            mock_agent.return_value = ('Approved.', 0.95)
+            _run(gate.run(ctx))
+
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args
+        # learned_patterns must be passed as a keyword arg
+        all_args = str(call_kwargs)
+        self.assertIn('concise intent', all_args,
+                      "Proxy agent must receive learned behavioral patterns")
+
+    def test_agent_receives_similar_interactions(self):
+        """The proxy agent must be given past interaction history."""
+        gate = _make_gate(self.tmpdir)
+        ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text(
+            '# Intent\nBuild a concise intent document for the platform')
+        ctx.data = {'artifact_path': artifact_path}
+
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', new_callable=AsyncMock) as mock_agent, \
+             patch.object(gate, '_classify_review', return_value=('approve', '')), \
+             patch.object(gate, '_proxy_record'):
+            mock_agent.return_value = ('Approved.', 0.95)
+            _run(gate.run(ctx))
+
+        mock_agent.assert_called_once()
+        call_kwargs = mock_agent.call_args
+        # similar_interactions must be passed
+        all_args = str(call_kwargs)
+        self.assertTrue(
+            'similar_interactions' in all_args or 'too verbose' in all_args,
+            "Proxy agent must receive past interaction history",
+        )
+
+
+class TestParseProxyAgentOutput(unittest.TestCase):
+    """_parse_proxy_agent_output must handle various confidence formats."""
+
+    def test_standard_format(self):
+        output = 'Yes, this looks good.\nCONFIDENCE: 0.85'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertEqual(text, 'Yes, this looks good.')
+        self.assertAlmostEqual(conf, 0.85)
+
+    def test_confidence_on_last_line_with_whitespace(self):
+        output = 'Approved.\n\nCONFIDENCE:  0.92  \n'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertEqual(text, 'Approved.')
+        self.assertAlmostEqual(conf, 0.92)
+
+    def test_no_confidence_marker_returns_zero(self):
+        output = 'I approve this intent document.'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertEqual(text, output)
+        self.assertAlmostEqual(conf, 0.0)
+
+    def test_confidence_caps_at_1(self):
+        output = 'Good.\nCONFIDENCE: 1.5'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertAlmostEqual(conf, 1.0)
+
+    def test_confidence_floors_at_0(self):
+        output = 'Hmm.\nCONFIDENCE: -0.3'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertAlmostEqual(conf, 0.0)
+
+    def test_multiline_response_with_confidence(self):
+        output = 'The intent is well-articulated.\nHowever, criterion 2 is vague.\nCONFIDENCE: 0.6'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertIn('criterion 2 is vague', text)
+        self.assertAlmostEqual(conf, 0.6)
+
+    def test_case_insensitive(self):
+        output = 'Looks fine.\nconfidence: 0.75'
+        text, conf = ApprovalGate._parse_proxy_agent_output(output)
+        self.assertAlmostEqual(conf, 0.75)
+
+
 if __name__ == '__main__':
     unittest.main()

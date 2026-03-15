@@ -810,6 +810,8 @@ class ApprovalGate:
                 gate_question=gate_question,
                 session_worktree=session_worktree,
                 infra_dir=infra_dir,
+                learned_patterns=tier1_patterns,
+                similar_interactions=similar,
             )
 
             # Return with the agent's text as predicted_response.
@@ -845,6 +847,7 @@ class ApprovalGate:
     async def _run_proxy_agent(
         self, state: str, artifact_path: str, gate_question: str,
         session_worktree: str = '', infra_dir: str = '',
+        learned_patterns: str = '', similar_interactions: list | None = None,
     ) -> tuple[str, float]:
         """Invoke a Claude agent as the human proxy.
 
@@ -855,6 +858,8 @@ class ApprovalGate:
 
         The agent has access to file-read tools so it can inspect the artifact,
         upstream context (INTENT.md, PLAN.md), and any files in the worktree.
+        It also receives learned behavioral patterns and past interaction
+        history so it can predict the human's response accurately.
         """
         # Build context: artifact content and upstream context paths
         context_parts = []
@@ -884,17 +889,45 @@ class ApprovalGate:
 
         context_block = '\n'.join(context_parts) if context_parts else ''
 
+        # Build learning context from behavioral patterns and past interactions
+        learning_block = ''
+        if learned_patterns:
+            learning_block += (
+                f'\n--- LEARNED BEHAVIORAL PATTERNS ---\n'
+                f'These are patterns the human has established through past reviews:\n'
+                f'{learned_patterns}\n'
+            )
+        if similar_interactions:
+            interaction_lines = []
+            for entry in similar_interactions[-5:]:
+                outcome = entry.get('outcome', '?')
+                delta = entry.get('delta', '')
+                ts = entry.get('timestamp', '')
+                line = f'  {ts}: outcome={outcome}'
+                if delta:
+                    line += f' — {delta[:200]}'
+                interaction_lines.append(line)
+            if interaction_lines:
+                learning_block += (
+                    f'\n--- PAST INTERACTIONS AT THIS GATE ---\n'
+                    + '\n'.join(interaction_lines) + '\n'
+                )
+
         prompt = (
             f"You are a human proxy agent. You stand in for the human at a CfA "
             f"approval gate. Your job is to predict what the human would say.\n\n"
             f"Gate question: {gate_question}\n\n"
-            f"{context_block}\n\n"
+            f"{context_block}\n"
+            f"{learning_block}\n"
             f"Read the artifact and any upstream context files, then respond "
             f"exactly as the human would. Your response should be natural text "
-            f"— it may be approval, a question, a correction, or a concern.\n\n"
-            f"After your response, on a new line, write your confidence that "
-            f"the human would say essentially the same thing, as a decimal "
-            f"between 0.0 and 1.0. Format: CONFIDENCE: 0.85"
+            f"— it may be approval, a question, a correction, or a concern. "
+            f"Use the learned patterns and past interactions to inform your "
+            f"prediction of what the human would say.\n\n"
+            f"After your response, on a FINAL line by itself, write your "
+            f"confidence that the human would say essentially the same thing, "
+            f"as a decimal between 0.0 and 1.0.\n"
+            f"Format exactly: CONFIDENCE: 0.85"
         )
 
         try:
@@ -927,15 +960,26 @@ class ApprovalGate:
 
         The agent appends a line like 'CONFIDENCE: 0.85' at the end.
         Everything before that line is the response text.
+
+        Searches from the end of the output to handle cases where the
+        agent writes the marker on its final line.  Falls back to 0.0
+        confidence if no marker is found — this ensures the human is
+        always asked when parsing fails.
         """
         import re
-        # Look for CONFIDENCE: <number> at the end
-        match = re.search(r'CONFIDENCE:\s*([\d.]+)\s*$', output, re.IGNORECASE)
-        if match:
-            confidence = min(1.0, max(0.0, float(match.group(1))))
-            text = output[:match.start()].strip()
-            return (text, confidence)
-        # No confidence marker — treat as low confidence
+        # Look for CONFIDENCE: <number> anywhere in the last few lines.
+        # Search from end to handle the common case where it's the last line.
+        lines = output.rstrip().split('\n')
+        for i in range(len(lines) - 1, max(len(lines) - 5, -1), -1):
+            match = re.search(r'CONFIDENCE:\s*([\d.]+)', lines[i], re.IGNORECASE)
+            if match:
+                try:
+                    confidence = min(1.0, max(0.0, float(match.group(1))))
+                except ValueError:
+                    continue
+                text = '\n'.join(lines[:i]).strip()
+                return (text, confidence)
+        # No confidence marker — treat as low confidence so human is asked
         return (output, 0.0)
 
     def _proxy_record(
