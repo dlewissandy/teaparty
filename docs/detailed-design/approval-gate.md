@@ -66,7 +66,11 @@ Returns `ProxyDecision`. Decision rules in priority order:
 
 1. **Cold start guard**: < 5 observations for this (state, task_type) pair → escalate
 2. **[CONFIRM:] markers**: artifact contains unresolved `[CONFIRM:...]` markers → escalate unconditionally
-3. **Content checks** (`_check_content()`): artifact length anomaly (< 50% or > 200% of historical mean), keyword match against past correction patterns, recurring concern categories not addressed
+3. **Content checks** (`_check_content()`), in sub-priority order:
+   - Length anomaly: artifact < 50% or > 200% of historical mean character count
+   - Principle violation (Phase 2a): past corrections with reasoning — if the artifact doesn't contain keywords from the human's stated standard, escalate
+   - Keyword match (Phase 2a fallback): past corrections without reasoning — if correction summary keywords appear in the artifact, escalate (signal the artifact may repeat a past mistake)
+   - Concern patterns (Phase 2b): concern categories from question history (e.g., error_handling, security) raised >= 2 times — if the artifact doesn't contain keywords from the concern vocabulary, escalate
 4. **Tier 1 pattern match**: flat behavioral patterns from `proxy-patterns.md` — if the artifact doesn't address known correction patterns for this state, escalate
 5. **Tier 2 retrieval**: past interactions from `.proxy-interactions.jsonl` — if > 50% of recent similar interactions at this state resulted in corrections, escalate
 6. **Confidence threshold**: confidence < threshold → escalate. Binary states (ASSERT) require 0.8; generative states require 0.95
@@ -115,11 +119,11 @@ Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outco
 
 ## Bridge Text and Classification
 
-**Bridge generation** (`_generate_bridge()`): LLM call via `generate_review_bridge.generate()`. Reads the artifact under review and upstream context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT). Frames the review as an alignment validation question.
+**Bridge generation** (`_generate_bridge()`): LLM call (Haiku) via `generate_review_bridge.generate()`. Reads the artifact under review and upstream context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT). Frames the review as an alignment validation question. Falls back to a static string if the LLM is unavailable.
 
-**Response classification** (`_classify_review()`): LLM call via `classify_review.classify()`. Takes the human's response, dialog history, and summaries of INTENT.md and PLAN.md. Returns (action, feedback) where action is one of: approve, correct, withdraw, backtrack, refine-intent, revise-plan, dialog, __fallback__.
+**Response classification** (`_classify_review()`): LLM call (Haiku) via `classify_review.classify()`. Takes the human's response, dialog history, and summaries of INTENT.md and PLAN.md. Returns (action, feedback). Valid actions are derived from the CfA state machine per state — each ASSERT/ESCALATE state has its own set of valid transitions (e.g., INTENT_ASSERT allows approve, correct, withdraw; WORK_ASSERT allows approve, correct, withdraw, revise-plan, refine-intent). `dialog` is prepended to all review states for multi-turn conversation. `__fallback__` is returned on classification failure (LLM timeout, empty response, exception).
 
-**Dialog response** (`_generate_dialog_response()`): LLM call via `generate_dialog_response.generate()`. Generates a contextual reply when the human asks a question or says something that isn't a clear decision. Reads the artifact, execution stream, task description, and dialog history.
+**Dialog response** (`_generate_dialog_response()`): LLM call (Haiku) via `generate_dialog_response.generate()`. Generates a contextual reply when the human asks a question or says something that isn't a clear decision. Reads the artifact, execution stream, task description, and dialog history.
 
 ---
 
