@@ -852,6 +852,58 @@ class TestExtractLearningsIntegration(unittest.TestCase):
         self.assertEqual(mock_promote.call_count, 7, "Expected 7 _call_promote calls")
 
 
+# ── _call_promote import path (issue #85 verification) ───────────────────────
+
+class TestCallPromoteImportPath(unittest.TestCase):
+    """Verify _call_promote can import promote() from the real scripts dir."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Use the actual scripts directory from the project
+        self.scripts_dir = str(
+            Path(__file__).parent.parent.parent.parent / 'scripts'
+        )
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_call_promote_imports_promote_from_real_scripts_dir(self):
+        """_call_promote successfully imports and calls promote() using the
+        real scripts_dir path (not mocked). This verifies the sys.path
+        manipulation works end-to-end.
+        """
+        from projects.POC.orchestrator.learnings import _call_promote
+        # Team scope with empty session_dir returns 1 (missing session_dir)
+        # but the important thing is it doesn't raise an ImportError.
+        # We patch summarize to avoid real LLM calls.
+        with patch('projects.POC.scripts.summarize_session.summarize', return_value=0):
+            _call_promote(self.scripts_dir, 'team', session_dir='', project_dir='', output_dir='')
+
+    def test_call_promote_invokes_all_seven_scopes_without_import_error(self):
+        """Each of the 7 promote scopes can be imported and dispatched."""
+        from projects.POC.orchestrator.learnings import _call_promote
+        scopes = ['team', 'session', 'project', 'global',
+                  'prospective', 'in-flight', 'corrective']
+        with patch('projects.POC.scripts.summarize_session.summarize', return_value=0):
+            for scope in scopes:
+                with self.subTest(scope=scope):
+                    # Should not raise ImportError or AttributeError
+                    _call_promote(
+                        self.scripts_dir, scope,
+                        session_dir=self.tmpdir,
+                        project_dir=self.tmpdir,
+                        output_dir=self.tmpdir,
+                    )
+
+    def test_call_promote_cleans_up_sys_path(self):
+        """After _call_promote returns, scripts_dir is removed from sys.path."""
+        from projects.POC.orchestrator.learnings import _call_promote
+        with patch('projects.POC.scripts.summarize_session.summarize', return_value=0):
+            _call_promote(self.scripts_dir, 'team', session_dir='', project_dir='', output_dir='')
+        self.assertNotIn(self.scripts_dir, sys.path)
+
+
 # ── _run_summarize() direct-call behavior (issue #115 fixes) ─────────────────
 
 class TestRunSummarize(unittest.TestCase):
