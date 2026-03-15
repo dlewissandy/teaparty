@@ -364,17 +364,15 @@ class TestGenerateBridgeMissingArtifact(unittest.TestCase):
         # Must not be the generic fallback
         self.assertNotEqual(text, 'Ready for review at INTENT_ASSERT.')
 
-    def test_present_artifact_path_returns_normal_flow(self):
-        """_generate_bridge with artifact_missing=False calls through normally."""
+    def test_present_artifact_uses_canonical_gate_question(self):
+        """_generate_bridge with a known assert state returns the canonical question."""
         gate = self._make_gate()
         artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
         Path(artifact_path).write_text('# Intent')
 
-        with patch('projects.POC.scripts.generate_review_bridge.generate', return_value='Bridge summary') as mock_gen:
-            text = gate._generate_bridge(artifact_path, 'INTENT_ASSERT', 'task')
+        text = gate._generate_bridge(artifact_path, 'INTENT_ASSERT', 'task')
 
-        mock_gen.assert_called_once()
-        self.assertEqual(text, 'Bridge summary')
+        self.assertEqual(text, 'Do you recognize this as your idea, completely and accurately articulated?')
 
     def test_no_artifact_path_returns_generic_fallback(self):
         """When artifact_missing is not set and no path given, generic message returned."""

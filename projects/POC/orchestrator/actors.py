@@ -578,10 +578,9 @@ _ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_RE
 # Canonical alignment questions for each approval gate.  These are the
 # questions the proxy and human both see — no LLM rephrasing.
 _GATE_QUESTIONS: dict[str, str] = {
-    'INTENT_ASSERT': 'Do you recognize this intent document as your idea, completely and accurately articulated?',
-    'PLAN_ASSERT': 'Do you recognize this plan as a strategic plan to operationalize your idea well?',
-    'WORK_ASSERT': 'Do you recognize the deliverables as your idea, completely and well implemented?',
-    'TASK_ASSERT': 'Do you recognize this task result as complete and correct?',
+    'INTENT_ASSERT': 'Do you recognize this as your idea, completely and accurately articulated?',
+    'PLAN_ASSERT': 'Do you recognize this as a strategic plan to operationalize your idea well?',
+    'WORK_ASSERT': 'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
 }
 
 
@@ -1049,40 +1048,11 @@ class ApprovalGate:
         if not artifact_path or not os.path.exists(artifact_path):
             return f'Ready for review at {state}.'
 
-        # Read upstream context for alignment comparison
-        intent_context = self._read_context_file(
-            'INTENT.md', session_worktree, infra_dir,
-        )
-        plan_context = self._read_context_file(
-            'PLAN.md', session_worktree, infra_dir,
-        )
+        # Use canonical gate question if one exists for this state.
+        if state in _GATE_QUESTIONS:
+            return _GATE_QUESTIONS[state]
 
-        try:
-            from projects.POC.scripts.generate_review_bridge import generate
-            return generate(
-                artifact_path, state, task,
-                intent_context=intent_context,
-                plan_context=plan_context,
-            )
-        except Exception:
-            return f'Please review: {artifact_path}'
-
-    @staticmethod
-    def _read_context_file(
-        filename: str, session_worktree: str, infra_dir: str,
-    ) -> str:
-        """Read a context file from session_worktree or infra_dir."""
-        for base in (session_worktree, infra_dir):
-            if not base:
-                continue
-            path = os.path.join(base, filename)
-            if os.path.exists(path):
-                try:
-                    with open(path) as f:
-                        return f.read()
-                except OSError:
-                    pass
-        return ''
+        return f'Please review: {artifact_path}'
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,
