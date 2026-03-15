@@ -67,6 +67,7 @@ class DashboardScreen(Screen):
 
     BINDINGS = [
         Binding('enter', 'select_session', 'Drilldown', show=True),
+        Binding('w', 'withdraw', 'Withdraw', show=True),
         Binding('n', 'new_session', 'New Session', show=True),
         Binding('p', 'new_project', 'New Project', show=True),
         Binding('d', 'diagnostics', 'Diagnostics', show=True),
@@ -268,6 +269,50 @@ class DashboardScreen(Screen):
             sid = self._session_ids[cursor_row]
             from projects.POC.tui.screens.drilldown import DrilldownScreen
             self.app.push_screen(DrilldownScreen(sid))
+
+    def action_withdraw(self) -> None:
+        stable = self.query_one('#session-table', DataTable)
+        cursor_row = stable.cursor_row
+        if cursor_row < 0 or cursor_row >= len(self._session_ids):
+            self.notify('No session selected', severity='warning')
+            return
+        sid = self._session_ids[cursor_row]
+        session = self.app.state_reader.find_session(sid)
+        if not session:
+            self.notify('Session not found', severity='warning')
+            return
+        if session.cfa_state in ('COMPLETED_WORK', 'WITHDRAWN'):
+            self.notify('Session is already terminal', severity='warning')
+            return
+
+        from projects.POC.tui.screens.confirm_withdraw import ConfirmWithdrawScreen
+        self.app.push_screen(
+            ConfirmWithdrawScreen(sid),
+            callback=lambda confirmed: self._do_withdraw(sid) if confirmed else None,
+        )
+
+    def _do_withdraw(self, session_id: str) -> None:
+        import asyncio
+        from projects.POC.tui.withdraw import withdraw_session
+
+        session = self.app.state_reader.find_session(session_id)
+        if not session:
+            return
+
+        in_proc = self.app.get_in_process(session_id)
+        in_task = in_proc.run_task if in_proc else None
+        bus = in_proc.event_bus if in_proc else None
+
+        async def _withdraw():
+            await withdraw_session(
+                session,
+                event_bus=bus,
+                in_process_task=in_task,
+            )
+
+        asyncio.create_task(_withdraw())
+        self.notify(f'Session {session_id} withdrawn')
+        self._refresh_data(force=True)
 
     def action_new_session(self) -> None:
         from projects.POC.tui.screens.launch import LaunchScreen
