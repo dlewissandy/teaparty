@@ -162,12 +162,16 @@ class Orchestrator:
             )
             socket_path = await self._escalation_listener.start()
             # The MCP server runs as a subprocess of Claude Code, whose cwd
-            # is the session worktree — not the repo root.  PYTHONPATH must
-            # include the repo root so `python3 -m projects.POC...` resolves.
+            # is the session worktree — not the repo root.  Two fixes:
+            # 1. Use the venv Python (system python3 lacks the mcp package)
+            # 2. Set PYTHONPATH to repo root so the module path resolves
             repo_root = os.path.dirname(os.path.dirname(self.poc_root))
+            venv_python = os.path.join(repo_root, '.venv', 'bin', 'python3')
+            if not os.path.isfile(venv_python):
+                venv_python = 'python3'  # fallback
             self._mcp_config = {
                 'ask-question': {
-                    'command': 'python3',
+                    'command': venv_python,
                     'args': ['-m', 'projects.POC.orchestrator.mcp_server'],
                     'env': {
                         'ASK_QUESTION_SOCKET': socket_path,
