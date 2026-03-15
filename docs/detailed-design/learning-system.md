@@ -88,13 +88,13 @@ scope_multiplier: team=1.5, project=1.2, global=1.0
 
 **Proxy learning integration.** The approval gate stores differentials and question patterns locally (in `.proxy-confidence-*.json`). These are not integrated with the broader learning system — the proxy's memory and the learning system's memory are separate stores.
 
-**Procedural learning.** Skill crystallization (generalizing repeated plans into reusable skills) and skill refinement (patching skills based on execution failures). Issue [#101](https://github.com/dlewissandy/teaparty/issues/101) tracks this.
+**Procedural learning.** Skill crystallization (generalizing repeated plans into reusable skills) and skill refinement (patching skills based on execution failures). Skill crystallization is implemented: `skill_lookup.py` matches tasks against stored skills, and `engine.py` seeds PLAN.md from matching skills at planning phase entry.
 
-**Relevant issues:**
-- [#115](https://github.com/dlewissandy/teaparty/issues/115): Learning extraction silently fails
-- [#73–#80](https://github.com/dlewissandy/teaparty/issues/73): GAP A5.* — specific missing scopes in the learning pipeline
-- [#84](https://github.com/dlewissandy/teaparty/issues/84): memory_indexer.py needs retrieve() function
+**Resolved issues:**
+- ~~[#115](https://github.com/dlewissandy/teaparty/issues/115): Learning extraction silently fails~~ — resolved
+- ~~[#73–#80](https://github.com/dlewissandy/teaparty/issues/73): GAP A5.* — missing scopes in the learning pipeline~~ — all resolved
+- ~~[#84](https://github.com/dlewissandy/teaparty/issues/84): memory_indexer.py needs retrieve() function~~ — resolved: `retrieve()` importable
 - ~~[#85](https://github.com/dlewissandy/teaparty/issues/85): summarize_session.py needs promote() function~~ — resolved
-- [#86](https://github.com/dlewissandy/teaparty/issues/86): compact_memory.py not wired in
-- ~~[#91](https://github.com/dlewissandy/teaparty/issues/91): track_reinforcement.py not wired in~~ — resolved: `reinforce_entries()` called from `extract_learnings()` at session end
-- [#101](https://github.com/dlewissandy/teaparty/issues/101): Enable procedural learning (plans → skills)
+- ~~[#86](https://github.com/dlewissandy/teaparty/issues/86): compact_memory.py not wired in~~ — resolved: `_try_compact()` in promotion pipeline
+- ~~[#91](https://github.com/dlewissandy/teaparty/issues/91): track_reinforcement.py not wired in~~ — resolved: `reinforce_entries()` called from `extract_learnings()`
+- ~~[#101](https://github.com/dlewissandy/teaparty/issues/101): Enable procedural learning (plans → skills)~~ — resolved: skill lookup and plan seeding implemented

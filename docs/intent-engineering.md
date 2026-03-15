@@ -38,7 +38,7 @@ The intent.md is a prose document written in natural language, not a form with f
 
 ### Cold Start (No Prior Context)
 
-When the system has no history with this human or organization, the intent phase begins with understanding, not artifact production. The agent does its homework first — exploring the codebase, reading related files, investigating the problem space — and then engages the human in a conversation about what it found. This is not a scripted questionnaire. It is a colleague who did their research and is checking their understanding before going off to write the specification.
+When the system has no history with this human or organization, the intent phase begins with understanding, not artifact production. The intent lead does its homework first — exploring the codebase, reading related files, investigating the problem space — and then engages the human in a conversation about what it found. This is not a scripted questionnaire. It is a colleague who did their research and is checking their understanding before going off to write the specification.
 
 The [human proxy](human-proxies.md#understand-first-act-second) drives this conversation through an intake dialog. The proxy formulates questions the agent team needs answered to produce a high-quality intent document, and for each question it also forms a prediction — what it thinks the human's answer will be. On cold start, the proxy has no predictions, so every question goes to the human. The human's answers become the raw material for the intent document and the first data points for the proxy's model of this human.
 
