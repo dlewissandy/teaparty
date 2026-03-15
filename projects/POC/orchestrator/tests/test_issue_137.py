@@ -8,6 +8,9 @@ Covers:
     state transitions past the escalation state.
  3. Repeated escalation cycles don't show stale questions from a previous
     escalation file.
+ 4. AgentRunner.run() deletes any stale escalation file BEFORE invoking
+    the agent, so _interpret_output only sees files from THIS turn.
+ 5. Escalation files are excluded from merge commits.
 """
 import asyncio
 import os
@@ -23,9 +26,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 from projects.POC.orchestrator.actors import (
     ActorContext,
     ActorResult,
+    AgentRunner,
     ApprovalGate,
 )
 from projects.POC.orchestrator.events import EventBus, InputRequest
+from projects.POC.orchestrator.merge import _is_excluded
 from projects.POC.orchestrator.phase_config import PhaseSpec
 
 
@@ -216,6 +221,98 @@ class TestEscalationFileCleanup(unittest.TestCase):
                       f"Second cycle should show new question, got: {input_calls[0].bridge_text!r}")
         self.assertNotIn('database', input_calls[0].bridge_text,
                          "Stale question from first cycle should not appear")
+
+
+# ── Tests: Pre-run cleanup (the handshake) ───────────────────────────────────
+
+class TestPreRunEscalationCleanup(unittest.TestCase):
+    """AgentRunner.run() must delete stale escalation files before invoking the agent."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.runner = AgentRunner()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_stale_escalation_file_deleted_before_agent_runs(self):
+        """A pre-existing escalation file must be removed before the agent runs."""
+        spec = _make_phase_spec()
+        ctx = _make_ctx(self.tmpdir, state='PROPOSAL')
+
+        # Plant a stale escalation file (from a previous turn/session)
+        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
+        Path(esc_path).write_text('# Stale escalation from previous turn')
+
+        self.assertTrue(os.path.exists(esc_path))
+
+        # Mock ClaudeRunner so no actual subprocess runs.
+        # The agent does NOT write a new escalation file this turn.
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        mock_result = ClaudeResult(exit_code=0, session_id='s1')
+
+        with patch('projects.POC.orchestrator.actors.ClaudeRunner') as MockRunner:
+            mock_instance = MagicMock()
+            mock_instance.run = AsyncMock(return_value=mock_result)
+            MockRunner.return_value = mock_instance
+
+            result = _run(self.runner.run(ctx))
+
+        # The stale file should be gone — agent didn't write a new one
+        self.assertFalse(os.path.exists(esc_path),
+                         "Stale escalation file must be deleted before agent runs")
+        # And since there's no escalation file, the action should NOT be 'escalate'
+        self.assertNotEqual(result.action, 'escalate',
+                            "Stale file should not trigger escalation")
+
+    def test_agent_written_escalation_file_is_detected(self):
+        """If the agent writes a NEW escalation file during its turn, it IS detected."""
+        spec = _make_phase_spec()
+        ctx = _make_ctx(self.tmpdir, state='PROPOSAL')
+
+        # Plant a stale file — will be cleaned up pre-run
+        esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
+        Path(esc_path).write_text('# Stale')
+
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        mock_result = ClaudeResult(exit_code=0, session_id='s1')
+
+        async def fake_run(*args, **kwargs):
+            # Simulate agent writing a NEW escalation file during its turn
+            Path(esc_path).write_text('# New escalation\n\n1. What format?\n')
+            return mock_result
+
+        with patch('projects.POC.orchestrator.actors.ClaudeRunner') as MockRunner:
+            mock_instance = MagicMock()
+            mock_instance.run = AsyncMock(side_effect=fake_run)
+            MockRunner.return_value = mock_instance
+
+            result = _run(self.runner.run(ctx))
+
+        # The new file should trigger escalation
+        self.assertEqual(result.action, 'escalate',
+                         "Agent-written escalation file must be detected")
+
+
+# ── Tests: Escalation files excluded from merge ──────────────────────────────
+
+class TestEscalationFileMergeExclusion(unittest.TestCase):
+    """Escalation files must never be included in merge commits."""
+
+    def test_intent_escalation_excluded(self):
+        self.assertTrue(_is_excluded('.intent-escalation.md'))
+
+    def test_plan_escalation_excluded(self):
+        self.assertTrue(_is_excluded('.plan-escalation.md'))
+
+    def test_task_escalation_excluded(self):
+        self.assertTrue(_is_excluded('.task-escalation.md'))
+
+    def test_regular_md_not_excluded(self):
+        self.assertFalse(_is_excluded('INTENT.md'))
+
+    def test_regular_file_not_excluded(self):
+        self.assertFalse(_is_excluded('chapter-01.md'))
 
 
 if __name__ == '__main__':
