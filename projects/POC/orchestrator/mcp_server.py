@@ -83,7 +83,12 @@ async def _default_proxy(question: str, context: str) -> dict[str, Any]:
 
 
 async def _default_human(question: str) -> str:
-    """Default human input: communicate via the orchestrator socket."""
+    """Default human input: communicate via the orchestrator socket.
+
+    In production, this is always called because _default_proxy returns
+    confident=False.  The actual proxy routing happens in the
+    EscalationListener on the orchestrator side of the socket.
+    """
     socket_path = os.environ.get('ASK_QUESTION_SOCKET', '')
     if not socket_path:
         raise RuntimeError(

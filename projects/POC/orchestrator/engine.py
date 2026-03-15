@@ -153,6 +153,9 @@ class Orchestrator:
                 event_bus=self.event_bus,
                 input_provider=self.input_provider,
                 session_id=self.session_id,
+                proxy_model_path=self.proxy_model_path,
+                project_slug=self.project_slug,
+                cfa_state=self.cfa.state,
             )
             socket_path = await self._escalation_listener.start()
             self._mcp_config = {
@@ -504,6 +507,10 @@ class Orchestrator:
                 action, old_state, exc,
             )
             raise
+
+        # Keep the escalation listener's CfA state current
+        if self._escalation_listener:
+            self._escalation_listener.cfa_state = self.cfa.state
 
         # Track data from the actor result for the next actor
         self._last_actor_data = actor_result.data
