@@ -1,0 +1,127 @@
+# Fix GitHub Issue
+
+Systematically investigate, test, and resolve a GitHub issue with full traceability.
+
+All work is performed on an isolated branch. The branch is merged back to main at the end.
+
+## Argument
+
+The GitHub issue number: `/fix-issue 123`
+
+## Commit Convention
+
+Every commit in this workflow uses a multiline message:
+- **Line 1:** `Issue #<number>: <short description>`
+- **Remaining lines:** Describe the work in detail.
+
+## Phase 0: Create Working Branch
+
+Create an isolated branch for this work and switch to it:
+
+```bash
+git checkout -b fix/issue-<number>
+```
+
+All subsequent work happens on this branch. Do not work directly on main.
+
+## Phase 1: Understand
+
+1. **Read the issue** using `gh issue view <number>`.
+2. **Read the docs** -- read everything under `docs/` (and nowhere else) that is relevant to the issue. Start with `docs/ARCHITECTURE.md` and follow references.
+3. **Read the code** -- read the relevant source files in `projects/POC/orchestrator/` and its tests in `projects/POC/orchestrator/tests/`. Understand the current behavior.
+
+Do not proceed until you have a clear understanding of what the issue describes, what the code currently does, and what the docs say it should do.
+
+## Phase 2: Pre-Mortem
+
+Run `/premortem` against the task of fixing this issue. Post the pre-mortem as a comment on the GitHub issue:
+
+```bash
+gh issue comment <number> --body "<premortem output>"
+```
+
+## Phase 3: Write Failing Tests
+
+1. Write a test or tests that are **necessary and sufficient** to prove the issue is resolved. Follow the project test conventions: `unittest.TestCase` with `_make_*()` helpers, no pytest fixtures, no `conftest.py`.
+2. Run the tests and **demonstrate that they fail** with the current code:
+   ```bash
+   uv run pytest <test_file>::<TestClass>::<test_method> --tb=short -q
+   ```
+3. Commit the failing tests:
+   ```
+   Issue #<number>: Add failing tests for <issue description>
+
+   <describe what the tests verify and why they are the right tests>
+   ```
+4. Post progress as a comment on the GitHub issue:
+   ```bash
+   gh issue comment <number> --body "Failing tests committed: <commit hash>. Tests verify: <what they check>."
+   ```
+
+## Phase 4: Investigate Root Cause
+
+1. Investigate the root cause of the issue. Read code, trace execution paths, run experiments if needed.
+2. **Do not fix the issue yet.** Understand it fully first.
+3. Be certain of your conclusions. If you are not certain, run more experiments.
+4. Post your findings as a comment on the GitHub issue:
+   ```bash
+   gh issue comment <number> --body "<learnings and root cause hypothesis>"
+   ```
+
+## Phase 5: Fix and Verify
+
+This phase repeats until all tests pass:
+
+1. **Address the issue** based on your root cause analysis.
+2. **Commit the fix:**
+   ```
+   Issue #<number>: <short description of fix>
+
+   <detailed description of what was changed and why>
+   ```
+3. **Run the tests** and demonstrate they pass:
+   ```bash
+   uv run pytest <test_file>::<TestClass>::<test_method> --tb=short -q
+   ```
+4. If tests fail, return to step 1 of this phase. Refine your understanding and try again.
+
+Also run the broader test suite to check for regressions:
+```bash
+uv run pytest projects/POC/orchestrator/tests/ --tb=short -q
+```
+
+## Phase 6: Close Out
+
+Post a final comment on the GitHub issue summarizing:
+- What the root cause was
+- What the fix does
+- Which tests verify the fix
+- Any remaining considerations or follow-up work
+
+```bash
+gh issue comment <number> --body "<final summary>"
+```
+
+## Phase 7: Post-Mortem
+
+Run `/postmortem` against this fix. Post the post-mortem as a comment on the GitHub issue:
+
+```bash
+gh issue comment <number> --body "<postmortem output>"
+```
+
+## Phase 8: Merge to Main
+
+Merge the working branch back to main:
+
+```bash
+git checkout main
+git merge --no-ff fix/issue-<number> -m "$(cat <<'EOF'
+Merge fix/issue-<number>: <short description>
+
+<summary of all changes made on the branch>
+EOF
+)"
+```
+
+Use `--no-ff` to preserve the branch history as a distinct unit of work.
