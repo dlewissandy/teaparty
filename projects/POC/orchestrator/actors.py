@@ -613,27 +613,32 @@ class ApprovalGate:
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        # For escalation states: try generative response first, then human.
+        # Predicted response from proxy — set for escalation states, None otherwise.
+        gen = None
+
+        # For escalation states: proxy always generates a predicted response.
+        # Confidence determines routing: high → return to agent, low → ask human.
+        # Either way the prediction is preserved for differential learning (#138).
         if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
-            # Try proxy auto-response from learned patterns
             gen = self._try_generate_response(project_slug, ctx.state, team)
             await ctx.event_bus.publish(Event(
                 type=EventType.LOG,
                 data={
                     'category': 'generative_response',
                     'state': ctx.state,
-                    'result': f'generated (confidence={gen.confidence:.3f})' if gen else 'insufficient data',
+                    'result': f'generated (confidence={gen.confidence:.3f})' if gen else 'generation failed',
                 },
                 session_id=ctx.session_id,
             ))
-            if gen is not None:
+            # High confidence → return prediction directly to agent
+            if gen is not None and gen.confidence >= 0.95:
                 return ActorResult(
                     action='clarify',
                     feedback=gen.text,
                     data={'generative': True, 'confidence': gen.confidence},
                 )
 
-            # Fall through to human with escalation file as bridge.
+            # Low confidence → fall through to human, preserve prediction for diff.
             # Extract questions so the human sees what they're being asked.
             if escalation_file and os.path.exists(escalation_file):
                 try:
@@ -832,8 +837,11 @@ class ApprovalGate:
                 ))
                 continue
 
-            # Non-dialog action — record and return
-            prediction = 'escalate'  # proxy predicted escalation (that's why human was asked)
+            # Non-dialog action — record and return.
+            # If the proxy generated a predicted response (even low-confidence),
+            # pass it through so the differential captures predicted vs. actual (#138).
+            predicted_text = gen.text if gen is not None else ''
+            prediction = 'escalate'
             self._proxy_record(
                 ctx.state, project_slug, action,
                 artifact_path=artifact_path,
@@ -841,6 +849,7 @@ class ApprovalGate:
                 conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
                 team=team,
                 prediction=prediction,
+                predicted_response=predicted_text,
             )
             self._log_interaction(
                 ctx, project_slug,
@@ -929,7 +938,7 @@ class ApprovalGate:
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
         artifact_path: str = '', feedback: str = '', conversation: str = '',
-        team: str = '', prediction: str = '',
+        team: str = '', prediction: str = '', predicted_response: str = '',
     ) -> None:
         """Record human decision for proxy learning."""
         try:
@@ -945,6 +954,7 @@ class ApprovalGate:
                 artifact_length=artifact_length,
                 question_patterns=patterns,
                 prediction=prediction,
+                predicted_response=predicted_response,
             )
             save_model(model, model_path)
         except Exception:
