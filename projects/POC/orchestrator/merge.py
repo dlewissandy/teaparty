@@ -72,6 +72,10 @@ def _is_excluded(relpath: str) -> bool:
     basename = os.path.basename(relpath)
     if basename in _MERGE_EXCLUDE:
         return True
+    # Exclude escalation files — these are ephemeral agent-to-orchestrator
+    # signals that must never cross session boundaries via merge.
+    if 'escalation' in basename:
+        return True
     # Exclude hidden infrastructure files at root level
     if basename.startswith('.') and basename.endswith(('.db', '.db-shm', '.db-wal', '.json', '.lock')):
         # But not .gitignore or similar

@@ -141,6 +141,16 @@ class AgentRunner:
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
+        # Pre-run cleanup: remove any stale escalation file so that
+        # _interpret_output only sees files written by THIS turn.
+        # This is the handshake: absent before run → present after = agent escalated.
+        if ctx.phase_spec.escalation_file:
+            esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
+            try:
+                os.remove(esc_path)
+            except FileNotFoundError:
+                pass
+
         # Build prompt
         prompt = ctx.task
         if ctx.backtrack_context:
