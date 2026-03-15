@@ -160,15 +160,15 @@ Note: Codes 10 and 11 are agent-mode-only exits that bubble up through dispatch.
 
 | Behavior | promote_learnings.sh | learnings.py | Status |
 |---|---|---|---|
-| `--scope team`: dispatch MEMORY.md -> team institutional.md + team/tasks/\<ts\>.md | yes | not implemented | [GAP] |
-| `--scope session`: team files -> session institutional.md + session/tasks/\<ts\>.md | yes | not implemented | [GAP] |
-| `--scope project`: session files -> project institutional.md + project/tasks/\<ts\>.md | yes | not implemented | [GAP] |
-| `--scope global`: project institutional.md -> projects/ institutional.md + projects/tasks/\<ts\>.md | yes | not implemented | [GAP] |
-| `--scope prospective`: pre-mortem -> project/tasks/\<ts\>-prospective.md | yes | not implemented | [GAP] |
-| `--scope in-flight`: assumptions file -> project/tasks/\<ts\>-inflight.md | yes | not implemented | [GAP] |
-| `--scope corrective`: exec stream -> project/tasks/\<ts\>-corrective.md | yes | not implemented | [GAP] |
-| Compact institutional.md after session/project/global rollup | yes (`compact_memory.py`) | not implemented | [GAP] |
-| `learnings.py` current scopes | — | `observations`, `escalation`, `intent-alignment` only | [GAP] Only 3 of 10 scopes implemented |
+| `--scope team`: dispatch MEMORY.md -> team institutional.md + team/tasks/\<ts\>.md | yes | `promote('team', ...)` in `summarize_session.py`; wired via `_promote_team` in `learnings.py` | [PASS] |
+| `--scope session`: team files -> session institutional.md + session/tasks/\<ts\>.md | yes | `promote('session', ...)` in `summarize_session.py`; wired via `_promote_session` in `learnings.py` | [PASS] |
+| `--scope project`: session files -> project institutional.md + project/tasks/\<ts\>.md | yes | `promote('project', ...)` in `summarize_session.py`; wired via `_promote_project` in `learnings.py` | [PASS] |
+| `--scope global`: project institutional.md -> projects/ institutional.md + projects/tasks/\<ts\>.md | yes | `promote('global', ...)` in `summarize_session.py`; wired via `_promote_global` in `learnings.py` | [PASS] |
+| `--scope prospective`: pre-mortem -> project/tasks/\<ts\>-prospective.md | yes | `promote('prospective', ...)` in `summarize_session.py`; wired via `_promote_prospective` in `learnings.py` | [PASS] |
+| `--scope in-flight`: assumptions file -> project/tasks/\<ts\>-inflight.md | yes | `promote('in-flight', ...)` in `summarize_session.py`; wired via `_promote_in_flight` in `learnings.py` | [PASS] |
+| `--scope corrective`: exec stream -> project/tasks/\<ts\>-corrective.md | yes | `promote('corrective', ...)` in `summarize_session.py`; wired via `_promote_corrective` in `learnings.py` | [PASS] |
+| Compact institutional.md after session/project/global rollup | yes (`compact_memory.py`) | `_try_compact()` called inside `promote()` for session, project, and global scopes | [PASS] |
+| `learnings.py` current scopes | — | All 10 scopes implemented: 3 via `_run_summarize`, 7 via `_call_promote` | [PASS] |
 | Prefer typed files (institutional.md + tasks/) over legacy MEMORY.md | yes | not applicable (learnings.py only writes output, reads streams) | [GAP] Input-side hierarchy for rollup scopes not implemented |
 | Multiple streams passed (intent + plan + exec) | yes, discovers available streams | yes, checks for `.intent-stream.jsonl`, `.plan-stream.jsonl`, `.exec-stream.jsonl` | [PASS] |
 | Output path for `escalation` scope: directory (proxy-tasks/) not a file | shell creates timestamped file inside dir | `learnings.py` passes directory path as `--output` directly; behavior depends on `summarize_session.py` | [UNVERIFIED] needs cross-check with summarize_session.py output handling |
@@ -248,7 +248,7 @@ claude -p
 | `scripts/cfa_state.py` | Yes — `make_initial_state`, `make_child_state`, `transition`, `save_state`, `load_state`, `set_state_direct`, `is_globally_terminal`, `phase_for_state`, `CfaState`, and more | Imported directly (no subprocess) | No — API is complete and actively used |
 | `scripts/human_proxy.py` | Yes — `load_model`, `save_model`, `should_escalate`, `record_outcome`, `make_model` | Imported directly in `actors.py` | No — BUT `actors.py` imports from `human_proxy.py` when it should import from `approval_gate.py` (see below) |
 | `scripts/memory_indexer.py` | Yes — `chunk_text`, `open_db`, `retrieve_bm25`, `retrieve_hybrid`, `refresh_index`, `main`, and more | Called via subprocess in `session.py` using `--retrieve --query --tasks-dir --limit` flags — flags that do not exist in `memory_indexer.py`'s argparser | [YES] Add `retrieve(task, db_path, source_paths, top_k, scope_base_dir) -> str` importable function; fix `session.py` to call it directly and avoid the broken subprocess |
-| `scripts/summarize_session.py` | Yes — `summarize(stream_path, output_path, context_files, scope, task)`, `extract_conversation`, `extract_human_turns` | Called via subprocess in `learnings.py` (3 scopes) | [YES] Add `promote(scope, session_dir, project_dir, output_dir, stream_path)` importable function to replace the 7 missing promote_learnings.sh scope implementations |
+| `scripts/summarize_session.py` | Yes — `summarize(...)`, `promote(scope, session_dir, project_dir, output_dir, ...)`, `extract_conversation`, `extract_human_turns` | `summarize()` called directly in `learnings.py` (3 scopes); `promote()` called via `_call_promote` in `learnings.py` (7 scopes) | No — `promote()` API is complete and actively used; all 7 scopes implemented |
 | `scripts/compact_memory.py` | Yes — `compact_file(input_path, output_path)`, `compact_entries(entries)` | Not called anywhere in orchestrator/ | [YES] Wire `compact_file()` into `learnings.py` after institutional.md writes; currently never called in Python path |
 | `scripts/classify_task.py` | Yes — `classify(task, projects_dir) -> str` (returns tab-separated `slug\tmode`) | Called via subprocess in `session.py` | [YES] `session.py` discards the mode field from subprocess output; direct import of `classify()` would prevent this; at minimum, `session.py` must be fixed to read both fields |
 | `scripts/memory_entry.py` | Yes — `MemoryEntry`, `parse_memory_file`, `serialize_memory_file`, `make_entry` | Not called in orchestrator/ | No — library only; imported by other scripts |
@@ -261,7 +261,7 @@ claude -p
 
 ## Summary
 
-### All Gaps (68 total)
+### All Gaps (60 total, 8 resolved)
 
 **A1 — session.py (23 gaps):**
 1. `CLAUDE_CODE_MAX_OUTPUT_TOKENS` env override ignored
@@ -329,15 +329,15 @@ claude -p
 57. Post-dispatch `summarize_session.py` background call absent
 58. ~~`DispatchRunner` (actors.py) is dead code~~ — RESOLVED: deleted. Subprocess isolation is the intended design.
 
-**A5 — learnings.py (8 gaps):**
-59. `--scope team` rollup absent
-60. `--scope session` rollup absent
-61. `--scope project` rollup absent
-62. `--scope global` rollup absent
-63. `--scope prospective` absent
-64. `--scope in-flight` absent
-65. `--scope corrective` absent
-66. `compact_memory.py` not called after any institutional.md write
+**A5 — learnings.py (0 gaps — all resolved):**
+~~59. `--scope team` rollup absent~~ — RESOLVED: `promote('team')` in summarize_session.py, wired via `_promote_team`
+~~60. `--scope session` rollup absent~~ — RESOLVED: `promote('session')`, wired via `_promote_session`
+~~61. `--scope project` rollup absent~~ — RESOLVED: `promote('project')`, wired via `_promote_project`
+~~62. `--scope global` rollup absent~~ — RESOLVED: `promote('global')`, wired via `_promote_global`
+~~63. `--scope prospective` absent~~ — RESOLVED: `promote('prospective')`, wired via `_promote_prospective`
+~~64. `--scope in-flight` absent~~ — RESOLVED: `promote('in-flight')`, wired via `_promote_in_flight`
+~~65. `--scope corrective` absent~~ — RESOLVED: `promote('corrective')`, wired via `_promote_corrective`
+~~66. `compact_memory.py` not called after any institutional.md write~~ — RESOLVED: `_try_compact()` called inside `promote()` for session/project/global
 
 **Part B — claude -p argument gaps (3 gaps):**
 67. `__POC_DIR__`/`__SESSION_DIR__` substitution not applied to agents JSON before passing to Claude
@@ -349,8 +349,8 @@ claude -p
 | Helper | Action needed |
 |---|---|
 | `memory_indexer.py` | Add `retrieve(task, db_path, source_paths, top_k, scope_base_dir) -> str` importable function; fix `session.py` to call it directly instead of subprocess with non-existent flags |
-| `summarize_session.py` | Add `promote(scope, session_dir, project_dir, output_dir, stream_path)` importable function to cover the 7 missing promote scopes |
-| `compact_memory.py` | Wire existing `compact_file()` into `learnings.py` — currently not called anywhere in orchestrator/ |
+| ~~`summarize_session.py`~~ | ~~Add `promote()` importable function~~ — RESOLVED: `promote()` exists and all 7 scopes are wired in `learnings.py` |
+| ~~`compact_memory.py`~~ | ~~Wire existing `compact_file()` into `learnings.py`~~ — RESOLVED: `_try_compact()` called inside `promote()` for session/project/global scopes |
 | `classify_task.py` | Fix `session.py` to read both tab-separated fields (slug and mode); consider adding `classify_with_mode(task, projects_dir) -> tuple[str, str]` to make the API unambiguous |
 | `detect_stage.py` | Wire existing `detect_stage_from_content()` into post-intent-approval path in engine.py |
 | `approval_gate.py` | Update `actors.ApprovalGate` to import from `approval_gate.py` instead of `human_proxy.py`; the two files have diverged and `approval_gate.py` is the richer implementation with generative response support |
