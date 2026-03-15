@@ -268,7 +268,10 @@ class Session:
                 poc_root=self.poc_root,
             )
 
-        # 14. Publish session complete
+        # 14. Clean up session worktree (after learnings, before publish)
+        await cleanup_worktree(worktree_path)
+
+        # 15. Publish session complete
         await self.event_bus.publish(Event(
             type=EventType.SESSION_COMPLETED,
             data={
@@ -278,7 +281,7 @@ class Session:
             session_id=self.session_id,
         ))
 
-        # 15. Stop state writer
+        # 16. Stop state writer
         await state_writer.stop()
 
         return SessionResult(
@@ -645,6 +648,10 @@ class Session:
                 task=task,
                 poc_root=poc_root,
             )
+
+        # Clean up session worktree (after learnings extraction)
+        if worktree_path:
+            await cleanup_worktree(worktree_path)
 
         # 15. Publish session complete + stop writer
         await event_bus.publish(Event(
