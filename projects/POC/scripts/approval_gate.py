@@ -513,6 +513,10 @@ def should_escalate(
             raw['artifact_lengths'] = []
         if 'question_patterns' not in raw:
             raw['question_patterns'] = []
+        if 'prediction_correct_count' not in raw:
+            raw['prediction_correct_count'] = 0
+        if 'prediction_total_count' not in raw:
+            raw['prediction_total_count'] = 0
         entry = ConfidenceEntry(**raw)
     else:
         entry = raw
@@ -605,6 +609,24 @@ def should_escalate(
                 f"(>{STALENESS_DAYS} days ago). Escalating to recalibrate."
             ),
             predicted_response="human review required (staleness)",
+            confidence_laplace=laplace,
+            confidence_ema=ema,
+        )
+
+    # Prediction drift detection: if prediction accuracy has dropped
+    # below threshold, escalate more aggressively to recalibrate (#11).
+    if _check_prediction_drift(entry):
+        return ProxyDecision(
+            action='escalate',
+            confidence=confidence,
+            reasoning=(
+                f"Prediction drift: accuracy "
+                f"{getattr(entry, 'prediction_correct_count', 0)}"
+                f"/{getattr(entry, 'prediction_total_count', 0)} "
+                f"below threshold {DRIFT_ACCURACY_THRESHOLD:.0%}. "
+                f"Escalating to recalibrate."
+            ),
+            predicted_response="human review required (drift)",
             confidence_laplace=laplace,
             confidence_ema=ema,
         )
@@ -797,6 +819,127 @@ def record_outcome(
         global_threshold=model.global_threshold,
         generative_threshold=model.generative_threshold,
     )
+
+
+# ── Two-tier retrieval (#11) ──────────────────────────────────────────────────
+
+def retrieve_similar_interactions(
+    log_path: str,
+    state: str,
+    project: str = '',
+    top_k: int = 10,
+) -> list[dict]:
+    """Retrieve past proxy interactions matching the current state.
+
+    Tier 2 retrieval: returns the most recent interactions for the given
+    CfA state, optionally filtered by project.  This gives the proxy
+    decision context beyond the flat statistical model (tier 1).
+    """
+    if not os.path.isfile(log_path):
+        return []
+
+    matches = []
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get('state') != state:
+                    continue
+                if project and entry.get('project') != project:
+                    continue
+                matches.append(entry)
+    except OSError:
+        return []
+
+    # Return most recent entries (last top_k)
+    return matches[-top_k:]
+
+
+# ── Retrospective learning (#11) ─────────────────────────────────────────────
+
+def mark_false_positive_approvals(
+    log_path: str,
+    session_id: str,
+    reason: str = '',
+) -> int:
+    """Flag auto-approve entries for a session as false positives.
+
+    Called when a session backtracks — the auto-approvals that preceded
+    the backtrack were wrong (the proxy said "approve" but the work
+    needed revision).  Returns the number of entries flagged.
+    """
+    if not os.path.isfile(log_path):
+        return 0
+
+    entries = []
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    entries.append(None)
+    except OSError:
+        return 0
+
+    flagged = 0
+    for entry in entries:
+        if entry is None:
+            continue
+        if (entry.get('session_id') == session_id
+                and entry.get('outcome') == 'approve'
+                and entry.get('prediction') == 'approve'
+                and not entry.get('false_positive')):
+            entry['false_positive'] = True
+            entry['false_positive_reason'] = reason
+            flagged += 1
+
+    if flagged > 0:
+        try:
+            with open(log_path, 'w') as f:
+                for entry in entries:
+                    if entry is not None:
+                        f.write(json.dumps(entry) + '\n')
+        except OSError:
+            pass
+
+    return flagged
+
+
+# ── Prediction drift detection (#11) ─────────────────────────────────────────
+
+DRIFT_ACCURACY_THRESHOLD = 0.5   # below this, proxy is guessing — escalate more
+DRIFT_MIN_PREDICTIONS = 10       # need at least this many predictions before drift kicks in
+DRIFT_ESCALATION_BOOST = 0.5     # additional escalation probability when drifting
+
+
+def _check_prediction_drift(entry) -> bool:
+    """Check if prediction accuracy has drifted below threshold.
+
+    Returns True if the proxy should escalate due to drift.
+    """
+    correct = getattr(entry, 'prediction_correct_count', 0)
+    total = getattr(entry, 'prediction_total_count', 0)
+
+    if total < DRIFT_MIN_PREDICTIONS:
+        return False
+
+    accuracy = correct / total
+    if accuracy < DRIFT_ACCURACY_THRESHOLD:
+        # Probabilistic escalation boost — not deterministic, so the
+        # proxy can still auto-approve occasionally to re-calibrate
+        return random.random() < DRIFT_ESCALATION_BOOST
+
+    return False
 
 
 def generate_response(
