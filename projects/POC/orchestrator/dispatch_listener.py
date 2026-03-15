@@ -162,6 +162,11 @@ class DispatchListener:
             session_id=self.session_id,
         ))
 
+        # Note: AskTeam calls block for the duration of the dispatch (minutes).
+        # The parent Claude process produces no stdout during this time.
+        # The stall watchdog (default 1800s) must be longer than the longest
+        # expected dispatch.  If this becomes a problem, the watchdog needs
+        # to be made aware of pending MCP tool calls.
         result = await dispatch(
             team=team,
             task=task,
