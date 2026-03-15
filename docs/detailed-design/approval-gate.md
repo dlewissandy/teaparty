@@ -12,9 +12,13 @@ Two entry points feed into this pattern, but they use **different proxy function
 
 ---
 
-## Entry Point 1: ApprovalGate (ASSERT states)
+## Entry Point 1: ApprovalGate (artifact review)
 
-`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` when the CfA state machine reaches INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT, or TASK_ASSERT. The agent has already exited.
+`ApprovalGate.run()` in `actors.py`. Invoked by `engine.py` at states where all outgoing CfA transitions have actor `human` or `approval_gate`. In practice this means: INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT, and the ESCALATE states (INTENT_ESCALATE, PLANNING_ESCALATE, TASK_ESCALATE).
+
+Note: the ESCALATE states are **currently unreachable**. The only path to them was through escalation file detection in `_interpret_output()`, which was removed in #137. Agents now use the AskQuestion MCP tool for mid-turn questions instead of writing escalation files and exiting. The ESCALATE states remain in the CfA state machine but no transition produces the `escalate` action.
+
+TASK_ASSERT is **not** routed to ApprovalGate — its actor in the state machine is `execution_worker`, not `human` or `approval_gate`.
 
 **Flow:**
 
@@ -23,25 +27,26 @@ Two entry points feed into this pattern, but they use **different proxy function
 3. **PLAN_ASSERT only:** cross-reference [RESOLVE] questions from INTENT.md against PLAN.md via `check_resolve_coverage()`. Unaddressed questions → reject back to planning agent.
 4. **Consult proxy** via `_proxy_decide()` → calls `should_escalate()` from `approval_gate.py`
 5. **Auto-approve** → record outcome via `_proxy_record()`, log interaction, return approve
-6. **Escalate** → generate bridge text via `_generate_bridge()` (calls `generate_review_bridge.generate()` — an LLM call that reads the artifact and upstream context files) → enter dialog loop
+6. **Escalate** → generate bridge text → enter dialog loop
 
 **Dialog loop (step 6):**
 
+- Generate bridge text via `_generate_bridge()` — LLM call (Haiku) via `generate_review_bridge.generate()`. Reads the artifact and upstream context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT). Falls back to a static string if LLM unavailable.
 - Show bridge text to human via `input_provider` (TUI)
 - Human responds
-- Classify response via `_classify_review()` (calls `classify_review.classify()` — an LLM call with intent/plan summaries and dialog history)
-- If classified as `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (another LLM call), append to dialog history, loop again
-- If classified as a clear action (approve, correct, withdraw, backtrack) → record outcome via `_proxy_record()`, log interaction, return
+- Classify response via `_classify_review()` — LLM call (Haiku) via `classify_review.classify()`. Valid actions are derived from the CfA state machine per state, with `dialog` prepended for multi-turn conversation. `__fallback__` on classification failure.
+- If `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop
+- If clear action → record outcome via `_proxy_record()`, log interaction via `_log_interaction()`, return
 
-**Elapsed-time guard:** At TASK_ASSERT and WORK_ASSERT, if the execution phase ran for less than `MIN_EXECUTION_SECONDS` (120s), the proxy always escalates regardless of confidence.
+**Elapsed-time guard:** At TASK_ASSERT and WORK_ASSERT, if the execution phase ran for less than `MIN_EXECUTION_SECONDS` (120s), the proxy always escalates.
 
-**Recording:** `_proxy_record()` calls `record_outcome()` with the outcome, differential summary (human feedback text), artifact length, extracted question patterns, and the proxy's prediction. Also appends to `.proxy-interactions.jsonl` via `_log_interaction()` for tier 2 retrieval.
+**Recording:** `_proxy_record()` calls `record_outcome()` with outcome, differential summary, artifact length, extracted question patterns, and proxy prediction. `_log_interaction()` appends to `.proxy-interactions.jsonl` for tier 2 retrieval.
 
 ---
 
 ## Entry Point 2: EscalationListener (AskQuestion MCP tool)
 
-`EscalationListener._route_through_proxy()` in `escalation_listener.py`. Invoked when an agent calls the `AskQuestion` MCP tool during its turn. The agent is still running.
+`EscalationListener._route_through_proxy()` in `escalation_listener.py`. Invoked when an agent calls the `AskQuestion` MCP tool during its turn. The agent is still running — the answer returns as a tool result in the same turn.
 
 **Flow:**
 
@@ -50,9 +55,9 @@ Two entry points feed into this pattern, but they use **different proxy function
 3. **Confident** (confidence >= `model.generative_threshold`) → return prediction text directly
 4. **Not confident** → ask human via `_ask_human()` → `input_provider` (TUI)
 5. Record differential via `record_outcome()` — stores prediction alongside human answer
-6. Return human answer to agent as MCP tool result
+6. Return answer to agent as MCP tool result
 
-**Key difference from ApprovalGate:** Uses `generate_response()` instead of `should_escalate()`. `generate_response()` only checks cold start threshold and confidence — it lacks the content checks, staleness guard, exploration rate, tier 1/tier 2 pattern checks, prediction drift detection, and elapsed-time guard that `should_escalate()` has. Issue [#143](https://github.com/dlewissandy/teaparty/issues/143) tracks unifying these paths.
+**Key difference from ApprovalGate:** Uses `generate_response()` instead of `should_escalate()`. `generate_response()` only checks cold start threshold and confidence — it lacks the content checks, staleness guard, exploration rate, tier 1/tier 2 pattern checks, prediction drift detection, and elapsed-time guard that `should_escalate()` has. No interaction log is written. Issue [#143](https://github.com/dlewissandy/teaparty/issues/143) tracks unifying these paths.
 
 ---
 
@@ -71,11 +76,11 @@ Returns `ProxyDecision`. Decision rules in priority order:
    - Principle violation (Phase 2a): past corrections with reasoning — if the artifact doesn't contain keywords from the human's stated standard, escalate
    - Keyword match (Phase 2a fallback): past corrections without reasoning — if correction summary keywords appear in the artifact, escalate (signal the artifact may repeat a past mistake)
    - Concern patterns (Phase 2b): concern categories from question history (e.g., error_handling, security) raised >= 2 times — if the artifact doesn't contain keywords from the concern vocabulary, escalate
-4. **Tier 1 pattern match**: flat behavioral patterns from `proxy-patterns.md` — if the artifact doesn't address known correction patterns for this state, escalate
-5. **Tier 2 retrieval**: past interactions from `.proxy-interactions.jsonl` — if > 50% of recent similar interactions at this state resulted in corrections, escalate
+4. **Tier 1 pattern match**: flat behavioral patterns from `proxy-patterns.md` — if the artifact doesn't address known correction patterns for this state (< 30% keyword coverage), escalate
+5. **Tier 2 retrieval**: past interactions from `.proxy-interactions.jsonl` — if > 50% of last 5 similar interactions at this state resulted in corrections, escalate
 6. **Confidence threshold**: confidence < threshold → escalate. Binary states (ASSERT) require 0.8; generative states require 0.95
 7. **Staleness guard**: > 7 days since last human signal → escalate to recalibrate
-8. **Prediction drift**: if prediction accuracy has dropped below threshold → escalate
+8. **Prediction drift**: prediction accuracy below 50% (min 5 predictions) → escalate
 9. **Exploration rate**: 15% random escalation even when confident
 10. **Auto-approve**: all checks passed
 
@@ -117,21 +122,11 @@ Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outco
 
 ---
 
-## Bridge Text and Classification
-
-**Bridge generation** (`_generate_bridge()`): LLM call (Haiku) via `generate_review_bridge.generate()`. Reads the artifact under review and upstream context (INTENT.md at PLAN_ASSERT; INTENT.md + PLAN.md at WORK_ASSERT). Frames the review as an alignment validation question. Falls back to a static string if the LLM is unavailable.
-
-**Response classification** (`_classify_review()`): LLM call (Haiku) via `classify_review.classify()`. Takes the human's response, dialog history, and summaries of INTENT.md and PLAN.md. Returns (action, feedback). Valid actions are derived from the CfA state machine per state — each ASSERT/ESCALATE state has its own set of valid transitions (e.g., INTENT_ASSERT allows approve, correct, withdraw; WORK_ASSERT allows approve, correct, withdraw, revise-plan, refine-intent). `dialog` is prepended to all review states for multi-turn conversation. `__fallback__` is returned on classification failure (LLM timeout, empty response, exception).
-
-**Dialog response** (`_generate_dialog_response()`): LLM call (Haiku) via `generate_dialog_response.generate()`. Generates a contextual reply when the human asks a question or says something that isn't a clear decision. Reads the artifact, execution stream, task description, and dialog history.
-
----
-
 ## Implementation Status
 
 | Area | Status | Issue |
 |------|--------|-------|
-| AskQuestion MCP tool replaces file-based escalation | Done | [#137](https://github.com/dlewissandy/teaparty/issues/137) |
+| AskQuestion MCP tool replaces file-based escalation | Done (open) | [#137](https://github.com/dlewissandy/teaparty/issues/137) |
 | Differential recording (proxy prediction vs. human actual) | Done | [#138](https://github.com/dlewissandy/teaparty/issues/138) |
 | Alignment validation framing at gates | Done | [#102](https://github.com/dlewissandy/teaparty/issues/102) |
 | Cold-start intake dialog (Phase 1) | Done | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
