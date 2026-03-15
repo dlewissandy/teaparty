@@ -593,30 +593,86 @@ class ApprovalGate:
                 # The proxy agent generated text predicting what the human
                 # would say.  Classify that text the same way we'd classify
                 # human input — the agent's text IS the answer.
+                #
+                # But the agent is agentic: if its text is a question (classifies
+                # as 'dialog'), the question goes to the requester via
+                # _generate_dialog_response, the answer comes back, and the
+                # proxy agent gets another turn.  This continues until the
+                # proxy produces a terminal action (approve, correct, etc.)
+                # or its confidence drops.
                 agent_text = getattr(proxy_decision, 'predicted_response', '')
                 if agent_text:
-                    action, feedback = self._classify_review(
-                        ctx.state, agent_text,
-                        intent_summary='', plan_summary='',
-                    )
-                    # If the agent's text classifies as dialog/fallback, we can't
-                    # use it as a final answer — escalate to the human.
-                    if action not in ('dialog', '__fallback__'):
-                        self._proxy_record(
-                            ctx.state, project_slug, action,
-                            artifact_path=artifact_path, team=team,
-                            prediction='approve',
-                            predicted_response=agent_text,
+                    proxy_dialog_history = ''
+                    max_proxy_turns = 5  # safety limit
+                    for _turn in range(max_proxy_turns):
+                        action, feedback = self._classify_review(
+                            ctx.state, agent_text,
+                            intent_summary='', plan_summary='',
+                            dialog_history=proxy_dialog_history,
                         )
-                        self._log_interaction(
-                            ctx, project_slug, prediction='approve', outcome=action,
-                            delta=feedback if action != 'approve' else '',
-                            exploration=False,
-                        )
-                        return ActorResult(action=action, feedback=feedback)
 
-                # Agent text was empty or classified as dialog — fall through
-                # to human review.
+                        if action not in ('dialog', '__fallback__'):
+                            # Terminal action — the proxy agent has decided.
+                            self._proxy_record(
+                                ctx.state, project_slug, action,
+                                artifact_path=artifact_path, team=team,
+                                prediction='approve',
+                                predicted_response=agent_text,
+                                conversation=proxy_dialog_history,
+                            )
+                            self._log_interaction(
+                                ctx, project_slug, prediction='approve', outcome=action,
+                                delta=feedback if action != 'approve' else '',
+                                exploration=False,
+                            )
+                            return ActorResult(
+                                action=action, feedback=feedback,
+                                dialog_history=proxy_dialog_history,
+                            )
+
+                        # The proxy agent asked a question.  Get an answer
+                        # from the requester (the agent team that produced
+                        # the artifact) and give the proxy another turn.
+                        proxy_dialog_history += f'PROXY: {agent_text}\n'
+                        requester_reply = self._generate_dialog_response(
+                            ctx.state, agent_text, artifact_path,
+                            os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                            ctx.task, proxy_dialog_history,
+                            session_worktree=ctx.session_worktree,
+                        )
+                        proxy_dialog_history += f'REQUESTER: {requester_reply}\n'
+
+                        await ctx.event_bus.publish(Event(
+                            type=EventType.LOG,
+                            data={
+                                'category': 'proxy_dialog',
+                                'state': ctx.state,
+                                'proxy_question': agent_text,
+                                'requester_reply': requester_reply,
+                                'turn': _turn,
+                            },
+                            session_id=ctx.session_id,
+                        ))
+
+                        # Give the proxy agent another turn with the dialog
+                        # context so it can incorporate the answer.
+                        agent_text, agent_confidence = await self._run_proxy_agent(
+                            state=ctx.state,
+                            artifact_path=artifact_path,
+                            gate_question=_GATE_QUESTIONS.get(ctx.state, ''),
+                            session_worktree=ctx.session_worktree,
+                            infra_dir=ctx.infra_dir,
+                            learned_patterns=getattr(proxy_decision, '_tier1_patterns', ''),
+                            similar_interactions=None,
+                            dialog_history=proxy_dialog_history,
+                        )
+
+                        if agent_confidence < self.PROXY_AGENT_CONFIDENCE_THRESHOLD:
+                            # Proxy lost confidence during dialog — escalate.
+                            break
+
+                # Agent text was empty, confidence dropped, or turns exhausted
+                # — fall through to human review.
 
             # Step 2: Generate bridge text for the human
             bridge_text = self._generate_bridge(
@@ -848,6 +904,7 @@ class ApprovalGate:
         self, state: str, artifact_path: str, gate_question: str,
         session_worktree: str = '', infra_dir: str = '',
         learned_patterns: str = '', similar_interactions: list | None = None,
+        dialog_history: str = '',
     ) -> tuple[str, float]:
         """Invoke a Claude agent as the human proxy.
 
@@ -913,15 +970,25 @@ class ApprovalGate:
                     + '\n'.join(interaction_lines) + '\n'
                 )
 
+        dialog_block = ''
+        if dialog_history:
+            dialog_block = (
+                f'\n--- DIALOG SO FAR ---\n'
+                f'{dialog_history}\n'
+                f'Continue the dialog based on what was said above.\n'
+            )
+
         prompt = (
             f"You are a human proxy agent. You stand in for the human at a CfA "
             f"approval gate. Your job is to predict what the human would say.\n\n"
             f"Gate question: {gate_question}\n\n"
             f"{context_block}\n"
-            f"{learning_block}\n"
+            f"{learning_block}"
+            f"{dialog_block}\n"
             f"Read the artifact and any upstream context files, then respond "
             f"exactly as the human would. Your response should be natural text "
             f"— it may be approval, a question, a correction, or a concern. "
+            f"You may ask clarifying questions before deciding. "
             f"Use the learned patterns and past interactions to inform your "
             f"prediction of what the human would say.\n\n"
             f"After your response, on a FINAL line by itself, write your "

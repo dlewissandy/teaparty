@@ -518,6 +518,163 @@ class TestProxyAgentReceivesLearningContext(unittest.TestCase):
         )
 
 
+class TestProxyAgentDialog(unittest.TestCase):
+    """The proxy agent must be able to ask questions and have dialog."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        model_path = os.path.join(self.tmpdir, '.proxy.json')
+        with open(model_path, 'w') as f:
+            json.dump(_make_warm_model_json(), f)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_proxy_agent_question_triggers_dialog(self):
+        """When the proxy agent asks a question (classifies as dialog),
+        the question goes to the requester and the proxy gets another turn."""
+        input_calls = []
+
+        async def _input_provider(req):
+            input_calls.append(req)
+            return 'approve'
+
+        gate = ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=_input_provider,
+            poc_root=self.tmpdir,
+        )
+        ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent\nBuild a platform')
+        ctx.data = {'artifact_path': artifact_path}
+
+        # First call: agent asks a question (dialog).
+        # Second call: agent approves after getting the answer.
+        agent_calls = [
+            ('Why did you choose a monolith over microservices?', 0.90),
+            ('OK, that makes sense. Approved.', 0.95),
+        ]
+        call_count = [0]
+
+        async def mock_run_proxy_agent(**kwargs):
+            idx = call_count[0]
+            call_count[0] += 1
+            return agent_calls[idx]
+
+        # Classification: first response is dialog, second is approve
+        classify_returns = iter([
+            ('dialog', ''),       # proxy asks a question
+            ('approve', ''),      # proxy approves after dialog
+        ])
+
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', side_effect=mock_run_proxy_agent) as mock_agent, \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_dialog_response', return_value='We chose monolith for simplicity.') as mock_dialog, \
+             patch.object(gate, '_proxy_record'):
+            result = _run(gate.run(ctx))
+
+        # The proxy agent should have been called twice: initial + after dialog
+        self.assertEqual(call_count[0], 2,
+                         "Proxy agent must get a second turn after asking a question")
+        # The dialog response generator should have been called to answer the question
+        mock_dialog.assert_called_once()
+        # Human should NOT have been asked (proxy handled everything)
+        self.assertEqual(len(input_calls), 0,
+                         "Human must not be asked when proxy resolves via dialog")
+        # Final action should be approve
+        self.assertEqual(result.action, 'approve')
+
+    def test_proxy_agent_loses_confidence_during_dialog_escalates(self):
+        """If the proxy agent's confidence drops during dialog, escalate to human."""
+        input_calls = []
+
+        async def _input_provider(req):
+            input_calls.append(req)
+            return 'Yes, approved.'
+
+        gate = ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=_input_provider,
+            poc_root=self.tmpdir,
+        )
+        ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent\nBuild a platform')
+        ctx.data = {'artifact_path': artifact_path}
+
+        # First call: agent asks a question (dialog). Second call: low confidence.
+        agent_calls = [
+            ('What about the rollback plan?', 0.90),
+            ("I'm not sure what to think about this.", 0.3),  # confidence drops
+        ]
+        call_count = [0]
+
+        async def mock_run_proxy_agent(**kwargs):
+            idx = call_count[0]
+            call_count[0] += 1
+            return agent_calls[idx]
+
+        classify_returns = iter([
+            ('dialog', ''),       # proxy asks a question
+            ('approve', ''),      # human approves (after escalation)
+        ])
+
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', side_effect=mock_run_proxy_agent), \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_dialog_response', return_value='No rollback plan yet.'), \
+             patch.object(gate, '_proxy_record'):
+            result = _run(gate.run(ctx))
+
+        # Human MUST have been asked because proxy lost confidence
+        self.assertGreaterEqual(len(input_calls), 1,
+                                "Human must be asked when proxy loses confidence during dialog")
+
+    def test_proxy_dialog_history_passed_to_second_turn(self):
+        """On the second turn, the proxy agent must receive the dialog history."""
+        gate = ApprovalGate(
+            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
+            input_provider=AsyncMock(return_value='approve'),
+            poc_root=self.tmpdir,
+        )
+        ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
+        Path(artifact_path).write_text('# Intent\nBuild a platform')
+        ctx.data = {'artifact_path': artifact_path}
+
+        call_kwargs_list = []
+
+        async def mock_run_proxy_agent(**kwargs):
+            call_kwargs_list.append(kwargs)
+            if len(call_kwargs_list) == 1:
+                return ('What testing strategy?', 0.90)
+            return ('Good, approved.', 0.95)
+
+        classify_returns = iter([
+            ('dialog', ''),
+            ('approve', ''),
+        ])
+
+        with patch('random.random', return_value=0.99), \
+             patch.object(gate, '_run_proxy_agent', side_effect=mock_run_proxy_agent), \
+             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
+             patch.object(gate, '_generate_dialog_response', return_value='Unit tests plus integration.'), \
+             patch.object(gate, '_proxy_record'):
+            _run(gate.run(ctx))
+
+        # Second call must include dialog_history
+        self.assertEqual(len(call_kwargs_list), 2)
+        second_call = call_kwargs_list[1]
+        dialog_hist = second_call.get('dialog_history', '')
+        self.assertIn('What testing strategy', dialog_hist,
+                      "Second proxy turn must include the proxy's question in dialog_history")
+        self.assertIn('Unit tests plus integration', dialog_hist,
+                      "Second proxy turn must include the requester's reply in dialog_history")
+
+
 class TestParseProxyAgentOutput(unittest.TestCase):
     """_parse_proxy_agent_output must handle various confidence formats."""
 
