@@ -517,15 +517,27 @@ class ApprovalGate:
                     data={'generative': True, 'confidence': gen.confidence},
                 )
 
-            # Fall through to human with escalation file as bridge
+            # Fall through to human with escalation file as bridge.
+            # Frame as engagement ("wants to discuss"), not escalation.
             if escalation_file and os.path.exists(escalation_file):
                 try:
                     with open(escalation_file) as _f:
-                        bridge_text = _f.read().strip()
+                        file_content = _f.read().strip()
                 except OSError:
-                    bridge_text = f'Agent requested clarification at state: {ctx.state}'
+                    file_content = ''
+                if file_content:
+                    bridge_text = (
+                        'The agent wants to discuss this with you before proceeding:\n\n'
+                        + file_content
+                    )
+                else:
+                    bridge_text = (
+                        'The agent wants to discuss this with you before proceeding.'
+                    )
             else:
-                bridge_text = f'Agent requested clarification at state: {ctx.state}'
+                bridge_text = (
+                    'The agent wants to discuss this with you before proceeding.'
+                )
         elif artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that

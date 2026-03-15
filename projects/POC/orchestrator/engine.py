@@ -593,7 +593,14 @@ class Orchestrator:
         Planning phase: reads INTENT.md (the intent phase's output).
         Execution phase: reads PLAN.md as the workflow to follow,
             with INTENT.md appended as reference context.
+
+        On cold start (< COLD_START_THRESHOLD observations for the phase's
+        approval state), appends context informing the agent that this is a
+        first encounter and the proxy has no model of the human's preferences.
         """
+        from projects.POC.scripts.approval_gate import COLD_START_THRESHOLD
+
+        base_task = ''
         if phase_name == 'execution':
             plan_path = os.path.join(self.session_worktree, 'PLAN.md')
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
@@ -617,11 +624,32 @@ class Orchestrator:
             intent_path = os.path.join(self.session_worktree, 'INTENT.md')
             try:
                 with open(intent_path) as f:
-                    return f.read()
+                    base_task = f.read()
             except OSError:
                 pass
-        # Intent phase, or artifacts not yet written
-        return self.task or self.project_slug
+
+        if not base_task:
+            # Intent phase, or artifacts not yet written
+            base_task = self.task or self.project_slug
+
+        # Append cold-start context for intent and planning phases
+        if phase_name in ('intent', 'planning'):
+            obs_count = self._get_observation_count(phase_name)
+            if obs_count < COLD_START_THRESHOLD:
+                cold_start_context = (
+                    '\n\n--- Cold Start Context ---\n'
+                    f'This is a cold start — the proxy has {obs_count} prior '
+                    f'observation(s) for this project and phase (threshold: '
+                    f'{COLD_START_THRESHOLD}). The system has no model of the '
+                    f"human's preferences yet. Exploring the problem space and "
+                    f'engaging the human with what you find before producing '
+                    f'the artifact will lead to a better result than a '
+                    f'one-shot attempt.\n'
+                    '--- end ---'
+                )
+                base_task += cold_start_context
+
+        return base_task
 
     async def _failure_dialog(self, reason: str) -> str:
         """Gap 30: Ask human what to do after infrastructure failure.
@@ -653,7 +681,39 @@ class Orchestrator:
             return 'withdraw'
         return 'retry'
 
+    def _get_observation_count(self, phase_name: str = '') -> int:
+        """Get the proxy model's observation count for the current phase's approval state.
+
+        Looks up the (approval_state, project_slug) pair — not the current CfA
+        state — because observations are recorded at approval gates (INTENT_ASSERT,
+        PLAN_ASSERT), not at agent-running states (PROPOSAL, DRAFT).
+
+        Returns 0 if the proxy model doesn't exist or the pair has no entries.
+        """
+        from projects.POC.scripts.approval_gate import load_model, _entry_key
+
+        if not phase_name:
+            phase_name = phase_for_state(self.cfa.state)
+        try:
+            spec = self.config.phase(phase_name)
+        except KeyError:
+            return 0
+
+        try:
+            model = load_model(self.proxy_model_path)
+        except Exception:
+            return 0
+
+        key = _entry_key(spec.approval_state, self.project_slug)
+        raw = model.entries.get(key)
+        if raw is None:
+            return 0
+        if isinstance(raw, dict):
+            return raw.get('total_count', 0)
+        return getattr(raw, 'total_count', 0)
+
     def _build_env_vars(self) -> dict[str, str]:
+        obs_count = self._get_observation_count()
         return {
             'POC_PROJECT': self.project_slug,
             'POC_PROJECT_DIR': self.project_workdir,
@@ -663,6 +723,7 @@ class Orchestrator:
             # Gap 3: SCRIPT_DIR and PROJECTS_DIR needed by subprocesses (e.g. dispatch_cli.py)
             'SCRIPT_DIR': self.poc_root,
             'PROJECTS_DIR': os.path.dirname(self.project_workdir),
+            'POC_PROXY_OBSERVATIONS': str(obs_count),
         }
 
     def _build_add_dirs(self) -> list[str]:
