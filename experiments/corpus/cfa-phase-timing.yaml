@@ -1,0 +1,89 @@
+# CfA Phase Timing Task Corpus
+#
+# Measures how time and tokens distribute across CfA phases
+# (intent, planning, execution) for different task complexities.
+# Identifies which phases dominate cost and where optimization
+# would have the highest impact.
+#
+# Conditions:
+#   full-cfa:     All three phases active (treatment)
+#   skip-intent:  Planning + execution only (skip_intent=True)
+#   execute-only: Execution only (execute_only=True)
+#
+# Uses auto-approve to isolate phase timing from approval delays.
+
+experiment: cfa-phase-timing
+
+default_condition: full-cfa
+default_input_mode: auto-approve
+default_approval_rates: {}
+default_approval_seed: 42
+default_correction_feedback: "Please refine the approach"
+default_rate: 1.0
+
+tasks:
+  # ── Simple tier ──
+  # Intent and planning phases may be disproportionately expensive
+  - id: pt-001
+    text: "Add a constant for the maximum number of retry attempts"
+    tier: simple
+
+  - id: pt-002
+    text: "Create a function that converts bytes to a human-readable size string"
+    tier: simple
+
+  - id: pt-003
+    text: "Add type hints to all public functions in the utils module"
+    tier: simple
+
+  - id: pt-004
+    text: "Implement a simple counter metric with increment and reset"
+    tier: simple
+
+  - id: pt-005
+    text: "Write a helper to extract query parameters from URL strings"
+    tier: simple
+
+  # ── Medium tier ──
+  # Planning phase should start contributing meaningful value
+  - id: pt-006
+    text: "Implement a middleware chain with configurable ordering and short-circuit"
+    tier: medium
+
+  - id: pt-007
+    text: "Create a resource pool with acquire/release semantics and timeout"
+    tier: medium
+
+  - id: pt-008
+    text: "Add structured logging with correlation IDs propagated through async contexts"
+    tier: medium
+
+  - id: pt-009
+    text: "Implement a LRU cache with size limits and per-key TTL expiration"
+    tier: medium
+
+  - id: pt-010
+    text: "Create a request validation framework with composable rule definitions"
+    tier: medium
+
+  # ── Complex tier ──
+  # Full CfA should show clear advantages in phase distribution
+  - id: pt-011
+    text: "Build an ETL pipeline with configurable extractors, transformers, and loaders"
+    tier: complex
+
+  - id: pt-012
+    text: "Implement a state machine framework with guards, actions, and persistence"
+    tier: complex
+
+  - id: pt-013
+    text: "Create a GraphQL schema stitching layer that federates multiple data sources"
+    tier: complex
+
+  - id: pt-014
+    text: "Build a deployment orchestrator with rolling updates, health gates, and rollback"
+    tier: complex
+
+  - id: pt-015
+    text: "Implement a rules engine with forward chaining, conflict resolution, and explanation"
+    tier: complex

@@ -1,0 +1,90 @@
+# Cost-Quality Frontier Task Corpus
+#
+# Maps the trade-off between token cost and output quality across
+# different system configurations. Identifies which features provide
+# the best quality-per-token ratio.
+#
+# Conditions (each progressively adds features):
+#   minimal:       flat + skip_intent + skip_learnings (cheapest)
+#   intent-only:   flat + skip_learnings (adds intent phase)
+#   full-flat:     flat execution with all phases (adds planning + learnings)
+#   hierarchical:  full hierarchical dispatch (most expensive)
+#
+# Human quality ratings are collected after each run to measure the
+# quality axis. Token accounting provides the cost axis.
+
+experiment: cost-quality-frontier
+
+default_condition: full-flat
+default_input_mode: auto-approve
+default_approval_rates: {}
+default_approval_seed: 42
+default_correction_feedback: "Please improve the implementation quality"
+default_rate: 1.0
+
+tasks:
+  # ── Simple tier ──
+  # Baseline tasks where minimal config might be sufficient
+  - id: cq-001
+    text: "Add an endpoint that returns the current server time in ISO 8601 format"
+    tier: simple
+
+  - id: cq-002
+    text: "Create a function to slugify strings for URL-safe identifiers"
+    tier: simple
+
+  - id: cq-003
+    text: "Implement a simple moving average calculator for numeric time series"
+    tier: simple
+
+  - id: cq-004
+    text: "Add a middleware that sets standard security headers on all responses"
+    tier: simple
+
+  - id: cq-005
+    text: "Write a deep merge utility for nested configuration dictionaries"
+    tier: simple
+
+  # ── Medium tier ──
+  # Where intent and planning phases start to pay off
+  - id: cq-006
+    text: "Implement a connection pool manager with health checking and eviction"
+    tier: medium
+
+  - id: cq-007
+    text: "Create an API client wrapper with automatic retry, timeout, and circuit breaking"
+    tier: medium
+
+  - id: cq-008
+    text: "Add a query builder that generates parameterized SQL from filter expressions"
+    tier: medium
+
+  - id: cq-009
+    text: "Implement a pub/sub message broker with topic-based routing"
+    tier: medium
+
+  - id: cq-010
+    text: "Create a schema migration tool that tracks applied versions and supports rollback"
+    tier: medium
+
+  # ── Complex tier ──
+  # Where hierarchical dispatch should provide the most value
+  - id: cq-011
+    text: "Build an end-to-end API testing framework with fixture management and assertions"
+    tier: complex
+
+  - id: cq-012
+    text: "Implement a multi-region data replication system with conflict resolution"
+    tier: complex
+
+  - id: cq-013
+    text: "Create a comprehensive observability stack with metrics, traces, and structured logs"
+    tier: complex
+
+  - id: cq-014
+    text: "Build a service mesh sidecar that handles routing, load balancing, and health checks"
+    tier: complex
+
+  - id: cq-015
+    text: "Implement a full-text search indexer with tokenization, stemming, and ranked retrieval"
+    tier: complex

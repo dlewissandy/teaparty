@@ -69,6 +69,8 @@ class Session:
         skip_learnings: bool = False,
         verbose: bool = False,
         flat: bool = False,
+        suppress_backtracks: bool = False,
+        proxy_enabled: bool = True,
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
     ):
@@ -88,6 +90,8 @@ class Session:
         self.skip_learnings = skip_learnings
         self.verbose = verbose
         self.flat = flat
+        self.suppress_backtracks = suppress_backtracks
+        self.proxy_enabled = proxy_enabled
         self.event_bus = event_bus or EventBus()
         self.input_provider = input_provider
 
@@ -219,6 +223,8 @@ class Session:
             plan_only=self.plan_only,
             execute_only=self.execute_only,
             flat=self.flat,
+            suppress_backtracks=self.suppress_backtracks,
+            proxy_enabled=self.proxy_enabled,
         )
 
         result = await orchestrator.run()

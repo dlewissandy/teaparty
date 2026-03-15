@@ -120,9 +120,12 @@ CONCERN_VOCABULARY = {
 class ProxyDecision:
     """The proxy's verdict at a single decision point."""
     action: str              # 'auto-approve' | 'escalate'
-    confidence: float        # 0.0–1.0
+    confidence: float        # 0.0–1.0 (min of laplace, ema)
     reasoning: str           # why this decision was made
     predicted_response: str  # what the proxy thinks the human would say
+    confidence_laplace: float = 0.0   # Laplace-smoothed approval rate
+    confidence_ema: float = 0.0       # EMA recency-weighted approval rate
+    exploration_forced: bool = False   # True when escalation was random exploration
 
 
 @dataclass
@@ -457,15 +460,25 @@ def compute_confidence(entry: ConfidenceEntry) -> float:
 
     Returns 0.0 when total_count is zero (no data at all).
     """
+    laplace, ema = compute_confidence_components(entry)
+    return min(laplace, ema)
+
+
+def compute_confidence_components(entry: ConfidenceEntry) -> tuple[float, float]:
+    """Return (laplace, ema) confidence components separately.
+
+    Useful for experiment instrumentation — seeing which signal drives the
+    min() decision helps diagnose proxy convergence behavior.
+    """
     if entry.total_count == 0:
-        return 0.0
+        return 0.0, 0.0
     # Laplace smoothing: (approve + 1) / (total + 2)
     laplace = (entry.approve_count + 1) / (entry.total_count + 2)
     # EMA: initialized from Laplace for backward compat with old entries
     ema = getattr(entry, 'ema_approval_rate', None)
     if ema is None:
         ema = laplace  # old entry without EMA — bootstrap from Laplace
-    return min(laplace, ema)
+    return laplace, ema
 
 
 def should_escalate(
@@ -514,7 +527,8 @@ def should_escalate(
             predicted_response="unknown — insufficient history",
         )
 
-    confidence = compute_confidence(entry)
+    laplace, ema = compute_confidence_components(entry)
+    confidence = min(laplace, ema)
 
     # Content checks — fire regardless of confidence level.
     if artifact_path:
@@ -534,6 +548,8 @@ def should_escalate(
                     f"marker(s) requiring human review:\n{markers_list}"
                 ),
                 predicted_response="human review required (CONFIRM markers)",
+                confidence_laplace=laplace,
+                confidence_ema=ema,
             )
 
         if artifact_text:
@@ -544,6 +560,8 @@ def should_escalate(
                     confidence=confidence,
                     reasoning=reason,
                     predicted_response="human review required (content signal)",
+                    confidence_laplace=laplace,
+                    confidence_ema=ema,
                 )
 
     threshold = (
@@ -564,6 +582,8 @@ def should_escalate(
                 f"corrected {entry.correct_count}, rejected {entry.reject_count}."
             ),
             predicted_response="human review required",
+            confidence_laplace=laplace,
+            confidence_ema=ema,
         )
 
     # Staleness guard: force escalation if we haven't heard from the human
@@ -583,6 +603,8 @@ def should_escalate(
                 f"(>{STALENESS_DAYS} days ago). Escalating to recalibrate."
             ),
             predicted_response="human review required (staleness)",
+            confidence_laplace=laplace,
+            confidence_ema=ema,
         )
 
     # Exploration: even when confident, occasionally escalate to get fresh
@@ -598,6 +620,9 @@ def should_escalate(
                 f"This ensures ongoing human calibration."
             ),
             predicted_response="human review required (exploration)",
+            confidence_laplace=laplace,
+            confidence_ema=ema,
+            exploration_forced=True,
         )
 
     return ProxyDecision(
@@ -609,6 +634,8 @@ def should_escalate(
             f"Approved {entry.approve_count}/{entry.total_count} times."
         ),
         predicted_response="approve",
+        confidence_laplace=laplace,
+        confidence_ema=ema,
     )
 
 
