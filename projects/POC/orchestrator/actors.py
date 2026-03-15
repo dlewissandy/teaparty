@@ -141,27 +141,10 @@ class AgentRunner:
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
-        # Pre-run cleanup: remove any stale escalation file so that
-        # _interpret_output only sees files written by THIS turn.
-        # This is the handshake: absent before run → present after = agent escalated.
-        # Also delete any misplaced copies the agent wrote to wrong paths in
-        # previous turns — _relocate_misplaced_artifact scans the full stream
-        # and would re-copy them into the worktree after we cleaned up.
-        if ctx.phase_spec.escalation_file:
-            esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
-            try:
-                os.remove(esc_path)
-            except FileNotFoundError:
-                pass
-            stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
-            misplaced = _find_write_path_in_stream(
-                stream_path, ctx.phase_spec.escalation_file,
-            )
-            if misplaced and os.path.isfile(misplaced):
-                try:
-                    os.remove(misplaced)
-                except OSError:
-                    pass
+        # Record stream offset before agent runs.  Escalation detection
+        # scans only bytes after this offset — THIS turn's events only.
+        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+        stream_offset_before = _file_size(stream_path)
 
         # Build prompt
         prompt = ctx.task
@@ -230,28 +213,16 @@ class AgentRunner:
         # absolute paths instead of the session worktree (their cwd).  Parse
         # the stream JSONL to find where the agent actually wrote, and move
         # the file to the worktree so the approval gate and TUI always find it.
-        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
         if ctx.phase_spec.artifact:
             _relocate_misplaced_artifact(
                 ctx.session_worktree, stream_path,
                 ctx.phase_spec.artifact,
             )
-            if ctx.phase_spec.escalation_file:
-                _relocate_misplaced_artifact(
-                    ctx.session_worktree, stream_path,
-                    ctx.phase_spec.escalation_file,
-                )
 
-        # Generate work summary for execution phase (Issue #116).
-        # Only at WORK_IN_PROGRESS — this is where the lead has finished
-        # delegating and the summary should reflect all dispatch merges.
-        # Other execution states (TASK_IN_PROGRESS, COMPLETED_TASK) don't
-        # need the summary and would produce stale content.
         if ctx.state == 'WORK_IN_PROGRESS':
             await _generate_work_summary(ctx.session_worktree)
 
-        # Detect what the agent produced
-        actor_result = self._interpret_output(ctx, result)
+        actor_result = self._interpret_output(ctx, result, stream_offset_before)
 
         # Emit artifact detection for --verbose tracing
         await ctx.event_bus.publish(Event(
@@ -269,16 +240,31 @@ class AgentRunner:
 
         return actor_result
 
-    def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
-        """Check for artifacts and escalation files to determine the action."""
+    def _interpret_output(self, ctx: ActorContext, result: ClaudeResult,
+                          stream_offset: int = 0) -> ActorResult:
+        """Check for artifacts and escalation files to determine the action.
+
+        Escalation detection is stream-based: only Write events after
+        ``stream_offset`` count.  Race-free by construction.
+        """
         data: dict = {'claude_session_id': result.session_id}
         if result.stderr_lines:
             data['stderr_lines'] = result.stderr_lines
 
-        # Check for escalation file
         if ctx.phase_spec.escalation_file:
-            esc_path = os.path.join(ctx.session_worktree, ctx.phase_spec.escalation_file)
-            if os.path.exists(esc_path):
+            stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
+            esc_write_path = _find_write_path_in_stream_after(
+                stream_path, ctx.phase_spec.escalation_file, stream_offset,
+            )
+            if esc_write_path:
+                esc_path = os.path.join(
+                    ctx.session_worktree, ctx.phase_spec.escalation_file,
+                )
+                if not os.path.exists(esc_path) and os.path.isfile(esc_write_path):
+                    try:
+                        shutil.move(esc_write_path, esc_path)
+                    except OSError:
+                        esc_path = esc_write_path
                 data['escalation_file'] = esc_path
                 action = self._resolve_action(ctx.state, 'escalate')
                 return ActorResult(action=action, data=data)
@@ -451,6 +437,46 @@ def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
         pass
 
     return last_path
+
+
+def _find_write_path_in_stream_after(
+    stream_file: str, artifact_name: str, offset: int,
+) -> str:
+    """Scan stream JSONL from ``offset`` bytes for the last Write of ``artifact_name``."""
+    import json as _json
+    if not stream_file or not os.path.isfile(stream_file):
+        return ''
+    last_path = ''
+    try:
+        with open(stream_file) as f:
+            f.seek(offset)
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    evt = _json.loads(line)
+                except ValueError:
+                    continue
+                for block in evt.get('message', {}).get('content', []):
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get('name') != 'Write':
+                        continue
+                    file_path = block.get('input', {}).get('file_path', '')
+                    if file_path and os.path.basename(file_path) == artifact_name:
+                        last_path = file_path
+    except OSError:
+        pass
+    return last_path
+
+
+def _file_size(path: str) -> int:
+    """Return file size in bytes, or 0 if the file doesn't exist."""
+    try:
+        return os.path.getsize(path)
+    except OSError:
+        return 0
 
 
 def _find_artifact(worktree: str, artifact_name: str) -> str:
