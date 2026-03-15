@@ -267,6 +267,38 @@ class EventCollector:
             json.dump(metrics, f, indent=2, default=str)
         return path
 
+    def merge_child_events(self, child_dirs: list[str]) -> int:
+        """Merge events.jsonl files from child process directories.
+
+        Reads each child's events.jsonl, tags events with their source
+        directory, and appends them to this collector's events.jsonl.
+        Returns the number of child events merged.
+        """
+        merged_count = 0
+        for child_dir in child_dirs:
+            child_events_path = os.path.join(child_dir, 'events.jsonl')
+            if not os.path.isfile(child_events_path):
+                continue
+            try:
+                with open(child_events_path) as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if 'source' not in record:
+                            record['source'] = os.path.basename(child_dir)
+                        self._events.append(record)
+                        with open(self._events_path, 'a') as out:
+                            out.write(json.dumps(record, default=str) + '\n')
+                        merged_count += 1
+            except OSError:
+                continue
+        return merged_count
+
     @staticmethod
     def load_metrics(metrics_path: str) -> dict[str, Any]:
         """Load metrics.json from a results directory."""
