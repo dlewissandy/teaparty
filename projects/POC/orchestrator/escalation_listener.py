@@ -5,6 +5,13 @@ The MCP server (running as a Claude Code subprocess) connects to
 the socket and sends questions.  The listener routes through the
 proxy and, if needed, the human input_provider.
 
+Flow:
+  1. Agent calls AskQuestion → MCP server connects to this socket
+  2. Listener loads proxy model, calls generate_response for a prediction
+  3. If proxy is confident → returns prediction directly (human never asked)
+  4. If not confident → asks human via input_provider, records differential
+  5. Returns the answer (proxy or human) to the MCP server → agent
+
 Protocol (newline-delimited JSON over Unix socket):
 
   MCP server → listener:
@@ -33,10 +40,17 @@ InputProvider = Callable[[InputRequest], Awaitable[str]]
 
 
 class EscalationListener:
-    """Unix socket server that bridges MCP AskQuestion to the orchestrator.
+    """Unix socket server that bridges MCP AskQuestion to the proxy and human.
+
+    The listener is the proxy's entry point for agent questions.  Every
+    question goes through the proxy first:
+    - Proxy always generates a predicted answer (even on cold start)
+    - If confident → returns proxy answer, human never consulted
+    - If not confident → asks human, records the differential
+      (proxy prediction vs. human actual) for learning
 
     Lifecycle:
-      listener = EscalationListener(event_bus, input_provider, session_id)
+      listener = EscalationListener(event_bus, input_provider, ...)
       await listener.start()
       # ... run Claude Code with ASK_QUESTION_SOCKET=listener.socket_path ...
       await listener.stop()
@@ -47,16 +61,21 @@ class EscalationListener:
         event_bus: EventBus,
         input_provider: InputProvider,
         session_id: str = '',
+        proxy_model_path: str = '',
+        project_slug: str = '',
+        cfa_state: str = '',
     ):
         self.event_bus = event_bus
         self.input_provider = input_provider
         self.session_id = session_id
+        self.proxy_model_path = proxy_model_path
+        self.project_slug = project_slug
+        self.cfa_state = cfa_state
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
 
     async def start(self) -> str:
         """Start listening.  Returns the socket path."""
-        # Create socket in a temp directory
         sock_dir = tempfile.mkdtemp(prefix='teaparty-mcp-')
         self.socket_path = os.path.join(sock_dir, 'ask.sock')
 
@@ -92,11 +111,12 @@ class EscalationListener:
                 return
             request = json.loads(line.decode())
             question = request.get('question', '')
+            context = request.get('context', '')
 
             if not question:
                 response = {'answer': ''}
             else:
-                answer = await self._ask_human(question)
+                answer = await self._route_through_proxy(question, context)
                 response = {'answer': answer}
 
             writer.write(json.dumps(response).encode() + b'\n')
@@ -115,8 +135,74 @@ class EscalationListener:
             except Exception:
                 pass
 
+    async def _route_through_proxy(self, question: str, context: str = '') -> str:
+        """Route a question through the proxy, escalating to human if needed.
+
+        1. Load proxy model and generate a predicted response (always)
+        2. If confident → return prediction, log it
+        3. If not confident → ask human, record differential, return human answer
+        """
+        from projects.POC.scripts.approval_gate import (
+            generate_response,
+            load_model,
+            record_outcome,
+            save_model,
+        )
+
+        # Always generate a prediction (even on cold start, it may be None)
+        prediction = ''
+        confident = False
+        try:
+            model = load_model(self.proxy_model_path)
+            gen = generate_response(model, self.cfa_state, self.project_slug)
+            if gen is not None:
+                prediction = gen.text
+                confident = gen.confidence >= model.generative_threshold
+        except Exception:
+            _log.debug('Proxy prediction failed (cold start or missing model)')
+
+        await self.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'ask_question_proxy',
+                'question': question,
+                'prediction': prediction[:200] if prediction else '',
+                'confident': confident,
+                'state': self.cfa_state,
+            },
+            session_id=self.session_id,
+        ))
+
+        # Confident → return proxy answer directly
+        if confident and prediction:
+            _log.info('Proxy answered question confidently: %s', question[:80])
+            return prediction
+
+        # Not confident → ask human
+        human_answer = await self._ask_human(question)
+
+        # Record the differential for learning
+        if self.proxy_model_path:
+            try:
+                model = load_model(self.proxy_model_path)
+                model = record_outcome(
+                    model,
+                    state=self.cfa_state,
+                    task_type=self.project_slug,
+                    outcome='clarify',
+                    differential_summary=human_answer[:500],
+                    differential_reasoning=question,
+                    prediction=prediction or '(no prediction)',
+                )
+                save_model(model, self.proxy_model_path)
+                _log.info('Recorded escalation differential for %s', self.cfa_state)
+            except Exception:
+                _log.debug('Failed to record differential', exc_info=True)
+
+        return human_answer
+
     async def _ask_human(self, question: str) -> str:
-        """Route a question to the human via the input_provider."""
+        """Surface a question to the human via the input_provider (TUI)."""
         await self.event_bus.publish(Event(
             type=EventType.INPUT_REQUESTED,
             data={
