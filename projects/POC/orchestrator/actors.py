@@ -492,18 +492,24 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
 
     async def run(self, ctx: ActorContext) -> ActorResult:
-        """Run the approval gate for the current state."""
+        """Run the approval gate for the current state.
+
+        ONE code path.  consult_proxy generates text (or returns empty if
+        the proxy can't/shouldn't answer).  If confident, that text is the
+        response.  If not, the human is asked for text.  Either way, the
+        text is classified and the classification determines the action.
+        Dialog works the same regardless of source.
+        """
         artifact_path = ctx.data.get('artifact_path', '')
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        # ONE path: consult the proxy agent.  proxy_enabled=False skips the
-        # agent inside consult_proxy and goes straight to the human.
         from projects.POC.orchestrator.proxy_agent import (
             consult_proxy, run_proxy_agent, PROXY_AGENT_CONFIDENCE_THRESHOLD,
         )
         gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
 
+        # Step 1: Consult proxy agent.
         proxy_result = await consult_proxy(
             question=gate_question,
             state=ctx.state,
@@ -524,191 +530,145 @@ class ApprovalGate:
                 'state': ctx.state,
                 'decision': 'agent' if proxy_result.from_agent else 'escalate',
                 'confidence': proxy_result.confidence,
-                'reasoning': f'Proxy agent confidence: {proxy_result.confidence:.2f}' if proxy_result.from_agent else 'Escalated to human',
             },
             session_id=ctx.session_id,
         ))
 
-        if proxy_result.from_agent and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD:
-            # The proxy agent generated text.  Run the dialog loop:
-            # classify the text, and if it's a question, get a reply
-            # from the requester and give the proxy another turn.
-            agent_text = proxy_result.text
-            proxy_dialog_history = ''
-            max_proxy_turns = 5
+        # Step 2: Determine the response text.
+        # If the proxy is confident, its text is the response.
+        # If not, ask the human for text.
+        proxy_confident = (
+            proxy_result.from_agent
+            and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD
+            and proxy_result.text
+        )
+        if proxy_confident:
+            response_text = proxy_result.text
+            source = 'proxy'
+        else:
+            # Ask the human.
+            bridge_text = self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
+            await ctx.event_bus.publish(Event(
+                type=EventType.INPUT_REQUESTED,
+                data={'state': ctx.state, 'artifact': artifact_path, 'bridge_text': bridge_text},
+                session_id=ctx.session_id,
+            ))
+            response_text = await self.input_provider(InputRequest(
+                type='approval', state=ctx.state,
+                artifact=artifact_path, bridge_text=bridge_text,
+            ))
+            await ctx.event_bus.publish(Event(
+                type=EventType.INPUT_RECEIVED,
+                data={'response': response_text},
+                session_id=ctx.session_id,
+            ))
+            source = 'human'
 
-            for _turn in range(max_proxy_turns):
-                action, feedback = self._classify_review(
-                    ctx.state, agent_text,
-                    intent_summary='', plan_summary='',
-                    dialog_history=proxy_dialog_history,
+        # Step 3: Classify and dialog loop.  Same loop regardless of source.
+        # If the response is a question or unclear, dialog continues — the
+        # proxy gets another turn (if source=proxy) or the human is re-prompted
+        # (if source=human).
+        dialog_history = ''
+        while True:
+            action, feedback = self._classify_review(
+                ctx.state, response_text, dialog_history,
+            )
+
+            if action not in ('dialog', '__fallback__'):
+                # Terminal action — record and return.
+                self._proxy_record(
+                    ctx.state, project_slug, action,
+                    artifact_path=artifact_path, team=team,
+                    prediction='approve' if source == 'proxy' else 'escalate',
+                    predicted_response=proxy_result.text if proxy_result.from_agent else '',
+                    feedback=feedback,
+                    conversation=dialog_history + f'{source.upper()}: {response_text}\n' if dialog_history else response_text,
+                )
+                self._log_interaction(
+                    ctx, project_slug,
+                    prediction='approve' if source == 'proxy' else 'escalate',
+                    outcome=action,
+                    delta=feedback if action != 'approve' else '',
+                    exploration=False,
+                )
+                return ActorResult(
+                    action=action, feedback=feedback,
+                    dialog_history=dialog_history,
                 )
 
-                if action not in ('dialog', '__fallback__'):
-                    self._proxy_record(
-                        ctx.state, project_slug, action,
-                        artifact_path=artifact_path, team=team,
-                        prediction='approve',
-                        predicted_response=agent_text,
-                        conversation=proxy_dialog_history,
-                    )
-                    self._log_interaction(
-                        ctx, project_slug, prediction='approve', outcome=action,
-                        delta=feedback if action != 'approve' else '',
-                        exploration=False,
-                    )
-                    return ActorResult(
-                        action=action, feedback=feedback,
-                        dialog_history=proxy_dialog_history,
-                    )
+            # Response classified as dialog — continue the conversation.
+            dialog_history += f'{source.upper()}: {response_text}\n'
 
-                # Proxy asked a question — get requester's answer
-                proxy_dialog_history += f'PROXY: {agent_text}\n'
-                requester_reply = self._generate_dialog_response(
-                    ctx.state, agent_text, artifact_path,
-                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                    ctx.task, proxy_dialog_history,
-                    session_worktree=ctx.session_worktree,
-                )
-                proxy_dialog_history += f'REQUESTER: {requester_reply}\n'
+            # Get a reply from the other side.
+            requester_reply = self._generate_dialog_response(
+                ctx.state, response_text, artifact_path,
+                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                ctx.task, dialog_history,
+                session_worktree=ctx.session_worktree,
+            )
+            dialog_history += f'AGENT: {requester_reply}\n'
 
-                await ctx.event_bus.publish(Event(
-                    type=EventType.LOG,
-                    data={
-                        'category': 'proxy_dialog',
-                        'state': ctx.state,
-                        'proxy_question': agent_text,
-                        'requester_reply': requester_reply,
-                        'turn': _turn,
-                    },
-                    session_id=ctx.session_id,
-                ))
+            await ctx.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'approval_dialog',
+                    'state': ctx.state,
+                    'input': response_text,
+                    'source': source,
+                    'classification': action,
+                    'agent_reply': requester_reply,
+                },
+                session_id=ctx.session_id,
+            ))
 
-                agent_text, agent_confidence = await run_proxy_agent(
+            # Get the next response — from the same source.
+            if source == 'proxy':
+                response_text, confidence = await run_proxy_agent(
                     question=gate_question,
                     state=ctx.state,
                     artifact_path=artifact_path,
                     session_worktree=ctx.session_worktree,
                     infra_dir=ctx.infra_dir,
-                    dialog_history=proxy_dialog_history,
+                    dialog_history=dialog_history,
                 )
-
-                if agent_confidence < PROXY_AGENT_CONFIDENCE_THRESHOLD:
-                    break
-
-        # Falls through to human review.
-        bridge_text = self._generate_bridge(
-            artifact_path, ctx.state, ctx.task,
-            session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
-        )
-
-        # Step 3: Build context summaries for classification accuracy
-        intent_summary = ''
-        plan_summary = ''
-        intent_path = os.path.join(ctx.infra_dir, 'INTENT.md')
-        if not os.path.exists(intent_path):
-            intent_path = os.path.join(ctx.session_worktree, 'INTENT.md')
-        if os.path.exists(intent_path):
-            try:
-                with open(intent_path) as _f:
-                    intent_summary = _f.read(500)
-            except OSError:
-                pass
-        if artifact_path and os.path.exists(artifact_path):
-            try:
-                with open(artifact_path) as _f:
-                    plan_summary = _f.read(500)
-            except OSError:
-                pass
-
-        # Step 4: Dialog loop — ask human, classify, maybe dialog more
-        dialog_history = ''
-        while True:
-            await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_REQUESTED,
-                data={
-                    'state': ctx.state,
-                    'artifact': artifact_path,
-                    'bridge_text': bridge_text,
-                },
-                session_id=ctx.session_id,
-            ))
-
-            response = await self.input_provider(InputRequest(
-                type='approval',
-                state=ctx.state,
-                artifact=artifact_path,
-                bridge_text=bridge_text,
-            ))
-
-            await ctx.event_bus.publish(Event(
-                type=EventType.INPUT_RECEIVED,
-                data={'response': response},
-                session_id=ctx.session_id,
-            ))
-
-            # Classify the response
-            action, feedback = self._classify_review(
-                ctx.state, response, dialog_history,
-                intent_summary=intent_summary, plan_summary=plan_summary,
-            )
-
-            if action in ('dialog', '__fallback__'):
-                # Both dialog and __fallback__ mean the human said something
-                # that isn't a clear decision.  Generate a contextual reply
-                # so the human can refine or ask follow-up questions.
-                dialog_history += f'HUMAN: {response}\n'
-                agent_reply = self._generate_dialog_response(
-                    ctx.state, response, artifact_path,
-                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                    ctx.task, dialog_history,
-                    session_worktree=ctx.session_worktree,
-                )
-                dialog_history += f'AGENT: {agent_reply}\n'
-                bridge_text = agent_reply  # Show the reply as the next bridge
-
-                # Log the dialog exchange for post-hoc debugging (#120)
+                if confidence < PROXY_AGENT_CONFIDENCE_THRESHOLD:
+                    # Proxy lost confidence — switch to human.
+                    source = 'human'
+                    bridge_text = requester_reply
+                    await ctx.event_bus.publish(Event(
+                        type=EventType.INPUT_REQUESTED,
+                        data={'state': ctx.state, 'artifact': artifact_path, 'bridge_text': bridge_text},
+                        session_id=ctx.session_id,
+                    ))
+                    response_text = await self.input_provider(InputRequest(
+                        type='approval', state=ctx.state,
+                        artifact=artifact_path, bridge_text=bridge_text,
+                    ))
+                    await ctx.event_bus.publish(Event(
+                        type=EventType.INPUT_RECEIVED,
+                        data={'response': response_text},
+                        session_id=ctx.session_id,
+                    ))
+            else:
+                # Human dialog continuation — re-prompt with the agent's reply.
+                bridge_text = requester_reply
                 await ctx.event_bus.publish(Event(
-                    type=EventType.LOG,
-                    data={
-                        'category': 'approval_dialog',
-                        'state': ctx.state,
-                        'human_input': response,
-                        'classification': action,
-                        'agent_reply': agent_reply,
-                    },
+                    type=EventType.INPUT_REQUESTED,
+                    data={'state': ctx.state, 'artifact': artifact_path, 'bridge_text': bridge_text},
                     session_id=ctx.session_id,
                 ))
-                continue
-
-            # Non-dialog action — record and return.
-            # Pass the proxy's predicted response text so the differential
-            # captures predicted vs. actual (#138).
-            prediction = 'escalate'
-            predicted_text = getattr(proxy_result, 'text', '') \
-                if 'proxy_result' in dir() else ''
-            self._proxy_record(
-                ctx.state, project_slug, action,
-                artifact_path=artifact_path,
-                feedback=feedback,
-                conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
-                team=team,
-                prediction=prediction,
-                predicted_response=predicted_text,
-            )
-            self._log_interaction(
-                ctx, project_slug,
-                prediction=prediction,
-                outcome=action,
-                delta=feedback if action != 'approve' else '',
-                exploration=False,
-            )
-
-            return ActorResult(
-                action=action,
-                feedback=feedback,
-                dialog_history=dialog_history,
-            )
+                response_text = await self.input_provider(InputRequest(
+                    type='approval', state=ctx.state,
+                    artifact=artifact_path, bridge_text=bridge_text,
+                ))
+                await ctx.event_bus.publish(Event(
+                    type=EventType.INPUT_RECEIVED,
+                    data={'response': response_text},
+                    session_id=ctx.session_id,
+                ))
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
