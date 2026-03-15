@@ -99,6 +99,7 @@ class Orchestrator:
         flat: bool = False,
         suppress_backtracks: bool = False,
         proxy_enabled: bool = True,
+        never_escalate: bool = False,
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
@@ -122,6 +123,7 @@ class Orchestrator:
         self.flat = flat
         self.suppress_backtracks = suppress_backtracks
         self.proxy_enabled = proxy_enabled
+        self.never_escalate = never_escalate
         self.team_override = team_override
 
         # Agent runners
@@ -131,6 +133,7 @@ class Orchestrator:
             input_provider=input_provider,
             poc_root=poc_root,
             proxy_enabled=proxy_enabled,
+            never_escalate=never_escalate,
         )
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human
@@ -174,29 +177,32 @@ class Orchestrator:
             )
             ask_question_socket = await self._escalation_listener.start()
 
-            # Start the MCP dispatch listener so liaison agents can call AskTeam
-            # Lazy import avoids circular: engine → dispatch_listener → dispatch_cli → engine
-            from projects.POC.orchestrator.dispatch_listener import DispatchListener  # noqa: PLC0415
-            self._dispatch_listener = DispatchListener(
-                event_bus=self.event_bus,
-                session_worktree=self.session_worktree,
-                infra_dir=self.infra_dir,
-                project_slug=self.project_slug,
-                session_id=self.session_id,
-                poc_root=self.poc_root,
-                proxy_model_path=self.proxy_model_path,
-            )
-            ask_team_socket = await self._dispatch_listener.start()
+            mcp_env = {
+                'ASK_QUESTION_SOCKET': ask_question_socket,
+                'PYTHONPATH': repo_root,
+            }
+
+            # Subteams (never_escalate) don't get AskTeam — only the
+            # uber team dispatches.  Subteams get AskQuestion only.
+            if not self.never_escalate:
+                from projects.POC.orchestrator.dispatch_listener import DispatchListener  # noqa: PLC0415
+                self._dispatch_listener = DispatchListener(
+                    event_bus=self.event_bus,
+                    session_worktree=self.session_worktree,
+                    infra_dir=self.infra_dir,
+                    project_slug=self.project_slug,
+                    session_id=self.session_id,
+                    poc_root=self.poc_root,
+                    proxy_model_path=self.proxy_model_path,
+                )
+                ask_team_socket = await self._dispatch_listener.start()
+                mcp_env['ASK_TEAM_SOCKET'] = ask_team_socket
 
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
                     'args': ['-m', 'projects.POC.orchestrator.mcp_server'],
-                    'env': {
-                        'ASK_QUESTION_SOCKET': ask_question_socket,
-                        'ASK_TEAM_SOCKET': ask_team_socket,
-                        'PYTHONPATH': repo_root,
-                    },
+                    'env': mcp_env,
                 },
             }
 

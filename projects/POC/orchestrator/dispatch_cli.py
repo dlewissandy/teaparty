@@ -30,12 +30,6 @@ from projects.POC.scripts.cfa_state import (
 )
 
 
-class _NoInputProvider:
-    """Auto-approves everything — dispatch subteams don't interact with humans."""
-
-    async def __call__(self, request: InputRequest) -> str:
-        return 'approve'
-
 
 def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
     """Attach a simple JSONL event writer to the child's EventBus.
@@ -166,13 +160,18 @@ async def dispatch(
     # parent's EventCollector can merge them post-hoc (issue #133).
     event_bus = EventBus()
     _attach_event_writer(event_bus, dispatch_infra)
-    input_provider = _NoInputProvider()
+
+    # The input_provider is a placeholder — never_escalate=True means the
+    # proxy always answers and this is never called.  But it must be truthy
+    # so engine.run() starts the MCP listeners (AskQuestion for the subteam).
+    async def _unreachable_input(request):
+        raise RuntimeError('never_escalate=True but input_provider was called')
 
     orchestrator = Orchestrator(
         cfa_state=cfa,
         phase_config=config,
         event_bus=event_bus,
-        input_provider=input_provider,
+        input_provider=_unreachable_input,
         infra_dir=dispatch_infra,
         project_workdir=worktree_path,
         session_worktree=worktree_path,
@@ -184,6 +183,7 @@ async def dispatch(
         task=task,
         session_id=dispatch_info['dispatch_id'],
         skip_intent=True,
+        never_escalate=True,
         team_override=team,
     )
 

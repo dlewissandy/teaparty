@@ -193,8 +193,8 @@ class TestTaskAssertNeverEscalates(unittest.TestCase):
         classified_text = mock_classify.call_args[0][1]
         self.assertEqual(classified_text, proxy_text)
 
-    def test_empty_proxy_defaults_to_approval(self):
-        """When proxy returns nothing, default to approval (not escalate)."""
+    def test_empty_proxy_still_does_not_escalate(self):
+        """When proxy returns nothing, still don't ask the human."""
         input_calls = []
 
         async def _input_provider(req):
@@ -217,10 +217,8 @@ class TestTaskAssertNeverEscalates(unittest.TestCase):
              patch.object(gate, '_proxy_record'):
             result = _run(gate.run(ctx))
 
-        self.assertEqual(len(input_calls), 0)
-        # The default 'Approved.' text must be classified
-        classified_text = mock_classify.call_args[0][1]
-        self.assertEqual(classified_text, 'Approved.')
+        self.assertEqual(len(input_calls), 0,
+                         "Human must not be asked even when proxy returns empty")
 
 
 # ── Upstream context ────────────────────────────────────────────────────────

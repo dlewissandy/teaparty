@@ -494,11 +494,13 @@ class ApprovalGate:
         input_provider: InputProvider,
         poc_root: str,
         proxy_enabled: bool = True,
+        never_escalate: bool = False,
     ):
         self.proxy_model_path = proxy_model_path
         self.input_provider = input_provider
         self.poc_root = poc_root
         self.proxy_enabled = proxy_enabled
+        self.never_escalate = never_escalate
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state.
@@ -624,11 +626,9 @@ class ApprovalGate:
         if proxy_confident:
             return proxy_result.text
 
-        # For never-escalate states (TASK_ASSERT, TASK_ESCALATE), the proxy's
-        # text is always the answer — even at low confidence.  If the proxy
-        # returned nothing, default to approval.  Never bother the human.
-        if ctx.state in _NEVER_ESCALATE_STATES:
-            return proxy_result.text or 'Approved.'
+        # Never-escalate: the proxy's text is always the answer.
+        if self.never_escalate or ctx.state in _NEVER_ESCALATE_STATES:
+            return proxy_result.text
 
         # Proxy can't answer — escalate to the actual human.
         # If there's a bridge override (e.g., the agent's reply to a prior
