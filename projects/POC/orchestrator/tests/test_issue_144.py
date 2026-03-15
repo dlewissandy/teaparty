@@ -61,8 +61,7 @@ class TestAskTeamToolRegistered(unittest.TestCase):
         tools = server._tool_manager.list_tools()
         ask_team = next((t for t in tools if t.name == 'AskTeam'), None)
         self.assertIsNotNone(ask_team)
-        schema = ask_team.inputSchema
-        props = schema.get('properties', {})
+        props = ask_team.parameters.get('properties', {})
         self.assertIn('team', props, "AskTeam must accept a 'team' parameter")
         self.assertIn('task', props, "AskTeam must accept a 'task' parameter")
 

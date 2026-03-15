@@ -29,7 +29,7 @@ import os
 import tempfile
 
 from projects.POC.orchestrator.dispatch_cli import dispatch
-from projects.POC.orchestrator.events import EventBus
+from projects.POC.orchestrator.events import Event, EventBus, EventType
 
 _log = logging.getLogger('orchestrator.dispatch')
 
@@ -145,6 +145,17 @@ class DispatchListener:
     async def _handle_dispatch(self, team: str, task: str) -> dict:
         """Call dispatch() with the session context passed explicitly."""
         _log.info('Dispatching to team %r: %s', team, task[:80])
+
+        await self.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'dispatch_start',
+                'team': team,
+                'task': task[:200],
+            },
+            session_id=self.session_id,
+        ))
+
         result = await dispatch(
             team=team,
             task=task,
@@ -152,5 +163,17 @@ class DispatchListener:
             infra_dir=self.infra_dir,
             project_slug=self.project_slug,
         )
+
+        await self.event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'category': 'dispatch_complete',
+                'team': team,
+                'status': result.get('status', 'unknown'),
+                'terminal_state': result.get('terminal_state', ''),
+            },
+            session_id=self.session_id,
+        ))
+
         _log.info('Dispatch to %r completed: %s', team, result.get('status', '?'))
         return result
