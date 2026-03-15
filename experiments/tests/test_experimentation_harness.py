@@ -185,6 +185,55 @@ class TestEventCollector(unittest.TestCase):
         self.assertEqual(collector._proxy_decisions[0]['decision'], 'auto-approve')
         self.assertAlmostEqual(collector._proxy_decisions[0]['confidence'], 0.92)
 
+    def test_proxy_decision_captures_richer_fields(self):
+        """proxy_decision events capture confidence_laplace, confidence_ema, exploration_forced."""
+        collector = self._make_collector()
+        event = _make_event(
+            EventType.LOG,
+            data={
+                'category': 'proxy_decision',
+                'state': 'PLAN_ASSERT',
+                'decision': 'escalate',
+                'confidence': 0.75,
+                'confidence_laplace': 0.80,
+                'confidence_ema': 0.75,
+                'exploration_forced': True,
+                'reasoning': 'Exploration escalation',
+            },
+        )
+        _run(collector.on_event(event))
+        d = collector._proxy_decisions[0]
+        self.assertAlmostEqual(d['confidence_laplace'], 0.80)
+        self.assertAlmostEqual(d['confidence_ema'], 0.75)
+        self.assertTrue(d['exploration_forced'])
+
+    def test_summarize_proxy_richer_metrics(self):
+        """summarize() includes exploration_escalations, mean_confidence_laplace, mean_confidence_ema."""
+        collector = self._make_collector()
+        for i, (decision, expl, laplace, ema) in enumerate([
+            ('auto-approve', False, 0.90, 0.85),
+            ('escalate', True, 0.88, 0.82),
+            ('escalate', False, 0.60, 0.55),
+        ]):
+            _run(collector.on_event(_make_event(
+                EventType.LOG,
+                data={
+                    'category': 'proxy_decision',
+                    'state': 'PLAN_ASSERT',
+                    'decision': decision,
+                    'confidence': min(laplace, ema),
+                    'confidence_laplace': laplace,
+                    'confidence_ema': ema,
+                    'exploration_forced': expl,
+                },
+            )))
+
+        metrics = collector.summarize()
+        proxy = metrics['proxy']
+        self.assertEqual(proxy['exploration_escalations'], 1)
+        self.assertAlmostEqual(proxy['mean_confidence_laplace'], (0.90 + 0.88 + 0.60) / 3, places=4)
+        self.assertAlmostEqual(proxy['mean_confidence_ema'], (0.85 + 0.82 + 0.55) / 3, places=4)
+
     def test_session_completed_captures_terminal_state(self):
         """SESSION_COMPLETED sets terminal_state and backtrack_count."""
         collector = self._make_collector()

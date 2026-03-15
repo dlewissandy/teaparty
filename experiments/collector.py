@@ -160,6 +160,9 @@ class EventCollector:
                     'state': event.data.get('state', ''),
                     'decision': event.data.get('decision', ''),
                     'confidence': event.data.get('confidence', 0.0),
+                    'confidence_laplace': event.data.get('confidence_laplace', 0.0),
+                    'confidence_ema': event.data.get('confidence_ema', 0.0),
+                    'exploration_forced': event.data.get('exploration_forced', False),
                     'reasoning': event.data.get('reasoning', ''),
                     'timestamp': event.timestamp,
                 })
@@ -215,8 +218,21 @@ class EventCollector:
             'escalations': sum(
                 1 for d in self._proxy_decisions if d['decision'] == 'escalate'
             ),
+            'exploration_escalations': sum(
+                1 for d in self._proxy_decisions if d.get('exploration_forced', False)
+            ),
             'mean_confidence': (
                 sum(d['confidence'] for d in self._proxy_decisions)
+                / len(self._proxy_decisions)
+                if self._proxy_decisions else 0.0
+            ),
+            'mean_confidence_laplace': (
+                sum(d.get('confidence_laplace', 0.0) for d in self._proxy_decisions)
+                / len(self._proxy_decisions)
+                if self._proxy_decisions else 0.0
+            ),
+            'mean_confidence_ema': (
+                sum(d.get('confidence_ema', 0.0) for d in self._proxy_decisions)
                 / len(self._proxy_decisions)
                 if self._proxy_decisions else 0.0
             ),

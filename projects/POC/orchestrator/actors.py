@@ -538,7 +538,7 @@ class ApprovalGate:
                 phase_start_time=ctx.phase_start_time,
             )
 
-            # Emit proxy decision for --verbose tracing
+            # Emit proxy decision for --verbose tracing and experiment collection
             _pd_action = getattr(proxy_decision, 'action', proxy_decision)
             await ctx.event_bus.publish(Event(
                 type=EventType.LOG,
@@ -547,6 +547,9 @@ class ApprovalGate:
                     'state': ctx.state,
                     'decision': _pd_action,
                     'confidence': getattr(proxy_decision, 'confidence', 0.0),
+                    'confidence_laplace': getattr(proxy_decision, 'confidence_laplace', 0.0),
+                    'confidence_ema': getattr(proxy_decision, 'confidence_ema', 0.0),
+                    'exploration_forced': getattr(proxy_decision, 'exploration_forced', False),
                     'reasoning': getattr(proxy_decision, 'reasoning', ''),
                 },
                 session_id=ctx.session_id,
