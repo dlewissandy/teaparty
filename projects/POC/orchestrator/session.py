@@ -350,12 +350,12 @@ class Session:
     def _find_repo_root(self, project_dir: str = '') -> str:
         """Find the git repo root for worktree creation.
 
-        If the project has its own .git (e.g. hierarchical-memory-paper),
-        use that so worktrees are created from the project's repo, not
-        the outer teaparty repo.
+        If the project has its own .git, use that.  Otherwise, initialize
+        a new empty git repo so the project is isolated from the outer
+        teaparty repo.
         """
-        if project_dir and os.path.exists(os.path.join(project_dir, '.git')):
-            return _find_repo_root_from(project_dir)
+        if project_dir:
+            return _ensure_project_repo(project_dir)
         return _find_repo_root_from(self.poc_root)
 
     def _retrieve_memory(self, project_dir: str) -> str:
@@ -615,7 +615,7 @@ class Session:
             )
 
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
-            repo_root = _find_repo_root_from(project_dir)
+            repo_root = _ensure_project_repo(project_dir)
             conflict_cb = _make_conflict_callback_static(
                 input_provider, event_bus, session_id,
             ) if input_provider else None
@@ -868,6 +868,29 @@ def _reconstruct_last_actor_data(
             data['artifact_path'] = artifact_path
 
     return data
+
+
+def _ensure_project_repo(project_dir: str) -> str:
+    """Ensure project_dir has its own git repo.  Initialize one if missing.
+
+    Returns the project_dir as the repo root.  If the project already has
+    a .git, this is a no-op.  Otherwise, creates a new empty repo with a
+    seed commit so that ``git worktree add`` works.
+    """
+    if os.path.exists(os.path.join(project_dir, '.git')):
+        return _find_repo_root_from(project_dir)
+
+    os.makedirs(project_dir, exist_ok=True)
+    subprocess.run(
+        ['git', 'init'],
+        cwd=project_dir, capture_output=True, check=True,
+    )
+    subprocess.run(
+        ['git', 'commit', '--allow-empty', '-m', 'init'],
+        cwd=project_dir, capture_output=True, check=True,
+    )
+    _log.info('Initialized new project repo at %s', project_dir)
+    return project_dir
 
 
 def _find_repo_root_from(start_dir: str) -> str:
