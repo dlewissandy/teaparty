@@ -133,5 +133,5 @@ Both paths record outcomes: ApprovalGate via `_proxy_record()` → `record_outco
 | Unify proxy paths (should_escalate vs. generate_response) | Open | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
 | Proxy must be an actual agent (reads artifacts, reasons) | Open | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
 | Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
-| Retrieval-backed prediction | Design target | |
+| Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
 | Text derivative learning (proxy self-assessment) | Design target | |
