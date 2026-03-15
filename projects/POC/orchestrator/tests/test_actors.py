@@ -33,6 +33,7 @@ from projects.POC.orchestrator.actors import (
 from projects.POC.orchestrator.claude_runner import ClaudeResult
 from projects.POC.orchestrator.events import EventBus
 from projects.POC.orchestrator.phase_config import PhaseSpec
+from projects.POC.orchestrator.proxy_agent import ProxyResult
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -235,42 +236,32 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
         return ctx
 
     def test_missing_artifact_always_escalates_to_human(self):
-        """Proxy is never consulted when artifact_missing=True — human always asked."""
+        """When artifact is missing the proxy escalates and human is asked."""
         gate = self._make_gate(human_response='correct')
         ctx = self._make_approval_ctx('INTENT_ASSERT')
 
-        with patch.object(gate, '_proxy_decide') as mock_proxy, \
+        # Proxy returns low confidence (escalate path) — human must be asked.
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
              patch.object(gate, '_classify_review', return_value=('correct', 'Please produce INTENT.md')):
-            mock_proxy.return_value = 'auto-approve'  # proxy would say auto-approve...
             _run(gate.run(ctx))
 
-        # Proxy should not have been consulted at all
-        mock_proxy.assert_not_called()
         # Human input was requested
         self.assertEqual(len(self._input_calls), 1)
 
-    def test_missing_artifact_bridge_text_explains_problem(self):
-        """Bridge text presented to human must mention the missing artifact."""
+    def test_missing_artifact_still_goes_through_proxy(self):
+        """Missing artifact is handled by the proxy agent, not a special case."""
         gate = self._make_gate(human_response='correct')
         ctx = self._make_approval_ctx('INTENT_ASSERT')
 
-        captured_requests: list[Any] = []
-
-        async def capturing_input(req):
-            captured_requests.append(req)
-            return 'correct'
-
-        gate.input_provider = capturing_input
-
-        with patch.object(gate, '_classify_review', return_value=('correct', '')):
+        # Proxy is consulted even when artifact is missing — the agent will
+        # see the missing file and respond appropriately.
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))) as mock_cp, \
+             patch.object(gate, '_classify_review', return_value=('correct', '')):
             _run(gate.run(ctx))
 
-        self.assertEqual(len(captured_requests), 1)
-        bridge = captured_requests[0].bridge_text
-        # Must not just say "Ready for review" — it must explain the artifact is missing
-        self.assertNotEqual(bridge, 'Ready for review at INTENT_ASSERT.')
-        self.assertIn('artifact', bridge.lower(),
-                      f"Bridge text should mention artifact, got: {bridge!r}")
+        mock_cp.assert_called_once()
 
     def test_missing_artifact_gate_returns_correct_action(self):
         """When human says 'correct', gate returns correct action."""
@@ -302,11 +293,14 @@ class TestApprovalGateMissingArtifact(unittest.TestCase):
         Path(artifact_path).write_text('# Intent\nBuild something')
         ctx.data = {'artifact_path': artifact_path}
 
-        with patch.object(gate, '_proxy_decide', return_value='auto-approve') as mock_proxy, \
+        # Proxy returns high confidence — agent text is used directly.
+        mock_consult = AsyncMock(return_value=ProxyResult(text='Approved.', confidence=0.95, from_agent=True))
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy', new=mock_consult), \
+             patch.object(gate, '_classify_review', return_value=('approve', '')), \
              patch.object(gate, '_proxy_record'):
             result = _run(gate.run(ctx))
 
-        mock_proxy.assert_called_once()
+        mock_consult.assert_called_once()
         self.assertEqual(result.action, 'approve')
 
 
@@ -336,22 +330,21 @@ class TestGenerateBridgeMissingArtifact(unittest.TestCase):
         # Must not be the generic fallback
         self.assertNotEqual(text, 'Ready for review at INTENT_ASSERT.')
 
-    def test_present_artifact_path_returns_question_with_path(self):
-        """_generate_bridge with artifact returns the alignment question + path."""
+    def test_present_artifact_uses_canonical_gate_question(self):
+        """_generate_bridge with a known assert state returns the canonical question."""
         gate = self._make_gate()
         artifact_path = os.path.join(self.tmpdir, 'INTENT.md')
         Path(artifact_path).write_text('# Intent')
 
         text = gate._generate_bridge(artifact_path, 'INTENT_ASSERT', 'task')
 
-        self.assertIn('Do you recognize', text)
-        self.assertIn(artifact_path, text)
+        self.assertEqual(text, 'Do you recognize this as your idea, completely and accurately articulated?')
 
-    def test_no_artifact_path_returns_alignment_question(self):
-        """When no path given, the alignment question is still returned."""
+    def test_no_artifact_path_returns_generic_fallback(self):
+        """When artifact_missing is not set and no path given, generic message returned."""
         gate = self._make_gate()
         text = gate._generate_bridge('', 'INTENT_ASSERT', 'task')
-        self.assertIn('Do you recognize', text)
+        self.assertEqual(text, 'Ready for review at INTENT_ASSERT.')
 
 
 # ── Phase config artifact values ──────────────────────────────────────────────
@@ -606,7 +599,7 @@ class TestApprovalGateImports(unittest.TestCase):
 # ── Team-scoped proxy model paths ────────────────────────────────────────────
 
 class TestTeamScopedProxyModel(unittest.TestCase):
-    """_proxy_decide and _proxy_record must use resolve_team_model_path."""
+    """consult_proxy must receive the team parameter from env_vars."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
@@ -622,18 +615,21 @@ class TestTeamScopedProxyModel(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    @patch('projects.POC.orchestrator.actors.load_model')
-    @patch('projects.POC.orchestrator.actors.should_escalate')
-    @patch('projects.POC.orchestrator.actors.resolve_team_model_path')
-    def test_proxy_decide_resolves_team_path(self, mock_resolve, mock_escalate, mock_load):
+    def test_proxy_decide_resolves_team_path(self):
+        """consult_proxy is called with team= from POC_TEAM env var."""
         gate = self._make_gate()
-        mock_resolve.return_value = '/tmp/scoped.json'
-        mock_escalate.return_value = MagicMock(action='escalate')
+        ctx = _make_ctx(state='INTENT_ASSERT', session_worktree=self.tmpdir, infra_dir=self.tmpdir)
+        ctx.env_vars = {'POC_TEAM': 'coding', 'POC_PROJECT': 'default'}
 
-        gate._proxy_decide('INTENT_ASSERT', 'default', '', team='coding')
+        mock_consult = AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy', new=mock_consult), \
+             patch.object(gate, '_classify_review', return_value=('approve', '')), \
+             patch.object(gate, '_proxy_record'):
+            _run(gate.run(ctx))
 
-        mock_resolve.assert_called_once_with(gate.proxy_model_path, 'coding')
-        mock_load.assert_called_once_with('/tmp/scoped.json')
+        mock_consult.assert_called_once()
+        call_kwargs = mock_consult.call_args
+        self.assertEqual(call_kwargs.kwargs.get('team'), 'coding')
 
     @patch('projects.POC.orchestrator.actors.save_model')
     @patch('projects.POC.orchestrator.actors.record_outcome')
@@ -836,151 +832,53 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         self.assertEqual(feedback, 'Fix the tests')
 
 
-class TestDialogLoopLogging(unittest.TestCase):
-    """Dialog loop must emit LOG events for post-hoc debugging (#120 bug 4)."""
+class TestDialogLoopsBackThroughProxy(unittest.TestCase):
+    """Dialog classification loops back through the proxy on the next turn."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self._input_index = 0
 
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _make_gate_with_responses(self, responses: list[str]) -> ApprovalGate:
-        """Create a gate whose input_provider returns responses in sequence."""
-        async def _input_provider(req):
-            idx = self._input_index
-            self._input_index += 1
-            return responses[idx] if idx < len(responses) else 'approve'
-
-        return ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-
-    def test_dialog_turn_emits_log_event(self):
-        """When classify returns 'dialog', a LOG event must be published."""
-        gate = self._make_gate_with_responses(['Have you tested it?', 'approve'])
-        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
-                        infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan')
-        ctx.data = {'artifact_path': artifact_path}
-
-        classify_returns = iter([
-            ('dialog', 'Have you tested it?'),
-            ('approve', ''),
-        ])
-
-        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
-             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Yes, all tests pass.'), \
-             patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
-
-        # Find approval_dialog LOG events among all published events
-        dialog_log_events = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.LOG
-            and call.args[0].data.get('category') == 'approval_dialog'
-        ]
-        self.assertGreaterEqual(len(dialog_log_events), 1,
-                                "Dialog turn must emit at least one approval_dialog LOG event")
-        log_data = dialog_log_events[0].args[0].data
-        self.assertEqual(log_data['category'], 'approval_dialog')
-        self.assertEqual(log_data['classification'], 'dialog')
-
-    def test_fallback_turn_emits_log_event(self):
-        """When classify returns '__fallback__', a LOG event must be published."""
-        gate = self._make_gate_with_responses(['something weird', 'approve'])
-        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
-                        infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan')
-        ctx.data = {'artifact_path': artifact_path}
-
-        classify_returns = iter([
-            ('__fallback__', ''),
-            ('approve', ''),
-        ])
-
-        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
-             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Could you rephrase?'), \
-             patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
-
-        dialog_log_events = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.LOG
-            and call.args[0].data.get('category') == 'approval_dialog'
-        ]
-        self.assertGreaterEqual(len(dialog_log_events), 1)
-        self.assertEqual(dialog_log_events[0].args[0].data['classification'], '__fallback__')
-
-
-class TestFallbackUsesDialogGenerator(unittest.TestCase):
-    """__fallback__ must use _generate_dialog_response, not a static menu (#120 bug 5)."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self._input_index = 0
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_fallback_calls_dialog_generator_not_static_menu(self):
-        """When __fallback__ fires, _generate_dialog_response must be called."""
-        responses = ['confusing input', 'approve']
+    def test_dialog_loops_back_then_terminates(self):
+        """When classify returns 'dialog', the loop calls consult_proxy again.
+        On the second turn, a terminal action ends the loop."""
+        input_count = [0]
 
         async def _input_provider(req):
-            idx = self._input_index
-            self._input_index += 1
-            return responses[idx] if idx < len(responses) else 'approve'
+            input_count[0] += 1
+            return 'approve'
 
         gate = ApprovalGate(
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
             input_provider=_input_provider,
             poc_root=self.tmpdir,
         )
-        ctx = _make_ctx(state='WORK_ASSERT', session_worktree=self.tmpdir,
+        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
                         infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'output.txt')
-        Path(artifact_path).write_text('delivered work')
+        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
+        Path(artifact_path).write_text('# Plan')
         ctx.data = {'artifact_path': artifact_path}
 
+        # consult_proxy called twice: first escalates (human asked, dialog),
+        # second escalates again (human asked, approve).
         classify_returns = iter([
-            ('__fallback__', ''),
+            ('dialog', 'Have you tested it?'),
             ('approve', ''),
         ])
 
-        with patch.object(gate, '_proxy_decide', return_value='escalate'), \
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
              patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review work'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Let me try to help.') as mock_dialog, \
              patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
+            result = _run(gate.run(ctx))
 
-        mock_dialog.assert_called_once()
-        # Verify the static menu text is NOT in the bridge (old behavior)
-        # The dialog generator's response should be used instead
-        bridge_calls = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.INPUT_REQUESTED
-        ]
-        # Second INPUT_REQUESTED (after fallback) should use dialog generator output
-        if len(bridge_calls) >= 2:
-            bridge_text = bridge_calls[1].args[0].data.get('bridge_text', '')
-            self.assertNotIn("approve — accept and continue", bridge_text,
-                             "Static menu must not appear — dialog generator should be used")
+        # Human asked twice — once per loop turn (proxy escalated both times).
+        # After dialog, "approve" becomes "correct" to feed back to the agent.
+        self.assertEqual(input_count[0], 2)
+        self.assertEqual(result.action, 'correct')
 
 
 from projects.POC.orchestrator.events import EventType

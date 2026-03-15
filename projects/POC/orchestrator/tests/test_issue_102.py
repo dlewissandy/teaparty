@@ -128,33 +128,52 @@ class TestApprovalGateBridgeContextInjection(unittest.TestCase):
             poc_root=self.tmpdir,
         )
 
-    def test_plan_assert_returns_alignment_question(self):
-        """At PLAN_ASSERT, _generate_bridge returns the direct alignment question."""
+    def test_plan_assert_bridge_uses_canonical_question(self):
+        """At PLAN_ASSERT, _generate_bridge must return the canonical gate question."""
         gate = self._make_gate()
         artifact_path = os.path.join(self.worktree, 'PLAN.md')
         Path(artifact_path).write_text('# Plan\nStep 1: Build widgets.')
 
-        text = gate._generate_bridge(artifact_path, 'PLAN_ASSERT', 'Build widgets')
+        text = gate._generate_bridge(
+            artifact_path, 'PLAN_ASSERT', 'Build widgets',
+            session_worktree=self.worktree,
+            infra_dir=self.infra_dir,
+        )
+        self.assertEqual(
+            text,
+            'Do you recognize this as a strategic plan to operationalize your idea well?',
+        )
 
-        self.assertIn('Do you recognize this plan', text)
-        self.assertIn(artifact_path, text)
-
-    def test_work_assert_returns_alignment_question(self):
-        """At WORK_ASSERT, _generate_bridge returns the direct alignment question."""
+    def test_work_assert_bridge_uses_canonical_question(self):
+        """At WORK_ASSERT, _generate_bridge must return the canonical gate question."""
         gate = self._make_gate()
         artifact_path = os.path.join(self.worktree, '.work-summary.md')
         Path(artifact_path).write_text('# Work Summary\nWidgets built.')
 
-        text = gate._generate_bridge(artifact_path, 'WORK_ASSERT', 'Build widgets')
+        text = gate._generate_bridge(
+            artifact_path, 'WORK_ASSERT', 'Build widgets',
+            session_worktree=self.worktree,
+            infra_dir=self.infra_dir,
+        )
+        self.assertEqual(
+            text,
+            'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
+        )
 
-        self.assertIn('Do you recognize the deliverables', text)
-        self.assertIn(artifact_path, text)
-
-    def test_bridge_works_without_artifact_path(self):
-        """When no artifact path given, the alignment question is still returned."""
+    def test_bridge_degrades_when_context_files_missing(self):
+        """When upstream context files don't exist, _generate_bridge must
+        still produce output without crashing."""
         gate = self._make_gate()
-        text = gate._generate_bridge('', 'PLAN_ASSERT', 'task')
-        self.assertIn('Do you recognize this plan', text)
+        artifact_path = os.path.join(self.worktree, 'PLAN.md')
+        Path(artifact_path).write_text('# Plan\nDo stuff.')
+
+        # Should not raise even though INTENT.md doesn't exist
+        text = gate._generate_bridge(
+            artifact_path, 'PLAN_ASSERT', 'task',
+            session_worktree=self.worktree,
+            infra_dir=self.infra_dir,
+        )
+        self.assertTrue(text)  # Canonical question returned
 
 
 # ── Fallback bridge alignment framing ───────────────────────────────────────
