@@ -157,17 +157,22 @@ def _slugify(text: str) -> str:
 
 
 def _register_worktree(repo_root: str, entry: dict) -> None:
-    """Add an entry to worktrees.json manifest."""
-    manifest_path = os.path.join(repo_root, 'worktrees.json')
-    try:
-        with open(manifest_path) as f:
-            manifest = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        manifest = {'worktrees': []}
+    """Add an entry to worktrees.json manifest under file lock."""
+    from filelock import FileLock
 
-    manifest['worktrees'].append(entry)
-    with open(manifest_path, 'w') as f:
-        json.dump(manifest, f, indent=2)
+    manifest_path = os.path.join(repo_root, 'worktrees.json')
+    lock = FileLock(manifest_path + '.lock', timeout=30)
+
+    with lock:
+        try:
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            manifest = {'worktrees': []}
+
+        manifest['worktrees'].append(entry)
+        with open(manifest_path, 'w') as f:
+            json.dump(manifest, f, indent=2)
 
 
 async def _run_git(cwd: str, *args: str) -> None:
