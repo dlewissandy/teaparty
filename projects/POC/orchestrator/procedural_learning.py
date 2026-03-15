@@ -31,7 +31,8 @@ _log = logging.getLogger('orchestrator')
 
 def archive_skill_candidate(
     *,
-    session_worktree: str,
+    infra_dir: str = '',
+    session_worktree: str = '',
     project_dir: str,
     task: str,
     session_id: str,
@@ -42,8 +43,14 @@ def archive_skill_candidate(
     {project_dir}/skill-candidates/{session_id}.md.
 
     Returns True if a candidate was written, False if skipped (no PLAN.md).
+
+    Reads PLAN.md from infra_dir (Issue #147).  Falls back to
+    session_worktree for backward compatibility.
     """
-    plan_path = os.path.join(session_worktree, 'PLAN.md')
+    plan_path = os.path.join(infra_dir, 'PLAN.md') if infra_dir else ''
+    if not plan_path or not os.path.isfile(plan_path):
+        # Fallback to worktree for backward compat
+        plan_path = os.path.join(session_worktree, 'PLAN.md') if session_worktree else ''
     if not os.path.isfile(plan_path):
         return False
 

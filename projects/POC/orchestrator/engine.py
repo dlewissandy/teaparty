@@ -347,9 +347,9 @@ class Orchestrator:
         if not os.path.isdir(skills_dir):
             return False
 
-        # Read the approved intent
+        # Read the approved intent from infra_dir (Issue #147)
         intent = ''
-        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+        intent_path = os.path.join(self.infra_dir, 'INTENT.md')
         try:
             with open(intent_path) as f:
                 intent = f.read()
@@ -369,8 +369,8 @@ class Orchestrator:
         if not match:
             return False
 
-        # Write the skill template as PLAN.md — the skill IS the plan
-        plan_path = os.path.join(self.session_worktree, 'PLAN.md')
+        # Write the skill template as PLAN.md to infra_dir (Issue #147)
+        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
         with open(plan_path, 'w') as f:
             f.write(match.template)
 
@@ -593,12 +593,10 @@ class Orchestrator:
             self._detect_and_retire_stage()
 
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
-        """Auto-commit artifacts to the session worktree after writes.
+        """Auto-commit deliverables to the session worktree after writes.
 
-        Integration points (from issue #40):
-          1. Post-intent write  → commit INTENT.md
-          2. Post-plan write    → commit PLAN.md
-          3. Post-execution     → commit all deliverables
+        INTENT.md and PLAN.md live in infra_dir (Issue #147), so only
+        execution deliverables are committed to the worktree branch.
         """
         wt = self.session_worktree
         if not wt:
@@ -606,13 +604,7 @@ class Orchestrator:
 
         new_state = self.cfa.state
         try:
-            if new_state == 'INTENT_ASSERT':
-                v = await artifact_version(wt, 'INTENT.md')
-                await commit_artifact(wt, ['INTENT.md'], f'Intent v{v}: {action}')
-            elif new_state == 'PLAN_ASSERT':
-                v = await artifact_version(wt, 'PLAN.md')
-                await commit_artifact(wt, ['PLAN.md'], f'Plan v{v}: {action}')
-            elif new_state == 'TASK_ASSERT':
+            if new_state == 'TASK_ASSERT':
                 await commit_artifact(wt, ['.'], f'Execution: {action}')
         except Exception as exc:
             _log.warning('Artifact commit failed (non-fatal): %s', exc)
@@ -621,9 +613,9 @@ class Orchestrator:
         """Detect the project stage from INTENT.md and retire old-stage memory."""
         from pathlib import Path
 
-        intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+        intent_path = os.path.join(self.infra_dir, 'INTENT.md')
         if not os.path.exists(intent_path):
-            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
+            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
         if not os.path.exists(intent_path):
             return
 
@@ -729,8 +721,8 @@ class Orchestrator:
 
         base_task = ''
         if phase_name == 'execution':
-            plan_path = os.path.join(self.session_worktree, 'PLAN.md')
-            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+            plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
             parts = []
             try:
                 with open(plan_path) as f:
@@ -748,7 +740,7 @@ class Orchestrator:
             if parts:
                 return '\n\n'.join(parts)
         elif phase_name == 'planning':
-            intent_path = os.path.join(self.session_worktree, 'INTENT.md')
+            intent_path = os.path.join(self.infra_dir, 'INTENT.md')
             try:
                 with open(intent_path) as f:
                     base_task = f.read()

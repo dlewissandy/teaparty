@@ -84,14 +84,20 @@ import logging as _logging
 _actor_log = _logging.getLogger('orchestrator.actors')
 
 
-async def _generate_work_summary(worktree: str) -> None:
+async def _generate_work_summary(worktree: str, *, infra_dir: str = '') -> None:
     """Generate .work-summary.md from dispatch merge commits in the worktree.
 
     Called before _interpret_output() during the execution phase so that
     the artifact exists for the approval gate (WORK_ASSERT) to review.
     Regenerated on every pass so correction rounds accumulate.
+
+    The summary is written to infra_dir (session infrastructure) rather than
+    the worktree, so it doesn't pollute the git branch or leak into future
+    sessions.  Issue #147.
     """
     from projects.POC.orchestrator.merge import git_output
+
+    target_dir = infra_dir or worktree
 
     # Scope the log to session-only commits by finding where the branch
     # diverged from main.  Without this, the entire main history leaks
@@ -117,7 +123,7 @@ async def _generate_work_summary(worktree: str) -> None:
     else:
         content = '# Work Summary\n\n' + log_output.strip() + '\n'
 
-    summary_path = os.path.join(worktree, '.work-summary.md')
+    summary_path = os.path.join(target_dir, '.work-summary.md')
     with open(summary_path, 'w') as f:
         f.write(content)
     _actor_log.info('Generated work summary: %s', summary_path)
@@ -199,18 +205,20 @@ class AgentRunner:
         # Claude stores plans internally when running with --permission-mode plan;
         # the shell version's relocate_new_plans() detected and moved them.
         if ctx.phase_spec.artifact and getattr(ctx.phase_spec, "permission_mode", None) == "plan":
-            artifact_path = os.path.join(ctx.session_worktree, ctx.phase_spec.artifact)
+            artifact_path = os.path.join(ctx.infra_dir, ctx.phase_spec.artifact)
             if not os.path.exists(artifact_path):
                 _relocate_plan_file(artifact_path, result.start_time)
 
         # Relocate misplaced artifacts: agents sometimes write to arbitrary
-        # absolute paths instead of the session worktree (their cwd).  Parse
+        # absolute paths instead of the infra dir.  They may write to their
+        # cwd (the worktree), to ~/.claude/plans/, or elsewhere.  Parse
         # the stream JSONL to find where the agent actually wrote, and move
-        # the file to the worktree so the approval gate and TUI always find it.
+        # the file to infra_dir so session artifacts don't pollute the
+        # worktree.  Issue #147.
         stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
         if ctx.phase_spec.artifact:
             _relocate_misplaced_artifact(
-                ctx.session_worktree, stream_path,
+                ctx.infra_dir, stream_path,
                 ctx.phase_spec.artifact,
             )
 
@@ -220,7 +228,7 @@ class AgentRunner:
         # Other execution states (TASK_IN_PROGRESS, COMPLETED_TASK) don't
         # need the summary and would produce stale content.
         if ctx.state == 'WORK_IN_PROGRESS':
-            await _generate_work_summary(ctx.session_worktree)
+            await _generate_work_summary(ctx.session_worktree, infra_dir=ctx.infra_dir)
 
         # Detect what the agent produced
         actor_result = self._interpret_output(ctx, result)
@@ -247,10 +255,10 @@ class AgentRunner:
         if result.stderr_lines:
             data['stderr_lines'] = result.stderr_lines
 
-        # Check for expected artifact
+        # Check for expected artifact — look in infra_dir (Issue #147).
         if ctx.phase_spec.artifact:
             artifact_path = _find_artifact(
-                ctx.session_worktree, ctx.phase_spec.artifact,
+                ctx.infra_dir, ctx.phase_spec.artifact,
             )
             if artifact_path:
                 data['artifact_path'] = artifact_path

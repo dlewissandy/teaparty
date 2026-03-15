@@ -106,7 +106,7 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
 
     def _make_ctx_in_tmpdir(self, state='PROPOSAL', artifact='INTENT.md'):
         spec = _make_phase_spec(artifact=artifact)
-        return _make_ctx(state=state, session_worktree=self.tmpdir, phase_spec=spec)
+        return _make_ctx(state=state, session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
 
     def test_missing_artifact_uses_assert_not_auto_approve(self):
         """When INTENT.md is expected but absent, action must be 'assert', not 'auto-approve'."""
@@ -194,7 +194,7 @@ class TestInterpretOutputMissingArtifactPlanAssert(unittest.TestCase):
             approval_state='PLAN_ASSERT',
             settings_overlay={},
         )
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
 
@@ -409,7 +409,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
     def test_planning_present_artifact_goes_to_assert(self):
         """When PLAN.md exists, action is 'assert' (routes to PLAN_ASSERT)."""
         spec = self._make_planning_spec()
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         Path(os.path.join(self.tmpdir, 'PLAN.md')).write_text('# Plan\nStep 1\nStep 2')
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
@@ -421,8 +421,9 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
     def test_planning_missing_artifact_goes_to_assert_not_auto_approve(self):
         """When PLAN.md is absent, must assert (not auto-approve), so human can review."""
         spec = self._make_planning_spec()
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
-        # PLAN.md deliberately not written
+        infra_dir = tempfile.mkdtemp()
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=infra_dir, phase_spec=spec)
+        # PLAN.md deliberately not written in infra_dir
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
 
@@ -435,7 +436,7 @@ class TestInterpretOutputPlanningPhaseRouting(unittest.TestCase):
     def test_intent_phase_present_artifact_still_goes_to_assert(self):
         """Intent phase is unaffected — present INTENT.md still routes to assert."""
         spec = _make_phase_spec(artifact='INTENT.md')
-        ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, phase_spec=spec)
+        ctx = _make_ctx(state='PROPOSAL', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
 
         result = self.runner._interpret_output(ctx, _make_claude_result())
@@ -708,7 +709,7 @@ class TestEscalationGenerativeResponse(unittest.TestCase):
             stream_file='.plan-stream.jsonl', artifact='PLAN.md',
             approval_state='PLAN_ASSERT', settings_overlay={},
         )
-        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, phase_spec=spec)
+        ctx = _make_ctx(state='DRAFT', session_worktree=self.tmpdir, infra_dir=self.tmpdir, phase_spec=spec)
         runner = AgentRunner()
 
         mock_result = ClaudeResult(exit_code=0, session_id='s1', start_time=1000.0)
@@ -1100,6 +1101,7 @@ class TestInterpretOutputExecutionArtifact(unittest.TestCase):
         ctx = _make_ctx(
             state='WORK_IN_PROGRESS',
             session_worktree=self.tmpdir,
+            infra_dir=self.tmpdir,
             phase_spec=spec,
         )
         # Write the work summary
@@ -1286,6 +1288,7 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
         ctx = _make_ctx(
             state='PROPOSAL',
             session_worktree=self.worktree,
+            infra_dir=self.worktree,
             phase_spec=spec,
         )
 
