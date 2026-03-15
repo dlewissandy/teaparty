@@ -408,5 +408,70 @@ class TestEscalationBridgeIncludesContent(unittest.TestCase):
             self.assertIn('offline mode', bridge.lower())
 
 
+# ── Test 5: Agent prompts modified for cold-start engagement ─────────────────
+
+class TestAgentPromptsModifiedForColdStart(unittest.TestCase):
+    """Agent prompts must support exploration + engagement on cold start."""
+
+    def _load_agent_prompt(self, filename: str, agent_name: str) -> str:
+        """Load an agent prompt from the agents JSON file."""
+        agents_dir = Path(__file__).parent.parent.parent / 'agents'
+        with open(agents_dir / filename) as f:
+            agents = json.load(f)
+        return agents[agent_name]['prompt']
+
+    def test_intent_lead_does_not_say_prefer_assert(self):
+        """The intent-lead prompt must not say 'Prefer this over escalating.'
+
+        This phrase actively suppresses the intake dialog pattern by biasing
+        the agent toward one-shot artifact production even on cold start.
+        """
+        prompt = self._load_agent_prompt('intent-team.json', 'intent-lead')
+        self.assertNotIn('Prefer this over escalating', prompt)
+
+    def test_intent_lead_does_not_say_single_autonomous_pass(self):
+        """The intent-lead prompt must not mandate a single autonomous pass.
+
+        On cold start, the agent should explore and engage before producing
+        the artifact. 'Single autonomous pass' contradicts this.
+        """
+        prompt = self._load_agent_prompt('intent-team.json', 'intent-lead')
+        self.assertNotIn('single autonomous pass', prompt)
+
+    def test_intent_lead_references_cold_start(self):
+        """The intent-lead prompt must reference cold start context."""
+        prompt = self._load_agent_prompt('intent-team.json', 'intent-lead')
+        self.assertIn('cold start', prompt.lower())
+
+    def test_intent_lead_frames_escalation_as_engagement(self):
+        """The intent-lead prompt must frame escalation as engagement on cold start."""
+        prompt = self._load_agent_prompt('intent-team.json', 'intent-lead')
+        lower = prompt.lower()
+        # Must contain engagement framing language in the escalation section
+        self.assertTrue(
+            'engagement' in lower or 'colleague' in lower or 'checking' in lower,
+            'Intent-lead prompt must frame cold-start escalation as engagement',
+        )
+
+    def test_project_lead_does_not_say_single_autonomous_pass(self):
+        """The project-lead prompt must not mandate a single autonomous pass."""
+        prompt = self._load_agent_prompt('uber-team.json', 'project-lead')
+        self.assertNotIn('single autonomous pass', prompt)
+
+    def test_project_lead_references_cold_start(self):
+        """The project-lead prompt must reference cold start context."""
+        prompt = self._load_agent_prompt('uber-team.json', 'project-lead')
+        self.assertIn('cold start', prompt.lower())
+
+    def test_project_lead_frames_escalation_as_engagement(self):
+        """The project-lead prompt must frame escalation as engagement on cold start."""
+        prompt = self._load_agent_prompt('uber-team.json', 'project-lead')
+        lower = prompt.lower()
+        self.assertTrue(
+            'engagement' in lower or 'colleague' in lower or 'checking' in lower,
+            'Project-lead prompt must frame cold-start escalation as engagement',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
