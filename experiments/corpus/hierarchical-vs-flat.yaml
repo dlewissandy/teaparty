@@ -1,0 +1,91 @@
+# Hierarchical vs Flat Dispatch Task Corpus
+#
+# Tests whether hierarchical team dispatch (uber team coordinating subteams)
+# improves output quality and reduces token cost compared to flat single-agent
+# execution.
+#
+# Conditions:
+#   hierarchical:  Normal dispatch with uber team + subteams (treatment)
+#   flat:          Single agent, no dispatch (control, flat=True)
+#
+# Tasks span a range of decomposability: simple tasks that don't benefit
+# from decomposition, and complex tasks where parallel subteams should help.
+
+experiment: hierarchical-vs-flat
+
+default_condition: hierarchical
+default_input_mode: pattern
+default_approval_rates:
+  INTENT_ASSERT: 0.95
+  PLAN_ASSERT: 0.85
+  WORK_ASSERT: 0.90
+default_approval_seed: 42
+default_correction_feedback: "Please decompose this into smaller subtasks"
+default_rate: 0.90
+
+tasks:
+  # ── Simple tier ──
+  # These should work equally well flat or hierarchical
+  - id: hf-001
+    text: "Add a JSON schema validation function for API request bodies"
+    tier: simple
+
+  - id: hf-002
+    text: "Create a logging configuration module with structured JSON output"
+    tier: simple
+
+  - id: hf-003
+    text: "Implement a basic retry decorator with configurable attempts"
+    tier: simple
+
+  - id: hf-004
+    text: "Add CORS configuration middleware with configurable allowed origins"
+    tier: simple
+
+  - id: hf-005
+    text: "Write a date range utility that handles timezone-aware comparisons"
+    tier: simple
+
+  # ── Medium tier ──
+  # Multi-file tasks where decomposition starts to matter
+  - id: hf-006
+    text: "Implement a REST API for managing user profiles with CRUD operations and validation"
+    tier: medium
+
+  - id: hf-007
+    text: "Create a background job queue with status tracking and progress reporting"
+    tier: medium
+
+  - id: hf-008
+    text: "Add comprehensive API documentation generation from route decorators"
+    tier: medium
+
+  - id: hf-009
+    text: "Implement a feature flag system with gradual rollout percentages"
+    tier: medium
+
+  - id: hf-010
+    text: "Create a data export pipeline that supports CSV, JSON, and Parquet formats"
+    tier: medium
+
+  # ── Complex tier ──
+  # Multi-component tasks that benefit most from parallel decomposition
+  - id: hf-011
+    text: "Build a complete authentication system with JWT tokens, refresh rotation, and session management"
+    tier: complex
+
+  - id: hf-012
+    text: "Implement a real-time collaborative editing backend with operational transforms"
+    tier: complex
+
+  - id: hf-013
+    text: "Create a monitoring dashboard backend with metrics collection, alerting rules, and incident tracking"
+    tier: complex
+
+  - id: hf-014
+    text: "Build a workflow engine that supports sequential, parallel, and conditional step execution"
+    tier: complex
+
+  - id: hf-015
+    text: "Implement a data pipeline framework with source connectors, transformation stages, and sink adapters"
+    tier: complex

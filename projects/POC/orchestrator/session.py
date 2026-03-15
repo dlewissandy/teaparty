@@ -69,6 +69,8 @@ class Session:
         skip_learnings: bool = False,
         verbose: bool = False,
         flat: bool = False,
+        suppress_backtracks: bool = False,
+        proxy_enabled: bool = True,
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
         learning_retrieval_mode: str = 'flat',
@@ -90,6 +92,8 @@ class Session:
         self.skip_learnings = skip_learnings
         self.verbose = verbose
         self.flat = flat
+        self.suppress_backtracks = suppress_backtracks
+        self.proxy_enabled = proxy_enabled
         self.event_bus = event_bus or EventBus()
         self.input_provider = input_provider
         self.learning_retrieval_mode = learning_retrieval_mode
@@ -223,6 +227,8 @@ class Session:
             plan_only=self.plan_only,
             execute_only=self.execute_only,
             flat=self.flat,
+            suppress_backtracks=self.suppress_backtracks,
+            proxy_enabled=self.proxy_enabled,
         )
 
         result = await orchestrator.run()
@@ -659,8 +665,18 @@ class Session:
         )
 
     @staticmethod
-    def _retrieve_memory_static(task: str, poc_root: str, project_dir: str, infra_dir: str = '') -> str:
+    def _retrieve_memory_static(
+        task: str,
+        poc_root: str,
+        project_dir: str,
+        infra_dir: str = '',
+        learning_retrieval_mode: str = 'flat',
+        skip_learning_retrieval: bool = False,
+    ) -> str:
         """Retrieve memory without requiring a Session instance."""
+        if skip_learning_retrieval or learning_retrieval_mode == 'disabled':
+            return ''
+
         parts = []
 
         for filename, label in [
@@ -687,12 +703,13 @@ class Session:
                     os.path.join(project_dir, 'tasks'),
                 ]
                 ids_path = os.path.join(infra_dir, '.retrieved-ids.txt') if infra_dir else ''
+                scope_dir = project_dir if learning_retrieval_mode == 'scoped' else ''
                 mem_content = retrieve(
                     task=task,
                     db_path=db_path,
                     source_paths=source_paths,
                     top_k=10,
-                    scope_base_dir=project_dir,
+                    scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
                 )
                 if mem_content and mem_content.strip():

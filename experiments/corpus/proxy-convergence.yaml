@@ -1,0 +1,83 @@
+# Proxy Convergence Task Corpus
+#
+# Tests whether the dual-signal human proxy (Laplace smoothing + EMA)
+# converges to reliable auto-approval within N sequential tasks.
+#
+# Tasks are ordered by complexity tier and designed to exercise
+# all three CfA phases (intent, planning, execution).
+
+experiment: proxy-convergence
+
+default_condition: dual-signal
+default_input_mode: pattern
+default_approval_rates:
+  INTENT_ASSERT: 0.95
+  PLAN_ASSERT: 0.80
+  WORK_ASSERT: 0.85
+default_approval_seed: 42
+default_correction_feedback: "Please add error handling and input validation"
+default_rate: 0.85
+
+tasks:
+  # ── Simple tier ──
+  - id: pc-001
+    text: "Add a health check endpoint that returns service status and uptime"
+    tier: simple
+
+  - id: pc-002
+    text: "Create a utility function that formats timestamps as human-readable strings"
+    tier: simple
+
+  - id: pc-003
+    text: "Add a configuration option to set the maximum upload file size"
+    tier: simple
+
+  - id: pc-004
+    text: "Write a helper that validates email address format"
+    tier: simple
+
+  - id: pc-005
+    text: "Add a /version endpoint that returns the current git commit hash"
+    tier: simple
+
+  # ── Medium tier ──
+  - id: pc-006
+    text: "Implement rate limiting middleware with configurable thresholds per endpoint"
+    tier: medium
+
+  - id: pc-007
+    text: "Add pagination support to the list endpoints with cursor-based navigation"
+    tier: medium
+
+  - id: pc-008
+    text: "Create a retry wrapper for external API calls with exponential backoff"
+    tier: medium
+
+  - id: pc-009
+    text: "Implement request logging middleware that captures timing, status, and request size"
+    tier: medium
+
+  - id: pc-010
+    text: "Add bulk import functionality that processes CSV files and validates each row"
+    tier: medium
+
+  # ── Complex tier ──
+  - id: pc-011
+    text: "Implement a webhook delivery system with retry queue and delivery status tracking"
+    tier: complex
+
+  - id: pc-012
+    text: "Create a role-based access control system with hierarchical permissions"
+    tier: complex
+
+  - id: pc-013
+    text: "Build a real-time notification system using server-sent events with persistence"
+    tier: complex
+
+  - id: pc-014
+    text: "Implement an audit trail system that tracks all data mutations with diff snapshots"
+    tier: complex
+
+  - id: pc-015
+    text: "Create a task scheduling system with cron expressions, retry logic, and dead letter queue"
+    tier: complex

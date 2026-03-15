@@ -482,10 +482,12 @@ class ApprovalGate:
         proxy_model_path: str,
         input_provider: InputProvider,
         poc_root: str,
+        proxy_enabled: bool = True,
     ):
         self.proxy_model_path = proxy_model_path
         self.input_provider = input_provider
         self.poc_root = poc_root
+        self.proxy_enabled = proxy_enabled
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state."""
@@ -531,6 +533,24 @@ class ApprovalGate:
             bridge_text = self._generate_bridge(
                 artifact_path, ctx.state, ctx.task, artifact_missing=True,
             )
+        elif not self.proxy_enabled:
+            # Proxy disabled — skip proxy consultation, go straight to human.
+            # Used for no-proxy baseline condition in experiments.
+            await ctx.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'proxy_decision',
+                    'state': ctx.state,
+                    'decision': 'proxy-disabled',
+                    'confidence': 0.0,
+                    'confidence_laplace': 0.0,
+                    'confidence_ema': 0.0,
+                    'exploration_forced': False,
+                    'reasoning': 'Proxy disabled for this session',
+                },
+                session_id=ctx.session_id,
+            ))
+            bridge_text = self._generate_bridge(artifact_path, ctx.state, ctx.task)
         else:
             # Step 0.5: At PLAN_ASSERT, cross-reference INTENT.md [RESOLVE]
             # questions against PLAN.md.  Unaddressed questions → escalate.
@@ -567,7 +587,7 @@ class ApprovalGate:
                 phase_start_time=ctx.phase_start_time,
             )
 
-            # Emit proxy decision for --verbose tracing
+            # Emit proxy decision for --verbose tracing and experiment collection
             _pd_action = getattr(proxy_decision, 'action', proxy_decision)
             await ctx.event_bus.publish(Event(
                 type=EventType.LOG,
@@ -576,6 +596,9 @@ class ApprovalGate:
                     'state': ctx.state,
                     'decision': _pd_action,
                     'confidence': getattr(proxy_decision, 'confidence', 0.0),
+                    'confidence_laplace': getattr(proxy_decision, 'confidence_laplace', 0.0),
+                    'confidence_ema': getattr(proxy_decision, 'confidence_ema', 0.0),
+                    'exploration_forced': getattr(proxy_decision, 'exploration_forced', False),
                     'reasoning': getattr(proxy_decision, 'reasoning', ''),
                 },
                 session_id=ctx.session_id,

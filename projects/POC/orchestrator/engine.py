@@ -95,6 +95,8 @@ class Orchestrator:
         plan_only: bool = False,
         execute_only: bool = False,
         flat: bool = False,
+        suppress_backtracks: bool = False,
+        proxy_enabled: bool = True,
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
@@ -116,6 +118,8 @@ class Orchestrator:
         self.plan_only = plan_only
         self.execute_only = execute_only
         self.flat = flat
+        self.suppress_backtracks = suppress_backtracks
+        self.proxy_enabled = proxy_enabled
         self.team_override = team_override
 
         # Agent runners
@@ -124,6 +128,7 @@ class Orchestrator:
             proxy_model_path=proxy_model_path,
             input_provider=input_provider,
             poc_root=poc_root,
+            proxy_enabled=proxy_enabled,
         )
 
         # Track resume session IDs per phase (for --resume on corrections).
@@ -170,8 +175,11 @@ class Orchestrator:
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.backtrack_to == 'intent':
-                    self.skip_intent = False
-                    continue
+                    if self.suppress_backtracks:
+                        _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
+                    else:
+                        self.skip_intent = False
+                        continue
                 if result.infrastructure_failure:
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'backtrack':
@@ -196,11 +204,17 @@ class Orchestrator:
             if result.terminal:
                 return self._make_result(result.terminal_state)
             if result.backtrack_to == 'intent':
-                self.skip_intent = False
-                continue
+                if self.suppress_backtracks:
+                    _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
+                else:
+                    self.skip_intent = False
+                    continue
             if result.backtrack_to == 'planning':
-                self.skip_intent = True
-                continue
+                if self.suppress_backtracks:
+                    _log.info('Suppressing backtrack to planning (suppress_backtracks=True)')
+                else:
+                    self.skip_intent = True
+                    continue
             if result.infrastructure_failure:
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'backtrack':

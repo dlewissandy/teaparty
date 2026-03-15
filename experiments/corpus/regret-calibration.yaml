@@ -1,0 +1,91 @@
+# Regret Calibration Task Corpus
+#
+# Tests the impact of REGRET_WEIGHT on proxy decision quality.
+# Asymmetric regret (REGRET_WEIGHT > 1) makes false approvals costlier
+# than false escalations, biasing the proxy toward escalation when uncertain.
+#
+# Conditions:
+#   symmetric:     REGRET_WEIGHT=1 (equal cost for both error types)
+#   asymmetric-3:  REGRET_WEIGHT=3 (default — false approval 3x costlier)
+#   asymmetric-5:  REGRET_WEIGHT=5 (aggressive — false approval 5x costlier)
+#   no-proxy:      proxy_enabled=False (pure human baseline)
+#
+# The pattern provider simulates a human with distinct approval rates
+# per gate, allowing us to measure how well the proxy learns to predict
+# under different regret penalties.
+
+experiment: regret-calibration
+
+default_condition: asymmetric-3
+default_input_mode: pattern
+default_approval_rates:
+  INTENT_ASSERT: 0.92
+  PLAN_ASSERT: 0.75
+  WORK_ASSERT: 0.80
+default_approval_seed: 42
+default_correction_feedback: "The implementation needs better error handling"
+default_rate: 0.80
+
+tasks:
+  # ── Simple tier ──
+  - id: rc-001
+    text: "Add a health check endpoint with dependency status reporting"
+    tier: simple
+
+  - id: rc-002
+    text: "Create a password strength validator with configurable rules"
+    tier: simple
+
+  - id: rc-003
+    text: "Implement a simple key-value store with in-memory backend"
+    tier: simple
+
+  - id: rc-004
+    text: "Add structured error codes and consistent error response format"
+    tier: simple
+
+  - id: rc-005
+    text: "Write a URL shortener utility with collision detection"
+    tier: simple
+
+  # ── Medium tier ──
+  - id: rc-006
+    text: "Implement a token bucket rate limiter with per-user quotas"
+    tier: medium
+
+  - id: rc-007
+    text: "Create a configuration management system with environment overrides"
+    tier: medium
+
+  - id: rc-008
+    text: "Add request/response logging with configurable redaction of sensitive fields"
+    tier: medium
+
+  - id: rc-009
+    text: "Implement an idempotency layer for POST endpoints using request fingerprints"
+    tier: medium
+
+  - id: rc-010
+    text: "Create a batch processing endpoint with progress tracking and partial failure handling"
+    tier: medium
+
+  # ── Complex tier ──
+  - id: rc-011
+    text: "Build a multi-factor authentication flow with TOTP and recovery codes"
+    tier: complex
+
+  - id: rc-012
+    text: "Implement a data versioning system with branching and merge capabilities"
+    tier: complex
+
+  - id: rc-013
+    text: "Create a policy engine that evaluates access rules with attribute-based conditions"
+    tier: complex
+
+  - id: rc-014
+    text: "Build a reconciliation system that compares external data sources and flags discrepancies"
+    tier: complex
+
+  - id: rc-015
+    text: "Implement a saga orchestrator for distributed transactions with compensation handlers"
+    tier: complex

@@ -1,0 +1,89 @@
+# Scoped vs Flat Learning Retrieval Task Corpus
+#
+# Tests whether scope-aware learning retrieval (team > project > global)
+# produces better task outcomes than flat retrieval across all scopes.
+#
+# Conditions:
+#   scoped:    Hierarchical retrieval with scope multipliers (treatment)
+#   flat:      Flat retrieval across all learnings equally (control)
+#   disabled:  No learning retrieval (baseline)
+#
+# Tasks are run sequentially so that earlier tasks generate learnings
+# that later tasks can retrieve. The corpus includes related tasks
+# (same domain) and unrelated tasks to test retrieval precision.
+
+experiment: scoped-vs-flat-retrieval
+
+default_condition: scoped
+default_input_mode: pattern
+default_approval_rates:
+  INTENT_ASSERT: 0.95
+  PLAN_ASSERT: 0.85
+  WORK_ASSERT: 0.90
+default_approval_seed: 42
+default_correction_feedback: "Check if there are relevant learnings from previous tasks"
+default_rate: 0.90
+
+tasks:
+  # ── Authentication domain (related cluster) ──
+  - id: sr-001
+    text: "Implement a basic user login endpoint with password hashing"
+    tier: simple
+
+  - id: sr-002
+    text: "Add session token generation and validation middleware"
+    tier: simple
+
+  - id: sr-003
+    text: "Implement password reset flow with email verification tokens"
+    tier: medium
+
+  - id: sr-004
+    text: "Add role-based authorization checks to protected endpoints"
+    tier: medium
+
+  - id: sr-005
+    text: "Implement OAuth2 client credentials flow for service-to-service auth"
+    tier: complex
+
+  # ── Data processing domain (related cluster) ──
+  - id: sr-006
+    text: "Create a CSV parser that handles quoted fields and escape characters"
+    tier: simple
+
+  - id: sr-007
+    text: "Implement a data validation pipeline with typed schema definitions"
+    tier: medium
+
+  - id: sr-008
+    text: "Add data transformation functions for normalizing nested JSON structures"
+    tier: simple
+
+  - id: sr-009
+    text: "Create a batch data import endpoint with progress reporting"
+    tier: medium
+
+  - id: sr-010
+    text: "Implement a streaming data export with backpressure handling"
+    tier: complex
+
+  # ── Unrelated tasks (tests retrieval precision) ──
+  - id: sr-011
+    text: "Add a DNS lookup utility for service discovery"
+    tier: simple
+
+  - id: sr-012
+    text: "Implement a markdown-to-HTML converter with syntax highlighting and plugin support"
+    tier: complex
+
+  - id: sr-013
+    text: "Create a WebSocket echo server for connection health monitoring"
+    tier: medium
+
+  - id: sr-014
+    text: "Build a file system watcher with recursive monitoring, debouncing, and event coalescing"
+    tier: complex
+
+  - id: sr-015
+    text: "Implement a template rendering engine with variable substitution and conditionals"
+    tier: complex
