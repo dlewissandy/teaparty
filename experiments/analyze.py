@@ -103,7 +103,7 @@ def _descriptive_stats(values: list[float]) -> dict[str, float]:
     sorted_v = sorted(values)
     mean = sum(values) / n
     median = sorted_v[n // 2] if n % 2 == 1 else (sorted_v[n // 2 - 1] + sorted_v[n // 2]) / 2
-    variance = sum((x - mean) ** 2 for x in values) / n if n > 1 else 0
+    variance = sum((x - mean) ** 2 for x in values) / (n - 1) if n > 1 else 0
     std = math.sqrt(variance)
 
     return {
