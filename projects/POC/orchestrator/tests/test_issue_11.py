@@ -98,6 +98,7 @@ class TestProxyInteractionLog(unittest.TestCase):
     def test_auto_approve_writes_log_entry(self):
         """Auto-approve decisions are logged with prediction and outcome."""
         from projects.POC.orchestrator.actors import ApprovalGate
+        from projects.POC.orchestrator.proxy_agent import ProxyResult
 
         with tempfile.TemporaryDirectory() as td:
             model_path = _make_proxy_model_file(td)
@@ -112,7 +113,13 @@ class TestProxyInteractionLog(unittest.TestCase):
             ctx = _make_actor_context(td, artifact_path, session_id='sess-001')
             ctx.data = {'artifact_path': artifact_path}
 
-            result = _run(gate.run(ctx))
+            with patch(
+                'projects.POC.orchestrator.proxy_agent.consult_proxy',
+                new=AsyncMock(return_value=ProxyResult(
+                    text='Approved.', confidence=0.95, from_agent=True,
+                )),
+            ), patch.object(gate, '_classify_review', return_value=('approve', '')):
+                result = _run(gate.run(ctx))
 
             # The interaction log should exist
             log_path = os.path.join(td, '.proxy-interactions.jsonl')
@@ -140,6 +147,7 @@ class TestProxyInteractionLog(unittest.TestCase):
     def test_escalated_decision_writes_log_with_delta(self):
         """Human-escalated decisions include the delta (prediction vs outcome)."""
         from projects.POC.orchestrator.actors import ApprovalGate
+        from projects.POC.orchestrator.proxy_agent import ProxyResult
 
         with tempfile.TemporaryDirectory() as td:
             # Use a model with low confidence to force escalation
@@ -162,8 +170,13 @@ class TestProxyInteractionLog(unittest.TestCase):
             ctx = _make_actor_context(td, artifact_path, session_id='sess-002')
             ctx.data = {'artifact_path': artifact_path}
 
-            # Mock classify to return approve
-            with patch.object(gate, '_classify_review', return_value=('approve', '')):
+            # Proxy is not confident (cold start / low confidence) — falls through to human
+            with patch(
+                'projects.POC.orchestrator.proxy_agent.consult_proxy',
+                new=AsyncMock(return_value=ProxyResult(
+                    text='', confidence=0.0, from_agent=False,
+                )),
+            ), patch.object(gate, '_classify_review', return_value=('approve', '')):
                 result = _run(gate.run(ctx))
 
             log_path = os.path.join(td, '.proxy-interactions.jsonl')

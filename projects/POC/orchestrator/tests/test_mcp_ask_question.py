@@ -11,6 +11,12 @@ Tests are layered (per pre-mortem Risk 5 mitigation):
  - Differential recording (proxy prediction vs. human actual)
  - ClaudeRunner integration (MCP server config wired in)
 """
+try:
+    import mcp  # noqa: F401
+except ImportError:
+    import unittest
+    raise unittest.SkipTest('mcp package not installed')
+
 import asyncio
 import os
 import shutil
@@ -405,13 +411,11 @@ class TestEscalationListener(unittest.TestCase):
         self.assertTrue(os.path.exists(proxy_path),
                         "Proxy model must be created after recording differential")
 
-    @patch('projects.POC.scripts.approval_gate.generate_response')
-    @patch('projects.POC.scripts.approval_gate.load_model')
-    def test_confident_proxy_returns_without_human(self, mock_load, mock_gen):
+    def test_confident_proxy_returns_without_human(self):
         """When the proxy is confident, the human is never consulted."""
         import json as _json
         from projects.POC.orchestrator.escalation_listener import EscalationListener
-        from projects.POC.scripts.approval_gate import GenerativeResponse
+        from projects.POC.orchestrator.proxy_agent import ProxyResult
 
         bus = _make_event_bus()
         human_called = []
@@ -420,13 +424,6 @@ class TestEscalationListener(unittest.TestCase):
             human_called.append(req)
             return 'should not reach here'
 
-        mock_model = MagicMock()
-        mock_model.generative_threshold = 0.7
-        mock_load.return_value = mock_model
-        mock_gen.return_value = GenerativeResponse(
-            action='clarify', text='Use PostgreSQL', confidence=0.95,
-        )
-
         listener = EscalationListener(
             bus, mock_input, session_id='test',
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
@@ -434,23 +431,29 @@ class TestEscalationListener(unittest.TestCase):
         )
 
         async def _test():
-            socket_path = await listener.start()
-            try:
-                reader, writer = await asyncio.open_unix_connection(socket_path)
-                request = _json.dumps({'type': 'ask_human', 'question': 'What database?'})
-                writer.write(request.encode() + b'\n')
-                await writer.drain()
+            with patch(
+                'projects.POC.orchestrator.proxy_agent.consult_proxy',
+                new=AsyncMock(return_value=ProxyResult(
+                    text='Use PostgreSQL', confidence=0.95, from_agent=True,
+                )),
+            ):
+                socket_path = await listener.start()
+                try:
+                    reader, writer = await asyncio.open_unix_connection(socket_path)
+                    request = _json.dumps({'type': 'ask_human', 'question': 'What database?'})
+                    writer.write(request.encode() + b'\n')
+                    await writer.drain()
 
-                response_line = await reader.readline()
-                response = _json.loads(response_line.decode())
-                writer.close()
-                await writer.wait_closed()
+                    response_line = await reader.readline()
+                    response = _json.loads(response_line.decode())
+                    writer.close()
+                    await writer.wait_closed()
 
-                self.assertEqual(response['answer'], 'Use PostgreSQL')
-                self.assertEqual(len(human_called), 0,
-                                 "Human must NOT be consulted when proxy is confident")
-            finally:
-                await listener.stop()
+                    self.assertEqual(response['answer'], 'Use PostgreSQL')
+                    self.assertEqual(len(human_called), 0,
+                                     "Human must NOT be consulted when proxy is confident")
+                finally:
+                    await listener.stop()
 
         _run(_test())
 
