@@ -1,99 +1,154 @@
-# TeaParty
+<p align="center">
+  <img src="docs/images/teaparty.png" alt="TeaParty" width="96" />
+</p>
 
-A platform where teams of humans and AI agents co-author files and collaborate in chat, organized through a corporate hierarchy.
+<h1 align="center">TeaParty</h1>
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full conceptual model.
+<p align="center">
+  <strong>A research platform for durable, scalable agent coordination</strong>
+</p>
 
-## Stack
+<p align="center">
+  <a href="https://dlewissandy.github.io/teaparty/">Documentation</a> &middot;
+  <a href="https://dlewissandy.github.io/teaparty/experimental-results/">Experimental Results</a> &middot;
+  <a href="https://github.com/dlewissandy/teaparty/issues">Issues</a>
+</p>
 
-- **Backend**: FastAPI + SQLModel + SQLite
-- **Frontend**: Vanilla JS (no framework, no build tools)
-- **Auth**: Google ID token verification + app bearer token
-- **Agent runtime**: Claude Code CLI (team sessions via `stream-json`)
-- **LLM calls**: All through `llm_client.create_message()`
+---
+
+Current agent systems fail at four things: they treat requests as complete specifications (**intent gap**), they offer only a binary dial between full autonomy and constant oversight (**escalation failure**), they cannot recover when execution reveals that the plan — or the intent itself — was wrong (**no backtracking**), and they lose coherence as context grows (**context rot**).
+
+TeaParty is building toward mixed teams where humans and AI agents collaborate on increasingly complex projects — not agents as tools, and not agents as autonomous replacements, but genuine teams where each member contributes what they do best.
+
+## Four Research Pillars
+
+### Conversation for Action
+
+*Addresses: intent gap, backtracking*
+
+A three-phase protocol — **Intent**, **Planning**, **Execution** — formalized as a state machine with explicit transitions and seven cross-phase backtracks. Each phase produces artifacts that make implicit context explicit. Approval gates between phases are learning opportunities where the system observes human corrections and preferences.
+
+The key insight is backtracking. When execution reveals a flawed plan, the system returns to planning. When planning reveals a flawed intent, the system returns to intent. When final review reveals that the work faithfully implements an intent that turns out to be wrong, the system backtracks all the way from the end to the beginning. This is the most expensive transition — and without it, the only option is to ship work that misses the point.
+
+<p align="center">
+  <img src="docs/images/cfa-backtrack-overview.svg" alt="CfA three-phase protocol with cross-phase backtracks" width="900" />
+</p>
+
+<p align="center"><em>The CfA state machine: three phases with synthesis loops and seven cross-phase backtrack transitions. <a href="https://dlewissandy.github.io/teaparty/cfa-state-machine/">Full specification &rarr;</a></em></p>
+
+### Hierarchical Teams
+
+*Addresses: context rot, scoping*
+
+Complex work requires complex team structures. A single flat team trying to coordinate strategy and write every file hits context limits and loses coherence. TeaParty separates strategic coordination from tactical execution: an uber team manages strategy while subteams execute in parallel, each in its own process with its own context window. Liaison agents bridge levels, compressing context at each boundary. The uber lead never sees raw file content; subteam workers never see cross-team coordination.
+
+```
+    Project Lead
+    /    |    \
+Coding  Writing  Research     <- liaison agents (context boundary)
+Liaison Liaison  Liaison
+  |       |        |
+[team]  [team]   [team]      <- isolated subteams (separate processes)
+```
+
+[Hierarchical Teams &rarr;](https://dlewissandy.github.io/teaparty/hierarchical-teams/)
+
+### Human Proxy Agents
+
+*Addresses: escalation failure*
+
+As agent teams grow, the human becomes a bottleneck. The proxy agent learns to stand in for the human — answering clarifying questions, responding to escalations, approving plans — based on an evolving model of what the human would decide. Asymmetric regret weighting ensures false approvals cost more than false escalations. The proxy earns autonomy through demonstrated alignment, not configuration.
+
+The proxy's governing principle: **understand first, act second.** Before agents produce artifacts, the proxy runs an intake dialog — formulating predictions about what the human wants and checking them. Where predictions are confident, it answers for the human. Where they're uncertain, it escalates. The delta between predictions and actual answers is the highest-value learning signal in the system.
+
+[Human Proxy Agents &rarr;](https://dlewissandy.github.io/teaparty/human-proxies/)
+
+### Hierarchical Memory and Learning
+
+*Addresses: context rot, scoping*
+
+Learning is a retrieval problem — getting the right knowledge to the right agent at the right moment. Three learning purposes (organizational norms, task procedures, proxy preferences) feed a promotion chain that moves validated learnings up through the hierarchy. Four learning moments (prospective, in-flight, corrective, retrospective) capture knowledge at the points where it matters most.
+
+[Learning System &rarr;](https://dlewissandy.github.io/teaparty/learning-system/)
+
+## Bootstrapping
+
+TeaParty eats its own dogfood. The platform's documentation, design artifacts, and implementation are produced by hierarchical agent teams running the TeaParty POC — the same coordination patterns we're researching are the ones we use to build. Every page in this documentation, every architectural decision, and every line of code has been produced or reviewed by agent teams operating under the protocols described above.
 
 ## Quick Start
 
+### Prerequisites
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) package manager
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) with a valid API key
+
+### Install
+
 ```bash
+git clone https://github.com/dlewissandy/teaparty.git
+cd teaparty
 uv sync
-cp .env.example .env
+```
+
+### Run a session (interactive TUI)
+
+```bash
 ./teaparty.sh
 ```
 
-This launches the TUI dashboard. Pass `--project-dir DIR` to point at a custom projects directory.
+The TUI dashboard shows active sessions, dispatches, and CfA state transitions in real time.
 
-To run the web server directly instead:
-
-```bash
-uv run uvicorn teaparty_app.main:app --reload
-```
-
-Open `http://localhost:8000`.
-
-### Environment Variables
-
-Create `.env` in project root:
-
-```env
-TEAPARTY_APP_SECRET=replace-with-strong-secret
-TEAPARTY_DATABASE_URL=sqlite:///./teaparty.db
-TEAPARTY_GOOGLE_CLIENT_ID=your-google-oauth-client-id.apps.googleusercontent.com
-TEAPARTY_ALLOW_DEV_AUTH=true
-ANTHROPIC_API_KEY=your-anthropic-api-key
-```
-
-`TEAPARTY_ALLOW_DEV_AUTH=true` enables local dev login when Google OAuth is not configured.
-
-### Running Tests
+### Run a session (CLI)
 
 ```bash
-PYTHONPATH=. uv run pytest tests/ --tb=short -q
+# Full CfA lifecycle: intent -> planning -> execution
+uv run python -m projects.POC.orchestrator "Build a feature that does X"
+
+# Phase control
+uv run python -m projects.POC.orchestrator --intent-only "Explore this idea"
+uv run python -m projects.POC.orchestrator --plan-only "Plan this feature"
+uv run python -m projects.POC.orchestrator --execute-only "Just build it"
+
+# Inject pre-written artifacts
+uv run python -m projects.POC.orchestrator --intent-file INTENT.md "Build on this"
+uv run python -m projects.POC.orchestrator --plan-file PLAN.md "Execute this plan"
+
+# Fully autonomous (no human prompts)
+uv run python -m projects.POC.orchestrator --no-human --execute-only "Automated task"
+
+# Resume a crashed or interrupted session
+uv run python -m projects.POC.orchestrator --resume SESSION_ID
+
+# Diagnostics
+uv run python -m projects.POC.orchestrator --dry-run -p myproject "Show memory + proxy state"
+uv run python -m projects.POC.orchestrator -v "Verbose: trace proxy decisions and artifacts"
+uv run python -m projects.POC.orchestrator --flat "Disable hierarchical dispatch"
 ```
 
-## Core Concepts
+### Run tests
 
-### Corporate Hierarchy
+```bash
+uv run pytest projects/POC/orchestrator/tests/ --tb=short -q
+```
 
-**Home** > **Organization** > **Workgroup**
+### Build the docs
 
-- **Home**: A user's view across all their organizations. Has a home agent that can create orgs and manage partnerships.
-- **Organization**: Contains workgroups, members, partnerships, engagements, and projects. Has an org lead agent in the Administration workgroup.
-- **Workgroup**: A department-like unit with agents and jobs. Has a workgroup lead agent.
-- **Partnerships**: Directional trust links between organizations that enable cross-org engagements.
-
-### Work Units
-
-Each work unit gets its own agent team, workspace, and conversation.
-
-- **Job**: Single-workgroup work. Agents execute tasks within a workgroup's scope.
-- **Project**: Cross-workgroup collaboration within an org. Workgroup leads coordinate.
-- **Engagement**: Cross-org work between partnered organizations. Org leads negotiate and coordinate.
-
-### Agents
-
-Each agent has: `name`, `role`, `personality`, `backstory`, `model`, `temperature`, `tool_names`, and `is_lead`.
-
-Agents are autonomous -- they decide what to do based on context, not scripts. Agent output is never truncated. Workflows are advisory, not mandatory.
-
-### Conversations
-
-- **job**: Work execution with workgroup agents
-- **project**: Cross-workgroup coordination with workgroup leads
-- **engagement**: Cross-org negotiation and tracking
-- **direct**: DM with an agent (org lead only for humans)
-- **task**: Single-agent persistent session
-- **admin**: Workgroup administration
-
-### Human Interaction
-
-Humans interact primarily through agents. They can participate in job, project, and engagement conversations, and DM the org lead. They cannot DM workgroup members or workgroup leads directly. Feedback requests bubble up: job -> workgroup lead -> org lead -> human.
+```bash
+uv run mkdocs serve        # local preview at http://localhost:8000
+uv run mkdocs build        # build to site/
+```
 
 ## Documentation
 
-- [Architecture](docs/ARCHITECTURE.md) -- Full conceptual model
-- [File Layout](docs/file-layout.md) -- Virtual file tree structure
-- [Agent Dispatch](docs/agent-dispatch.md) -- Message routing and team sessions
-- [Sandbox Design](docs/sandbox-design.md) -- Future: Docker containers and git integration
-- [Cognitive Architecture](docs/cognitive-architecture.md) -- Future: Agent learning and memory
-- [Roadmap](ROADMAP.md) -- Phased implementation plan
-- [Task List](TASKLIST.md) -- Granular task breakdown
+Full design documentation is published at **[dlewissandy.github.io/teaparty](https://dlewissandy.github.io/teaparty/)**.
+
+| Section | Contents |
+|---------|----------|
+| [Conceptual Design](https://dlewissandy.github.io/teaparty/) | Architecture, CfA protocol, intent engineering, strategic planning, learning system, hierarchical teams, human proxies |
+| [Detailed Design](https://dlewissandy.github.io/teaparty/detailed-design/) | Agent runtime, CfA state machine implementation, approval gate, learning system internals |
+| [Experimental Results](https://dlewissandy.github.io/teaparty/experimental-results/) | Ablative experiments across all four pillars: CfA backtracks, hierarchical vs. flat, proxy convergence, scoped retrieval, cost-quality frontier |
+
+## License
+
+All rights reserved.
