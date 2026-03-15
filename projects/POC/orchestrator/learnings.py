@@ -129,6 +129,16 @@ async def extract_learnings(
         infra_dir=infra_dir, project_dir=project_dir,
     )
 
+    # ── Procedural learning: archive successful plan as skill candidate ──────
+
+    await _run_scope(
+        'skill-archive', _archive_skill_candidate,
+        session_worktree=session_worktree,
+        project_dir=project_dir,
+        task=task,
+        session_id=os.path.basename(infra_dir),
+    )
+
     # ── Summary diagnostic ────────────────────────────────────────────────────
 
     total = succeeded + failed
@@ -414,3 +424,22 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
                     total_reinforced += count
                 except OSError:
                     pass
+
+
+# ── Procedural learning: skill candidate archival ────────────────────────────
+
+def _archive_skill_candidate(
+    *,
+    session_worktree: str,
+    project_dir: str,
+    task: str,
+    session_id: str,
+) -> None:
+    """Archive the session's PLAN.md as a skill candidate for procedural learning."""
+    from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
+    archive_skill_candidate(
+        session_worktree=session_worktree,
+        project_dir=project_dir,
+        task=task,
+        session_id=session_id,
+    )
