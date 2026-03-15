@@ -473,12 +473,19 @@ _GATE_QUESTIONS: dict[str, str] = {
 
 
 class ApprovalGate:
-    """Proxy decision + human review loop.
+    """Proxy agent + human review loop.
 
-    Consults the human proxy model first.  If confident, auto-approves.
-    Otherwise, generates a conversational bridge and asks the human.
-    The human's response is classified into a CfA action.
+    The proxy is a Claude agent that generates the same kind of text response
+    a human would give.  When confident, the agent's text IS the answer.
+    When not confident, the same question goes to the human.  Both the
+    agent's predicted text and the actual answer feed into learning.
+    The final text (from either source) is classified by _classify_review.
     """
+
+    # Confidence threshold for the proxy agent's text response.
+    # When the statistical model passes AND the agent's confidence >= this,
+    # the agent's text substitutes for the human's.
+    PROXY_AGENT_CONFIDENCE_THRESHOLD = 0.8
 
     def __init__(
         self,
@@ -558,10 +565,11 @@ class ApprovalGate:
                     except OSError:
                         pass
 
-            # Step 1: Consult proxy
-            proxy_decision = self._proxy_decide(
+            # Step 1: Consult proxy agent
+            proxy_decision = await self._proxy_decide(
                 ctx.state, project_slug, artifact_path, team=team,
                 phase_start_time=ctx.phase_start_time,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
             )
 
             # Emit proxy decision for --verbose tracing and experiment collection
@@ -582,14 +590,33 @@ class ApprovalGate:
             ))
 
             if _pd_action == 'auto-approve':
-                self._proxy_record(ctx.state, project_slug, 'approve',
-                                   artifact_path=artifact_path, team=team,
-                                   prediction='approve')
-                self._log_interaction(
-                    ctx, project_slug, prediction='approve', outcome='approve',
-                    delta='', exploration=False,
-                )
-                return ActorResult(action='approve')
+                # The proxy agent generated text predicting what the human
+                # would say.  Classify that text the same way we'd classify
+                # human input — the agent's text IS the answer.
+                agent_text = getattr(proxy_decision, 'predicted_response', '')
+                if agent_text:
+                    action, feedback = self._classify_review(
+                        ctx.state, agent_text,
+                        intent_summary='', plan_summary='',
+                    )
+                    # If the agent's text classifies as dialog/fallback, we can't
+                    # use it as a final answer — escalate to the human.
+                    if action not in ('dialog', '__fallback__'):
+                        self._proxy_record(
+                            ctx.state, project_slug, action,
+                            artifact_path=artifact_path, team=team,
+                            prediction='approve',
+                            predicted_response=agent_text,
+                        )
+                        self._log_interaction(
+                            ctx, project_slug, prediction='approve', outcome=action,
+                            delta=feedback if action != 'approve' else '',
+                            exploration=False,
+                        )
+                        return ActorResult(action=action, feedback=feedback)
+
+                # Agent text was empty or classified as dialog — fall through
+                # to human review.
 
             # Step 2: Generate bridge text for the human
             bridge_text = self._generate_bridge(
@@ -706,9 +733,19 @@ class ApprovalGate:
                 dialog_history=dialog_history,
             )
 
-    def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
-                       team: str = '', phase_start_time: float = 0.0) -> 'ProxyDecision':
-        """Consult human proxy model.  Returns full ProxyDecision.
+    async def _proxy_decide(self, state: str, project_slug: str, artifact_path: str = '',
+                             team: str = '', phase_start_time: float = 0.0,
+                             session_worktree: str = '', infra_dir: str = '') -> 'ProxyDecision':
+        """Consult the proxy agent.  Returns full ProxyDecision.
+
+        The statistical model acts as a pre-filter: cold start, staleness,
+        low confidence, and exploration all escalate without invoking the
+        agent.  When the stats pass, the proxy agent is invoked — a Claude
+        agent that reads the artifact and generates a text response predicting
+        what the human would say.
+
+        Returns a ProxyDecision whose predicted_response contains the agent's
+        full text (or '' if the agent was not invoked).
 
         For execution-phase states (TASK_ASSERT, WORK_ASSERT), enforces a
         minimum elapsed-time guard: if the phase ran for less than
@@ -754,11 +791,49 @@ class ApprovalGate:
                 log_path=log_path, state=state, project=project_slug, top_k=5,
             )
 
-            return should_escalate(
+            stats_decision = should_escalate(
                 model, state, project_slug, artifact_path,
                 similar_interactions=similar,
                 tier1_patterns=tier1_patterns,
             )
+
+            # If the statistical model says escalate, respect it — no agent needed.
+            if stats_decision.action != 'auto-approve':
+                return stats_decision
+
+            # Stats passed — invoke the proxy agent to actually read the artifact
+            # and generate a text response predicting what the human would say.
+            gate_question = _GATE_QUESTIONS.get(state, f'Please review: {artifact_path}')
+            agent_text, agent_confidence = await self._run_proxy_agent(
+                state=state,
+                artifact_path=artifact_path,
+                gate_question=gate_question,
+                session_worktree=session_worktree,
+                infra_dir=infra_dir,
+            )
+
+            # Return with the agent's text as predicted_response.
+            # The caller decides whether to use the agent's text or ask the human
+            # based on agent_confidence.
+            if agent_confidence >= self.PROXY_AGENT_CONFIDENCE_THRESHOLD:
+                return ProxyDecision(
+                    action='auto-approve',
+                    confidence=agent_confidence,
+                    reasoning=f'Proxy agent reviewed artifact (confidence {agent_confidence:.2f})',
+                    predicted_response=agent_text,
+                    confidence_laplace=stats_decision.confidence_laplace,
+                    confidence_ema=stats_decision.confidence_ema,
+                )
+            else:
+                return ProxyDecision(
+                    action='escalate',
+                    confidence=agent_confidence,
+                    reasoning=f'Proxy agent not confident enough ({agent_confidence:.2f} < {self.PROXY_AGENT_CONFIDENCE_THRESHOLD})',
+                    predicted_response=agent_text,
+                    confidence_laplace=stats_decision.confidence_laplace,
+                    confidence_ema=stats_decision.confidence_ema,
+                )
+
         except Exception:
             return ProxyDecision(
                 action='escalate',
@@ -766,6 +841,102 @@ class ApprovalGate:
                 reasoning='Exception loading proxy model',
                 predicted_response='escalate (error)',
             )
+
+    async def _run_proxy_agent(
+        self, state: str, artifact_path: str, gate_question: str,
+        session_worktree: str = '', infra_dir: str = '',
+    ) -> tuple[str, float]:
+        """Invoke a Claude agent as the human proxy.
+
+        The agent reads the artifact under review and generates a full text
+        response — what it predicts the human would say.  Returns (text,
+        confidence) where confidence is the agent's self-assessed certainty
+        that its response matches what the human would say.
+
+        The agent has access to file-read tools so it can inspect the artifact,
+        upstream context (INTENT.md, PLAN.md), and any files in the worktree.
+        """
+        # Build context: artifact content and upstream context paths
+        context_parts = []
+
+        if artifact_path and os.path.isfile(artifact_path):
+            context_parts.append(f'Artifact under review: {artifact_path}')
+
+        # Upstream context — INTENT.md for PLAN_ASSERT, both for WORK_ASSERT
+        if state in ('PLAN_ASSERT', 'WORK_ASSERT'):
+            for name in ('INTENT.md',):
+                for search_dir in (infra_dir, session_worktree):
+                    if not search_dir:
+                        continue
+                    path = os.path.join(search_dir, name)
+                    if os.path.isfile(path):
+                        context_parts.append(f'Upstream context: {path}')
+                        break
+        if state == 'WORK_ASSERT':
+            for name in ('PLAN.md', '.work-summary.md'):
+                for search_dir in (infra_dir, session_worktree):
+                    if not search_dir:
+                        continue
+                    path = os.path.join(search_dir, name)
+                    if os.path.isfile(path):
+                        context_parts.append(f'Upstream context: {path}')
+                        break
+
+        context_block = '\n'.join(context_parts) if context_parts else ''
+
+        prompt = (
+            f"You are a human proxy agent. You stand in for the human at a CfA "
+            f"approval gate. Your job is to predict what the human would say.\n\n"
+            f"Gate question: {gate_question}\n\n"
+            f"{context_block}\n\n"
+            f"Read the artifact and any upstream context files, then respond "
+            f"exactly as the human would. Your response should be natural text "
+            f"— it may be approval, a question, a correction, or a concern.\n\n"
+            f"After your response, on a new line, write your confidence that "
+            f"the human would say essentially the same thing, as a decimal "
+            f"between 0.0 and 1.0. Format: CONFIDENCE: 0.85"
+        )
+
+        try:
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: subprocess.run(
+                    ['claude', '-p', '--output-format', 'text',
+                     '--allowedTools', 'Read,Glob,Grep,Bash',
+                     '--permission-mode', 'bypassPermissions'],
+                    input=prompt, capture_output=True, text=True, timeout=60,
+                    cwd=session_worktree or None,
+                ),
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            _actor_log.warning('Proxy agent invocation failed')
+            return ('', 0.0)
+
+        if result.returncode != 0 or not result.stdout.strip():
+            _actor_log.warning('Proxy agent returned non-zero or empty output')
+            return ('', 0.0)
+
+        # Parse text and confidence from the output
+        output = result.stdout.strip()
+        text, confidence = self._parse_proxy_agent_output(output)
+        return (text, confidence)
+
+    @staticmethod
+    def _parse_proxy_agent_output(output: str) -> tuple[str, float]:
+        """Parse proxy agent output into (text, confidence).
+
+        The agent appends a line like 'CONFIDENCE: 0.85' at the end.
+        Everything before that line is the response text.
+        """
+        import re
+        # Look for CONFIDENCE: <number> at the end
+        match = re.search(r'CONFIDENCE:\s*([\d.]+)\s*$', output, re.IGNORECASE)
+        if match:
+            confidence = min(1.0, max(0.0, float(match.group(1))))
+            text = output[:match.start()].strip()
+            return (text, confidence)
+        # No confidence marker — treat as low confidence
+        return (output, 0.0)
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,

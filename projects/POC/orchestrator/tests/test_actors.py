@@ -629,7 +629,7 @@ class TestTeamScopedProxyModel(unittest.TestCase):
         mock_resolve.return_value = '/tmp/scoped.json'
         mock_escalate.return_value = MagicMock(action='escalate')
 
-        gate._proxy_decide('INTENT_ASSERT', 'default', '', team='coding')
+        _run(gate._proxy_decide('INTENT_ASSERT', 'default', '', team='coding'))
 
         mock_resolve.assert_called_once_with(gate.proxy_model_path, 'coding')
         mock_load.assert_called_once_with('/tmp/scoped.json')
