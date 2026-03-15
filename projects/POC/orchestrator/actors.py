@@ -76,6 +76,7 @@ class ActorContext:
     add_dirs: list[str] = field(default_factory=list)
     backtrack_context: str = ''
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
+    mcp_config: dict[str, Any] | None = None
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -141,11 +142,6 @@ class AgentRunner:
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run a Claude agent turn and interpret the result."""
-        # Record stream offset before agent runs.  Escalation detection
-        # scans only bytes after this offset — THIS turn's events only.
-        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
-        stream_offset_before = _file_size(stream_path)
-
         # Build prompt
         prompt = ctx.task
         if ctx.backtrack_context:
@@ -183,6 +179,7 @@ class AgentRunner:
             event_bus=ctx.event_bus,
             stall_timeout=self.stall_timeout,
             session_id=ctx.session_id,
+            mcp_config=ctx.mcp_config,
         )
 
         result = await runner.run()
@@ -213,16 +210,23 @@ class AgentRunner:
         # absolute paths instead of the session worktree (their cwd).  Parse
         # the stream JSONL to find where the agent actually wrote, and move
         # the file to the worktree so the approval gate and TUI always find it.
+        stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
         if ctx.phase_spec.artifact:
             _relocate_misplaced_artifact(
                 ctx.session_worktree, stream_path,
                 ctx.phase_spec.artifact,
             )
 
+        # Generate work summary for execution phase (Issue #116).
+        # Only at WORK_IN_PROGRESS — this is where the lead has finished
+        # delegating and the summary should reflect all dispatch merges.
+        # Other execution states (TASK_IN_PROGRESS, COMPLETED_TASK) don't
+        # need the summary and would produce stale content.
         if ctx.state == 'WORK_IN_PROGRESS':
             await _generate_work_summary(ctx.session_worktree)
 
-        actor_result = self._interpret_output(ctx, result, stream_offset_before)
+        # Detect what the agent produced
+        actor_result = self._interpret_output(ctx, result)
 
         # Emit artifact detection for --verbose tracing
         await ctx.event_bus.publish(Event(
@@ -240,34 +244,11 @@ class AgentRunner:
 
         return actor_result
 
-    def _interpret_output(self, ctx: ActorContext, result: ClaudeResult,
-                          stream_offset: int = 0) -> ActorResult:
-        """Check for artifacts and escalation files to determine the action.
-
-        Escalation detection is stream-based: only Write events after
-        ``stream_offset`` count.  Race-free by construction.
-        """
+    def _interpret_output(self, ctx: ActorContext, result: ClaudeResult) -> ActorResult:
+        """Check for artifacts to determine the action."""
         data: dict = {'claude_session_id': result.session_id}
         if result.stderr_lines:
             data['stderr_lines'] = result.stderr_lines
-
-        if ctx.phase_spec.escalation_file:
-            stream_path = os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file)
-            esc_write_path = _find_write_path_in_stream_after(
-                stream_path, ctx.phase_spec.escalation_file, stream_offset,
-            )
-            if esc_write_path:
-                esc_path = os.path.join(
-                    ctx.session_worktree, ctx.phase_spec.escalation_file,
-                )
-                if not os.path.exists(esc_path) and os.path.isfile(esc_write_path):
-                    try:
-                        shutil.move(esc_write_path, esc_path)
-                    except OSError:
-                        esc_path = esc_write_path
-                data['escalation_file'] = esc_path
-                action = self._resolve_action(ctx.state, 'escalate')
-                return ActorResult(action=action, data=data)
 
         # Check for expected artifact
         if ctx.phase_spec.artifact:
@@ -439,46 +420,6 @@ def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
     return last_path
 
 
-def _find_write_path_in_stream_after(
-    stream_file: str, artifact_name: str, offset: int,
-) -> str:
-    """Scan stream JSONL from ``offset`` bytes for the last Write of ``artifact_name``."""
-    import json as _json
-    if not stream_file or not os.path.isfile(stream_file):
-        return ''
-    last_path = ''
-    try:
-        with open(stream_file) as f:
-            f.seek(offset)
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    evt = _json.loads(line)
-                except ValueError:
-                    continue
-                for block in evt.get('message', {}).get('content', []):
-                    if not isinstance(block, dict):
-                        continue
-                    if block.get('name') != 'Write':
-                        continue
-                    file_path = block.get('input', {}).get('file_path', '')
-                    if file_path and os.path.basename(file_path) == artifact_name:
-                        last_path = file_path
-    except OSError:
-        pass
-    return last_path
-
-
-def _file_size(path: str) -> int:
-    """Return file size in bytes, or 0 if the file doesn't exist."""
-    try:
-        return os.path.getsize(path)
-    except OSError:
-        return 0
-
-
 def _find_artifact(worktree: str, artifact_name: str) -> str:
     """Find an artifact in the worktree.  Checks the root first, then
     searches up to one level deep.  Returns the path or '' if not found.
@@ -519,77 +460,15 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
     return ''
 
 
-# ── Escalation question extraction ───────────────────────────────────────────
-
-import re as _re
-
-
-def _extract_questions(content: str) -> list[str]:
-    """Pull the concrete questions out of an escalation file.
-
-    Heuristics (applied in order of specificity):
-    1. Lines ending with ``?`` (after stripping markdown bold/italic).
-    2. Lines starting with a numbered prefix (``1.``, ``**1.**``) that
-       contain a ``?``, even if the ``?`` is mid-line.
-    3. Lines whose heading (``##``, ``**...**``) contains "blocker" — for
-       task-escalation blockers that aren't phrased as questions.
-    """
-    questions: list[str] = []
-    seen: set[str] = set()
-    for raw_line in content.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-
-        # Strip leading markdown heading markers, bold wrappers, and
-        # numbered prefixes (we re-number in the bridge text).
-        display = _re.sub(r'^#{1,4}\s*', '', line)
-        display = _re.sub(r'^\*{0,2}\d+[\.\)]\s*\*{0,2}\s*', '', display)
-        display = display.strip().lstrip('*_').strip()
-
-        # Blocker headings (task escalations)
-        if _re.match(r'^#{1,4}\s+.*(?i:blocker)', line):
-            if display not in seen:
-                seen.add(display)
-                questions.append(display)
-            continue
-
-        # Lines ending with ? (strip trailing bold/italic markers first)
-        check = _re.sub(r'[\*_`]+$', '', display).rstrip()
-        if check.endswith('?'):
-            if check not in seen:
-                seen.add(check)
-                questions.append(check)
-            continue
-
-        # Numbered items with an embedded ?
-        if _re.match(r'^\*{0,2}\d+[\.\)]\s+', line) and '?' in line:
-            if display not in seen:
-                seen.add(display)
-                questions.append(display)
-
-    return questions
-
-
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
-
-_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE', 'TASK_REVIEW_ESCALATE'})
-
-# Canonical alignment questions for each approval gate.  These are the
-# questions the proxy and human both see — no LLM rephrasing.
-_GATE_QUESTIONS: dict[str, str] = {
-    'INTENT_ASSERT': 'Do you recognize this as your idea, completely and accurately articulated?',
-    'PLAN_ASSERT': 'Do you recognize this as a strategic plan to operationalize your idea well?',
-    'WORK_ASSERT': 'Do you recognize the deliverables and project files as your idea, completely and well implemented?',
-}
 
 
 class ApprovalGate:
     """Proxy decision + human review loop.
 
-    Every gate — approval or escalation, any phase — follows the same
-    chain: ask the proxy first, then escalate to the human if the proxy
-    can't answer.  The question is the same for both.
+    Consults the human proxy model first.  If confident, auto-approves.
+    Otherwise, generates a conversational bridge and asks the human.
+    The human's response is classified into a CfA action.
     """
 
     def __init__(
@@ -607,59 +486,11 @@ class ApprovalGate:
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state."""
         artifact_path = ctx.data.get('artifact_path', '')
-        escalation_file = ctx.data.get('escalation_file', '')
         artifact_missing = ctx.data.get('artifact_missing', False)
         project_slug = ctx.env_vars.get('POC_PROJECT', 'default')
         team = ctx.env_vars.get('POC_TEAM', '')
 
-        # Predicted response from proxy — set for escalation states, None otherwise.
-        gen = None
-
-        # For escalation states: proxy always generates a predicted response.
-        # Confidence determines routing: high → return to agent, low → ask human.
-        # Either way the prediction is preserved for differential learning (#138).
-        if ctx.state in _ESCALATION_STATES or ctx.state == 'TASK_ESCALATE':
-            gen = self._try_generate_response(project_slug, ctx.state, team)
-            await ctx.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'generative_response',
-                    'state': ctx.state,
-                    'result': f'generated (confidence={gen.confidence:.3f})' if gen else 'generation failed',
-                },
-                session_id=ctx.session_id,
-            ))
-            # High confidence → return prediction directly to agent
-            if gen is not None and gen.confidence >= 0.95:
-                return ActorResult(
-                    action='clarify',
-                    feedback=gen.text,
-                    data={'generative': True, 'confidence': gen.confidence},
-                )
-
-            # Low confidence → fall through to human, preserve prediction for diff.
-            # Extract questions so the human sees what they're being asked.
-            if escalation_file and os.path.exists(escalation_file):
-                try:
-                    with open(escalation_file) as _f:
-                        file_content = _f.read().strip()
-                except OSError:
-                    file_content = ''
-                if file_content:
-                    questions = _extract_questions(file_content)
-                    if questions:
-                        # One question at a time — it's a dialog.
-                        # The answer to Q1 may resolve Q2.
-                        bridge_text = questions[0]
-                    else:
-                        bridge_text = file_content
-                else:
-                    bridge_text = (
-                        'The agent needs your input before proceeding.'
-                    )
-            else:
-                bridge_text = 'The agent has a question for you.'
-        elif artifact_missing:
+        if artifact_missing:
             # Agent failed to produce the expected artifact — always escalate to
             # the human. The proxy cannot auto-approve a missing artifact; that
             # would advance the session with no work product to review.
@@ -836,11 +667,8 @@ class ApprovalGate:
                 ))
                 continue
 
-            # Non-dialog action — record and return.
-            # If the proxy generated a predicted response (even low-confidence),
-            # pass it through so the differential captures predicted vs. actual (#138).
-            predicted_text = gen.text if gen is not None else ''
-            prediction = 'escalate'
+            # Non-dialog action — record and return
+            prediction = 'escalate'  # proxy predicted escalation (that's why human was asked)
             self._proxy_record(
                 ctx.state, project_slug, action,
                 artifact_path=artifact_path,
@@ -848,7 +676,6 @@ class ApprovalGate:
                 conversation=dialog_history + f'HUMAN: {response}\n' if dialog_history else response,
                 team=team,
                 prediction=prediction,
-                predicted_response=predicted_text,
             )
             self._log_interaction(
                 ctx, project_slug,
@@ -858,14 +685,6 @@ class ApprovalGate:
                 exploration=getattr(proxy_decision, 'exploration_forced', False)
                     if 'proxy_decision' in dir() else False,
             )
-
-            # Clean up escalation file so stale questions don't resurface
-            # on the next agent cycle. (Issue #137)
-            if escalation_file and os.path.exists(escalation_file):
-                try:
-                    os.remove(escalation_file)
-                except OSError:
-                    pass
 
             return ActorResult(
                 action=action,
@@ -937,7 +756,7 @@ class ApprovalGate:
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
         artifact_path: str = '', feedback: str = '', conversation: str = '',
-        team: str = '', prediction: str = '', predicted_response: str = '',
+        team: str = '', prediction: str = '',
     ) -> None:
         """Record human decision for proxy learning."""
         try:
@@ -953,7 +772,6 @@ class ApprovalGate:
                 artifact_length=artifact_length,
                 question_patterns=patterns,
                 prediction=prediction,
-                predicted_response=predicted_response,
             )
             save_model(model, model_path)
         except Exception:
@@ -1048,11 +866,40 @@ class ApprovalGate:
         if not artifact_path or not os.path.exists(artifact_path):
             return f'Ready for review at {state}.'
 
-        # Use canonical gate question if one exists for this state.
-        if state in _GATE_QUESTIONS:
-            return _GATE_QUESTIONS[state]
+        # Read upstream context for alignment comparison
+        intent_context = self._read_context_file(
+            'INTENT.md', session_worktree, infra_dir,
+        )
+        plan_context = self._read_context_file(
+            'PLAN.md', session_worktree, infra_dir,
+        )
 
-        return f'Please review: {artifact_path}'
+        try:
+            from projects.POC.scripts.generate_review_bridge import generate
+            return generate(
+                artifact_path, state, task,
+                intent_context=intent_context,
+                plan_context=plan_context,
+            )
+        except Exception:
+            return f'Please review: {artifact_path}'
+
+    @staticmethod
+    def _read_context_file(
+        filename: str, session_worktree: str, infra_dir: str,
+    ) -> str:
+        """Read a context file from session_worktree or infra_dir."""
+        for base in (session_worktree, infra_dir):
+            if not base:
+                continue
+            path = os.path.join(base, filename)
+            if os.path.exists(path):
+                try:
+                    with open(path) as f:
+                        return f.read()
+                except OSError:
+                    pass
+        return ''
 
     def _generate_dialog_response(
         self, state: str, question: str, artifact_path: str,

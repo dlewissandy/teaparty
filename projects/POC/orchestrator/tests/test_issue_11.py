@@ -72,8 +72,7 @@ def _make_actor_context(td: str, artifact_path: str, session_id: str = 'test-ses
         name='planning', agent_file='agents/uber-team.json',
         lead='project-lead', permission_mode='acceptEdits',
         stream_file='.plan-stream.jsonl', artifact='PLAN.md',
-        approval_state='PLAN_ASSERT', escalation_state='PLANNING_ESCALATE',
-        escalation_file='', settings_overlay={},
+        approval_state='PLAN_ASSERT', settings_overlay={},
     )
     return ActorContext(
         state='PLAN_ASSERT',

@@ -19,14 +19,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from projects.POC.orchestrator.actors import (
-    ActorContext,
-    ActorResult,
-    AgentRunner,
-    ApprovalGate,
-)
 from projects.POC.orchestrator.engine import Orchestrator
-from projects.POC.orchestrator.events import EventBus, InputRequest
+from projects.POC.orchestrator.events import EventBus
 from projects.POC.orchestrator.phase_config import PhaseConfig, PhaseSpec
 from projects.POC.scripts.approval_gate import (
     COLD_START_THRESHOLD,
@@ -54,9 +48,7 @@ def _make_event_bus() -> EventBus:
 def _make_phase_spec(
     name: str = 'intent',
     artifact: str | None = 'INTENT.md',
-    escalation_file: str = '.intent-escalation.md',
     approval_state: str = 'INTENT_ASSERT',
-    escalation_state: str = 'INTENT_ESCALATE',
 ) -> PhaseSpec:
     return PhaseSpec(
         name=name,
@@ -66,8 +58,6 @@ def _make_phase_spec(
         stream_file='.intent-stream.jsonl',
         artifact=artifact,
         approval_state=approval_state,
-        escalation_state=escalation_state,
-        escalation_file=escalation_file,
         settings_overlay={},
     )
 
@@ -128,27 +118,6 @@ def _make_orchestrator(
         task=task,
         session_id='test-session',
         last_actor_data=last_actor_data or {},
-    )
-
-
-def _make_ctx(
-    state: str = 'INTENT_ESCALATE',
-    phase: str = 'intent',
-    env_vars: dict | None = None,
-) -> ActorContext:
-    return ActorContext(
-        state=state,
-        phase=phase,
-        task='Build a feature',
-        infra_dir='/tmp/infra',
-        project_workdir='/tmp/project',
-        session_worktree='/tmp/worktree',
-        stream_file='.intent-stream.jsonl',
-        phase_spec=_make_phase_spec(),
-        poc_root='/tmp/poc',
-        event_bus=_make_event_bus(),
-        session_id='test-session',
-        env_vars=env_vars or {},
     )
 
 
@@ -219,8 +188,6 @@ class TestColdStartObservationCountInEnvVars(unittest.TestCase):
                 name='planning',
                 artifact='PLAN.md',
                 approval_state='PLAN_ASSERT',
-                escalation_state='PLANNING_ESCALATE',
-                escalation_file='.plan-escalation.md',
             )
 
             orch = _make_orchestrator(
@@ -278,139 +245,7 @@ class TestColdStartContextInTaskPrompt(unittest.TestCase):
             self.assertNotIn('cold start', task_prompt.lower())
 
 
-# ── Test 3: Bridge text reframing ────────────────────────────────────────────
-
-class TestBridgeTextReframing(unittest.TestCase):
-    """At escalation states, bridge text must use 'wants to discuss' framing."""
-
-    def test_intent_escalate_bridge_uses_discuss_framing(self):
-        """At INTENT_ESCALATE, bridge text says 'wants to discuss', not 'escalated'."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            esc_path = os.path.join(tmpdir, '.intent-escalation.md')
-            Path(esc_path).write_text(
-                'I found some relevant code. Before I write this up:\n'
-                '1. Should we include offline support?\n'
-                '2. What is the target audience?\n'
-            )
-
-            gate = ApprovalGate(
-                proxy_model_path='/tmp/proxy.json',
-                input_provider=AsyncMock(return_value='approve'),
-                poc_root='/tmp/poc',
-            )
-
-            ctx = _make_ctx(state='INTENT_ESCALATE')
-            ctx.data = {'escalation_file': esc_path}
-
-            # Capture what bridge text is shown to the human
-            captured_bridge = []
-            original_provider = gate.input_provider
-
-            async def capture_input(request: InputRequest) -> str:
-                captured_bridge.append(request.bridge_text)
-                return 'approve'
-
-            gate.input_provider = capture_input
-
-            # The gate tries generative response first; mock it to return None
-            # so it falls through to the human path.
-            with patch.object(gate, '_try_generate_response', return_value=None):
-                _run(gate.run(ctx))
-
-            self.assertTrue(len(captured_bridge) > 0, 'No bridge text captured')
-            bridge = captured_bridge[0]
-            # Only the first question — it's a dialog, one at a time
-            self.assertIn('offline support', bridge.lower())
-            self.assertNotIn('target audience', bridge.lower())
-            # Must NOT use escalation framing
-            self.assertNotIn('escalated', bridge.lower())
-
-    def test_planning_escalate_bridge_extracts_questions(self):
-        """At PLANNING_ESCALATE, bridge text contains extracted questions."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            esc_path = os.path.join(tmpdir, '.plan-escalation.md')
-            Path(esc_path).write_text(
-                'I see two viable approaches. Which direction feels right?\n'
-            )
-
-            gate = ApprovalGate(
-                proxy_model_path='/tmp/proxy.json',
-                input_provider=AsyncMock(return_value='approve'),
-                poc_root='/tmp/poc',
-            )
-
-            spec = _make_phase_spec(
-                name='planning',
-                artifact='PLAN.md',
-                approval_state='PLAN_ASSERT',
-                escalation_state='PLANNING_ESCALATE',
-                escalation_file='.plan-escalation.md',
-            )
-            ctx = _make_ctx(state='PLANNING_ESCALATE', phase='planning')
-            ctx.phase_spec = spec
-            ctx.data = {'escalation_file': esc_path}
-
-            captured_bridge = []
-
-            async def capture_input(request: InputRequest) -> str:
-                captured_bridge.append(request.bridge_text)
-                return 'approve'
-
-            gate.input_provider = capture_input
-
-            with patch.object(gate, '_try_generate_response', return_value=None):
-                _run(gate.run(ctx))
-
-            self.assertTrue(len(captured_bridge) > 0, 'No bridge text captured')
-            bridge = captured_bridge[0]
-            # Just the question, no boilerplate wrapping
-            self.assertIn('which direction feels right', bridge.lower())
-            self.assertNotIn('escalated', bridge.lower())
-
-
-# ── Test 4: Escalation bridge includes escalation file content ───────────────
-
-class TestEscalationBridgeIncludesContent(unittest.TestCase):
-    """When an escalation file exists, its content must appear in the bridge text."""
-
-    def test_escalation_file_content_in_bridge(self):
-        """The intake dialog content from the escalation file is shown to the human."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            esc_path = os.path.join(tmpdir, '.intent-escalation.md')
-            content = (
-                "I've looked at the codebase and here's what's relevant:\n"
-                "A few things I want to confirm:\n"
-                "1. Should we support offline mode?\n"
-            )
-            Path(esc_path).write_text(content)
-
-            gate = ApprovalGate(
-                proxy_model_path='/tmp/proxy.json',
-                input_provider=AsyncMock(return_value='approve'),
-                poc_root='/tmp/poc',
-            )
-
-            ctx = _make_ctx(state='INTENT_ESCALATE')
-            ctx.data = {'escalation_file': esc_path}
-
-            captured_bridge = []
-
-            async def capture_input(request: InputRequest) -> str:
-                captured_bridge.append(request.bridge_text)
-                return 'approve'
-
-            gate.input_provider = capture_input
-
-            with patch.object(gate, '_try_generate_response', return_value=None):
-                _run(gate.run(ctx))
-
-            self.assertTrue(len(captured_bridge) > 0)
-            bridge = captured_bridge[0]
-            # The agent's questions must be visible in the bridge
-            self.assertIn('offline mode', bridge.lower())
-
-
-# ── Test 5: Agent prompts modified for cold-start engagement ─────────────────
+# ── Test 3: Agent prompts modified for cold-start engagement ─────────────────
 
 class TestAgentPromptsModifiedForColdStart(unittest.TestCase):
     """Agent prompts must support exploration + engagement on cold start."""

@@ -7,8 +7,6 @@
       "stream_file": ".intent-stream.jsonl",
       "artifact": "INTENT.md",
       "approval_state": "INTENT_ASSERT",
-      "escalation_state": "INTENT_ESCALATE",
-      "escalation_file": ".intent-escalation.md",
       "settings_overlay": {
         "permissions": {
           "allow": ["Write", "Edit", "WebFetch", "WebSearch"]
@@ -22,8 +20,6 @@
       "stream_file": ".plan-stream.jsonl",
       "artifact": "PLAN.md",
       "approval_state": "PLAN_ASSERT",
-      "escalation_state": "PLANNING_ESCALATE",
-      "escalation_file": ".plan-escalation.md",
       "settings_overlay": {
         "permissions": {
           "allow": ["Write", "Edit", "WebFetch", "WebSearch"]
@@ -37,8 +33,6 @@
       "stream_file": ".exec-stream.jsonl",
       "artifact": ".work-summary.md",
       "approval_state": "WORK_ASSERT",
-      "escalation_state": "TASK_ESCALATE",
-      "escalation_file": ".task-escalation.md",
       "settings_overlay": {
         "permissions": {
           "allow": ["Write", "Edit", "WebFetch", "WebSearch", "SendMessage", "Bash", "Task", "TaskOutput"]

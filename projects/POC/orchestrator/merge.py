@@ -61,7 +61,6 @@ _MERGE_EXCLUDE = frozenset({
     '.memory.db-wal',
     '.proxy-confidence.json',
     '.work-summary.md',
-    'ESCALATION.md',
     'OBSERVATIONS.md',
     'worktrees.json',
 })

@@ -299,5 +299,67 @@ class TestClaudeRunnerMCPIntegration(unittest.TestCase):
         self.assertNotIn('--mcp-config', args)
 
 
+# ── Tests: EscalationListener (socket IPC) ──────────────────────────────────
+
+class TestEscalationListener(unittest.TestCase):
+    """The EscalationListener bridges MCP AskQuestion calls to the orchestrator."""
+
+    def test_listener_starts_and_creates_socket(self):
+        """After start(), the socket path exists."""
+        from projects.POC.orchestrator.escalation_listener import EscalationListener
+
+        bus = _make_event_bus()
+        human_called = []
+
+        async def mock_input(req):
+            human_called.append(req)
+            return 'the answer'
+
+        listener = EscalationListener(bus, mock_input, session_id='test')
+
+        async def _test():
+            socket_path = await listener.start()
+            self.assertTrue(os.path.exists(socket_path))
+            await listener.stop()
+
+        _run(_test())
+
+    def test_listener_handles_question_via_socket(self):
+        """A question sent over the socket gets routed to the input_provider."""
+        import json as _json
+        from projects.POC.orchestrator.escalation_listener import EscalationListener
+
+        bus = _make_event_bus()
+        human_answers = []
+
+        async def mock_input(req):
+            human_answers.append(req.bridge_text)
+            return 'Ages 5-8'
+
+        listener = EscalationListener(bus, mock_input, session_id='test')
+
+        async def _test():
+            socket_path = await listener.start()
+            try:
+                # Simulate MCP server connecting and sending a question
+                reader, writer = await asyncio.open_unix_connection(socket_path)
+                request = _json.dumps({'type': 'ask_human', 'question': 'Who is the audience?'})
+                writer.write(request.encode() + b'\n')
+                await writer.drain()
+
+                response_line = await reader.readline()
+                response = _json.loads(response_line.decode())
+                writer.close()
+                await writer.wait_closed()
+
+                self.assertEqual(response['answer'], 'Ages 5-8')
+                self.assertEqual(len(human_answers), 1)
+                self.assertEqual(human_answers[0], 'Who is the audience?')
+            finally:
+                await listener.stop()
+
+        _run(_test())
+
+
 if __name__ == '__main__':
     unittest.main()

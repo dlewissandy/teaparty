@@ -21,8 +21,6 @@ class PhaseSpec:
     stream_file: str
     artifact: str | None
     approval_state: str
-    escalation_state: str
-    escalation_file: str
     settings_overlay: dict[str, Any] = field(default_factory=dict)
 
 
@@ -71,8 +69,6 @@ class PhaseConfig:
                 stream_file=spec['stream_file'],
                 artifact=spec.get('artifact'),
                 approval_state=spec['approval_state'],
-                escalation_state=spec['escalation_state'],
-                escalation_file=spec.get('escalation_file', ''),
                 settings_overlay=spec.get('settings_overlay', {}),
             )
 
