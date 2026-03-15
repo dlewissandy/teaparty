@@ -156,6 +156,9 @@ class Orchestrator:
                 proxy_model_path=self.proxy_model_path,
                 project_slug=self.project_slug,
                 cfa_state=self.cfa.state,
+                session_worktree=self.session_worktree,
+                infra_dir=self.infra_dir,
+                team=self.team_override,
             )
             socket_path = await self._escalation_listener.start()
             self._mcp_config = {
