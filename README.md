@@ -20,6 +20,12 @@ Current agent systems fail at four things: they treat requests as complete speci
 
 TeaParty is building toward mixed teams where humans and AI agents collaborate on increasingly complex projects — not agents as tools, and not agents as autonomous replacements, but genuine teams where each member contributes what they do best.
 
+<p align="center">
+  <img src="docs/images/tui-dashboard.svg" alt="TeaParty TUI Dashboard" width="900" />
+</p>
+
+<p align="center"><em>The POC dashboard: projects, sessions with CfA state tracking, and task prompts at a glance.</em></p>
+
 ## Four Research Pillars
 
 ### Conversation for Action
