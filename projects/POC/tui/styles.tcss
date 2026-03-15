@@ -117,7 +117,8 @@ Screen {
 
 #input-area {
     dock: bottom;
-    height: 3;
+    height: auto;
+    max-height: 12;
     background: $warning 15%;
     padding: 0 1;
     display: none;
@@ -128,14 +129,17 @@ Screen {
 }
 
 #input-prompt {
-    width: auto;
-    height: 3;
-    content-align: left middle;
-    padding: 0 1 0 0;
+    width: 1fr;
+    height: auto;
+    max-height: 5;
+    overflow-y: hidden;
+    padding: 0 0 0 0;
+    color: $warning;
 }
 
 #input-area #input-field {
     width: 1fr;
+    height: 3;
 }
 
 .agent-label {

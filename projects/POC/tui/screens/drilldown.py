@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Input, OptionList, RichLog, Static
+from textual.widgets import Footer, Input, OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
 from projects.POC.tui.event_parser import EventParser
@@ -95,9 +95,9 @@ class DrilldownScreen(Screen):
                 id='right-pane',
             ),
         )
-        yield Horizontal(
+        yield Vertical(
             Static('', id='input-prompt'),
-            Input(placeholder='Type your response...', id='input-field'),
+            TextArea(id='input-field'),
             id='input-area',
         )
         yield Footer()
@@ -275,7 +275,7 @@ class DrilldownScreen(Screen):
                 state = self._session.cfa_state if self._session else ''
                 # Use bridge_text as the prompt when available (issue #137)
                 if req and req.bridge_text:
-                    label = req.bridge_text[:200]
+                    label = req.bridge_text
                 else:
                     label = _human_label(state)
                 prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
@@ -291,7 +291,7 @@ class DrilldownScreen(Screen):
                     if not self._scroll_locked:
                         log.scroll_end(animate=False)
                 if not was_visible:
-                    self.query_one('#input-field', Input).focus()
+                    self.query_one('#input-field', TextArea).focus()
             return
 
         if self._input_latched:
@@ -349,7 +349,7 @@ class DrilldownScreen(Screen):
                     prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
                                         f"type 'resume' or 'abandon'")
                 if not was_visible:
-                    self.query_one('#input-field', Input).focus()
+                    self.query_one('#input-field', TextArea).focus()
             return
 
         if self._session and self._session.needs_input:
@@ -359,14 +359,14 @@ class DrilldownScreen(Screen):
             label = _human_label(state)
             prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
             if not was_visible:
-                self.query_one('#input-field', Input).focus()
+                self.query_one('#input-field', TextArea).focus()
         else:
             input_area.remove_class('visible')
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
+    def _submit_input(self) -> None:
         """Handle user input submission."""
-        event.stop()  # Prevent Enter from propagating to OptionList etc.
-        response = event.value.strip()
+        field = self.query_one('#input-field', TextArea)
+        response = field.text.strip()
         if not response:
             return
 
@@ -383,7 +383,7 @@ class DrilldownScreen(Screen):
                 log.scroll_end(animate=False)
             self._input_latched = False
             self._input_cooldown = True
-            event.input.clear()
+            field.clear()
             self.query_one('#input-area').remove_class('visible')
             self.query_one('#activity-log', RichLog).focus()
             return
@@ -407,7 +407,7 @@ class DrilldownScreen(Screen):
                         log.scroll_end(animate=False)
                     self._input_latched = False
                     self._input_cooldown = True
-                    event.input.clear()
+                    field.clear()
                     self.query_one('#input-area').remove_class('visible')
                     self.query_one('#activity-log', RichLog).focus()
                     return
@@ -432,9 +432,17 @@ class DrilldownScreen(Screen):
         # Release latch, enter cooldown (persistent until CfA state advances)
         self._input_latched = False
         self._input_cooldown = True
-        event.input.clear()
+        field.clear()
         self.query_one('#input-area').remove_class('visible')
         self.query_one('#activity-log', RichLog).focus()
+
+    def on_key(self, event) -> None:
+        """Submit on Enter when TextArea is focused."""
+        if event.key == 'enter':
+            focused = self.app.focused
+            if isinstance(focused, TextArea):
+                event.prevent_default()
+                self._submit_input()
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
