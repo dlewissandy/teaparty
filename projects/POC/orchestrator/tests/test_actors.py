@@ -173,15 +173,24 @@ class TestInterpretOutputMissingArtifact(unittest.TestCase):
         self.assertNotIn('artifact_missing', result.data)
 
     def test_escalation_file_takes_priority_over_missing_artifact(self):
-        """If escalation file exists, escalate action wins before artifact check."""
+        """If agent wrote escalation file this turn, escalate wins before artifact check."""
+        import json as _json
         spec = _make_phase_spec(artifact='INTENT.md', escalation_file='.intent-escalation.md')
-        ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec)
+        ctx = _make_ctx(session_worktree=self.tmpdir, phase_spec=spec,
+                        infra_dir=self.tmpdir)
 
-        # Write escalation file but NOT artifact
+        # Write escalation file AND a stream event recording the Write
         esc_path = os.path.join(self.tmpdir, '.intent-escalation.md')
         Path(esc_path).write_text('Agent needs clarification')
+        stream_path = os.path.join(self.tmpdir, '.intent-stream.jsonl')
+        evt = {'type': 'assistant', 'message': {'content': [
+            {'type': 'tool_use', 'name': 'Write',
+             'input': {'file_path': str(esc_path)}}]}}
+        Path(stream_path).write_text(_json.dumps(evt) + '\n')
 
-        result = self.runner._interpret_output(ctx, _make_claude_result())
+        # stream_offset=0 means the Write event is "this turn"
+        result = self.runner._interpret_output(ctx, _make_claude_result(),
+                                               stream_offset=0)
 
         self.assertEqual(result.action, 'escalate')
         self.assertNotIn('artifact_missing', result.data)
