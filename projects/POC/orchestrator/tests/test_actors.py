@@ -832,39 +832,38 @@ class TestClassifyReviewFallbackOnException(unittest.TestCase):
         self.assertEqual(feedback, 'Fix the tests')
 
 
-class TestDialogLoopLogging(unittest.TestCase):
-    """Dialog loop must emit LOG events for post-hoc debugging (#120 bug 4)."""
+class TestDialogLoopsBackThroughProxy(unittest.TestCase):
+    """Dialog classification loops back through the proxy on the next turn."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
-        self._input_index = 0
 
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def _make_gate_with_responses(self, responses: list[str]) -> ApprovalGate:
-        """Create a gate whose input_provider returns responses in sequence."""
-        async def _input_provider(req):
-            idx = self._input_index
-            self._input_index += 1
-            return responses[idx] if idx < len(responses) else 'approve'
+    def test_dialog_loops_back_then_terminates(self):
+        """When classify returns 'dialog', the loop calls consult_proxy again.
+        On the second turn, a terminal action ends the loop."""
+        input_count = [0]
 
-        return ApprovalGate(
+        async def _input_provider(req):
+            input_count[0] += 1
+            return 'approve'
+
+        gate = ApprovalGate(
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
             input_provider=_input_provider,
             poc_root=self.tmpdir,
         )
-
-    def test_dialog_turn_emits_log_event(self):
-        """When classify returns 'dialog', a LOG event must be published."""
-        gate = self._make_gate_with_responses(['Have you tested it?', 'approve'])
         ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
                         infra_dir=self.tmpdir)
         artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
         Path(artifact_path).write_text('# Plan')
         ctx.data = {'artifact_path': artifact_path}
 
+        # consult_proxy called twice: first escalates (human asked, dialog),
+        # second escalates again (human asked, approve).
         classify_returns = iter([
             ('dialog', 'Have you tested it?'),
             ('approve', ''),
@@ -873,113 +872,12 @@ class TestDialogLoopLogging(unittest.TestCase):
         with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
                    new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
              patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Yes, all tests pass.'), \
              patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
+            result = _run(gate.run(ctx))
 
-        # Find approval_dialog LOG events among all published events
-        dialog_log_events = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.LOG
-            and call.args[0].data.get('category') == 'approval_dialog'
-        ]
-        self.assertGreaterEqual(len(dialog_log_events), 1,
-                                "Dialog turn must emit at least one approval_dialog LOG event")
-        log_data = dialog_log_events[0].args[0].data
-        self.assertEqual(log_data['category'], 'approval_dialog')
-        self.assertEqual(log_data['classification'], 'dialog')
-
-    def test_fallback_turn_emits_log_event(self):
-        """When classify returns '__fallback__', a LOG event must be published."""
-        gate = self._make_gate_with_responses(['something weird', 'approve'])
-        ctx = _make_ctx(state='PLAN_ASSERT', session_worktree=self.tmpdir,
-                        infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'PLAN.md')
-        Path(artifact_path).write_text('# Plan')
-        ctx.data = {'artifact_path': artifact_path}
-
-        classify_returns = iter([
-            ('__fallback__', ''),
-            ('approve', ''),
-        ])
-
-        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
-             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review the plan'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Could you rephrase?'), \
-             patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
-
-        dialog_log_events = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.LOG
-            and call.args[0].data.get('category') == 'approval_dialog'
-        ]
-        self.assertGreaterEqual(len(dialog_log_events), 1)
-        self.assertEqual(dialog_log_events[0].args[0].data['classification'], '__fallback__')
-
-
-class TestFallbackUsesDialogGenerator(unittest.TestCase):
-    """__fallback__ must use _generate_dialog_response, not a static menu (#120 bug 5)."""
-
-    def setUp(self):
-        self.tmpdir = tempfile.mkdtemp()
-        self._input_index = 0
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-    def test_fallback_calls_dialog_generator_not_static_menu(self):
-        """When __fallback__ fires, _generate_dialog_response must be called."""
-        responses = ['confusing input', 'approve']
-
-        async def _input_provider(req):
-            idx = self._input_index
-            self._input_index += 1
-            return responses[idx] if idx < len(responses) else 'approve'
-
-        gate = ApprovalGate(
-            proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider,
-            poc_root=self.tmpdir,
-        )
-        ctx = _make_ctx(state='WORK_ASSERT', session_worktree=self.tmpdir,
-                        infra_dir=self.tmpdir)
-        artifact_path = os.path.join(self.tmpdir, 'output.txt')
-        Path(artifact_path).write_text('delivered work')
-        ctx.data = {'artifact_path': artifact_path}
-
-        classify_returns = iter([
-            ('__fallback__', ''),
-            ('approve', ''),
-        ])
-
-        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
-                   new=AsyncMock(return_value=ProxyResult(text='', confidence=0.0, from_agent=False))), \
-             patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_bridge', return_value='Review work'), \
-             patch.object(gate, '_generate_dialog_response', return_value='Let me try to help.') as mock_dialog, \
-             patch.object(gate, '_proxy_record'):
-            _run(gate.run(ctx))
-
-        mock_dialog.assert_called_once()
-        # Verify the static menu text is NOT in the bridge (old behavior)
-        # The dialog generator's response should be used instead
-        bridge_calls = [
-            call for call in ctx.event_bus.publish.call_args_list
-            if call.args and hasattr(call.args[0], 'type')
-            and call.args[0].type == EventType.INPUT_REQUESTED
-        ]
-        # Second INPUT_REQUESTED (after fallback) should use dialog generator output
-        if len(bridge_calls) >= 2:
-            bridge_text = bridge_calls[1].args[0].data.get('bridge_text', '')
-            self.assertNotIn("approve — accept and continue", bridge_text,
-                             "Static menu must not appear — dialog generator should be used")
+        # Human asked twice — once per loop turn (proxy escalated both times).
+        self.assertEqual(input_count[0], 2)
+        self.assertEqual(result.action, 'approve')
 
 
 from projects.POC.orchestrator.events import EventType

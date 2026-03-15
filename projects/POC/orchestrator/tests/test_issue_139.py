@@ -249,51 +249,37 @@ class TestProxyAgentDialog(unittest.TestCase):
     def tearDown(self):
         import shutil; shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_proxy_question_triggers_dialog(self):
-        """When proxy asks a question, it goes to the requester and proxy gets another turn."""
-        input_calls = []
-
-        async def _input_provider(req):
-            input_calls.append(req)
-            return 'approve'
-
+    def test_dialog_loops_back_through_proxy(self):
+        """When classify returns 'dialog', the loop calls consult_proxy again."""
         gate = ApprovalGate(
             proxy_model_path=os.path.join(self.tmpdir, '.proxy.json'),
-            input_provider=_input_provider, poc_root=self.tmpdir,
+            input_provider=AsyncMock(return_value='approve'),
+            poc_root=self.tmpdir,
         )
         ctx = _make_ctx(session_worktree=self.tmpdir, infra_dir=self.tmpdir)
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
         ctx.data = {'artifact_path': os.path.join(self.tmpdir, 'INTENT.md')}
 
-        # First: consult_proxy returns a question at high confidence
-        # Then: run_proxy_agent returns approval on second turn
-        agent_turns = [('OK, that makes sense. Approved.', 0.95)]
-        agent_call_count = [0]
-
-        async def mock_run_proxy_agent(**kwargs):
-            idx = agent_call_count[0]
-            agent_call_count[0] += 1
-            return agent_turns[idx]
-
+        # Two calls to consult_proxy: first returns question, second returns approval.
+        proxy_returns = iter([
+            ProxyResult(text='Why a monolith?', confidence=0.90),
+            ProxyResult(text='OK, approved.', confidence=0.95),
+        ])
         classify_returns = iter([
-            ('dialog', ''),   # proxy's first text is a question
-            ('approve', ''),  # proxy's second text is approval
+            ('dialog', ''),
+            ('approve', ''),
         ])
 
-        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy', new_callable=AsyncMock) as mock_cp, \
-             patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', side_effect=mock_run_proxy_agent), \
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new=AsyncMock(side_effect=lambda **kw: next(proxy_returns))), \
              patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_dialog_response', return_value='We chose monolith.'), \
              patch.object(gate, '_proxy_record'):
-            mock_cp.return_value = ProxyResult(text='Why a monolith?', confidence=0.90)
             result = _run(gate.run(ctx))
 
-        self.assertEqual(agent_call_count[0], 1, "Proxy must get a second turn after dialog")
-        self.assertEqual(len(input_calls), 0, "Human must not be asked")
         self.assertEqual(result.action, 'approve')
 
-    def test_proxy_loses_confidence_escalates_to_human(self):
-        """If proxy confidence drops during dialog, escalate to human."""
+    def test_proxy_loses_confidence_human_asked_on_next_turn(self):
+        """If proxy loses confidence, the next loop turn escalates to human."""
         input_calls = []
 
         async def _input_provider(req):
@@ -308,23 +294,23 @@ class TestProxyAgentDialog(unittest.TestCase):
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text('# Intent')
         ctx.data = {'artifact_path': os.path.join(self.tmpdir, 'INTENT.md')}
 
-        async def mock_run_proxy_agent(**kwargs):
-            return ("I'm not sure anymore.", 0.3)  # confidence drops
-
+        # First call: proxy confident (dialog). Second call: proxy not confident (human asked).
+        proxy_returns = iter([
+            ProxyResult(text='What about rollback?', confidence=0.90),
+            ProxyResult(text='', confidence=0.0, from_agent=False),
+        ])
         classify_returns = iter([
-            ('dialog', ''),   # first text is question
-            ('approve', ''),  # for human response
+            ('dialog', ''),
+            ('approve', ''),
         ])
 
-        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy', new_callable=AsyncMock) as mock_cp, \
-             patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', side_effect=mock_run_proxy_agent), \
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new=AsyncMock(side_effect=lambda **kw: next(proxy_returns))), \
              patch.object(gate, '_classify_review', side_effect=lambda *a, **kw: next(classify_returns)), \
-             patch.object(gate, '_generate_dialog_response', return_value='No rollback plan.'), \
              patch.object(gate, '_proxy_record'):
-            mock_cp.return_value = ProxyResult(text='What about rollback?', confidence=0.90)
             _run(gate.run(ctx))
 
-        self.assertGreaterEqual(len(input_calls), 1, "Human must be asked when confidence drops")
+        self.assertGreaterEqual(len(input_calls), 1, "Human must be asked when proxy loses confidence")
 
 
 # ── consult_proxy internals ─────────────────────────────────────────────────

@@ -56,6 +56,7 @@ async def consult_proxy(
     team: str = '',
     phase_start_time: float = 0.0,
     proxy_enabled: bool = True,
+    dialog_history: str = '',
 ) -> ProxyResult:
     """Consult the proxy agent.  The ONE entry point for all proxy decisions.
 
@@ -131,6 +132,7 @@ async def consult_proxy(
             infra_dir=infra_dir,
             learned_patterns=learned_patterns,
             similar_interactions=similar,
+            dialog_history=dialog_history,
         )
 
         return ProxyResult(text=text, confidence=confidence, from_agent=True)
