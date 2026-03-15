@@ -16,11 +16,11 @@ Two entry points feed into this pattern, but they use **different proxy function
 
 Park et al. (2024) built AI agents representing 1,052 real people from two-hour qualitative interviews. Those agents replicated individual survey responses with **85% accuracy** using LLM in-context reasoning over interview transcripts — no explicit ML model, no fine-tuning, just retrieval + reasoning.
 
-This result is the empirical basis for the proxy's architecture. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. At steady state (sufficient accumulated interactions), this approach should reach the same ~85% accuracy Park demonstrated: the proxy predicts what the human would say, and is right 85% of the time.
+This result is the empirical basis for the proxy's architecture. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. By contextualizing retrieval by CfA phase, task type, project, and concern category, the proxy can achieve reasonable prediction accuracy at low cost — without fine-tuning, without a separate ML model, just scoped retrieval and LLM reasoning over accumulated interactions.
 
-The 85% figure also explains the priority ordering:
+This explains the priority ordering:
 
-1. **Retrieval-backed prediction is the path to autonomy.** A proxy that can answer 85% of questions correctly handles 85% of human involvement automatically. The remaining 15% escalates to the human, and each escalation produces a new differential that improves future predictions.
+1. **Retrieval-backed prediction is the path to autonomy.** A proxy that predicts correctly most of the time handles most human involvement automatically. Each escalation produces a new differential that improves future predictions — the system gets better with use.
 
 2. **The statistical heuristic is a stepping stone, not the destination.** `should_escalate()` uses keyword matching, length anomalies, and confidence counters — it can detect obvious signals but cannot reason about whether the human would approve a specific artifact. It reads the artifact for pattern matching (CONFIRM markers, correction keywords, concern vocabulary) but does not understand it. Issue [#139](https://github.com/dlewissandy/teaparty/issues/139) tracks replacing this with a Claude agent that reads and reasons.
 
