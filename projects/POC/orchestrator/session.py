@@ -871,15 +871,41 @@ def _reconstruct_last_actor_data(
 
 
 def _ensure_project_repo(project_dir: str) -> str:
-    """Ensure project_dir has its own git repo.  Initialize one if missing.
+    """Ensure project_dir has a git repo for worktree creation.
 
-    Returns the project_dir as the repo root.  If the project already has
-    a .git, this is a no-op.  Otherwise, creates a new empty repo with a
-    seed commit so that ``git worktree add`` works.
+    Returns the repo root to use.  Three cases:
+
+    1. ``.linked-repo`` sentinel exists — return the parent repo root
+       (the project shares the enclosing repository).
+    2. ``.git`` exists (and no ``.linked-repo``) — return the existing repo root.
+    3. Neither — initialize a new empty repo with a seed commit.
     """
+    # 1. Linked-repo: use the parent repository
+    if os.path.exists(os.path.join(project_dir, '.linked-repo')):
+        parent = os.path.dirname(os.path.abspath(project_dir))
+        try:
+            result = subprocess.run(
+                ['git', 'rev-parse', '--show-toplevel'],
+                cwd=parent, capture_output=True, text=True,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                _log.info(
+                    'Linked-repo detected at %s — using parent repo %s',
+                    project_dir, result.stdout.strip(),
+                )
+                return result.stdout.strip()
+        except Exception:
+            pass
+        raise RuntimeError(
+            f'.linked-repo found in {project_dir} but no parent git repo '
+            f'could be resolved from {parent}'
+        )
+
+    # 2. Existing repo
     if os.path.exists(os.path.join(project_dir, '.git')):
         return _find_repo_root_from(project_dir)
 
+    # 3. New standalone project — initialize
     os.makedirs(project_dir, exist_ok=True)
     subprocess.run(
         ['git', 'init'],
