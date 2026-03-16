@@ -129,6 +129,13 @@ async def _generate_work_summary(worktree: str, *, infra_dir: str = '') -> None:
 
 # ── AgentRunner ──────────────────────────────────────────────────────────────
 
+# Actions that indicate failure or regression — never auto-selected as the
+# "forward-advancing" action when mapping generic success signals.
+_NEGATIVE_ACTIONS = frozenset({
+    'withdraw', 'escalate', 'backtrack', 'failed', 'reject',
+    'refine-intent', 'revise-plan',
+})
+
 # Minimum seconds an execution phase must run before the proxy can auto-approve.
 # If TASK_ASSERT or WORK_ASSERT fires faster than this, always escalate — the
 # elapsed time is too short relative to any non-trivial plan.  (Issue #122)
@@ -308,10 +315,8 @@ class AgentRunner:
 
         # Map generic success signals to the first forward-advancing action
         if tentative in ('assert', 'auto-approve'):
-            _NEGATIVE = frozenset({'withdraw', 'escalate', 'backtrack', 'failed', 'reject',
-                                   'refine-intent', 'revise-plan'})
             for action, _, _ in edges:
-                if action not in _NEGATIVE:
+                if action not in _NEGATIVE_ACTIONS:
                     return action
 
         # Fallback: first available action (shouldn't normally reach here)
