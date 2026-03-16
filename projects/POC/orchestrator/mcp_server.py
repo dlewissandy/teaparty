@@ -1,8 +1,5 @@
 """AskQuestion and AskTeam MCP server for agent escalation and dispatch.
 
-Replaces the file-based escalation mechanism (.intent-escalation.md,
-stream-offset detection) with a proper tool the agent calls directly.
-
 The agent calls AskQuestion(question, context).  The handler routes
 through the proxy: confident → return proxy answer; not confident →
 escalate to human, record the differential, return human's answer.

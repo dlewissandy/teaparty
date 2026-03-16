@@ -3,9 +3,6 @@
 Drives a CfA state machine from its current state to a terminal state
 by invoking the appropriate actor at each step.  Handles cross-phase
 backtracks, infrastructure failures, and review dialog loops.
-
-Replaces the control flow of run.sh (backtrack loop), intent.sh (intent
-review cycle), and plan-execute.sh (planning/execution review cycles).
 """
 from __future__ import annotations
 
@@ -781,7 +778,7 @@ class Orchestrator:
         return base_task
 
     async def _failure_dialog(self, reason: str) -> str:
-        """Gap 30: Ask human what to do after infrastructure failure.
+        """Ask human what to do after infrastructure failure.
 
         Returns 'retry' | 'backtrack' | 'withdraw'.
         """
@@ -870,7 +867,7 @@ class Orchestrator:
             'POC_SESSION_DIR': self.infra_dir,
             'POC_SESSION_WORKTREE': self.session_worktree,
             'POC_CFA_STATE': os.path.join(self.infra_dir, '.cfa-state.json'),
-            # Gap 3: SCRIPT_DIR and PROJECTS_DIR needed by subprocesses (e.g. dispatch_cli.py)
+            # SCRIPT_DIR and PROJECTS_DIR needed by subprocesses (e.g. dispatch_cli.py)
             'SCRIPT_DIR': self.poc_root,
             'PROJECTS_DIR': os.path.dirname(self.project_workdir),
             'POC_PROXY_OBSERVATIONS': str(obs_count),

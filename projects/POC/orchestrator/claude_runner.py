@@ -1,8 +1,5 @@
 """Async wrapper around the Claude CLI subprocess.
 
-Replaces the run_claude() / run_orchestrated() bash functions in
-plan-execute.sh and the run_turn() function in intent.sh.
-
 All agent turns are invoked via `claude -p --output-format stream-json`.
 Stream output is tailed line-by-line, persisted to the JSONL file, and
 published as STREAM_DATA events.
@@ -149,7 +146,7 @@ class ClaudeRunner:
             try:
                 with open(self.agents_file) as f:
                     agents_json = f.read()
-                # Gaps 12/67: apply placeholder substitution (mirrors run.sh sed)
+                # Apply placeholder substitution for agent definitions
                 poc_root = self.env_vars.get('SCRIPT_DIR', '')
                 session_dir = self.env_vars.get('POC_SESSION_DIR', '')
                 if poc_root:

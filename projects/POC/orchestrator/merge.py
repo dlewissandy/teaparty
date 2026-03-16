@@ -128,7 +128,6 @@ async def squash_merge(
                 # 'theirs' — fall through to -X theirs strategy
 
         # Strategy 1b: retry with -X theirs (auto-resolve conflicts by taking source)
-        # This matches the shell script behavior (issues #33, #67).
         _log.warning('Squash-merge had conflicts, retrying with -X theirs')
         await _git_try(target, 'merge', '--abort')
         rc = await _git_rc(target, 'merge', '--squash', '-X', 'theirs', source_branch)

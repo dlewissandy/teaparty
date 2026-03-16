@@ -1,7 +1,7 @@
 """Session lifecycle — the top-level entry point.
 
-Replaces run.sh: task classification, worktree setup, memory retrieval,
-confidence posture, pre-mortem, orchestration, merge, and learning extraction.
+Task classification, worktree setup, memory retrieval, orchestration,
+merge, and learning extraction.
 """
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ class Session:
 
     async def run(self) -> SessionResult:
         """Execute the full session lifecycle."""
-        # 1. Classify task → project slug + task mode (Gap 5)
+        # 1. Classify task → project slug + task mode
         self.project_slug, task_mode = self._classify_task()
         self.session_id = datetime.now().strftime('%Y%m%d-%H%M%S')
 

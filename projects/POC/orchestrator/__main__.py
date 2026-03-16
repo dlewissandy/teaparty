@@ -24,7 +24,6 @@ Testing:
     python -m projects.POC.orchestrator -v "Verbose proxy/artifact tracing"
     python -m projects.POC.orchestrator --flat "No hierarchical dispatch"
 
-Replaces ./run.sh "task description".
 """
 from __future__ import annotations
 

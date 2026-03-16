@@ -1,7 +1,4 @@
-"""Git worktree management for sessions and dispatches.
-
-Replaces the worktree creation/cleanup logic from the shell orchestrator.
-"""
+"""Git worktree management for sessions and dispatches."""
 from __future__ import annotations
 
 import asyncio
@@ -95,7 +92,7 @@ async def create_dispatch_worktree(
         dispatch_id = f'{base_dispatch_id}-{attempt}'
 
     # Derive 8-char unique hash from dispatch_id for the worktree name.
-    # Similar to the shell's 8-char UUID prefix but deterministic.
+    # 8-char deterministic hash from dispatch_id for the worktree name.
     short_hash = hashlib.md5(dispatch_id.encode()).hexdigest()[:8]
     worktree_name = f'{team}-{short_hash}--{task_slug}'
     branch_name = worktree_name
