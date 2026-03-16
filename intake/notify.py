@@ -45,9 +45,24 @@ end tell
 
 
 def notify_from_analysis(analysis_path: str) -> None:
-    """Parse an analysis file and send a notification."""
+    """Parse an analysis file and send a notification.
+
+    Also reads the corresponding digest file (same date) to find URLs
+    for each item, since the analysis may not include them.
+    """
     with open(analysis_path, encoding='utf-8') as f:
         content = f.read()
+
+    # Load digest for URL cross-reference
+    digest_content = ''
+    digest_dir = os.path.join(os.path.dirname(analysis_path), '..', 'digests')
+    # Extract date from analysis filename: analysis-YYYY-MM-DD.md
+    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', os.path.basename(analysis_path))
+    if date_match:
+        digest_path = os.path.join(digest_dir, f'digest-{date_match.group(1)}.md')
+        if os.path.exists(digest_path):
+            with open(digest_path, encoding='utf-8') as f:
+                digest_content = f.read()
 
     # Parse summary matrix for counts
     explore_items = []
@@ -63,9 +78,10 @@ def notify_from_analysis(analysis_path: str) -> None:
         if in_table and line.startswith('|'):
             cells = [c.strip() for c in line.split('|')[1:-1]]
             if len(cells) >= 5:
-                verdict = cells[4].strip().lower()
+                verdict = cells[4].strip().lower().replace('*', '')
+                item_name = cells[1].strip().replace('*', '')
                 if verdict == 'explore':
-                    explore_items.append(cells[1].strip())
+                    explore_items.append(item_name)
                 elif verdict == 'watch':
                     watch_count += 1
                 elif verdict == 'skip':
@@ -75,30 +91,60 @@ def notify_from_analysis(analysis_path: str) -> None:
 
     total = len(explore_items) + watch_count + skip_count
 
-    # Build explore details — find the section for each explore item
-    explore_details = []
-    for item_name in explore_items:
-        # Find the section and extract the "What Could Be Added" or relevance
-        pattern = re.escape(item_name)
-        match = re.search(
-            rf'##\s+\d+\.\s+{pattern}.*?(?:###\s+What Could Be Added\s*\n(.*?)(?:\n###|\n---|\Z))',
-            content, re.DOTALL | re.IGNORECASE,
-        )
-        if match:
-            detail = match.group(1).strip().split('\n')[0].strip()
-        else:
-            detail = ''
-        explore_details.append((item_name, detail))
+    # Build explore details — find each explore section and extract detail + URL
+    # Split content into sections by ### N. headers
+    sections = re.split(r'\n(?=#{2,3}\s+\d+\.)', content)
+    section_map = {}
+    for sec in sections:
+        # Extract the name from the header
+        header_match = re.match(r'#{2,3}\s+\d+\.\s+(.+?)(?:\s+[—\-]+\s+\w+)?\s*\n', sec)
+        if header_match:
+            sec_name = header_match.group(1).strip()
+            section_map[sec_name.lower()] = sec
 
-    # Also try to find URLs for explore items
+    # Build a URL map from the digest (more reliable than analysis)
+    digest_urls = {}
+    if digest_content:
+        for sec in re.split(r'\n(?=##\s+\d+\.)', digest_content):
+            header = re.match(r'##\s+\d+\.\s+(.+)\n', sec)
+            url_line = re.search(r'\*\*URL:\*\*\s*(https?://\S+)', sec)
+            if header and url_line:
+                digest_urls[header.group(1).strip().lower()] = url_line.group(1).rstrip(').,')
+
     explore_with_urls = []
-    for item_name, detail in explore_details:
-        pattern = re.escape(item_name)
-        url_match = re.search(
-            rf'##\s+\d+\.\s+{pattern}.*?\*\*Source:\*\*.*?(https?://\S+)',
-            content, re.DOTALL | re.IGNORECASE,
-        )
-        url = url_match.group(1).rstrip(')') if url_match else ''
+    for item_name in explore_items:
+        section = section_map.get(item_name.lower(), '')
+        detail = ''
+        url = ''
+
+        # Try digest first for URL (fuzzy match), then analysis section
+        item_lower = item_name.lower()
+        url = digest_urls.get(item_lower, '')
+        if not url:
+            # Fuzzy: find digest key where most words overlap
+            item_words = set(item_lower.split())
+            best_score, best_url = 0, ''
+            for dk, durl in digest_urls.items():
+                dk_words = set(dk.split())
+                overlap = len(item_words & dk_words)
+                if overlap > best_score and overlap >= len(item_words) * 0.6:
+                    best_score = overlap
+                    best_url = durl
+            url = best_url
+        if not url and section:
+            url_match = re.search(r'https?://\S+', section)
+            if url_match:
+                url = url_match.group(0).rstrip(').,')
+
+        if section:
+            # Extract first substantive paragraph as detail
+            for para in section.split('\n\n'):
+                para = para.strip()
+                if para and not para.startswith('**') and not para.startswith('#') and len(para) > 20:
+                    # Take first sentence
+                    sentences = re.split(r'(?<=[.!?])\s+', para)
+                    detail = sentences[0] if sentences else para[:120]
+                    break
         explore_with_urls.append((item_name, url, detail))
 
     # Build notification
