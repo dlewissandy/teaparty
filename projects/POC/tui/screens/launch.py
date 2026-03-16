@@ -3,12 +3,40 @@ from __future__ import annotations
 
 import asyncio
 import os
+import traceback
+from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Center, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Input, Select, Static
+
+
+def _handle_session_crash(infra_dir: str) -> None:
+    """Write crash diagnostics to infra_dir for post-mortem analysis.
+
+    Called from except BaseException handlers in run_session() and similar
+    wrappers.  Writes two artifacts:
+      - .crash file with the full traceback
+      - CRASH entry appended to session.log
+    """
+    tb = traceback.format_exc()
+    try:
+        crash_path = os.path.join(infra_dir, '.crash')
+        with open(crash_path, 'w') as f:
+            f.write(tb)
+    except OSError:
+        pass
+    try:
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        # Extract the exception one-liner from the last line of the traceback
+        exc_line = tb.strip().rsplit('\n', 1)[-1] if tb.strip() else 'unknown'
+        log_path = os.path.join(infra_dir, 'session.log')
+        with open(log_path, 'a') as f:
+            f.write(f'[{timestamp}] CRASH    | {exc_line}\n')
+    except OSError:
+        pass
 
 
 class LaunchScreen(Screen):
@@ -115,10 +143,12 @@ class LaunchScreen(Screen):
         async def run_session() -> None:
             try:
                 await session.run()
-            except Exception:
+            except BaseException:
+                # Write crash diagnostics so the failure is never silent.
                 # Don't remove .running — leave it for orphan detection so the
                 # user gets the recovery UI rather than a silently dead session.
-                pass
+                _handle_session_crash(infra_dir)
+                raise
 
         in_proc.run_task = asyncio.create_task(run_session())
 

@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import traceback
+from datetime import datetime
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -16,6 +18,31 @@ from projects.POC.tui.event_parser import EventParser
 from projects.POC.tui.stream_watcher import StreamWatcher
 from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_streams
 from projects.POC.tui.platform_utils import open_file
+
+
+def _handle_session_crash(infra_dir: str) -> None:
+    """Write crash diagnostics to infra_dir for post-mortem analysis.
+
+    Called from except BaseException handlers in run_resumed() and similar
+    wrappers.  Writes two artifacts:
+      - .crash file with the full traceback
+      - CRASH entry appended to session.log
+    """
+    tb = traceback.format_exc()
+    try:
+        crash_path = os.path.join(infra_dir, '.crash')
+        with open(crash_path, 'w') as f:
+            f.write(tb)
+    except OSError:
+        pass
+    try:
+        timestamp = datetime.now().strftime('%H:%M:%S')
+        exc_line = tb.strip().rsplit('\n', 1)[-1] if tb.strip() else 'unknown'
+        log_path = os.path.join(infra_dir, 'session.log')
+        with open(log_path, 'a') as f:
+            f.write(f'[{timestamp}] CRASH    | {exc_line}\n')
+    except OSError:
+        pass
 
 
 _STATE_LABELS: dict[str, str] = {
@@ -515,12 +542,14 @@ class DrilldownScreen(Screen):
                     event_bus=bus,
                     input_provider=provider,
                 )
-            except Exception as exc:
+            except BaseException as exc:
                 _rlog.exception('Resume failed for %s', infra_dir)
+                # Write crash diagnostics so the failure is never silent.
                 # Don't remove .running — leave it for orphan detection so the
                 # user gets the recovery UI.  The PID in .running is ours (the
                 # TUI), and has_in_process() will return False since this task
                 # is done, correctly flagging it as orphaned.
+                _handle_session_crash(infra_dir)
                 try:
                     log = self.query_one('#activity-log', RichLog)
                     from rich.text import Text
@@ -530,6 +559,7 @@ class DrilldownScreen(Screen):
                     log.write(t)
                 except Exception:
                     pass  # Screen may have been unmounted
+                raise
 
         in_proc.run_task = asyncio.create_task(run_resumed())
 
