@@ -15,33 +15,17 @@ The system executed the full CfA lifecycle autonomously: intent capture (2 quest
 
 ## The Story in Five Parts
 
-<div class="grid cards" markdown>
+**[Intent & Planning](../e2e/dialog.md)** — Two agents, six questions, 21 minutes. The dialog transcripts show how a four-sentence prompt became a complete intent document and a five-phase execution plan — with the agents bringing proposals, not open-ended questions.
 
--   **[Intent & Planning](../e2e/dialog.md)**
+**[Execution](../e2e/execution.md)** — Eight parallel research tracks, eight spec agents, seven chapter drafts, two editorial passes, two verification passes — all dispatched hierarchically into isolated worktrees. How the uber team coordinated five phases without becoming a bottleneck.
 
-    Two agents, six questions, 21 minutes. The dialog transcripts show how a four-sentence prompt became a complete intent document and a five-phase execution plan — with the agents bringing proposals, not open-ended questions.
+**[The Manuscript](../e2e/results.md)** — What the session actually produced: a complete popular non-fiction book with links to every chapter draft, from initial to final.
 
--   **[Execution](../e2e/execution.md)**
+**[Obstacles](../e2e/obstacles.md)** — Watchdog timeouts, token limits, rate-limit collisions, a prologue that refused to persist, and agents that couldn't figure out where they were in the worktree hierarchy. What went wrong and how the system adapted.
 
-    Eight parallel research tracks, eight spec agents, seven chapter drafts, two editorial passes, two verification passes — all dispatched hierarchically into isolated worktrees. How the uber team coordinated five phases without becoming a bottleneck.
+**[Learnings](../e2e/learnings.md)** — The learning system's self-assessment: alignment observations, the proxy confidence model, and the "frustration misinterpretation" where the proxy read timeouts as human annoyance.
 
--   **[The Manuscript](../e2e/results.md)**
-
-    What the session actually produced: a complete popular non-fiction book with links to every chapter, the editorial findings that caught real structural problems, the verification audit, and the revision loop that closed them.
-
--   **[Obstacles](../e2e/obstacles.md)**
-
-    Watchdog timeouts, token limits, rate-limit collisions, a prologue that refused to persist, and agents that couldn't figure out where they were in the worktree hierarchy. What went wrong and how the system adapted.
-
--   **[Learnings](../e2e/learnings.md)**
-
-    The learning system's self-assessment: alignment observations, the proxy confidence model, and the "frustration misinterpretation" where the proxy read timeouts as human annoyance.
-
--   **[Key Takeaways](../e2e/takeaways.md)**
-
-    What the session demonstrates about the four pillars, where the opportunities lie, and the overall assessment.
-
-</div>
+**[Key Takeaways](../e2e/takeaways.md)** — What the session demonstrates about the four pillars, where the opportunities lie, and the overall assessment.
 
 ---
 
