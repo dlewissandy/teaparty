@@ -503,6 +503,12 @@ _NEVER_ESCALATE_STATES: frozenset[str] = frozenset({
     'TASK_ESCALATE',
 })
 
+# Max consecutive __fallback__ retries at _NEVER_ESCALATE states before
+# auto-approving.  At these states the proxy is the sole decision-maker;
+# retrying the same empty proxy call is pointless.  WORK_ASSERT downstream
+# will catch real problems.  Issue #155.
+_MAX_FALLBACK_RETRIES = 3
+
 
 class ApprovalGate:
     """Proxy agent + human review loop.
@@ -547,6 +553,7 @@ class ApprovalGate:
         gate_question = _GATE_QUESTIONS.get(ctx.state, f'Please review: {artifact_path}')
         dialog_history = ''
         next_bridge = ''  # set after dialog turns to show the agent's reply
+        fallback_count = 0
 
         while True:
             # Ask the human — through the proxy.
@@ -576,6 +583,25 @@ class ApprovalGate:
                 },
                 session_id=ctx.session_id,
             ))
+
+            # At _NEVER_ESCALATE states the proxy is the sole decision-maker.
+            # If it consistently fails (returns empty → __fallback__), retrying
+            # is pointless.  Auto-approve so WORK_ASSERT can catch real problems
+            # downstream.  Issue #155.
+            if action == '__fallback__' and ctx.state in _NEVER_ESCALATE_STATES:
+                fallback_count += 1
+                if fallback_count >= _MAX_FALLBACK_RETRIES:
+                    _actor_log.warning(
+                        'Proxy failed %d times at %s — auto-approving',
+                        fallback_count, ctx.state,
+                    )
+                    action = 'approve'
+                    feedback = ''
+                    # Clear dialog_history — the "dialog" entries are just
+                    # empty proxy responses, not real human conversation.
+                    # Without this, the approve→correct conversion below
+                    # would fire and send stale empty text as feedback.
+                    dialog_history = ''
 
             if action not in ('dialog', '__fallback__'):
                 # Terminal action.  But if there was dialog, the human was

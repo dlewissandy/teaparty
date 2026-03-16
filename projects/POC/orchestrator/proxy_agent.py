@@ -239,6 +239,14 @@ async def run_proxy_agent(
 
     if artifact_path and os.path.isfile(artifact_path):
         context_parts.append(f'Artifact under review: {artifact_path}')
+    elif not artifact_path and session_worktree and state in ('TASK_ASSERT', 'TASK_ESCALATE'):
+        # No specific artifact — direct the proxy to review deliverables
+        # in the worktree using its file-read tools.  Issue #155.
+        context_parts.append(
+            f'No specific artifact to review. The task deliverables are in '
+            f'the session worktree at {session_worktree}. Use your Read, '
+            f'Glob, and Grep tools to find and review the deliverables.'
+        )
 
     # Upstream context — INTENT.md for PLAN_ASSERT and TASK_ASSERT,
     # INTENT.md + PLAN.md for WORK_ASSERT and TASK_ASSERT.
