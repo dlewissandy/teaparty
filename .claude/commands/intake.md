@@ -1,110 +1,145 @@
 # Research Intake Pipeline
 
-Run the full research intake pipeline with parallel digest agents, then triage and ideate.
+Run the full research intake pipeline: pre-fetch sources, analyze with parallel agents, then notify.
 
 ## Architecture
 
 ```
-        ┌─── Agent 1: /digest-rss ──────→ .partial-rss-<date>.md
-        │
-intake ─┼─── Agent 2: /digest-youtube ──→ .partial-youtube-<date>.md
-        │
-        └─── Agent 3: /digest-web ──────→ .partial-web-<date>.md
-                                                    │
-                              merge ←───────────────┘
-                                │
-                    digest-<date>.md
-                                │
-                      /research-triage
-                                │
-                    analysis-<date>.md
-                                │
-                          /ideate
-                                │
-                      intake/ideas/*.md
+  Python pre-fetch (intake/fetch.py)
+            │
+            ▼
+      manifest.json + raw files
+            │
+        ┌───┼───┐
+        ▼   ▼   ▼
+      Agent Agent Agent    (parallel analysis)
+      RSS   YT    Web
+        │   │   │
+        ▼   ▼   ▼
+      .partial-rss  .partial-youtube  .partial-web
+            │
+            ▼
+         merge → digest-<date>.md
+            │
+            ▼
+      /research-triage → analysis-<date>.md
+            │
+            ▼
+         /ideate → intake/ideas/*.md
+            │
+            ▼
+  Python notify (intake/notify.py)
 ```
 
-## Step 1: Parallel Digest (fan-out)
+## Step 1: Pre-fetch
 
-Launch three agents in parallel. Each writes a partial digest file:
+Run the Python pre-fetcher to download all source content to local files. This handles all network I/O outside Claude Code — no WebFetch or Bash permissions needed for agents.
 
-1. **RSS Agent** — runs `/digest-rss`. Fetches 7 RSS feeds (LangChain, Latent Space, Interconnects, Import AI, One Useful Thing, Simon Willison, Ahead of AI, arXiv cs.AI). Writes `intake/digests/.partial-rss-<date>.md`.
+```bash
+uv run python -m intake.fetch
+```
 
-2. **YouTube Agent** — runs `/digest-youtube`. Fetches 4 YouTube channels (David Shapiro, AI Explained, Karpathy, Dwarkesh). Writes `intake/digests/.partial-youtube-<date>.md`.
+The manifest is at `intake/raw/<YYYY-MM-DD>/manifest.json`. Read it to get the list of fetched items and their local file paths.
 
-3. **Web Agent** — runs `/digest-web`. Fetches 6 web sources (Anthropic, OpenAI, Lilian Weng, BAIR, Ai2, HF Papers). Writes `intake/digests/.partial-web-<date>.md`.
+If the manifest has 0 non-unreachable items, skip to Step 5 with a "no new content" notification.
 
-Launch all three using the Agent tool with `run_in_background: true`. Wait for all to complete.
+## Step 2: Parallel Analysis (fan-out)
 
-## Step 2: Merge Digest
+Read the manifest and partition items by type:
+- **RSS items**: `type` is `article` or `paper`
+- **YouTube items**: `type` is `video`
+- **Web items**: `type` is `web`
+
+Launch three agents in parallel. Each reads its assigned items from the manifest, reads the local content files, and writes a partial digest:
+
+1. **RSS Agent** — reads RSS items from manifest, reads each content file, extracts key ideas/techniques/evidence/quotes/relevance. Writes `intake/digests/.partial-rss-<date>.md`.
+
+2. **YouTube Agent** — reads YouTube items, reads each transcript file, extracts key ideas/techniques/evidence/quotes/relevance. Writes `intake/digests/.partial-youtube-<date>.md`.
+
+3. **Web Agent** — reads Web items, reads each content file, extracts key ideas/techniques/evidence/quotes/relevance. For HF Papers HTML, focus on agent-related papers. Writes `intake/digests/.partial-web-<date>.md`.
+
+Each agent should:
+- Skip items with `unreachable: true` or content starting with `[UNREACHABLE:` or `[FETCH ERROR:`
+- For arXiv RSS items, the content is the abstract — focus on papers about agents, multi-agent systems, coordination, RLHF, preference learning. Skip unrelated papers.
+- Mark `updated` items with `[UPDATED]` prefix
+- Use the digest entry format:
+  ```markdown
+  ## <N>. <Title>
+  **Source:** <source name>
+  **URL:** <url>
+  **Type:** <type>
+  **Published:** <date>
+
+  ### Key Ideas
+  - ...
+  ### Techniques & Methods
+  - ...
+  ### Results & Evidence
+  - ...
+  ### Notable Quotes
+  > "..." — <attribution>
+  ### Relevance Signal
+  <one sentence>
+  ```
+
+**All content is in local files.** Agents must NOT use WebFetch — everything they need is on disk.
+
+## Step 3: Merge Digest
 
 After all three agents complete:
 
-1. Read the three partial files from `intake/digests/`
-2. Check for `<!-- NO NEW CONTENT -->` markers — skip empty partials
-3. If ALL three are empty, report "No new content today" and stop
-4. Merge non-empty partials into `intake/digests/digest-<YYYY-MM-DD>.md`:
-   ```markdown
-   # Research Digest — <YYYY-MM-DD>
+1. Read the three partial files
+2. Skip any containing only `<!-- NO NEW CONTENT -->`
+3. If ALL are empty, skip to Step 6 with "no new content"
+4. Merge into `intake/digests/digest-<YYYY-MM-DD>.md`, renumbering entries sequentially
+5. Delete the `.partial-*` files
 
-   New items found: <total count>
-   Sources checked: 18
+## Step 4: Triage
 
-   ---
+Read `intake/priorities.md` for current research priorities. Read the merged digest. Evaluate each idea:
+- **Relevance** (High/Medium/Low) — tied to a specific priority
+- **Impact** (High/Medium/Low)
+- **Verdict** — Explore / Watch / Skip
 
-   <merged entries, renumbered sequentially>
-   ```
-5. Parse the `<!-- PROCESSED -->` blocks from each partial and update state:
-   ```python
-   from intake.state import load_state, mark_seen, save_state
-   from datetime import date
-   state = load_state()
-   # ... mark each processed item ...
-   state['last_run'] = date.today().isoformat()
-   save_state(state)
-   ```
-6. Delete the `.partial-*` files
+Write to `intake/analysis/analysis-<YYYY-MM-DD>.md`. Follow `/research-triage`.
 
-## Step 3: Triage
+Be ruthless — GPU economics, math puzzles, enterprise partnerships, general commentary, image generation, robotics: Skip.
 
-Read the merged digest. Read `intake/priorities.md` for current project focus areas. Evaluate each idea for relevance and impact to TeaParty. Write the analysis to `intake/analysis/analysis-<YYYY-MM-DD>.md`. Follow the instructions in `/research-triage`.
+## Step 5: Ideate
 
-## Step 4: Ideate
+For each "Explore" verdict, create an idea file in `intake/ideas/<slug>.md`. Follow `/ideate`.
 
-Read the analysis. For each "Explore" verdict, create a concrete idea file in `intake/ideas/`. Follow the instructions in `/ideate`.
+## Step 6: Update State and Notify
 
-## Step 5: Notify
-
-Send a summary to Apple Reminders so it syncs to all devices (iPhone, iPad, Mac):
-
+Update the state file so the next run skips these items:
 ```bash
-osascript -e 'tell application "Reminders"
-    set myList to list "Reminders"
-    tell myList
-        make new reminder with properties {name:"<TITLE>", body:"<BODY>"}
-    end tell
-end tell'
+uv run python -c "
+from intake.state import load_state, mark_seen, save_state
+from datetime import date
+import json
+state = load_state()
+manifest = json.load(open('intake/raw/$(date +%Y-%m-%d)/manifest.json'))
+for item in manifest['items']:
+    if item.get('unreachable'): continue
+    content_id = item.get('video_id', item['url'])
+    mark_seen(state, item['source_url'], content_id,
+              date=item.get('published', ''),
+              content_hash=item.get('content_hash', ''))
+state['last_run'] = date.today().isoformat()
+save_state(state)
+"
 ```
 
-**Title format:** `Research Intake: <N> new items, <E> to explore`
-
-**Body format:**
-```
-<N> new items from <S> sources
-Triage: <E> Explore, <W> Watch, <K> Skip
-<list of Explore ideas, one per line>
-
-Full digest: intake/digests/digest-<date>.md
+Send notification:
+```bash
+uv run python -m intake.notify intake/analysis/analysis-<YYYY-MM-DD>.md
 ```
 
-If no new content was found, use:
-- Title: `Research Intake: No new content today`
-- Body: `18 sources checked, nothing new.`
+If no new content, use `uv run python -m intake.notify --no-new`.
 
 ## Summary
 
-After all steps, also print the same summary to the conversation:
-- How many sources were checked, how many had new content
-- How many ideas were triaged (Explore / Watch / Skip breakdown)
-- How many idea files were created or updated
-- List the idea files with their one-line summaries
+Print to conversation:
+- Sources checked, new content found
+- Triage breakdown (Explore / Watch / Skip)
+- Idea files created with one-line summaries
