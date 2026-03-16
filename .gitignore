@@ -41,3 +41,6 @@ INTENT.md
 # Experiment results (collected data, not source)
 experiments/results/
 !experiments/results/.gitkeep
+
+# Intake pipeline
+intake/*
