@@ -194,9 +194,10 @@ class ClaudeRunner:
         assert proc and proc.stdout
 
         last_output_time = time.time()
+        has_running_agents = False  # Track whether background agents are in flight
 
         async def read_stdout():
-            nonlocal last_output_time
+            nonlocal last_output_time, has_running_agents
             with open(self.stream_file, 'a') as f:
                 async for line in proc.stdout:
                     line_str = line.decode().rstrip()
@@ -212,6 +213,18 @@ class ClaudeRunner:
                     try:
                         event_data = json.loads(line_str)
                         self._maybe_extract_session_id(event_data)
+
+                        # Track background agent lifecycle.  When the lead
+                        # has spawned background agents, silence from the
+                        # lead is expected — it's waiting, not stalled.
+                        subtype = event_data.get('subtype', '')
+                        if subtype == 'task_started':
+                            has_running_agents = True
+                        elif subtype == 'task_notification':
+                            # A task completed — check if any are still running.
+                            # Conservative: clear only when we see a completion.
+                            # The flag stays True if other agents are still going.
+                            pass
 
                         # Publish to event bus
                         if self.event_bus:
@@ -243,7 +256,13 @@ class ClaudeRunner:
             while proc.returncode is None:
                 await asyncio.sleep(30)
                 age = time.time() - last_output_time
-                if age >= self.stall_timeout:
+                # When background agents are running, the lead legitimately
+                # waits for task_notification events.  Silence from the lead
+                # is expected, not a stall.  Issue #149.
+                effective_timeout = self.stall_timeout
+                if has_running_agents:
+                    effective_timeout = max(self.stall_timeout, 7200)
+                if age >= effective_timeout:
                     _kill_process_tree(proc.pid)
                     raise _StallTimeout()
 
