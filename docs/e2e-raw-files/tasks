@@ -1,0 +1,149 @@
+
+
+---
+id: 75fe5f63-eda7-4af3-86a8-cb7d5e750b5a
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+# Intent vs. Execution Alignment Analysis
+
+---
+id: 929310d8-cd77-4736-a98a-5881ed45e523
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Success Criteria Met  
+**Signal:** All 8 research briefs eventually delivered to disk (Ch. 1–7 + Prologue), Phase 1 completed. Phase 2 launched with all 8 spec agents running in parallel.  
+**Implication:** The core deliverable (briefs) was achieved, but the *delivery curve* was non-linear. Future intents should specify: "briefs will be **attempted** in parallel, with automatic retry on infrastructure failures" rather than assuming clean parallel execution.
+
+---
+
+---
+id: 5caa3d22-751c-4ab7-92a9-801b4ee92de1
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Success Criteria Missed  
+**Signal:** Intent stated "I'll verify coverage" before Phase 2 — no coverage verification checkpoint was implemented or observed. Phase 2 spec work launched as soon as briefs hit disk, with no explicit quality gate.  
+**Implication:** The intent was missing a defined "verification" step. In future intents: explicitly state whether briefs should be reviewed for content quality (8–12 examples, counterexample, hooks) before spec work begins, or whether "on disk = ready to proceed."
+
+---
+
+---
+id: c12a20f4-4171-4796-adac-f354af2f89d5
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Boundary Deviation  
+**Signal:** Prologue brief was exceptionally unreliable — dispatched repeatedly across sessions, kept hitting rate limits on write. The execution adapted by starting Phase 2 spec work on Ch. 1–7 in parallel while retrying prologue research (rather than waiting for all 8 briefs before Phase 2).  
+**Implication:** The intent assumed "sequential phases with hard gates." Reveal preference: **Should Phase N+1 begin before Phase N is complete if Phase N is partially stalled?** This is smart parallelization but contradicts the stated "verify, then dispatch Phase 2" model. Clarify in intent: "Parallelization okay to unblock dependent work" vs. "Strict sequential phases."
+
+---
+
+---
+id: 91c7e977-b85d-4b94-afef-b4dd15a6fa20
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Intent Gap  
+**Signal:** Prologue brief reliability was a single-point failure — one chapter's research kept failing to persist even after "subteam reported done." This was worked around by adding a monitoring loop, but the intent had no provision for partial-delivery strategies or fallback architectures.  
+**Implication:** When dispatching parallel research across many tracks, future intents should specify: "How to handle if one track fails to deliver?" (retry indefinitely, proceed without it, escalate for manual intervention, etc.). The prologue turned out to be not critical-path, but this wasn't stated upfront.
+
+---
+
+---
+id: e6e4bbd0-2943-4db7-bf42-96da957bbd2b
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Intent Gap  
+**Signal:** Rate limiting on research subteam caused repeated failures across 6 tracks in the first dispatch wave. The infrastructure ceiling wasn't anticipated in the intent. Re-dispatch required human intervention to wait for limit reset.  
+**Implication:** When delegating to subteams, future intents should anticipate: "Subteam may have rate/usage limits. Plan for: (a) automatic retry with backoff, (b) sequential instead of parallel to stay under limit, (c) monitoring loop to re-attempt after reset window." This session used (c) but late; could have been proactive.
+
+---
+
+---
+id: 3c4acd2d-66cc-4903-981b-9cd8de709b63
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Boundary Deviation  
+**Signal:** Intent described Phase 2 as "the writing team turns briefs into per-chapter specs." Actual execution: 8 independent spec agents, one per chapter, each reading all briefs and writing its own spec file (with prologue + titles in one agent). This is more resilient but architecturally different.  
+**Implication:** Reveal preference for **resilient, independently-completable units** over single-agent dependency chains. Future intents: clarify whether "writing team" means (a) one agent handling all chapters, or (b) distributed per-chapter agents. The distributed model is more recovery-friendly.
+
+---
+
+---
+id: d5a00744-a253-4746-94b7-0ed352697851
+type: procedural
+domain: task
+importance: 0.5
+phase: unknown
+status: active
+reinforcement_count: 0
+last_reinforced: '2026-03-16'
+created_at: '2026-03-16'
+---
+## [2026-03-16] Alignment Observation
+**Category:** Success Criteria Not Explicitly Verified  
+**Signal:** Intent included "with title alternatives developed in parallel." This work was launched alongside spec writing, but no confirmation that title alternatives were actually delivered (conversation cuts off mid-Phase 2 status).  
+**Implication:** Longer-running intents need explicit "completion definition": "Phase 2 is done when [all 8 specs] AND [title alternatives file] are on disk and verified." The current intent left this implicit.
+
+---
+
+## Summary for Next Intent Gathering
+
+**Ask about:**
+1. Sequential vs. parallel phases — is it okay to start Phase N before Phase N-1 completes if unblocked?
+2. Quality gates — should briefs be reviewed for content before they're considered "done"?
+3. Resilience model — if one track fails (like prologue), what's the fallback? Retry forever, skip, escalate?
+4. Infrastructure limits — should the intent anticipate rate limits, or is recovery assumed?
+5. Agent architecture — one big agent per phase, or distributed independent units per chapter?
