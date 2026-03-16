@@ -109,7 +109,46 @@ Be ruthless — GPU economics, math puzzles, enterprise partnerships, general co
 
 For each "Explore" verdict, create an idea file in `intake/ideas/<slug>.md`. Follow `/ideate`.
 
-## Step 6: Update State and Notify
+## Step 6: Create GitHub Issues for Explore Items
+
+For each "Explore" verdict, create a GitHub issue and add it to the project backlog. Use `gh issue create`.
+
+Each issue should have:
+- **Title:** Short, action-oriented (e.g., "Add budget-aware dispatch using BAVT tree search")
+- **Label:** `intake` (create the label first if it doesn't exist: `gh label create intake --description "Research intake pipeline" --color 0E8A16` — only on the first run)
+- **Body:** A well-formed intent statement with three clear sections:
+
+```markdown
+## Scope
+
+What would be built or changed. Name specific files, modules, or systems in
+the TeaParty codebase that this work would touch (e.g., `engine.py`,
+`actors.py`, `learnings.py`, the proxy agent, the dispatch system).
+
+## Value
+
+Why this work matters for TeaParty. What problem it solves or what capability
+it enables. Tie it to a specific current limitation or priority from
+`intake/priorities.md`.
+
+## Source
+
+Where this idea came from — title, author, URL.
+
+> <key quote from the source that captures the core insight>
+
+Idea file: `intake/ideas/<slug>.md`
+Analysis: `intake/analysis/analysis-<YYYY-MM-DD>.md`
+```
+
+The intent should be specific enough that someone reading just the issue can understand:
+1. What the scope of work would be
+2. What components it would touch
+3. What the value of the work would be
+
+After creating each issue, note the issue number in the corresponding idea file (update the `Status` line to include the issue number).
+
+## Step 7: Update State and Notify
 
 Update the state file so the next run skips these items:
 ```bash
@@ -130,7 +169,7 @@ save_state(state)
 "
 ```
 
-Send notification:
+Send notification — include the issue numbers in the body:
 ```bash
 uv run python -m intake.notify intake/analysis/analysis-<YYYY-MM-DD>.md
 ```
@@ -143,3 +182,4 @@ Print to conversation:
 - Sources checked, new content found
 - Triage breakdown (Explore / Watch / Skip)
 - Idea files created with one-line summaries
+- GitHub issues created (with numbers and links)
