@@ -4,6 +4,40 @@ The session produced a complete manuscript: a prologue and seven chapters totali
 
 ---
 
+## Research Briefs
+
+Each chapter began with a research brief — a curated dossier of sources, mechanisms, counterexamples, and narrative hooks assembled by the research team in Phase 2.
+
+| Chapter | Research Brief |
+|---|---|
+| Prologue | [prologue_brief.md](../e2e-raw-files/research/prologue_brief.md) |
+| Ch 1 | [ch1_brief.md](../e2e-raw-files/research/ch1_brief.md) |
+| Ch 2 | [ch2_brief.md](../e2e-raw-files/research/ch2_brief.md) |
+| Ch 3 | [ch3_brief.md](../e2e-raw-files/research/ch3_brief.md) |
+| Ch 4 | [ch4_brief.md](../e2e-raw-files/research/ch4_brief.md) |
+| Ch 5 | [ch5_brief.md](../e2e-raw-files/research/ch5_brief.md) |
+| Ch 6 | [ch6_brief.md](../e2e-raw-files/research/ch6_brief.md) |
+| Ch 7 | [ch7_brief.md](../e2e-raw-files/research/ch7_brief.md) |
+
+---
+
+## Chapter Specs
+
+The research briefs were distilled into chapter specs — structured writing plans with target length, thesis, scene breakdowns, and source assignments for each chapter.
+
+| Chapter | Chapter Spec |
+|---|---|
+| Prologue | [prologue_spec.md](../e2e-raw-files/specs/prologue_spec.md) |
+| Ch 1 | [ch1_spec.md](../e2e-raw-files/specs/ch1_spec.md) |
+| Ch 2 | [ch2_spec.md](../e2e-raw-files/specs/ch2_spec.md) |
+| Ch 3 | [ch3_spec.md](../e2e-raw-files/specs/ch3_spec.md) |
+| Ch 4 | [ch4_spec.md](../e2e-raw-files/specs/ch4_spec.md) |
+| Ch 5 | [ch5_spec.md](../e2e-raw-files/specs/ch5_spec.md) |
+| Ch 6 | [ch6_spec.md](../e2e-raw-files/specs/ch6_spec.md) |
+| Ch 7 | [ch7_spec.md](../e2e-raw-files/specs/ch7_spec.md) |
+
+---
+
 ## Initial Drafts
 
 These are the first complete drafts produced by the parallel writing agents in Phase 3.
