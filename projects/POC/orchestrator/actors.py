@@ -566,7 +566,7 @@ class ApprovalGate:
 
         while True:
             # Ask the human — through the proxy.
-            response_text = await self._ask_human_through_proxy(
+            response_text, from_proxy = await self._ask_human_through_proxy(
                 ctx=ctx,
                 question=gate_question,
                 artifact_path=artifact_path,
@@ -576,6 +576,8 @@ class ApprovalGate:
                 bridge_override=next_bridge,
             )
             next_bridge = ''  # consumed
+            # Label for dialog history — Issue #151
+            speaker = 'PROXY' if from_proxy else 'HUMAN'
 
             # Classify the response.
             action, feedback = self._classify_review(
@@ -618,7 +620,7 @@ class ApprovalGate:
                 # as "correct" so the agent gets another pass with context.
                 if dialog_history and action == 'approve':
                     action = 'correct'
-                    feedback = dialog_history + f'HUMAN: {response_text}\n'
+                    feedback = dialog_history + f'{speaker}: {response_text}\n'
 
                 self._proxy_record(
                     ctx.state, project_slug, action,
@@ -638,7 +640,7 @@ class ApprovalGate:
 
             # Dialog — generate a reply, then loop back.  The reply becomes
             # the bridge text for the next turn so the human sees the answer.
-            dialog_history += f'HUMAN: {response_text}\n'
+            dialog_history += f'{speaker}: {response_text}\n'
             agent_reply = self._generate_dialog_response(
                 ctx.state, response_text, artifact_path,
                 os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
@@ -652,8 +654,13 @@ class ApprovalGate:
         self, ctx: ActorContext, question: str, artifact_path: str,
         project_slug: str, team: str, dialog_history: str,
         bridge_override: str = '',
-    ) -> str:
-        """Ask the human through the proxy.  Returns the response text.
+    ) -> tuple[str, bool]:
+        """Ask the human through the proxy.  Returns (response_text, from_proxy).
+
+        from_proxy is True when the proxy answered (confident or never-escalate),
+        False when the actual human was asked.  Callers use this to label
+        dialog entries PROXY: vs HUMAN: so downstream agents can distinguish
+        the source.  Issue #151.
 
         consult_proxy handles everything: statistical pre-filters, agent
         invocation, confidence check, and escalation to the actual human
@@ -685,11 +692,11 @@ class ApprovalGate:
         )
 
         if proxy_confident:
-            return proxy_result.text
+            return proxy_result.text, True
 
         # Never-escalate: the proxy's text is always the answer.
         if self.never_escalate or ctx.state in _NEVER_ESCALATE_STATES:
-            return proxy_result.text
+            return proxy_result.text, True
 
         # Proxy can't answer — escalate to the actual human.
         # If there's a bridge override (e.g., the agent's reply to a prior
@@ -712,7 +719,7 @@ class ApprovalGate:
             data={'response': response_text},
             session_id=ctx.session_id,
         ))
-        return response_text
+        return response_text, False
 
     def _proxy_record(
         self, state: str, project_slug: str, outcome: str,
