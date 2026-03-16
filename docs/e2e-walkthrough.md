@@ -9,6 +9,8 @@ A single natural-language prompt — four sentences about humor, universality, a
 
 The system executed the full CfA lifecycle autonomously: intent capture (2 questions, 5 minutes), planning (4 questions, 16 minutes), and five phases of hierarchical dispatch — research, specification, production, editorial, and verification — with the human proxy handling all sub-team approval gates.
 
+![TUI workspace showing eight parallel research dispatches running](e2e-raw-files/e2e workspace.png)
+
 ---
 
 ## The Story in Five Parts

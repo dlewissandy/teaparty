@@ -13,10 +13,6 @@ Each research dispatch:
 - Used the proxy for all assert gates (`never_escalate=True`) — no human involvement
 - Received a scoped task brief from the uber team (context compression at the hierarchy boundary)
 
-The screenshot below shows the TUI workspace during the execution phase. The top pane displays the original prompt and the session's CfA state history. The middle pane shows the uber team dispatching eight parallel research tracks. The status bar at the bottom shows the session in the TASK state with eight active dispatches.
-
-![TUI workspace showing eight parallel research dispatches running](../e2e-raw-files/e2e workspace.png)
-
 ---
 
 ## Phase 1: Research
