@@ -84,6 +84,7 @@ class DrilldownScreen(Screen):
         self._input_cooldown = False  # True briefly after submit to suppress re-show
         self._shown_dialog_reply = ''  # Track last displayed dialog reply to avoid duplicates
         self._in_proc = None  # InProcessSession if running via Python orchestrator
+        self._recovery_modal_shown = False  # True while recovery modal is visible
 
     def compose(self) -> ComposeResult:
         yield Static('', id='drilldown-header')
@@ -358,20 +359,15 @@ class DrilldownScreen(Screen):
                 self._input_cooldown = False
                 return
 
-        # Orphaned sessions always show the recovery input area
+        # Orphaned sessions show a recovery modal (not a text-based prompt)
         if self._session and self._session.is_orphaned and self._session.cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
-            if not self._input_latched:
-                self._input_latched = True
-                input_area.add_class('visible')
-                state = self._session.cfa_state
-                if state in ('WORK_ASSERT', 'PLAN_ASSERT', 'INTENT_ASSERT'):
-                    prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
-                                        f"type 'approve', 'resume', or 'abandon'")
-                else:
-                    prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
-                                        f"type 'resume' or 'abandon'")
-                if not was_visible:
-                    self.query_one('#input-field', TextArea).focus()
+            if not self._recovery_modal_shown:
+                self._recovery_modal_shown = True
+                from projects.POC.tui.screens.recovery_modal import RecoveryModal
+                self.app.push_screen(
+                    RecoveryModal(self._session.cfa_state),
+                    callback=self._on_recovery_modal_dismiss,
+                )
             return
 
         if self._session and self._session.needs_input:
@@ -412,46 +408,17 @@ class DrilldownScreen(Screen):
             self.query_one('#activity-log', RichLog).focus()
             return
 
-        # ── FIFO IPC / orphan recovery path (shell-launched sessions) ──
-        if self._session and self._session.infra_dir:
-            if self._session.is_orphaned:
-                from projects.POC.tui.orphan_recovery import handle_orphan_response
-                result = handle_orphan_response(self._session, response)
-
-                # Resume signal — launch the session in-process
-                if isinstance(result, tuple) and result[0] == 'resume':
-                    self._launch_resume(result[1])
-                    log = self.query_one('#activity-log', RichLog)
-                    from rich.text import Text
-                    t = Text()
-                    t.append('[recovery] ', style='bold green')
-                    t.append('Resuming session...')
-                    log.write(t)
-                    if not self._scroll_locked:
-                        log.scroll_end(animate=False)
-                    self._input_latched = False
-                    self._input_cooldown = True
-                    field.clear()
-                    self.query_one('#input-area').remove_class('visible')
-                    self.query_one('#activity-log', RichLog).focus()
-                    return
-
-                msg = result
-                log = self.query_one('#activity-log', RichLog)
-                from rich.text import Text
-                t = Text()
-                t.append('[recovery] ', style='bold red')
-                t.append(msg)
-                log.write(t)
-            else:
-                from projects.POC.tui.ipc import send_response
-                send_response(self._session.infra_dir, response)
-                log = self.query_one('#activity-log', RichLog)
-                from rich.text import Text
-                text = Text()
-                text.append('[you] ', style='bold green')
-                text.append(response)
-                log.write(text)
+        # ── FIFO IPC path (shell-launched sessions) ──
+        # Orphan recovery is handled by the recovery modal, not text input.
+        if self._session and self._session.infra_dir and not self._session.is_orphaned:
+            from projects.POC.tui.ipc import send_response
+            send_response(self._session.infra_dir, response)
+            log = self.query_one('#activity-log', RichLog)
+            from rich.text import Text
+            text = Text()
+            text.append('[you] ', style='bold green')
+            text.append(response)
+            log.write(text)
 
         # Release latch, enter cooldown (persistent until CfA state advances)
         self._input_latched = False
@@ -485,6 +452,24 @@ class DrilldownScreen(Screen):
         stream_files = self.app.state_reader.active_stream_files(self.session_id)
         for f in stream_files:
             self.watcher.watch(f)
+
+    def _on_recovery_modal_dismiss(self, result: str) -> None:
+        """Handle the recovery modal's result: 'resume' or 'cancel'."""
+        if result == 'resume' and self._session and self._session.infra_dir:
+            self._launch_resume(self._session.infra_dir)
+            log = self.query_one('#activity-log', RichLog)
+            from rich.text import Text
+            t = Text()
+            t.append('[recovery] ', style='bold green')
+            t.append('Resuming session...')
+            log.write(t)
+            if not self._scroll_locked:
+                log.scroll_end(animate=False)
+        else:
+            # Cancel — stay on drilldown, suppress modal for this visit
+            pass
+        # Don't reset _recovery_modal_shown — prevents re-triggering during
+        # this drilldown visit. Modal will reappear on next drilldown entry.
 
     def _launch_resume(self, infra_dir: str) -> None:
         """Resume an orphaned session in-process, mirroring launch.py's pattern."""
