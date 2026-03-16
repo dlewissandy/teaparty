@@ -351,20 +351,21 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
 
 
 def _relocate_misplaced_artifact(
-    worktree: str, stream_file: str, artifact_name: str,
+    target_dir: str, stream_file: str, artifact_name: str,
 ) -> bool:
-    """Move an artifact to the worktree if the agent wrote it elsewhere.
+    """Copy an artifact to target_dir if it isn't already there.
 
     Parses the stream JSONL to find the actual path the agent used in its
-    Write tool call.  If the file was written outside the worktree, moves
-    it to worktree/<artifact_name>.
+    Write tool call.  If the file was written elsewhere (e.g., the agent's
+    cwd / worktree), copies it to target_dir/<artifact_name>.
 
-    This is deterministic and location-agnostic — it doesn't guess where
-    the agent might have written; it reads where it actually did write.
+    The source file is left in place — the worktree copy is needed for git
+    commits (dispatch worktree inheritance) while the infra_dir copy is the
+    orchestrator's live read path.  Issue #147.
 
-    Returns True if a file was relocated.
+    Returns True if a file was copied.
     """
-    expected = os.path.join(worktree, artifact_name)
+    expected = os.path.join(target_dir, artifact_name)
     if os.path.exists(expected):
         return False  # already in the right place
 
@@ -377,14 +378,14 @@ def _relocate_misplaced_artifact(
         return False  # agent wrote it but file is gone (shouldn't happen)
 
     try:
-        shutil.move(actual_path, expected)
+        shutil.copy2(actual_path, expected)
         _actor_log.info(
-            'Relocated misplaced artifact: %s → %s', actual_path, expected,
+            'Copied artifact to infra: %s → %s', actual_path, expected,
         )
         return True
     except OSError:
         _actor_log.warning(
-            'Failed to relocate artifact: %s → %s', actual_path, expected,
+            'Failed to copy artifact: %s → %s', actual_path, expected,
             exc_info=True,
         )
         return False
