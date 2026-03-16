@@ -120,6 +120,11 @@ class ClaudeRunner:
                 stderr_lines=stderr_lines,
             )
         finally:
+            # Kill subprocess on cancellation or exception (issue #159).
+            # Without this, task cancellation (e.g. withdraw) leaves
+            # orphaned Claude CLI processes running.
+            self._kill_subprocess()
+
             if settings_file:
                 try:
                     os.unlink(settings_file.name)

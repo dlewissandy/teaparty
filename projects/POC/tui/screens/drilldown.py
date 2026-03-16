@@ -601,22 +601,19 @@ class DrilldownScreen(Screen):
         bus = in_proc.event_bus if in_proc else None
 
         async def _withdraw():
-            await withdraw_session(
-                session,
-                event_bus=bus,
-                in_process_task=in_task,
-            )
+            try:
+                await withdraw_session(
+                    session,
+                    event_bus=bus,
+                    in_process_task=in_task,
+                )
+            except Exception:
+                pass  # Best-effort; state file is already WITHDRAWN
 
         asyncio.create_task(_withdraw())
 
-        log = self.query_one('#activity-log', RichLog)
-        from rich.text import Text
-        t = Text()
-        t.append('[withdraw] ', style='bold red')
-        t.append(f'Session {self.session_id} withdrawn')
-        log.write(t)
-        if not self._scroll_locked:
-            log.scroll_end(animate=False)
+        # Return to the dashboard (issue #159)
+        self.app.pop_screen()
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

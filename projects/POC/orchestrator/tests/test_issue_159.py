@@ -10,6 +10,8 @@ Covers:
  2. _kill_pid() must not kill the current process's group via killpg
  3. withdraw_session() must skip self-PID in .running but still clean up state
  4. withdraw_session() must skip self-PID in dispatch .running files
+ 5. ClaudeRunner.run() must kill its subprocess in its finally block
+ 6. Drilldown _do_withdraw must pop the screen (return to dashboard)
 """
 import asyncio
 import json
@@ -190,6 +192,60 @@ class TestWithdrawSelfKillPrevention(unittest.TestCase):
         self.assertTrue(result)
         mock_killpg.assert_not_called()
         mock_kill.assert_not_called()
+
+
+class TestClaudeRunnerSubprocessCleanup(unittest.TestCase):
+    """ClaudeRunner.run() must kill its subprocess in its finally block."""
+
+    def test_kill_subprocess_terminates_running_process(self):
+        """_kill_subprocess should call _kill_process_tree when proc is running."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+
+        runner = ClaudeRunner(
+            prompt='test',
+            cwd='/tmp',
+            stream_file='/tmp/test-stream.jsonl',
+        )
+
+        mock_proc = MagicMock()
+        mock_proc.returncode = None  # Still running
+        mock_proc.pid = 12345
+        runner._process = mock_proc
+
+        with patch('projects.POC.orchestrator.claude_runner._kill_process_tree') as mock_kill:
+            runner._kill_subprocess()
+            mock_kill.assert_called_once_with(12345)
+
+    def test_run_finally_calls_kill_subprocess(self):
+        """ClaudeRunner.run() must call _kill_subprocess in its finally block."""
+        import inspect
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+
+        source = inspect.getsource(ClaudeRunner.run)
+        self.assertIn('_kill_subprocess', source,
+                       'ClaudeRunner.run() must call _kill_subprocess in finally block')
+
+
+class TestDrilldownWithdrawNavigation(unittest.TestCase):
+    """Drilldown _do_withdraw must pop the screen to return to dashboard."""
+
+    def test_do_withdraw_pops_screen(self):
+        """_do_withdraw must call app.pop_screen() to return to dashboard."""
+        import inspect
+        from projects.POC.tui.screens.drilldown import DrilldownScreen
+
+        source = inspect.getsource(DrilldownScreen._do_withdraw)
+        self.assertIn('pop_screen', source,
+                       '_do_withdraw must call pop_screen to return to dashboard')
+
+    def test_do_withdraw_does_not_log_to_activity(self):
+        """_do_withdraw must NOT write to activity log (screen is being popped)."""
+        import inspect
+        from projects.POC.tui.screens.drilldown import DrilldownScreen
+
+        source = inspect.getsource(DrilldownScreen._do_withdraw)
+        self.assertNotIn('activity-log', source,
+                         '_do_withdraw must not write to activity log when popping screen')
 
 
 if __name__ == '__main__':
