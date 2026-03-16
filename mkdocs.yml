@@ -47,15 +47,15 @@ nav:
     - Learning System: detailed-design/learning-system.md
     - Folder Structure: folder-structure.md
     - Agent Dispatch: agent-dispatch.md
+  - End-to-End Walkthrough:
+    - Overview: e2e-walkthrough.md
+    - Intent & Planning: e2e/dialog.md
+    - Execution: e2e/execution.md
+    - The Manuscript: e2e/results.md
+    - Obstacles: e2e/obstacles.md
+    - Learnings & Assessment: e2e/learnings.md
   - Experimental Results:
     - Overview: experimental-results/index.md
-    - End-to-End Walkthrough:
-      - Overview: e2e-walkthrough.md
-      - Intent & Planning: e2e/dialog.md
-      - Execution: e2e/execution.md
-      - The Manuscript: e2e/results.md
-      - Obstacles: e2e/obstacles.md
-      - Learnings & Assessment: e2e/learnings.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
     - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
     - Liaison Context Compression: experimental-results/liaison-context-compression.md
