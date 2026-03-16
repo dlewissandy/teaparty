@@ -33,9 +33,13 @@ The system executed the full CfA lifecycle autonomously: intent capture (2 quest
 
     Watchdog timeouts, token limits, rate-limit collisions, a prologue that refused to persist, and agents that couldn't figure out where they were in the worktree hierarchy. What went wrong and how the system adapted.
 
--   **[Learnings & Assessment](../e2e/learnings.md)**
+-   **[Learnings](../e2e/learnings.md)**
 
-    The learning system's self-assessment: alignment observations, the proxy confidence model, the "frustration misinterpretation" where the proxy read timeouts as human annoyance — and what it all means for the four pillars.
+    The learning system's self-assessment: alignment observations, the proxy confidence model, and the "frustration misinterpretation" where the proxy read timeouts as human annoyance.
+
+-   **[Key Takeaways](../e2e/takeaways.md)**
+
+    What the session demonstrates about the four pillars, where the opportunities lie, and the overall assessment.
 
 </div>
 

@@ -53,7 +53,8 @@ nav:
     - Execution: e2e/execution.md
     - The Manuscript: e2e/results.md
     - Obstacles: e2e/obstacles.md
-    - Learnings & Assessment: e2e/learnings.md
+    - Learnings: e2e/learnings.md
+    - Key Takeaways: e2e/takeaways.md
   - Experimental Results:
     - Overview: experimental-results/index.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
