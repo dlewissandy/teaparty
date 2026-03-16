@@ -22,8 +22,11 @@ memory stores. Implements all 10 scopes of the promote_learnings.sh pipeline:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import sys
+
+_log = logging.getLogger('orchestrator.learnings')
 
 
 async def extract_learnings(
@@ -213,10 +216,7 @@ def _run_summarize(
         with lock:
             summarize(stream_path, output, [], scope)
     except Exception as exc:
-        print(
-            f'[learnings] {scope} extraction failed: {exc}',
-            file=sys.stderr,
-        )
+        _log.warning('%s extraction failed: %s', scope, exc)
     finally:
         if added_to_path:
             try:
@@ -249,10 +249,7 @@ def _call_promote(scripts_dir: str, scope: str, **kwargs) -> None:
         else:
             promote(scope, **kwargs)
     except Exception as exc:
-        print(
-            f'[learnings] promote {scope} failed: {exc}',
-            file=sys.stderr,
-        )
+        _log.warning('promote %s failed: %s', scope, exc)
     finally:
         if added_to_path:
             try:

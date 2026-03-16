@@ -1137,7 +1137,7 @@ class TestRunSummarize(unittest.TestCase):
         self.assertEqual(len(calls), 0)
 
     def test_logs_errors_instead_of_swallowing(self):
-        """Errors are printed to stderr, not silently swallowed."""
+        """Errors are logged, not silently swallowed."""
         self._make_stream('.intent-stream.jsonl')
 
         def boom(*a, **kw):
@@ -1147,13 +1147,12 @@ class TestRunSummarize(unittest.TestCase):
             sys.modules['summarize_session'].summarize = boom
             from projects.POC.orchestrator.learnings import _run_summarize
 
-            import io
-            captured = io.StringIO()
-            with patch('sys.stderr', captured):
+            import logging
+            with self.assertLogs('orchestrator.learnings', level='WARNING') as cm:
                 _run_summarize(self.scripts_dir, self.infra_dir,
                                scope='observations', output='/tmp/out.md')
 
-            self.assertIn('test explosion', captured.getvalue())
+            self.assertTrue(any('test explosion' in msg for msg in cm.output))
 
 
 if __name__ == '__main__':
