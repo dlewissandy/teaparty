@@ -86,9 +86,31 @@ def _read_pid(running_path: str) -> int | None:
 
 
 def _kill_pid(pid: int) -> None:
-    """Kill a process and its children via process group, then direct signal."""
+    """Kill a process and its children via process group, then direct signal.
+
+    Guards against self-kill: when a session runs in-process, .running
+    contains the TUI's own PID.  Killing our own process group would
+    crash the TUI (issue #159).
+    """
+    if pid == os.getpid():
+        return
+
     try:
-        os.killpg(os.getpgid(pid), signal.SIGTERM)
+        target_pgid = os.getpgid(pid)
+    except (ProcessLookupError, PermissionError, OSError):
+        return
+
+    # If the target shares our process group, skip killpg (it would
+    # kill us too) and fall back to direct signal on just the PID.
+    if target_pgid == os.getpgid(os.getpid()):
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        return
+
+    try:
+        os.killpg(target_pgid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
         try:
             os.kill(pid, signal.SIGTERM)
