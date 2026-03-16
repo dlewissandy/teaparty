@@ -95,9 +95,9 @@ class CLIEventPrinter:
             print(f'  CfA: {prev} → {action} → {state}', file=sys.stderr)
         elif event.type == EventType.SESSION_COMPLETED:
             terminal = event.data.get('terminal_state', '')
-            bt = event.data.get('backtrack_count', 0)
+            backtracks = event.data.get('backtrack_count', 0)
             resumed = ' (resumed)' if event.data.get('resumed') else ''
-            print(f'\n── DONE{resumed}: {terminal} (backtracks: {bt}) ──', file=sys.stderr)
+            print(f'\n── DONE{resumed}: {terminal} (backtracks: {backtracks}) ──', file=sys.stderr)
         elif event.type == EventType.SESSION_STARTED:
             if event.data.get('resumed'):
                 sid = event.data.get('session_id', '')

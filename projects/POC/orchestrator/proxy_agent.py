@@ -108,8 +108,8 @@ async def consult_proxy(
         patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
         if os.path.isfile(patterns_path):
             try:
-                with open(patterns_path) as _f:
-                    learned_patterns = _f.read()
+                with open(patterns_path) as f:
+                    learned_patterns = f.read()
             except OSError:
                 pass
 
