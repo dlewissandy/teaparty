@@ -366,7 +366,7 @@ class DrilldownScreen(Screen):
                 state = self._session.cfa_state
                 if state in ('WORK_ASSERT', 'PLAN_ASSERT', 'INTENT_ASSERT'):
                     prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
-                                        f"type 'approve', 'resume', or 'abandon'")
+                                        f"type 'resume' to review, or 'abandon'")
                 else:
                     prompt_label.update(f'[bold red]ORPHANED {state}[/bold red]  '
                                         f"type 'resume' or 'abandon'")

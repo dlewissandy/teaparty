@@ -877,9 +877,14 @@ def _reconstruct_last_actor_data(
         return data
 
     if spec.artifact:
-        artifact_path = os.path.join(worktree_path, spec.artifact)
-        if os.path.exists(artifact_path):
-            data['artifact_path'] = artifact_path
+        # Check infra_dir first — Issue #147 moved session artifacts there.
+        # Fall back to worktree_path for backward compatibility.
+        infra_artifact = os.path.join(infra_dir, spec.artifact)
+        worktree_artifact = os.path.join(worktree_path, spec.artifact)
+        if os.path.exists(infra_artifact):
+            data['artifact_path'] = infra_artifact
+        elif os.path.exists(worktree_artifact):
+            data['artifact_path'] = worktree_artifact
 
     return data
 
