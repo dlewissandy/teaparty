@@ -8,6 +8,8 @@
   <strong>A research platform for durable, scalable agent coordination</strong>
 </p>
 
+> **Status: Experimental.** TeaParty is an active research project exploring how humans and AI agents can work together on complex tasks. The ideas are promising, the architecture is evolving, and things break regularly. Nothing here is production-ready. If you're interested in the research direction, welcome — but expect rough edges, incomplete features, and frequent redesigns.
+
 <p align="center">
   <a href="https://dlewissandy.github.io/teaparty/">Documentation</a> &middot;
   <a href="https://dlewissandy.github.io/teaparty/experimental-results/">Experimental Results</a> &middot;
