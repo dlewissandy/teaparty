@@ -19,7 +19,9 @@ The entire interaction — from the initial prompt through intent capture, plann
 
 This is the TUI during the research phase. The top pane shows the original prompt and the CfA state history — each transition from IDEA through PLAN visible as it happened. The middle pane streams the uber team's execution in real time: dispatching research tracks into worktrees, confirming proxy approvals at sub-team gates, advancing phases as deliverables land on disk. The status bar at the bottom shows eight active dispatches running concurrently.
 
-From the human's side, the experience after the initial dialog was: watch the stream, wait, and review the final manuscript when the session completed. There was no context-switching between tools, no manual file management, no copy-paste between agents. The orchestrator handled phase transitions, worktree creation, artifact routing, and quality gates autonomously. The human's role reduced to the six consequential decisions at the start and a handful of gate approvals at the end.
+From the human's side, the experience after the initial dialog was: watch the stream and review artifacts as they arrived. The console didn't just show progress — it provided direct links to the generated artifacts in their worktrees, making it easy to open a research brief, read a chapter draft, or inspect an editorial report without hunting through the file system. At approval gates, the human could click through to the relevant artifacts, review them, and approve or correct — all without leaving the console.
+
+There was no context-switching between tools, no manual file management, no copy-paste between agents. The orchestrator handled phase transitions, worktree creation, artifact routing, and quality gates autonomously. The human's role reduced to the six consequential decisions at the start and a handful of gate approvals at the end.
 
 ---
 
