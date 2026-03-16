@@ -65,7 +65,31 @@ The uber team advanced through the remaining phases with the same parallel-dispa
 - [Editorial report 1](../e2e-raw-files/editorial/editorial_report.md)
 - [Editorial report 2](../e2e-raw-files/editorial/report.md)
 
+The two reports converged on the same critical issues:
+
+1. **Gottfried/Aristocrats duplication** — the story fully narrated in both Ch4 and Ch5. The most visible structural problem in the manuscript.
+2. **Sukumar Ray / *Abol Tabol*** — Ch7's Kharms-Ray parallel (two independent absurdist traditions, same decade, opposite ends of Eurasia) collapses because Ray gets three paragraphs with no quotable example, while Kharms gets his full "Blue Notebook No. 10."
+3. **Camus substitution unowned** — the final line rewrites Camus's "happy" as "laughing" without acknowledging the change. A reader who knows the original will notice; a reader who doesn't will miss the book's central reformulation.
+4. **Davila Ross ape-laughter study** duplicated across Ch1 and Ch2.
+5. **Koshare/Heyoka** duplicated within Ch4.
+
+They also identified what was working well: Ch1's Panksepp narrative as a model for science-serving-story, Ch2 as the best-structured chapter, Ch3's Chaplin section as the book's best set piece, Ch6 as the funniest chapter, and Ch7's Camus close as "one of the manuscript's best editorial decisions."
+
 **Phase 5 (Verification):** Two independent verification reports auditing the manuscript against every success criterion in INTENT.md, every invariant in PLAN.md, and additional criteria (no thesis-statement openings, emotional landing in Ch7, Camus substitution).
 
 - [Verification report 1](../e2e-raw-files/verification/verification_report.md)
 - [Verification report 2](../e2e-raw-files/verification/final_report.md)
+
+The verification reports confirmed the manuscript passed all five INTENT.md success criteria and all eight PLAN.md invariants, with one clean FAIL: the Camus substitution. The single FAIL was the right call — an intellectually honest audit catching the one place where the manuscript's own argument was undermined by a silent editorial choice.
+
+---
+
+## The Revision Loop
+
+The task-assert gate flagged three specific changes:
+
+1. Own the Camus substitution — establish "happy" as Camus's word before replacing it with "laughing"
+2. Add a concrete *Abol Tabol* creature to demonstrate Ray
+3. Fix the Gottfried overlap between Ch4 and Ch5
+
+The execution team implemented all three. The Camus line was expanded: *"Camus wrote that one must imagine Sisyphus happy — that was his word, happy, the word the essay ends on."* The Hijibijbij from *Abol Tabol* was added — "a creature assembled from parts that contradict each other so thoroughly that it cannot be said to exist, except that it does, on the page, laughing." The Ch4 Gottfried passage was rewritten to separate belonging (Ch4's territory) from permission (Ch5's territory). The human proxy confirmed each change.
