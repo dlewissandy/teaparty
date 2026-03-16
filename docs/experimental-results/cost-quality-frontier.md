@@ -1,5 +1,8 @@
 # Cost-Quality Frontier
 
+!!! warning "Experiment not yet run"
+    This page describes the experiment design. The harness is built but results have not been collected.
+
 *Cross-cutting*
 
 ## Hypothesis

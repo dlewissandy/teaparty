@@ -22,6 +22,8 @@ plugins:
       module_name: docs/hooks/macros
 
 markdown_extensions:
+  - admonition
+  - pymdownx.details
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -47,6 +49,7 @@ nav:
     - Agent Dispatch: agent-dispatch.md
   - Experimental Results:
     - Overview: experimental-results/index.md
+    - End-to-End Walkthrough: e2e-walkthrough.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
     - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
     - Liaison Context Compression: experimental-results/liaison-context-compression.md

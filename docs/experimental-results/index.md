@@ -1,5 +1,8 @@
 # Experimental Results
 
+!!! warning "Status: Harness built, experiments not yet run"
+    The experimentation harness and instrumentation infrastructure described below are implemented. The individual experiment designs are complete — hypotheses, methodologies, and evaluation criteria are specified. However, no experiments have been executed yet. The results sections in the individual experiment pages are empty.
+
 This section presents empirical evaluations of TeaParty's four research pillars. Each experiment isolates a specific architectural claim, describes the methodology for testing it, and reports results.
 
 ## Motivation

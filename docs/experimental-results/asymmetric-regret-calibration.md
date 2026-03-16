@@ -1,5 +1,8 @@
 # Asymmetric Regret Calibration
 
+!!! warning "Experiment not yet run"
+    This page describes the experiment design. The harness is built but results have not been collected.
+
 *Pillar: Human Proxy*
 
 ## Hypothesis

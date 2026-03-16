@@ -1,5 +1,8 @@
 # Liaison Context Compression
 
+!!! warning "Experiment not yet run"
+    This page describes the experiment design. The harness is built but results have not been collected.
+
 *Pillar: Hierarchical Teams*
 
 ## Hypothesis
