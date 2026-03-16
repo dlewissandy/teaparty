@@ -9,9 +9,17 @@ A single natural-language prompt — four sentences about humor, universality, a
 
 The system executed the full CfA lifecycle autonomously: intent capture (2 questions, 5 minutes), planning (4 questions, 16 minutes), and five phases of hierarchical dispatch — research, specification, production, editorial, and verification — with the human proxy handling all sub-team approval gates.
 
+---
+
+## User Experience
+
+The entire interaction — from the initial prompt through intent capture, planning, and all five execution phases — occurred within the TeaParty interactive console. The human typed the four-sentence prompt, answered six questions across two brief dialogs, and then watched.
+
 ![TUI workspace showing eight parallel research dispatches running](e2e-raw-files/e2e workspace.png)
 
-This is the TUI during the research phase — the human's only view of the session while it runs. The top pane shows the original prompt and the CfA state history. The middle pane streams the uber team's execution: dispatching research tracks, confirming proxy approvals, advancing phases. The status bar at the bottom shows eight active dispatches. From the human's side, the experience after the initial six dialog turns was: watch the stream, wait, and review the final manuscript when the session completed.
+This is the TUI during the research phase. The top pane shows the original prompt and the CfA state history — each transition from IDEA through PLAN visible as it happened. The middle pane streams the uber team's execution in real time: dispatching research tracks into worktrees, confirming proxy approvals at sub-team gates, advancing phases as deliverables land on disk. The status bar at the bottom shows eight active dispatches running concurrently.
+
+From the human's side, the experience after the initial dialog was: watch the stream, wait, and review the final manuscript when the session completed. There was no context-switching between tools, no manual file management, no copy-paste between agents. The orchestrator handled phase transitions, worktree creation, artifact routing, and quality gates autonomously. The human's role reduced to the six consequential decisions at the start and a handful of gate approvals at the end.
 
 ---
 
