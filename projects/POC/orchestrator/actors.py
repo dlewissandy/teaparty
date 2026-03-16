@@ -372,11 +372,15 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
 def _relocate_misplaced_artifact(
     target_dir: str, stream_file: str, artifact_name: str,
 ) -> bool:
-    """Copy an artifact to target_dir if it isn't already there.
+    """Copy an artifact to target_dir, refreshing if the source is newer.
 
     Parses the stream JSONL to find the actual path the agent used in its
-    Write tool call.  If the file was written elsewhere (e.g., the agent's
-    cwd / worktree), copies it to target_dir/<artifact_name>.
+    Write or Edit tool calls.  If the file was written elsewhere (e.g., the
+    agent's cwd / worktree), copies it to target_dir/<artifact_name>.
+
+    Always refreshes the target — after corrections at approval gates, the
+    agent edits the artifact in the worktree but the infra_dir copy was
+    stale.  Issue #157.
 
     The source file is left in place — the worktree copy is needed for git
     commits (dispatch worktree inheritance) while the infra_dir copy is the
@@ -384,17 +388,19 @@ def _relocate_misplaced_artifact(
 
     Returns True if a file was copied.
     """
-    expected = os.path.join(target_dir, artifact_name)
-    if os.path.exists(expected):
-        return False  # already in the right place
-
-    # Parse stream JSONL for Write tool calls matching the artifact name
-    actual_path = _find_write_path_in_stream(stream_file, artifact_name)
+    # Find where the agent actually wrote/edited the artifact
+    actual_path = _find_artifact_path_in_stream(stream_file, artifact_name)
     if not actual_path:
         return False
 
     if not os.path.isfile(actual_path):
         return False  # agent wrote it but file is gone (shouldn't happen)
+
+    expected = os.path.join(target_dir, artifact_name)
+
+    # Skip if the source IS the target (agent wrote directly to infra_dir)
+    if os.path.abspath(actual_path) == os.path.abspath(expected):
+        return False
 
     try:
         shutil.copy2(actual_path, expected)
@@ -410,10 +416,13 @@ def _relocate_misplaced_artifact(
         return False
 
 
-def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
-    """Scan a stream JSONL file for the last Write tool call that wrote artifact_name.
+def _find_artifact_path_in_stream(stream_file: str, artifact_name: str) -> str:
+    """Scan a stream JSONL file for the last Write or Edit tool call that
+    touched artifact_name.
 
-    Returns the absolute file_path from the Write tool input, or '' if not found.
+    Returns the absolute file_path from the tool input, or '' if not found.
+    Detects both Write and Edit calls so that post-correction edits are
+    found.  Issue #157.
     """
     if not stream_file or not os.path.isfile(stream_file):
         return ''
@@ -432,7 +441,7 @@ def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
                 for block in evt.get('message', {}).get('content', []):
                     if not isinstance(block, dict):
                         continue
-                    if block.get('name') != 'Write':
+                    if block.get('name') not in ('Write', 'Edit'):
                         continue
                     file_path = block.get('input', {}).get('file_path', '')
                     if file_path and os.path.basename(file_path) == artifact_name:
