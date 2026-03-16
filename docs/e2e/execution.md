@@ -46,8 +46,26 @@ The uber team advanced through the remaining phases with the same parallel-dispa
 
 **Phase 2 (Specification):** Eight spec agents, one per chapter, each reading all research briefs and producing a per-chapter spec with throughline argument, opening hook, narrative arc, counterexample placement, and register notes. Title alternatives developed in parallel.
 
-**Phase 3 (Production):** Seven chapter drafts plus prologue produced in parallel. Ch7 was sequenced last within its track so its synthesis could reference the other six drafts.
+| Chapter | Spec |
+|---|---|
+| Prologue | [prologue_spec.md](../e2e-raw-files/specs/prologue_spec.md) |
+| Ch 1: Born Laughing | [ch1_spec.md](../e2e-raw-files/specs/ch1_spec.md) |
+| Ch 2: The Oldest Joke | [ch2_spec.md](../e2e-raw-files/specs/ch2_spec.md) |
+| Ch 3: Banana Peels and Power | [ch3_spec.md](../e2e-raw-files/specs/ch3_spec.md) |
+| Ch 4: You Had to Be There | [ch4_spec.md](../e2e-raw-files/specs/ch4_spec.md) |
+| Ch 5: The Last Laugh | [ch5_spec.md](../e2e-raw-files/specs/ch5_spec.md) |
+| Ch 6: Silence Is Funny | [ch6_spec.md](../e2e-raw-files/specs/ch6_spec.md) |
+| Ch 7: Spam Spam Spam | [ch7_spec.md](../e2e-raw-files/specs/ch7_spec.md) |
+| Title Alternatives | [title_alternatives.md](../e2e-raw-files/specs/title_alternatives.md) |
 
-**Phase 4 (Editorial):** Two independent editorial reports produced — each reading the full manuscript as a single document and auditing voice consistency, thesis coherence, boundary coverage, and per-chapter invariants.
+**Phase 3 (Production):** Seven chapter drafts plus prologue produced in parallel. Ch7 was sequenced last within its track so its synthesis could reference the other six drafts. See [The Manuscript](results.md) for the full chapter table with links.
+
+**Phase 4 (Editorial):** Two independent editorial reports — each reading the full manuscript as a single document and auditing voice consistency, thesis coherence, boundary coverage, and per-chapter invariants.
+
+- [Editorial report 1](../e2e-raw-files/editorial/editorial_report.md)
+- [Editorial report 2](../e2e-raw-files/editorial/report.md)
 
 **Phase 5 (Verification):** Two independent verification reports auditing the manuscript against every success criterion in INTENT.md, every invariant in PLAN.md, and additional criteria (no thesis-statement openings, emotional landing in Ch7, Camus substitution).
+
+- [Verification report 1](../e2e-raw-files/verification/verification_report.md)
+- [Verification report 2](../e2e-raw-files/verification/final_report.md)
