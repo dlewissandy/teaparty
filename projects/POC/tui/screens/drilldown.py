@@ -354,14 +354,16 @@ class DrilldownScreen(Screen):
 
         if self._session and self._session.needs_input:
             self._input_latched = True
-            input_area.add_class('visible')
+            if not input_area.has_class('visible'):
+                input_area.add_class('visible')
             state = self._session.cfa_state if self._session else ''
             label = _human_label(state)
             prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
             if not was_visible:
                 self.query_one('#input-field', TextArea).focus()
         else:
-            input_area.remove_class('visible')
+            if input_area.has_class('visible'):
+                input_area.remove_class('visible')
 
     def _submit_input(self) -> None:
         """Handle user input submission."""
