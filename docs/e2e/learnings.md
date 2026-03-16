@@ -32,7 +32,10 @@ The confidence data is the system's self-assessment: it knows the TASK_ASSERT ga
 
 This file is the most revealing artifact. It records the raw dialog between the executing agent (AGENT) and the human proxy (HUMAN) at the TASK_ASSERT gates — and it shows something unexpected.
 
-The executing agent hit timeouts during the gate interactions. When it recovered, it sent empty messages (null input). The proxy, unable to interpret empty input, responded with *"I'm not sure I can answer that right now. Could you rephrase, or let me know your decision?"* — over and over. But the proxy *also* tried to make sense of the pattern. In the third gate interaction, the proxy wrote:
+!!! note "A note on the labels"
+    The `HUMAN:` label in the proxy-patterns file is misleading — it refers to the proxy agent, not an actual human. This is an artifact of how the escalation chain works: the proxy occupies the "human" slot in the dialog, standing in for the real human at sub-team gates. When the proxy receives a question from the executing agent, it responds in the `HUMAN:` position. If the proxy *cannot* respond (e.g., due to a timeout), the `HUMAN:` entry is empty — which the executing agent then interprets as a real human sending a blank message. This confusion is exactly what caused the deflection loop described below.
+
+The executing agent hit timeouts during the gate interactions. When it recovered, it produced empty `HUMAN:` entries — not because a person hit enter, but because the proxy's response was lost to the timeout. The executing agent, seeing empty input in the human slot, responded with *"I'm not sure I can answer that right now. Could you rephrase, or let me know your decision?"* — over and over. Meanwhile, the proxy *also* tried to make sense of the pattern. In the third gate interaction, the proxy wrote:
 
 > *"The human has entered three empty/null messages and gotten non-answers each time. The human is likely frustrated at this point and would want the gate to just work."*
 
