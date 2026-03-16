@@ -42,5 +42,11 @@ INTENT.md
 experiments/results/
 !experiments/results/.gitkeep
 
-# Intake pipeline
-intake/*
+# Intake pipeline — generated data
+intake/raw/
+intake/digests/
+intake/analysis/
+intake/ideas/
+intake/.state.json
+intake/.channel-ids.json
+intake/run.log
