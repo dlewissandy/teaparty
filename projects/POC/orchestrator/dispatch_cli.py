@@ -14,6 +14,7 @@ import json
 import os
 import sys
 
+from projects.POC.orchestrator import find_poc_root
 from projects.POC.orchestrator.engine import Orchestrator
 from projects.POC.orchestrator.events import EventBus, EventType, InputRequest
 from projects.POC.orchestrator.merge import git_output, squash_merge
@@ -54,15 +55,6 @@ def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
             pass
 
     event_bus.subscribe(_write_event)
-
-
-def _find_poc_root() -> str:
-    d = os.path.dirname(os.path.abspath(__file__))
-    while d != '/':
-        if os.path.exists(os.path.join(d, 'cfa-state-machine.json')):
-            return d
-        d = os.path.dirname(d)
-    return os.path.dirname(os.path.abspath(__file__))
 
 
 def _write_dispatch_memory(dispatch_infra: str, team: str, task: str, result) -> None:
@@ -109,7 +101,7 @@ async def dispatch(
             the POC_SESSION_DIR env var.
         project_slug: Project identifier.  Falls back to POC_PROJECT env var.
     """
-    poc_root = _find_poc_root()
+    poc_root = find_poc_root()
     config = PhaseConfig(poc_root)
 
     # Resolve session context — explicit parameters take precedence over env vars

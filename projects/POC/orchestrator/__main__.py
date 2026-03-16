@@ -32,6 +32,7 @@ import asyncio
 import os
 import sys
 
+from projects.POC.orchestrator import find_poc_root
 from projects.POC.orchestrator.events import EventBus, EventType, InputRequest
 from projects.POC.orchestrator.session import Session
 
@@ -154,17 +155,6 @@ class CLIEventPrinter:
             print(f'  [log:{category}] {message}', file=sys.stderr)
 
 
-def _find_poc_root() -> str:
-    """Walk up from this file to find the POC root."""
-    d = os.path.dirname(os.path.abspath(__file__))
-    while d != '/':
-        if os.path.exists(os.path.join(d, 'cfa-state-machine.json')):
-            return d
-        d = os.path.dirname(d)
-    # Fallback
-    return os.path.dirname(os.path.abspath(__file__))
-
-
 def resolve_infra_dir(session_ref: str, poc_root: str, projects_dir: str) -> str:
     """Resolve a session reference to an absolute infra_dir path.
 
@@ -243,7 +233,7 @@ async def main() -> int:
         if path and not os.path.isfile(path):
             parser.error(f'{flag}: file not found: {path}')
 
-    poc_root = _find_poc_root()
+    poc_root = find_poc_root()
     projects_dir = args.projects_dir or os.path.dirname(poc_root)
 
     event_bus = EventBus()
