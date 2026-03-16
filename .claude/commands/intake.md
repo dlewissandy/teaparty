@@ -126,26 +126,12 @@ The script:
 
 ## Step 7: Update State and Notify
 
-Update the state file so the next run skips these items:
+Update state so the next run skips today's items:
 ```bash
-uv run python -c "
-from intake.state import load_state, mark_seen, save_state
-from datetime import date
-import json
-state = load_state()
-manifest = json.load(open('intake/raw/$(date +%Y-%m-%d)/manifest.json'))
-for item in manifest['items']:
-    if item.get('unreachable'): continue
-    content_id = item.get('video_id', item['url'])
-    mark_seen(state, item['source_url'], content_id,
-              date=item.get('published', ''),
-              content_hash=item.get('content_hash', ''))
-state['last_run'] = date.today().isoformat()
-save_state(state)
-"
+uv run python -m intake.update_state intake/raw/<YYYY-MM-DD>/manifest.json
 ```
 
-Send notification — include the issue numbers in the body:
+Send notification:
 ```bash
 uv run python -m intake.notify intake/analysis/analysis-<YYYY-MM-DD>.md
 ```

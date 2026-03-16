@@ -57,26 +57,7 @@ echo ""
 
 # ── Step 3: Update state ──────────────────────────────────────────────────
 echo "Step 3: Updating state..."
-uv run python -c "
-from intake.state import load_state, mark_seen, save_state
-from datetime import date
-import json
-
-state = load_state()
-manifest = json.load(open('$MANIFEST'))
-
-for item in manifest['items']:
-    if item.get('unreachable'):
-        continue
-    content_id = item.get('video_id', item['url'])
-    mark_seen(state, item['source_url'], content_id,
-              date=item.get('published', ''),
-              content_hash=item.get('content_hash', ''))
-
-state['last_run'] = date.today().isoformat()
-save_state(state)
-print(f'State updated: {len(manifest[\"items\"])} items marked seen')
-"
+uv run python -m intake.update_state "$MANIFEST"
 echo ""
 
 # ── Step 4: Create GitHub issues ──────────────────────────────────────────
