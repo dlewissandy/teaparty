@@ -281,10 +281,25 @@ class DrilldownScreen(Screen):
                 key_parts.append(f'{team}:{name}:{d.status}')
                 idx += 1
 
-        # Skip rebuild if nothing visually changed — avoids layout reflow
+        # Skip full rebuild if structure unchanged — avoids layout reflow
         # that causes scrollbar jitter in the activity log.
+        # But still update age labels in-place every cycle.  Issue #158.
         new_key = '|'.join(key_parts)
         if new_key == self._last_dispatch_key:
+            # Structure unchanged — update age labels in-place
+            for opt_idx, d in new_map.items():
+                icon = _dispatch_icon(d.status)
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+                age = _human_age(d.stream_age_seconds)
+                label = f'{icon} {name:<25} {age}'
+                try:
+                    ol.replace_option_prompt_at_index(opt_idx, label)
+                except Exception:
+                    pass  # Index mismatch — next full rebuild will fix it
             return
         self._last_dispatch_key = new_key
 

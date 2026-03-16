@@ -6,13 +6,17 @@ Evaluate digested research ideas for relevance and impact to the TeaParty projec
 
 1. **Find the latest digest.** Read the most recent file in `intake/digests/` (by date in filename). If an argument is provided, use that as the digest path instead.
 
-2. **Read project context.** Read `docs/ARCHITECTURE.md` and `docs/cfa-state-machine.md` to ground your analysis in what TeaParty actually is and does. Skim other docs under `docs/` as needed for specific topics.
+2. **Read project context.** Read these files to ground your analysis:
+   - `intake/priorities.md` — current research priorities and focus areas (READ THIS FIRST)
+   - `docs/ARCHITECTURE.md` — system architecture
+   - `docs/cfa-state-machine.md` — CfA protocol specification
+   - `docs/human-proxies.md` — human proxy agent design
 
 3. **For each idea in the digest, evaluate two dimensions:**
 
-   - **Relevance** (High / Medium / Low) — How directly does this idea connect to TeaParty's concerns? High = directly addresses agent coordination, human proxy, CfA protocol, learning systems, or hierarchical teams. Medium = adjacent domain with clear transfer potential. Low = interesting but tangential.
+   - **Relevance** (High / Medium / Low) — How directly does this idea connect to TeaParty's current priorities (listed in `priorities.md`)? High = directly addresses an active focus area or "what we're looking for" item. Medium = adjacent domain with clear transfer potential. Low = interesting but not actionable for our current work.
 
-   - **Impact** (High / Medium / Low) — If adopted, how much would this improve TeaParty? High = changes how a core system works or enables something currently impossible. Medium = meaningful improvement to an existing capability. Low = minor optimization or polish.
+   - **Impact** (High / Medium / Low) — If adopted, how much would this improve TeaParty? High = solves a known gap or enables something currently impossible. Medium = meaningful improvement to an existing capability. Low = minor optimization or polish.
 
 4. **For each idea, also identify:**
    - **What could be added** — Specific feature, mechanism, or change this idea suggests for TeaParty
@@ -39,7 +43,7 @@ Source digest: <digest filename>
 
 ## 1. <Idea name>
 **Source:** <source title and URL>
-**Relevance:** High | Medium | Low — <one-sentence justification>
+**Relevance:** High | Medium | Low — <one-sentence justification tied to a specific priority from priorities.md>
 **Impact:** High | Medium | Low — <one-sentence justification>
 
 ### What Could Be Added
@@ -65,3 +69,8 @@ Explore | Watch | Skip — <one sentence>
 - **Explore** — High enough relevance and impact to warrant creating an idea file. This will feed the ideation skill.
 - **Watch** — Interesting but not actionable now. Worth revisiting if the project's needs shift.
 - **Skip** — Not relevant or impactful enough to pursue.
+
+## Important
+
+- Ground every relevance judgment in a specific priority from `intake/priorities.md`. Don't say "relevant to agent coordination" — say "relevant to proxy preference learning (priority #1)."
+- If nothing in the digest is relevant, say so. An empty analysis is better than forced relevance.
