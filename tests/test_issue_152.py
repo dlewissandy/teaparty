@@ -16,10 +16,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from projects.POC.tui.orphan_recovery import (
-    APPROVAL_GATE_SUCCESSORS,
-    handle_orphan_response,
-)
+from projects.POC.tui.orphan_recovery import handle_orphan_response
 from projects.POC.orchestrator.session import _reconstruct_last_actor_data
 from projects.POC.scripts.cfa_state import CfaState
 from projects.POC.orchestrator.phase_config import PhaseConfig
