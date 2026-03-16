@@ -27,19 +27,21 @@ def handle_orphan_response(session, response: str) -> str | tuple[str, str]:
         return ('resume', session.infra_dir)
 
     if state in APPROVAL_GATE_SUCCESSORS:
+        # Approval gates require the full ApprovalGate (proxy + human review).
+        # 'approve' is not accepted here — it would bypass the CfA transition
+        # function, proxy learning, and classification.  Use 'resume' to
+        # re-launch the orchestrator which presents the full review UI.
+        # Issue #152.
         if r in ('approve', 'yes', 'y', 'ok'):
-            successor, succ_phase = APPROVAL_GATE_SUCCESSORS[state]
-            _set_state_direct(session.infra_dir, successor, succ_phase)
-            _cleanup_orphan_files(session.infra_dir)
-            if state == 'WORK_ASSERT':
-                return f'Session completed. Advanced to {successor}.'
-            return (f'Session advanced to {successor}. '
-                    'No orchestrator is running — start a new session to continue.')
+            return ("Cannot approve from orphan recovery — the review gate "
+                    "requires the full orchestrator.  Type 'resume' to "
+                    "re-launch the session (you'll get the full review UI), "
+                    "or 'abandon' to withdraw.")
         if r in ('abandon', 'withdraw', 'no', 'n'):
             _set_state_direct(session.infra_dir, WITHDRAW_STATE, phase)
             _cleanup_orphan_files(session.infra_dir)
             return 'Session withdrawn and cleaned up.'
-        return "Type 'approve', 'resume', or 'abandon'."
+        return "Type 'resume' to continue review, or 'abandon' to withdraw."
 
     # Mid-execution or transition states — resume or abandon
     if r in ('abandon', 'withdraw'):
