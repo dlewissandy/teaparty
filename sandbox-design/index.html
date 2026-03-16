@@ -1,0 +1,2421 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Repositories, Sandboxes, and Code Execution - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#repositories-sandboxes-and-code-execution" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Repositories, Sandboxes, and Code Execution
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture-overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-concepts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Concepts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Key Concepts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workgroup-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workgroup Repository
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#branch-per-job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Branch-per-Job
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-model-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Model Changes
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Data Model Changes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-fields-on-workgroup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New fields on Workgroup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#new-jobsandbox-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New: JobSandbox table
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modified-agent-table" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modified: Agent table
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#new-services" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        New Services
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="New Services">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-teaparty_appservicesrepo_managerpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. teaparty_app/services/repo_manager.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-teaparty_appservicessandbox_poolpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. teaparty_app/services/sandbox_pool.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-teaparty_appservicessandbox_toolspy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. teaparty_app/services/sandbox_tools.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-teaparty_appservicesrepo_syncpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. teaparty_app/services/repo_sync.py
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-it-all-fits-together" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How It All Fits Together
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How It All Fits Together">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#scenario-build-me-a-login-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario: "Build me a login page"
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scenario-importing-an-existing-repository" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scenario: Importing an existing repository
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workgroup-config-workgroupjson" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workgroup Config (workgroup.json)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-config-configpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server Config (config.py)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Endpoints
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Endpoints">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#repository-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repository management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#job-branch-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job branch management
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#file-access-repo-backed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File access (repo-backed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sandbox-status-for-ui-activity-indicators" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sandbox status (for UI activity indicators)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Security Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#isolation-boundaries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Isolation boundaries
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-sandboxes-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What sandboxes CAN do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-sandboxes-cannot-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What sandboxes CANNOT do
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migration-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migration Path
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Migration Path">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-repository-manager-no-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Repository Manager (no containers)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-sandbox-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Sandbox Containers
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-claude-code-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Claude Code Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-ui-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: UI Integration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-advanced-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Advanced Features
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#source-file-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Source File Layout
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="repositories-sandboxes-and-code-execution">Repositories, Sandboxes, and Code Execution</h1>
+<blockquote>
+<p><strong>Future Phase (Phases 4–5):</strong> This document describes planned sandbox infrastructure. The sandbox/Docker system is not currently implemented. The workspace system (git repos + worktrees) is partially implemented in the POC; Docker containers and Claude Code CLI delegation are future work.</p>
+</blockquote>
+<p>How TeaParty workgroups get real filesystems, git version control, containerized execution, and Claude Code CLI -- without duplicating what Claude Code already does well.</p>
+<h2 id="problem">Problem</h2>
+<p>TeaParty stores workgroup files as JSON blobs in a SQLite column (<code>Workgroup.files</code>). This works for collaborative documents, workflows, and configuration, but it cannot support real software engineering:</p>
+<ul>
+<li>No git history, no branches, no merges, no diffs</li>
+<li>No filesystem, so no <code>npm install</code>, no test runners, no build tools</li>
+<li>The existing <code>claude_code</code> tool is a homegrown multi-turn LLM loop that reimplements file CRUD against virtual files — it cannot run commands, install dependencies, or use any of the real Claude Code CLI's capabilities</li>
+<li>No process isolation — a misbehaving tool call runs in the same Python process as the server</li>
+<li>No way to work on multiple jobs concurrently in the same codebase (no worktrees or branches)</li>
+</ul>
+<h2 id="design-principles">Design Principles</h2>
+<ol>
+<li><strong>Don't reimplement Claude Code.</strong> Claude Code is a battle-tested coding agent with Bash execution, git operations, file editing, test running, and planning. TeaParty should orchestrate it, not duplicate it.</li>
+<li><strong>Git is the source of truth for code.</strong> Workgroup files (JSON blobs) remain for documents, workflows, and config (see <a href="../file-layout/">file-layout.md</a>). Code lives in git repos on disk.</li>
+<li><strong>Jobs map to branches.</strong> Each job works on an isolated branch via git worktrees, enabling concurrent tasks without interference.</li>
+<li><strong>Containers are the sandbox boundary.</strong> Claude Code runs inside containers with the job's files mounted. The container enforces resource limits and isolation. The host never executes untrusted commands.</li>
+<li><strong>TeaParty is the collaboration layer.</strong> It manages who can access what, coordinates multi-agent workflows, tracks history and decisions, and presents a unified UI. The actual coding happens inside the sandbox.</li>
+</ol>
+<h2 id="architecture-overview">Architecture Overview</h2>
+<div class="highlight"><pre><span></span><code>┌─────────────────────────────────────────────────────┐
+│                   TeaParty Server                    │
+│                                                     │
+│  ┌─────────────┐  ┌──────────────┐  ┌───────────┐  │
+│  │ Agent Runtime│  │ Repo Manager │  │ Sandbox   │  │
+│  │ (orchestrate)│──│ (git, sync)  │──│ Pool      │  │
+│  └──────┬──────┘  └──────┬───────┘  └─────┬─────┘  │
+│         │                │                 │        │
+│  ┌──────┴──────┐  ┌──────┴───────┐  ┌─────┴─────┐  │
+│  │ Existing    │  │ Bare Repo +  │  │ Container │  │
+│  │ Virtual     │  │ Worktrees    │  │ Lifecycle │  │
+│  │ Files (JSON)│  │ (on disk)    │  │ (Docker)  │  │
+│  └─────────────┘  └──────────────┘  └───────────┘  │
+│                                                     │
+└──────────────────────┬──────────────────────────────┘
+                       │
+        ┌──────────────┼──────────────┐
+        │              │              │
+   ┌────┴─────┐  ┌────┴─────┐  ┌────┴─────┐
+   │ Sandbox  │  │ Sandbox  │  │ Sandbox  │
+   │ (job-1)  │  │ (job-2)  │  │ (idle)   │
+   │          │  │          │  │          │
+   │ worktree │  │ worktree │  │          │
+   │ mounted  │  │ mounted  │  │          │
+   │          │  │          │  │          │
+   │ claude   │  │ claude   │  │          │
+   │ code CLI │  │ code CLI │  │          │
+   └──────────┘  └──────────┘  └──────────┘
+</code></pre></div>
+<h2 id="key-concepts">Key Concepts</h2>
+<h3 id="workgroup-repository">Workgroup Repository</h3>
+<p>Every workgroup has a <strong>git repository</strong> on the host filesystem. The repo is the workgroup's codebase — it holds source code, configuration, and any artifacts that benefit from version history. The repo is created automatically when the workgroup is created with workspace enabled.</p>
+<div class="highlight"><pre><span></span><code>Workgroup (DB)          Repository (disk)
+├── files (JSON)        ├── bare repo:  /data/repos/&lt;workgroup-id&gt;/repo.git
+├── agents              ├── main worktree: /data/repos/&lt;workgroup-id&gt;/main
+├── jobs ───────────────├── job worktrees:
+│   ├── job-1  ──────── │   ├── /data/repos/&lt;workgroup-id&gt;/jobs/job-1  (branch: job/job-1)
+│   └── job-2  ──────── │   └── /data/repos/&lt;workgroup-id&gt;/jobs/job-2  (branch: job/job-2)
+└── conversations       └── .teaparty/  (metadata, ignored by git)
+</code></pre></div>
+<p>The JSON file store (<code>Workgroup.files</code>) and the git repo coexist. The JSON store holds documents, workflows, and config — things that agents read as prompt context. The git repo holds code — things that get built, tested, and executed. The main branch is synced to <code>Workgroup.files</code> so the file browser shows the current codebase state.</p>
+<h3 id="branch-per-job">Branch-per-Job</h3>
+<p>Each job gets its own git worktree branching from <code>main</code>. This is the natural mapping:</p>
+<table>
+<thead>
+<tr>
+<th>TeaParty concept</th>
+<th>Git concept</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Workgroup</td>
+<td>Repository</td>
+<td>One codebase per workgroup</td>
+</tr>
+<tr>
+<td>Job</td>
+<td>Branch + Worktree</td>
+<td>Parallel tasks without interference</td>
+</tr>
+<tr>
+<td>Message history</td>
+<td>Commit log</td>
+<td>"Save progress" creates commits</td>
+</tr>
+<tr>
+<td>Job merge</td>
+<td>PR / merge to main</td>
+<td>Completed work flows back</td>
+</tr>
+<tr>
+<td>Direct message</td>
+<td>(no mapping)</td>
+<td>DMs don't touch code</td>
+</tr>
+</tbody>
+</table>
+<p>Worktree lifecycle:
+1. <strong>Job created</strong> → <code>git worktree add</code> with new branch <code>job/&lt;job-id&gt;</code> from <code>main</code>
+2. <strong>Work happens</strong> → Claude Code operates inside the job's sandbox container
+3. <strong>Agent commits</strong> → Commits accumulate on the job branch
+4. <strong>Job resolved</strong> → User (or agent with permission) merges branch to <code>main</code>, worktree removed
+5. <strong>Job abandoned</strong> → Worktree and branch cleaned up</p>
+<h3 id="sandbox">Sandbox</h3>
+<p>Each active job gets a <strong>sandbox</strong> — a Docker container that provides an isolated execution environment. The sandbox:
+- Has the job's worktree bind-mounted at <code>/workspace</code>
+- Has Claude Code CLI pre-installed
+- Has language runtimes and common tools (configurable per workgroup via a <code>Dockerfile</code> or image reference in workgroup config)
+- Runs with resource limits (CPU, memory, disk, network)
+- Has no access to the host network or other jobs (network-isolated by default)
+- Exposes a gRPC or HTTP sidecar for TeaParty to send commands and receive results</p>
+<p>Sandboxes are <strong>not</strong> long-lived VMs. They are pooled and recycled:
+- <strong>Warm pool</strong>: A small number of pre-built containers sit idle, ready to accept a worktree mount
+- <strong>On-demand</strong>: If the pool is empty, a container is created (slower, ~2-5 seconds)
+- <strong>Idle timeout</strong>: Containers with no activity for N minutes are stopped (worktree persists on disk)
+- <strong>Resume</strong>: Re-entering a job re-mounts the worktree into a fresh or existing container</p>
+<h2 id="data-model-changes">Data Model Changes</h2>
+<h3 id="new-fields-on-workgroup">New fields on <code>Workgroup</code></h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Workgroup</span><span class="p">(</span><span class="n">SQLModel</span><span class="p">,</span> <span class="n">table</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="c1"># ... existing fields ...</span>
+
+    <span class="c1"># Repository (host-side paths)</span>
+    <span class="n">repo_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>              <span class="c1"># /data/repos/&lt;workgroup-id&gt;/repo.git (bare)</span>
+    <span class="n">repo_main_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>         <span class="c1"># /data/repos/&lt;workgroup-id&gt;/main (worktree)</span>
+
+    <span class="c1"># Sandbox configuration</span>
+    <span class="n">sandbox_image</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;teaparty/sandbox:default&quot;</span>  <span class="c1"># Docker image for job containers</span>
+    <span class="n">sandbox_preset</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;standard&quot;</span>                  <span class="c1"># standard | large | gpu | connected</span>
+
+    <span class="c1"># State</span>
+    <span class="n">repo_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>        <span class="c1"># none | active | error</span>
+    <span class="n">repo_last_sync_at</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>      <span class="c1"># ISO timestamp of last file sync</span>
+</code></pre></div>
+<h3 id="new-jobsandbox-table">New: <code>JobSandbox</code> table</h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">JobSandbox</span><span class="p">(</span><span class="n">SQLModel</span><span class="p">,</span> <span class="n">table</span><span class="o">=</span><span class="kc">True</span><span class="p">):</span>
+    <span class="nb">id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">uuid4</span><span class="p">()),</span> <span class="n">primary_key</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">workgroup_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">foreign_key</span><span class="o">=</span><span class="s2">&quot;workgroups.id&quot;</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">conversation_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">foreign_key</span><span class="o">=</span><span class="s2">&quot;conversations.id&quot;</span><span class="p">,</span> <span class="n">unique</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">index</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Git state</span>
+    <span class="n">branch_name</span><span class="p">:</span> <span class="nb">str</span>             <span class="c1"># job/&lt;conversation-id&gt;</span>
+    <span class="n">worktree_path</span><span class="p">:</span> <span class="nb">str</span>           <span class="c1"># /data/repos/&lt;workgroup-id&gt;/jobs/&lt;conversation-id&gt;</span>
+    <span class="n">base_commit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>        <span class="c1"># SHA of the commit this branch started from</span>
+    <span class="n">head_commit</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>        <span class="c1"># current HEAD SHA</span>
+
+    <span class="c1"># Container state</span>
+    <span class="n">container_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>       <span class="c1"># Docker container ID (empty if no container running)</span>
+    <span class="n">container_status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;none&quot;</span>  <span class="c1"># none | starting | running | stopping | stopped</span>
+
+    <span class="c1"># Lifecycle</span>
+    <span class="n">status</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;active&quot;</span>       <span class="c1"># active | merged | abandoned | error</span>
+    <span class="n">created_at</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="k">lambda</span><span class="p">:</span> <span class="n">datetime</span><span class="o">.</span><span class="n">utcnow</span><span class="p">()</span><span class="o">.</span><span class="n">isoformat</span><span class="p">())</span>
+    <span class="n">merged_at</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
+</code></pre></div>
+<h3 id="modified-agent-table">Modified: <code>Agent</code> table</h3>
+<p>No model changes. Agents gain access to sandbox tools through their existing <code>tool_names</code> list. New tool names: <code>sandbox_exec</code>, <code>sandbox_shell</code>, <code>git_status</code>, <code>git_commit</code>, <code>git_diff</code>, <code>git_log</code>, <code>merge_to_main</code>, <code>list_repo_files</code>.</p>
+<h2 id="new-services">New Services</h2>
+<h3 id="1-teaparty_appservicesrepo_managerpy">1. <code>teaparty_app/services/repo_manager.py</code></h3>
+<p>Manages the lifecycle of workgroup repositories and job worktrees on the host filesystem. This service never touches containers — it only manages git repos and worktrees.</p>
+<p><strong>Key functions:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">init_repo</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Initialize a bare repo + main worktree for a workgroup.</span>
+
+<span class="sd">    Steps:</span>
+<span class="sd">    1. Create directory structure: /data/repos/&lt;workgroup-id&gt;/</span>
+<span class="sd">    2. git init --bare repo.git</span>
+<span class="sd">    3. Create initial commit on main (with any existing workgroup files synced to disk)</span>
+<span class="sd">    4. git worktree add main (checked out to main branch)</span>
+<span class="sd">    5. Update workgroup.repo_path, workgroup.repo_main_path, workgroup.repo_status</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">create_job_worktree</span><span class="p">(</span>
+    <span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">,</span> <span class="n">conversation</span><span class="p">:</span> <span class="n">Conversation</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">JobSandbox</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Create a git worktree for a job.</span>
+
+<span class="sd">    Steps:</span>
+<span class="sd">    1. git worktree add jobs/&lt;conversation-id&gt; -b job/&lt;conversation-id&gt;</span>
+<span class="sd">    2. Create and persist JobSandbox record</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">remove_job_worktree</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove a worktree and optionally its branch.</span>
+
+<span class="sd">    Steps:</span>
+<span class="sd">    1. Stop any running container (via sandbox_pool)</span>
+<span class="sd">    2. git worktree remove jobs/&lt;conversation-id&gt;</span>
+<span class="sd">    3. git branch -d job/&lt;conversation-id&gt; (if merged) or -D (if abandoned)</span>
+<span class="sd">    4. Update JobSandbox status</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">merge_job</span><span class="p">(</span>
+    <span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">,</span> <span class="n">user_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MergeResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Merge a job branch into main.</span>
+
+<span class="sd">    Steps:</span>
+<span class="sd">    1. Validate user has editor+ role</span>
+<span class="sd">    2. git checkout main (in main worktree)</span>
+<span class="sd">    3. git merge job/&lt;conversation-id&gt; --no-ff</span>
+<span class="sd">    4. Handle conflicts (return conflict info if any — user resolves via UI or agent)</span>
+<span class="sd">    5. Update job_sandbox status to &#39;merged&#39;</span>
+<span class="sd">    6. Sync main worktree back to workgroup.files (for the file browser UI)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sync_main_to_files</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sync the main worktree&#39;s tracked files into workgroup.files JSON.</span>
+
+<span class="sd">    This keeps the TeaParty file browser working for coding workgroups.</span>
+<span class="sd">    Only syncs text files under a size threshold. Binary files get</span>
+<span class="sd">    a placeholder entry with path and size metadata.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">sync_files_to_main</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Sync workgroup.files JSON changes back to the main worktree.</span>
+
+<span class="sd">    Used when files are edited via the TeaParty UI file browser.</span>
+<span class="sd">    Creates a commit: &#39;sync: updated via TeaParty UI&#39;</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">destroy_repo</span><span class="p">(</span><span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Remove all worktrees, the bare repo, and reset the workgroup&#39;s repo fields.</span>
+
+<span class="sd">    Requires owner role. This is destructive and irreversible.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<p><strong>Git operations</strong> are executed via <code>asyncio.create_subprocess_exec</code> calling the <code>git</code> binary directly. No Python git library — the git CLI is the most reliable and well-tested interface. All git commands run with <code>GIT_DIR</code> and <code>GIT_WORK_TREE</code> environment variables set explicitly to prevent any confusion about which repo is being operated on.</p>
+<p><strong>File sync strategy:</strong>
+- <strong>Main → JSON</strong>: After each merge to main, scan tracked files and update <code>workgroup.files</code>. Skip binary files (detected by <code>git diff --numstat</code> null markers or file extension heuristics). Cap synced file content at the existing 200KB limit. Store a summary entry for files that exceed the limit: <code>{"path": "large-file.bin", "content": "(binary, 4.2 MB)", "meta": {"binary": true, "size": 4404019}}</code>.
+- <strong>JSON → Main</strong>: When a user edits a file via the TeaParty file browser, write the change to the main worktree and auto-commit. This path is intentionally simple — the UI is a convenience, not the primary editing interface.
+- <strong>Job worktree files are NOT synced to JSON during active work.</strong> The job's worktree is the source of truth while the job is active. The TeaParty UI shows job files by reading the filesystem directly (via the sandbox or a read-only mount), not through the JSON column.</p>
+<h3 id="2-teaparty_appservicessandbox_poolpy">2. <code>teaparty_app/services/sandbox_pool.py</code></h3>
+<p>Manages Docker containers for sandboxed code execution.</p>
+<p><strong>Key functions:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">ensure_sandbox</span><span class="p">(</span>
+    <span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ContainerInfo</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Ensure a running container exists for this job.</span>
+
+<span class="sd">    1. If job_sandbox.container_id is set and container is running, return it</span>
+<span class="sd">    2. If a warm pool container is available, assign it</span>
+<span class="sd">    3. Otherwise, create a new container</span>
+<span class="sd">    4. Bind-mount the worktree path at /workspace</span>
+<span class="sd">    5. Start the container</span>
+<span class="sd">    6. Update job_sandbox.container_id and container_status</span>
+
+<span class="sd">    Returns ContainerInfo with container_id, exec endpoint, and status.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">exec_in_sandbox</span><span class="p">(</span>
+    <span class="n">container_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">command</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span>
+    <span class="n">timeout</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">120</span><span class="p">,</span> <span class="n">workdir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;/workspace&quot;</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ExecResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Execute a command inside a sandbox container.</span>
+
+<span class="sd">    Returns ExecResult with stdout, stderr, exit_code, timed_out.</span>
+<span class="sd">    Uses Docker exec API. Streams output for long-running commands.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">invoke_claude_code</span><span class="p">(</span>
+    <span class="n">container_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">prompt</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">allowed_tools</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_turns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">25</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ClaudeCodeResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Run Claude Code CLI inside a sandbox.</span>
+
+<span class="sd">    Invokes: claude --print --output-format json \</span>
+<span class="sd">             --max-turns &lt;max_turns&gt; \</span>
+<span class="sd">             --allowedTools &lt;tools&gt; \</span>
+<span class="sd">             &quot;&lt;prompt&gt;&quot;</span>
+
+<span class="sd">    The container has ANTHROPIC_API_KEY set as an env var.</span>
+<span class="sd">    Claude Code runs with full filesystem access inside /workspace</span>
+<span class="sd">    (which is the job&#39;s worktree). It can read, write, execute, use git,</span>
+<span class="sd">    run tests — everything it normally does.</span>
+
+<span class="sd">    Returns structured output: response text, files changed,</span>
+<span class="sd">    tool calls made, tokens used.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">stop_sandbox</span><span class="p">(</span><span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stop and remove a container. Worktree persists on disk.&quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">cleanup_idle_sandboxes</span><span class="p">(</span><span class="n">max_idle_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Stop containers that have been idle beyond the threshold.</span>
+<span class="sd">    Called periodically by a background task.</span>
+<span class="sd">    Returns count of containers stopped.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<p><strong>Container specification:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="c"># teaparty/sandbox:default</span>
+<span class="k">FROM</span><span class="w"> </span><span class="s">ubuntu:24.04</span>
+
+<span class="c"># Core tools</span>
+<span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>git<span class="w"> </span>curl<span class="w"> </span>wget<span class="w"> </span>jq<span class="w"> </span>tree<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>build-essential<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="o">&amp;&amp;</span><span class="w"> </span>rm<span class="w"> </span>-rf<span class="w"> </span>/var/lib/apt/lists/*
+
+<span class="c"># Node.js (LTS)</span>
+<span class="k">RUN</span><span class="w"> </span>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://deb.nodesource.com/setup_22.x<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash<span class="w"> </span>-<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>nodejs
+
+<span class="c"># Python</span>
+<span class="k">RUN</span><span class="w"> </span>apt-get<span class="w"> </span>update<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>apt-get<span class="w"> </span>install<span class="w"> </span>-y<span class="w"> </span>python3<span class="w"> </span>python3-pip<span class="w"> </span>python3-venv
+
+<span class="c"># Claude Code CLI</span>
+<span class="k">RUN</span><span class="w"> </span>npm<span class="w"> </span>install<span class="w"> </span>-g<span class="w"> </span>@anthropic-ai/claude-code
+
+<span class="c"># Working directory</span>
+<span class="k">WORKDIR</span><span class="w"> </span><span class="s">/workspace</span>
+
+<span class="c"># Non-root user for execution</span>
+<span class="k">RUN</span><span class="w"> </span>useradd<span class="w"> </span>-m<span class="w"> </span>-s<span class="w"> </span>/bin/bash<span class="w"> </span>sandbox
+<span class="k">USER</span><span class="w"> </span><span class="s">sandbox</span>
+</code></pre></div>
+<p>Workgroup owners can specify a custom <code>sandbox_image</code> in workgroup config to get different language stacks (Rust, Go, Java, etc.) or pre-installed project dependencies.</p>
+<p><strong>Resource limits</strong> (applied via Docker container create):</p>
+<table>
+<thead>
+<tr>
+<th>Preset</th>
+<th>CPU</th>
+<th>Memory</th>
+<th>Disk</th>
+<th>Network</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>standard</code></td>
+<td>2 cores</td>
+<td>2 GB</td>
+<td>10 GB</td>
+<td>isolated (no external)</td>
+</tr>
+<tr>
+<td><code>large</code></td>
+<td>4 cores</td>
+<td>8 GB</td>
+<td>20 GB</td>
+<td>isolated</td>
+</tr>
+<tr>
+<td><code>gpu</code></td>
+<td>4 cores + GPU</td>
+<td>16 GB</td>
+<td>40 GB</td>
+<td>isolated</td>
+</tr>
+<tr>
+<td><code>connected</code></td>
+<td>2 cores</td>
+<td>2 GB</td>
+<td>10 GB</td>
+<td>host network (for API calls, package installs)</td>
+</tr>
+</tbody>
+</table>
+<p>The <code>connected</code> preset allows outbound network access for <code>npm install</code>, <code>pip install</code>, etc. This is required for most real projects but trades isolation for utility. The default during active development should be <code>connected</code>; switch to <code>standard</code> for untrusted or automated execution.</p>
+<h3 id="3-teaparty_appservicessandbox_toolspy">3. <code>teaparty_app/services/sandbox_tools.py</code></h3>
+<p>Agent tools for interacting with the workgroup's repository and job sandboxes. These replace the homegrown <code>claude_code</code> tool.</p>
+<div class="highlight"><pre><span></span><code><span class="n">SANDBOX_TOOL_SCHEMAS</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;sandbox_exec&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="s2">&quot;Execute a task in the job&#39;s sandbox using Claude Code. &quot;</span>
+            <span class="s2">&quot;Describe what you want done — Claude Code will plan and execute it &quot;</span>
+            <span class="s2">&quot;with full access to the codebase, terminal, and git. &quot;</span>
+            <span class="s2">&quot;Use this for: writing code, running tests, installing dependencies, &quot;</span>
+            <span class="s2">&quot;debugging, refactoring, and any task that requires filesystem or shell access.&quot;</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;task&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;What to accomplish. Be specific about files, behavior, and acceptance criteria.&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;max_turns&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;integer&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Max agentic turns for Claude Code (default 25).&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="mi">25</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;task&quot;</span><span class="p">],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;sandbox_shell&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="s2">&quot;Run a single shell command in the job&#39;s sandbox container. &quot;</span>
+            <span class="s2">&quot;Use for quick checks: test output, file listings, build status, git log. &quot;</span>
+            <span class="s2">&quot;For multi-step tasks, prefer sandbox_exec.&quot;</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;command&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;The shell command to run.&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;timeout&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;integer&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Timeout in seconds (default 60, max 300).&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="mi">60</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;command&quot;</span><span class="p">],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;git_status&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Show the current git status of the job: branch, changed files, ahead/behind main.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;git_diff&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Show the diff of uncommitted changes, or between the job branch and main.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;target&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;What to diff against: &#39;staged&#39;, &#39;unstaged&#39; (default), or &#39;main&#39;.&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="s2">&quot;unstaged&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;git_commit&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Stage all changes and create a commit on the job branch.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;message&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;The commit message.&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;message&quot;</span><span class="p">],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;git_log&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Show recent commit history for the job branch.&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;integer&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Number of commits to show (default 10).&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="mi">10</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;merge_to_main&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="s2">&quot;Merge the job branch into main. &quot;</span>
+            <span class="s2">&quot;This completes the code work for this job. &quot;</span>
+            <span class="s2">&quot;Requires editor or owner role.&quot;</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;strategy&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;&#39;merge&#39; (default) or &#39;squash&#39;.&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="s2">&quot;merge&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+    <span class="p">{</span>
+        <span class="s2">&quot;name&quot;</span><span class="p">:</span> <span class="s2">&quot;list_repo_files&quot;</span><span class="p">,</span>
+        <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="p">(</span>
+            <span class="s2">&quot;List files in the job&#39;s worktree, optionally filtered by glob pattern. &quot;</span>
+            <span class="s2">&quot;Shows the actual filesystem state, including untracked and gitignored files.&quot;</span>
+        <span class="p">),</span>
+        <span class="s2">&quot;input_schema&quot;</span><span class="p">:</span> <span class="p">{</span>
+            <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;object&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;properties&quot;</span><span class="p">:</span> <span class="p">{</span>
+                <span class="s2">&quot;pattern&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;string&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Glob pattern to filter (e.g. &#39;src/**/*.py&#39;). Default: all tracked files.&quot;</span><span class="p">,</span>
+                <span class="p">},</span>
+                <span class="s2">&quot;include_untracked&quot;</span><span class="p">:</span> <span class="p">{</span>
+                    <span class="s2">&quot;type&quot;</span><span class="p">:</span> <span class="s2">&quot;boolean&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;description&quot;</span><span class="p">:</span> <span class="s2">&quot;Include untracked files (default false).&quot;</span><span class="p">,</span>
+                    <span class="s2">&quot;default&quot;</span><span class="p">:</span> <span class="kc">False</span><span class="p">,</span>
+                <span class="p">},</span>
+            <span class="p">},</span>
+            <span class="s2">&quot;required&quot;</span><span class="p">:</span> <span class="p">[],</span>
+        <span class="p">},</span>
+    <span class="p">},</span>
+<span class="p">]</span>
+</code></pre></div>
+<p><strong>Tool dispatch</strong> works the same as existing tools — <code>dispatch_agent_tool()</code> in <code>agent_tools.py</code> gets extended to handle these new names. Each tool call:
+1. Looks up the <code>JobSandbox</code> for the current conversation
+2. Calls <code>sandbox_pool.ensure_sandbox()</code> to get or create a container
+3. Executes the operation
+4. Returns the result text</p>
+<p>The key tool is <code>sandbox_exec</code>. Its implementation:</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">_tool_sandbox_exec</span><span class="p">(</span>
+    <span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span>
+    <span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">,</span>
+    <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">,</span>
+    <span class="n">agent</span><span class="p">:</span> <span class="n">Agent</span><span class="p">,</span>
+    <span class="n">task</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">max_turns</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">25</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Delegate a coding task to Claude Code CLI running in the sandbox.&quot;&quot;&quot;</span>
+    <span class="n">container</span> <span class="o">=</span> <span class="k">await</span> <span class="n">sandbox_pool</span><span class="o">.</span><span class="n">ensure_sandbox</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">job_sandbox</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">)</span>
+
+    <span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">sandbox_pool</span><span class="o">.</span><span class="n">invoke_claude_code</span><span class="p">(</span>
+        <span class="n">container_id</span><span class="o">=</span><span class="n">container</span><span class="o">.</span><span class="n">container_id</span><span class="p">,</span>
+        <span class="n">prompt</span><span class="o">=</span><span class="n">task</span><span class="p">,</span>
+        <span class="n">max_turns</span><span class="o">=</span><span class="nb">min</span><span class="p">(</span><span class="n">max_turns</span><span class="p">,</span> <span class="mi">50</span><span class="p">),</span>  <span class="c1"># hard cap</span>
+    <span class="p">)</span>
+
+    <span class="c1"># Update head commit after Claude Code may have committed</span>
+    <span class="n">new_head</span> <span class="o">=</span> <span class="k">await</span> <span class="n">_get_head_sha</span><span class="p">(</span><span class="n">job_sandbox</span><span class="o">.</span><span class="n">worktree_path</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">new_head</span> <span class="o">!=</span> <span class="n">job_sandbox</span><span class="o">.</span><span class="n">head_commit</span><span class="p">:</span>
+        <span class="n">job_sandbox</span><span class="o">.</span><span class="n">head_commit</span> <span class="o">=</span> <span class="n">new_head</span>
+        <span class="n">session</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">job_sandbox</span><span class="p">)</span>
+
+    <span class="k">return</span> <span class="n">result</span><span class="o">.</span><span class="n">response_text</span>
+</code></pre></div>
+<p>This is the critical design decision: <strong>TeaParty agents don't write code. They delegate to Claude Code.</strong> A TeaParty agent decides <em>what</em> needs to be done (using conversation context, workflow state, workgroup discussion), then hands the task to Claude Code which decides <em>how</em> to do it. This avoids duplicating Claude Code's planning, file editing, test running, and error recovery capabilities.</p>
+<h3 id="4-teaparty_appservicesrepo_syncpy">4. <code>teaparty_app/services/repo_sync.py</code></h3>
+<p>Bidirectional sync between the filesystem and the virtual file view.</p>
+<div class="highlight"><pre><span></span><code><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">worktree_to_file_view</span><span class="p">(</span>
+    <span class="n">job_sandbox</span><span class="p">:</span> <span class="n">JobSandbox</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">FileViewEntry</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Read the job&#39;s worktree files and return a virtual file list.</span>
+
+<span class="sd">    Used by the UI to display job files without going through</span>
+<span class="sd">    the workgroup.files JSON column. This reads the filesystem directly.</span>
+
+<span class="sd">    Filters:</span>
+<span class="sd">    - Only git-tracked files (not in .gitignore)</span>
+<span class="sd">    - Text files only (skip binaries based on git attributes / null bytes)</span>
+<span class="sd">    - Content capped at 200KB per file (truncated with marker)</span>
+<span class="sd">    - Total cap: 500 files (sorted by path, excess files listed without content)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">export_main_to_files</span><span class="p">(</span>
+    <span class="n">session</span><span class="p">:</span> <span class="n">Session</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">:</span> <span class="n">Workgroup</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Snapshot the main branch into workgroup.files for the file browser.</span>
+
+<span class="sd">    Called after:</span>
+<span class="sd">    - merge_to_main completes</span>
+<span class="sd">    - Manual sync triggered by owner</span>
+<span class="sd">    - Repo creation (initial import)</span>
+
+<span class="sd">    This is a one-way export. The JSON column becomes a read cache of main.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+</code></pre></div>
+<h2 id="how-it-all-fits-together">How It All Fits Together</h2>
+<h3 id="scenario-build-me-a-login-page">Scenario: "Build me a login page"</h3>
+<ol>
+<li><strong>User</strong> posts "Build a login page with email/password authentication" in job <code>login-feature</code></li>
+<li><strong>Agent Runtime</strong> selects the <code>Implementer</code> agent to respond</li>
+<li><strong>Implementer</strong> reads the job's <a href="workflows.md">workflow</a> state, sees it's on "Step 1: Clarify Requirements"</li>
+<li><strong>Implementer</strong> posts a message asking clarifying questions and outlining the plan</li>
+<li><strong>User</strong> confirms the approach</li>
+<li><strong>Implementer</strong> calls <code>sandbox_exec</code> with task: "Create a login page component at src/pages/Login.tsx with email and password fields, form validation, and a submit handler that calls POST /api/auth/login. Use the existing Button and Input components from src/components/. Add a test file."</li>
+<li><strong>TeaParty</strong> ensures a sandbox container is running for this job</li>
+<li><strong>Claude Code CLI</strong> (inside the sandbox) plans the implementation, reads existing files to understand patterns, writes the component, writes tests, runs the tests, fixes any failures</li>
+<li><strong>Claude Code</strong> returns: "Created src/pages/Login.tsx with email/password form, validation, and API integration. Added src/pages/Login.test.tsx with 6 passing tests."</li>
+<li><strong>Implementer</strong> calls <code>git_commit</code> with message: "feat: add login page with form validation"</li>
+<li><strong>Implementer</strong> advances the workflow to the next step and posts a summary to the conversation</li>
+<li><strong>Reviewer</strong> agent is selected to respond, calls <code>git_diff</code> with target <code>main</code> to see all changes</li>
+<li><strong>Reviewer</strong> calls <code>sandbox_exec</code> with task: "Review the login page implementation. Check for XSS vulnerabilities in form handling, verify the test coverage, and check that error states are handled."</li>
+<li><strong>Reviewer</strong> posts review feedback</li>
+<li>After iteration, <strong>User</strong> says "Looks good, merge it"</li>
+<li><strong>Implementer</strong> calls <code>merge_to_main</code></li>
+<li><strong>TeaParty</strong> merges the branch, syncs main to <code>workgroup.files</code>, cleans up the worktree</li>
+</ol>
+<h3 id="scenario-importing-an-existing-repository">Scenario: Importing an existing repository</h3>
+<ol>
+<li>Owner creates a coding workgroup</li>
+<li>In workgroup config, sets <code>git_remote: "https://github.com/org/repo.git"</code></li>
+<li><code>repo_manager.init_repo()</code>:</li>
+<li><code>git clone --bare &lt;remote&gt; repo.git</code></li>
+<li><code>git worktree add main</code> (checks out default branch)</li>
+<li>Syncs main to <code>workgroup.files</code> for the file browser</li>
+<li>Jobs now branch from the imported codebase</li>
+</ol>
+<h2 id="configuration">Configuration</h2>
+<h3 id="workgroup-config-workgroupjson">Workgroup Config (<code>workgroup.json</code>)</h3>
+<p>Sandbox-related fields in workgroup configuration:</p>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;My Project&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;service_description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Backend API development&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;sandbox&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;image&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;teaparty/sandbox:default&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;preset&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;connected&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;git_remote&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;auto_commit&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;auto_merge&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;idle_timeout_minutes&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">30</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;max_file_sync_size_kb&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">200</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;env_vars&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;NODE_ENV&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;development&quot;</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div>
+<h3 id="server-config-configpy">Server Config (<code>config.py</code>)</h3>
+<div class="highlight"><pre><span></span><code><span class="k">class</span><span class="w"> </span><span class="nc">Settings</span><span class="p">(</span><span class="n">BaseSettings</span><span class="p">):</span>
+    <span class="c1"># ... existing settings ...</span>
+
+    <span class="c1"># Repository and sandbox settings</span>
+    <span class="n">repo_root</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;/data/repos&quot;</span>                     <span class="c1"># Base directory for all workgroup repos</span>
+    <span class="n">sandbox_docker_socket</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;/var/run/docker.sock&quot;</span>
+    <span class="n">sandbox_default_image</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;teaparty/sandbox:default&quot;</span>
+    <span class="n">sandbox_warm_pool_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2</span>                    <span class="c1"># Pre-warmed containers</span>
+    <span class="n">sandbox_max_containers</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">10</span>                   <span class="c1"># Hard limit on concurrent containers</span>
+    <span class="n">sandbox_idle_timeout_minutes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>             <span class="c1"># Auto-stop idle containers</span>
+    <span class="n">sandbox_max_jobs_per_workgroup</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span>            <span class="c1"># Limit concurrent job branches</span>
+</code></pre></div>
+<h2 id="api-endpoints">API Endpoints</h2>
+<h3 id="repository-management">Repository management</h3>
+<div class="highlight"><pre><span></span><code>POST   /api/workgroups/{workgroup_id}/repo              Initialize repo for workgroup
+GET    /api/workgroups/{workgroup_id}/repo              Get repo status and info
+DELETE /api/workgroups/{workgroup_id}/repo              Destroy repo (owner only)
+POST   /api/workgroups/{workgroup_id}/repo/sync         Trigger manual file sync
+</code></pre></div>
+<h3 id="job-branch-management">Job branch management</h3>
+<div class="highlight"><pre><span></span><code>GET    /api/workgroups/{workgroup_id}/repo/jobs                   List all job branches
+GET    /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}         Get job branch status
+POST   /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}/merge   Merge job to main
+DELETE /api/workgroups/{workgroup_id}/repo/jobs/{conv_id}         Remove job branch
+</code></pre></div>
+<h3 id="file-access-repo-backed">File access (repo-backed)</h3>
+<div class="highlight"><pre><span></span><code>GET    /api/workgroups/{workgroup_id}/repo/files?ref={branch|commit}     List files
+GET    /api/workgroups/{workgroup_id}/repo/files/{path}?ref={branch}     Read file
+GET    /api/workgroups/{workgroup_id}/repo/diff?base=main&amp;head={branch}  Get diff
+</code></pre></div>
+<p>These endpoints serve the UI's file browser when the workgroup has a repo. The frontend detects <code>repo_status == "active"</code> and switches from the JSON-based file browser to the repo-backed one.</p>
+<h3 id="sandbox-status-for-ui-activity-indicators">Sandbox status (for UI activity indicators)</h3>
+<div class="highlight"><pre><span></span><code>GET    /api/workgroups/{workgroup_id}/sandboxes    List running sandbox containers with status
+</code></pre></div>
+<h2 id="security-model">Security Model</h2>
+<h3 id="isolation-boundaries">Isolation boundaries</h3>
+<ol>
+<li>
+<p><strong>Container isolation</strong>: Each job's sandbox is isolated from others. No shared filesystem beyond the specific worktree mount. No access to the TeaParty database or other workgroups' repos.</p>
+</li>
+<li>
+<p><strong>Git branch isolation</strong>: Worktrees are git branches. One job cannot modify another job's files without going through a merge. <code>main</code> is only modified via merge operations.</p>
+</li>
+<li>
+<p><strong>Permission model</strong>: Existing TeaParty roles govern access:</p>
+</li>
+<li><strong>Owner</strong>: Full control. Can init/destroy repo, configure sandbox images, merge to main, manage job branches.</li>
+<li><strong>Editor</strong>: Can use sandbox tools, commit to job branches, request merges.</li>
+<li>
+<p><strong>Member</strong>: Read-only. Can view files and diffs but not execute commands or modify code.</p>
+</li>
+<li>
+<p><strong>API key isolation</strong>: The <code>ANTHROPIC_API_KEY</code> is injected into sandbox containers as an environment variable. Each container gets the key associated with the organization owner. Token usage is tracked and attributed to the requesting agent/user.</p>
+</li>
+<li>
+<p><strong>Network isolation</strong>: Sandboxes default to no external network access. The <code>connected</code> preset enables outbound access for package managers. Inbound access is never allowed.</p>
+</li>
+</ol>
+<h3 id="what-sandboxes-can-do">What sandboxes CAN do</h3>
+<ul>
+<li>Read and write files within <code>/workspace</code> (the job's worktree)</li>
+<li>Execute arbitrary commands (builds, tests, scripts)</li>
+<li>Use git within the worktree</li>
+<li>Make outbound HTTP requests (if <code>connected</code> preset)</li>
+<li>Use Claude Code CLI with the provided API key</li>
+</ul>
+<h3 id="what-sandboxes-cannot-do">What sandboxes CANNOT do</h3>
+<ul>
+<li>Access the host filesystem outside their mount</li>
+<li>Access other sandboxes or worktrees</li>
+<li>Access the TeaParty database</li>
+<li>Modify the bare repo directly (only via worktree git operations)</li>
+<li>Listen on network ports accessible from outside the container</li>
+<li>Exceed their resource limits</li>
+</ul>
+<h2 id="migration-path">Migration Path</h2>
+<h3 id="phase-1-repository-manager-no-containers">Phase 1: Repository Manager (no containers)</h3>
+<ul>
+<li>Add <code>repo_*</code> fields to Workgroup and <code>JobSandbox</code> model</li>
+<li>Implement <code>repo_manager.py</code> with git operations</li>
+<li>Add repo API endpoints</li>
+<li>Hook into job creation/deletion lifecycle</li>
+<li>File sync between main worktree and <code>workgroup.files</code></li>
+<li><strong>Agents operate via direct git/file commands on the host</strong> (no container isolation yet)</li>
+<li>This phase is useful even without containers — it adds git history and branching</li>
+</ul>
+<h3 id="phase-2-sandbox-containers">Phase 2: Sandbox Containers</h3>
+<ul>
+<li>Build the default sandbox Docker image</li>
+<li>Implement <code>sandbox_pool.py</code> with container lifecycle management</li>
+<li>Wire <code>sandbox_exec</code> to invoke Claude Code CLI inside containers</li>
+<li>Add sandbox status to the API and UI</li>
+<li>Move all code execution from host to containers</li>
+</ul>
+<h3 id="phase-3-claude-code-integration">Phase 3: Claude Code Integration</h3>
+<ul>
+<li>Replace the homegrown <code>claude_code.py</code> tool with <code>sandbox_exec</code></li>
+<li>Update the <code>coding</code> workgroup template to use sandbox tools</li>
+<li>Add <code>sandbox_exec</code>, <code>git_status</code>, <code>git_commit</code>, <code>git_diff</code> to agent tool sets</li>
+<li>Update agent system prompts to explain the repo + sandbox model</li>
+</ul>
+<h3 id="phase-4-ui-integration">Phase 4: UI Integration</h3>
+<ul>
+<li>Repo-aware file browser (shows git status, branch indicator, diff view)</li>
+<li>Sandbox status indicators (running, idle, stopped) per job</li>
+<li>Merge UI (diff view, conflict resolution, merge button)</li>
+<li>Branch comparison view (job vs main)</li>
+<li>Commit history view per job</li>
+</ul>
+<h3 id="phase-5-advanced-features">Phase 5: Advanced Features</h3>
+<ul>
+<li>Remote git push/pull (sync with GitHub, GitLab)</li>
+<li>Custom Dockerfiles per workgroup</li>
+<li>Persistent container volumes for <code>node_modules</code>, <code>.venv</code>, etc. (cache mounts)</li>
+<li>Container snapshots for reproducible environments</li>
+<li>Multi-file diff review workflow</li>
+<li>PR-style merge request workflow between jobs</li>
+</ul>
+<h2 id="open-questions">Open Questions</h2>
+<p>Open research questions for this area are collected in <a href="../research-directions/">Research Directions</a>.</p>
+<h2 id="dependencies">Dependencies</h2>
+<p>New Python packages:
+- <code>docker</code> (Docker SDK for Python) — container management
+- No git library needed — use <code>git</code> CLI via <code>asyncio.create_subprocess_exec</code></p>
+<p>Infrastructure requirements:
+- Docker daemon running on the host (or accessible via socket)
+- <code>git</code> CLI installed on the host
+- Sufficient disk space for repos (<code>repo_root</code> directory)
+- Claude Code CLI (<code>@anthropic-ai/claude-code</code>) installed in the sandbox Docker image</p>
+<h2 id="source-file-layout">Source File Layout</h2>
+<div class="highlight"><pre><span></span><code>teaparty_app/
+├── services/
+│   ├── repo_manager.py        # Git repo + worktree lifecycle
+│   ├── sandbox_pool.py        # Docker container pool management
+│   ├── sandbox_tools.py       # Agent tool schemas + dispatch for sandbox ops
+│   └── repo_sync.py           # Bidirectional file sync (filesystem ↔ JSON)
+├── routers/
+│   └── repo.py                # REST API endpoints for repo + sandbox management
+├── models.py                  # + JobSandbox model, Workgroup repo fields
+└── config.py                  # + repo_*, sandbox_* settings
+
+docker/
+├── Dockerfile.sandbox         # Default sandbox image
+├── Dockerfile.sandbox-node    # Node.js-focused variant
+└── Dockerfile.sandbox-python  # Python-focused variant
+
+tests/
+├── test_repo_manager.py
+├── test_sandbox_pool.py
+├── test_sandbox_tools.py
+└── test_repo_sync.py
+</code></pre></div>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

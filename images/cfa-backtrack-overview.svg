@@ -1,0 +1,412 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f0f1e"/>
+      <stop offset="100%" stop-color="#1a1a2e"/>
+    </linearGradient>
+
+    <!-- Phase panel gradients -->
+    <linearGradient id="intentGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4ecdc4" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#4ecdc4" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="planGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f9c74f" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#f9c74f" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="execGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f07167" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#f07167" stop-opacity="0.06"/>
+    </linearGradient>
+
+    <!-- Forward flow arrow marker -->
+    <marker id="arrowFwd" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#aaaacc" opacity="0.7"/>
+    </marker>
+
+    <!-- Backtrack arrow marker — points LEFT (right-to-left direction) -->
+    <marker id="arrowBack" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0.5 L6,3.5 L0,6.5 Z" fill="#ff6b6b"/>
+    </marker>
+
+    <!-- Loop arrow marker (small) -->
+    <marker id="arrowLoop" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L5,3 L0,5.5 Z" fill="#aaaacc" opacity="0.45"/>
+    </marker>
+
+    <!-- Drop shadow for panels -->
+    <filter id="panelShadow" x="-4%" y="-4%" width="108%" height="108%">
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+
+    <!-- Glow for backtrack arrows -->
+    <filter id="backtrackGlow" x="-20%" y="-80%" width="140%" height="260%">
+      <feGaussianBlur stdDeviation="2.2" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- ═══════════════════════════ BACKGROUND ═══════════════════════════ -->
+  <rect width="1200" height="540" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid lines -->
+  <g opacity="0.035" stroke="#ffffff" stroke-width="1">
+    <line x1="0" y1="80" x2="1200" y2="80"/>
+    <line x1="0" y1="160" x2="1200" y2="160"/>
+    <line x1="0" y1="240" x2="1200" y2="240"/>
+    <line x1="0" y1="320" x2="1200" y2="320"/>
+    <line x1="0" y1="400" x2="1200" y2="400"/>
+    <line x1="0" y1="480" x2="1200" y2="480"/>
+  </g>
+
+  <!-- ═══════════════════════════ TITLE ═══════════════════════════ -->
+  <text x="600" y="30" text-anchor="middle" fill="#e0e0f0" font-size="15" font-weight="600" letter-spacing="0.05em" opacity="0.9">
+    TeaParty CfA — Conversation for Action Protocol
+  </text>
+  <text x="600" y="50" text-anchor="middle" fill="#8888aa" font-size="10.5" letter-spacing="0.08em">
+    THREE-PHASE FLOW WITH CROSS-PHASE BACKTRACKS
+  </text>
+
+  <!-- ═══════════════════════════ PHASE PANELS ═══════════════════════════ -->
+
+  <!-- Phase 1: Intent (x=10..300, width=290) -->
+  <rect x="10" y="65" width="290" height="358" rx="12" ry="12"
+        fill="url(#intentGrad)" stroke="#4ecdc4" stroke-width="1.5" stroke-opacity="0.5"
+        filter="url(#panelShadow)"/>
+  <text x="155" y="85" text-anchor="middle" fill="#4ecdc4" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 1</text>
+  <text x="155" y="102" text-anchor="middle" fill="#4ecdc4" font-size="15" font-weight="700">Intent</text>
+
+  <!-- Phase 2: Planning (x=314..600, width=286) -->
+  <rect x="314" y="65" width="286" height="358" rx="12" ry="12"
+        fill="url(#planGrad)" stroke="#f9c74f" stroke-width="1.5" stroke-opacity="0.5"
+        filter="url(#panelShadow)"/>
+  <text x="457" y="85" text-anchor="middle" fill="#f9c74f" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 2</text>
+  <text x="457" y="102" text-anchor="middle" fill="#f9c74f" font-size="15" font-weight="700">Planning</text>
+
+  <!-- Phase 3: Execution (x=614..1190, width=576) -->
+  <rect x="614" y="65" width="576" height="358" rx="12" ry="12"
+        fill="url(#execGrad)" stroke="#f07167" stroke-width="1.5" stroke-opacity="0.5"
+        filter="url(#panelShadow)"/>
+  <text x="902" y="85" text-anchor="middle" fill="#f07167" font-size="11" font-weight="700" letter-spacing="0.12em" opacity="0.9">PHASE 3</text>
+  <text x="902" y="102" text-anchor="middle" fill="#f07167" font-size="15" font-weight="700">Execution</text>
+
+  <!-- ═══════════════════════════ STATE NODES ═══════════════════════════ -->
+  <!--
+    Row layout (node top / center y):
+      r1: top=116, center=128  — entry states
+      r2: top=152, center=164  — second entry (PROPOSAL)
+      Synth loop box: y=185, height=82, bottom=267
+      r3: top=197, center=209  — QUESTION / ESCALATE
+      r4: top=233, center=245  — ASSERT / RESPONSE
+      r5: top=277, center=289  — terminal per phase / FAILED/COMPLETED_TASK
+      r6: top=313, center=325  — WORK_IN_PROGRESS
+      r7: top=349, center=361  — WORK_ASSERT / COMPLETED_WORK
+      r8: top=385, center=397  — WITHDRAWN
+    Node height: 24px throughout
+  -->
+
+  <!-- ─────────── INTENT PHASE NODES ─────────── -->
+
+  <!-- IDEA (entry) -->
+  <rect x="126" y="116" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.3"/>
+  <text x="155" y="132" text-anchor="middle" fill="#4ecdc4" font-size="10" font-weight="600">IDEA</text>
+
+  <!-- PROPOSAL -->
+  <rect x="111" y="152" width="88" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.3"/>
+  <text x="155" y="168" text-anchor="middle" fill="#4ecdc4" font-size="9.5" font-weight="600">PROPOSAL</text>
+
+  <!-- Intent synthesis loop box -->
+  <rect x="18" y="185" width="264" height="82" rx="8"
+        fill="#4ecdc4" fill-opacity="0.06" stroke="#4ecdc4"
+        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+  <text x="150" y="197" text-anchor="middle" fill="#4ecdc4" font-size="8.5" opacity="0.55" letter-spacing="0.06em">synthesis loop</text>
+
+  <!-- INTENT_QUESTION -->
+  <rect x="24" y="197" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
+  <text x="80" y="213" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_QUESTION</text>
+
+  <!-- INTENT_ESCALATE -->
+  <rect x="148" y="197" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
+  <text x="204" y="213" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_ESCALATE</text>
+
+  <!-- INTENT_ASSERT -->
+  <rect x="24" y="233" width="100" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
+  <text x="74" y="249" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_ASSERT</text>
+
+  <!-- INTENT_RESPONSE -->
+  <rect x="148" y="233" width="112" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="1.1"/>
+  <text x="204" y="249" text-anchor="middle" fill="#4ecdc4" font-size="9" font-weight="600">INTENT_RESPONSE</text>
+
+  <!-- INTENT (terminal — thicker border) -->
+  <rect x="122" y="277" width="66" height="24" rx="5" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="2"/>
+  <text x="155" y="293" text-anchor="middle" fill="#4ecdc4" font-size="10" font-weight="700">INTENT</text>
+
+  <!-- WITHDRAWN (in intent phase, accessible from INTENT_ESCALATE/INTENT_ASSERT) -->
+  <!-- Placed in execution phase to avoid crowding; see execution section -->
+
+  <!-- Intent phase forward arrows -->
+  <!-- IDEA → PROPOSAL -->
+  <path d="M155,140 L155,152" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- PROPOSAL → synthesis loop (INTENT_QUESTION entry) -->
+  <path d="M155,176 L155,185 L80,185 L80,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
+  <!-- INTENT_QUESTION → INTENT_ASSERT (question leads to assert) -->
+  <path d="M80,221 L74,233" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- INTENT_ASSERT → INTENT_RESPONSE (correct/answer) -->
+  <path d="M124,245 L148,245" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- INTENT_RESPONSE → PROPOSAL (synthesize loop back) -->
+  <path d="M204,233 C204,178 155,178 155,176" stroke="#4ecdc4" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
+  <!-- INTENT_ESCALATE connects up to loop label area -->
+  <path d="M204,197 C204,190 155,190 155,190" stroke="#4ecdc4" stroke-width="0.8" fill="none" stroke-opacity="0.25" stroke-dasharray="2,2"/>
+  <!-- synthesis loop → INTENT (approve path) -->
+  <path d="M155,267 L155,277" stroke="#4ecdc4" stroke-width="1.3" fill="none" stroke-opacity="0.6" marker-end="url(#arrowFwd)"/>
+
+  <!-- ─────────── PLANNING PHASE NODES ─────────── -->
+
+  <!-- DRAFT (entry) -->
+  <rect x="424" y="116" width="66" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.3"/>
+  <text x="457" y="132" text-anchor="middle" fill="#f9c74f" font-size="10" font-weight="600">DRAFT</text>
+
+  <!-- Planning synthesis loop box -->
+  <rect x="322" y="185" width="270" height="82" rx="8"
+        fill="#f9c74f" fill-opacity="0.05" stroke="#f9c74f"
+        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+  <text x="457" y="197" text-anchor="middle" fill="#f9c74f" font-size="8.5" opacity="0.55" letter-spacing="0.06em">synthesis loop</text>
+
+  <!-- PLANNING_QUESTION -->
+  <rect x="328" y="197" width="124" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
+  <text x="390" y="213" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_QUESTION</text>
+
+  <!-- PLANNING_ESCALATE -->
+  <rect x="462" y="197" width="122" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
+  <text x="523" y="213" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_ESCALATE</text>
+
+  <!-- PLAN_ASSERT -->
+  <rect x="328" y="233" width="98" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
+  <text x="377" y="249" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLAN_ASSERT</text>
+
+  <!-- PLANNING_RESPONSE -->
+  <rect x="462" y="233" width="122" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="1.1"/>
+  <text x="523" y="249" text-anchor="middle" fill="#f9c74f" font-size="9" font-weight="600">PLANNING_RESPONSE</text>
+
+  <!-- PLAN (terminal — thicker border) -->
+  <rect x="428" y="277" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#f9c74f" stroke-width="2"/>
+  <text x="457" y="293" text-anchor="middle" fill="#f9c74f" font-size="10" font-weight="700">PLAN</text>
+
+  <!-- Planning phase forward arrows -->
+  <!-- DRAFT → synthesis loop -->
+  <path d="M457,140 L457,185 L390,185 L390,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
+  <!-- PLANNING_QUESTION → PLAN_ASSERT -->
+  <path d="M390,221 L377,233" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- PLAN_ASSERT → PLANNING_RESPONSE (correct) -->
+  <path d="M426,245 L462,245" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- PLANNING_RESPONSE → DRAFT (synthesize loop back) -->
+  <path d="M523,233 C523,178 457,178 457,140" stroke="#f9c74f" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
+  <!-- synthesis loop → PLAN (approve) -->
+  <path d="M457,267 L457,277" stroke="#f9c74f" stroke-width="1.3" fill="none" stroke-opacity="0.6" marker-end="url(#arrowFwd)"/>
+
+  <!-- ─────────── EXECUTION PHASE NODES ─────────── -->
+
+  <!-- TASK (entry) -->
+  <rect x="620" y="116" width="58" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="649" y="132" text-anchor="middle" fill="#f07167" font-size="10" font-weight="600">TASK</text>
+
+  <!-- TASK_IN_PROGRESS -->
+  <rect x="692" y="116" width="116" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="750" y="132" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_IN_PROGRESS</text>
+
+  <!-- Task synthesis loop box -->
+  <rect x="618" y="185" width="340" height="82" rx="8"
+        fill="#f07167" fill-opacity="0.05" stroke="#f07167"
+        stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+  <text x="788" y="197" text-anchor="middle" fill="#f07167" font-size="8.5" opacity="0.55" letter-spacing="0.06em">task synthesis loop</text>
+
+  <!-- TASK_QUESTION -->
+  <rect x="624" y="197" width="106" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
+  <text x="677" y="213" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_QUESTION</text>
+
+  <!-- TASK_ESCALATE -->
+  <rect x="746" y="197" width="104" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
+  <text x="798" y="213" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_ESCALATE</text>
+
+  <!-- TASK_ASSERT -->
+  <rect x="624" y="233" width="96" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
+  <text x="672" y="249" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_ASSERT</text>
+
+  <!-- TASK_RESPONSE -->
+  <rect x="746" y="233" width="104" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1"/>
+  <text x="798" y="249" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">TASK_RESPONSE</text>
+
+  <!-- FAILED_TASK -->
+  <rect x="624" y="277" width="94" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="671" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">FAILED_TASK</text>
+
+  <!-- COMPLETED_TASK -->
+  <rect x="732" y="277" width="110" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="787" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">COMPLETED_TASK</text>
+
+  <!-- WORK_IN_PROGRESS -->
+  <rect x="872" y="277" width="118" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="931" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">WORK_IN_PROGRESS</text>
+
+  <!-- Work assembly loop box -->
+  <rect x="868" y="308" width="298" height="62" rx="8"
+        fill="#f07167" fill-opacity="0.04" stroke="#f07167"
+        stroke-width="0.8" stroke-dasharray="4,3" stroke-opacity="0.35"/>
+  <text x="1017" y="320" text-anchor="middle" fill="#f07167" font-size="8.5" opacity="0.5" letter-spacing="0.06em">work assembly</text>
+
+  <!-- WORK_ASSERT -->
+  <rect x="874" y="322" width="96" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.3"/>
+  <text x="922" y="338" text-anchor="middle" fill="#f07167" font-size="9" font-weight="600">WORK_ASSERT</text>
+
+  <!-- COMPLETED_WORK (terminal — thicker border) -->
+  <rect x="990" y="322" width="114" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="2"/>
+  <text x="1047" y="338" text-anchor="middle" fill="#f07167" font-size="9.5" font-weight="700">COMPLETED_WORK</text>
+
+  <!-- WITHDRAWN (accessible from multiple states) -->
+  <rect x="1080" y="277" width="90" height="24" rx="5" fill="#0f0f1e" stroke="#f07167" stroke-width="1.1" stroke-dasharray="4,2" stroke-opacity="0.7"/>
+  <text x="1125" y="293" text-anchor="middle" fill="#f07167" font-size="9" font-weight="500" opacity="0.75">WITHDRAWN</text>
+
+  <!-- Execution phase forward arrows -->
+  <!-- TASK → TASK_IN_PROGRESS -->
+  <path d="M678,128 L692,128" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- TASK_IN_PROGRESS → task synthesis loop -->
+  <path d="M750,140 L750,185 L677,185 L677,197" stroke="#aaaacc" stroke-width="1.2" fill="none" stroke-opacity="0.45" marker-end="url(#arrowFwd)"/>
+  <!-- TASK_QUESTION → TASK_ASSERT -->
+  <path d="M677,221 L672,233" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- TASK_ASSERT → TASK_RESPONSE (correct) -->
+  <path d="M720,245 L746,245" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.4" marker-end="url(#arrowLoop)"/>
+  <!-- TASK_RESPONSE → TASK_IN_PROGRESS (synthesize loop back) -->
+  <path d="M798,233 C798,168 750,160 750,140" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2"/>
+  <!-- TASK_ASSERT → COMPLETED_TASK (approve) -->
+  <path d="M720,245 C730,262 780,262 787,277" stroke="#f07167" stroke-width="1.2" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- task synth loop → FAILED_TASK (failed path) -->
+  <path d="M671,267 L671,277" stroke="#f07167" stroke-width="1.2" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- COMPLETED_TASK → WORK_IN_PROGRESS -->
+  <path d="M842,289 L872,289" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- WORK_IN_PROGRESS → WORK_ASSERT -->
+  <path d="M931,301 L922,322" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- WORK_ASSERT → COMPLETED_WORK -->
+  <path d="M970,334 L990,334" stroke="#aaaacc" stroke-width="1.3" fill="none" stroke-opacity="0.5" marker-end="url(#arrowFwd)"/>
+  <!-- FAILED_TASK retry → TASK (loop back up) -->
+  <path d="M624,285 C605,265 605,128 620,128" stroke="#f07167" stroke-width="1" fill="none" stroke-opacity="0.35" stroke-dasharray="3,2" marker-end="url(#arrowLoop)"/>
+  <!-- WORK_IN_PROGRESS → WITHDRAWN -->
+  <path d="M990,285 L1080,285" stroke="#f07167" stroke-width="0.9" fill="none" stroke-opacity="0.3" stroke-dasharray="3,2" marker-end="url(#arrowLoop)"/>
+
+  <!-- ═══════════════════════════ INTER-PHASE FORWARD ARROWS ═══════════════════════════ -->
+
+  <!-- INTENT → DRAFT (plan action) -->
+  <path d="M188,289 L300,289 L300,128 L424,128" stroke="#aaaacc" stroke-width="1.6" fill="none" stroke-opacity="0.55" marker-end="url(#arrowFwd)"/>
+
+  <!-- PLAN → TASK (delegate action) -->
+  <path d="M486,289 L600,289 L600,128 L620,128" stroke="#aaaacc" stroke-width="1.6" fill="none" stroke-opacity="0.55" marker-end="url(#arrowFwd)"/>
+
+  <!-- ═══════════════════════════ BACKTRACK ARROWS ═══════════════════════════ -->
+  <!--
+    All backtrack arrows:
+    - stroke #ff6b6b, dashed, with glow filter
+    - marker-end="url(#arrowBack)" (arrowhead at DESTINATION, which is to the LEFT)
+    - Paths arc ABOVE the panels (y < 65)
+    - Arc heights staggered to avoid overlap (higher arcs for longer-reach backtracks)
+
+    Arc height levels used:
+      y=58: DRAFT→INTENT_RESPONSE            (planning→intent, medium reach)
+      y=50: PLAN_ASSERT→INTENT_RESPONSE      (planning→intent, medium reach)
+      y=43: PLANNING_QUESTION→INTENT_QUESTION (planning→intent, short reach)
+      y=35: TASK_QUESTION→PLANNING_QUESTION   (execution→planning, medium reach)
+      y=27: TASK_ASSERT→PLANNING_RESPONSE    (execution→planning, medium reach)
+      y=20: FAILED_TASK→PLANNING_QUESTION    (execution→planning, medium reach)
+      y=13: TASK_ASSERT→INTENT_RESPONSE      (execution→intent, long reach)
+      y= 7: WORK_IN_PROGRESS→PLANNING_QUESTION (execution→planning, long reach)
+      y= 2: WORK_ASSERT→PLANNING_RESPONSE    (execution→planning, long reach)
+      y=-4: WORK_ASSERT→INTENT_RESPONSE      (execution→intent, longest reach)
+            (clipped at y=0 but bezier handles still work — path goes just above canvas)
+  -->
+
+  <g stroke="#ff6b6b" stroke-width="1.8" fill="none" stroke-dasharray="6,4" filter="url(#backtrackGlow)" opacity="0.92" marker-end="url(#arrowBack)">
+
+    <!-- 1. DRAFT → INTENT_RESPONSE (refine-intent) -->
+    <!-- Source: DRAFT top center (457, 116), Target: INTENT_RESPONSE top center (204, 233) -->
+    <path d="M457,116 C457,58 204,58 204,233"/>
+    <text x="330" y="53" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
+
+    <!-- 2. PLANNING_QUESTION → INTENT_QUESTION (backtrack) -->
+    <!-- Source: PLANNING_QUESTION top center (390, 197), Target: INTENT_QUESTION top center (80, 197) -->
+    <path d="M390,197 C390,43 80,43 80,197"/>
+    <text x="235" y="38" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">backtrack</text>
+
+    <!-- 3. PLAN_ASSERT → INTENT_RESPONSE (refine-intent) -->
+    <!-- Source: PLAN_ASSERT top center (377, 233), Target: INTENT_RESPONSE top center (204, 233) -->
+    <path d="M377,233 C377,50 204,50 204,233"/>
+    <text x="290" y="45" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
+
+    <!-- 4. TASK_QUESTION → PLANNING_QUESTION (backtrack) -->
+    <!-- Source: TASK_QUESTION top center (677, 197), Target: PLANNING_QUESTION top center (390, 197) -->
+    <path d="M677,197 C677,35 390,35 390,197"/>
+    <text x="533" y="30" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">backtrack</text>
+
+    <!-- 5. TASK_ASSERT → PLANNING_RESPONSE (revise-plan) -->
+    <!-- Source: TASK_ASSERT top center (672, 233), Target: PLANNING_RESPONSE top center (523, 233) -->
+    <path d="M672,233 C672,27 523,27 523,233"/>
+    <text x="597" y="22" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">revise-plan</text>
+
+    <!-- 6. TASK_ASSERT → INTENT_RESPONSE (refine-intent) -->
+    <!-- Source: TASK_ASSERT top center (672, 233), Target: INTENT_RESPONSE top center (204, 233) -->
+    <path d="M672,233 C672,13 204,13 204,233"/>
+    <text x="438" y="8" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.92" letter-spacing="0.04em">refine-intent</text>
+
+    <!-- 7. FAILED_TASK → PLANNING_QUESTION (backtrack) -->
+    <!-- Source: FAILED_TASK top center (671, 277), Target: PLANNING_QUESTION top center (390, 197) -->
+    <path d="M671,277 C671,20 390,20 390,197"/>
+    <text x="530" y="15" text-anchor="middle" fill="#ff6b6b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.85" letter-spacing="0.04em">backtrack</text>
+
+    <!-- 8. WORK_IN_PROGRESS → PLANNING_QUESTION (backtrack) -->
+    <!-- Source: WORK_IN_PROGRESS top center (931, 277), Target: PLANNING_QUESTION top center (390, 197) -->
+    <path d="M931,277 C931,7 390,7 390,197"/>
+    <text x="660" y="3" text-anchor="middle" fill="#ff9b9b" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.85" letter-spacing="0.04em">backtrack</text>
+
+    <!-- 9. WORK_ASSERT → PLANNING_RESPONSE (revise-plan) -->
+    <!-- Source: WORK_ASSERT top center (922, 322), Target: PLANNING_RESPONSE top center (523, 233) -->
+    <path d="M922,322 C922,2 523,2 523,233"/>
+    <text x="722" y="-3" text-anchor="middle" fill="#ffbbbb" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.82" letter-spacing="0.04em">revise-plan</text>
+
+    <!-- 10. WORK_ASSERT → INTENT_RESPONSE (refine-intent) -->
+    <!-- Source: WORK_ASSERT top center (922, 322), Target: INTENT_RESPONSE top center (204, 233) -->
+    <path d="M922,322 C922,-6 204,-6 204,233"/>
+    <text x="563" y="-10" text-anchor="middle" fill="#ffcccc" font-size="8.5" font-weight="600" stroke="none" filter="none" opacity="0.78" letter-spacing="0.04em">refine-intent</text>
+
+  </g>
+
+  <!-- ═══════════════════════════ LEGEND ═══════════════════════════ -->
+  <rect x="10" y="438" width="1180" height="52" rx="8"
+        fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>
+
+  <!-- Forward flow -->
+  <line x1="28" y1="464" x2="62" y2="464" stroke="#aaaacc" stroke-width="2" stroke-opacity="0.7" marker-end="url(#arrowFwd)"/>
+  <text x="70" y="468" fill="#aaaacc" font-size="10.5" opacity="0.85">forward flow</text>
+
+  <!-- Backtrack -->
+  <line x1="220" y1="464" x2="186" y2="464" stroke="#ff6b6b" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrowBack)"/>
+  <text x="228" y="468" fill="#ff6b6b" font-size="10.5" opacity="0.9">cross-phase backtrack (right-to-left)</text>
+
+  <!-- Phase chips -->
+  <rect x="540" y="456" width="12" height="12" rx="2" fill="#4ecdc4" opacity="0.75"/>
+  <text x="558" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Intent</text>
+  <rect x="620" y="456" width="12" height="12" rx="2" fill="#f9c74f" opacity="0.75"/>
+  <text x="638" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Planning</text>
+  <rect x="718" y="456" width="12" height="12" rx="2" fill="#f07167" opacity="0.75"/>
+  <text x="736" y="467" fill="#aaaacc" font-size="10.5" opacity="0.8">Execution</text>
+
+  <!-- Terminal state note -->
+  <rect x="840" y="456" width="12" height="12" rx="2" fill="#0f0f1e" stroke="#4ecdc4" stroke-width="2" opacity="0.8"/>
+  <text x="858" y="467" fill="#aaaacc" font-size="10.5" opacity="0.7">terminal state (thick border)</text>
+
+  <!-- Caption -->
+  <text x="600" y="510" text-anchor="middle" fill="#555577" font-size="9.5" letter-spacing="0.04em">
+    Backtracks reflect protocol flexibility — any phase may re-enter an earlier phase when clarification, replanning, or re-scoping is needed.
+  </text>
+
+</svg>

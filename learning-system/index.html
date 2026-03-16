@@ -1,0 +1,1628 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="../strategic-planning/">
+      
+      
+        <link rel="next" href="../hierarchical-teams/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Hierarchical Memory & Learning - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#hierarchical-memory-and-learning" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Hierarchical Memory & Learning
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#three-learning-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three Learning Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three Learning Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#institutional-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Institutional Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-based-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task-Based Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proxy-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxy Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#procedural-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Procedural Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and Type
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learning-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning Moments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#promotion-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Promotion Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retrieval-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrieval Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-other-pillars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to Other Pillars
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-problem" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#three-learning-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Three Learning Types
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Three Learning Types">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#institutional-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Institutional Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#task-based-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Task-Based Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#proxy-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxy Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#procedural-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Procedural Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and Type
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learning-moments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning Moments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#promotion-chain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Promotion Chain
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#retrieval-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Retrieval Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-other-pillars" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to Other Pillars
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="hierarchical-memory-and-learning">Hierarchical Memory and Learning</h1>
+<p>The learning system is TeaParty's second pillar: where hierarchical teams enforce context boundaries, the learning system bridges them — getting the right organizational knowledge to the right agent at the right moment, so scoped agents don't drift from the values and conventions they can no longer see.</p>
+<h2 id="the-problem">The Problem</h2>
+<p>Agent memory systems that treat all learning as undifferentiated prose in flat files face two structural failures observed directly in our work:</p>
+<p><strong>Indiscriminate retrieval.</strong> All stored knowledge is injected regardless of relevance. As the store grows, signal-to-noise drops — useful learnings are buried in irrelevant ones. Claude Code's native MEMORY.md has a 200-line injection limit precisely because indiscriminate loading becomes counterproductive. The POC hit this limit within the first few sessions; learnings accumulated faster than they could be curated.</p>
+<p><strong>No validation loop.</strong> A learning written once and never tested has the same standing as one confirmed fifty times. The POC's early learning files contained entries that were wrong — conclusions drawn from a single session that did not generalize. Without reinforcement, decay, or contradiction detection, these persisted and actively misled subsequent sessions.</p>
+<p>The deeper problem: flat memory treats learning as a storage problem when it is actually a retrieval problem. Storing things is easy. Getting the right thing at the right moment — that is the hard part.</p>
+<p>Learning also requires differentiation by purpose. Not all knowledge serves the same function:</p>
+<ul>
+<li><strong>Institutional learning</strong> — the organization's values, norms, conventions, and working agreements.</li>
+<li><strong>Task learning</strong> — procedural knowledge about how to perform specific types of work effectively.</li>
+<li><strong>Proxy learning</strong> — the human's preferences, risk tolerance, and decision patterns, so the system can act as an accurate stand-in.</li>
+</ul>
+<h2 id="three-learning-types">Three Learning Types</h2>
+<h3 id="institutional-learning">Institutional Learning</h3>
+<p>How organizations and workgroups get better at working together. Institutional learnings change slowly, are broadly applicable within scope, and are curated rather than automatically generated. In the POC, institutional learnings are stored in <code>institutional.md</code> at each scope level and always loaded into agent context — the same injection pattern as CLAUDE.md. Post-write compaction is wired into the promotion pipeline: <code>_try_compact()</code> runs after institutional.md writes for session, project, and global scopes.</p>
+<p>Examples from the POC's actual <code>institutional.md</code>:
+- Dispatch coordination norms (how the uber team sequences work across liaisons)
+- Code review conventions (reviewer runs tests first, then reads diff)
+- Cross-team communication protocols (liaisons relay, never bypass)</p>
+<h3 id="task-based-learning">Task-Based Learning</h3>
+<p>How teams get better at specific types of tasks. Task learnings change with each outcome, are narrowly relevant to matching task types, and have fuzzy boundaries — a "database migration" learning may apply to schema redesigns, ORM changes, and data backfills. In the POC, task learnings are stored as individual YAML-frontmattered markdown files in <code>tasks/</code> directories at each scope level.</p>
+<p>The POC currently has 36+ task learning files, structured as:
+- Rules: "Always backup before migrating a database"
+- Procedures: "For API endpoints: schema, route, tests, docs"
+- Skills: executable workflows that emerged from successful plans (see <a href="../strategic-planning/#warm-start-accumulated-skills">strategic planning — warm start</a>)
+- Causal abstractions: "When X, doing Y leads to Z"</p>
+<h3 id="proxy-learning">Proxy Learning</h3>
+<p>How the system learns to stand in for the human — not just at approval gates, but in the ongoing dialog between the human and agent teams (<a href="https://github.com/dlewissandy/teaparty/issues/11">#11</a>). The richest learning signal comes from the proxy's intake dialog, where the proxy formulates predictions about what the human wants and compares them against the human's actual answers. The delta between prediction and reality is direct evidence of where the proxy's model is wrong — more specific and more actionable than a binary gate outcome.</p>
+<p>Proxy learning is further subdivided:</p>
+<p><strong>Preferential</strong> — the human's general traits: communication style, risk tolerance, values, delegation boundaries. Stable, broadly applicable, always loaded.</p>
+<p><strong>Behavioral</strong> — how the human interacts with the team during work, not just at decision points. When the human questions a team's approach, redirects a line of investigation, asks for more detail on a specific aspect, or pushes back on an assumption, each interaction reveals something about what the human pays attention to and how they think about the work. These patterns are as valuable as gate decisions — an approval tells the system "this was acceptable," but a question during planning tells the system "this is what I scrutinize."</p>
+<p><strong>Predictive</strong> — the proxy's track record of anticipating the human's answers during intake dialog. For each question type and task domain, the proxy records its predictions, the human's actual answers, and the delta. After each comparison, the proxy reflects on what it learned — <em>what additional information about this human would have improved my prediction?</em> — and that reflection is stored as a text derivative, scoped and indexed for future retrieval. Over time, these reflections accumulate into a map of where the proxy's model is accurate (and can be trusted to act autonomously) and where it systematically diverges (and must continue asking). Predictive accuracy is the mechanism by which the intake dialog compresses from full conversation to near-silent confirmation as the proxy earns understanding.</p>
+<p><strong>Ritual</strong> — invariant behavioral patterns tied to specific CfA states, independent of task content. A human who always asks for a TLDR before reviewing a plan, always leads delegation with quality principles, or always checks test coverage before approving code is performing rituals that reveal their operational DNA. Ritual learning detects these patterns by tracking per-state behavior frequencies across sessions and, once detected with sufficient confidence, enables the proxy to perform them preemptively. Preemptive rituals that match the human's behavior save time and demonstrate understanding; preemptive rituals the human corrects ("I don't need a TLDR for this one") produce deltas that refine the model — the ritual was context-dependent, not invariant.</p>
+<p><strong>Task-based</strong> — domain-specific decision patterns: when to consult vs act, triage heuristics, delegation scope by area. Context-specific, retrieved on demand.</p>
+<p>Proxy learning is stored in the same file-based format as other learning types: <code>proxy.md</code> for preferential (always loaded) and <code>proxy-tasks/</code> for task-based and ritual patterns (fuzzy-retrieved). The confidence model tracks approval rates, correction history, prediction accuracy, ritual frequencies, conversation patterns, and question patterns per CfA state — capturing not just what the human decided but how they reasoned about it, and where the proxy's anticipation of their reasoning was correct or wrong. See <a href="../human-proxies/">human-proxies.md</a> for the full proxy model.</p>
+<h3 id="procedural-learning">Procedural Learning</h3>
+<p>The other three learning types capture knowledge as text — facts, norms, preferences. Procedural learning captures knowledge as executable structure. It operates through two mechanisms:</p>
+<p><strong>Skill crystallization.</strong> When multiple plans for the same category of work converge on the same decomposition, the system generalizes the pattern into a Claude Code skill — a parameterized workflow with fixed structure (sequencing, gates, fan-out/fan-in) and variable parameters (topic, audience, depth). This is how cold-start plans become warm-start templates. A single successful plan is an anecdote. Three successful plans with the same shape are a candidate skill. The <a href="../strategic-planning/#warm-start-accumulated-skills">strategic planning</a> document describes how these skills seed future planning conversations. Skill crystallization and skill-as-plan seeding are implemented in the orchestrator's planning phase.</p>
+<p><strong>Skill refinement.</strong> When execution under a skill fails at a specific point — a contingency the skill didn't anticipate, a gate that consistently triggers escalation, a decomposition step that produces work requiring rework — the corrective learning targets the skill itself, not just the session. The failure is traced back to the skill's structure: which step produced the failure, what the skill assumed that turned out to be wrong, and what structural change would prevent recurrence. The refined skill replaces the original, carrying forward the correction.</p>
+<p>Procedural learning is what closes the loop between planning and execution across sessions. Without it, each session's plan is informed by declarative learnings ("this approach didn't work last time") but not by structural corrections to the workflow itself. With it, the organization's skills evolve: failure points are patched, unnecessary steps are pruned, missing gates are added — not by a human editing a template, but by the system observing where its own plans break and repairing them.</p>
+<h2 id="scope-and-type">Scope and Type</h2>
+<p>Every learning has two coordinates: what scope it belongs to (where in the hierarchy) and what type it is.</p>
+<div class="highlight"><pre><span></span><code>                 Institutional               Task-Based
+                 ────────────────            ────────────────────
+
+Global           Cross-project norms         Cross-project task patterns
+
+Project          Project conventions          Project task patterns
+
+Team             Team norms                   Team task learnings
+
+Human (proxy)    Human preferences            Human task patterns
+</code></pre></div>
+<p>The vertical axis (scope) is handled by the promotion chain — the mechanism that promotes durable learnings upward through team → session → project → global, filtering more aggressively at each level.</p>
+<p>The horizontal axis (type) determines storage and retrieval:</p>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Storage</th>
+<th>Retrieval</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Institutional</td>
+<td>Prose markdown file</td>
+<td>Always loaded at matching scope</td>
+</tr>
+<tr>
+<td>Task-based</td>
+<td>Chunked markdown files (YAML frontmatter)</td>
+<td>Fuzzy query against current task context</td>
+</tr>
+<tr>
+<td>Proxy preferential</td>
+<td>Prose file (<code>proxy.md</code>)</td>
+<td>Always loaded when proxy is active</td>
+</tr>
+<tr>
+<td>Proxy task-based</td>
+<td>Chunked files (<code>proxy-tasks/</code>)</td>
+<td>Fuzzy query against current decision context</td>
+</tr>
+</tbody>
+</table>
+<h2 id="learning-moments">Learning Moments</h2>
+<p>Four moments trigger learning writes, each capturing a different kind of signal:</p>
+<table>
+<thead>
+<tr>
+<th>Moment</th>
+<th>When</th>
+<th>Signal</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Prospective</strong></td>
+<td>Before execution</td>
+<td>Retrieval of relevant prior learnings; useful retrievals get confidence boost</td>
+</tr>
+<tr>
+<td><strong>In-flight</strong></td>
+<td>At milestones</td>
+<td>Assumption checkpoints; disconfirmed assumptions amplify corrective signal</td>
+</tr>
+<tr>
+<td><strong>Corrective</strong></td>
+<td>At mismatch</td>
+<td>Highest confidence — direct evidence of model error with recoverable causal chain</td>
+</tr>
+<tr>
+<td><strong>Retrospective</strong></td>
+<td>After completion</td>
+<td>Synthesized learnings promoted through the chain</td>
+</tr>
+</tbody>
+</table>
+<p>Corrective learnings are the most valuable because they come with causal chains: what went wrong, why, and what would have prevented it. Corrective learnings receive higher importance weight (0.8) than single-observation learnings (0.5) to reflect this. Reinforcement tracking — boosting confidence on learnings that prove useful across sessions — is wired into the post-session pipeline: <code>extract_learnings()</code> calls <code>reinforce_entries()</code> to increment <code>reinforcement_count</code> for entries that were retrieved and used during the session.</p>
+<h2 id="promotion-chain">Promotion Chain</h2>
+<p>The promotion chain moves learnings upward within type — institutional never becomes task-based, proxy never becomes institutional:</p>
+<div class="highlight"><pre><span></span><code>Team institutional.md  ──promotes──&gt;  Project institutional.md  ──promotes──&gt;  Global institutional.md
+Team tasks/            ──promotes──&gt;  Project tasks/            ──promotes──&gt;  Global tasks/
+</code></pre></div>
+<p>Each step filters more aggressively: team → project requires patterns that held across multiple sessions; project → global requires project-agnostic patterns. Proxy learnings do not promote upward (they describe a specific human).</p>
+<p>After each completed session, the system orchestrates extraction across multiple scopes: streams (observations, escalation, intent-alignment), rollups (team, session, project, global), and temporal (prospective, in-flight, corrective). Each scope extracts structured entries with YAML frontmatter, filtering for the patterns that are durable enough to warrant promotion. The <code>promote()</code> function in <code>summarize_session.py</code> implements all 7 rollup and temporal scopes, wired into <code>learnings.py</code> via <code>_call_promote()</code>. Post-write compaction via <code>_try_compact()</code> is called for session, project, and global scopes. All rollup scopes (team, session, project, global) and temporal scopes (prospective, in-flight, corrective) are implemented.</p>
+<h2 id="retrieval-architecture">Retrieval Architecture</h2>
+<p>The retrieval architecture is inspired by <a href="https://github.com/openclaw/openclaw">OpenClaw</a> (Steinberger et al., 2025-2026), the open-source Claude agent that pioneered file-first agentic memory with hybrid retrieval. OpenClaw's core design — Markdown as source of truth, SQLite as derived index, hybrid BM25 + vector search (70% vector / 30% keyword) — provides the retrieval foundation.</p>
+<p>TeaParty adapts this architecture in three ways:
+1. <strong>Learning type differentiation</strong> replaces OpenClaw's undifferentiated memory files — institutional learnings are always loaded, task-based learnings are fuzzy-retrieved, and the two never compete for the same budget.
+2. <strong>Hierarchical scope with promotion</strong> replaces OpenClaw's flat per-agent model — a team-level chunk should score higher than a global chunk at equal similarity, because it was generated closer to the current context.
+3. <strong>Four learning moments</strong> replace OpenClaw's single write-on-compaction trigger — learnings are captured at the points where signal is strongest, not just when the context window is about to overflow.</p>
+<p>The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extracted by Zilliz as a standalone library, providing chunking, embedding, indexing, and hybrid score fusion. See <code>projects/agentic-memory/</code> for the detailed research on OpenClaw's architecture and how it was adapted. The retrieval layer provides an importable <code>retrieve()</code> function in <code>memory_indexer.py</code> with hybrid BM25 search, optional scope weighting, and top-k result selection.</p>
+<h2 id="relationship-to-other-pillars">Relationship to Other Pillars</h2>
+<p><strong><a href="../intent-engineering/">Intent engineering</a></strong> is the first consumer of proxy learnings. Warm-start pre-population draws from the proxy model. Corrections to pre-populated intent are high-value write signals. Background extraction after intent approval is not yet wired (<a href="https://github.com/dlewissandy/teaparty/issues/45">#45</a>).</p>
+<p><strong><a href="../strategic-planning/">Strategic planning</a></strong> is the second consumer. Task-based learnings inform decomposition; institutional learnings inform coordination. Plans that succeed graduate into reusable skills — the highest-value form of procedural learning.</p>
+<p><strong><a href="../hierarchical-teams/">Hierarchical teams</a></strong> create the scoping problem that learning solves. Each team's context is bounded by its role, but the organization's values and conventions must still reach every agent. Learning bridges this gap through scoped retrieval.</p>
+<p><strong><a href="../human-proxies/">Human proxies</a></strong> are the primary consumer of proxy learning. The proxy's escalation model is one of the highest-value things the memory system stores.</p>
+<h2 id="open-questions">Open Questions</h2>
+<p><strong>Retrieval budget.</strong> How to inject fuzzy-retrieved task learnings into agent context without exceeding token budgets or diluting signal. OpenClaw's approach (top-N chunks by hybrid score) is the starting point, but scope weighting (team-level chunks scoring higher than global) needs empirical tuning.</p>
+<p><strong>Confidence and decay.</strong> The design calls for FadeMem-style temporal decay — learnings that are reinforced persist, learnings that are contradicted or unused fade. The right decay rate is unknown: too aggressive and hard-won learnings disappear, too conservative and the store fills with stale observations.</p>
+<p><strong>In-flight learning.</strong> Capturing assumption checkpoints at milestones during execution requires integration into the execution phase — identifying what assumptions the plan rests on and verifying them as work proceeds.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

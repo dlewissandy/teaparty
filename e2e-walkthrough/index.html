@@ -1,0 +1,1838 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="../experimental-results/">
+      
+      
+        <link rel="next" href="../experimental-results/cfa-backtrack-effectiveness/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>End-to-End Walkthrough - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#end-to-end-walkthrough" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              End-to-End Walkthrough
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Prompt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-intent-capture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Intent Capture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1: Intent Capture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dialog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-intent-team-added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the intent team added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-planning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Planning
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2: Planning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dialog_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-planning-team-produced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the planning team produced
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-execution-hierarchical-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Execution — Hierarchical Dispatch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3: Execution — Hierarchical Dispatch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#research-dispatches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research dispatches
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cfa-state-machine-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CfA State Machine Trace
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-demonstrates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What This Demonstrates
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Prompt
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-1-intent-capture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Intent Capture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 1: Intent Capture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dialog" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-intent-team-added" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the intent team added
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-2-planning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Planning
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 2: Planning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#dialog_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dialog
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-the-planning-team-produced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the planning team produced
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-3-execution-hierarchical-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Execution — Hierarchical Dispatch
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Phase 3: Execution — Hierarchical Dispatch">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#research-dispatches" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Research dispatches
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-4-results" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Results
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cfa-state-machine-trace" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CfA State Machine Trace
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-this-demonstrates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What This Demonstrates
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="end-to-end-walkthrough">End-to-End Walkthrough</h1>
+<div class="admonition note">
+<p class="admonition-title">Live session</p>
+<p>This walkthrough follows a real TeaParty session: project <strong>humor-book</strong>, session <strong>20260315-171017</strong>. The session orchestrated a multi-chapter popular non-fiction book on the universal nature of humor.</p>
+</div>
+<p>This page traces a single session from the user's one-sentence prompt through intent capture, planning, hierarchical dispatch, and execution — showing how the four pillars (CfA protocol, hierarchical teams, human proxy, and learning system) work together in practice.</p>
+<hr />
+<h2 id="the-prompt">The Prompt</h2>
+<p>The session began with a single natural-language request:</p>
+<blockquote>
+<p><em>I would like a book on the universal nature of humor. There are certain types of humor that transcend time, culture and language (e.g. comedy wildlife photos, physical humor, affiliative humor, etc). This is a 5-7 chapter book, targeting armchair enthusiasts, and should explore this phenomena across cultural, temporal, language, belief, and technological boundaries. Thesis: Humor is what unites us.</em></p>
+</blockquote>
+<p>From this, the orchestrator ran the full CfA lifecycle.</p>
+<hr />
+<h2 id="phase-1-intent-capture">Phase 1: Intent Capture</h2>
+<p>The CfA state machine began at <strong>IDEA</strong> and the intent team's job was to turn the prompt into a complete <a href="e2e/INTENT.md">INTENT.md</a> — a document precise enough that a planning team could work from it without guessing, but scoped only to <em>what</em> and <em>why</em>, never <em>how</em>.</p>
+<p>The intent agent checked for prior work (none — clean slate), then engaged the human with two targeted questions via <code>AskQuestion</code>. Notice the agent does not ask a battery of questions. It identifies the two most consequential structural ambiguities in the prompt, asks them one at a time, and writes the intent as soon as it has what it needs.</p>
+<h3 id="dialog">Dialog</h3>
+<p><strong>Agent:</strong> <em>No prior work to build on — clean slate. Let me engage you directly on the most consequential structural question before writing the intent.</em></p>
+<blockquote>
+<p><strong>Agent asks (AskQuestion):</strong></p>
+<p>The most important structural decision for this book is how to organize its chapters — and two very different architectures are possible:</p>
+<p><strong>Option A — Organized by <em>type</em> of humor</strong> (each chapter = a category of universal comedy)
+e.g., Ch1: Physical/slapstick, Ch2: Absurdism, Ch3: Affiliative/in-group humor...
+Each chapter then explores <em>why</em> that type travels across cultures, time, and language.</p>
+<p><strong>Option B — Organized by <em>boundary crossed</em></strong> (each chapter = a dimension of universality)
+e.g., Ch1: Humor across cultures, Ch2: Humor across time, Ch3: Humor across language...
+Each chapter draws on many <em>types</em> of humor to make its case about that particular boundary.</p>
+<p><strong>Option C — Hybrid:</strong> A framing chapter + thematic core + boundary-crossing synthesis.</p>
+<p>Which architecture feels right to you — or is there a different structure you had in mind?</p>
+</blockquote>
+<p><strong>Human:</strong> I think organized by type works.</p>
+<blockquote>
+<p><strong>Agent asks (AskQuestion):</strong></p>
+<p>Should the book <em>itself</em> be funny — written with wit, comic asides, and a playful voice (think Bill Bryson or Mary Roach) — or is it a warm but more straightforwardly analytical exploration, letting the <em>subject matter</em> carry the humor (think Malcolm Gladwell or Jonathan Haidt)?</p>
+<p>The former asks the writer to perform the thesis. The latter asks them to argue it. Both work — but they're very different briefs.</p>
+</blockquote>
+<p><strong>Human:</strong> I think playful like Mary Roach.</p>
+<p><strong>Agent:</strong> <em>Perfect. I have what I need. Writing the intent now.</em></p>
+<h3 id="what-the-intent-team-added">What the intent team added</h3>
+<p>From a four-sentence prompt, the intent team produced a <a href="e2e/INTENT.md">complete intent document</a> that added:</p>
+<ul>
+<li><strong>Structural constraint:</strong> Humor types are the organizing principle; boundaries are the lens through which each type is examined, not the chapter headings.</li>
+<li><strong>Voice model:</strong> Mary Roach — warm, irreverent, rigorous but never stiff. The book performs its own thesis.</li>
+<li><strong>Success criteria:</strong> Each chapter must include a non-Western example, a pre-20th-century example, and a counterexample that challenges its own premise.</li>
+<li><strong>Five open questions</strong> surfaced for the planning team to resolve: chapter lineup, prologue structure, word count, title, and visuals.</li>
+</ul>
+<p>The intent phase took approximately 5 minutes. The agent asked two questions. Both were <em>consequential</em> — they resolved ambiguities that would have produced fundamentally different books. The remaining decisions (chapter lineup, word count, title) were correctly deferred to the planning team as open questions.</p>
+<p><strong>CfA transitions:</strong> IDEA → PROPOSAL → INTENT_ASSERT (approved) → INTENT</p>
+<hr />
+<h2 id="phase-2-planning">Phase 2: Planning</h2>
+<p>With the intent approved, the planning team produced a <a href="../e2e/PLAN/">PLAN.md</a> that resolved all five open questions and defined a five-phase execution strategy.</p>
+<p>The planning agent read the intent, identified the open questions, and engaged the human in a focused dialog to resolve them. Like the intent agent, it brought proposals — not open-ended questions. Each question presented the agent's analysis and recommendation, asking the human to confirm or redirect.</p>
+<h3 id="dialog_1">Dialog</h3>
+<blockquote>
+<p><strong>Agent asks (AskQuestion):</strong></p>
+<p>I've read the brief carefully. The bones are excellent. [...] Here's what I'm seeing:</p>
+<p><em>Strong candidates for the open slots:</em>
+- <strong>The First Joke</strong> — peekaboo, object permanence, rats that laugh when tickled
+- <strong>The Pratfall of Power</strong> — comedy of the powerful brought low
+- <strong>Gallows Humor</strong> — challenges the universality thesis most directly, then vindicates it
+- <strong>Nonsense / Absurdism</strong> — humor that operates below language
+- <strong>The World's Oldest Joke</strong> — threaded through the archaeology of humor</p>
+<p>Three questions: (1) Which 2-3 of these excite you? (2) Are visuals in scope? (3) Title and prologue preference?</p>
+</blockquote>
+<p><strong>Human:</strong> Concretely, what is your first question?</p>
+<p>The human pushed back on the bundled question. The agent unbundled and asked them one at a time:</p>
+<blockquote>
+<p><strong>Agent asks:</strong> Of the open-slot chapter candidates, which 2-3 excite you most?</p>
+</blockquote>
+<p><strong>Human:</strong> That all looks good. Spam spam spam is a good example of absurdism.</p>
+<blockquote>
+<p><strong>Agent asks:</strong> The comedy wildlife photography chapter practically invites real photographs. Are visuals in scope, or is this a straight prose narrative?</p>
+</blockquote>
+<p><strong>Human:</strong> Prose narrative. I think we can group it with visual humor (editorial cartoons), the "I got your back" stick figure tee shirt image, etc.</p>
+<blockquote>
+<p><strong>Agent asks:</strong> Two quick structural questions: (1) Prologue vs. Chapter 1? My instinct is a short prologue that opens in the middle of something funny — joke first, thesis second. (2) Title: do you want the team to develop options?</p>
+</blockquote>
+<p><strong>Human:</strong> Yes. Knock, knock...</p>
+<p>The human's "knock, knock..." was both an approval and a creative direction — the prologue opens mid-joke, and the knock-knock format is itself a universal joke structure. The agent recognized both signals.</p>
+<h3 id="what-the-planning-team-produced">What the planning team produced</h3>
+<p>The <a href="../e2e/PLAN/">PLAN.md</a> resolved all five open questions:</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Question</th>
+<th>Resolution</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>Chapter lineup</td>
+<td>7 chapters confirmed (see below)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Prologue/epilogue</td>
+<td>Short prologue, opens mid-joke ("knock, knock...")</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Word count</td>
+<td>~7,000-9,000 words per chapter</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Title</td>
+<td>Team to develop 3-5 alternatives</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Visuals</td>
+<td>Prose narrative only</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Chapter lineup:</strong></p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>Working Title</th>
+<th>Humor Type</th>
+<th>Primary Boundary</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>P</td>
+<td><em>(Prologue)</em></td>
+<td>Setup/punchline as universal form</td>
+<td>Cultural</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Born Laughing</td>
+<td>Biology of laughter; peekaboo; rats</td>
+<td>Cultural (pre-cultural)</td>
+</tr>
+<tr>
+<td>2</td>
+<td>The Oldest Joke in the World</td>
+<td>Archaeology of humor; Sumerian to Roman</td>
+<td>Temporal</td>
+</tr>
+<tr>
+<td>3</td>
+<td>Banana Peels and Power</td>
+<td>Slapstick + status reversal</td>
+<td>Cultural + temporal</td>
+</tr>
+<tr>
+<td>4</td>
+<td>You Had to Be There</td>
+<td>Affiliative/in-group; roasting; belonging</td>
+<td>Belief</td>
+</tr>
+<tr>
+<td>5</td>
+<td>The Last Laugh</td>
+<td>Gallows humor; comedy from disaster</td>
+<td>Belief + cultural</td>
+</tr>
+<tr>
+<td>6</td>
+<td>Silence Is Funny</td>
+<td>Visual humor: wildlife photos, cartoons, wordless gags</td>
+<td>Linguistic + technological</td>
+</tr>
+<tr>
+<td>7</td>
+<td>Spam Spam Spam</td>
+<td>Absurdism/nonsense; humor below language</td>
+<td>Linguistic; synthesis</td>
+</tr>
+</tbody>
+</table>
+<p>The plan defined a five-phase execution strategy: Research → Specification → Production → Editorial → Verification. Each phase has explicit done-criteria and escalation conditions.</p>
+<p>The planning phase took approximately 16 minutes. The proxy approved the plan at PLAN_ASSERT.</p>
+<p><strong>CfA transitions:</strong> INTENT → DRAFT → PLAN_ASSERT (approved) → PLAN</p>
+<hr />
+<h2 id="phase-3-execution-hierarchical-dispatch">Phase 3: Execution — Hierarchical Dispatch</h2>
+<p>With the plan approved, the state machine transitioned to PLAN → TASK via <code>delegate</code>, triggering hierarchical dispatch. The uber team decomposed Phase 1 (Research) into eight parallel research tracks — one per chapter including the prologue — and dispatched each to its own worktree.</p>
+<p>Each research dispatch:</p>
+<ul>
+<li>Created an isolated git worktree for its work</li>
+<li>Ran its own CfA cycle (intent → plan → execute) within that worktree</li>
+<li>Used the proxy for all assert gates (<code>never_escalate=True</code>) — no human involvement</li>
+<li>Received a scoped task brief from the uber team (context compression at the hierarchy boundary)</li>
+</ul>
+<p>The screenshot below shows the TUI workspace during the execution phase. The top pane displays the original prompt and the session's CfA state history — each transition from IDEA through PLAN is visible. The middle pane shows the uber team's execution stream: it has read the approved plan, decomposed Phase 1 (Research) into eight parallel tracks, and is dispatching each to its own worktree. The system confirmations show the proxy evaluating and approving each research brief's intent and plan autonomously — no human involvement. The status bar at the bottom shows the session in the TASK state with eight active dispatches.</p>
+<p><img alt="TUI workspace showing eight parallel research dispatches running" src="../e2e/e2e%20workspace.png" /></p>
+<h3 id="research-dispatches">Research dispatches</h3>
+<table>
+<thead>
+<tr>
+<th>Dispatch</th>
+<th>Chapter</th>
+<th>Task</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>20260315-173223</td>
+<td>Prologue</td>
+<td>Research brief: cognitive mechanisms, cross-cultural examples, opening joke candidates</td>
+</tr>
+<tr>
+<td>20260315-173232</td>
+<td>Ch 1: Born Laughing</td>
+<td>Research brief: biology of laughter, infant laughter, Panksepp rat experiments</td>
+</tr>
+<tr>
+<td>20260315-173240</td>
+<td>Ch 2: The Oldest Joke</td>
+<td>Research brief: archaeology of humor, Sumerian to Roman</td>
+</tr>
+<tr>
+<td>20260315-173257</td>
+<td>Ch 3: Banana Peels and Power</td>
+<td>Research brief: slapstick, status reversal</td>
+</tr>
+<tr>
+<td>20260315-173303</td>
+<td>Ch 4: You Had to Be There</td>
+<td>Research brief: affiliative humor, in-group bonding</td>
+</tr>
+<tr>
+<td>20260315-173318</td>
+<td>Ch 5: The Last Laugh</td>
+<td>Research brief: gallows humor, comedy from disaster</td>
+</tr>
+<tr>
+<td>20260315-173351</td>
+<td>Ch 6: Silence Is Funny</td>
+<td>Research brief: visual humor, wordless comedy</td>
+</tr>
+<tr>
+<td>20260315-173433</td>
+<td>Ch 7: Spam Spam Spam</td>
+<td>Research brief: absurdism, nonsense traditions</td>
+</tr>
+</tbody>
+</table>
+<!-- TODO: Add results as research dispatches complete — sample research brief,
+     proxy decisions at TASK_ASSERT, worktree merge details -->
+
+<hr />
+<h2 id="phase-4-results">Phase 4: Results</h2>
+<!-- TODO: Show what the research teams produced.
+     Include:
+     - Sample research brief (pick the most interesting chapter)
+     - How worktree merges brought results back to the session branch
+     - Any proxy decisions at TASK_ASSERT (approved/corrected)
+     - Token usage and cost across the full session
+-->
+
+<hr />
+<h2 id="cfa-state-machine-trace">CfA State Machine Trace</h2>
+<p>The session's full state history, from the CfA log:</p>
+<table>
+<thead>
+<tr>
+<th>Time (UTC)</th>
+<th>State</th>
+<th>Action</th>
+<th>Actor</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>00:10:17</td>
+<td>IDEA</td>
+<td>propose</td>
+<td>human</td>
+</tr>
+<tr>
+<td>00:14:56</td>
+<td>PROPOSAL</td>
+<td>assert</td>
+<td>human</td>
+</tr>
+<tr>
+<td>00:15:54</td>
+<td>INTENT_ASSERT</td>
+<td>approve</td>
+<td>intent_team</td>
+</tr>
+<tr>
+<td>00:15:59</td>
+<td>INTENT</td>
+<td>plan</td>
+<td>human</td>
+</tr>
+<tr>
+<td>00:29:27</td>
+<td>DRAFT</td>
+<td>assert</td>
+<td>planning_team</td>
+</tr>
+<tr>
+<td>00:31:51</td>
+<td>PLAN_ASSERT</td>
+<td>approve</td>
+<td>planning_team</td>
+</tr>
+<tr>
+<td>00:31:51</td>
+<td>PLAN</td>
+<td>delegate</td>
+<td>human</td>
+</tr>
+</tbody>
+</table>
+<!-- TODO: Add execution-phase transitions as they complete -->
+
+<hr />
+<h2 id="what-this-demonstrates">What This Demonstrates</h2>
+<!-- TODO: Tie the walkthrough back to the four pillars:
+     1. CfA Protocol — how the state machine guided the session through intent -> plan -> execution
+        without prescriptive prompts; the agents chose their own transitions
+     2. Hierarchical Teams — how 8 parallel research teams worked independently in worktrees,
+        coordinated by the uber team, with context compression at boundaries
+     3. Human Proxy — how the proxy agent handled assert gates autonomously for subteams
+        (never_escalate), while the top-level gates involved the human
+     4. Learning System — what learnings were extracted post-session and how they'll inform
+        future sessions on similar tasks
+-->
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

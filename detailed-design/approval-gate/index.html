@@ -1,0 +1,1623 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="../cfa-state-machine/">
+      
+      
+        <link rel="next" href="../learning-system/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Approval Gate - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#approval-gate-and-human-proxy" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Approval Gate
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#never-escalate-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Never-escalate states
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-retrieval-backed-question-answering-is-the-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Retrieval-Backed Question Answering Is the Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-proxy-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Proxy Agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approvalgate-assert-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ApprovalGate (ASSERT states)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#escalationlistener-askquestion-mcp-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EscalationListener (AskQuestion MCP tool)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#statistical-pre-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statistical Pre-Filters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Statistical Pre-Filters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#confidence-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confidence computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learning-from-outcomes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning from Outcomes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#never-escalate-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Never-escalate states
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-retrieval-backed-question-answering-is-the-priority" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Retrieval-Backed Question Answering Is the Priority
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-proxy-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Proxy Agent
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#approvalgate-assert-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ApprovalGate (ASSERT states)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#escalationlistener-askquestion-mcp-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        EscalationListener (AskQuestion MCP tool)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#statistical-pre-filters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Statistical Pre-Filters
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Statistical Pre-Filters">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#confidence-computation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Confidence computation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#learning-from-outcomes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Learning from Outcomes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implementation-status" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation Status
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Implementation Status">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="approval-gate-and-human-proxy">Approval Gate and Human Proxy</h1>
+<p>Every question that needs a human decision follows one path:</p>
+<ol>
+<li><strong>Statistical pre-filters</strong> — cold start, staleness, content checks, exploration rate</li>
+<li><strong>If stats say escalate</strong> → skip the proxy agent, go straight to the human</li>
+<li><strong>If stats pass</strong> → invoke the <strong>proxy agent</strong> (a Claude session with file-read tools and learned patterns)</li>
+<li><strong>Proxy agent generates text + confidence</strong> — what it predicts the human would say</li>
+<li><strong>If confident</strong> → the agent's text IS the answer</li>
+<li><strong>If not confident</strong> → the same question goes to the human</li>
+<li><strong>Both predicted text and actual text feed into learning</strong></li>
+</ol>
+<p>This is implemented in <code>proxy_agent.py:consult_proxy()</code> — the single entry point for all proxy decisions. <code>ApprovalGate</code> (artifact review at ASSERT states) and <code>EscalationListener</code> (agent questions via AskQuestion MCP tool) both use it.</p>
+<h3 id="never-escalate-states">Never-escalate states</h3>
+<p>TASK_ASSERT and TASK_ESCALATE are marked as <strong>never-escalate</strong>: the proxy still runs through the full path (statistical filters, agent invocation, confidence check) but if it's not confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. The human should never be interrupted for task-level review during execution — that would defeat the purpose of hierarchical delegation.</p>
+<hr />
+<h2 id="why-retrieval-backed-question-answering-is-the-priority">Why Retrieval-Backed Question Answering Is the Priority</h2>
+<p>Park et al. (2024) built AI agents representing 1,052 real people from two-hour qualitative interviews. Those agents replicated individual survey responses with <strong>85% accuracy</strong> using LLM in-context reasoning over interview transcripts — no explicit ML model, no fine-tuning, just retrieval + reasoning.</p>
+<p>This result is the empirical basis for the proxy's architecture. The proxy accumulates conversational data about the human — differential corrections, question patterns, behavioral rituals, gate decisions — and uses retrieval to surface relevant history when answering a new question. By contextualizing retrieval by CfA phase, task type, project, and concern category, the proxy can achieve reasonable prediction accuracy at low cost — without fine-tuning, without a separate ML model, just scoped retrieval and LLM reasoning over accumulated interactions.</p>
+<p>This explains the priority ordering:</p>
+<ol>
+<li>
+<p><strong>Retrieval-backed prediction is the path to autonomy.</strong> A proxy that predicts correctly most of the time handles most human involvement automatically. Each escalation produces a new differential that improves future predictions — the system gets better with use.</p>
+</li>
+<li>
+<p><strong>The differential is the highest-value learning signal.</strong> Salemi &amp; Zamani (2024, Fermi) showed that misaligned responses — where the model predicted incorrectly — are more valuable for learning than correct predictions. Every proxy prediction that diverges from the human's actual answer tells the system exactly where its model is wrong.</p>
+</li>
+</ol>
+<hr />
+<h2 id="the-proxy-agent">The Proxy Agent</h2>
+<p><code>proxy_agent.py:consult_proxy()</code> is the single proxy invocation path:</p>
+<ol>
+<li><strong>Proxy disabled?</strong> → return empty result (experiment baseline)</li>
+<li><strong>Elapsed-time guard</strong>: TASK_ASSERT and WORK_ASSERT — if execution phase ran &lt; 120 seconds, skip agent, escalate</li>
+<li><strong>Load proxy model</strong> and tier 1 patterns (<code>proxy-patterns.md</code>), tier 2 interactions (<code>.proxy-interactions.jsonl</code>)</li>
+<li><strong>Statistical pre-filters</strong> via <code>should_escalate()</code> — if stats say escalate, return empty result (no agent needed)</li>
+<li><strong>Invoke proxy agent</strong> via <code>run_proxy_agent()</code> — a Claude CLI session with file-read tools. The agent receives:</li>
+<li>The gate question (e.g., "Do you recognize this as your idea?")</li>
+<li>The artifact path and upstream context paths (INTENT.md, PLAN.md)</li>
+<li>Learned behavioral patterns and similar past interactions</li>
+<li>Dialog history (for multi-turn conversations)</li>
+<li><strong>Agent returns</strong> text (what the human would say) + confidence (0.0–1.0)</li>
+</ol>
+<p>The caller (<code>ApprovalGate._ask_human_through_proxy</code>) decides based on confidence:
+- confidence &gt;= <code>PROXY_AGENT_CONFIDENCE_THRESHOLD</code> (0.8) → agent's text is the answer
+- confidence &lt; threshold AND state in <code>_NEVER_ESCALATE_STATES</code> → agent's text is still the answer (or 'Approved.' if empty)
+- confidence &lt; threshold → escalate to the actual human</p>
+<hr />
+<h2 id="approvalgate-assert-states">ApprovalGate (ASSERT states)</h2>
+<p><code>ApprovalGate.run()</code> in <code>actors.py</code>. Invoked by <code>engine.py</code> at states where all outgoing CfA transitions have actor <code>human</code> or <code>approval_gate</code>: INTENT_ASSERT, PLAN_ASSERT, TASK_ASSERT, TASK_ESCALATE, and WORK_ASSERT.</p>
+<p>ONE loop. Every turn: ask the human through the proxy. Classify the response. If terminal, done. If dialog, loop.</p>
+<p><strong>Gate questions</strong> (<code>_GATE_QUESTIONS</code>):
+- INTENT_ASSERT: "Do you recognize this as your idea, completely and accurately articulated?"
+- PLAN_ASSERT: "Do you recognize this as a strategic plan to operationalize your idea well?"
+- TASK_ASSERT: "Does this work look like your task, correctly executed?"
+- WORK_ASSERT: "Do you recognize the deliverables and project files as your idea, completely and well implemented?"</p>
+<p><strong>Flow:</strong></p>
+<ol>
+<li>Call <code>_ask_human_through_proxy()</code> with the gate question</li>
+<li><code>consult_proxy()</code> runs the full path (stats → agent → confidence check → maybe human)</li>
+<li>Classify the response via <code>_classify_review()</code> (Haiku LLM call). Valid actions derived from CfA state machine per state.</li>
+<li>If <code>dialog</code> or <code>__fallback__</code> → generate contextual reply via <code>_generate_dialog_response()</code> (Haiku), append to dialog history, loop back to step 1</li>
+<li>If dialog occurred and final action is <code>approve</code> → convert to <code>correct</code> with the dialog as feedback, so the agent gets another pass with the human's context</li>
+<li>Record outcome via <code>_proxy_record()</code> + <code>_log_interaction()</code>, return</li>
+</ol>
+<hr />
+<h2 id="escalationlistener-askquestion-mcp-tool">EscalationListener (AskQuestion MCP tool)</h2>
+<p><code>EscalationListener._route_through_proxy()</code> in <code>escalation_listener.py</code>. Invoked when an agent calls the <code>AskQuestion</code> MCP tool during its turn. The agent is still running — the answer returns as a tool result in the same turn.</p>
+<p>Uses the same <code>consult_proxy()</code> path as ApprovalGate.</p>
+<hr />
+<h2 id="statistical-pre-filters">Statistical Pre-Filters</h2>
+<p><code>should_escalate()</code> in <code>approval_gate.py</code>. Returns <code>ProxyDecision</code>. Decision rules in priority order:</p>
+<ol>
+<li><strong>Cold start guard</strong>: &lt; 5 observations for this (state, task_type) pair → escalate</li>
+<li><strong>[CONFIRM:] markers</strong>: artifact contains unresolved <code>[CONFIRM:...]</code> markers → escalate unconditionally</li>
+<li><strong>Content checks</strong> (<code>_check_content()</code>):</li>
+<li>Length anomaly: artifact &lt; 50% or &gt; 200% of historical mean</li>
+<li>Principle violation (Phase 2a): past corrections with reasoning — artifact doesn't contain keywords from the human's stated standard</li>
+<li>Keyword match (Phase 2a fallback): correction summary keywords appear in the artifact</li>
+<li>Concern patterns (Phase 2b): concern categories raised &gt;= 2 times, artifact doesn't contain concern vocabulary</li>
+<li><strong>Tier 1 pattern match</strong>: <code>proxy-patterns.md</code> — artifact doesn't address known correction patterns (&lt; 30% keyword coverage)</li>
+<li><strong>Tier 2 retrieval</strong>: <code>.proxy-interactions.jsonl</code> — &gt; 50% of last 5 similar interactions resulted in corrections</li>
+<li><strong>Confidence threshold</strong>: confidence &lt; threshold → escalate. ASSERT states require 0.8; generative states require 0.95</li>
+<li><strong>Staleness guard</strong>: &gt; 7 days since last human signal → escalate</li>
+<li><strong>Prediction drift</strong>: prediction accuracy below 50% (min 5 predictions) → escalate</li>
+<li><strong>Exploration rate</strong>: 15% random escalation even when confident</li>
+<li><strong>Auto-approve</strong>: all checks passed → proxy agent runs</li>
+</ol>
+<h3 id="confidence-computation">Confidence computation</h3>
+<p><code>compute_confidence()</code> = min(Laplace, EMA):
+- <strong>Laplace</strong>: <code>(approve_count + 1) / (total_count + 2)</code>
+- <strong>EMA</strong> (alpha=0.3): approval → +1 step; correction → -3 steps (asymmetric regret, REGRET_WEIGHT=3)</p>
+<hr />
+<h2 id="learning-from-outcomes">Learning from Outcomes</h2>
+<p><code>record_outcome()</code> records after every decision:</p>
+<ul>
+<li>Counter increments (approve, correct, reject, total)</li>
+<li>EMA update</li>
+<li><strong>Text differentials</strong>: what the human changed, with the proxy's prediction as <code>predicted_response</code></li>
+<li><strong>Artifact lengths</strong>: historical char counts (max 20)</li>
+<li><strong>Question patterns</strong>: extracted questions with concern category (max 20)</li>
+<li><strong>Prediction accuracy</strong>: <code>prediction_correct_count</code> / <code>prediction_total_count</code></li>
+</ul>
+<p>Concern vocabulary: error_handling, rollback, security, idempotency, testing, documentation, sequencing, external_dependencies.</p>
+<hr />
+<h2 id="implementation-status">Implementation Status</h2>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Status</th>
+<th>Issue</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AskQuestion MCP tool replaces file-based escalation</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/137">#137</a></td>
+</tr>
+<tr>
+<td>Proxy is a real Claude agent with tools</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/139">#139</a></td>
+</tr>
+<tr>
+<td>Differential recording (proxy prediction vs. human actual)</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/138">#138</a></td>
+</tr>
+<tr>
+<td>Alignment validation questions at gates</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/102">#102</a></td>
+</tr>
+<tr>
+<td>Cold-start intake dialog (Phase 1)</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/125">#125</a></td>
+</tr>
+<tr>
+<td>Retrieval-backed prediction (tier 1 patterns + tier 2 interactions)</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/11">#11</a></td>
+</tr>
+<tr>
+<td>Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE)</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/139">#139</a></td>
+</tr>
+<tr>
+<td>Unified proxy path (consult_proxy for all entry points)</td>
+<td>Done</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/143">#143</a></td>
+</tr>
+<tr>
+<td>Intake dialog Phases 2–3 (prediction-comparison, rituals)</td>
+<td>Design target</td>
+<td><a href="https://github.com/dlewissandy/teaparty/issues/125">#125</a></td>
+</tr>
+<tr>
+<td>Text derivative learning (proxy self-assessment)</td>
+<td>Design target</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3 id="references">References</h3>
+<ul>
+<li>Park, J. S. et al. (2024). Generative agent simulations of 1,000 people. <em>arXiv:2411.10109</em>. 85% accuracy from conversational data + LLM reasoning.</li>
+<li>Salemi, A. &amp; Zamani, H. (2024). Few-shot personalization of LLMs with mis-aligned responses — Fermi. <em>arXiv:2406.18678</em>. Misaligned responses are the highest-value learning signal.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

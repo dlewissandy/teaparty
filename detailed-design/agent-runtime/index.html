@@ -1,0 +1,1614 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="../">
+      
+      
+        <link rel="next" href="../cfa-state-machine/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Agent Runtime - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agent-runtime" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agent Runtime
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#design-choice-claude-code-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Choice: Claude Code CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orchestrator-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Orchestrator Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Invocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Definitions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hierarchical-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchical Dispatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#design-choice-claude-code-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Design Choice: Claude Code CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#orchestrator-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Orchestrator Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cli-invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI Invocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-definitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Definitions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hierarchical-dispatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hierarchical Dispatch
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#phase-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#session-lifecycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Session Lifecycle
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#key-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Key Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agent-runtime">Agent Runtime</h1>
+<h2 id="design-choice-claude-code-cli">Design Choice: Claude Code CLI</h2>
+<p>All agent invocations go through <code>claude -p</code> — the Claude Code CLI in pipe mode. The CLI provides agent teams, tool use, permission modes, session persistence, and <code>stream-json</code> output as built-in capabilities. Using the CLI lets us move fast: we get multi-agent coordination, file system access, and tool orchestration without building any of it ourselves.</p>
+<p>The tradeoff is clear. The CLI is not a stable API — it's a product interface that can change between releases. A production system would replace CLI invocations with direct Anthropic API calls, reimplementing team coordination, tool dispatch, and permission enforcement at the application layer. For a research POC, the CLI's capabilities far outweigh the coupling risk.</p>
+<hr />
+<h2 id="orchestrator-architecture">Orchestrator Architecture</h2>
+<p>The agent runtime is the POC orchestrator (<code>projects/POC/orchestrator/</code>), which drives the CfA state machine through three phases:</p>
+<div class="highlight"><pre><span></span><code>Session.run()
+  └─ Orchestrator.run()
+       ├─ Start EscalationListener (Unix socket for AskQuestion MCP tool)
+       ├─ Intent phase    → AgentRunner → ClaudeRunner → claude -p (with --mcp-config)
+       │                    → ApprovalGate (INTENT_ASSERT)
+       ├─ Planning phase  → Skill lookup (System 1 fast path)
+       │                    ├─ Match found → write PLAN.md from skill, skip planning agent
+       │                    └─ No match   → AgentRunner → ClaudeRunner → claude -p
+       │                    → ApprovalGate (PLAN_ASSERT)
+       └─ Execution phase → AgentRunner → ClaudeRunner → claude -p
+                            → ApprovalGate (WORK_ASSERT)
+       └─ Stop EscalationListener
+</code></pre></div>
+<p>The orchestrator starts an <code>EscalationListener</code> before the first phase. This creates a Unix domain socket and builds an MCP server config that is passed to every <code>ClaudeRunner</code> invocation via <code>--mcp-config</code>. Agents can call the <code>AskQuestion</code> MCP tool to ask questions mid-turn — the question routes through the proxy, and the answer returns as a tool result without the agent exiting.</p>
+<p>Before entering cold-start planning, the orchestrator queries the skill library for matching skills (<a href="https://github.com/dlewissandy/teaparty/issues/97">#97</a>). When a skill matches, the skill template is written directly as <code>PLAN.md</code> and CfA advances to <code>PLAN_ASSERT</code>, bypassing the planning agent entirely. The human reviews the skill-as-plan at the approval gate. If corrected, the system falls back to the cold-start planning path (System 2).</p>
+<p>Each phase invokes an <strong>AgentRunner</strong> (which wraps <code>ClaudeRunner</code>) to run a Claude agent team, then routes to the <strong>ApprovalGate</strong> at assertion states for proxy review.</p>
+<hr />
+<h2 id="cli-invocation">CLI Invocation</h2>
+<p><code>ClaudeRunner</code> (<code>claude_runner.py</code>) builds and executes the subprocess command:</p>
+<div class="highlight"><pre><span></span><code>claude<span class="w"> </span>-p<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--output-format<span class="w"> </span>stream-json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--verbose<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--setting-sources<span class="w"> </span>user<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--permission-mode<span class="w"> </span>acceptEdits<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--agents<span class="w"> </span><span class="s1">&#39;&lt;team-definition-JSON&gt;&#39;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--agent<span class="w"> </span>intent-lead<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--settings<span class="w"> </span>/tmp/settings-overlay.json<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--add-dir<span class="w"> </span>/path/to/session/worktree<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--add-dir<span class="w"> </span>/path/to/project/dir<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--mcp-config<span class="w"> </span>/tmp/mcp-config.json
+</code></pre></div>
+<p>Key parameters:
+- <strong><code>--agents</code></strong> — team definition JSON (read from <code>agents/*.json</code>, with placeholder substitution for <code>__POC_DIR__</code> and <code>__SESSION_DIR__</code>)
+- <strong><code>--agent</code></strong> — which agent to start with (the team lead)
+- <strong><code>--permission-mode</code></strong> — per-phase permission level (<code>acceptEdits</code>, <code>plan</code>, <code>default</code>)
+- <strong><code>--settings</code></strong> — overlay for allowed/disallowed tools
+- <strong><code>--add-dir</code></strong> — directories visible to the agent (session worktree, project dir)
+- <strong><code>--output-format stream-json</code></strong> — real-time JSONL event stream
+- <strong><code>--mcp-config</code></strong> — MCP server configuration (provides the <code>AskQuestion</code> tool to agents)</p>
+<p>The prompt is passed via stdin. Agent output streams as JSONL to <code>.{phase}-stream.jsonl</code> files. A stall watchdog kills the process if no output arrives within the configured timeout (default 1800 seconds).</p>
+<p>Environment variables injected into every invocation:
+- <code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code>
+- <code>CLAUDE_CODE_MAX_OUTPUT_TOKENS=128000</code>
+- <code>POC_PROJECT</code>, <code>POC_PROJECT_DIR</code>, <code>POC_SESSION_DIR</code>, <code>POC_SESSION_WORKTREE</code></p>
+<hr />
+<h2 id="agent-definitions">Agent Definitions</h2>
+<p>Agent teams are defined in JSON files (<code>agents/*.json</code>). Each agent specifies:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>description</code></td>
+<td>When to use this agent (shown to other agents)</td>
+</tr>
+<tr>
+<td><code>prompt</code></td>
+<td>Full behavior instructions</td>
+</tr>
+<tr>
+<td><code>model</code></td>
+<td><code>sonnet</code>, <code>opus</code>, or <code>haiku</code></td>
+</tr>
+<tr>
+<td><code>maxTurns</code></td>
+<td>Turn limit before force-completion</td>
+</tr>
+<tr>
+<td><code>disallowedTools</code></td>
+<td>Tools this agent cannot use</td>
+</tr>
+</tbody>
+</table>
+<p>Teams are structured by phase:
+- <strong>Intent</strong>: <code>intent-team.json</code> — intent lead + research liaison
+- <strong>Planning/Execution</strong>: <code>uber-team.json</code> — project lead + one liaison per subteam (art, writing, editorial, research, coding)
+- <strong>Subteams</strong>: <code>coding-team.json</code>, <code>writing-team.json</code>, <code>art-team.json</code>, <code>research-team.json</code>, <code>editorial-team.json</code></p>
+<hr />
+<h2 id="hierarchical-dispatch">Hierarchical Dispatch</h2>
+<p>During execution, the project lead delegates tasks to subteams through liaison agents. Each liaison dispatches to its subteam by invoking <code>dispatch_cli.py</code> via the Bash tool:</p>
+<div class="highlight"><pre><span></span><code>python3<span class="w"> </span>-m<span class="w"> </span>projects.POC.orchestrator.dispatch_cli<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--team<span class="w"> </span>art<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--task<span class="w"> </span><span class="s2">&quot;Design the cover art&quot;</span>
+</code></pre></div>
+<p>Each dispatch:
+1. Creates an isolated <strong>dispatch worktree</strong> (child branch of the session branch)
+2. Initializes <strong>child CfA state</strong> linked to the parent via <code>make_child_state()</code> (carries parent_id, team_id, depth)
+3. Runs a <strong>child orchestrator</strong> with the subteam's agent file and lead, skipping intent (intent is inherited from parent)
+4. <strong>Auto-approves</strong> all review gates — <code>_NoInputProvider</code> returns <code>'approve'</code> for every request. No human interaction at the dispatch level.
+5. On failure, <strong>retries</strong> up to <code>max_dispatch_retries</code> (default 5) unless the failure is an escalation (which surfaces to the parent)
+6. On success, generates a commit message (LLM call via Haiku) and <strong>squash-merges</strong> results back into the parent session worktree
+7. Writes a <code>MEMORY.md</code> in the dispatch infra dir for the learning rollup chain
+8. Cleans up the dispatch worktree
+9. Returns JSON status: <code>status</code> (completed/failed), <code>exit_reason</code> (completed, plan_escalation, work_escalation, failed), <code>terminal_state</code>, <code>backtrack_count</code></p>
+<p>Process boundaries provide context isolation by design — each subteam runs in its own <code>claude -p</code> process with its own context window.</p>
+<p><strong>Issue <a href="https://github.com/dlewissandy/teaparty/issues/144">#144</a></strong> tracks replacing this subprocess-based dispatch with an <code>AskTeam</code> MCP tool — the same pattern as <code>AskQuestion</code>. Liaisons would call <code>AskTeam(team, task)</code> instead of invoking <code>dispatch_cli.py</code> via Bash. The orchestrator would manage the full subteam lifecycle (worktree, child CfA, merge, learning rollup) behind the tool call.</p>
+<hr />
+<h2 id="phase-configuration">Phase Configuration</h2>
+<p><code>phase-config.json</code> maps phases to agent files, leads, permission modes, artifact paths, and approval states:</p>
+<table>
+<thead>
+<tr>
+<th>Phase</th>
+<th>Agent File</th>
+<th>Lead</th>
+<th>Permission Mode</th>
+<th>Artifact</th>
+<th>Approval State</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Intent</td>
+<td><code>intent-team.json</code></td>
+<td><code>intent-lead</code></td>
+<td><code>acceptEdits</code></td>
+<td><code>INTENT.md</code></td>
+<td><code>INTENT_ASSERT</code></td>
+</tr>
+<tr>
+<td>Planning</td>
+<td><code>uber-team.json</code></td>
+<td><code>project-lead</code></td>
+<td><code>acceptEdits</code></td>
+<td><code>PLAN.md</code></td>
+<td><code>PLAN_ASSERT</code></td>
+</tr>
+<tr>
+<td>Execution</td>
+<td><code>uber-team.json</code></td>
+<td><code>project-lead</code></td>
+<td><code>acceptEdits</code></td>
+<td><code>.work-summary.md</code></td>
+<td><code>WORK_ASSERT</code></td>
+</tr>
+</tbody>
+</table>
+<p>Each phase configures a <code>settings_overlay</code> controlling which tools are allowed. Intent phase allows Write, Edit, WebFetch, WebSearch. Execution phase additionally allows SendMessage, Bash, Task, TaskOutput.</p>
+<p>Subteam overrides are configured in the <code>teams</code> section — each team specifies its agent file, lead, and optional planning permission mode (subteams use <code>plan</code> mode for tactical planning).</p>
+<hr />
+<h2 id="session-lifecycle">Session Lifecycle</h2>
+<p>The <code>Session</code> class (<code>session.py</code>) manages the full workflow:</p>
+<ol>
+<li>Classify task → derive project slug</li>
+<li>Ensure project directory and git repo exist</li>
+<li>Create session worktree (isolated branch from main)</li>
+<li>Copy context files (<code>--intent-file</code>, <code>--plan-file</code>) if provided</li>
+<li>Retrieve memory context (institutional memory, proxy preferences, fuzzy retrieval)</li>
+<li>Run orchestrator (CfA state loop)</li>
+<li>Commit deliverables</li>
+<li>Squash-merge session into main</li>
+<li>Extract learnings (10 scopes in parallel)</li>
+<li>Clean up session worktree</li>
+</ol>
+<p>Sessions can be resumed (<code>Session.resume_from_disk()</code>) by reloading CfA state, extracting Claude session IDs from stream JSONL files, and reconstructing actor data from the worktree.</p>
+<hr />
+<h2 id="key-files">Key Files</h2>
+<table>
+<thead>
+<tr>
+<th>File</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>orchestrator/__main__.py</code></td>
+<td>CLI entry point</td>
+</tr>
+<tr>
+<td><code>orchestrator/session.py</code></td>
+<td>Session lifecycle</td>
+</tr>
+<tr>
+<td><code>orchestrator/engine.py</code></td>
+<td>CfA state machine loop</td>
+</tr>
+<tr>
+<td><code>orchestrator/actors.py</code></td>
+<td>AgentRunner + ApprovalGate</td>
+</tr>
+<tr>
+<td><code>orchestrator/claude_runner.py</code></td>
+<td><code>claude -p</code> subprocess wrapper</td>
+</tr>
+<tr>
+<td><code>orchestrator/dispatch_cli.py</code></td>
+<td>Subteam dispatch entry point</td>
+</tr>
+<tr>
+<td><code>orchestrator/mcp_server.py</code></td>
+<td>AskQuestion MCP server (stdio)</td>
+</tr>
+<tr>
+<td><code>orchestrator/escalation_listener.py</code></td>
+<td>Unix socket bridge for AskQuestion → proxy → human</td>
+</tr>
+<tr>
+<td><code>orchestrator/phase_config.py</code></td>
+<td>Phase and team configuration loader</td>
+</tr>
+<tr>
+<td><code>orchestrator/procedural_learning.py</code></td>
+<td>Skill candidate archival and crystallization</td>
+</tr>
+<tr>
+<td><code>orchestrator/skill_lookup.py</code></td>
+<td>System 1 skill matching</td>
+</tr>
+<tr>
+<td><code>phase-config.json</code></td>
+<td>Phase/team/permission configuration</td>
+</tr>
+<tr>
+<td><code>agents/*.json</code></td>
+<td>Agent team definitions</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

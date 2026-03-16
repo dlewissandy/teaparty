@@ -1,0 +1,1715 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>TeaParty Architecture - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#teaparty-architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TeaParty Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#corporate-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Corporate Hierarchy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Corporate Hierarchy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#home" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Home
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#organization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Organization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workgroup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workgroup
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#partnerships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Partnerships
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#work-hierarchy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Work Hierarchy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Work Hierarchy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#job" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#project" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Project
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#engagement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engagement
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conversation-kinds" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conversation Kinds
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#human-interaction-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human Interaction Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Human Interaction Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-humans-can-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Humans Can Do
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-humans-cannot-do" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Humans Cannot Do
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Model
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Agent Model">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#agent-types" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent Types
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#workspace-and-filestore-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace and Filestore Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#technology-stack" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Technology Stack
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#further-reading" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Further Reading
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Further Reading">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#conceptual-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conceptual Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#detailed-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Detailed Design
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reference
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="teaparty-architecture">TeaParty Architecture</h1>
+<p>TeaParty is a platform where teams of humans and AI agents co-author files and collaborate in chat. A corporate hierarchy organizes all work, mirroring how real organizations operate: departments (workgroups) contain specialist agents, organizations coordinate across departments, and partnerships enable cross-organization collaboration.</p>
+<hr />
+<h2 id="corporate-hierarchy">Corporate Hierarchy</h2>
+<p>The corporate hierarchy is the organizing structure for workers. It determines who can talk to whom, who manages whom, and where work gets assigned.</p>
+<div class="highlight"><pre><span></span><code>Home
+  |
+  +-- Organization A
+  |     |
+  |     +-- Workgroup: Engineering
+  |     |     +-- agents: implementer, reviewer, ...
+  |     |     +-- jobs: &quot;fix login bug&quot;, &quot;add search&quot;, ...
+  |     |
+  |     +-- Workgroup: Design
+  |     |     +-- agents: designer, researcher, ...
+  |     |     +-- jobs: &quot;redesign dashboard&quot;, ...
+  |     |
+  |     +-- Workgroup: Administration (operations)
+  |           +-- agents: org-lead
+  |           +-- projects: &quot;Q1 product launch&quot; (cross-workgroup)
+  |
+  |     Partnerships: A -&gt; B (can engage B)
+  |
+  +-- Organization B
+        |
+        +-- Workgroup: Consulting
+              +-- agents: analyst, writer, ...
+</code></pre></div>
+<h3 id="home">Home</h3>
+<p>The top-level view for a human user. Home aggregates all organizations that a user owns or has been invited to participate in.</p>
+<ul>
+<li><strong>Lead agent</strong>: The home agent. Can create new organizations, establish partnerships between them, and help onboard users.</li>
+<li><strong>Scope</strong>: Cross-organization. The home agent sees all the user's organizations but does not see internal workgroup details.</li>
+<li><strong>One per user</strong>: Each human user has their own Home.</li>
+</ul>
+<h3 id="organization">Organization</h3>
+<p>The top-level corporate structure. An organization has a name, a description, members, workgroups, and partnerships with other organizations.</p>
+<ul>
+<li><strong>Lead agent</strong>: The org lead. Lives in the Administration workgroup (the designated operations workgroup). Can create projects, propose engagements to partnered organizations, onboard new workgroups, and coordinate cross-workgroup work.</li>
+<li><strong>Members</strong>: Humans invited to the organization. Membership grants visibility into the org's structure and the ability to interact with the org lead.</li>
+<li><strong>Administration workgroup</strong> (the designated <code>operations_workgroup</code> in the data model): Every organization has one. It is the operations hub -- the org lead lives here and handles incoming engagements, project coordination, and organizational management.</li>
+</ul>
+<h3 id="workgroup">Workgroup</h3>
+<p>The lower-level organizational unit. A workgroup is like a department -- it has a specific focus, a team of agents with relevant skills, and executes jobs assigned to it.</p>
+<ul>
+<li><strong>Lead agent</strong>: The workgroup lead. Can create jobs, onboard new agents, and manage the workgroup's work queue.</li>
+<li><strong>Agents</strong>: Specialist agents with defined roles, personalities, tools, and capabilities. They do the actual work within jobs.</li>
+<li><strong>Shared workspace</strong>: A virtual file store with documents, workflows, and configuration that all agents in the workgroup can access.</li>
+</ul>
+<h3 id="partnerships">Partnerships</h3>
+<blockquote>
+<p><strong>Note</strong>: Partnerships are a platform design — they describe behavior planned for <code>teaparty_app/</code> and are not yet implemented.</p>
+</blockquote>
+<p>Partnerships are directional trust links between organizations that enable cross-org collaboration.</p>
+<ul>
+<li><strong>Directional</strong>: A partnership from Org A to Org B means A can propose engagements to B. It does <strong>not</strong> mean B can propose engagements to A.</li>
+<li><strong>Mutual</strong>: Both directions must be established independently for mutual engagement capability.</li>
+<li><strong>Lifecycle</strong>: <code>proposed -&gt; accepted -&gt; active -&gt; revoked</code> (with <code>declined</code> branch from <code>proposed</code>)</li>
+<li><strong>No discovery required</strong>: Once a partnership exists, either side (in the permitted direction) can propose engagements directly, without going through a public directory.</li>
+</ul>
+<hr />
+<h2 id="work-hierarchy">Work Hierarchy</h2>
+<p>Work happens in three types of units. Each gets its own <strong>agent team</strong> (a Claude team session), its own <strong>workspace</strong>, and its own <strong>conversation</strong>.</p>
+<div class="highlight"><pre><span></span><code>Engagement (cross-org)          -- org leads collaborate
+  |
+  +-- Project (cross-workgroup) -- workgroup leads collaborate
+  |     |
+  |     +-- Job (single workgroup) -- workgroup agents execute
+  |     +-- Job
+  |
+  +-- Job (direct dispatch)     -- sometimes no project is needed
+</code></pre></div>
+<h3 id="job">Job</h3>
+<p>The atomic unit of work. A job happens within a single workgroup and is executed by that workgroup's agents as an independent Claude Code team session.</p>
+<ul>
+<li><strong>Agent team</strong>: A Claude Code team session with the workgroup's agents, led by the workgroup lead. The job team has no knowledge of any team above it -- it receives a scoped task description and produces artifacts.</li>
+<li><strong>Workspace</strong>: Each job gets its own isolated workspace (a worktree or copy branched from the workgroup's shared files). This is critical when multiple jobs within a project or engagement modify the same files -- isolation prevents clobbering. Completed jobs merge their changes back.</li>
+<li><strong>Linkage</strong>: Jobs carry an optional <code>engagement_id</code> and <code>project_id</code> to trace back to the engagement or project that spawned them.</li>
+<li><strong>Created by</strong>: A liaison agent (when dispatching from a project), org lead (direct dispatch), or a human participant. Liaisons create jobs via the <code>relay_to_subteam</code> tool.</li>
+<li><strong>Lifecycle</strong>: <code>in_progress -&gt; completed | cancelled</code></li>
+<li><strong>Conversation</strong>: A chat where the agents discuss, plan, and execute. Humans can participate. The conversation is backed by a persistent Claude Code team session.</li>
+<li><strong>Configuration</strong>: Team parameters (model, permission mode, max turns, cost/time limits) are inherited from the workgroup defaults, optionally overridden by the parent project.</li>
+</ul>
+<h3 id="project">Project</h3>
+<p>Cross-workgroup collaboration within a single organization. A project runs as a <strong>hierarchical agent team</strong>: the project-level team (org lead + liaison agents) coordinates independent job-level teams (workgroup agents) in each participating workgroup. See <a href="../hierarchical-teams/">hierarchical-teams.md</a>.</p>
+<ul>
+<li><strong>Agent team</strong>: A Claude Code team session with the org lead as team lead and one <strong>liaison agent</strong> per participating workgroup. Liaisons are ephemeral -- they exist only in the team session, not as persistent Agent records. Each liaison's sole tool (<code>relay_to_subteam</code>) spawns and communicates with its workgroup's job team.</li>
+<li><strong>Workspace</strong>: A shared project workspace for coordination artifacts (plans, status, cross-workgroup documents). The project team does not have direct access to job workspaces -- results flow up through liaisons.</li>
+<li><strong>Created by</strong>: The org lead, typically when decomposing an engagement or fulfilling an internal request.</li>
+<li><strong>Lifecycle</strong>: <code>pending -&gt; in_progress -&gt; completed | cancelled</code></li>
+<li><strong>Conversation</strong>: A project conversation (kind: <code>project</code>) backed by the project team session. The org lead coordinates and synthesizes; liaisons relay to/from sub-teams.</li>
+<li><strong>Context isolation</strong>: The project team's context window contains only project-level coordination. Job-level detail is compressed at the liaison boundary into task descriptions (going down) and result summaries (going up).</li>
+</ul>
+<h3 id="engagement">Engagement</h3>
+<p>Cross-organization work between two partnered organizations, or top-level internal work. An engagement is the highest level of the hierarchical team structure.</p>
+<blockquote>
+<p><strong>Note</strong>: The current <code>teaparty_app/</code> implementation scopes engagements to workgroups (<code>source_workgroup_id</code> / <code>target_workgroup_id</code>). Org-level scoping as described here is a planned platform design, not yet implemented.</p>
+</blockquote>
+<ul>
+<li><strong>Agent team</strong>: When work begins, a Claude Code team session with the target org lead as team lead, <strong>internal liaisons</strong> (one per participating workgroup or project), and <strong>external liaison(s)</strong> (for cross-org engagements, bridging to the source org's representative). During the negotiation phase, no team session is needed -- single-agent dispatch handles the conversation.</li>
+<li><strong>Workspace</strong>: Contract-based visibility -- <code>deliverables/</code> is visible to both parties; <code>workspace/</code> is restricted to the target org.</li>
+<li><strong>Created by</strong>: The source org's lead proposes, the target org's lead accepts. Or a human member creates an internal engagement.</li>
+<li><strong>Lifecycle and feedback model</strong>: The engagement lifecycle includes states from proposed through reviewed, with cycle prevention via engagement chains and feedback bubble-up through the agent hierarchy.</li>
+<li><strong>Conversation</strong>: A shared conversation where both org leads (or human + org lead) negotiate terms and track progress. Once work begins, the engagement team session coordinates projects and direct-dispatch jobs.</li>
+<li><strong>Internal engagements</strong>: A human member creates an engagement directly -- they describe what they need, and the org lead handles it the same way as external work.</li>
+</ul>
+<hr />
+<h2 id="conversation-kinds">Conversation Kinds</h2>
+<p>Agent messages are routed by conversation kind; the full routing model is in <a href="../agent-dispatch/">Agent Dispatch</a>.</p>
+<hr />
+<h2 id="human-interaction-model">Human Interaction Model</h2>
+<p>Humans interact with TeaParty primarily through agents, not by managing agents directly.</p>
+<h3 id="what-humans-can-do">What Humans Can Do</h3>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Allowed?</th>
+<th>How</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Participate in job conversations</td>
+<td>Yes</td>
+<td>Join the job's chat, talk alongside agents</td>
+</tr>
+<tr>
+<td>Participate in project conversations</td>
+<td>Yes</td>
+<td>Join the project's chat with workgroup leads</td>
+</tr>
+<tr>
+<td>Participate in engagement conversations</td>
+<td>Yes</td>
+<td>Join the engagement's chat with org leads</td>
+</tr>
+<tr>
+<td>DM the organization lead</td>
+<td>Yes</td>
+<td>Direct message to the org lead agent</td>
+</tr>
+<tr>
+<td>Create internal engagements</td>
+<td>Yes</td>
+<td>Request work through the org lead</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-humans-cannot-do">What Humans Cannot Do</h3>
+<table>
+<thead>
+<tr>
+<th>Action</th>
+<th>Why Not</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>DM workgroup members directly</td>
+<td>No side-tasks. Work goes through the workgroup lead.</td>
+</tr>
+<tr>
+<td>DM workgroup leads directly</td>
+<td>No side-jobs. Work goes through the org lead or through a project/job conversation.</td>
+</tr>
+<tr>
+<td>Assign work directly to agents</td>
+<td>The lead agent decides how to decompose and assign work.</td>
+</tr>
+</tbody>
+</table>
+<p>When agents need human input, feedback requests flow up the hierarchy and responses flow back down.</p>
+<hr />
+<h2 id="agent-model">Agent Model</h2>
+<ul>
+<li><strong>Agents are autonomous</strong>, not scripted. They decide what to do based on conversation context, workflow state, and their own judgment. No prescriptive prompts or retry loops.</li>
+<li><strong>Agent output is never truncated.</strong> Output rules are minimal -- no format constraints, length limits, or plain-text-only directives.</li>
+<li><strong>Workflows are advisory, not mandatory.</strong> Agents follow them by choice, not enforcement.</li>
+<li><strong>Lead agents coordinate.</strong> Every workgroup has a lead agent; every organization has an org lead. Lead agents manage work decomposition, progress tracking, and cross-boundary communication.</li>
+<li><strong>Agent teams use Claude Code CLI.</strong> Multi-agent collaboration happens through persistent team sessions with bidirectional <code>stream-json</code> I/O. See <a href="../agent-dispatch/">agent-dispatch.md</a>.</li>
+<li><strong>Liaison agents bridge hierarchy levels.</strong> Projects and engagements create hierarchical teams where each level runs as an independent Claude Code team session. Liaison agents are ephemeral teammates in the upper team whose sole function is to communicate with a lower team via the <code>relay_to_subteam</code> tool. They do not write code or make decisions -- they relay tasks downward and results upward, compressing context at each boundary. See <a href="../hierarchical-teams/">hierarchical-teams.md</a>.</li>
+</ul>
+<h3 id="agent-types">Agent Types</h3>
+<table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Persistent?</th>
+<th>Scope</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Workgroup agent</td>
+<td>Yes (Agent record)</td>
+<td>Single workgroup</td>
+<td>Executes work within jobs</td>
+</tr>
+<tr>
+<td>Workgroup lead</td>
+<td>Yes (Agent record, <code>is_lead=True</code>)</td>
+<td>Single workgroup</td>
+<td>Coordinates workgroup agents, leads job teams</td>
+</tr>
+<tr>
+<td>Org lead</td>
+<td>Yes (Agent record, <code>is_lead=True</code>)</td>
+<td>Organization (Administration workgroup)</td>
+<td>Orchestrates projects/engagements, leads project/engagement teams</td>
+</tr>
+<tr>
+<td>Liaison</td>
+<td>No (ephemeral definition)</td>
+<td>Project or engagement team</td>
+<td>Bridges upper team to a lower team via <code>relay_to_subteam</code></td>
+</tr>
+<tr>
+<td>Home agent</td>
+<td>Yes (Agent record)</td>
+<td>User-level</td>
+<td>Creates orgs, manages partnerships</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="workspace-and-filestore-model">Workspace and Filestore Model</h2>
+<p>TeaParty has two coexisting file systems:</p>
+<ol>
+<li><strong>Virtual files</strong> (JSON column in the database): Documents, workflows, configuration, agent learnings. These are what agents read as prompt context. Managed through file-ops tools.</li>
+<li><strong>Git repositories</strong> (workspace-enabled workgroups): Source code and artifacts that benefit from version history and branch isolation. Each job gets a branch; completed jobs merge to main. See <a href="../sandbox-design/">sandbox-design.md</a> for the future sandbox architecture.</li>
+</ol>
+<p>Each job creates a branch (or worktree) from the workgroup's shared files and merges back on completion. This model applies whether the workgroup uses virtual files or a git repository — jobs are isolated; merging is explicit. See <a href="../hierarchical-teams/">hierarchical-teams.md</a> for the full workspace isolation model.</p>
+<p>The virtual file tree reflects the full corporate hierarchy. See <a href="../file-layout/">file-layout.md</a>.</p>
+<hr />
+<h2 id="technology-stack">Technology Stack</h2>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>Technology</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Backend</td>
+<td>FastAPI + SQLModel + SQLite</td>
+</tr>
+<tr>
+<td>Frontend</td>
+<td>Vanilla JS, no framework, no build tools</td>
+</tr>
+<tr>
+<td>Auth</td>
+<td>Google ID token verification + app bearer token</td>
+</tr>
+<tr>
+<td>Agent runtime</td>
+<td>Claude Code CLI (team sessions via <code>stream-json</code>)</td>
+</tr>
+<tr>
+<td>LLM calls</td>
+<td>All through <code>llm_client.create_message()</code> -- never call the Anthropic SDK directly</td>
+</tr>
+<tr>
+<td>Tests</td>
+<td><code>unittest.TestCase</code> with <code>_make_*()</code> helpers, not pytest fixtures</td>
+</tr>
+<tr>
+<td>DB migrations</td>
+<td>Lightweight pattern in <code>db.py</code>, not Alembic</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="further-reading">Further Reading</h2>
+<h3 id="conceptual-design">Conceptual Design</h3>
+<ul>
+<li><a href="../hierarchical-teams/">Hierarchical Teams</a> -- Hierarchical agent team architecture (projects and engagements)</li>
+<li><a href="../cfa-state-machine/">CfA State Machine</a> -- Three-phase Conversation for Action protocol</li>
+<li><a href="../intent-engineering/">Intent Engineering</a> -- AI-assisted intent capture dialog</li>
+<li><a href="../strategic-planning/">Strategic Planning</a> -- Bridge from intent to execution</li>
+<li><a href="../human-proxies/">Human Proxies</a> -- Learned proxy agents that stand in for humans</li>
+<li><a href="../learning-system/">Learning System</a> -- Hierarchical memory, scoped retrieval, promotion chain</li>
+<li><a href="../file-layout/">File Layout</a> -- Virtual file tree structure</li>
+<li><a href="../agent-dispatch/">Agent Dispatch</a> -- Message routing and team sessions</li>
+<li><a href="../sandbox-design/">Sandbox Design</a> -- Future: Docker containers and git integration</li>
+<li><a href="../cognitive-architecture/">Cognitive Architecture</a> -- Future: Agent learning and memory</li>
+</ul>
+<h3 id="detailed-design">Detailed Design</h3>
+<ul>
+<li><a href="../detailed-design/">Detailed Design</a> -- Data models, API surface, implementation status, and gap analysis against the conceptual design</li>
+</ul>
+<h3 id="reference">Reference</h3>
+<ul>
+<li><a href="../projects/POC/docs/poc-architecture.md">POC Implementation Reference</a> -- CLI flags, env vars, stream-JSON format, file layout, failure modes</li>
+<li><a href="../README.md">README</a> -- Project overview</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1588 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="..">
+      
+      
+        <link rel="next" href="../intent-engineering/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Agentic Conversation for Action - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#agentic-conversation-for-action" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Agentic Conversation for Action
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#actors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Actors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#intent-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intent Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planning-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planning Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-phase-backtracks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-Phase Backtracks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal States
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#actors" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Actors
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#intent-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Intent Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#planning-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Planning Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#execution-phase" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Execution Phase
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-phase-backtracks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-Phase Backtracks
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#terminal-states" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Terminal States
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="agentic-conversation-for-action">Agentic Conversation for Action</h1>
+<p>The Conversation for Action (CfA) protocol is formalized as a three-phase state machine: <strong>Intent</strong>, <strong>Planning</strong>, and <strong>Execution</strong>. Each phase has its own states, a synthesis loop that refines artifacts through iteration, and escalation paths for human involvement. Phases connect through explicit backtrack transitions that allow the system to revisit earlier decisions when new information warrants it. Making this a formal state machine — rather than a prompt convention — means approval gates and backtrack transitions are auditable: each transition is logged, counted, and visible in the system, not just implied by agent behavior.</p>
+<p>The state machine is defined in <code>cfa-state-machine.json</code> and implemented in <code>cfa_state.py</code>.</p>
+<hr />
+<h2 id="actors">Actors</h2>
+<p>Winograd and Flores's original Conversation for Action had two actors: A makes a request, B fulfills it. This works when both parties share enough context to negotiate directly. Agentic work is different. A raw idea must be refined into a specification. The specification must be decomposed into a plan. The plan must be executed by multidisciplinary teams. And at every boundary, someone must decide whether the work still aligns with the human's actual intent. Two actors cannot cover this.</p>
+<p>TeaParty's CfA protocol has five actor types:</p>
+<p><strong>Human.</strong> The ultimate authority. The human proposes ideas, answers escalations, and makes final approval decisions. The system concentrates human involvement at the moments where it matters most — intent negotiation, plan review, and cases where the proxy's confidence is low — rather than spreading it across every decision.</p>
+<p><strong>Human proxy.</strong> A learned model of the human's preferences, risk tolerance, and decision patterns. The proxy participates in the conversation at every phase — not just at gates. Before agents produce artifacts, the proxy runs an intake dialog that builds shared understanding: it asks questions where its model of the human is uncertain, predicts answers where its model is confident, and calibrates from the delta between predictions and actual answers. At approval gates between phases, the proxy decides whether to approve or escalate — but a proxy that has built understanding through dialog makes better gate decisions than one that only sees the finished artifact. Between gates, the proxy answers clarifying questions from agent teams and engages in dialog about the human's preferences. Every interaction — intake answers, gate decisions, mid-work clarifications — is a learning opportunity that refines the proxy's model of the human.</p>
+<p><strong>Intent team.</strong> An intent lead and a research liaison. The intent lead refines the human's idea into a specification (<code>INTENT.md</code>) through a synthesis loop. The research liaison dispatches to a research subteam when the intent lead needs background investigation. Communication follows a spoke-and-wheel pattern: the lead is the hub, members communicate through the lead via SendMessage, eliminating bottlenecks from sequential handoffs.</p>
+<p><strong>Planning and execution team (uber team).</strong> A project lead and liaisons for each discipline — art, writing, editorial, research, coding. The project lead coordinates strategy; liaisons dispatch to specialized subteams via <code>dispatch_cli.py</code>, each subteam running in its own process and git worktree. The project lead never sees raw subteam conversations; liaisons compress results at each boundary. Same spoke-and-wheel communication: the project lead is the hub.</p>
+<p><strong>Subteams.</strong> Each subteam is a multidisciplinary team with its own lead and specialists. The coding team has an architect, coder, reviewer, and tester. The research team has web, arxiv, video, and image researchers. Writing, art, and editorial teams follow the same pattern. Each subteam runs its own CfA cycle — planning and executing within its scoped context — and returns results to the parent team through its liaison. Subteams never communicate with each other; all coordination flows through the uber team.</p>
+<hr />
+<h2 id="intent-phase">Intent Phase</h2>
+<p>The intent phase transforms a raw idea into an approved intent — a specification of purpose that governs all downstream work. The human proposes, the intent team responds, and a synthesis loop refines the proposal until it converges into a stable intent.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    direction LR
+
+    [*] --&gt; IDEA
+    IDEA --&gt; PROPOSAL : propose
+
+    state "Synthesis Loop" as synthesis {
+        PROPOSAL --&gt; INTENT_QUESTION : question
+        PROPOSAL --&gt; INTENT_ESCALATE : escalate
+        PROPOSAL --&gt; INTENT_ASSERT : assert
+
+        INTENT_QUESTION --&gt; INTENT_RESPONSE : answer
+        INTENT_ESCALATE --&gt; INTENT_RESPONSE : clarify
+        INTENT_ESCALATE --&gt; INTENT : complete
+        INTENT_ASSERT --&gt; INTENT_RESPONSE : correct
+        INTENT_ASSERT --&gt; INTENT : approve
+
+        INTENT_RESPONSE --&gt; PROPOSAL : synthesize
+    }
+
+    PROPOSAL --&gt; INTENT : auto-approve
+    INTENT --&gt; [*]
+
+    PROPOSAL --&gt; WITHDRAWN : withdraw
+    INTENT_ESCALATE --&gt; WITHDRAWN : withdraw
+    INTENT_ASSERT --&gt; WITHDRAWN : withdraw</code></pre>
+<p>The human starts with a raw idea. The intent lead takes that idea and develops it into a proposal — researching the problem space, identifying constraints, and surfacing tradeoffs the human may not have articulated. If the intent lead needs background information, it dispatches the research liaison to investigate.</p>
+<p>On the happy path, the intent lead produces a proposal and asserts it for the human's approval. The proposal arrives at INTENT_ASSERT, where the proxy frames the review as an alignment validation question: <em>Do you recognize this as your idea, completely and accurately articulated?</em> The proxy has access to the original task prompt as context, so it can compare the intent document against what the human actually asked for. The gate is a conversation, not a binary decision — the proxy may ask clarifying questions, suggest changes, or flag concerns before the human approves, corrects, or withdraws.</p>
+<p>More often, the proposal goes through several rounds of the synthesis loop. The intent lead may have questions that require research, surfacing information that changes the proposal. It may escalate to the human when it encounters ambiguity it cannot resolve on its own — but it brings options and recommendations, not open-ended questions. The human may correct the proposal when the intent lead has misunderstood something. Each correction or answer feeds back through the synthesis loop, producing a revised proposal. This continues until the proposal converges.</p>
+<p>The human can withdraw at any point if the idea is no longer worth pursuing.</p>
+<hr />
+<h2 id="planning-phase">Planning Phase</h2>
+<p>The planning phase transforms an approved intent into a plan. What "plan" means depends on the level.</p>
+<p>The uber team produces a <strong>strategic plan</strong> — a reusable workflow that decomposes the work into large phases and sequences them. Strategic plans capture the shape of the work, not its details. They are largely independent of the specifics of any particular task. For example, a strategic plan for writing a research paper might be: survey the literature, construct the argument, draft sections in parallel, edit for coherence, typeset. That same workflow applies whether the paper is about hierarchical memory or human proxy agents.</p>
+<p>Subteams develop <strong>tactical plans</strong> during execution, when they receive a specific assignment and must deal with its particulars. The research team assigned to "survey the literature on hierarchical memory" plans which databases to search, what keywords to use, and how to evaluate sources. Those details belong at the tactical level because they depend on the specific task.</p>
+<p>The same state machine governs both levels; the difference is in what the plan contains, not how it is negotiated.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    direction LR
+
+    [*] --&gt; DRAFT : plan (from INTENT)
+
+    state "Synthesis Loop" as synthesis {
+        DRAFT --&gt; PLANNING_QUESTION : question
+        DRAFT --&gt; PLANNING_ESCALATE : escalate
+        DRAFT --&gt; PLAN_ASSERT : assert
+
+        PLANNING_QUESTION --&gt; PLANNING_RESPONSE : answer
+        PLANNING_ESCALATE --&gt; PLANNING_RESPONSE : clarify
+        PLANNING_ESCALATE --&gt; PLAN : complete
+        PLAN_ASSERT --&gt; PLANNING_RESPONSE : correct
+        PLAN_ASSERT --&gt; PLAN : approve
+
+        PLANNING_RESPONSE --&gt; DRAFT : synthesize
+    }
+
+    DRAFT --&gt; PLAN : auto-approve
+    PLAN --&gt; [*]
+
+    DRAFT --&gt; WITHDRAWN : withdraw
+    PLANNING_ESCALATE --&gt; WITHDRAWN : withdraw
+    PLAN_ASSERT --&gt; WITHDRAWN : withdraw</code></pre>
+<p>The project lead takes the approved intent and drafts a plan. It may dispatch research liaisons to investigate open questions — technical feasibility, prior art, resource availability. The research team returns findings, the project lead incorporates them, and the draft evolves.</p>
+<p>On the happy path, the project lead asserts the plan for approval. The plan arrives at PLAN_ASSERT, where the proxy frames the review as an alignment validation question: <em>Do you recognize this as a strategic plan to operationalize your idea well?</em> The proxy has access to INTENT.md as context, so it can compare the plan against the approved intent — verifying that every success criterion, open question, and decision boundary from the intent is addressed by the plan. The gate is a conversation: the proxy may question whether the plan's decomposition matches the intent's priorities, flag gaps in coverage, or suggest structural changes before the human approves, corrects, or backtracks to intent.</p>
+<p>In the synthesis loop, the project lead may escalate to the human when the plan involves tradeoffs that require human judgment — scope vs. timeline, quality vs. speed. The human may correct the plan when it misaligns with their intent. Each round of feedback produces a revised draft. If the planning process reveals that the intent itself was wrong or incomplete, the system backtracks to the intent phase rather than planning around a flawed specification.</p>
+<p>The human can withdraw if the work is no longer viable.</p>
+<hr />
+<h2 id="execution-phase">Execution Phase</h2>
+<p>The execution phase is visibly more complex than intent or planning, and this is not accidental. The intent and planning phases each produce a single artifact through a single synthesis loop — one intent document, one plan. Execution produces many artifacts across many subteams, and those artifacts must be assembled into a coherent whole. This requires two nested loops: an inner loop where individual tasks are worked, reviewed, and refined, and an outer loop where completed tasks are assembled and the lead decides what to delegate next. Execution also introduces failure as a first-class state — a task can fail without killing the entire effort, and the system must decide whether to retry, escalate, or backtrack to replanning. Intent and planning do not need failure states because their artifacts are produced through dialog; execution needs them because it produces deliverables that can be objectively wrong.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    direction TB
+
+    [*] --&gt; TASK : delegate (from PLAN)
+    TASK --&gt; TASK_IN_PROGRESS : accept
+
+    state "Task Synthesis Loop" as task_synth {
+        TASK_IN_PROGRESS --&gt; TASK_QUESTION : question
+        TASK_IN_PROGRESS --&gt; TASK_ESCALATE : escalate
+        TASK_IN_PROGRESS --&gt; TASK_ASSERT : assert
+
+        TASK_QUESTION --&gt; TASK_RESPONSE : answer
+        TASK_ESCALATE --&gt; TASK_RESPONSE : clarify
+        TASK_ASSERT --&gt; TASK_RESPONSE : correct
+        TASK_ASSERT --&gt; COMPLETED_TASK : approve
+
+        TASK_RESPONSE --&gt; TASK_IN_PROGRESS : synthesize
+    }
+
+    TASK --&gt; TASK_ESCALATE : escalate
+    TASK --&gt; FAILED_TASK : failed
+    TASK_IN_PROGRESS --&gt; FAILED_TASK : failed
+    TASK_ESCALATE --&gt; COMPLETED_WORK : complete
+
+    FAILED_TASK --&gt; TASK : retry
+    FAILED_TASK --&gt; TASK_ESCALATE : escalate
+
+    COMPLETED_TASK --&gt; WORK_IN_PROGRESS : synthesize
+
+    state "Work Assembly" as assembly {
+        WORK_IN_PROGRESS --&gt; TASK : delegate (next task)
+        WORK_IN_PROGRESS --&gt; WORK_ASSERT : assert
+        WORK_ASSERT --&gt; COMPLETED_WORK : approve
+        WORK_ASSERT --&gt; TASK_RESPONSE : correct
+    }
+
+    WORK_IN_PROGRESS --&gt; COMPLETED_WORK : auto-approve
+    COMPLETED_WORK --&gt; [*]
+
+    TASK_IN_PROGRESS --&gt; WITHDRAWN : withdraw
+    WORK_IN_PROGRESS --&gt; WITHDRAWN : withdraw
+    WORK_ASSERT --&gt; WITHDRAWN : withdraw
+    FAILED_TASK --&gt; WITHDRAWN : withdraw
+    TASK_ASSERT --&gt; FAILED_TASK : reject</code></pre>
+<p>The execution lead delegates tasks from the approved plan to subteams through liaison agents. Each liaison dispatches to a specialized subteam — coding, writing, research, art, editorial — which runs in its own process with its own context window. The subteam develops a tactical plan for its assigned task, executes it, and returns results through the liaison.</p>
+<p>On the happy path, a worker accepts a task, produces the deliverable, and asserts it for the execution lead's review. The lead approves, synthesizes the completed task into the overall work in progress, and delegates the next task. When all tasks are complete, the lead asserts the assembled work for final approval by the human proxy. The assembled work arrives at WORK_ASSERT, where the proxy frames the review as an alignment validation question: <em>Do you recognize the deliverables and project files as your idea, completely and well implemented?</em> The proxy has access to both INTENT.md and PLAN.md as context, so it can evaluate the full chain — whether the deliverables faithfully implement the plan, and whether the plan faithfully operationalized the intent. This three-way comparison (intent → plan → execution) means alignment failures are attributed to the correct phase: a deliverable that follows the plan but misses the intent reveals a planning gap, not an execution failure.</p>
+<p>Within each task, the synthesis loop handles the common case where work needs refinement. A worker may need research — dispatching questions to the research team. It may encounter a blocker and escalate to the approval gate, which either resolves it from the proxy model or escalates to the human. The execution lead may correct a worker's output, sending it back through the loop for revision. If a task fails outright, the worker can retry, or the lead can escalate or backtrack to replanning.</p>
+<p>At any decision point, the human or its proxy can ask clarifying questions before approving, correcting, or withdrawing. The human can withdraw at multiple points — during task escalation, during work assembly, or during final assertion — if the work has gone off track beyond recovery.</p>
+<p>Each subteam delegation creates a child CfA instance linked to its parent by a parent ID, team ID, and depth. Child instances enter at the planning phase — the delegated task already carries approved intent from the parent scope. The critical path here is escalation: when a subteam encounters a problem it cannot resolve, it escalates through the liaison back to the uber team. The uber team's execution lead can then correct the assignment, provide additional context, or backtrack to replanning if the issue is structural. This escalation path is what prevents subteams from going off track in isolation — they have a way to surface problems without needing to see the full strategic context.</p>
+<pre class="mermaid"><code>flowchart TB
+    lead["Project Lead"]
+
+    subgraph liaisons[" "]
+        direction LR
+        l1["Subteam 1 Liaison"]
+        ldots["⋯"]:::nodots
+        ln["Subteam N Liaison"]
+    end
+
+    lead &lt;--&gt;|SendMessage| l1
+    lead &lt;--&gt;|SendMessage| ln
+
+    subgraph teams[" "]
+        direction LR
+
+        subgraph sub1["Subteam 1"]
+            s1_lead["Subteam 1 Lead"]
+            s1_w1["Worker 1"]
+            s1_wdots["⋯"]:::nodots
+            s1_wn["Worker N"]
+            s1_lead &lt;--&gt; s1_w1
+            s1_lead &lt;--&gt; s1_wn
+        end
+
+        subgraph subn["Subteam N"]
+            sn_lead["Subteam N Lead"]
+            sn_w1["Worker 1"]
+            sn_wdots["⋯"]:::nodots
+            sn_wn["Worker N"]
+            sn_lead &lt;--&gt; sn_w1
+            sn_lead &lt;--&gt; sn_wn
+        end
+    end
+
+    l1 -- "delegate task" --&gt; s1_lead
+    s1_lead -. "results / escalate" .-&gt; l1
+
+    ln -- "delegate task" --&gt; sn_lead
+    sn_lead -. "results / escalate" .-&gt; ln
+
+    classDef nodots fill:none,stroke:none,color:#888,font-size:20px</code></pre>
+<p>Solid lines show task delegation flowing downward; dotted lines show results and escalations flowing back up. Each boundary is a process boundary — the uber team and each subteam run in separate processes with separate context windows. Liaisons are the only agents that cross this boundary.</p>
+<hr />
+<h2 id="cross-phase-backtracks">Cross-Phase Backtracks</h2>
+<p>Backtracks allow the system to revisit earlier phases when new information warrants it. Each backtrack increments a counter on the CfA state, providing visibility into how much rework is occurring.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    direction LR
+
+    state "Intent Phase" as intent {
+        i1: INTENT_RESPONSE
+        i2: INTENT_QUESTION
+    }
+
+    state "Planning Phase" as planning {
+        p1: DRAFT
+        p2: PLANNING_QUESTION
+        p3: PLANNING_RESPONSE
+        p4: PLAN_ASSERT
+    }
+
+    state "Execution Phase" as execution {
+        e1: TASK_QUESTION
+        e2: FAILED_TASK
+        e3: WORK_IN_PROGRESS
+        e4: WORK_ASSERT
+        e5: TASK_ASSERT
+    }
+
+    p1 --&gt; i1 : refine-intent
+    p2 --&gt; i2 : backtrack
+    p4 --&gt; i1 : refine-intent
+
+    e1 --&gt; p2 : backtrack
+    e2 --&gt; p2 : backtrack
+    e3 --&gt; p2 : backtrack
+    e5 --&gt; p3 : revise-plan
+    e5 --&gt; i1 : refine-intent
+    e4 --&gt; p3 : revise-plan
+    e4 --&gt; i1 : refine-intent</code></pre>
+<p>There are ten backtrack transitions, grouped by how far back they reach.</p>
+<p><strong>Planning → Intent (3 transitions).</strong> Sometimes planning reveals that the intent itself is flawed. The project lead begins drafting a plan and realizes the objective is ambiguous or internally contradictory — the intent needs revision, not a better plan. A research question raised during planning may uncover an unresolved intent question — the planning team thought it was investigating a planning detail, but the answer changes what the project is trying to achieve. Or the human reviews the plan at PLAN_ASSERT and determines the intent itself needs refinement before any plan can be correct. All three transitions return to the intent phase's synthesis loop so the intent can be renegotiated with the human.</p>
+<p><strong>Execution → Planning (3 transitions).</strong> Execution is where plans meet reality. A worker may raise a question that reveals a gap in the plan — something the plan assumed but never specified. A task may fail not because the worker did it wrong but because the plan asked for something that cannot be done as specified. Or the execution lead, assembling completed work, may discover that the pieces don't fit together — the plan decomposed the work incorrectly. All three transitions return to the planning phase so the plan can be revised with the benefit of what execution revealed.</p>
+<p><strong>Task review → Planning or Intent (2 transitions).</strong> When task-level review (TASK_ASSERT) reveals that the problem is not with this specific task but with the plan or intent, the execution lead can backtrack: revise-plan returns to PLANNING_RESPONSE so the plan can be revised, or refine-intent returns all the way to INTENT_RESPONSE.</p>
+<p><strong>Final review → Planning or Intent (2 transitions).</strong> The most consequential backtracks happen at the end. During final assertion (WORK_ASSERT), the human or proxy reviews the assembled work and determines either that the plan needs revision (the work was executed correctly but the plan was wrong) or that the intent itself was wrong (the work faithfully implements an intent that turns out not to be what was wanted). The second case — backtracking all the way from final review to intent — is the most expensive transition in the system, but without it, the only option would be to ship work that misses the point.</p>
+<hr />
+<h2 id="terminal-states">Terminal States</h2>
+<p><strong>COMPLETED_WORK</strong> — the globally terminal success state. All work has been assembled, asserted, and approved. Completion is a learning opportunity. The system extracts institutional learnings — what organizational norms and conventions governed this work. It captures task learnings — what procedures, skills, and causal patterns were effective. And it records procedural learnings — what worked about the workflow itself, so that future strategic plans for similar work can improve. These learnings feed the hierarchical memory system described in the <a href="../learning-system/">Learning System</a>.</p>
+<p><strong>WITHDRAWN</strong> — the globally terminal abandonment state. Accessible from most states in all three phases. Withdrawal represents a deliberate decision to abandon the work, not a failure. It is also a learning opportunity, but a different kind. Withdrawal signals misalignment — the system drifted far enough from the human's intent, risk tolerance, or quality expectations that the human chose to stop rather than correct. The proxy model learns from these signals: what kinds of misalignment the human will tolerate and attempt to correct, and what kinds cause them to walk away. Over time, this calibrates the proxy's escalation threshold — catching the patterns that lead to withdrawal before they reach that point.</p>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li>Terry Winograd and Fernando Flores, <em>Understanding Computers and Cognition: A New Foundation for Design</em> (Ablex, 1986) — the original Conversation for Action framework, grounding computer system design in the philosophy of language acts and commitment</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

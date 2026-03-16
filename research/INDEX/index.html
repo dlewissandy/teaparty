@@ -1,0 +1,2387 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>TeaParty Research Library - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#teaparty-research-library" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              TeaParty Research Library
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope-and-research-positioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope and Research Positioning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-to-use-this-index" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How to Use This Index
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tag-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tag Reference
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cognitive-architectures-foundational" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cognitive Architectures — Foundational
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cognitive-architectures-2025-2026-developments" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cognitive Architectures — 2025-2026 Developments
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#memory-management" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Management
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#multi-agent-coordination-and-collective-cognition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Agent Coordination and Collective Cognition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metacognition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metacognition
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#self-evolving-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-Evolving Agents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#failure-modes-and-evaluation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Failure Modes and Evaluation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#production-deployments-and-industry-standards" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Production Deployments and Industry Standards
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#human-ai-collaboration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human-AI Collaboration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#proxy-prediction-and-active-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxy Prediction and Active Learning
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#human-proxy-agent-design-research-provenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Human Proxy Agent Design — Research Provenance
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#claude-code-memory-system-and-retrieval-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Claude Code Memory System and Retrieval Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tui-framework-textual-widget-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        TUI Framework — Textual Widget Events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#python-state-machine-and-workflow-libraries" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Python State Machine and Workflow Libraries
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#conferences-and-workshops-to-monitor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conferences and Workshops to Monitor
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="teaparty-research-library">TeaParty Research Library</h1>
+<p>Master catalog of peer-reviewed and authoritative research informing TeaParty design decisions.</p>
+<p>Research is organized by topic file. Each entry includes: title, authors/year, tags, and a one-line summary.</p>
+<p>See <a href="../../learning-system/">learning-system.md</a> for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.</p>
+<h2 id="scope-and-research-positioning">Scope and Research Positioning</h2>
+<p>This bibliography covers five areas that directly inform TeaParty's design: cognitive architectures for LLM agents, memory management and retrieval, multi-agent coordination, human-AI collaboration and oversight, and production deployment patterns. It also includes implementation-level references for the specific libraries and frameworks used in the POC. The collection spans foundational academic work (2022–2024) and active 2025–2026 research, reflecting the rapid development of the field. For TeaParty's positioning relative to this body of work — what it builds on and what it adds — see the Research Positioning section in <a href="../../">docs/index.md</a>.</p>
+<hr />
+<h2 id="how-to-use-this-index">How to Use This Index</h2>
+<ul>
+<li>Browse by tag to find papers relevant to a specific design question.</li>
+<li>Each entry links to the detail file where full citations and implications are recorded.</li>
+<li>"COGARCH" entries are cataloged in <code>/docs/cognitive-architecture.md</code> (the primary cognitive architecture document).</li>
+<li>"SUPPLEMENT" entries are in <code>docs/research/cognitive-architectures-supplement.md</code>.</li>
+</ul>
+<hr />
+<h2 id="tag-reference">Tag Reference</h2>
+<p><code>#memory</code> <code>#episodic</code> <code>#semantic</code> <code>#procedural</code> <code>#working-memory</code> <code>#forgetting</code>
+<code>#multi-agent</code> <code>#collective</code> <code>#coordination</code> <code>#stigmergy</code> <code>#knowledge-sharing</code>
+<code>#metacognition</code> <code>#uncertainty</code> <code>#self-monitoring</code> <code>#self-evolving</code>
+<code>#production</code> <code>#security</code> <code>#failure-modes</code> <code>#evaluation</code>
+<code>#human-ai</code> <code>#trust</code> <code>#teaparty-direct</code>
+<code>#context-injection</code> <code>#retrieval</code> <code>#claude-code</code> <code>#openclaw</code>
+<code>#tui</code> <code>#ui-events</code> <code>#textual</code> <code>#widget</code>
+<code>#state-machine</code> <code>#async</code> <code>#orchestration</code> <code>#workflow</code>
+<code>#adjustable-autonomy</code> <code>#concept-drift</code> <code>#implicit-feedback</code> <code>#bandit</code> <code>#proxy-agent</code>
+<code>#active-learning</code> <code>#preference-learning</code> <code>#calibration</code> <code>#prediction</code> <code>#cold-start</code> <code>#bayesian</code></p>
+<hr />
+<h2 id="cognitive-architectures-foundational">Cognitive Architectures — Foundational</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cognitive Architectures for Language Agents (CoALA)</td>
+<td>Sumers et al., 2024</td>
+<td><code>#memory</code> <code>#multi-agent</code> <code>#teaparty-direct</code></td>
+<td>The unifying taxonomy: maps classical cognitive architecture (ACT-R, SOAR) onto LLM agents across memory types, action space, and learning.</td>
+<td>COGARCH §2.1</td>
+</tr>
+<tr>
+<td>Generative Agents</td>
+<td>Park et al., 2023</td>
+<td><code>#memory</code> <code>#episodic</code> <code>#reflection</code> <code>#teaparty-direct</code></td>
+<td>25 simulated agents with memory streams, three-factor retrieval (recency × relevance × importance), and periodic reflection. Reflection was the critical ingredient for emergent behavior.</td>
+<td>COGARCH §2.2</td>
+</tr>
+<tr>
+<td>Reflexion</td>
+<td>Shinn et al., 2023</td>
+<td><code>#episodic</code> <code>#self-evolving</code></td>
+<td>Verbal self-reflection stored as persistent memory enables learning without weight updates. Near-human HumanEval performance after 2-3 cycles.</td>
+<td>COGARCH §2.3</td>
+</tr>
+<tr>
+<td>Voyager</td>
+<td>Wang et al., 2023</td>
+<td><code>#procedural</code> <code>#skill-library</code></td>
+<td>Skill library of verified executable JavaScript functions in Minecraft. Procedural memory as code is more reliable than natural language.</td>
+<td>COGARCH §2.4</td>
+</tr>
+<tr>
+<td>CLIN</td>
+<td>Majumder et al., 2024</td>
+<td><code>#episodic</code> <code>#semantic</code> <code>#self-evolving</code></td>
+<td>Causal abstraction learning (when X, doing Y leads to Z) persists across episodes. Outperforms Reflexion by 23 points on ScienceWorld.</td>
+<td>COGARCH §2.5</td>
+</tr>
+<tr>
+<td>MemGPT / Letta</td>
+<td>Packer et al., 2023</td>
+<td><code>#memory</code> <code>#working-memory</code> <code>#teaparty-direct</code></td>
+<td>Agent-managed memory hierarchy (main context, archival, recall) via explicit tools. Agents decide what to remember and forget.</td>
+<td>COGARCH §2.6</td>
+</tr>
+<tr>
+<td>ExpeL</td>
+<td>Zhao et al., 2024</td>
+<td><code>#episodic</code> <code>#self-evolving</code></td>
+<td>Contrastive learning from successes vs. failures extracts cross-task insights. More transferable than Reflexion's failure-only approach.</td>
+<td>COGARCH §2.7</td>
+</tr>
+<tr>
+<td>AutoRefine</td>
+<td>2025</td>
+<td><code>#procedural</code> <code>#self-evolving</code></td>
+<td>Dual-form experience patterns (subagents + skill patterns); automatic extraction beats manually designed systems (27.1% vs 12.1% on TravelPlanner).</td>
+<td>COGARCH §2.8</td>
+</tr>
+<tr>
+<td>Mem0</td>
+<td>Chhikara et al., 2025</td>
+<td><code>#memory</code> <code>#production</code> <code>#teaparty-direct</code></td>
+<td>Production memory with graph variant. 26% accuracy boost, 91% lower p95 latency, 90% token savings vs. full-context.</td>
+<td>COGARCH §2.9</td>
+</tr>
+<tr>
+<td>FadeMem</td>
+<td>2025</td>
+<td><code>#forgetting</code></td>
+<td>Biologically-inspired decay: 82.1% retention of critical facts at 55% storage. Selective forgetting improves retention quality.</td>
+<td>COGARCH §2.10</td>
+</tr>
+<tr>
+<td>LLM-ACTR</td>
+<td>Wu et al., 2025</td>
+<td><code>#memory</code></td>
+<td>ACT-R decision-making integrated into LLMs via adapter layers.</td>
+<td>COGARCH §2.10</td>
+</tr>
+<tr>
+<td>Brain-Inspired MAP</td>
+<td>Nature Communications, 2025</td>
+<td><code>#multi-agent</code> <code>#coordination</code></td>
+<td>Modular brain-inspired planning agents outperform monolithic ones.</td>
+<td>COGARCH §2.10</td>
+</tr>
+<tr>
+<td>DSPy</td>
+<td>Khattab et al., 2024</td>
+<td><code>#procedural</code></td>
+<td>Optimizing prompts as programs — automated procedural learning via compilation.</td>
+<td>COGARCH §2.10</td>
+</tr>
+<tr>
+<td>LaMer</td>
+<td>2025</td>
+<td><code>#self-evolving</code> <code>#episodic</code></td>
+<td>Meta-RL for LLM agents: cross-episode training with in-context policy adaptation via reflection.</td>
+<td>COGARCH §2.10</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="cognitive-architectures-2025-2026-developments">Cognitive Architectures — 2025-2026 Developments</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Applying Cognitive Design Patterns to General LLM Agents</td>
+<td>Wray et al., 2025</td>
+<td><code>#procedural</code> <code>#metacognition</code></td>
+<td>Catalogs cognitive design patterns across classical and LLM architectures; predicts gaps in agents lacking impasse-driven learning and goal-stack management.</td>
+<td>SUPPLEMENT §Theme 1</td>
+</tr>
+<tr>
+<td>Galaxy</td>
+<td>2025</td>
+<td><code>#metacognition</code> <code>#self-evolving</code> <code>#multi-agent</code></td>
+<td>Cognition Forest unifies cognitive modeling and system design; separates proactive from responsive behavior as distinct cognitive layers.</td>
+<td>SUPPLEMENT §Theme 1</td>
+</tr>
+<tr>
+<td>Cognitive Control Architecture (CCA)</td>
+<td>2025</td>
+<td><code>#production</code> <code>#security</code></td>
+<td>Intent Graph + Tiered Adjudicator for full-lifecycle cognitive supervision and alignment in autonomous agents.</td>
+<td>SUPPLEMENT §Theme 1</td>
+</tr>
+<tr>
+<td>Agentic AI: Architectures, Taxonomies, and Evaluation</td>
+<td>2026</td>
+<td><code>#multi-agent</code> <code>#evaluation</code></td>
+<td>Six-dimensional taxonomy; identifies code-as-action, MCP, and typed-state orchestration as the emerging production standard.</td>
+<td>SUPPLEMENT §Theme 1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="memory-management">Memory Management</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A-MEM: Agentic Memory for LLM Agents</td>
+<td>Xu et al., NeurIPS 2025</td>
+<td><code>#memory</code> <code>#episodic</code> <code>#semantic</code> <code>#teaparty-direct</code></td>
+<td>Zettelkasten-inspired linked memory notes; retrieval traverses semantic links rather than flat nearest-neighbor search. Superior on all six tested models.</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>MemR3: Memory Retrieval via Reflective Reasoning</td>
+<td>2025</td>
+<td><code>#memory</code> <code>#episodic</code> <code>#teaparty-direct</code></td>
+<td>Retrieve-reflect-answer loop with global evidence-gap tracker; avoids confident-wrong answers from partial retrieval.</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>Mem-alpha: Learning Memory Construction via RL</td>
+<td>2025-2026</td>
+<td><code>#memory</code> <code>#self-evolving</code></td>
+<td>RL trains agents to decide what to store, how, and when; generalizes from 30k to 400k token contexts (13x).</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>MemEngine: Unified Modular Memory Library</td>
+<td>2025</td>
+<td><code>#memory</code> <code>#forgetting</code></td>
+<td>15+ memory strategies as pluggable modules (encoding, retrieval, summarization, forgetting, meta-learning); 89-95% compression.</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>Memory in the Age of AI Agents (Survey)</td>
+<td>2024</td>
+<td><code>#memory</code> <code>#episodic</code> <code>#semantic</code></td>
+<td>Three forms of memory (token-level, parametric, latent); functional taxonomy; emerging research frontiers.</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>Rethinking Memory Mechanisms in the Second Half (Survey)</td>
+<td>2026</td>
+<td><code>#memory</code> <code>#forgetting</code> <code>#episodic</code></td>
+<td>218 papers; three-dimension taxonomy (substrate, cognitive mechanism, subject); "second half" challenge is real-world utility, not benchmark scores.</td>
+<td>SUPPLEMENT §Theme 2</td>
+</tr>
+<tr>
+<td>Episodic Memory is the Missing Piece for Long-Term LLM Agents</td>
+<td>2025</td>
+<td><code>#episodic</code></td>
+<td>Most systems underweight episodic vs. semantic/procedural memory; agents recalling specific past experiences outperform those relying on general knowledge.</td>
+<td>COGARCH §3.1</td>
+</tr>
+<tr>
+<td>ACT-R-Inspired Memory for LLM Agents</td>
+<td>2024-2025</td>
+<td><code>#memory</code> <code>#episodic</code></td>
+<td>Human-like remembering and forgetting via ACT-R activation function in agent context.</td>
+<td>COGARCH §11</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="multi-agent-coordination-and-collective-cognition">Multi-Agent Coordination and Collective Cognition</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Emergent Collective Memory in Decentralized Multi-Agent AI Systems</td>
+<td>Khushiyant, 2024</td>
+<td><code>#multi-agent</code> <code>#collective</code> <code>#stigmergy</code> <code>#teaparty-direct</code></td>
+<td>Individual memory (+68.7% gain) is necessary infrastructure for stigmergy to work; collective memory phase-transitions above critical agent density.</td>
+<td>SUPPLEMENT §Theme 3</td>
+</tr>
+<tr>
+<td>Collaborative Memory: Multi-User Sharing with Dynamic Access Control</td>
+<td>2025</td>
+<td><code>#multi-agent</code> <code>#memory</code> <code>#teaparty-direct</code></td>
+<td>Two-tier private/shared memory with dynamic bipartite access graphs; fine-grained per-user-agent read/write policies.</td>
+<td>SUPPLEMENT §Theme 3</td>
+</tr>
+<tr>
+<td>Towards a Science of Collective AI</td>
+<td>Fan et al., 2026</td>
+<td><code>#multi-agent</code> <code>#evaluation</code></td>
+<td>Defines "collaboration gain" (Gamma) metric; most multi-agent systems do NOT outperform single agents with equivalent compute.</td>
+<td>SUPPLEMENT §Theme 3</td>
+</tr>
+<tr>
+<td>SEDM: Scalable Self-Evolving Distributed Memory</td>
+<td>Xu et al., NeurIPS 2025</td>
+<td><code>#multi-agent</code> <code>#memory</code> <code>#self-evolving</code></td>
+<td>Verifiable write admission (A/B replay for marginal utility); self-scheduling retrieval; near-duplicate merging.</td>
+<td>SUPPLEMENT §Theme 3</td>
+</tr>
+<tr>
+<td>Multi-Agent Collaboration Mechanisms: A Survey</td>
+<td>2025</td>
+<td><code>#multi-agent</code> <code>#coordination</code></td>
+<td>Role specialization is the most reliable predictor of multi-agent advantage; debate-based coordination improves quality for complex decisions.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+<tr>
+<td>Memory in LLM-based Multi-Agent Systems (Survey)</td>
+<td>2025</td>
+<td><code>#multi-agent</code> <code>#memory</code> <code>#collective</code></td>
+<td>Network topology significantly affects collective cognition; noise accumulation and uncontrolled expansion are primary challenges.</td>
+<td>SUPPLEMENT §Theme 3</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="metacognition">Metacognition</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ReMA: Learning to Meta-Think via Multi-Agent RL</td>
+<td>NeurIPS 2025</td>
+<td><code>#metacognition</code> <code>#multi-agent</code></td>
+<td>High-level meta-thinking agent + low-level execution agent trained jointly via RL; 53.2% on MATH, beats single-agent RL baselines.</td>
+<td>SUPPLEMENT §Theme 4</td>
+</tr>
+<tr>
+<td>Language Models Are Capable of Metacognitive Monitoring</td>
+<td>Li et al., 2025</td>
+<td><code>#metacognition</code> <code>#self-monitoring</code></td>
+<td>LLMs can monitor and control a limited subset of internal activations; metacognitive space has much lower dimensionality than neural space.</td>
+<td>SUPPLEMENT §Theme 4</td>
+</tr>
+<tr>
+<td>What Do LLM Agents Do When Left Alone?</td>
+<td>2025</td>
+<td><code>#metacognition</code> <code>#self-monitoring</code></td>
+<td>Three spontaneous meta-cognitive patterns (project production, self-inquiry, self-conceptualization) emerge; highly model-specific.</td>
+<td>SUPPLEMENT §Theme 4</td>
+</tr>
+<tr>
+<td>Metacognitive Reuse: Turning Recurring LLM Reasoning into Concise Behaviors</td>
+<td>Didolkar et al., Meta AI, 2025</td>
+<td><code>#procedural</code> <code>#metacognition</code> <code>#teaparty-direct</code></td>
+<td>Behavior handbook extracted from reasoning traces; 46% token reduction on MATH/AIME while matching or improving accuracy.</td>
+<td>SUPPLEMENT §Theme 4</td>
+</tr>
+<tr>
+<td>Metacognition and Uncertainty Communication in Humans and LLMs</td>
+<td>Steyvers &amp; Peters, 2025</td>
+<td><code>#metacognition</code> <code>#human-ai</code> <code>#trust</code></td>
+<td>LLMs are systematically over/underconfident; explicit uncertainty sharing improves human-LLM team calibration.</td>
+<td>SUPPLEMENT §Theme 4</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="self-evolving-agents">Self-Evolving Agents</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ReasoningBank</td>
+<td>Google Cloud AI, 2025</td>
+<td><code>#self-evolving</code> <code>#episodic</code> <code>#semantic</code></td>
+<td>Strategy-level memory from successes + failures; +34.2% effectiveness, -16% steps vs. raw-trajectory memory.</td>
+<td>SUPPLEMENT §Theme 5</td>
+</tr>
+<tr>
+<td>MemRL: Self-Evolving Agents via Runtime RL on Episodic Memory</td>
+<td>2026</td>
+<td><code>#self-evolving</code> <code>#episodic</code></td>
+<td>Q-value-based retrieval selection decouples stable reasoning from plastic memory; no weight updates; beats SOTA on multiple benchmarks.</td>
+<td>SUPPLEMENT §Theme 5</td>
+</tr>
+<tr>
+<td>Building Self-Evolving Agents via Experience-Driven Lifelong Learning (EvoAgentX)</td>
+<td>2025</td>
+<td><code>#self-evolving</code></td>
+<td>+20% on GAIA, +10% MBPP from continuous learning; StuLife benchmark for evaluating long-horizon agent development.</td>
+<td>SUPPLEMENT §Theme 5</td>
+</tr>
+<tr>
+<td>Self-Consolidation for Self-Evolving Agents (EvoSC)</td>
+<td>2026</td>
+<td><code>#self-evolving</code> <code>#memory</code></td>
+<td>Non-parametric contrastive extraction + parametric consolidation (into compact learnable prompts) addresses context-window limits for lifetime history.</td>
+<td>SUPPLEMENT §Theme 5</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="failure-modes-and-evaluation">Failure Modes and Evaluation</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>HaluMem: Evaluating Hallucinations in Memory Systems</td>
+<td>2025</td>
+<td><code>#failure-modes</code> <code>#evaluation</code> <code>#memory</code></td>
+<td>First memory-specific hallucination benchmark; errors compound through extract → update → QA pipeline.</td>
+<td>SUPPLEMENT §Theme 6</td>
+</tr>
+<tr>
+<td>MemoryGraft: Persistent Memory Poisoning</td>
+<td>2024</td>
+<td><code>#failure-modes</code> <code>#security</code></td>
+<td>Attackers can plant poisoned memories via normal ingestion-level content; effect persists across sessions; no complete defense exists.</td>
+<td>SUPPLEMENT §Theme 6</td>
+</tr>
+<tr>
+<td>MemoryAgentBench</td>
+<td>Hu et al., ICLR 2026</td>
+<td><code>#evaluation</code> <code>#memory</code></td>
+<td>Four competencies: accurate retrieval, test-time learning, long-range understanding, selective forgetting. Current systems fail to master all four.</td>
+<td>SUPPLEMENT §Theme 6</td>
+</tr>
+<tr>
+<td>The Problem with AI Agent Memory (practitioner)</td>
+<td>Giannone, 2025</td>
+<td><code>#failure-modes</code> <code>#memory</code></td>
+<td>Context poisoning and context distraction; embedding similarity missing temporal relevance; vector DBs store text not understanding.</td>
+<td>SUPPLEMENT §Theme 6</td>
+</tr>
+<tr>
+<td>MINJA: Memory Injection Attack via Query-Only Interaction</td>
+<td>2025</td>
+<td><code>#security</code> <code>#failure-modes</code></td>
+<td>Regular users (no elevated privileges) can poison agent memory through ordinary queries using bridging steps and indication prompts.</td>
+<td>SUPPLEMENT §Theme 6</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="production-deployments-and-industry-standards">Production Deployments and Industry Standards</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Org, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Amazon Bedrock AgentCore Memory</td>
+<td>AWS, 2025</td>
+<td><code>#production</code> <code>#memory</code> <code>#episodic</code></td>
+<td>Production memory service: 200ms retrieval, 20-40s consolidation; episodic functionality with reflection agent validates COGARCH.md's reflection engine design.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+<tr>
+<td>Agent Skills</td>
+<td>Anthropic, 2025</td>
+<td><code>#procedural</code> <code>#production</code> <code>#teaparty-direct</code></td>
+<td>File-based procedural memory (SKILL.md directories) with progressive disclosure; open standard adopted across the ecosystem.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+<tr>
+<td>Model Context Protocol (MCP)</td>
+<td>Anthropic / Linux Foundation, 2025</td>
+<td><code>#production</code> <code>#teaparty-direct</code></td>
+<td>De facto standard for agent tool connectivity; 97M monthly SDK downloads; donated to Linux Foundation Dec 2025.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+<tr>
+<td>Microsoft Agent Framework</td>
+<td>Microsoft, 2025</td>
+<td><code>#production</code> <code>#multi-agent</code></td>
+<td>Unification of AutoGen + Semantic Kernel; asynchronous event-driven messaging; cross-language support.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="human-ai-collaboration">Human-AI Collaboration</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Cognitive Challenges in Human-AI Collaboration</td>
+<td>Logg et al., 2022</td>
+<td><code>#human-ai</code> <code>#trust</code></td>
+<td>Teams improve only when AI delegates to humans, not when humans delegate to AI — challenges assumptions about AI as pure assistant.</td>
+<td>SUPPLEMENT §Theme 7</td>
+</tr>
+<tr>
+<td>Theory of Mind for Multi-Agent Collaboration</td>
+<td>2024</td>
+<td><code>#multi-agent</code> <code>#human-ai</code></td>
+<td>MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open.</td>
+<td>COGARCH §5.1</td>
+</tr>
+<tr>
+<td>Supporting Effortless Coordination (25 years of CSCW awareness research)</td>
+<td>Gross, 2013</td>
+<td><code>#human-ai</code> <code>#coordination</code></td>
+<td>Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture.</td>
+<td>COGARCH §5.1</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="proxy-prediction-and-active-learning">Proxy Prediction and Active Learning</h2>
+<p>Research on forming explicit predictions about human responses, using prediction error (delta) as a learning signal, and calibrating confidence to regulate question-asking. Covers Bayesian preference models, active learning / uncertainty sampling, instance-based cognitive architectures, RLHF/DPO (contrasted as negative examples), conformal calibration, and practical deployed systems. See <code>docs/research/proxy-prediction-and-active-learning.md</code> for full citations and synthesis.</p>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Preference Learning with Gaussian Processes</td>
+<td>Chu &amp; Ghahramani, ICML 2005</td>
+<td><code>#preference-learning</code> <code>#bayesian</code> <code>#cold-start</code> <code>#proxy-agent</code></td>
+<td>Foundational GP model for latent utility from pairwise comparisons; posterior variance is calibrated confidence; works at N=5-50.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §1</td>
+</tr>
+<tr>
+<td>Tutorial: Learning from Preferences with Gaussian Processes</td>
+<td>Benavoli et al., 2024</td>
+<td><code>#preference-learning</code> <code>#bayesian</code> <code>#cold-start</code></td>
+<td>GPs train on small datasets; complexity grows automatically with data; PrefGP Python library available.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §1</td>
+</tr>
+<tr>
+<td>Active Preference-Based GP Regression for Reward Learning</td>
+<td>Biyik, Huynh, Kochenderfer &amp; Sadigh, IJRR 2024</td>
+<td><code>#preference-learning</code> <code>#active-learning</code> <code>#bayesian</code> <code>#teaparty-direct</code></td>
+<td>GP + active query selection; demonstrated on real humans; 10-30 queries to reliable prediction; directly implements ask-when-uncertain.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §1</td>
+</tr>
+<tr>
+<td>Beta-Bernoulli Bayesian Updating</td>
+<td>Classical (Gundersen review, 2020)</td>
+<td><code>#bayesian</code> <code>#cold-start</code> <code>#prediction</code> <code>#proxy-agent</code></td>
+<td>Binary prediction with posterior variance; works at N=1; update rule is addition; no library needed.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §1</td>
+</tr>
+<tr>
+<td>Active Learning Literature Survey</td>
+<td>Settles, 2009</td>
+<td><code>#active-learning</code> <code>#uncertainty</code> <code>#proxy-agent</code></td>
+<td>Canonical taxonomy of query strategies: uncertainty sampling, QBC, expected model change, information gain.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §2</td>
+</tr>
+<tr>
+<td>Understanding Uncertainty Sampling</td>
+<td>Nguyen &amp; Huynh, arXiv 2023</td>
+<td><code>#active-learning</code> <code>#uncertainty</code> <code>#calibration</code></td>
+<td>First formal generalization bounds for uncertainty sampling; calibration required for guarantees.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §2</td>
+</tr>
+<tr>
+<td>BALD: Bayesian Active Learning by Disagreement</td>
+<td>Houlsby et al., 2011</td>
+<td><code>#active-learning</code> <code>#bayesian</code> <code>#uncertainty</code> <code>#proxy-agent</code></td>
+<td>Query the point that maximally reduces epistemic uncertainty; information-theoretic ask/skip criterion.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §2</td>
+</tr>
+<tr>
+<td>Expected Predictive Information Gain (EPIG)</td>
+<td>Bickford Smith et al., AISTATS 2023</td>
+<td><code>#active-learning</code> <code>#bayesian</code> <code>#uncertainty</code></td>
+<td>BALD improved: conditions on actual future query distribution; avoids wasteful outlier queries.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §2</td>
+</tr>
+<tr>
+<td>Active Learning Benchmark for Small-Sample Regression</td>
+<td>Dunn et al., Scientific Reports 2025</td>
+<td><code>#active-learning</code> <code>#cold-start</code></td>
+<td>Empirical: active learning advantages largest in 10-50 observation range; QBC needs ≥15 initial samples.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §2</td>
+</tr>
+<tr>
+<td>Instance-Based Learning in Dynamic Decision Making</td>
+<td>Gonzalez, Lerch &amp; Lebiere, Cognitive Science 2003</td>
+<td><code>#episodic</code> <code>#prediction</code> <code>#cold-start</code> <code>#proxy-agent</code></td>
+<td>IBLT: store (situation, decision, utility) triplets; blending predicts from similar past instances; works with very few examples.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §3</td>
+</tr>
+<tr>
+<td>SpeedyIBL: Implementation of IBLT</td>
+<td>Nguyen et al., Behavior Research Methods 2022</td>
+<td><code>#episodic</code> <code>#prediction</code> <code>#proxy-agent</code></td>
+<td>Python library for IBLT; decay parameter controls recency weighting; off-the-shelf for small-N prediction.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §3</td>
+</tr>
+<tr>
+<td>RLHF Deciphered</td>
+<td>Casper et al., ACM CSUR 2023</td>
+<td><code>#preference-learning</code> <code>#calibration</code></td>
+<td>RLHF is population-level, not individual-level; needs thousands of examples; not the right approach for per-individual proxy.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §4</td>
+</tr>
+<tr>
+<td>Direct Preference Optimization (DPO)</td>
+<td>Rafailov et al., NeurIPS 2023</td>
+<td><code>#preference-learning</code></td>
+<td>Simpler than RLHF but still large-data; confirms calibration as first-class concern. Not for per-individual small-data use.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §4</td>
+</tr>
+<tr>
+<td>Deep Bayesian Active Learning for Preference Modeling</td>
+<td>Cao et al., NeurIPS 2024</td>
+<td><code>#active-learning</code> <code>#bayesian</code> <code>#preference-learning</code></td>
+<td>Bayesian active learning + preference modeling reduces human feedback needed; validates GP + BALD for preference use case.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §4</td>
+</tr>
+<tr>
+<td>Conformal Prediction (Introduction)</td>
+<td>Angelopoulos &amp; Bates, JMLR 2021</td>
+<td><code>#calibration</code> <code>#uncertainty</code></td>
+<td>Distribution-free calibrated intervals; guaranteed coverage at any N; wraps any predictor.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §5</td>
+</tr>
+<tr>
+<td>Conformal Prediction for NLP (Survey)</td>
+<td>Giovannotti, TACL 2024</td>
+<td><code>#calibration</code> <code>#uncertainty</code></td>
+<td>Conformal prediction applied to NLP tasks; inductive (split) variant is practical; LLM softmax probabilities as input.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §5</td>
+</tr>
+<tr>
+<td>Generative Agent Simulations of 1,000 People</td>
+<td>Park et al., arXiv 2024</td>
+<td><code>#prediction</code> <code>#human-ai</code> <code>#teaparty-direct</code></td>
+<td>Two-hour interview → LLM agent → 85% response prediction accuracy; empirical ceiling for interview-to-model pipelines.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §6</td>
+</tr>
+<tr>
+<td>PersonalLLM: Tailoring LLMs to Individual Preferences</td>
+<td>Kumar et al., ICLR 2025</td>
+<td><code>#preference-learning</code> <code>#cold-start</code> <code>#teaparty-direct</code></td>
+<td>Personalization under continual data sparsity; PREF method converges with ~10 examples; population prior bootstraps cold start.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §6</td>
+</tr>
+<tr>
+<td>Few-Shot Personalization with Mis-aligned Responses (Fermi)</td>
+<td>Salemi et al., 2024</td>
+<td><code>#preference-learning</code> <code>#implicit-feedback</code> <code>#proxy-agent</code></td>
+<td>Misaligned (wrong) predictions are the most informative learning signal; validates delta-as-learning-signal design principle.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §6</td>
+</tr>
+<tr>
+<td>Training Proactive and Personalized LLM Agents (PPP)</td>
+<td>Sun et al., 2025</td>
+<td><code>#adjustable-autonomy</code> <code>#active-learning</code> <code>#human-ai</code></td>
+<td>Explicitly training ask-vs-predict decision is critical; threshold should be learned, not static.</td>
+<td><code>proxy-prediction-and-active-learning.md</code> §6</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="human-proxy-agent-design-research-provenance">Human Proxy Agent Design — Research Provenance</h2>
+<p>Traces the research lineage behind specific mechanisms in TeaParty's human proxy agent (EMA confidence, asymmetric regret, exploration rate, cold start, staleness guard, adjustable autonomy, act-or-ask dilemma, dialog-pattern learning). See <code>docs/research/human-proxy-agent-design.md</code> for full citations and mapping notes.</p>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Trust, control strategies and allocation of function in human-machine systems</td>
+<td>Lee &amp; Moray, 1992</td>
+<td><code>#trust</code> <code>#human-ai</code> <code>#proxy-agent</code></td>
+<td>ARMAV time-series model of trust: trust at t is a function of trust at t−1, task performance, and automation failures. Direct ancestor of EMA confidence tracking.</td>
+<td><code>human-proxy-agent-design.md</code> §1</td>
+</tr>
+<tr>
+<td>Trust, self-confidence, and operators' adaptation to automation</td>
+<td>Lee &amp; Moray, 1994</td>
+<td><code>#trust</code> <code>#human-ai</code> <code>#proxy-agent</code></td>
+<td>Trust and self-confidence jointly predict delegation decisions; confirms dynamic trust model from 1992 paper.</td>
+<td><code>human-proxy-agent-design.md</code> §1</td>
+</tr>
+<tr>
+<td>The theory of statistical decision</td>
+<td>Savage, 1951</td>
+<td><code>#proxy-agent</code></td>
+<td>Minimax regret: choose the action minimizing worst-case opportunity cost. Conceptual ancestor of asymmetric regret weighting.</td>
+<td><code>human-proxy-agent-design.md</code> §2</td>
+</tr>
+<tr>
+<td>Learning to Optimize Autonomy in Competence-Aware Systems</td>
+<td>Basich et al., AAMAS 2020</td>
+<td><code>#adjustable-autonomy</code> <code>#trust</code> <code>#proxy-agent</code> <code>#teaparty-direct</code></td>
+<td>CAS learns autonomy levels online via introspective competence model; formally treats asymmetric costs of acting-wrong vs. escalating-unnecessarily.</td>
+<td><code>human-proxy-agent-design.md</code> §2, §6</td>
+</tr>
+<tr>
+<td>Finite-time analysis of the multiarmed bandit problem</td>
+<td>Auer, Cesa-Bianchi &amp; Fischer, 2002</td>
+<td><code>#bandit</code> <code>#proxy-agent</code></td>
+<td>Proves ongoing exploration is necessary even after strong estimates; epsilon-greedy with fixed epsilon is a valid strategy for non-stationary settings.</td>
+<td><code>human-proxy-agent-design.md</code> §3</td>
+</tr>
+<tr>
+<td>Reinforcement Learning: An Introduction</td>
+<td>Sutton &amp; Barto, 2018</td>
+<td><code>#bandit</code> <code>#proxy-agent</code></td>
+<td>Canonical formalization of epsilon-greedy exploration-exploitation tradeoff in bandit and RL settings.</td>
+<td><code>human-proxy-agent-design.md</code> §3</td>
+</tr>
+<tr>
+<td>Methods and metrics for cold-start recommendations</td>
+<td>Schein et al., SIGIR 2002</td>
+<td><code>#proxy-agent</code></td>
+<td>Cold-start regime: predictions from fewer than a minimum observation count are statistically unreliable; default to safe fallback.</td>
+<td><code>human-proxy-agent-design.md</code> §4</td>
+</tr>
+<tr>
+<td>Learning from time-changing data with adaptive windowing (ADWIN)</td>
+<td>Bifet &amp; Gavalda, SDM 2007</td>
+<td><code>#concept-drift</code> <code>#proxy-agent</code></td>
+<td>ADWIN: variable-length window detects drift by comparing old vs. recent sub-window statistics; time-based forgetting is the simplest drift-adaptive strategy.</td>
+<td><code>human-proxy-agent-design.md</code> §5</td>
+</tr>
+<tr>
+<td>A survey on concept drift adaptation</td>
+<td>Gama et al., ACM CSUR 2014</td>
+<td><code>#concept-drift</code> <code>#proxy-agent</code></td>
+<td>Human preference drift is typically gradual/recurring; periodic forced re-calibration is necessary even without obvious failure.</td>
+<td><code>human-proxy-agent-design.md</code> §5</td>
+</tr>
+<tr>
+<td>FadeMem: Biologically-Inspired Forgetting for Efficient Agent Memory</td>
+<td>Wei et al., 2026</td>
+<td><code>#forgetting</code> <code>#proxy-agent</code></td>
+<td>Biologically-inspired exponential decay for agent memories; validates time-based staleness as a principled design choice. Preprint only.</td>
+<td><code>human-proxy-agent-design.md</code> §5</td>
+</tr>
+<tr>
+<td>Human and Computer Control of Undersea Teleoperators</td>
+<td>Sheridan &amp; Verplank, 1978</td>
+<td><code>#adjustable-autonomy</code> <code>#human-ai</code></td>
+<td>Origin of the 10-level automation taxonomy; levels 5–6 correspond to the proxy's conditional auto-approve behavior.</td>
+<td><code>human-proxy-agent-design.md</code> §6</td>
+</tr>
+<tr>
+<td>A model for types and levels of human interaction with automation</td>
+<td>Parasuraman, Sheridan &amp; Wickens, 2000</td>
+<td><code>#adjustable-autonomy</code> <code>#trust</code> <code>#human-ai</code></td>
+<td>2D framework for automation (type × level); misuse and disuse are both failure modes; appropriate reliance is the goal.</td>
+<td><code>human-proxy-agent-design.md</code> §6</td>
+</tr>
+<tr>
+<td>Adjustable autonomy for human-centered autonomous systems on Mars</td>
+<td>Dorais, Bonasso, Kortenkamp, Pell &amp; Schreckenghost, 1999</td>
+<td><code>#adjustable-autonomy</code> <code>#human-ai</code></td>
+<td>Coined "adjustable autonomy" as the principle that systems vary autonomy level based on task context and demonstrated performance.</td>
+<td><code>human-proxy-agent-design.md</code> §6</td>
+</tr>
+<tr>
+<td>Principles of mixed-initiative user interfaces</td>
+<td>Horvitz, CHI 1999</td>
+<td><code>#adjustable-autonomy</code> <code>#human-ai</code> <code>#proxy-agent</code></td>
+<td>Expected-utility framework for act-vs-ask decisions; both acting wrongly and interrupting unnecessarily have costs. Closest single source for the act-or-ask dilemma framing.</td>
+<td><code>human-proxy-agent-design.md</code> §7</td>
+</tr>
+<tr>
+<td>Principles of adjustable interactions</td>
+<td>Crandall &amp; Goodrich, AAAI 2002</td>
+<td><code>#adjustable-autonomy</code> <code>#proxy-agent</code></td>
+<td>Explicitly names the act-or-ask dilemma in HRI: acting autonomously risks task failure; asking risks operator overload. Both are costs to minimize.</td>
+<td><code>human-proxy-agent-design.md</code> §7</td>
+</tr>
+<tr>
+<td>Optimizing search engines using clickthrough data</td>
+<td>Joachims, KDD 2002</td>
+<td><code>#implicit-feedback</code> <code>#proxy-agent</code></td>
+<td>Implicit signals (click patterns) encode preference without explicit ratings; relative signals are more reliable than absolute ones. Conceptual ancestor of dialog-pattern learning.</td>
+<td><code>human-proxy-agent-design.md</code> §8</td>
+</tr>
+<tr>
+<td>Leveraging implicit feedback from deployment data in dialogue</td>
+<td>Pang, Roller, Cho, He &amp; Weston, EACL 2024</td>
+<td><code>#implicit-feedback</code> <code>#proxy-agent</code></td>
+<td>Follow-up question type and content are informative about what the prior system turn failed to address; closest peer-reviewed precedent for learning from dialog review patterns.</td>
+<td><code>human-proxy-agent-design.md</code> §8</td>
+</tr>
+<tr>
+<td>Logic and conversation</td>
+<td>Grice, 1975</td>
+<td><code>#implicit-feedback</code> <code>#proxy-agent</code></td>
+<td>Cooperative Principle and Quantity maxim: questions asked reveal what information is missing from the interlocutor's model; linguistic foundation for treating review questions as implicit feedback.</td>
+<td><code>human-proxy-agent-design.md</code> §8</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="claude-code-memory-system-and-retrieval-architecture">Claude Code Memory System and Retrieval Architecture</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors/Org, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Claude Code Memory System (official docs)</td>
+<td>Anthropic, 2025-2026</td>
+<td><code>#memory</code> <code>#context-injection</code> <code>#production</code> <code>#teaparty-direct</code></td>
+<td>MEMORY.md first 200 lines load verbatim at session start; topic files are read on demand; no semantic retrieval. Full four-scope hierarchy (managed, project, local, user).</td>
+<td><code>claude-code-memory-system.md</code> §1-3</td>
+</tr>
+<tr>
+<td>Claude Code Subagent Persistent Memory</td>
+<td>Anthropic, 2026</td>
+<td><code>#memory</code> <code>#multi-agent</code> <code>#production</code> <code>#teaparty-direct</code></td>
+<td><code>memory: user/project/local</code> frontmatter gives each subagent its own MEMORY.md with same 200-line injection rule; identical mechanics to main session memory.</td>
+<td><code>claude-code-memory-system.md</code> §3</td>
+</tr>
+<tr>
+<td>OpenClaw Memory Architecture</td>
+<td>Steinberger et al., 2025-2026</td>
+<td><code>#memory</code> <code>#retrieval</code> <code>#openclaw</code> <code>#production</code></td>
+<td>Hybrid sqlite-vec + FTS5 retrieval over chunked Markdown; selective injection vs. Claude Code's flat injection; open-sourced as memsearch by Zilliz.</td>
+<td><code>claude-code-memory-system.md</code> §5</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="tui-framework-textual-widget-events">TUI Framework — Textual Widget Events</h2>
+<table>
+<thead>
+<tr>
+<th>Title</th>
+<th>Authors/Org, Year</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Textual ListView.Highlighted Event</td>
+<td>Textualize docs, 2024-2025</td>
+<td><code>#tui</code> <code>#ui-events</code> <code>#textual</code> <code>#widget</code></td>
+<td>Fires on arrow key navigation; <code>event.item</code> is the ListItem widget; no built-in data payload; use parallel index list or ListItem subclass.</td>
+<td><code>textual-tui-selection-widgets.md</code> §1</td>
+</tr>
+<tr>
+<td>Textual OptionList.OptionHighlighted Event</td>
+<td>Textualize docs, 2024-2025</td>
+<td><code>#tui</code> <code>#ui-events</code> <code>#textual</code> <code>#widget</code></td>
+<td>Fires on arrow keys; <code>event.option_id</code> gives the string key set at Option construction — cleanest data-attachment pattern of the three main list widgets.</td>
+<td><code>textual-tui-selection-widgets.md</code> §2</td>
+</tr>
+<tr>
+<td>Textual Tree.NodeHighlighted Event</td>
+<td>Textualize docs, 2024-2025</td>
+<td><code>#tui</code> <code>#ui-events</code> <code>#textual</code> <code>#widget</code></td>
+<td>Fires on arrow keys; <code>event.node.data</code> carries arbitrary typed payload set at node creation — most ergonomic for structured data.</td>
+<td><code>textual-tui-selection-widgets.md</code> §3</td>
+</tr>
+<tr>
+<td>Textual SelectionList.SelectionHighlighted Event</td>
+<td>Textualize docs, 2024-2025</td>
+<td><code>#tui</code> <code>#ui-events</code> <code>#textual</code> <code>#widget</code></td>
+<td>Designed for multi-select checkbox lists; wrong widget for single-selection panel-update patterns.</td>
+<td><code>textual-tui-selection-widgets.md</code> §4</td>
+</tr>
+<tr>
+<td>Textual prevent() Context Manager</td>
+<td>Textualize docs, 2024-2025</td>
+<td><code>#tui</code> <code>#ui-events</code> <code>#textual</code></td>
+<td>Universal gate for suppressing spurious events during programmatic widget rebuilds; canonical solution for clear/repopulate refresh patterns.</td>
+<td><code>textual-tui-selection-widgets.md</code> §5</td>
+</tr>
+<tr>
+<td>OptionList as DataTable Replacement for Project List</td>
+<td>Synthesized, 2025</td>
+<td><code>#tui</code> <code>#widget</code> <code>#teaparty-direct</code></td>
+<td>OptionList + set_options() + prevent(OptionHighlighted) eliminates the DataTable CursorMoved async race condition in dashboard.py; Option(id=slug) removes parallel index list.</td>
+<td><code>textual-tui-selection-widgets.md</code> §6</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="python-state-machine-and-workflow-libraries">Python State Machine and Workflow Libraries</h2>
+<table>
+<thead>
+<tr>
+<th>Library</th>
+<th>Year surveyed</th>
+<th>Tags</th>
+<th>One-line Summary</th>
+<th>Source</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>python-statemachine (fgmacedo) v3.0.0</td>
+<td>2026</td>
+<td><code>#state-machine</code> <code>#async</code> <code>#orchestration</code> <code>#teaparty-direct</code></td>
+<td><strong>Recommended.</strong> Native asyncio auto-detection, fluent declarative DSL, full statecharts (compound/parallel/history states), guards, enter/exit actions. MIT, actively maintained.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>python-statemachine — Persistence and Resumption</td>
+<td>2026</td>
+<td><code>#state-machine</code> <code>#orchestration</code> <code>#persistence</code> <code>#teaparty-direct</code></td>
+<td>No built-in serialization; official pattern is a persistent domain model that owns <code>model.state</code>. <code>start_value</code> param restores flat machines. Compound/history state recovery is partial — <code>history_values</code> is in-memory only and not persistable without custom code.</td>
+<td><code>python-statemachine-persistence.md</code></td>
+</tr>
+<tr>
+<td>transitions (pytransitions) v0.9.x</td>
+<td>2026</td>
+<td><code>#state-machine</code> <code>#async</code> <code>#orchestration</code></td>
+<td>Battle-tested (6,500 stars), native AsyncMachine + HierarchicalAsyncMachine, dict-based API, MIT. Solid second choice; more ceremony than python-statemachine.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>sismic v1.6.11</td>
+<td>2026</td>
+<td><code>#state-machine</code> <code>#workflow</code></td>
+<td>Academic SCXML statechart interpreter; thread-based async incompatible with asyncio; YAML-file DSL; LGPL. Reject for asyncio-first code.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>temporalio (Temporal Python SDK)</td>
+<td>2026</td>
+<td><code>#workflow</code> <code>#orchestration</code></td>
+<td>Durable async workflow execution with first-class asyncio; requires Temporal server cluster; determinism constraints; correct for distributed multi-service orchestration, overkill for in-process.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>dramatiq v2.1.0</td>
+<td>2026</td>
+<td><code>#workflow</code></td>
+<td>Distributed task queue (Redis/RabbitMQ), not a state machine. Wrong tool for in-process state management.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>prefect</td>
+<td>2026</td>
+<td><code>#workflow</code> <code>#orchestration</code></td>
+<td>Data pipeline orchestration framework; requires Prefect server; designed for DAG-style batch jobs, not agent session lifecycle.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>automat (glyph)</td>
+<td>2026</td>
+<td><code>#state-machine</code></td>
+<td>Twisted-era, callback-model async; no hierarchical states; MIT. Reject for asyncio projects.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+<tr>
+<td>xstate-python (Stately)</td>
+<td>2026</td>
+<td><code>#state-machine</code></td>
+<td>Official Python port of XState; explicitly "work in progress" as of 2026; not production-ready.</td>
+<td><code>python-state-machine-libraries.md</code></td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="conferences-and-workshops-to-monitor">Conferences and Workshops to Monitor</h2>
+<table>
+<thead>
+<tr>
+<th>Event</th>
+<th>Date</th>
+<th>Topic</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>ICLR 2026 MemAgents Workshop</td>
+<td>April 26-27, 2026, Rio</td>
+<td>Memory architectures for LLM-based agentic systems</td>
+</tr>
+<tr>
+<td>ICLR 2026 Lifelong Agents Workshop</td>
+<td>April 2026</td>
+<td>Cross-episode learning, alignment, evolution</td>
+</tr>
+<tr>
+<td>AAAI 2026 WMAC Workshop</td>
+<td>2026</td>
+<td>LLM-based multi-agent collaboration</td>
+</tr>
+<tr>
+<td>NeurIPS 2026 (expected)</td>
+<td>December 2026</td>
+<td>Full proceedings from current preprints</td>
+</tr>
+</tbody>
+</table>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

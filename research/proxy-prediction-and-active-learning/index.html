@@ -1,0 +1,1931 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Research: Proxy Prediction, Active Learning, and Preference Calibration - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#research-proxy-prediction-active-learning-and-preference-calibration" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Research: Proxy Prediction, Active Learning, and Preference Calibration
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#scope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-bayesian-preference-models" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Bayesian Preference Models
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Bayesian Preference Models">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#gaussian-process-preference-learning-chu-ghahramani-2005" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaussian Process Preference Learning (Chu &amp; Ghahramani, 2005)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-tutorial-on-learning-from-preferences-and-choices-with-gaussian-processes-benavoli-et-al-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Tutorial on Learning from Preferences and Choices with Gaussian Processes (Benavoli et al., 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#active-preference-based-gaussian-process-regression-for-reward-learning-biyik-huynh-kochenderfer-sadigh-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Active Preference-Based Gaussian Process Regression for Reward Learning (Biyik, Huynh, Kochenderfer &amp; Sadigh, 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#beta-bernoulli-bayesian-updating-classical-statistical-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Beta-Bernoulli Bayesian Updating (classical statistical method)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-active-learning-uncertainty-sampling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Active Learning / Uncertainty Sampling
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Active Learning / Uncertainty Sampling">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#active-learning-literature-survey-settles-2009" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Active Learning Literature Survey (Settles, 2009)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#understanding-uncertainty-sampling-nguyen-huynh-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understanding Uncertainty Sampling (Nguyen &amp; Huynh, 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bald-bayesian-active-learning-by-disagreement-houlsby-et-al-2011-reviewed-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BALD: Bayesian Active Learning by Disagreement (Houlsby et al., 2011; reviewed 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#expected-predictive-information-gain-epig-bickford-smith-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Expected Predictive Information Gain (EPIG) (Bickford Smith et al., 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-comprehensive-benchmark-of-active-learning-for-small-sample-regression-dunn-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Comprehensive Benchmark of Active Learning for Small-Sample Regression (Dunn et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-instance-based-learning-and-cognitive-architectures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Instance-Based Learning and Cognitive Architectures
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Instance-Based Learning and Cognitive Architectures">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#instance-based-learning-in-dynamic-decision-making-gonzalez-lerch-lebiere-2003" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Instance-Based Learning in Dynamic Decision Making (Gonzalez, Lerch &amp; Lebiere, 2003)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#speedyibl-a-comprehensive-precise-and-fast-implementation-of-instance-based-learning-theory-nguyen-et-al-2022" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SpeedyIBL: A Comprehensive, Precise, and Fast Implementation of Instance-Based Learning Theory (Nguyen et al., 2022)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-preference-learning-and-rlhf-large-scale-approaches-with-relevant-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Preference Learning and RLHF (Large-Scale Approaches with Relevant Principles)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Preference Learning and RLHF (Large-Scale Approaches with Relevant Principles)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rlhf-deciphered-a-critical-analysis-of-rlhf-for-llms-casper-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        RLHF Deciphered: A Critical Analysis of RLHF for LLMs (Casper et al., 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#direct-preference-optimization-rafailov-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Direct Preference Optimization (Rafailov et al., 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deep-bayesian-active-learning-for-preference-modeling-in-llms-cao-et-al-neurips-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deep Bayesian Active Learning for Preference Modeling in LLMs (Cao et al., NeurIPS 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-calibrated-uncertainty-quantification" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Calibrated Uncertainty Quantification
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Calibrated Uncertainty Quantification">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-gentle-introduction-to-conformal-prediction-and-distribution-free-uncertainty-quantification-angelopoulos-bates-2021" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification (Angelopoulos &amp; Bates, 2021)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#conformal-prediction-for-natural-language-processing-a-survey-giovannotti-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Conformal Prediction for Natural Language Processing: A Survey (Giovannotti, 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-practical-systems-generative-agent-simulation-and-personalized-llms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Practical Systems: Generative Agent Simulation and Personalized LLMs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Practical Systems: Generative Agent Simulation and Personalized LLMs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#generative-agent-simulations-of-1000-people-park-et-al-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generative Agent Simulations of 1,000 People (Park et al., 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#personalllm-tailoring-llms-to-individual-preferences-kumar-et-al-iclr-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        PersonalLLM: Tailoring LLMs to Individual Preferences (Kumar et al., ICLR 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#few-shot-personalization-of-llms-with-mis-aligned-responses-fermi-salemi-et-al-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Few-Shot Personalization of LLMs with Mis-aligned Responses — Fermi (Salemi et al., 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#training-proactive-and-personalized-llm-agents-ppp-sun-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Training Proactive and Personalized LLM Agents — PPP (Sun et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-synthesis-selecting-approaches-for-teapartys-proxy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Synthesis: Selecting Approaches for TeaParty's Proxy
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Synthesis: Selecting Approaches for TeaParty&#39;s Proxy">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#recommended-architecture-for-teaparty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommended architecture for TeaParty
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references-for-future-follow-up" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References for Future Follow-Up
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="research-proxy-prediction-active-learning-and-preference-calibration">Research: Proxy Prediction, Active Learning, and Preference Calibration</h1>
+<p>This file documents peer-reviewed and authoritative research on systems where an agent learns to predict human responses, uses prediction errors as a learning signal, and calibrates its confidence to determine when to ask versus when to predict. The design problem is: a proxy agent forms explicit predictions about how a human will answer intake questions, compares those predictions against actual answers, and uses the delta (prediction error) as its primary learning signal — gradually asking fewer questions as predictions improve.</p>
+<p>This is distinct from the existing <code>human-proxy-agent-design.md</code>, which covers EMA confidence tracking, escalation thresholds, and dialog pattern learning. This file focuses on the prediction-formation and calibration layer.</p>
+<hr />
+<h2 id="scope">Scope</h2>
+<p>Five research areas are covered, roughly in order of implementation tractability for the TeaParty use case:</p>
+<ol>
+<li>Bayesian Preference Models (most directly applicable, small-data capable)</li>
+<li>Active Learning / Uncertainty Sampling (question-selection strategies)</li>
+<li>Instance-Based and Cognitive Architectures (learn-from-episodes approaches)</li>
+<li>Preference Learning and RLHF (large-scale approaches with relevant concepts)</li>
+<li>Calibrated Uncertainty Quantification (conformal and Bayesian methods)</li>
+<li>Practical Systems: Generative Agent Simulation and Personalized LLMs</li>
+</ol>
+<hr />
+<h2 id="1-bayesian-preference-models">1. Bayesian Preference Models</h2>
+<h3 id="gaussian-process-preference-learning-chu-ghahramani-2005">Gaussian Process Preference Learning (Chu &amp; Ghahramani, 2005)</h3>
+<ul>
+<li><strong>Venue:</strong> Proceedings of the 22nd International Conference on Machine Learning (ICML 2005)</li>
+<li><strong>URL:</strong> https://dl.acm.org/doi/10.1145/1102351.1102369</li>
+<li><strong>PDF:</strong> https://icml.cc/Conferences/2005/proceedings/papers/018_Preference_ChuGhahramani.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li>Foundational method for learning a latent utility function from pairwise preference comparisons using Gaussian processes.</li>
+<li>GPs provide principled uncertainty estimates at every point — high variance where data is sparse, low variance where data is dense.</li>
+<li>This is the critical property: uncertainty quantification is built into the model, not bolted on. Cold start = high uncertainty = ask. Warm model = low uncertainty = predict.</li>
+<li>The GP posterior automatically narrows as observations accumulate — no manual recalibration required.</li>
+<li>O(N^3) complexity is manageable at the 5-50 observation scale targeted by TeaParty.</li>
+<li><strong>Implications for TeaParty:</strong> The GP provides exactly the mathematical structure the proxy needs: a model that represents what it knows and how confident it is, with confidence derived directly from how many similar observations it has seen. With zero observations on a question type, variance is at prior level (escalate). After 10-20 consistent observations, variance has narrowed enough to predict reliably. The pairwise framing can be adapted to scalar predictions.</li>
+<li><strong>Evidence strength:</strong> Foundational paper, heavily cited, well-established. Not just theoretical — implementations exist (PrefGP Python library).</li>
+</ul>
+<hr />
+<h3 id="a-tutorial-on-learning-from-preferences-and-choices-with-gaussian-processes-benavoli-et-al-2024">A Tutorial on Learning from Preferences and Choices with Gaussian Processes (Benavoli et al., 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv preprint (2024). Peer-reviewed versions of constituent methods are published.</li>
+<li><strong>URL:</strong> https://arxiv.org/html/2403.11782v1</li>
+<li><strong>Key findings:</strong></li>
+<li>GPs have "a small number of tunable hyperparameters (and so they can be trained on small datasets)."</li>
+<li>The nonparametric nature allows model complexity to "automatically grow as more data are observed" — sample-efficient by design.</li>
+<li>Nine distinct preference learning models are covered; includes the linear elliptical slice sampler for rejection-free Bayesian inference.</li>
+<li>GPs achieve "exact interpolation, essential for modelling the utility function of a rational subject" — this matters for individual preference learning where you want to interpolate specific past answers, not average over a population.</li>
+<li>PrefGP Python library implements all nine models.</li>
+<li><strong>Implications for TeaParty:</strong> This is the practical implementation guide for GP preference learning. The exact interpolation property means the proxy will correctly reproduce known answers and interpolate on adjacent question types. The small-hyperparameter-count property means the model can fit from 5-20 observations without overfitting.</li>
+<li><strong>Evidence strength:</strong> Pre-print tutorial, but the underlying methods are peer-reviewed. PrefGP exists as a working implementation.</li>
+</ul>
+<hr />
+<h3 id="active-preference-based-gaussian-process-regression-for-reward-learning-biyik-huynh-kochenderfer-sadigh-2024">Active Preference-Based Gaussian Process Regression for Reward Learning (Biyik, Huynh, Kochenderfer &amp; Sadigh, 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> The International Journal of Robotics Research, 2024 (originally arXiv:2005.02575, 2020)</li>
+<li><strong>URL:</strong> https://journals.sagepub.com/doi/10.1177/02783649231208729</li>
+<li><strong>ResearchGate PDF:</strong> https://www.researchgate.net/publication/375481888_Active_preference-based_Gaussian_process_regression_for_reward_learning_and_optimization</li>
+<li><strong>Key findings:</strong></li>
+<li>Combines GP preference learning with active query selection: the system asks the most informative question next, not a random one.</li>
+<li>The active query strategy uses the GP's posterior uncertainty to identify which question would most reduce overall uncertainty — analogous to BALD (see section 2) but operating directly on the preference space.</li>
+<li>Pairwise comparisons provide at most 1 bit per query, making active selection critical for sample efficiency.</li>
+<li>Extends to batch-active methods, choice queries (not just pairwise), and online interactive settings.</li>
+<li>Has been demonstrated in robotics (learning human driving preferences, physical assistance preferences) with small query counts — typically 10-30 queries to reach reliable predictions.</li>
+<li><strong>Implications for TeaParty:</strong> This paper shows the GP + active query selection combination has been implemented and validated in real human-facing systems. The 10-30 query count to reach reliable predictions aligns with the 5-50 observation budget. The query selection criterion — pick the question with highest predictive uncertainty — directly implements the "ask when uncertain, predict when confident" behavior the proxy needs.</li>
+<li><strong>Evidence strength:</strong> High. Peer-reviewed in a top robotics journal; demonstrated on real human subjects.</li>
+</ul>
+<hr />
+<h3 id="beta-bernoulli-bayesian-updating-classical-statistical-method">Beta-Bernoulli Bayesian Updating (classical statistical method)</h3>
+<ul>
+<li><strong>Primary reference:</strong> Greg Gundersen's tutorial: https://gregorygundersen.com/blog/2020/08/19/bernoulli-beta/</li>
+<li><strong>Key findings:</strong></li>
+<li>For binary predictions (yes/no, agrees/disagrees), the Beta-Bernoulli conjugate pair is the simplest Bayesian model.</li>
+<li>Prior: Beta(alpha, beta) where alpha and beta are pseudo-counts of successes and failures.</li>
+<li>Update rule: after observing a success, new prior is Beta(alpha+1, beta). After a failure: Beta(alpha, beta+1).</li>
+<li>Posterior mean (best prediction): alpha / (alpha + beta). Posterior variance (uncertainty): decreases with every observation.</li>
+<li>Cold start = Beta(1,1) (uniform, maximum uncertainty). After 5 correct predictions: Beta(6,1), mean=0.86, much narrower interval.</li>
+<li>The update rule is just addition — trivially implementable with no libraries.</li>
+<li><strong>Implications for TeaParty:</strong> For binary or categorical questions, Beta-Bernoulli is the lowest-complexity Bayesian approach. Each question type gets its own (alpha, beta) pair. When posterior variance is above a threshold, ask. When below, predict. This requires no ML infrastructure and works immediately from the first observation. It does not generalize across question types (no shared latent structure), but it is the right tool for isolated binary questions where generalization is not needed.</li>
+<li><strong>Evidence strength:</strong> Classical statistical method, mathematically proven, implemented in every statistics library.</li>
+</ul>
+<hr />
+<h2 id="2-active-learning-uncertainty-sampling">2. Active Learning / Uncertainty Sampling</h2>
+<h3 id="active-learning-literature-survey-settles-2009">Active Learning Literature Survey (Settles, 2009)</h3>
+<ul>
+<li><strong>Venue:</strong> University of Wisconsin–Madison Technical Report 1648. Widely cited as the canonical survey.</li>
+<li><strong>URL:</strong> https://burrsettles.com/pub/settles.activelearning.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li><strong>Uncertainty sampling:</strong> Query the example where the model is least confident. For binary predictions, this means querying when P(answer) is closest to 0.5. Implementation: track posterior probability of each answer; ask when it falls below a confidence threshold.</li>
+<li><strong>Query-by-committee (QBC):</strong> Maintain multiple hypotheses consistent with observed data; ask when the committee disagrees most. Disagreement = epistemic uncertainty = the question is still open.</li>
+<li><strong>Expected model change:</strong> Ask the question that would, if answered, change the model's predictions most. Related to BALD and EPIG (see below).</li>
+<li><strong>Information gain:</strong> Ask the question that maximally reduces entropy of the model's belief state.</li>
+<li>All four strategies collapse to the same intuition: ask when uncertain, skip when confident.</li>
+<li><strong>Implications for TeaParty:</strong> Settles provides the vocabulary and taxonomy for the proxy's question-selection logic. The simplest implementable version is uncertainty sampling with a threshold: if the proxy's predicted probability for a question is &gt; 0.85, skip asking; if &lt;= 0.85, ask. QBC is more robust but requires maintaining a committee (e.g., 5 plausible preference profiles), which may be the right approach as the model grows.</li>
+<li><strong>Evidence strength:</strong> Canonical survey, written by the field's primary authority. The strategies are well-validated across many domains.</li>
+</ul>
+<hr />
+<h3 id="understanding-uncertainty-sampling-nguyen-huynh-2023">Understanding Uncertainty Sampling (Nguyen &amp; Huynh, 2023)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2307.02719 (2023). Under review at ICML.</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2307.02719</li>
+<li><strong>Key findings:</strong></li>
+<li>Provides theoretical generalization bounds for uncertainty sampling — the first formal guarantee that uncertainty sampling leads to better generalization than random sampling.</li>
+<li>Shows uncertainty sampling achieves near-optimal label complexity: the number of labels needed to reach a target accuracy is provably sublinear compared to passive learning.</li>
+<li>Works with calibrated models (where confidence scores match true accuracy). Miscalibration (common in neural networks) degrades the guarantees.</li>
+<li><strong>Implications for TeaParty:</strong> This provides the theoretical grounding that asking uncertain questions is not just heuristically sensible — it is provably optimal for sample efficiency. The calibration requirement is important: the proxy must track actual accuracy of predictions, not just reported confidence. In practice, for the small-N regime, Bayesian methods (GPs, Beta-Bernoulli) are naturally well-calibrated, while neural network-based approaches may require explicit calibration.</li>
+<li><strong>Evidence strength:</strong> Recent peer-reviewed preprint at a top venue. Single paper, not a meta-analysis, but formal guarantees are meaningful.</li>
+</ul>
+<hr />
+<h3 id="bald-bayesian-active-learning-by-disagreement-houlsby-et-al-2011-reviewed-2023">BALD: Bayesian Active Learning by Disagreement (Houlsby et al., 2011; reviewed 2023)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:1112.5745 (2011); extensively cited since.</li>
+<li><strong>URL:</strong> https://arxiv.org/pdf/1112.5745</li>
+<li><strong>Accessible review:</strong> https://ozanciga.wordpress.com/2023/10/29/bald-bayesian-active-learning-by-disagreements-simplified/</li>
+<li><strong>Key findings:</strong></li>
+<li>BALD selects queries that maximize mutual information between the answer and the model parameters: I(y; theta | x, D).</li>
+<li>Operationally: query the input where the overall prediction entropy is high but individual model samples are confident — meaning the model has strong but conflicting hypotheses.</li>
+<li>Two entropy measures: H[y|x,D] (total uncertainty) minus E[H[y|x,theta,D]] (aleatoric uncertainty). The difference is epistemic uncertainty — what the model could resolve by seeing more data.</li>
+<li>BALD naturally handles cold start: with no data, all queries have high epistemic uncertainty. As data accumulates, epistemic uncertainty drops and BALD stops querying.</li>
+<li><strong>Implications for TeaParty:</strong> BALD gives a principled information-theoretic criterion for the ask/skip decision. Questions with high BALD score have high expected information value — answering them would significantly update the proxy's model. Questions with low BALD score are already well-predicted — no need to ask. This is a mathematically grounded version of the intuition the proxy needs. The implementation requires a probabilistic model (GP or Bayesian neural network), but the criterion itself is model-agnostic.</li>
+<li><strong>Evidence strength:</strong> Established method, widely implemented. Significant body of applied work shows it works in practice.</li>
+</ul>
+<hr />
+<h3 id="expected-predictive-information-gain-epig-bickford-smith-et-al-2023">Expected Predictive Information Gain (EPIG) (Bickford Smith et al., 2023)</h3>
+<ul>
+<li><strong>Venue:</strong> AISTATS 2023</li>
+<li><strong>URL:</strong> https://proceedings.mlr.press/v206/bickfordsmith23a/bickfordsmith23a.pdf</li>
+<li><strong>Overview:</strong> https://www.emergentmind.com/topics/expected-predictive-information-gain-epig</li>
+<li><strong>Key findings:</strong></li>
+<li>EPIG improves on BALD by conditioning on the actual deployment distribution rather than maximizing global parameter uncertainty.</li>
+<li>BALD can select "outlier" questions that are informative about the model globally but irrelevant for the types of questions the proxy will actually encounter.</li>
+<li>EPIG asks: "How much does this question's answer reduce uncertainty about the <em>specific</em> questions I will need to answer in the future?"</li>
+<li>Empirically demonstrated to yield superior predictive performance compared to BALD on non-curated query pools.</li>
+<li><strong>Implications for TeaParty:</strong> EPIG is the more practically useful criterion when the proxy has a known distribution of future questions. For intake dialogs, the proxy knows roughly what question types will appear — so it can optimize queries specifically for those question types. This is strictly better than BALD for the proxy use case. However, EPIG requires knowing the future query distribution; simpler uncertainty sampling or BALD may be adequate for initial implementation.</li>
+<li><strong>Evidence strength:</strong> Single AISTATS 2023 paper. Recent but peer-reviewed at a top venue. Implementation details are available.</li>
+</ul>
+<hr />
+<h3 id="a-comprehensive-benchmark-of-active-learning-for-small-sample-regression-dunn-et-al-2025">A Comprehensive Benchmark of Active Learning for Small-Sample Regression (Dunn et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Scientific Reports (Nature portfolio), 2025</li>
+<li><strong>URL:</strong> https://www.nature.com/articles/s41598-025-24613-4</li>
+<li><strong>Key findings:</strong></li>
+<li>Benchmarks multiple active learning strategies on small-sample regression tasks (10-100 initial samples).</li>
+<li>Uncertainty sampling (entropy or margin) consistently outperforms random selection in the small-sample regime.</li>
+<li>QBC with committee size 4 and initial sample size of 50 was empirically optimal for a regression application.</li>
+<li>Committees initialized on fewer than 15 samples exhibited poor performance throughout — this is the empirical cold-start floor.</li>
+<li>Key practical finding: active learning advantages are largest in the 10-50 observation range, exactly the regime targeted by TeaParty.</li>
+<li><strong>Implications for TeaParty:</strong> Provides empirical evidence that active learning advantages are real and significant in the 5-50 observation range. The finding that committees need at least 15 samples before becoming useful aligns with a cold-start threshold around n=15 for committee-based approaches (while simpler Bayesian approaches like Beta-Bernoulli work immediately from n=1).</li>
+<li><strong>Evidence strength:</strong> Peer-reviewed in Scientific Reports. Single study on one domain; general principles likely transfer but specific numbers may not.</li>
+</ul>
+<hr />
+<h2 id="3-instance-based-learning-and-cognitive-architectures">3. Instance-Based Learning and Cognitive Architectures</h2>
+<h3 id="instance-based-learning-in-dynamic-decision-making-gonzalez-lerch-lebiere-2003">Instance-Based Learning in Dynamic Decision Making (Gonzalez, Lerch &amp; Lebiere, 2003)</h3>
+<ul>
+<li><strong>Venue:</strong> Cognitive Science, 27(4), 591–635, 2003</li>
+<li><strong>URL:</strong> https://onlinelibrary.wiley.com/doi/abs/10.1207/s15516709cog2704_2</li>
+<li><strong>ResearchGate:</strong> https://www.researchgate.net/publication/222556226_Instance-based_learning_in_dynamic_decision_making</li>
+<li><strong>Key findings:</strong></li>
+<li>Instance-Based Learning Theory (IBLT) proposes that humans make decisions by storing (situation, decision, utility) triplets and retrieving the most similar past instance when facing a new decision.</li>
+<li>Memory retrieval is governed by an activation function from ACT-R: activation increases with recency and frequency, decays over time, and is boosted by similarity to the current situation.</li>
+<li>The "blending" mechanism averages the utilities of retrieved instances weighted by activation — producing a graded prediction rather than a binary lookup.</li>
+<li>Cold start in IBLT: no instances = rely on a "default" action or random exploration. First few instances = high variance predictions. After 5-10 instances = predictions stabilize.</li>
+<li>Computationally validated against human decision-making data in multiple experimental paradigms.</li>
+<li><strong>Implications for TeaParty:</strong> IBLT describes exactly the cognitive mechanism the proxy is implementing: store observed (question, human-answer) pairs and retrieve them by similarity when predicting future answers. The activation function provides a principled weighting of instances — recent answers about a particular topic outweigh older ones, consistent with preference drift. The blending mechanism gives a continuous prediction (not just nearest-neighbor lookup) and naturally expresses uncertainty when retrieved instances disagree. This is a cognitively-grounded, small-data-compatible approach that requires no ML infrastructure.</li>
+<li><strong>Evidence strength:</strong> High. Published in a top cognitive science journal; validated experimentally; implemented in SpeedyIBL (see below).</li>
+</ul>
+<hr />
+<h3 id="speedyibl-a-comprehensive-precise-and-fast-implementation-of-instance-based-learning-theory-nguyen-et-al-2022">SpeedyIBL: A Comprehensive, Precise, and Fast Implementation of Instance-Based Learning Theory (Nguyen et al., 2022)</h3>
+<ul>
+<li><strong>Venue:</strong> Behavior Research Methods, 2022</li>
+<li><strong>URL:</strong> https://link.springer.com/article/10.3758/s13428-022-01848-x</li>
+<li><strong>arXiv version:</strong> https://arxiv.org/abs/2111.10268</li>
+<li><strong>Key findings:</strong></li>
+<li>Python library implementing the full IBLT mechanism: activation, blending, noise, decay.</li>
+<li>Handles both individual and multi-agent decision-making scenarios.</li>
+<li>Demonstrated to be "very successful in explaining and predicting human decisions in multiple decision-making contexts."</li>
+<li>Provides prediction power "without a heavy reliance on data" — IBL models can generalize from small N.</li>
+<li>Key parameter: decay rate (d) controls how quickly old instances lose influence. High d = recent instances dominate (good for volatile preferences). Low d = long memory (good for stable preferences).</li>
+<li><strong>Implications for TeaParty:</strong> SpeedyIBL is an off-the-shelf Python implementation of IBLT that the proxy could use directly. The decay parameter allows tuning how quickly old observations are discounted — a natural fit for preference drift. The library handles the blending computation automatically, producing predictions with associated confidence (variance of blended utilities).</li>
+<li><strong>Evidence strength:</strong> Peer-reviewed in a methods journal; library is publicly available on GitHub.</li>
+</ul>
+<hr />
+<h2 id="4-preference-learning-and-rlhf-large-scale-approaches-with-relevant-principles">4. Preference Learning and RLHF (Large-Scale Approaches with Relevant Principles)</h2>
+<h3 id="rlhf-deciphered-a-critical-analysis-of-rlhf-for-llms-casper-et-al-2023">RLHF Deciphered: A Critical Analysis of RLHF for LLMs (Casper et al., 2023)</h3>
+<ul>
+<li><strong>Venue:</strong> ACM Computing Surveys, 2023</li>
+<li><strong>URL:</strong> https://dl.acm.org/doi/full/10.1145/3743127</li>
+<li><strong>Key findings:</strong></li>
+<li>RLHF reward models are trained on pairwise preference data. Each comparison gives a noisy sample of an underlying latent preference structure.</li>
+<li>Critical limitation for TeaParty: reward models average over annotators, producing "rewards inconsistent with any single human's preferences." RLHF is designed for population-level preference learning, not individual-level.</li>
+<li>Uncertainty-aware reward models that abstain or give conservative estimates when far from training data are an active research direction.</li>
+<li>Cold start is a known problem: reward models need hundreds to thousands of comparisons to be reliable.</li>
+<li><strong>Implications for TeaParty:</strong> RLHF is explicitly NOT the right approach for single-individual preference learning. It requires too much data, averages over individuals, and does not naturally produce calibrated uncertainty for individual questions. However, the RLHF framing clarifies what the proxy is doing differently: it is learning a single person's reward function (not a population's), requiring far fewer observations, and it needs individual-level rather than population-level calibration.</li>
+<li><strong>Evidence strength:</strong> High. ACM Computing Surveys is a premier review venue.</li>
+</ul>
+<hr />
+<h3 id="direct-preference-optimization-rafailov-et-al-2023">Direct Preference Optimization (Rafailov et al., 2023)</h3>
+<ul>
+<li><strong>Venue:</strong> NeurIPS 2023</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2305.18290</li>
+<li><strong>Key findings:</strong></li>
+<li>DPO eliminates the explicit reward model by reparameterizing preference learning directly in the LLM weights via a classification loss over (chosen, rejected) response pairs.</li>
+<li>Significantly simpler than RLHF; demonstrated on summarization and dialogue.</li>
+<li>Requires large datasets (thousands of pairs). Not a small-data approach.</li>
+<li>Cal-DPO (NeurIPS 2024) extends DPO with explicit calibration, addressing the known miscalibration issue in standard DPO.</li>
+<li><strong>Implications for TeaParty:</strong> DPO is architecturally incompatible with the proxy's design — the proxy is not fine-tuning an LLM; it is building an explicit prediction model per question type. However, DPO confirms the trend toward calibration as a first-class concern in preference learning, validating the proxy's emphasis on confidence tracking.</li>
+<li><strong>Evidence strength:</strong> High for DPO itself (NeurIPS 2023). Cal-DPO is a recent extension.</li>
+</ul>
+<hr />
+<h3 id="deep-bayesian-active-learning-for-preference-modeling-in-llms-cao-et-al-neurips-2024">Deep Bayesian Active Learning for Preference Modeling in LLMs (Cao et al., NeurIPS 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> NeurIPS 2024</li>
+<li><strong>URL:</strong> https://neurips.cc/virtual/2024/poster/96611</li>
+<li><strong>PDF:</strong> https://proceedings.neurips.cc/paper_files/paper/2024/file/d5e256c988bdee59a0f4d7a9bc1dd6d9-Paper-Conference.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li>Combines Bayesian active learning (BALD-style query selection) with preference modeling for LLM alignment.</li>
+<li>The Bayesian approach tracks uncertainty over the preference model and queries for the most informative next comparison.</li>
+<li>Demonstrates that principled uncertainty-based query selection significantly reduces the number of human feedback examples needed.</li>
+<li>Explicitly addresses the cold-start problem by initializing from a broad prior over possible preference functions.</li>
+<li><strong>Implications for TeaParty:</strong> This is the most recent demonstration (NeurIPS 2024) that Bayesian active learning for preference models is practical and outperforms passive collection. The proxy is doing a simpler version of this: rather than learning a preference model for LLM outputs, it is learning a preference model for intake question answers. The core principle — Bayesian uncertainty + active query selection — transfers directly.</li>
+<li><strong>Evidence strength:</strong> Single NeurIPS 2024 paper. Recent, peer-reviewed, directly relevant.</li>
+</ul>
+<hr />
+<h2 id="5-calibrated-uncertainty-quantification">5. Calibrated Uncertainty Quantification</h2>
+<h3 id="a-gentle-introduction-to-conformal-prediction-and-distribution-free-uncertainty-quantification-angelopoulos-bates-2021">A Gentle Introduction to Conformal Prediction and Distribution-Free Uncertainty Quantification (Angelopoulos &amp; Bates, 2021)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2107.07511. A revised version appeared in Journal of Machine Learning Research.</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2107.07511</li>
+<li><strong>Key findings:</strong></li>
+<li>Conformal prediction produces uncertainty intervals (prediction sets) with guaranteed coverage — if the true confidence level is set to 90%, the interval will contain the true answer 90% of the time, regardless of the underlying model.</li>
+<li>Crucially, this guarantee is distribution-free and non-asymptotic: it holds with any sample size, not just in the large-N limit.</li>
+<li>The only requirement is exchangeability of the calibration data — a very mild assumption.</li>
+<li>Works with any base predictor (neural network, GP, simple heuristic) as a wrapper.</li>
+<li><strong>Implications for TeaParty:</strong> Conformal prediction is the right tool for the proxy's calibration layer if it needs to provide <em>guaranteed</em> confidence bounds rather than estimated ones. The proxy can wrap any prediction model (even a simple frequency estimate) with conformal prediction to get calibrated intervals. In the cold-start regime, conformal intervals will be wide (appropriately uncertain). As observations accumulate, intervals narrow. The non-asymptotic property means this is valid even at n=5, unlike frequentist confidence intervals which require large N for coverage guarantees.</li>
+<li><strong>Evidence strength:</strong> High. This is a foundational reference for the conformal prediction field; widely cited and the method is mathematically proven.</li>
+</ul>
+<hr />
+<h3 id="conformal-prediction-for-natural-language-processing-a-survey-giovannotti-2024">Conformal Prediction for Natural Language Processing: A Survey (Giovannotti, 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> Transactions of the Association for Computational Linguistics (TACL), 2024</li>
+<li><strong>URL:</strong> https://aclanthology.org/2024.tacl-1.82.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li>Surveys applications of conformal prediction to NLP tasks including text classification, question answering, and dialogue.</li>
+<li>Shows conformal prediction can be applied to any model that produces a probability or confidence score.</li>
+<li>"Inductive conformal prediction" (split conformal) is the practically efficient variant: calibrate on a held-out split, not on every test point.</li>
+<li>The NLP context is directly relevant: the proxy's predictions about how a human will answer a question are NLP-adjacent tasks where conformal coverage guarantees are valuable.</li>
+<li><strong>Implications for TeaParty:</strong> This is the most directly applicable survey for the proxy's setting. If the proxy formulates predictions using an LLM (asking the LLM to predict the human's answer), conformal prediction provides a way to convert the LLM's softmax probabilities into calibrated intervals that <em>actually</em> have the claimed coverage. This gives the proxy's confidence estimates statistical validity, not just intuitive plausibility.</li>
+<li><strong>Evidence strength:</strong> Peer-reviewed survey in TACL, a top ACL venue.</li>
+</ul>
+<hr />
+<h2 id="6-practical-systems-generative-agent-simulation-and-personalized-llms">6. Practical Systems: Generative Agent Simulation and Personalized LLMs</h2>
+<h3 id="generative-agent-simulations-of-1000-people-park-et-al-2024">Generative Agent Simulations of 1,000 People (Park et al., 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2411.10109 (2024). Led by Joon Sung Park (Stanford); collaborators from Northwestern, UW, Google DeepMind.</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2411.10109</li>
+<li><strong>Key findings:</strong></li>
+<li>Built AI agents representing 1,052 real individuals using qualitative interviews as the sole data source.</li>
+<li>Two-hour qualitative interviews with pre-specified and adaptive follow-up questions were the data collection mechanism.</li>
+<li>Agents replicated survey responses with 85% accuracy compared to participants' own test-retest reliability.</li>
+<li>Matched personality assessments with 80% accuracy; economic game behavior with 66% accuracy.</li>
+<li>Key design insight: using interview content rather than demographic labels as the representation significantly reduced accuracy biases across racial and ideological groups.</li>
+<li>The interview-to-agent pipeline does not involve explicit prediction training — it uses the interview transcript as in-context memory for the LLM.</li>
+<li><strong>Implications for TeaParty:</strong> This is the most direct empirical demonstration that (a) a single structured interview can produce a model that predicts human responses with ~85% accuracy, and (b) the interview content is more valuable than demographic proxies. The proxy's intake dialog is performing the same function. However, the Park et al. approach uses LLM in-context reasoning, not an explicit prediction model — the proxy is doing something more structured. The 85% accuracy figure sets a realistic target and confirms that individual-level response prediction is achievable from conversational data.</li>
+<li><strong>Evidence strength:</strong> Pre-print (November 2024), not yet peer-reviewed. High visibility; Stanford/Google DeepMind. Treat as strong preliminary evidence.</li>
+</ul>
+<hr />
+<h3 id="personalllm-tailoring-llms-to-individual-preferences-kumar-et-al-iclr-2025">PersonalLLM: Tailoring LLMs to Individual Preferences (Kumar et al., ICLR 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> ICLR 2025</li>
+<li><strong>URL:</strong> https://openreview.net/forum?id=2R7498e2Tx</li>
+<li><strong>PDF:</strong> https://proceedings.iclr.cc/paper_files/paper/2025/file/a730abbcd6cf4a371ca9545db5922442-Paper-Conference.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li>Introduces a benchmark for adapting LLMs to individual user preferences, explicitly acknowledging that "users display heterogeneous latent preferences."</li>
+<li>The benchmark tests personalization algorithms under "continual data sparsity — few relevant feedback from the particular user."</li>
+<li>PREF method (in related work): models each user's personalized reward function as a linear combination of shared base reward functions learned via matrix factorization. Can infer a new user's weights with ~10 feedback examples.</li>
+<li>Uses historical data from similar users to bootstrap cold start — a population prior that narrows as individual data accumulates.</li>
+<li>In-context learning baselines show that even without fine-tuning, retrieval of past user examples improves alignment.</li>
+<li><strong>Implications for TeaParty:</strong> PersonalLLM makes cold start manageable by initializing from population-level patterns. The proxy could do the same: learn a prior distribution over preference profiles from past users (or from similar question types), then update toward the specific individual's profile as intake answers arrive. The PREF method's ~10 example requirement aligns well with the 5-50 target range.</li>
+<li><strong>Evidence strength:</strong> ICLR 2025 (peer-reviewed, top venue). Single paper on a benchmark; specific PREF numbers need independent replication.</li>
+</ul>
+<hr />
+<h3 id="few-shot-personalization-of-llms-with-mis-aligned-responses-fermi-salemi-et-al-2024">Few-Shot Personalization of LLMs with Mis-aligned Responses — Fermi (Salemi et al., 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2406.18678 (2024). Under review.</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2406.18678</li>
+<li><strong>Key findings:</strong></li>
+<li>Fermi learns personalized prompts by iteratively improving them using LLMs, based on user profile and a few examples of previous opinions.</li>
+<li>Key insight: misaligned responses (where the LLM predicted incorrectly) are "especially crucial for effective personalization." The delta / prediction error is the most informative training signal — not just the correct cases.</li>
+<li>The approach uses a small number of examples ("few-shot") and explicitly leverages failure cases.</li>
+<li>Addresses cold start via demographic information as an initial proxy.</li>
+<li><strong>Implications for TeaParty:</strong> Fermi directly validates the design premise that prediction errors are the primary learning signal. The paper confirms empirically what the proxy's architecture assumes: misaligned predictions (high delta) drive learning more efficiently than correct predictions. The proxy's delta-based learning is aligned with current best practices in personalization research.</li>
+<li><strong>Evidence strength:</strong> Pre-print (2024). Under review. Single study; treat as preliminary confirmation of the delta-as-learning-signal principle.</li>
+</ul>
+<hr />
+<h3 id="training-proactive-and-personalized-llm-agents-ppp-sun-et-al-2025">Training Proactive and Personalized LLM Agents — PPP (Sun et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2511.02208 (2025)</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2511.02208</li>
+<li><strong>Key findings:</strong></li>
+<li>PPP (Productivity, Proactivity, Personalization) jointly optimizes three objectives for LLM agents, including asking strategic clarifying questions and adapting to unseen user preferences.</li>
+<li>"Ask strategic clarifying questions" is trained as an explicit behavior — the system learns when asking is more valuable than acting.</li>
+<li>UserVille simulation environment with configurable user preference profiles used for training.</li>
+<li>Key finding: explicitly optimizing for proactive questioning (knowing when to ask vs. predict) is critical for practical agent performance. Systems not trained on this objective ask too often or too rarely.</li>
+<li><strong>Implications for TeaParty:</strong> This confirms that the act-or-ask decision is non-trivial and needs to be trained or calibrated, not just hardcoded. The proxy's threshold-based ask/predict logic is the right architectural pattern; the PPP findings suggest the threshold should be learned from interaction, not set statically.</li>
+<li><strong>Evidence strength:</strong> Pre-print (2025). Related work, not a direct implementation reference.</li>
+</ul>
+<hr />
+<h2 id="7-synthesis-selecting-approaches-for-teapartys-proxy">7. Synthesis: Selecting Approaches for TeaParty's Proxy</h2>
+<p>The design problem has three sub-problems:
+1. <strong>Forming predictions:</strong> What will the human answer?
+2. <strong>Calibrating confidence:</strong> How confident is the prediction?
+3. <strong>Regulating questions:</strong> When to ask vs. predict?</p>
+<p>The table below maps research to each sub-problem and assesses fit for the 5-50 observation regime:</p>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Forms Predictions</th>
+<th>Calibrated Confidence</th>
+<th>Small Data (5-50)</th>
+<th>Implementation Complexity</th>
+<th>Demonstrated in Practice</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GP Preference Learning (Chu 2005; Benavoli 2024)</td>
+<td>Yes (latent utility function)</td>
+<td>Yes (posterior variance)</td>
+<td>Yes — designed for this</td>
+<td>Medium (GP inference, Python library available)</td>
+<td>Yes (Biyik 2024 with real humans)</td>
+</tr>
+<tr>
+<td>Beta-Bernoulli Bayesian Updating</td>
+<td>Yes (binary/categorical)</td>
+<td>Yes (posterior variance)</td>
+<td>Yes — works at n=1</td>
+<td>Very low (no library needed)</td>
+<td>Yes (classical statistics)</td>
+</tr>
+<tr>
+<td>Instance-Based Learning / SpeedyIBL</td>
+<td>Yes (blending of past instances)</td>
+<td>Partially (variance of blended utilities)</td>
+<td>Yes — designed for this</td>
+<td>Low (library available)</td>
+<td>Yes (Gonzalez 2003; multiple cognitive science studies)</td>
+</tr>
+<tr>
+<td>BALD / Uncertainty Sampling</td>
+<td>No (query selection only)</td>
+<td>N/A</td>
+<td>Yes</td>
+<td>Low-medium</td>
+<td>Yes (many applied domains)</td>
+</tr>
+<tr>
+<td>Conformal Prediction</td>
+<td>No (wrapper for calibration)</td>
+<td>Yes (guaranteed coverage)</td>
+<td>Yes — non-asymptotic</td>
+<td>Low (wraps any predictor)</td>
+<td>Yes (NLP survey, TACL 2024)</td>
+</tr>
+<tr>
+<td>RLHF / DPO</td>
+<td>Yes</td>
+<td>Partially</td>
+<td>No — needs thousands</td>
+<td>High</td>
+<td>Yes (LLM training)</td>
+</tr>
+<tr>
+<td>QBC</td>
+<td>Partially</td>
+<td>Yes (committee disagreement)</td>
+<td>Partially — needs ~15+ initial samples</td>
+<td>Medium</td>
+<td>Yes (many domains)</td>
+</tr>
+<tr>
+<td>LLM in-context (Park 2024)</td>
+<td>Yes</td>
+<td>Partially</td>
+<td>Yes (works from N=1 interview)</td>
+<td>Low (uses existing LLM)</td>
+<td>Yes (85% accuracy in practice)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="recommended-architecture-for-teaparty">Recommended architecture for TeaParty</h3>
+<p>The proxy's prediction-calibration system most naturally combines three elements:</p>
+<ol>
+<li>
+<p><strong>Beta-Bernoulli per question type</strong> for cold start and simple binary/categorical questions. Works from the first observation. No infrastructure required. The posterior variance directly drives the ask/predict threshold.</p>
+</li>
+<li>
+<p><strong>GP preference learning</strong> once 10+ observations per question type are available and when the proxy needs to generalize across related question types (e.g., "how does this person's answer to question A predict their answer to question B?"). Use PrefGP Python library. GP posterior uncertainty drives the threshold.</p>
+</li>
+<li>
+<p><strong>Uncertainty sampling threshold</strong> (from Settles 2009 / Nguyen 2023) as the ask/predict decision rule. Ask when posterior predictive variance exceeds threshold_var; predict when below. The threshold can start conservative (lower variance required before predicting) and become permissive as calibration accuracy is confirmed.</p>
+</li>
+</ol>
+<p>The delta (prediction error) on each observed answer is the update signal for both Beta-Bernoulli (update pseudo-counts) and GP (add data point, recompute posterior). The key design requirement is that large deltas cause larger updates — which is automatic in Bayesian models (unexpected observations have high likelihood ratio, so they move the posterior more).</p>
+<hr />
+<h2 id="references-for-future-follow-up">References for Future Follow-Up</h2>
+<ul>
+<li><strong>Bayesian audiometry using active learning</strong> (Shen et al., 2021, PubMed): a medical domain where GP + BALD is used to learn individual auditory thresholds from ~15-20 questions. The closest structural analogy to the proxy's intake dialog. URL: https://pubmed.ncbi.nlm.nih.gov/34713188/</li>
+<li><strong>Ordered preference elicitation strategies</strong> (Katz et al., 2018): strategies for ordering preference queries to maximize information while respecting cognitive load. arXiv:1802.07606.</li>
+<li><strong>Thompson Sampling for preference elicitation</strong> (various): bandit algorithm naturally balances exploration (asking) vs. exploitation (predicting) without a fixed threshold. Tutorial: https://arxiv.org/abs/1707.02038.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

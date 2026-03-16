@@ -1,0 +1,1774 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Virtual File Structure - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#virtual-file-structure" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Virtual File Structure
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#full-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Tree
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tools
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Tools">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#system-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        System Tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#organization-custom-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Organization Custom Tools
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#tool-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Tool Grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Templates
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Templates">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#structure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Structure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#how-bootstrapping-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How Bootstrapping Works
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#workflows-in-workgroups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workflows in Workgroups
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#editing-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Editing Templates
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#seed-templates" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Seed Templates
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repositories-and-the-virtual-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repositories and the Virtual Tree
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#agent-file-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agent File Access
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#file-scoping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        File Scoping
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="File Scoping">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#workspace-identity" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Workspace identity
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#job-workspace-isolation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Job Workspace Isolation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implementation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#content-placement" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Content Placement
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#engagement-visibility" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Engagement Visibility
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="virtual-file-structure">Virtual File Structure</h1>
+<p>This document describes the virtual tree structure that TeaParty exposes for stored files. All stored data is visible somewhere in this tree -- configurations, agent learnings, engagement artifacts, uploads, and AI-generated content.</p>
+<p>For human readability, internal identifiers are replaced with entity names throughout the tree. Names need not be unique since they are keyed by identifiers internally.</p>
+<p>See <a href="../ARCHITECTURE/">ARCHITECTURE.md</a> for the conceptual model this tree reflects.</p>
+<h2 id="full-tree">Full Tree</h2>
+<div class="highlight"><pre><span></span><code>./
++-- config.json                                          # System configuration
+|
++-- home/                                                # Per-user home level (Phase 1)
+|   +-- home.json                                        # Home agent config, user preferences
+|
++-- tools/                                               # Tool registry (read-only)
+|   +-- file-ops/
+|   |   +-- toolkit.json                                 #   read_file, list_files, add_file, edit_file, ...
+|   +-- messaging/
+|   |   +-- toolkit.json                                 #   summarize_conversation, suggest_next_step, ...
+|   +-- workflow/
+|   |   +-- toolkit.json                                 #   list_workflows, advance_workflow, ...
+|   +-- task-management/
+|   |   +-- toolkit.json                                 #   create_todo, list_todos, update_todo
+|   +-- orchestration/
+|   |   +-- toolkit.json                                 #   create_job, create_project, list_workgroup_jobs, ...
+|   +-- sandbox/
+|   |   +-- toolkit.json                                 #   sandbox_exec, git_status, merge_to_main, ...
+|   +-- ...
+|
++-- .templates/                                          # Composable bootstrapping blueprints
+|   +-- workflows/
+|   |   +-- &lt;workflow-template&gt;.md
+|   +-- agents/
+|   |   +-- &lt;agent-template&gt;/
+|   |       +-- agent.json
+|   +-- workgroups/
+|   |   +-- &lt;workgroup-template&gt;/
+|   |       +-- workgroup.json                           # References agent + workflow templates by key
+|   |       +-- files/...
+|   +-- organizations/
+|       +-- &lt;org-template&gt;/
+|           +-- organization.json                        # References workgroup templates by key
+|
++-- organizations/
+    +-- &lt;org&gt;/
+        +-- organization.json                            # Org config, operations workgroup designation
+        |
+        +-- tools/                                       # Org custom tools
+        |   +-- &lt;tool&gt;/
+        |       +-- tool.json
+        |
+        +-- partnerships/                                # Trust links with other orgs
+        |   +-- &lt;partnership&gt;/
+        |       +-- partnership.json                     # Direction, status, partner org ID
+        |
+        +-- engagements/
+        |   +-- &lt;engagement&gt;/
+        |       +-- engagement.json                      # Status, terms, parties, engagement chain
+        |       +-- agreement.md                         # Negotiated scope and terms
+        |       +-- workspace/                           # Working files (contract-based visibility)
+        |       +-- deliverables/                        # Final work products (visible to source org)
+        |
+        +-- projects/                                    # Cross-workgroup intra-org work
+        |   +-- &lt;project&gt;/
+        |       +-- project.json                         # Status, participating workgroups, engagement_id
+        |       +-- workspace/                           # Shared project files
+        |
+        +-- members/
+        |   +-- &lt;member&gt;/
+        |       +-- member.json                          # Org role, preferences
+        |
+        +-- workgroups/
+            +-- &lt;workgroup&gt;/
+                +-- workgroup.json                       # Name, description, workspace config
+                |
+                +-- agents/
+                |   +-- &lt;agent&gt;/
+                |       +-- agent.json                   # Model, personality, tool_names, thresholds
+                |       +-- learnings/...                # Agent memory and insights
+                |
+                +-- jobs/
+                |   +-- &lt;job&gt;/
+                |       +-- job.json                     # Metadata, engagement_id, project_id
+                |       +-- _workflow_state.md            # Active workflow progress (if any)
+                |       +-- uploads/...
+                |       +-- ...                          # Job work files (isolated workspace)
+                |
+                +-- files/                               # Shared workgroup files
+                    +-- workflows/
+                    |   +-- &lt;workflow&gt;.md
+                    +-- ...
+</code></pre></div>
+<h2 id="scopes">Scopes</h2>
+<p>Each conversation is scoped to a subtree. Agents and users in that conversation can <strong>read</strong> files within the scope and <strong>write</strong> to it and its subfolders.</p>
+<table>
+<thead>
+<tr>
+<th>Context</th>
+<th>Scope Path</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>System administration</td>
+<td><code>.</code></td>
+</tr>
+<tr>
+<td>Home (per-user)</td>
+<td><code>./home</code></td>
+</tr>
+<tr>
+<td>Organization admin</td>
+<td><code>./organizations/&lt;org&gt;</code></td>
+</tr>
+<tr>
+<td>Engagement</td>
+<td><code>./organizations/&lt;org&gt;/engagements/&lt;engagement&gt;</code></td>
+</tr>
+<tr>
+<td>Project</td>
+<td><code>./organizations/&lt;org&gt;/projects/&lt;project&gt;</code></td>
+</tr>
+<tr>
+<td>Workgroup admin</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;workgroup&gt;</code></td>
+</tr>
+<tr>
+<td>Agent DM (org lead)</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;admin&gt;/agents/&lt;lead&gt;</code></td>
+</tr>
+<tr>
+<td>Job</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;workgroup&gt;/jobs/&lt;job&gt;</code></td>
+</tr>
+</tbody>
+</table>
+<p>A scope includes everything below it. A workgroup admin conversation can see all agents, jobs, files, and workflows in that workgroup. A job conversation can only see files within that job's folder. An org admin conversation can see all workgroups, engagements, projects, and members in the org.</p>
+<p><strong>Note</strong>: Humans can DM the org lead (scoped to the org lead's agent folder). Humans cannot DM workgroup leads or workgroup members directly. See <a href="../ARCHITECTURE/">ARCHITECTURE.md</a> for the human interaction model.</p>
+<h2 id="configuration-files">Configuration Files</h2>
+<p>Each entity has a JSON configuration file at its root:</p>
+<table>
+<thead>
+<tr>
+<th>Entity</th>
+<th>Path</th>
+<th>Key Fields</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>System</td>
+<td><code>./config.json</code></td>
+<td>LLM models, API keys, agent behavior limits</td>
+</tr>
+<tr>
+<td>Organization</td>
+<td><code>./organizations/&lt;org&gt;/organization.json</code></td>
+<td>Name, description, operations workgroup, service description</td>
+</tr>
+<tr>
+<td>Partnership</td>
+<td><code>./organizations/&lt;org&gt;/partnerships/&lt;partnership&gt;/partnership.json</code></td>
+<td>Direction, status, partner org ID, established date</td>
+</tr>
+<tr>
+<td>Engagement</td>
+<td><code>./organizations/&lt;org&gt;/engagements/&lt;engagement&gt;/engagement.json</code></td>
+<td>Status, source/target IDs (currently workgroup-scoped, migrating to org-scoped in Phase 1), terms, engagement chain, linked project/job IDs</td>
+</tr>
+<tr>
+<td>Project</td>
+<td><code>./organizations/&lt;org&gt;/projects/&lt;project&gt;/project.json</code></td>
+<td>Status, participating workgroup IDs, engagement_id</td>
+</tr>
+<tr>
+<td>Workgroup</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;workgroup&gt;/workgroup.json</code></td>
+<td>Name, description, workspace config (image, preset, git_remote)</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;workgroup&gt;/agents/&lt;agent&gt;/agent.json</code></td>
+<td>Model, personality, tool_names, thresholds</td>
+</tr>
+<tr>
+<td>Member</td>
+<td><code>./organizations/&lt;org&gt;/members/&lt;member&gt;/member.json</code></td>
+<td>Org role (owner/admin/member), preferences. Note: the current data model tracks membership at the workgroup level; org-level membership is a Phase 1 target.</td>
+</tr>
+<tr>
+<td>Job</td>
+<td><code>./organizations/&lt;org&gt;/workgroups/&lt;workgroup&gt;/jobs/&lt;job&gt;/job.json</code></td>
+<td>Title, scope, status, engagement_id, project_id</td>
+</tr>
+</tbody>
+</table>
+<h2 id="tools">Tools</h2>
+<p>Tools are a <strong>registry</strong>, not templates. They are runtime capabilities that can be assigned to any agent.</p>
+<h3 id="system-tools">System Tools</h3>
+<p>Builtin tools ship with the system and are organized into <strong>toolkits</strong> -- logical groupings by function:</p>
+<table>
+<thead>
+<tr>
+<th>Toolkit</th>
+<th>Tools</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>File ops</td>
+<td><code>read_file</code>, <code>list_files</code>, <code>search_files</code>, <code>add_file</code>, <code>edit_file</code>, <code>rename_file</code>, <code>delete_file</code></td>
+</tr>
+<tr>
+<td>Messaging</td>
+<td><code>summarize_conversation</code>, <code>suggest_next_step</code>, <code>list_open_followups</code></td>
+</tr>
+<tr>
+<td>Workflow</td>
+<td><code>list_workflows</code>, <code>get_workflow_state</code>, <code>advance_workflow</code></td>
+</tr>
+<tr>
+<td>Task management</td>
+<td><code>create_todo</code>, <code>list_todos</code>, <code>update_todo</code></td>
+</tr>
+<tr>
+<td>Orchestration</td>
+<td><code>create_job</code>, <code>create_project</code>, <code>list_workgroup_jobs</code>, <code>read_job_status</code>, <code>post_to_job</code>, <code>complete_engagement</code></td>
+</tr>
+<tr>
+<td>Sandbox</td>
+<td><code>sandbox_exec</code>, <code>sandbox_shell</code>, <code>git_status</code>, <code>git_diff</code>, <code>git_commit</code>, <code>git_log</code>, <code>merge_to_main</code>, <code>list_repo_files</code></td>
+</tr>
+<tr>
+<td>Server-side</td>
+<td><code>web_search</code></td>
+</tr>
+</tbody>
+</table>
+<p>These are visible in the tree at <code>./tools/&lt;toolkit&gt;/toolkit.json</code> -- read-only, defined in code.</p>
+<p>The <strong>orchestration toolkit</strong> provides cross-workgroup capabilities needed by org lead agents. These tools require the agent's workgroup to be the designated operations workgroup -- other workgroups cannot use them.</p>
+<p>The <strong>sandbox toolkit</strong> provides code execution and git operations inside isolated Docker containers. Each workgroup has a git repository; each job gets a branch and a sandbox container with Claude Code CLI. See <a href="../sandbox-design/">sandbox-design.md</a> for the full architecture (future phase).</p>
+<h3 id="organization-custom-tools">Organization Custom Tools</h3>
+<p>Organizations can extend the registry with custom tools. These are defined at the org level and available to any agent in any workgroup within that org:</p>
+<div class="highlight"><pre><span></span><code>organizations/&lt;org&gt;/tools/&lt;tool&gt;/tool.json
+</code></pre></div>
+<p>Custom tools can be:
+- <strong>Prompt tools</strong> -- an LLM executes a prompt template with structured input
+- <strong>Webhook tools</strong> -- an HTTP call to an external service
+- <strong>Code tools</strong> -- custom Python registered by the organization</p>
+<p>Custom tools are registered by the org and appear in the tool catalog alongside builtins. Agents reference all tools the same way -- by name in their <code>tool_names</code> list. There is no distinction at the agent level between a builtin and a custom tool.</p>
+<h3 id="tool-grants">Tool Grants</h3>
+<p>An organization can grant access to its custom tools to other organizations. Grants are tracked as a list of grantee org IDs in the tool's <code>tool.json</code>. Agents in the grantee org see the granted tool in their available tool catalog alongside builtins and their own org's custom tools.</p>
+<h2 id="templates">Templates</h2>
+<p>Templates live under <code>.templates/</code> at the system root. They are independent, composable blueprints -- each level references the others by key rather than containing them.</p>
+<h3 id="structure">Structure</h3>
+<div class="highlight"><pre><span></span><code>.templates/
++-- workflows/
+|   +-- &lt;workflow-template&gt;.md             # Reusable workflow playbooks
+|
++-- agents/
+|   +-- &lt;agent-template&gt;/
+|       +-- agent.json                     # Model, personality, tool refs, thresholds
+|
++-- workgroups/
+|   +-- &lt;workgroup-template&gt;/
+|       +-- workgroup.json                 # Name, description, agent + workflow refs
+|       +-- files/
+|           +-- README.md                  # Initial workgroup files
+|           +-- docs/...
+|
++-- organizations/
+    +-- &lt;org-template&gt;/
+        +-- organization.json              # Name, description, workgroup refs, operations workgroup
+</code></pre></div>
+<p>Each template level references the others by key:</p>
+<ul>
+<li><strong>Organization templates</strong> list which workgroup templates to instantiate and which workgroup is the operations workgroup (e.g. <code>"workgroups": ["administration", "coding"], "operations_workgroup": "administration"</code>)</li>
+<li><strong>Workgroup templates</strong> list which agent templates and workflow templates to include (e.g. <code>"agents": ["implementer", "reviewer"], "workflows": ["code-review", "feature-build"]</code>)</li>
+<li><strong>Agent templates</strong> are leaf-level -- they reference tools by name from the registry, not from templates</li>
+<li><strong>Workflow templates</strong> are standalone markdown files that get copied into a workgroup's <code>files/workflows/</code> on instantiation</li>
+</ul>
+<p>This means:
+- A "Coding" workgroup template can be used in any org template
+- A "Reviewer" agent template can be used in any workgroup template
+- A "Code Review" workflow template can be used in any workgroup template
+- Tools are never templated -- agents just reference them by name</p>
+<h3 id="how-bootstrapping-works">How Bootstrapping Works</h3>
+<p><strong>Creating an organization</strong> from a template:
+1. Creates the org (from <code>organization.json</code>), including the <code>operations_workgroup</code> designation
+2. Looks up each referenced workgroup template and instantiates it
+3. Each workgroup instantiation looks up its referenced agent templates and creates those agents
+4. Referenced workflow templates are copied into the workgroup's <code>files/workflows/</code>
+5. Initial files from the workgroup template are copied in</p>
+<p>Every org template should include an <strong>Administration workgroup</strong> with an org lead agent that has orchestration tools.</p>
+<p><strong>Adding a workgroup</strong> to an existing org picks from the same workgroup template catalog. An org owner selects a workgroup template and gets its agents, workflows, and files. This is independent of which org template was used at creation.</p>
+<p><strong>Adding an agent</strong> to an existing workgroup picks from the agent template catalog. A workgroup can gain new capabilities without needing a new workgroup template.</p>
+<h3 id="workflows-in-workgroups">Workflows in Workgroups</h3>
+<p>Workflow definitions are markdown files that live in a workgroup's <code>files/workflows/</code> directory. They can come from:
+- A workflow template (copied on workgroup creation)
+- Manual authoring by a workgroup member or agent
+- Editing an existing workflow</p>
+<p>Workflows describe multi-step playbooks that agents follow. They are content, not code. Agents discover and execute them through the workflow toolkit tools.</p>
+<p>Workflow state is tracked per-job in <code>_workflow_state.md</code> within the job's folder. Each job gets its own independent workflow state, so the same workgroup can run different workflows across different jobs simultaneously.</p>
+<h3 id="editing-templates">Editing Templates</h3>
+<p>Templates are visible and editable through the system admin's file browser (scope: <code>.</code>). Navigate to <code>.templates/workflows/</code>, <code>.templates/agents/</code>, <code>.templates/workgroups/</code>, or <code>.templates/organizations/</code> to view and modify definitions.</p>
+<p>Changes to templates affect future instantiations only -- existing orgs, workgroups, and agents are not retroactively updated.</p>
+<h3 id="seed-templates">Seed Templates</h3>
+<p>The system ships with seed templates defined in YAML (<code>seeds/templates/*.yaml</code>). These are loaded at startup and surfaced through the <code>.templates/</code> virtual tree. The system admin can override or extend them by editing the virtual files.</p>
+<h2 id="repositories-and-the-virtual-tree">Repositories and the Virtual Tree</h2>
+<p>Workspace-enabled workgroups have a git repository on the host filesystem. The virtual file tree and the git repo coexist -- they serve different purposes:</p>
+<ul>
+<li><strong>Virtual files</strong> (<code>Workgroup.files</code> JSON column) -- documents, workflows, configuration, agent learnings. These are what agents read as prompt context. Managed through the file-ops toolkit.</li>
+<li><strong>Git repository</strong> (bare repo + worktrees on disk) -- source code, build artifacts, anything that benefits from version history and branch isolation. Managed through the sandbox toolkit.</li>
+</ul>
+<p>The main branch is synced to <code>Workgroup.files</code> so the file browser shows the current codebase state alongside documents. Job worktrees are read directly from the filesystem -- they are not synced to JSON while work is active.</p>
+<p>Each job gets a git branch (<code>job/&lt;job-id&gt;</code>) and its own worktree. The branch isolates the job's code changes from other concurrent jobs -- this is critical when multiple jobs within a project modify the same files. Completed jobs merge back to main. See <a href="../sandbox-design/">sandbox-design.md</a> for the full design (future phase).</p>
+<h2 id="agent-file-access">Agent File Access</h2>
+<p>Before each agent invocation, virtual files (from the <code>workgroup.files</code> JSON column) are materialized to a temporary directory on disk. Agents then work with real files using Claude's built-in file tools -- Read, Write, Edit, Glob, and Grep -- rather than receiving truncated file content embedded in prompts. A <code>PreToolUse</code> constrain hook scopes all file operations to the working directory, preventing agents from accessing anything outside it. When the agent finishes, any changes (modified, new, or deleted files) are synced back to the database.</p>
+<p>For workspace-enabled workgroups with an active git worktree, the existing worktree path is reused instead of creating a temporary directory. This lets agents operate directly on the checked-out branch.</p>
+<h2 id="file-scoping">File Scoping</h2>
+<p>Files are stored in the <code>workgroup.files</code> JSON column. Each file entry has an optional <code>topic_id</code> field that scopes it to a specific conversation context. Every conversation type gets its own workspace:</p>
+<table>
+<thead>
+<tr>
+<th>Conversation type</th>
+<th><code>topic_id</code> value</th>
+<th>Visible files</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Admin</td>
+<td><em>(n/a -- sees everything)</em></td>
+<td>All files</td>
+</tr>
+<tr>
+<td>Job</td>
+<td><code>{conversation.id}</code></td>
+<td>Shared + own job files</td>
+</tr>
+<tr>
+<td>Agent DM</td>
+<td><code>agent:{agent_id}</code></td>
+<td>Own agent workspace only (isolated)</td>
+</tr>
+</tbody>
+</table>
+<p>Files with no <code>topic_id</code> (or empty string) are <strong>shared</strong> -- visible to all conversations (except admin, which sees everything including scoped files).</p>
+<h3 id="workspace-identity">Workspace identity</h3>
+<ul>
+<li><strong>Agent DMs</strong> -- the workspace persists across all DM conversations with the same agent, regardless of which user is chatting. The agent ID is extracted from the conversation <code>topic</code> field (<code>dma:{user_id}:{agent_id}</code>).</li>
+<li><strong>Jobs</strong> -- each job conversation has its own workspace, identified by the conversation ID. This provides isolation when multiple jobs modify the same files.</li>
+</ul>
+<h3 id="job-workspace-isolation">Job Workspace Isolation</h3>
+<p>When a workgroup has multiple active jobs (especially within a project or engagement), each job works in its own isolated workspace:</p>
+<ul>
+<li><strong>Virtual files workgroups</strong>: Each job's <code>topic_id</code> scoping ensures its files are separate from other jobs.</li>
+<li><strong>Workspace-enabled workgroups</strong>: Each job gets its own git worktree (branch), preventing concurrent jobs from clobbering each other's changes.</li>
+</ul>
+<p>Completed jobs merge their changes back to the shared workspace. The project or engagement conversation serves as the coordination point for sequencing dependent jobs.</p>
+<h3 id="implementation">Implementation</h3>
+<p>All <code>topic_id</code> assignment is centralized in <code>_topic_id_for_conversation()</code> (<code>tools.py</code>). The frontend mirror is <code>topicIdForConversation()</code> (<code>app.js</code>). Both backend and frontend file filtering use this helper -- no inline scoping logic elsewhere.</p>
+<h2 id="content-placement">Content Placement</h2>
+<p><strong>AI-generated content</strong> goes into the scope folder of the conversation that produced it, or one of its subfolders.</p>
+<p><strong>User uploads</strong> go into <code>&lt;scope&gt;/uploads/</code>.</p>
+<p><strong>Agent learnings</strong> are stored as markdown or JSON files under the agent's <code>learnings/</code> folder. These accumulate as the agent interacts across jobs and conversations within its workgroup.</p>
+<h2 id="engagement-visibility">Engagement Visibility</h2>
+<p>Engagements use contract-based visibility. The target org controls what the source org can see:</p>
+<ul>
+<li>The engagement conversation, <code>agreement.md</code>, and <code>deliverables/</code> directory are visible to both participating organizations.</li>
+<li>The <code>workspace/</code> directory and internal project/job files are only visible to the target org.</li>
+<li>The target org's org lead decides what to place in <code>deliverables/</code> when the engagement is completed.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

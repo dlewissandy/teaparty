@@ -1,0 +1,1773 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Textual TUI Selection Widget Events - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#textual-tui-selection-widget-events" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Textual TUI Selection Widget Events
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#widget-comparison-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Widget Comparison Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1-listview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. ListView
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. ListView">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arrow-key-navigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arrow Key Navigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-item-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Item Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clearing-and-rebuilding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clearing and Rebuilding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-case-fit-for-dashboard" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Case Fit for Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-optionlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. OptionList
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. OptionList">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#events_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arrow-key-navigation_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arrow Key Navigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-item-data_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Item Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clearing-and-rebuilding_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clearing and Rebuilding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-case-fit-for-dashboard_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Case Fit for Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-tree" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Tree
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Tree">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#events_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arrow-key-navigation_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arrow Key Navigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-node-data" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Node Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#clearing-and-rebuilding_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Clearing and Rebuilding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-case-fit-for-dashboard_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Case Fit for Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-selectionlist" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. SelectionList
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. SelectionList">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#events_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Events
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#arrow-key-navigation_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Arrow Key Navigation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#getting-item-data_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Getting Item Data
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-case-fit-for-dashboard_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use Case Fit for Dashboard
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-the-prevent-context-manager-universal-escape-hatch" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. The prevent() Context Manager (Universal Escape Hatch)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-recommendation-for-dashboardpy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Recommendation for dashboard.py
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="textual-tui-selection-widget-events">Textual TUI Selection Widget Events</h1>
+<p>Research into Textual (Textualize) Python TUI framework widgets that fire events on highlight/selection change. Motivated by the dashboard screen's need to update a right-hand panel when the user navigates a project list with arrow keys, without the race conditions encountered using <code>DataTable.CursorMoved</code>.</p>
+<p><strong>Context:</strong> <code>projects/POC/tui/screens/dashboard.py</code> uses <code>DataTable</code> with a polling-based workaround (reading <code>cursor_row</code> on a timer) because <code>CursorMoved</code> fires async events that race with <code>clear()</code>/<code>add_row()</code>/<code>move_cursor()</code> calls during periodic refresh.</p>
+<hr />
+<h2 id="widget-comparison-summary">Widget Comparison Summary</h2>
+<table>
+<thead>
+<tr>
+<th>Widget</th>
+<th>Highlight Event</th>
+<th>Fires on Arrow Keys</th>
+<th>Item Data in Event</th>
+<th>Safe to Clear + Rebuild</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ListView</code></td>
+<td><code>Highlighted</code></td>
+<td>Yes</td>
+<td><code>event.item</code> (ListItem)</td>
+<td>Mostly — <code>validate_index()</code> clamps; no confirmed spurious fire</td>
+</tr>
+<tr>
+<td><code>OptionList</code></td>
+<td><code>OptionHighlighted</code></td>
+<td>Yes</td>
+<td><code>event.option</code>, <code>.option_id</code>, <code>.option_index</code></td>
+<td>Known layout bug in v2.0.0 (fixed in PR #5730); use <code>set_options()</code></td>
+</tr>
+<tr>
+<td><code>Tree</code></td>
+<td><code>NodeHighlighted</code></td>
+<td>Yes</td>
+<td><code>event.node</code> (TreeNode, has <code>.data</code>)</td>
+<td>Not documented; cursor managed by <code>validate_cursor_line()</code></td>
+</tr>
+<tr>
+<td><code>SelectionList</code></td>
+<td><code>SelectionHighlighted</code></td>
+<td>Yes (highlight only; Space/Enter to toggle)</td>
+<td><code>event.selection</code>, <code>.index</code></td>
+<td>Inherits OptionList; same caveat</td>
+</tr>
+</tbody>
+</table>
+<p>The universal escape hatch for suppressing events during programmatic updates is <code>widget.prevent(MessageType)</code> context manager (available in Textual 0.40+).</p>
+<hr />
+<h2 id="1-listview">1. ListView</h2>
+<p><strong>Documentation:</strong> https://textual.textualize.io/widgets/list_view/</p>
+<h3 id="events">Events</h3>
+<p><strong><code>ListView.Highlighted</code></strong>
+- Fires when the highlighted item changes — including on up/down arrow key navigation.
+- Attributes:
+  - <code>item: ListItem | None</code> — the currently highlighted item widget
+  - <code>list_view: ListView</code> — the containing widget
+  - <code>control</code> — alias for <code>list_view</code>
+- Handler name: <code>on_list_view_highlighted</code></p>
+<p><strong><code>ListView.Selected</code></strong>
+- Fires only when the user explicitly selects an item (Enter key or click).
+- Attributes:
+  - <code>item: ListItem</code> — the selected item widget
+  - <code>index: int</code> — numeric position
+  - <code>list_view: ListView</code>
+  - <code>control</code> — alias for <code>list_view</code>
+- Handler name: <code>on_list_view_selected</code></p>
+<h3 id="arrow-key-navigation">Arrow Key Navigation</h3>
+<p><code>Highlighted</code> fires reliably on every arrow key press. This is the correct event for "update another panel as user navigates."</p>
+<h3 id="getting-item-data">Getting Item Data</h3>
+<p><code>ListItem</code> is a widget container (typically wrapping a <code>Label</code>). There is no built-in <code>.data</code> payload attached to a <code>ListItem</code>. To associate data with a list item, you must either:
+- Subclass <code>ListItem</code> and add attributes, or
+- Maintain a parallel list (e.g., <code>self._project_slugs</code>) indexed by position, and use <code>event.list_view.index</code> to look up the corresponding data.</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">on_list_view_highlighted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">ListView</span><span class="o">.</span><span class="n">Highlighted</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">item</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">return</span>
+    <span class="n">idx</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">list_view</span><span class="o">.</span><span class="n">index</span>       <span class="c1"># int | None</span>
+    <span class="k">if</span> <span class="n">idx</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">idx</span> <span class="o">&lt;</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_project_slugs</span><span class="p">):</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selected_project</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_project_slugs</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_session_table</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="clearing-and-rebuilding">Clearing and Rebuilding</h3>
+<ul>
+<li><code>clear()</code> removes all items and returns <code>AwaitRemove</code>.</li>
+<li>The <code>index</code> reactive is validated via <code>validate_index()</code>, which clamps to the valid range or sets to <code>None</code> when no items exist.</li>
+<li><code>watch_index()</code> fires when <code>index</code> changes programmatically, which may trigger a <code>Highlighted</code> message.</li>
+<li><strong>Known bug (fixed Nov 2024, PR #5135):</strong> <code>pop()</code> and <code>remove_items()</code> previously did not update the index, leaving the highlight pointing at a now-invalid row. This is fixed in Textual &gt;= the version containing PR #5135.</li>
+<li>To suppress spurious <code>Highlighted</code> events during a clear/rebuild, use the <code>prevent()</code> context manager:</li>
+</ul>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">ListView</span><span class="o">.</span><span class="n">Highlighted</span><span class="p">):</span>
+    <span class="n">lv</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+    <span class="n">lv</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">new_items</span><span class="p">)</span>
+</code></pre></div>
+<h3 id="use-case-fit-for-dashboard">Use Case Fit for Dashboard</h3>
+<p>ListView is a good fit if list items are simple (label strings). The parallel-index pattern already used in <code>dashboard.py</code> (<code>self._project_slugs[idx]</code>) translates directly. The main cost is that <code>ListItem</code> carries no typed data payload — you rely on positional alignment.</p>
+<hr />
+<h2 id="2-optionlist">2. OptionList</h2>
+<p><strong>Documentation:</strong> https://textual.textualize.io/widgets/option_list/</p>
+<h3 id="events_1">Events</h3>
+<p>Both events inherit from <code>OptionList.OptionMessage</code>.</p>
+<p><strong><code>OptionList.OptionHighlighted</code></strong>
+- Fires when an option receives highlight focus — including on arrow key navigation.
+- Attributes (from <code>OptionMessage</code>):
+  - <code>option: Option</code> — the Option object with <code>.prompt</code> (display text) and <code>.id</code> (optional string)
+  - <code>option_id: str | None</code> — the option's string identifier if set
+  - <code>option_index: int</code> — numeric index
+  - <code>option_list: OptionList</code> — the containing widget
+  - <code>control</code> — alias for <code>option_list</code>
+- Handler name: <code>on_option_list_option_highlighted</code></p>
+<p><strong><code>OptionList.OptionSelected</code></strong>
+- Fires only on explicit selection (Enter key).
+- Same attributes as <code>OptionHighlighted</code>.
+- Handler name: <code>on_option_list_option_selected</code></p>
+<h3 id="arrow-key-navigation_1">Arrow Key Navigation</h3>
+<p><code>OptionHighlighted</code> fires on every arrow key press. This is the correct event for panel-update use cases.</p>
+<p><strong>Important timing note:</strong> Do not read <code>self.highlighted</code> inside an <code>on_key</code> handler — the highlight state may not yet reflect the key press. Always read it from within the <code>OptionHighlighted</code> event handler itself, where the state is guaranteed to be current.</p>
+<h3 id="getting-item-data_1">Getting Item Data</h3>
+<p><code>Option</code> objects have:
+- <code>option.prompt</code> — the displayed text (the <code>VisualType</code> passed at construction)
+- <code>option.id</code> — an optional string identifier you assign at construction</p>
+<p>The recommended pattern for associating typed data with an option is to set <code>id</code> to a string key (e.g., project slug) and look up from a dict:</p>
+<div class="highlight"><pre><span></span><code><span class="n">option_list</span><span class="o">.</span><span class="n">add_option</span><span class="p">(</span><span class="n">Option</span><span class="p">(</span><span class="n">proj</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="nb">id</span><span class="o">=</span><span class="n">proj</span><span class="o">.</span><span class="n">slug</span><span class="p">))</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">on_option_list_option_highlighted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">option_id</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selected_project</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">option_id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_session_panel</span><span class="p">()</span>
+</code></pre></div>
+<p>This avoids the parallel-list index alignment problem entirely.</p>
+<h3 id="clearing-and-rebuilding_1">Clearing and Rebuilding</h3>
+<ul>
+<li><code>clear_options()</code> — removes all options, returns <code>Self</code> (chainable, synchronous).</li>
+<li><code>add_option(option)</code> — appends a single option or separator (<code>None</code>).</li>
+<li><code>add_options(options)</code> — appends multiple options.</li>
+<li><code>set_options(options)</code> — replaces all options in one call (preferred for refresh use cases).</li>
+<li><code>highlighted</code> property — <code>int | None</code>, index of currently highlighted option.</li>
+<li><code>highlighted_option</code> property — <code>Option | None</code>, the Option object itself.</li>
+</ul>
+<p><strong>Known bug (v2.0.0, fixed in PR #5730):</strong> After <code>clear_options()</code>, the widget's layout and scrollbar could fail to recalculate their height correctly. This was a regression introduced in v2.0.0 and was fixed shortly after. Pin Textual &gt;= the version containing PR #5730 if using <code>clear_options()</code> in periodic refresh loops.</p>
+<p><strong>Spurious events on clear:</strong> Not explicitly documented, but since <code>clear_options()</code> is a programmatic state change (not a user interaction), <code>OptionHighlighted</code> should not fire during it. If the <code>highlighted</code> index becomes invalid after clearing (e.g., points beyond the new list end), Textual may reset it to 0 or <code>None</code>. To be safe, use <code>prevent()</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span><span class="p">):</span>
+    <span class="n">option_list</span><span class="o">.</span><span class="n">set_options</span><span class="p">([</span><span class="n">Option</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="nb">id</span><span class="o">=</span><span class="n">p</span><span class="o">.</span><span class="n">slug</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">projects</span><span class="p">])</span>
+</code></pre></div>
+<p>Then manually restore and fire a highlight update if needed:</p>
+<div class="highlight"><pre><span></span><code><span class="n">option_list</span><span class="o">.</span><span class="n">highlighted</span> <span class="o">=</span> <span class="n">saved_index</span>
+</code></pre></div>
+<h3 id="use-case-fit-for-dashboard_1">Use Case Fit for Dashboard</h3>
+<p><code>OptionList</code> is arguably the best fit for the project-list panel:
+- <code>Option(id=...)</code> lets you embed a string key directly — no parallel index list needed.
+- <code>set_options()</code> is a single atomic call to replace all content.
+- <code>OptionHighlighted</code> fires on arrow keys with the option object (and <code>option_id</code>) directly accessible from the event.
+- Lighter widget than <code>DataTable</code> (no columns, no cursor types, no row keys).</p>
+<hr />
+<h2 id="3-tree">3. Tree</h2>
+<p><strong>Documentation:</strong> https://textual.textualize.io/widgets/tree/</p>
+<h3 id="events_2">Events</h3>
+<p><strong><code>Tree.NodeHighlighted</code></strong>
+- Fires when a node becomes the cursor target — including on arrow key navigation.
+- Attributes:
+  - <code>node: TreeNode</code> — the highlighted node
+  - <code>control: Tree</code> — the tree widget
+- Handler name: <code>on_tree_node_highlighted</code></p>
+<p><strong><code>Tree.NodeSelected</code></strong>
+- Fires on explicit selection (Enter key or <code>action_select_cursor()</code>).
+- Attributes:
+  - <code>node: TreeNode</code>
+  - <code>control: Tree</code>
+- Handler name: <code>on_tree_node_selected</code></p>
+<h3 id="arrow-key-navigation_2">Arrow Key Navigation</h3>
+<p><code>NodeHighlighted</code> fires on every arrow key navigation step. The <code>auto_expand</code> setting determines whether nodes also expand when navigated to.</p>
+<h3 id="getting-node-data">Getting Node Data</h3>
+<p>Each <code>TreeNode</code> carries an optional <code>.data</code> attribute of any type, set at node creation:</p>
+<div class="highlight"><pre><span></span><code><span class="n">tree</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s2">&quot;ProjectName&quot;</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">project_object</span><span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">on_tree_node_highlighted</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">Tree</span><span class="o">.</span><span class="n">NodeHighlighted</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">node</span><span class="o">.</span><span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selected_project</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">node</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">slug</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_session_panel</span><span class="p">()</span>
+</code></pre></div>
+<p>This is the cleanest data-attachment pattern of the three widgets — typed, arbitrary payload, no string IDs needed.</p>
+<h3 id="clearing-and-rebuilding_2">Clearing and Rebuilding</h3>
+<p><code>Tree</code> does not have a simple <code>clear()</code> equivalent. The typical approach is:
+- Call <code>tree.clear()</code> to reset the tree to only its root node, then re-add children.
+- Or remove and re-add the <code>Tree</code> widget itself (heavier).</p>
+<p><code>validate_cursor_line()</code> manages cursor bounds during structural changes. Whether structural rebuilds fire spurious <code>NodeHighlighted</code> events is not formally documented, but the validation logic suggests the framework attempts to keep the cursor in a valid state. Use <code>prevent()</code> as a safeguard:</p>
+<div class="highlight"><pre><span></span><code><span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">Tree</span><span class="o">.</span><span class="n">NodeHighlighted</span><span class="p">):</span>
+    <span class="n">tree</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>
+    <span class="k">for</span> <span class="n">proj</span> <span class="ow">in</span> <span class="n">projects</span><span class="p">:</span>
+        <span class="n">tree</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">proj</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">proj</span><span class="p">)</span>
+    <span class="n">tree</span><span class="o">.</span><span class="n">root</span><span class="o">.</span><span class="n">expand</span><span class="p">()</span>
+</code></pre></div>
+<h3 id="use-case-fit-for-dashboard_2">Use Case Fit for Dashboard</h3>
+<p><code>Tree</code> is ideal if the list has hierarchy (e.g., workgroups containing projects). For a flat project list, it adds complexity (root node, expand/collapse bindings) without benefit. For the current flat-list case, <code>OptionList</code> or <code>ListView</code> are simpler.</p>
+<hr />
+<h2 id="4-selectionlist">4. SelectionList</h2>
+<p><strong>Documentation:</strong> https://textual.textualize.io/widgets/selection_list/</p>
+<h3 id="events_3">Events</h3>
+<p><strong><code>SelectionList.SelectionHighlighted</code></strong>
+- Fires when a selection becomes highlighted — including on arrow key navigation.
+- Attributes:
+  - <code>selection_list: SelectionList</code>
+  - <code>index: int</code>
+  - <code>selection: Selection</code> — the Selection object
+  - <code>selection.value</code> — the typed data value associated with this selection</p>
+<p><strong><code>SelectionList.SelectionToggled</code></strong>
+- Fires when an item is checked/unchecked (Space or Enter, or programmatic <code>toggle()</code>).
+- Same attributes as above.
+- Note: fires once per toggled item even during bulk operations (<code>toggle_all()</code>).</p>
+<p><strong><code>SelectionList.SelectedChanged</code></strong>
+- Fires whenever the set of checked items changes (from any cause).</p>
+<h3 id="arrow-key-navigation_3">Arrow Key Navigation</h3>
+<p>Arrow keys trigger <code>SelectionHighlighted</code> only. <code>SelectionToggled</code> requires explicit user action (Space/Enter). This is an important distinction from multi-select intent: navigating does not auto-check items.</p>
+<h3 id="getting-item-data_2">Getting Item Data</h3>
+<p>Each <code>Selection</code> has a <code>.value</code> of a parameterized type:</p>
+<div class="highlight"><pre><span></span><code><span class="n">selection_list</span> <span class="o">=</span> <span class="n">SelectionList</span><span class="p">[</span><span class="nb">str</span><span class="p">](</span>
+    <span class="n">Selection</span><span class="p">(</span><span class="s2">&quot;Project Alpha&quot;</span><span class="p">,</span> <span class="s2">&quot;alpha&quot;</span><span class="p">),</span>
+    <span class="n">Selection</span><span class="p">(</span><span class="s2">&quot;Project Beta&quot;</span><span class="p">,</span> <span class="s2">&quot;beta&quot;</span><span class="p">),</span>
+<span class="p">)</span>
+</code></pre></div>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">on_selection_list_selection_highlighted</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">SelectionList</span><span class="o">.</span><span class="n">SelectionHighlighted</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">highlighted_value</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">selection</span><span class="o">.</span><span class="n">value</span>  <span class="c1"># &quot;alpha&quot; or &quot;beta&quot;</span>
+</code></pre></div>
+<h3 id="use-case-fit-for-dashboard_3">Use Case Fit for Dashboard</h3>
+<p><code>SelectionList</code> is designed for multi-select checkboxes (like selecting multiple items to batch-process). It is the wrong widget for a single-selection navigation list where the selected item drives panel updates. The "toggle" model adds unwanted visual and interaction complexity. Do not use <code>SelectionList</code> here.</p>
+<hr />
+<h2 id="5-the-prevent-context-manager-universal-escape-hatch">5. The <code>prevent()</code> Context Manager (Universal Escape Hatch)</h2>
+<p><strong>Documentation:</strong> https://textual.textualize.io/guide/events/</p>
+<p>All Textual widgets support a <code>prevent()</code> context manager that temporarily suppresses posting of a specific message type. This is the canonical solution for avoiding spurious events during programmatic widget updates:</p>
+<div class="highlight"><pre><span></span><code><span class="c1"># Rebuild without triggering the highlight handler</span>
+<span class="k">with</span> <span class="bp">self</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span><span class="p">):</span>
+    <span class="n">option_list</span><span class="o">.</span><span class="n">set_options</span><span class="p">([</span><span class="o">...</span><span class="p">])</span>
+
+<span class="c1"># Or on the widget itself:</span>
+<span class="k">with</span> <span class="n">option_list</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span><span class="p">):</span>
+    <span class="n">option_list</span><span class="o">.</span><span class="n">set_options</span><span class="p">([</span><span class="o">...</span><span class="p">])</span>
+</code></pre></div>
+<p>This is distinct from:
+- <code>event.stop()</code> — prevents the event from bubbling to parent widgets
+- <code>event.prevent_default()</code> — prevents base-class handlers from running</p>
+<p><code>prevent()</code> is the right tool when you want a programmatic state mutation to not trigger downstream reactive handlers.</p>
+<hr />
+<h2 id="6-recommendation-for-dashboardpy">6. Recommendation for dashboard.py</h2>
+<p>The current <code>DataTable</code> + polling-on-timer approach avoids race conditions but adds latency (up to one timer tick) and complexity. The race condition root cause is that <code>DataTable.CursorMoved</code> fires as a message posted into the async event queue, which can arrive after a <code>clear()</code>/<code>add_row()</code> sequence from a concurrent timer tick has already reset the cursor.</p>
+<p><strong>Recommended replacement for the project-list panel: <code>OptionList</code></strong></p>
+<p>Reasons:
+1. <code>OptionHighlighted</code> fires synchronously in response to key events — no async queue race with <code>clear_options()</code>.
+2. <code>Option(id=proj.slug)</code> embeds the key directly in the widget item, eliminating the parallel <code>self._project_slugs</code> list.
+3. <code>set_options()</code> is a single atomic call, simpler than <code>clear()</code> + <code>add_row()</code> loop.
+4. <code>with option_list.prevent(OptionList.OptionHighlighted)</code> gives a clean, explicit gate during rebuilds.
+5. Lighter than <code>DataTable</code> — no column definitions, no row keys, no cursor type configuration.</p>
+<p><strong>Pattern for periodic refresh with OptionList:</strong></p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_rebuild_project_list</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">ol</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">query_one</span><span class="p">(</span><span class="s1">&#39;#project-list&#39;</span><span class="p">,</span> <span class="n">OptionList</span><span class="p">)</span>
+    <span class="c1"># Save the currently highlighted option id before rebuilding</span>
+    <span class="n">saved_id</span> <span class="o">=</span> <span class="n">ol</span><span class="o">.</span><span class="n">highlighted_option</span><span class="o">.</span><span class="n">id</span> <span class="k">if</span> <span class="n">ol</span><span class="o">.</span><span class="n">highlighted_option</span> <span class="k">else</span> <span class="kc">None</span>
+
+    <span class="c1"># Rebuild without triggering the highlight handler</span>
+    <span class="k">with</span> <span class="n">ol</span><span class="o">.</span><span class="n">prevent</span><span class="p">(</span><span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span><span class="p">):</span>
+        <span class="n">ol</span><span class="o">.</span><span class="n">set_options</span><span class="p">([</span>
+            <span class="n">Option</span><span class="p">(</span><span class="n">proj</span><span class="o">.</span><span class="n">slug</span><span class="p">,</span> <span class="nb">id</span><span class="o">=</span><span class="n">proj</span><span class="o">.</span><span class="n">slug</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">proj</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">state_reader</span><span class="o">.</span><span class="n">projects</span>
+        <span class="p">])</span>
+
+    <span class="c1"># Restore highlight position</span>
+    <span class="k">if</span> <span class="n">saved_id</span><span class="p">:</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">opt</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">ol</span><span class="o">.</span><span class="n">options</span><span class="p">):</span>
+            <span class="k">if</span> <span class="n">opt</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="n">saved_id</span><span class="p">:</span>
+                <span class="n">ol</span><span class="o">.</span><span class="n">highlighted</span> <span class="o">=</span> <span class="n">i</span>
+                <span class="k">break</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">ol</span><span class="o">.</span><span class="n">highlighted</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="n">ol</span><span class="o">.</span><span class="n">option_count</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="k">elif</span> <span class="n">ol</span><span class="o">.</span><span class="n">option_count</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="n">ol</span><span class="o">.</span><span class="n">highlighted</span> <span class="o">=</span> <span class="mi">0</span>
+
+<span class="k">def</span><span class="w"> </span><span class="nf">on_option_list_option_highlighted</span><span class="p">(</span>
+    <span class="bp">self</span><span class="p">,</span> <span class="n">event</span><span class="p">:</span> <span class="n">OptionList</span><span class="o">.</span><span class="n">OptionHighlighted</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">event</span><span class="o">.</span><span class="n">option_list</span><span class="o">.</span><span class="n">id</span> <span class="o">==</span> <span class="s1">&#39;project-list&#39;</span> <span class="ow">and</span> <span class="n">event</span><span class="o">.</span><span class="n">option_id</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_selected_project</span> <span class="o">=</span> <span class="n">event</span><span class="o">.</span><span class="n">option_id</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_rebuild_session_panel</span><span class="p">()</span>
+</code></pre></div>
+<hr />
+<h2 id="sources">Sources</h2>
+<ul>
+<li><a href="https://textual.textualize.io/widgets/list_view/">Textual ListView documentation</a></li>
+<li><a href="https://textual.textualize.io/widgets/option_list/">Textual OptionList documentation</a></li>
+<li><a href="https://textual.textualize.io/widgets/tree/">Textual Tree widget documentation</a></li>
+<li><a href="https://textual.textualize.io/widgets/selection_list/">Textual SelectionList documentation</a></li>
+<li><a href="https://textual.textualize.io/guide/events/">Textual Events and Messages guide</a></li>
+<li><a href="https://github.com/Textualize/textual/issues/5114">GitHub: ListView index not updated after item removal (PR #5135, fixed Nov 2024)</a></li>
+<li><a href="https://github.com/Textualize/textual/issues/5728">GitHub: OptionList not fully updating on clear since v2.0.0 (PR #5730)</a></li>
+<li><a href="https://github.com/Textualize/textual/discussions/2857">GitHub: OptionList highlighted property timing issue with single option</a></li>
+<li><a href="https://github.com/Textualize/textual/discussions/4322">GitHub: Advice on working with ListView and ListItem (discussion #4322)</a></li>
+<li><a href="https://github.com/Textualize/textual/discussions/3328">GitHub: Updating DataTable data periodically (discussion #3328)</a></li>
+<li><a href="https://github.com/Textualize/textual/discussions/2241">GitHub: OptionList not designed for dynamic per-item updates (discussion #2241)</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

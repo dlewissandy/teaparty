@@ -1,0 +1,1796 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Python State Machine Libraries: Survey for Orchestrator Design - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#python-state-machine-libraries-survey-for-orchestrator-design" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Python State Machine Libraries: Survey for Orchestrator Design
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context-and-evaluation-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context and Evaluation Criteria
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#libraries-evaluated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Libraries Evaluated
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Libraries Evaluated">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-transitions-pytransitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. transitions (pytransitions)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-python-statemachine-fgmacedo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. python-statemachine (fgmacedo)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-sismic" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. sismic
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-automat-glyphtwisted" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. automat (glyph/Twisted)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-pysm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. pysm
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-maquina" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. maquina
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#7-dramatiq" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. dramatiq
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#8-temporalio-temporal-python-sdk" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. temporalio (Temporal Python SDK)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#9-prefect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. prefect
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-xstate-python-statelys-official-python-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. xstate-python (Stately's official Python port)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#comparison-matrix" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Comparison Matrix
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Recommendation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#first-choice-python-statemachine-v300" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First choice: python-statemachine (v3.0.0)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#second-choice-transitions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Second choice: transitions
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#reject-for-this-use-case" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reject for this use case
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#implications-for-teaparty-orchestrator" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implications for TeaParty Orchestrator
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="python-state-machine-libraries-survey-for-orchestrator-design">Python State Machine Libraries: Survey for Orchestrator Design</h1>
+<p><strong>Research date:</strong> 2026-03-13
+<strong>Researcher:</strong> Teaparty Research Agent
+<strong>Purpose:</strong> Evaluate Python state machine and workflow libraries to replace bespoke orchestrator state management in <code>projects/POC/orchestrator/</code>. The goal is conceptual clarity and native async support without heavyweight infrastructure overhead.</p>
+<hr />
+<h2 id="context-and-evaluation-criteria">Context and Evaluation Criteria</h2>
+<p>The TeaParty POC orchestrator (<code>projects/POC/orchestrator/claude_runner.py</code>) already uses native asyncio throughout (async subprocess streams, watchdog tasks, event bus publishing). Any state machine library must integrate cleanly with that model.</p>
+<p><strong>Must-have:</strong> native asyncio support (not thread-based fake async)
+<strong>Strong preference:</strong> hierarchical/nested states, guards/conditions, entry/exit actions
+<strong>Reject if:</strong> requires external server, DSL files, or breaks the "just Python" principle</p>
+<hr />
+<h2 id="libraries-evaluated">Libraries Evaluated</h2>
+<h3 id="1-transitions-pytransitions">1. <code>transitions</code> (pytransitions)</h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/pytransitions/transitions</li>
+<li><strong>Stars:</strong> ~6,500</li>
+<li><strong>Latest release:</strong> 0.9.3 (July 2025) / 0.9.4 (Nov 2024 hotfix)</li>
+<li><strong>License:</strong> MIT</li>
+<li><strong>Maintenance:</strong> Actively maintained; recent async type annotation improvements</li>
+</ul>
+<p><strong>Async support:</strong> Yes — <code>AsyncMachine</code> and <code>HierarchicalAsyncMachine</code> use native asyncio. Callbacks are awaited if they are coroutines. User must <code>await</code> trigger calls themselves (e.g., <code>await model.evaporate()</code>). A companion package <code>transitions-anyio</code> also exists for anyio-based environments.</p>
+<p><strong>Hierarchical states:</strong> Yes — <code>HierarchicalMachine</code> / <code>HierarchicalAsyncMachine</code> support nested states with proper entry/exit semantics inherited from parent states.</p>
+<p><strong>Guards/conditions:</strong> Yes — <code>conditions</code> list on each transition definition; a transition only fires if all conditions return truthy. Also <code>unless</code> for negated guards.</p>
+<p><strong>Entry/exit/transition actions:</strong> Yes — <code>on_enter_&lt;state&gt;()</code> and <code>on_exit_&lt;state&gt;()</code> methods are auto-discovered on the model. Transitions support <code>before</code>, <code>after</code>, <code>prepare</code>, and <code>finalize</code> callbacks.</p>
+<p><strong>API style:</strong> Dictionary-based definition (or list of dicts). Readable but a bit ceremonious:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">transitions.extensions.asyncio</span><span class="w"> </span><span class="kn">import</span> <span class="n">AsyncMachine</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Orchestrator</span><span class="p">:</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_enter_running</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_agent</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">is_not_stalled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stall_detected</span>
+
+<span class="n">machine</span> <span class="o">=</span> <span class="n">AsyncMachine</span><span class="p">(</span>
+    <span class="n">model</span><span class="o">=</span><span class="n">orchestrator</span><span class="p">,</span>
+    <span class="n">states</span><span class="o">=</span><span class="p">[</span><span class="s1">&#39;idle&#39;</span><span class="p">,</span> <span class="s1">&#39;running&#39;</span><span class="p">,</span> <span class="s1">&#39;paused&#39;</span><span class="p">,</span> <span class="s1">&#39;done&#39;</span><span class="p">,</span> <span class="s1">&#39;failed&#39;</span><span class="p">],</span>
+    <span class="n">transitions</span><span class="o">=</span><span class="p">[</span>
+        <span class="p">{</span><span class="s1">&#39;trigger&#39;</span><span class="p">:</span> <span class="s1">&#39;start&#39;</span><span class="p">,</span>   <span class="s1">&#39;source&#39;</span><span class="p">:</span> <span class="s1">&#39;idle&#39;</span><span class="p">,</span>    <span class="s1">&#39;dest&#39;</span><span class="p">:</span> <span class="s1">&#39;running&#39;</span><span class="p">},</span>
+        <span class="p">{</span><span class="s1">&#39;trigger&#39;</span><span class="p">:</span> <span class="s1">&#39;pause&#39;</span><span class="p">,</span>   <span class="s1">&#39;source&#39;</span><span class="p">:</span> <span class="s1">&#39;running&#39;</span><span class="p">,</span> <span class="s1">&#39;dest&#39;</span><span class="p">:</span> <span class="s1">&#39;paused&#39;</span><span class="p">,</span>
+         <span class="s1">&#39;conditions&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;is_not_stalled&#39;</span><span class="p">]},</span>
+        <span class="p">{</span><span class="s1">&#39;trigger&#39;</span><span class="p">:</span> <span class="s1">&#39;finish&#39;</span><span class="p">,</span>  <span class="s1">&#39;source&#39;</span><span class="p">:</span> <span class="s1">&#39;running&#39;</span><span class="p">,</span> <span class="s1">&#39;dest&#39;</span><span class="p">:</span> <span class="s1">&#39;done&#39;</span><span class="p">},</span>
+        <span class="p">{</span><span class="s1">&#39;trigger&#39;</span><span class="p">:</span> <span class="s1">&#39;fail&#39;</span><span class="p">,</span>    <span class="s1">&#39;source&#39;</span><span class="p">:</span> <span class="s1">&#39;*&#39;</span><span class="p">,</span>       <span class="s1">&#39;dest&#39;</span><span class="p">:</span> <span class="s1">&#39;failed&#39;</span><span class="p">},</span>
+    <span class="p">],</span>
+    <span class="n">initial</span><span class="o">=</span><span class="s1">&#39;idle&#39;</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">await</span> <span class="n">orchestrator</span><span class="o">.</span><span class="n">start</span><span class="p">()</span>  <span class="c1"># triggers async on_enter_running</span>
+</code></pre></div>
+<p><strong>Notable drawbacks:</strong>
+- Dictionary-based transition definitions are verbose for many transitions.
+- The <code>HierarchicalAsyncMachine</code> has more complexity/bugs historically than the flat version.
+- No built-in serialization of state for resume/recovery.
+- The library has grown organically; the API surface is large and sometimes inconsistent between Machine variants.</p>
+<hr />
+<h3 id="2-python-statemachine-fgmacedo">2. <code>python-statemachine</code> (fgmacedo)</h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/fgmacedo/python-statemachine</li>
+<li><strong>Stars:</strong> ~1,200</li>
+<li><strong>Latest release:</strong> 3.0.0 (February 2026)</li>
+<li><strong>License:</strong> MIT</li>
+<li><strong>Maintenance:</strong> Actively maintained; version 3.0.0 released 2026-02-24 — very recent</li>
+</ul>
+<p><strong>Async support:</strong> Yes — native asyncio, automatic. If any callback is <code>async def</code>, the engine automatically switches to <code>AsyncEngine</code>. The public API is identical for sync and async code. Caveat: <code>activate_initial_state()</code> must be awaited explicitly before inspecting state if no event has been sent yet.</p>
+<p><strong>Hierarchical states:</strong> Yes — <code>State.Compound</code> for nested states, <code>State.Parallel</code> for concurrent regions, <code>HistoryState()</code> for re-entering prior child states. Full statechart support per the W3C SCXML model.</p>
+<p><strong>Guards/conditions:</strong> Yes — <code>cond=</code> (positive) and <code>unless=</code> (negative) parameters on transitions. Evaluated in declaration order; first matching guard wins. Guards can reference instance methods by name (string) or as callables.</p>
+<p><strong>Entry/exit/transition actions:</strong> Yes — <code>on_enter_&lt;state&gt;()</code> and <code>on_exit_&lt;state&gt;()</code> methods auto-discovered. Transition-level <code>on=</code>, <code>before=</code>, <code>after=</code> callbacks. Parameters are <strong>automatically injected by signature inspection</strong> — callbacks only receive the arguments they declare.</p>
+<p><strong>API style:</strong> Declarative class-based DSL using fluent method chaining. Substantially more readable than <code>transitions</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">statemachine</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateMachine</span><span class="p">,</span> <span class="n">State</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">OrchestratorSM</span><span class="p">(</span><span class="n">StateMachine</span><span class="p">):</span>
+    <span class="c1"># States</span>
+    <span class="n">idle</span>    <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">initial</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">running</span> <span class="o">=</span> <span class="n">State</span><span class="p">()</span>
+    <span class="n">paused</span>  <span class="o">=</span> <span class="n">State</span><span class="p">()</span>
+    <span class="n">done</span>    <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">final</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">failed</span>  <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">final</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="c1"># Transitions — reads like English</span>
+    <span class="n">start</span>  <span class="o">=</span> <span class="n">idle</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">running</span><span class="p">)</span>
+    <span class="n">pause</span>  <span class="o">=</span> <span class="n">running</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">paused</span><span class="p">,</span> <span class="n">cond</span><span class="o">=</span><span class="s2">&quot;not_stalled&quot;</span><span class="p">)</span>
+    <span class="n">resume</span> <span class="o">=</span> <span class="n">paused</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">running</span><span class="p">)</span>
+    <span class="n">finish</span> <span class="o">=</span> <span class="n">running</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">done</span><span class="p">)</span>
+    <span class="n">fail</span>   <span class="o">=</span> <span class="n">running</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">failed</span><span class="p">)</span> <span class="o">|</span> <span class="n">paused</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">failed</span><span class="p">)</span>
+
+    <span class="c1"># Actions</span>
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_enter_running</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_start_agent</span><span class="p">()</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">not_stalled</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">_stall_detected</span>
+</code></pre></div>
+<p><strong>Notable drawbacks:</strong>
+- Newer library; fewer Stack Overflow answers and community examples than <code>transitions</code>.
+- <code>activate_initial_state()</code> must be awaited in async contexts before first use — easy to miss.
+- Error handling converts exceptions into <code>error.execution</code> events, which requires defensive programming awareness.
+- Parallel states add complexity; not needed for sequential orchestration.</p>
+<hr />
+<h3 id="3-sismic">3. <code>sismic</code></h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/AlexandreDecan/sismic</li>
+<li><strong>Stars:</strong> ~159</li>
+<li><strong>Latest release:</strong> 1.6.11 (October 2025)</li>
+<li><strong>License:</strong> LGPLv3</li>
+<li><strong>Maintenance:</strong> Actively maintained at University of Mons; 1,081 commits; published in SoftwareX journal (peer-reviewed)</li>
+</ul>
+<p><strong>Async support:</strong> Threading-based, NOT native asyncio. The <code>AsyncRunner</code> class runs the interpreter in a background thread at fixed intervals. This is fundamentally incompatible with asyncio-first code; it does not support <code>await</code>-ing callbacks.</p>
+<p><strong>Hierarchical states:</strong> Yes — full SCXML-compliant hierarchical states, composite states, parallel regions, history states.</p>
+<p><strong>Guards/conditions:</strong> Yes — Python expressions evaluated as guards.</p>
+<p><strong>Entry/exit/transition actions:</strong> Yes — full action model; Python code is executed for actions and guards.</p>
+<p><strong>API style:</strong> YAML statechart definition files interpreted by the engine. Statecharts are defined in a separate file, not inline Python. This is academically rigorous but is a mismatch for "just Python" projects.</p>
+<p><strong>Notable drawbacks:</strong>
+- Thread-based async is a hard dealbreaker for asyncio orchestrators.
+- YAML-based statechart definitions break the "just Python" principle.
+- Low community adoption (159 stars) compared to alternatives.
+- LGPLv3 license may constrain commercial use.
+- Academic focus: better suited for formal verification than production orchestration.</p>
+<hr />
+<h3 id="4-automat-glyphtwisted">4. <code>automat</code> (glyph/Twisted)</h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/glyph/automat</li>
+<li><strong>Stars:</strong> ~645</li>
+<li><strong>Latest release:</strong> Multiple tags; active development</li>
+<li><strong>License:</strong> MIT</li>
+<li><strong>Maintenance:</strong> Maintained; originally created for Twisted (callback-based async), not asyncio</li>
+</ul>
+<p><strong>Async support:</strong> Designed for Twisted's callback model, not asyncio. No native <code>async</code>/<code>await</code> support documented. Porting to asyncio contexts is non-trivial.</p>
+<p><strong>Hierarchical states:</strong> No.</p>
+<p><strong>Guards/conditions:</strong> Not explicitly documented in the standard API.</p>
+<p><strong>Entry/exit/transition actions:</strong> Yes — decorators define outputs (actions) triggered by transitions.</p>
+<p><strong>API style:</strong> Decorator-based; transitions are defined as methods decorated with <code>@input_state.upon(Event).to(output_state)</code>. Clean for Twisted-style code but awkward in asyncio.</p>
+<p><strong>Notable drawbacks:</strong>
+- Twisted-era design; not an asyncio-native library.
+- No hierarchical states.
+- Limited adoption outside Twisted ecosystem.
+- Inadequate for complex orchestration requiring guards and hierarchical states.</p>
+<hr />
+<h3 id="5-pysm">5. <code>pysm</code></h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/pgularski/pysm</li>
+<li><strong>Stars:</strong> ~76</li>
+<li><strong>Latest release:</strong> v0.3.9-alpha (April 2019)</li>
+<li><strong>License:</strong> Not specified (MIT assumed from repo)</li>
+<li><strong>Maintenance:</strong> Effectively abandoned; last release 2019, no recent commits</li>
+</ul>
+<p><strong>Async support:</strong> None documented.</p>
+<p><strong>Hierarchical states:</strong> Yes — HSM and PDA support.</p>
+<p><strong>Guards/conditions:</strong> Yes.</p>
+<p><strong>Entry/exit/transition actions:</strong> Yes.</p>
+<p><strong>Notable drawbacks:</strong> Abandonware. Last release 7 years ago. Do not use.</p>
+<hr />
+<h3 id="6-maquina">6. <code>maquina</code></h3>
+<p>No Python library named <code>maquina</code> with meaningful adoption was found in PyPI or GitHub searches as of March 2026. The name may refer to a very small or unreleased project. Not evaluated further.</p>
+<hr />
+<h3 id="7-dramatiq">7. <code>dramatiq</code></h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/Bogdanp/dramatiq</li>
+<li><strong>Stars:</strong> ~5,200</li>
+<li><strong>Latest release:</strong> v2.1.0 (March 2026)</li>
+<li><strong>License:</strong> LGPL 2.1</li>
+<li><strong>Maintenance:</strong> Actively maintained</li>
+</ul>
+<p><strong>Classification:</strong> This is a <strong>distributed task queue</strong>, not a state machine library. It handles background job processing via message brokers (Redis, RabbitMQ). It is not applicable to the orchestrator state management problem.</p>
+<p><strong>Async support:</strong> Via <code>AsyncMiddleware</code>; not native asyncio throughout.</p>
+<p><strong>Notable drawbacks for this use case:</strong> Wrong tool entirely. Dramatiq models the queuing and execution of discrete background tasks, not the lifecycle states of an orchestration session. Including it would add broker infrastructure (Redis/RabbitMQ) that the orchestrator does not need.</p>
+<hr />
+<h3 id="8-temporalio-temporal-python-sdk">8. <code>temporalio</code> (Temporal Python SDK)</h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/temporalio/sdk-python</li>
+<li><strong>Stars:</strong> ~983</li>
+<li><strong>Latest release:</strong> Active; Python 3.9 support dropped in 2025</li>
+<li><strong>License:</strong> MIT</li>
+<li><strong>Maintenance:</strong> Actively maintained by Temporal Technologies</li>
+</ul>
+<p><strong>Async support:</strong> Yes — workflows are <code>async def</code> functions backed by a custom asyncio event loop. First-class asyncio integration.</p>
+<p><strong>Hierarchical states:</strong> Not applicable — Temporal models workflows as durable async functions with activities, not explicit state machines. You get implicit state through code structure.</p>
+<p><strong>Guards/conditions:</strong> Implemented via normal Python control flow inside workflow functions.</p>
+<p><strong>Entry/exit/transition actions:</strong> Implemented via normal Python code; no formal state machine model.</p>
+<p><strong>API style:</strong> Workflows are decorated async functions. Clean for durable execution, but requires a running Temporal server cluster.</p>
+<p><strong>Notable drawbacks:</strong>
+- Requires a <strong>separate Temporal server deployment</strong> (Docker/Kubernetes). This is the defining blocker for TeaParty's use case.
+- Workflows must be <strong>deterministic</strong> — no random UUIDs or timestamps inside workflow functions; strict sandboxing requirements.
+- Substantial learning curve: workers, activities, signals, queries, schedules.
+- Designed for distributed, long-running, fault-tolerant workflows across services — overkill for a single-process orchestrator.
+- Correct use case: multi-service systems where you need durable execution across restarts, not in-process state machines.</p>
+<hr />
+<h3 id="9-prefect">9. <code>prefect</code></h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/PrefectHQ/prefect</li>
+<li><strong>Stars:</strong> Large (data engineering community)</li>
+<li><strong>Latest release:</strong> Active in 2025-2026</li>
+<li><strong>License:</strong> Apache 2.0</li>
+<li><strong>Maintenance:</strong> Actively maintained by Prefect Technologies</li>
+</ul>
+<p><strong>Classification:</strong> A <strong>workflow orchestration framework</strong> for data pipelines and MLOps, not a state machine library for in-process orchestration.</p>
+<p><strong>Async support:</strong> Yes — flows and tasks support async.</p>
+<p><strong>Hierarchical states:</strong> Not via explicit state machines; flows nest inside flows via subflows.</p>
+<p><strong>Guards/conditions:</strong> Via normal Python control flow.</p>
+<p><strong>Notable drawbacks:</strong>
+- Heavyweight: requires Prefect server or Prefect Cloud for full features; persistent task run storage; UI dashboard.
+- Designed for data engineering pipelines with observability needs (DAGs, schedules, retries at the task level).
+- Not appropriate for replacing in-process state management in an async orchestrator.
+- Correct use case: scheduling and monitoring batch data jobs, not managing agent session lifecycle.</p>
+<hr />
+<h3 id="10-xstate-python-statelys-official-python-port">10. <code>xstate-python</code> (Stately's official Python port)</h3>
+<ul>
+<li><strong>GitHub:</strong> https://github.com/statelyai/xstate-python</li>
+<li><strong>Stars:</strong> ~191</li>
+<li><strong>Latest release:</strong> Work in progress; no stable release</li>
+<li><strong>License:</strong> MIT</li>
+<li><strong>Maintenance:</strong> Officially maintained by Stately.ai but explicitly "work in progress"</li>
+</ul>
+<p><strong>Async support:</strong> Unknown; not documented for the Python port.</p>
+<p><strong>Hierarchical states:</strong> Intended (mirrors JavaScript XState v5 which supports statecharts fully), but not yet complete.</p>
+<p><strong>SCXML compliance:</strong> Yes (partial) — SCXML compliance tests present in the repo.</p>
+<p><strong>Notable drawbacks:</strong>
+- Explicitly "work in progress" — not production-ready.
+- Limited documentation for the Python port.
+- The JavaScript XState is mature and excellent; the Python port is not.
+- Do not use for production until a stable release is announced.</p>
+<hr />
+<h2 id="comparison-matrix">Comparison Matrix</h2>
+<table>
+<thead>
+<tr>
+<th>Library</th>
+<th>Stars</th>
+<th>Async</th>
+<th>Hierarchical</th>
+<th>Guards</th>
+<th>Enter/Exit Actions</th>
+<th>API Clarity</th>
+<th>Infra Needed</th>
+<th>License</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>transitions</code></td>
+<td>~6,500</td>
+<td>Yes (native asyncio)</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Good (dict-based)</td>
+<td>None</td>
+<td>MIT</td>
+<td>Strong contender</td>
+</tr>
+<tr>
+<td><code>python-statemachine</code></td>
+<td>~1,200</td>
+<td>Yes (native asyncio, auto)</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Excellent (fluent DSL)</td>
+<td>None</td>
+<td>MIT</td>
+<td><strong>Recommended</strong></td>
+</tr>
+<tr>
+<td><code>sismic</code></td>
+<td>~159</td>
+<td>No (thread-based)</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Poor (YAML files)</td>
+<td>None</td>
+<td>LGPL</td>
+<td>Reject</td>
+</tr>
+<tr>
+<td><code>automat</code></td>
+<td>~645</td>
+<td>No (Twisted-era)</td>
+<td>No</td>
+<td>Limited</td>
+<td>Yes</td>
+<td>OK</td>
+<td>None</td>
+<td>MIT</td>
+<td>Reject</td>
+</tr>
+<tr>
+<td><code>pysm</code></td>
+<td>~76</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>OK</td>
+<td>None</td>
+<td>Unknown</td>
+<td>Reject (abandoned)</td>
+</tr>
+<tr>
+<td><code>maquina</code></td>
+<td>N/A</td>
+<td>Unknown</td>
+<td>Unknown</td>
+<td>Unknown</td>
+<td>Unknown</td>
+<td>Unknown</td>
+<td>None</td>
+<td>Unknown</td>
+<td>Not found</td>
+</tr>
+<tr>
+<td><code>dramatiq</code></td>
+<td>~5,200</td>
+<td>Partial</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>N/A (task queue)</td>
+<td>Broker required</td>
+<td>LGPL</td>
+<td>Wrong tool</td>
+</tr>
+<tr>
+<td><code>temporalio</code></td>
+<td>~983</td>
+<td>Yes (asyncio)</td>
+<td>No (implicit)</td>
+<td>Via code</td>
+<td>Via code</td>
+<td>Good</td>
+<td>Temporal server</td>
+<td>MIT</td>
+<td>Wrong scale</td>
+</tr>
+<tr>
+<td><code>prefect</code></td>
+<td>Large</td>
+<td>Yes</td>
+<td>Via subflows</td>
+<td>Via code</td>
+<td>Via code</td>
+<td>Good</td>
+<td>Prefect server</td>
+<td>Apache 2.0</td>
+<td>Wrong tool</td>
+</tr>
+<tr>
+<td><code>xstate-python</code></td>
+<td>~191</td>
+<td>Unknown</td>
+<td>Intended</td>
+<td>Intended</td>
+<td>Intended</td>
+<td>N/A (WIP)</td>
+<td>None</td>
+<td>MIT</td>
+<td>Not ready</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="recommendation">Recommendation</h2>
+<h3 id="first-choice-python-statemachine-v300">First choice: <code>python-statemachine</code> (v3.0.0)</h3>
+<p>The February 2026 release of <code>python-statemachine</code> 3.0.0 makes it the best match for TeaParty's orchestrator needs:</p>
+<ol>
+<li>
+<p><strong>Clearest API.</strong> The class-based declarative DSL reads like a state diagram. States and transitions are first-class Python objects, not dicts.</p>
+</li>
+<li>
+<p><strong>Native asyncio, zero ceremony.</strong> Declare callbacks as <code>async def</code> and the library switches to its async engine automatically. No separate <code>AsyncMachine</code> class to import; no wrapping.</p>
+</li>
+<li>
+<p><strong>Full statechart support.</strong> Compound states, parallel regions, history states — far more than a flat FSM, useful if the orchestrator gains sub-phases.</p>
+</li>
+<li>
+<p><strong>Guards are clean.</strong> <code>cond="not_stalled"</code> and <code>unless="is_cancelled"</code> read as English sentences. The <code>|</code> operator composes transitions naturally.</p>
+</li>
+<li>
+<p><strong>Actively maintained.</strong> 3.0.0 released 17 days before this writing.</p>
+</li>
+</ol>
+<p><strong>One gotcha to track:</strong> In async contexts, <code>await sm.activate_initial_state()</code> is required before any state inspection if no event has been sent. Document this in implementation.</p>
+<h3 id="second-choice-transitions">Second choice: <code>transitions</code></h3>
+<p>If team familiarity or ecosystem maturity is the priority, <code>transitions</code> is the battle-tested option with 6,500 stars and 10+ years of production use. The <code>AsyncMachine</code> / <code>HierarchicalAsyncMachine</code> are solid but more ceremonious to define. Use <code>python-statemachine</code> unless there is a specific reason to prefer <code>transitions</code>'s larger existing community.</p>
+<h3 id="reject-for-this-use-case">Reject for this use case</h3>
+<ul>
+<li><code>sismic</code> — thread-based async is incompatible with asyncio-first code</li>
+<li><code>automat</code> — Twisted-era, no asyncio, no hierarchical states</li>
+<li><code>pysm</code> — abandoned since 2019</li>
+<li><code>maquina</code> — not found</li>
+<li><code>dramatiq</code> — task queue, not a state machine</li>
+<li><code>temporalio</code> — correct concept but requires a Temporal server; overkill for in-process orchestration</li>
+<li><code>prefect</code> — data pipeline tool requiring server infrastructure</li>
+<li><code>xstate-python</code> — not production-ready</li>
+</ul>
+<hr />
+<h2 id="implications-for-teaparty-orchestrator">Implications for TeaParty Orchestrator</h2>
+<p>The current <code>ClaudeRunner</code> in <code>projects/POC/orchestrator/claude_runner.py</code> implicitly manages state through instance variables (<code>_process</code>, <code>_extracted_session_id</code>, <code>stall_killed</code>) and linear async flow. A state machine would make the lifecycle explicit:</p>
+<div class="highlight"><pre><span></span><code>idle → launching → streaming → done
+              ↘              ↘
+               failed    stalled → killed
+</code></pre></div>
+<p>With <code>python-statemachine</code>:</p>
+<div class="highlight"><pre><span></span><code><span class="kn">from</span><span class="w"> </span><span class="nn">statemachine</span><span class="w"> </span><span class="kn">import</span> <span class="n">StateMachine</span><span class="p">,</span> <span class="n">State</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">RunnerSM</span><span class="p">(</span><span class="n">StateMachine</span><span class="p">):</span>
+    <span class="n">idle</span>       <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">initial</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">launching</span>  <span class="o">=</span> <span class="n">State</span><span class="p">()</span>
+    <span class="n">streaming</span>  <span class="o">=</span> <span class="n">State</span><span class="p">()</span>
+    <span class="n">stalled</span>    <span class="o">=</span> <span class="n">State</span><span class="p">()</span>
+    <span class="n">done</span>       <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">final</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">failed</span>     <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">final</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">killed</span>     <span class="o">=</span> <span class="n">State</span><span class="p">(</span><span class="n">final</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+    <span class="n">launch</span>    <span class="o">=</span> <span class="n">idle</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">launching</span><span class="p">)</span>
+    <span class="n">stream</span>    <span class="o">=</span> <span class="n">launching</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">streaming</span><span class="p">)</span>
+    <span class="n">stall</span>     <span class="o">=</span> <span class="n">streaming</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">stalled</span><span class="p">)</span>
+    <span class="n">kill</span>      <span class="o">=</span> <span class="n">stalled</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">killed</span><span class="p">)</span>
+    <span class="n">finish</span>    <span class="o">=</span> <span class="n">streaming</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">done</span><span class="p">)</span>
+    <span class="n">error</span>     <span class="o">=</span> <span class="n">launching</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">failed</span><span class="p">)</span> <span class="o">|</span> <span class="n">streaming</span><span class="o">.</span><span class="n">to</span><span class="p">(</span><span class="n">failed</span><span class="p">)</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_enter_streaming</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">_begin_stream_read</span><span class="p">()</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_enter_stalled</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">elapsed</span><span class="p">:</span> <span class="nb">float</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">event_bus</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">Event</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="n">EventType</span><span class="o">.</span><span class="n">STALL_DETECTED</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+
+    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">on_enter_done</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">exit_code</span><span class="p">:</span> <span class="nb">int</span><span class="p">):</span>
+        <span class="k">await</span> <span class="bp">self</span><span class="o">.</span><span class="n">event_bus</span><span class="o">.</span><span class="n">publish</span><span class="p">(</span><span class="n">Event</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="n">EventType</span><span class="o">.</span><span class="n">RUN_COMPLETE</span><span class="p">,</span> <span class="o">...</span><span class="p">))</span>
+</code></pre></div>
+<p>This makes the orchestrator's state transitions auditable and testable independent of subprocess mechanics.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

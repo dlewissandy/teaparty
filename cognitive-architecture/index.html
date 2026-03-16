@@ -1,0 +1,2866 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Cognitive Architecture for Learning Agents - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cognitive-architecture-for-learning-agents" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Cognitive Architecture for Learning Agents
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-research-foundations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Research Foundations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. Research Foundations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-what-is-a-cognitive-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 What Is a Cognitive Architecture?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-classical-architectures-relevant-to-teaparty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 Classical Architectures Relevant to TeaParty
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-llm-agent-cognitive-architectures-state-of-the-art" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 LLM-Agent Cognitive Architectures (State of the Art)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1.3 LLM-Agent Cognitive Architectures (State of the Art)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#131-coala-cognitive-architectures-for-language-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.1 CoALA -- Cognitive Architectures for Language Agents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#132-generative-agents-stanford-park-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.2 Generative Agents (Stanford, Park et al. 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#133-reflexion-shinn-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.3 Reflexion (Shinn et al. 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#134-voyager-wang-et-al-2023" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.4 Voyager (Wang et al. 2023)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#135-clin-continually-learning-from-interactions-majumder-et-al-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.5 CLIN -- Continually Learning from Interactions (Majumder et al. 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#136-memgpt-letta-packer-et-al-2023-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.6 MemGPT / Letta (Packer et al. 2023-2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#137-expel-experiential-learning-zhao-et-al-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.7 ExpeL -- Experiential Learning (Zhao et al. 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#138-recent-systems-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3.8 Recent Systems (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-key-takeaways-for-teaparty" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.4 Key Takeaways for TeaParty
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-memory-systems-what-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Memory Systems: What Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Memory Systems: What Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-episodic-memory-what-happened" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 Episodic Memory (What Happened)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22-semantic-memory-what-i-know" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 Semantic Memory (What I Know)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23-procedural-memory-how-to-do-things" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 Procedural Memory (How to Do Things)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24-working-memory-active-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 Working Memory (Active Context)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-learning-mechanisms" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Learning Mechanisms
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Learning Mechanisms">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-learning-mechanisms-compared" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 Learning Mechanisms Compared
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-what-makes-learning-work-in-llm-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 What Makes Learning Work in LLM Agents
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-social-cognition-for-multi-agent-workgroups" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Social Cognition for Multi-Agent Workgroups
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. Social Cognition for Multi-Agent Workgroups">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-theory-of-mind" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 Theory of Mind
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-collective-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 Collective Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-teapartys-current-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. TeaParty's Current State
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. TeaParty&#39;s Current State">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51-existing-infrastructure" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 Existing Infrastructure
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52-current-agent-cognition-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 Current Agent Cognition Flow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#53-key-gaps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.3 Key Gaps
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-proposed-cognitive-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Proposed Cognitive Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6. Proposed Cognitive Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#61-design-principles" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.1 Design Principles
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#62-memory-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2 Memory System
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.2 Memory System">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#621-episodic-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.1 Episodic Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#622-semantic-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.2 Semantic Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#623-procedural-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.2.3 Procedural Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#63-learning-cycle" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3 Learning Cycle
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="6.3 Learning Cycle">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#631-signal-detection-step-3-observe" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.1 Signal Detection (Step 3: OBSERVE)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#632-memory-formation-step-4-learn" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.2 Memory Formation (Step 4: LEARN)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#633-reflection-step-5-reflect" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.3.3 Reflection (Step 5: REFLECT)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#64-memory-retrieval-for-prompt-assembly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.4 Memory Retrieval for Prompt Assembly
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#65-multi-agent-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6.5 Multi-Agent Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-api-implications" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. API Implications
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. API Implications">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#71-new-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.1 New Endpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#72-modified-endpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.2 Modified Endpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#73-database-schema-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.3 Database Schema Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#74-service-layer-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.4 Service Layer Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#75-config-changes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7.5 Config Changes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-implementation-phases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Implementation Phases
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. Implementation Phases">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-memory-retrieval-low-risk-high-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Memory Retrieval (Low Risk, High Value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-reflection-engine-medium-risk-high-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Reflection Engine (Medium Risk, High Value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-signal-detection-observation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Signal Detection (Observation)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-automatic-memory-formation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Automatic Memory Formation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-5-shared-memory-and-social-cognition-medium-risk-medium-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 5: Shared Memory and Social Cognition (Medium Risk, Medium Value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-6-memory-consolidation-and-decay-low-risk-medium-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 6: Memory Consolidation and Decay (Low Risk, Medium Value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-7-procedural-memory-skill-libraries-high-risk-high-value" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 7: Procedural Memory / Skill Libraries (High Risk, High Value)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-design-tensions-and-trade-offs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Design Tensions and Trade-offs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="9. Design Tensions and Trade-offs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#autonomy-vs-control" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Autonomy vs. Control
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-persistence-vs-forgetting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Persistence vs. Forgetting
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#individual-vs-collective-learning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Individual vs. Collective Learning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cost-of-reflection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cost of Reflection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#latency" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Latency
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. References
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. References">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#classical-cognitive-architectures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Classical Cognitive Architectures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#modern-llm-agent-architectures" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Modern LLM-Agent Architectures
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-systems" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory Systems
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-agent-collaborative-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Agent / Collaborative Memory
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#surveys-and-related-work" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Surveys and Related Work
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cognitive-architecture-for-learning-agents">Cognitive Architecture for Learning Agents</h1>
+<blockquote>
+<p><strong>FUTURE PHASE</strong> -- This document describes a future phase of the platform (<code>teaparty_app/</code>). Agent cognition and memory systems are not part of the current MVP.</p>
+</blockquote>
+<p>A design for giving TeaParty agents the ability to learn, remember, and adapt over time -- grounded in cognitive science research and mapped to the existing system.</p>
+<hr />
+<h2 id="1-research-foundations">1. Research Foundations</h2>
+<h3 id="11-what-is-a-cognitive-architecture">1.1 What Is a Cognitive Architecture?</h3>
+<p>A cognitive architecture is a theory of the fixed structures and processes that underlie intelligent behavior. In AI, it's the infrastructure that sits <em>around</em> the reasoning engine (here, an LLM) -- providing memory, learning, goal management, and self-monitoring capabilities that the raw model lacks.</p>
+<p>Classical cognitive architectures (ACT-R, SOAR, CLARION, LIDA) share a common skeleton:</p>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>Purpose</th>
+<th>Classical Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Working Memory</strong></td>
+<td>Active context for current reasoning</td>
+<td>ACT-R buffers, SOAR working memory</td>
+</tr>
+<tr>
+<td><strong>Long-Term Declarative Memory</strong></td>
+<td>Facts and experiences</td>
+<td>ACT-R chunks, SOAR semantic memory</td>
+</tr>
+<tr>
+<td><strong>Long-Term Procedural Memory</strong></td>
+<td>Skills and action patterns</td>
+<td>ACT-R productions, SOAR procedural rules</td>
+</tr>
+<tr>
+<td><strong>Episodic Memory</strong></td>
+<td>Autobiographical experiences</td>
+<td>SOAR episodic memory, LIDA transient episodic</td>
+</tr>
+<tr>
+<td><strong>Perception</strong></td>
+<td>Environment sensing</td>
+<td>SOAR input-link, LIDA sensory memory</td>
+</tr>
+<tr>
+<td><strong>Action Selection</strong></td>
+<td>Choosing what to do</td>
+<td>ACT-R conflict resolution, SOAR operator selection</td>
+</tr>
+<tr>
+<td><strong>Learning</strong></td>
+<td>Updating memories from experience</td>
+<td>ACT-R utility learning, SOAR chunking</td>
+</tr>
+<tr>
+<td><strong>Metacognition</strong></td>
+<td>Monitoring and regulating own cognition</td>
+<td>CLARION metacognitive subsystem</td>
+</tr>
+</tbody>
+</table>
+<p>The key insight from decades of cognitive science: <strong>intelligence is not just reasoning -- it's the memory systems that feed reasoning, and the learning systems that update memory from experience.</strong></p>
+<h3 id="12-classical-architectures-relevant-to-teaparty">1.2 Classical Architectures Relevant to TeaParty</h3>
+<p><strong>ACT-R</strong> (Anderson, Carnegie Mellon) models cognition as the interaction of declarative memory (facts, with activation levels that decay and strengthen) and procedural memory (production rules that fire when conditions match). Learning happens through <em>strengthening</em> -- chunks that get retrieved more often become easier to retrieve. The subsymbolic layer computes activation as a function of recency, frequency, and context, which determines what the agent "thinks of" in any given moment.</p>
+<p><strong>Soar</strong> (Laird, University of Michigan) uses a working-memory-centric cycle: perceive → propose operators → select → apply → detect impasses → subgoal. When an impasse is resolved, <em>chunking</em> compiles the solution into a new production rule, so the agent never encounters the same impasse twice. Soar also maintains episodic memory (timestamped snapshots of working memory) and semantic memory (long-term factual store) that are queried during deliberation.</p>
+<p><strong>LIDA</strong> (Franklin, University of Memphis) implements Global Workspace Theory -- a model of how consciousness arises from competing coalitions of information. Attention codelets form coalitions from the current situational model; the winning coalition gets "broadcast" globally, making it available to all modules simultaneously. This broadcast-then-learn cycle is the basis for all LIDA learning: perceptual, episodic, procedural, and attentional.</p>
+<h3 id="13-llm-agent-cognitive-architectures-state-of-the-art">1.3 LLM-Agent Cognitive Architectures (State of the Art)</h3>
+<p>Recent work has adapted cognitive architecture principles for LLM-based agents.</p>
+<h4 id="131-coala-cognitive-architectures-for-language-agents">1.3.1 CoALA -- Cognitive Architectures for Language Agents</h4>
+<p><strong>Sumers, Yao, Narasimhan &amp; Griffiths (2024)</strong> provide the most comprehensive theoretical framework. CoALA maps classical cognitive architecture concepts onto LLM agents:</p>
+<table>
+<thead>
+<tr>
+<th>CoALA Component</th>
+<th>Classical Analog</th>
+<th>LLM Agent Implementation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Working Memory</td>
+<td>ACT-R buffers, Soar WM</td>
+<td>Context window contents</td>
+</tr>
+<tr>
+<td>Episodic Memory</td>
+<td>Soar episodic store</td>
+<td>Conversation logs, event records</td>
+</tr>
+<tr>
+<td>Semantic Memory</td>
+<td>ACT-R declarative, Soar semantic</td>
+<td>Knowledge base, embeddings</td>
+</tr>
+<tr>
+<td>Procedural Memory</td>
+<td>ACT-R productions, Soar rules</td>
+<td>Prompt templates, tool definitions, learned skills</td>
+</tr>
+<tr>
+<td>Decision Cycle</td>
+<td>Soar propose-select-apply</td>
+<td>Perceive → plan → act → observe loop</td>
+</tr>
+</tbody>
+</table>
+<p>CoALA's key contribution is the taxonomy: agents differ in <em>what memory types they use</em>, <em>what their action space is</em>, and <em>how they learn</em>. It's not a single architecture but a design space.</p>
+<h4 id="132-generative-agents-stanford-park-et-al-2023">1.3.2 Generative Agents (Stanford, Park et al. 2023)</h4>
+<p>Simulated 25 agents in a sandbox environment with:</p>
+<ul>
+<li><strong>Memory stream</strong>: timestamped log of all observations and actions</li>
+<li><strong>Retrieval</strong>: recency × relevance × importance scoring to surface memories</li>
+<li><strong>Reflection</strong>: periodic synthesis of recent memories into higher-level insights ("I've noticed Klaus often avoids social events")</li>
+<li><strong>Planning</strong>: daily plans decomposed into hourly actions, revised based on observations</li>
+</ul>
+<p>Key finding: reflection was the critical ingredient. Without it, agents repeated patterns and failed to develop. With it, emergent social behaviors arose (party planning, opinion formation, relationship dynamics).</p>
+<h4 id="133-reflexion-shinn-et-al-2023">1.3.3 Reflexion (Shinn et al. 2023)</h4>
+<p>Agents that learn from failure through verbal self-reflection:</p>
+<ol>
+<li>Agent attempts a task</li>
+<li>Evaluator scores the attempt</li>
+<li>Agent reflects on what went wrong (generating natural language feedback)</li>
+<li>Reflection is stored in memory and prepended to next attempt</li>
+</ol>
+<p>No weight updates -- learning is entirely through accumulated reflective text in the context window. Achieved near-human performance on HumanEval coding after 2-3 reflection cycles.</p>
+<h4 id="134-voyager-wang-et-al-2023">1.3.4 Voyager (Wang et al. 2023)</h4>
+<p>Minecraft agent with a <strong>skill library</strong> -- procedural memory implemented as a growing codebase:</p>
+<ul>
+<li><strong>Curriculum</strong>: automatic task proposal based on current capabilities</li>
+<li><strong>Skill library</strong>: verified JavaScript functions stored and retrieved by description</li>
+<li><strong>Iterative refinement</strong>: failed skills are debugged via environment feedback</li>
+</ul>
+<p>Key insight: procedural memory as <em>executable code</em> is more reliable than natural language instructions.</p>
+<h4 id="135-clin-continually-learning-from-interactions-majumder-et-al-2024">1.3.5 CLIN -- Continually Learning from Interactions (Majumder et al. 2024)</h4>
+<p>Agents that persistently learn across task episodes:</p>
+<ul>
+<li>After each episode, agent extracts <strong>causal abstractions</strong> ("when X happens, doing Y leads to Z")</li>
+<li>Abstractions stored in a growing memory that persists across episodes</li>
+<li>Memory is retrieved and injected into the prompt for future tasks</li>
+</ul>
+<p>CLIN showed that agents <em>do</em> improve over time with this approach, and that memories transfer across similar (but not identical) tasks.</p>
+<h4 id="136-memgpt-letta-packer-et-al-2023-2024">1.3.6 MemGPT / Letta (Packer et al. 2023-2024)</h4>
+<p>Explicit memory management as an OS-like system:</p>
+<ul>
+<li><strong>Main context</strong> (working memory): limited, actively managed</li>
+<li><strong>Archival memory</strong>: unlimited long-term storage, searchable</li>
+<li><strong>Recall memory</strong>: conversation history, paginated</li>
+<li>Agent explicitly calls <code>archival_memory_insert</code>, <code>archival_memory_search</code>, <code>conversation_search</code> tools</li>
+</ul>
+<p>Key insight: give agents <em>tools</em> for memory management rather than automating it. The agent decides what to remember, what to forget, and when to retrieve.</p>
+<h4 id="137-expel-experiential-learning-zhao-et-al-2024">1.3.7 ExpeL -- Experiential Learning (Zhao et al. 2024)</h4>
+<p>Agents that learn from <em>contrasting</em> successes and failures:</p>
+<ul>
+<li><strong>Phase 1</strong>: Agent attempts training tasks, recording full trajectories (both successes and failures)</li>
+<li><strong>Phase 2</strong>: Agent <em>compares</em> failed and successful trajectories to identify what differed, then extracts cross-task patterns</li>
+<li>Extracted insights are iteratively refined: adding, editing, voting on importance</li>
+</ul>
+<p>Key distinction from Reflexion: ExpeL learns from <em>contrasts</em> ("this worked, that didn't, and the difference was...") rather than from failures alone. Does NOT require repeated attempts at the same task -- insights transfer across tasks.</p>
+<h4 id="138-recent-systems-2025">1.3.8 Recent Systems (2025)</h4>
+<p><strong>AutoRefine</strong> -- Automatically extracts <strong>dual-form Experience Patterns</strong>:
+- <strong>Specialized subagents</strong> for recurring procedural subtasks
+- <strong>Skill patterns</strong> (guidelines or code snippets) for static knowledge
+- Continuous maintenance: scoring, pruning, and merging patterns to prevent degradation</p>
+<p>Results: ALFWorld 98.4%, ScienceWorld 70.4%. On TravelPlanner, automatic extraction exceeds manually designed systems (27.1% vs 12.1%) -- showing that learned patterns can outperform hand-crafted ones.</p>
+<p><strong>Mem0</strong> -- Production-ready memory architecture with two variants:
+- <strong>Basic</strong>: structured extraction + updation pipeline
+- <strong>Graph-enhanced (Mem0g)</strong>: directed labeled graph of entities and relationships</p>
+<p>Results: 26% accuracy boost, 91% lower p95 latency, 90% token savings vs. full-context approaches.</p>
+<p><strong>FadeMem</strong> (2025) -- Biologically-inspired decay/forgetting -- retains 82.1% of critical facts using only 55% of storage (vs. 78.4% retention at 100% storage without decay). Selective forgetting <em>improves</em> retention quality.</p>
+<h3 id="14-key-takeaways-for-teaparty">1.4 Key Takeaways for TeaParty</h3>
+<ol>
+<li><strong>Memory is not monolithic.</strong> Multiple types serve different purposes: episodic (what happened), semantic (what I know), procedural (how to do things), working (what I'm thinking about now).</li>
+<li><strong>Learning signals are diverse.</strong> Explicit feedback, implicit success/failure, self-reflection, and inter-agent observation all contribute.</li>
+<li><strong>Retrieval is as important as storage.</strong> Activation-based retrieval (ACT-R), recency-importance-relevance weighting (Generative Agents), and embedding similarity all solve the same problem: surfacing the right memory at the right time.</li>
+<li><strong>Multi-agent memory needs access control.</strong> Not all agents should see all memories. Shared workgroup knowledge vs. private agent insights.</li>
+<li><strong>The LLM context window <em>is</em> working memory.</strong> What you put in the prompt determines what the agent can think about.</li>
+</ol>
+<hr />
+<h2 id="2-memory-systems-what-works">2. Memory Systems: What Works</h2>
+<h3 id="21-episodic-memory-what-happened">2.1 Episodic Memory (What Happened)</h3>
+<p><strong>What it is</strong>: Timestamped records of specific experiences -- "In conversation X, user Y asked about Z, and my approach of W worked well."</p>
+<p><strong>What works in practice</strong>:
+- <strong>Memory streams</strong> (Generative Agents): simple chronological logs with retrieval scoring
+- <strong>Episode summaries</strong> (CLIN): condensed takeaways after each interaction, not raw logs
+- <strong>Indexed trajectories</strong> (ExpeL): full task trajectories stored for replay as demonstrations
+- <strong>Retrieval by similarity + recency + importance</strong>: triple-weighted retrieval outperforms any single factor</p>
+<p>The <strong>gold standard retrieval formula</strong> (from Generative Agents, validated across multiple systems):</p>
+<div class="highlight"><pre><span></span><code>score = α·recency(m) + β·relevance(m, query) + γ·importance(m)
+
+recency(m)    = exponential decay from last access time
+relevance(m)  = cosine similarity of embedding vectors (memory description vs current context)
+importance(m) = LLM-rated significance (1-10 scale, rated at creation time)
+
+All weights = 1.0, scores min-max normalized to [0,1]
+</code></pre></div>
+<p>This is directly descended from ACT-R's activation-based retrieval (combining recency, frequency, and contextual relevance) -- validated for 40+ years in cognitive science.</p>
+<p>Recent finding: "Episodic Memory is the Missing Piece for Long-Term LLM Agents" (2025) argues that most agent systems underweight episodic memory relative to semantic/procedural. Agents that can recall specific past experiences perform better than those relying only on general knowledge.</p>
+<h3 id="22-semantic-memory-what-i-know">2.2 Semantic Memory (What I Know)</h3>
+<p><strong>What it is</strong>: General knowledge and facts -- "User prefers concise responses", "The codebase uses FastAPI with SQLModel", "Markdown headers should use ATX style."</p>
+<p><strong>What works in practice</strong>:
+- <strong>Self-extracted knowledge</strong> (Reflexion, CLIN): agent distills knowledge from experience
+- <strong>Key-value stores</strong>: simple and effective for factual knowledge
+- <strong>Vector stores</strong>: better for fuzzy/semantic retrieval but add infrastructure complexity
+- <strong>Hierarchical summaries</strong>: knowledge at different levels of abstraction</p>
+<h3 id="23-procedural-memory-how-to-do-things">2.3 Procedural Memory (How to Do Things)</h3>
+<p><strong>What it is</strong>: Skills, strategies, workflows -- "When asked to review code, first read the PR diff, then check for security issues, then comment on style."</p>
+<p><strong>What works in practice</strong>:
+- <strong>Skill libraries</strong> (Voyager): executable code/prompts indexed by capability description
+- <strong>Workflow templates</strong>: structured plans that can be adapted (TeaParty already has workflows)
+- <strong>Prompt libraries</strong>: curated prompts for specific tasks, refined through use
+- <strong>Natural language procedures</strong> are fragile; structured/executable forms are more reliable</p>
+<h3 id="24-working-memory-active-context">2.4 Working Memory (Active Context)</h3>
+<p><strong>What it is</strong>: The information actively being reasoned about -- the LLM's context window.</p>
+<p><strong>What works in practice</strong>:
+- <strong>Selective injection</strong>: retrieve only relevant memories into the prompt
+- <strong>Summarization</strong>: compress old context rather than dropping it
+- <strong>MemGPT's approach</strong>: agent explicitly manages what's in working memory via tools</p>
+<hr />
+<h2 id="3-learning-mechanisms">3. Learning Mechanisms</h2>
+<h3 id="31-learning-mechanisms-compared">3.1 Learning Mechanisms Compared</h3>
+<table>
+<thead>
+<tr>
+<th>Mechanism</th>
+<th>How It Works</th>
+<th>Cost</th>
+<th>Reliability</th>
+<th>Transfer</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Self-reflection</strong> (Reflexion)</td>
+<td>Agent reviews output, extracts verbal feedback</td>
+<td>1 LLM call/episode</td>
+<td>Moderate -- can hallucinate</td>
+<td>Low -- trial-scoped</td>
+</tr>
+<tr>
+<td><strong>Causal abstraction</strong> (CLIN)</td>
+<td>Extract situation→action→outcome rules</td>
+<td>1 LLM call/episode</td>
+<td>High -- structured</td>
+<td>High -- cross-task</td>
+</tr>
+<tr>
+<td><strong>Contrastive learning</strong> (ExpeL)</td>
+<td>Compare successes vs failures, extract insights</td>
+<td>1 LLM call/batch</td>
+<td>High -- grounded in evidence</td>
+<td>Medium -- cross-task</td>
+</tr>
+<tr>
+<td><strong>Skill libraries</strong> (Voyager)</td>
+<td>Store verified executable procedures</td>
+<td>1 LLM call + verification</td>
+<td>High -- tested before storage</td>
+<td>Medium -- domain-bound</td>
+</tr>
+<tr>
+<td><strong>Outcome feedback</strong></td>
+<td>Environment/user signals success or failure</td>
+<td>Near-free</td>
+<td>High signal but sparse</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>Preference learning</strong></td>
+<td>Track user corrections and stated preferences</td>
+<td>Near-free</td>
+<td>High for explicit signals</td>
+<td>N/A</td>
+</tr>
+<tr>
+<td><strong>Peer observation</strong></td>
+<td>Learn from teammates' successes</td>
+<td>Free (read shared memory)</td>
+<td>Depends on trust/quality</td>
+<td>Low</td>
+</tr>
+</tbody>
+</table>
+<p>CLIN's causal abstractions outperform Reflexion's narrative reflections by 23 absolute points on ScienceWorld. The key difference: structured "when X, doing Y leads to Z" rules generalize better than "I should have done X instead."</p>
+<h3 id="32-what-makes-learning-work-in-llm-agents">3.2 What Makes Learning Work in LLM Agents</h3>
+<p>Research consensus points to several critical factors:</p>
+<ol>
+<li>
+<p><strong>Reflection must be grounded</strong>: Abstract reflection ("I should try harder") is useless. Effective reflection cites specific actions and outcomes ("When I used <code>grep</code> instead of <code>find</code>, I found the file 3x faster because..."). CLIN's causal format enforces this.</p>
+</li>
+<li>
+<p><strong>Forgetting is essential</strong>: FadeMem (2025) demonstrates that selective forgetting <em>improves</em> quality -- 82.1% retention of critical facts at 55% storage, vs 78.4% at 100% storage. Agents that forget strategically remember important things better.</p>
+</li>
+<li>
+<p><strong>Learning should be opt-in, not forced</strong>: Per the TeaParty philosophy of "agents are agents, not scripted" -- learning loops should be <em>available</em> to agents as tools, not imposed as mandatory post-processing. Soar's impasse-driven model is the ideal: learn only when encountering a gap.</p>
+</li>
+<li>
+<p><strong>Transfer is hard</strong>: Memories from one context often don't apply cleanly in another. Domain-specific memories are more useful than general ones. CLIN's causal rules transfer better than narrative reflections.</p>
+</li>
+<li>
+<p><strong>Reflection without persistence is ephemeral</strong>: Self-reflection improves performance only if reflections are <em>persisted, indexed, and retrievable</em>. A reflection bank must be searchable and context-aware, not just a list.</p>
+</li>
+</ol>
+<hr />
+<h2 id="4-social-cognition-for-multi-agent-workgroups">4. Social Cognition for Multi-Agent Workgroups</h2>
+<h3 id="41-theory-of-mind">4.1 Theory of Mind</h3>
+<p>Agents in workgroups benefit from modeling other agents' knowledge, beliefs, and capabilities:</p>
+<ul>
+<li><strong>Capability maps</strong>: "Agent X is good at code review; Agent Y is good at research"</li>
+<li><strong>Shared mental models</strong>: Common understanding of the task, the plan, and each other's roles</li>
+<li><strong>Attribution</strong>: Understanding <em>why</em> a teammate did something, not just <em>what</em> they did</li>
+</ul>
+<p>Research findings: LLMs show surprising Theory of Mind abilities in zero-shot settings. But maintaining consistent mental models of other agents over extended interactions remains an open challenge.</p>
+<p>From CSCW research (25+ years): workgroups with better shared mental models coordinate more effectively with <em>less explicit communication</em>. This translates to agents maintaining models of other agents' capabilities, current state, and goals -- enabling implicit coordination without constant messaging.</p>
+<h3 id="42-collective-memory">4.2 Collective Memory</h3>
+<p>Multi-agent workgroups can share knowledge in several ways:</p>
+<table>
+<thead>
+<tr>
+<th>Pattern</th>
+<th>Description</th>
+<th>Trade-off</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Shared knowledge base</strong></td>
+<td>All agents read/write to the same memory store</td>
+<td>Rich but noisy; needs curation</td>
+</tr>
+<tr>
+<td><strong>Broadcast learning</strong></td>
+<td>Agent shares a lesson with all teammates</td>
+<td>Simple but can overwhelm</td>
+</tr>
+<tr>
+<td><strong>Selective sharing</strong></td>
+<td>Agent shares only with relevant teammates</td>
+<td>Targeted but requires routing intelligence</td>
+</tr>
+<tr>
+<td><strong>Stigmergy</strong></td>
+<td>Agents leave traces in shared artifacts (files, messages)</td>
+<td>Natural in TeaParty; implicit rather than explicit</td>
+</tr>
+</tbody>
+</table>
+<p>For TeaParty, <strong>stigmergy</strong> is already the dominant pattern -- agents leave their work in shared files and conversations. The opportunity is to layer <em>explicit</em> knowledge sharing on top.</p>
+<hr />
+<h2 id="5-teapartys-current-state">5. TeaParty's Current State</h2>
+<h3 id="51-existing-infrastructure">5.1 Existing Infrastructure</h3>
+<p>TeaParty already has significant scaffolding for agent learning, though most of it is unused:</p>
+<p><strong>AgentLearningEvent</strong> (<code>models.py:180-188</code>):
+- Stores discrete learning signals tied to specific messages
+- Fields: <code>agent_id</code>, <code>message_id</code>, <code>signal_type</code>, <code>value</code> (JSON)
+- Not currently written to by any code path</p>
+<p><strong>AgentMemory</strong> (<code>models.py:191-201</code>):
+- Stores typed memories: "insight", "correction", "pattern", "domain_knowledge"
+- Fields: <code>agent_id</code>, <code>conversation_id</code>, <code>memory_type</code>, <code>content</code>, <code>source_summary</code>, <code>confidence</code>
+- Not currently written to or read by any code path</p>
+<h3 id="52-current-agent-cognition-flow">5.2 Current Agent Cognition Flow</h3>
+<div class="highlight"><pre><span></span><code>User message
+    |
+    v
+agent_runtime.run_agent_auto_responses()
+    |
+    +--&gt; _agents_for_auto_response()       # Who responds?
+    +--&gt; _run_single_agent_responses() OR   # Single agent
+         _run_team_response()               # Multi-agent workgroup
+             |
+             v
+         build_agent_json()                 # Build identity prompt
+         build_user_message()               # Build conversation history
+             |
+             v
+         run_claude()                       # Shell out to claude CLI
+             |
+             v
+         Store Message, record LLM usage
+</code></pre></div>
+<p><strong>What agents currently "know":</strong>
+- Their identity (name, role, personality, backstory) -- from <code>Agent</code> record
+- The conversation context (kind, name, description) -- from <code>Conversation</code> record
+- Recent conversation history (last 40 messages, max 12K chars) -- from <code>build_user_message()</code>
+- Workflow skills (if matched by name) -- from workgroup files
+- Teammate roster (if lead in multi-agent mode)</p>
+<p><strong>What agents currently lack:</strong>
+- Memory of past conversations
+- Knowledge of what worked and what didn't
+- Ability to learn user preferences over time
+- Cross-conversation knowledge transfer
+- Self-reflection on their own performance</p>
+<h3 id="53-key-gaps">5.3 Key Gaps</h3>
+<ol>
+<li><strong>No memory retrieval pipeline</strong>: <code>AgentMemory</code> exists but nothing reads from it during prompt construction. The injection point is <code>_build_prompt_body()</code> in <code>agent_definition.py</code> -- between the conversation context block and the guidelines block.</li>
+<li><strong>No reflection loop</strong>: <code>AgentLearningEvent</code> exists but nothing triggers learning or writes to it. The hook point is in <code>agent_runtime.py</code> -- immediately after the agent message is persisted (<code>session.add(agent_message)</code> / <code>session.flush()</code>).</li>
+<li><strong>No memory decay/consolidation</strong>: Memories accumulate without pruning</li>
+<li><strong>No cross-agent knowledge sharing</strong>: Each agent's memory is siloed. <code>AgentMemory</code> lacks a <code>workgroup_id</code> column for cross-conversation retrieval.</li>
+<li><strong>No capability modeling</strong>: Agents don't know what their teammates are good at</li>
+<li><strong>No metacognition</strong>: Agents can't monitor their own uncertainty or ask for help strategically</li>
+<li><strong>No cross-conversation awareness</strong>: Agents perceive only their current conversation (40-message window via <code>build_user_message</code>). No visibility into other conversations, past interactions, or workgroup-level patterns.</li>
+</ol>
+<hr />
+<h2 id="6-proposed-cognitive-architecture">6. Proposed Cognitive Architecture</h2>
+<blockquote>
+<p><strong>Superseded by <a href="../learning-system/">learning-system.md</a>.</strong> Sections 6–8 below describe an earlier design for agent memory and learning in <code>teaparty_app/</code>. The current design — including the three learning types (institutional, task-based, proxy), the promotion chain, and the 10-scope taxonomy — is in <a href="../learning-system/">learning-system.md</a>. The research foundations in sections 1–5 remain valid background.</p>
+</blockquote>
+<h3 id="61-design-principles">6.1 Design Principles</h3>
+<p>Following TeaParty's philosophy:</p>
+<ol>
+<li><strong>Agents are agents</strong> -- Memory and learning are <em>tools available to the agent</em>, not imposed pipelines. The agent chooses when to reflect, what to remember, and when to retrieve.</li>
+<li><strong>Advisory, not mandatory</strong> -- cognitive systems inform but don't constrain</li>
+<li><strong>Minimal overhead</strong> -- Don't add latency or cost to every interaction. Learning happens <em>asynchronously</em> after interactions, not blocking the response path.</li>
+<li><strong>Build on what exists</strong> -- Use the <code>AgentMemory</code>, <code>AgentLearningEvent</code>, and <code>learning_state</code> schemas that already exist.</li>
+<li><strong>Start with episodic + semantic</strong> -- Procedural memory (skill libraries) and metacognition are later phases.</li>
+</ol>
+<h3 id="62-memory-system">6.2 Memory System</h3>
+<p>Mapping cognitive architecture research to TeaParty:</p>
+<div class="highlight"><pre><span></span><code>+-------------------------------------------------------------------+
+|                        WORKING MEMORY                              |
+|  (context window = system prompt + conversation history + memories) |
++-------------------------------------------------------------------+
+         |                    |                    |
+         v                    v                    v
++----------------+  +------------------+  +-------------------+
+| EPISODIC       |  | SEMANTIC         |  | PROCEDURAL        |
+| AgentMemory    |  | AgentMemory      |  | Agent.learning    |
+| type=episode   |  | type=insight     |  |   _state          |
+|                |  | type=pattern     |  | (skill refs,      |
+| Conversation   |  | type=domain      |  |  tool prefs,      |
+| summaries,     |  |   _knowledge     |  |  response styles) |
+| key moments,   |  |                  |  |                   |
+| outcomes       |  | Synthesized      |  | &quot;When asked about |
+|                |  | knowledge from   |  |  code, use the    |
+| &quot;Last Tuesday  |  | many episodes    |  |  file tools first&quot;|
+|  we discussed  |  |                  |  |                   |
+|  the API...&quot;   |  | &quot;User prefers    |  |                   |
+|                |  |  concise answers&quot;|  |                   |
++----------------+  +------------------+  +-------------------+
+         |                    |                    |
+         +--------------------+--------------------+
+                              |
+                    +---------v----------+
+                    | RETRIEVAL ENGINE   |
+                    | recency x relevance|
+                    | x confidence       |
+                    +--------------------+
+</code></pre></div>
+<h4 id="621-episodic-memory">6.2.1 Episodic Memory</h4>
+<p><strong>What:</strong> Compressed records of past conversations and significant events.</p>
+<p><strong>Storage:</strong> <code>AgentMemory</code> rows with <code>memory_type = "episode"</code></p>
+<p><strong>Contents:</strong>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Discussed API redesign with user. They wanted REST over GraphQL. We agreed on versioned endpoints. User was satisfied with the v2/resources pattern.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;source_summary&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;job:API Redesign, 3 messages&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.9</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p><strong>When created:</strong> At conversation archival, or when a conversation exceeds N messages without a summary. A "cheap" LLM call summarizes the conversation into an episode.</p>
+<p><strong>Retrieval:</strong> By recency (most recent episodes first) and relevance (keyword/semantic match to current conversation topic).</p>
+<h4 id="622-semantic-memory">6.2.2 Semantic Memory</h4>
+<p><strong>What:</strong> Distilled knowledge -- patterns, insights, domain facts -- synthesized from multiple episodes.</p>
+<p><strong>Storage:</strong> <code>AgentMemory</code> rows with <code>memory_type</code> in ("insight", "pattern", "domain_knowledge")</p>
+<p><strong>Contents:</strong>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;memory_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;pattern&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;content&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;This workgroup prefers TypeScript over JavaScript for new modules.&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;confidence&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.85</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p><strong>When created:</strong> Periodically via a reflection cycle (see 6.3), or when the agent notices a recurring pattern across episodes.</p>
+<p><strong>Retrieval:</strong> All high-confidence semantic memories relevant to the current context are included in the prompt.</p>
+<h4 id="623-procedural-memory">6.2.3 Procedural Memory</h4>
+<p><strong>What:</strong> How to do things -- preferred tools, response styles, task-specific strategies.</p>
+<p><strong>Storage:</strong> <code>Agent.learning_state</code> JSON field (compact, always loaded)</p>
+<p><strong>Contents:</strong>
+<div class="highlight"><pre><span></span><code><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;tool_preferences&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;code_review&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;Read&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Grep&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Edit&quot;</span><span class="p">],</span>
+<span class="w">    </span><span class="nt">&quot;research&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;WebSearch&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;WebFetch&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;response_style&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;preferred_length&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;medium&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;format_preferences&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;uses code blocks&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;includes examples&quot;</span><span class="p">]</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;skill_proficiencies&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;python&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.9</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;rust&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">0.3</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</code></pre></div></p>
+<p><strong>When updated:</strong> After successful tool use sequences, after user feedback.</p>
+<p><strong>Retrieval:</strong> Always included (lives on the Agent record).</p>
+<h3 id="63-learning-cycle">6.3 Learning Cycle</h3>
+<p>Inspired by Soar's perceive-decide-act-learn cycle and Reflexion's verbal RL:</p>
+<div class="highlight"><pre><span></span><code>            User message arrives
+                    |
+                    v
+        +----------------------+
+        |   1. PERCEIVE        |    Retrieve relevant memories
+        |   Assemble context   |    for current conversation
+        +----------------------+
+                    |
+                    v
+        +----------------------+
+        |   2. RESPOND         |    Normal agent response
+        |   (existing path)    |    via claude CLI
+        +----------------------+
+                    |
+                    v
+        +----------------------+
+        |   3. OBSERVE         |    Detect learning signals:
+        |   Extract signals    |    - explicit feedback
+        +----------------------+    - task success/failure
+                    |               - correction patterns
+                    v               - new information
+        +----------------------+
+        |   4. LEARN           |    Write AgentLearningEvent,
+        |   Update memory      |    update AgentMemory,
+        +----------------------+    adjust learning_state
+                    |
+                    v
+        +----------------------+
+        |   5. REFLECT         |    Periodic: synthesize
+        |   (async, batched)   |    episodes into insights
+        +----------------------+
+</code></pre></div>
+<h4 id="631-signal-detection-step-3-observe">6.3.1 Signal Detection (Step 3: OBSERVE)</h4>
+<p>Learning signals extracted from conversation flow:</p>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Detection Method</th>
+<th>Example</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Explicit praise</td>
+<td>Keyword + sentiment</td>
+<td>"Great answer!", "Perfect"</td>
+</tr>
+<tr>
+<td>Explicit correction</td>
+<td>Keyword + negation</td>
+<td>"Actually, it should be X", "No, I meant..."</td>
+</tr>
+<tr>
+<td>Task outcome</td>
+<td>Conversation archival status</td>
+<td>Job completed vs. cancelled</td>
+</tr>
+<tr>
+<td>User re-engagement</td>
+<td>Same topic in new conversation</td>
+<td>User asks the same question again</td>
+</tr>
+<tr>
+<td>Preference expression</td>
+<td>Keyword patterns</td>
+<td>"I prefer...", "Always use...", "Don't..."</td>
+</tr>
+<tr>
+<td>Tool success/failure</td>
+<td>Tool result analysis</td>
+<td>Error in tool_result vs. successful output</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Implementation:</strong> A lightweight post-response analyzer runs after each agent message. Uses keyword matching first (zero LLM cost), falling back to a cheap LLM call only when ambiguous.</p>
+<h4 id="632-memory-formation-step-4-learn">6.3.2 Memory Formation (Step 4: LEARN)</h4>
+<p>When a signal is detected:
+1. Write an <code>AgentLearningEvent</code> record (signal_type, value, linked to message)
+2. If the signal implies a durable fact: create/update an <code>AgentMemory</code> record
+3. If the signal implies a procedural change: update <code>Agent.learning_state</code></p>
+<p><strong>Confidence scoring:</strong>
+- Single observation: 0.5
+- Confirmed by second observation: 0.7
+- Contradicted: decrease by 0.2
+- Explicitly stated by user ("always do X"): 0.95</p>
+<h4 id="633-reflection-step-5-reflect">6.3.3 Reflection (Step 5: REFLECT)</h4>
+<p>Inspired by Generative Agents' reflection process. Runs asynchronously, not on the hot path:</p>
+<p><strong>Trigger:</strong> When an agent accumulates N new learning events since last reflection (default: 10), or on a time schedule via <code>AgentTodoItem</code> triggers.</p>
+<p><strong>Process:</strong>
+1. Gather recent <code>AgentLearningEvent</code> records
+2. Gather recent <code>AgentMemory</code> episodes
+3. Send to cheap LLM: "Given these recent experiences, what patterns, insights, or corrections should I remember?"
+4. Store resulting insights as semantic memories
+5. Prune low-confidence, old, or contradicted memories</p>
+<h3 id="64-memory-retrieval-for-prompt-assembly">6.4 Memory Retrieval for Prompt Assembly</h3>
+<p>The critical integration point -- how memories enter the agent's working memory (context window):</p>
+<div class="highlight"><pre><span></span><code><span class="k">def</span><span class="w"> </span><span class="nf">_build_prompt_body</span><span class="p">(</span><span class="n">agent</span><span class="p">,</span> <span class="n">conversation</span><span class="p">,</span> <span class="n">workgroup</span><span class="p">,</span> <span class="o">...</span><span class="p">):</span>
+    <span class="n">parts</span> <span class="o">=</span> <span class="p">[]</span>
+
+    <span class="c1"># ... existing identity, context, team roster ...</span>
+
+    <span class="c1"># COGNITIVE EXTENSION: inject relevant memories</span>
+    <span class="n">memory_block</span> <span class="o">=</span> <span class="n">retrieve_agent_memories</span><span class="p">(</span>
+        <span class="n">agent_id</span><span class="o">=</span><span class="n">agent</span><span class="o">.</span><span class="n">id</span><span class="p">,</span>
+        <span class="n">conversation</span><span class="o">=</span><span class="n">conversation</span><span class="p">,</span>
+        <span class="n">max_tokens</span><span class="o">=</span><span class="mi">800</span><span class="p">,</span>  <span class="c1"># budget for memory in prompt</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">memory_block</span><span class="p">:</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;&quot;</span><span class="p">)</span>
+        <span class="n">parts</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">memory_block</span><span class="p">)</span>
+
+    <span class="c1"># ... existing guidelines ...</span>
+</code></pre></div>
+<p>The retrieval function:
+1. Loads <code>Agent.learning_state</code> (procedural memory -- always included, compact)
+2. Queries <code>AgentMemory</code> for relevant semantic memories (high confidence, keyword match)
+3. Queries <code>AgentMemory</code> for recent episodic memories (if same topic/participants)
+4. Formats into a natural-language block, budget-constrained</p>
+<p><strong>Example prompt injection:</strong>
+<div class="highlight"><pre><span></span><code>From your experience:
+- This workgroup prefers TypeScript for new modules (high confidence)
+- User tends to ask for examples alongside explanations
+- Previous conversation on this topic: discussed REST vs GraphQL, agreed on versioned endpoints
+</code></pre></div></p>
+<p><strong>Retrieval scoring:</strong></p>
+<div class="highlight"><pre><span></span><code>score = α·recency(m) + β·relevance(m, query) + γ·importance(m)
+
+where:
+  recency(m)    = exponential decay from m.created_at
+  relevance(m)  = keyword/embedding similarity to current conversation context
+  importance(m) = f(m.confidence, m.relevance_count)
+  α, β, γ       = tunable weights (default: 0.2, 0.5, 0.3)
+</code></pre></div>
+<p>Budget: retrieve at most <strong>5-8 memories</strong> per turn to avoid context bloat.</p>
+<h3 id="65-multi-agent-learning">6.5 Multi-Agent Learning</h3>
+<p>In workgroup sessions, agents can learn from observing each other:</p>
+<p><strong>Shared workgroup knowledge:</strong> Semantic memories with <code>memory_type = "domain_knowledge"</code> are shared across all agents in a workgroup. When one agent learns a domain fact, all agents in the workgroup can access it.</p>
+<p><strong>Private agent memories:</strong> Insights, corrections, and patterns are private to each agent unless explicitly promoted to shared.</p>
+<p><strong>Workgroup reflection:</strong> After a multi-agent job completes, a reflection cycle runs for each participating agent, with access to the full conversation (not just their own contributions).</p>
+<hr />
+<h2 id="7-api-implications">7. API Implications</h2>
+<h3 id="71-new-endpoints">7.1 New Endpoints</h3>
+<div class="highlight"><pre><span></span><code># Memory CRUD
+GET    /api/agents/{agent_id}/memories                  # List memories with filters
+POST   /api/agents/{agent_id}/memories                  # Manually create a memory
+PATCH  /api/agents/{agent_id}/memories/{memory_id}      # Edit memory content/confidence
+DELETE /api/agents/{agent_id}/memories/{memory_id}      # Remove a memory
+
+# Learning events (read-only audit trail)
+GET    /api/agents/{agent_id}/learning-events            # List learning signals
+
+# Learning state (procedural memory)
+GET    /api/agents/{agent_id}/learning-state             # Current learning state
+PATCH  /api/agents/{agent_id}/learning-state             # Manual adjustment
+
+# Reflection trigger
+POST   /api/agents/{agent_id}/reflect                    # Trigger reflection cycle
+
+# Workgroup shared knowledge
+GET    /api/workgroups/{wg_id}/knowledge                 # Shared knowledge base
+POST   /api/workgroups/{wg_id}/knowledge                 # Add shared knowledge
+
+# Trigger manual reflection
+POST   /api/agents/{agent_id}/reflect
+     (Primarily for debugging/admin use)
+</code></pre></div>
+<h3 id="72-modified-endpoints">7.2 Modified Endpoints</h3>
+<div class="highlight"><pre><span></span><code># Existing agent endpoint -- add memory stats to response
+GET    /api/agents/{agent_id}
+  + memory_count: int
+  + last_reflection_at: datetime | null
+  + learning_event_count: int
+
+# Existing conversation archive -- trigger episode creation
+POST   /api/conversations/{conv_id}/archive
+  + (side effect) Creates episodic memory for participating agents
+</code></pre></div>
+<h3 id="73-database-schema-changes">7.3 Database Schema Changes</h3>
+<p><strong>New columns on <code>Agent</code>:</strong>
+<div class="highlight"><pre><span></span><code><span class="n">last_reflection_at</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">memory_budget_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="n">Field</span><span class="p">(</span><span class="n">default</span><span class="o">=</span><span class="mi">800</span><span class="p">)</span>  <span class="c1"># max tokens for memory in prompt</span>
+</code></pre></div></p>
+<p><strong>Extend agent_memories table:</strong>
+<div class="highlight"><pre><span></span><code><span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">agent_memories</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">COLUMN</span><span class="w"> </span><span class="n">workgroup_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">REFERENCES</span><span class="w"> </span><span class="n">workgroups</span><span class="p">(</span><span class="n">id</span><span class="p">);</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">agent_memories</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">COLUMN</span><span class="w"> </span><span class="n">access_level</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="s1">&#39;private&#39;</span><span class="p">;</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">agent_memories</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">COLUMN</span><span class="w"> </span><span class="n">relevance_count</span><span class="w"> </span><span class="nb">INTEGER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="mi">0</span><span class="p">;</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">agent_memories</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">COLUMN</span><span class="w"> </span><span class="n">last_accessed_at</span><span class="w"> </span><span class="k">TIMESTAMP</span><span class="p">;</span>
+<span class="k">ALTER</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">agent_memories</span><span class="w"> </span><span class="k">ADD</span><span class="w"> </span><span class="k">COLUMN</span><span class="w"> </span><span class="n">is_archived</span><span class="w"> </span><span class="nb">BOOLEAN</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">FALSE</span><span class="p">;</span>
+
+<span class="c1">-- Index for retrieval</span>
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_agent_memories_retrieval</span>
+<span class="w">  </span><span class="k">ON</span><span class="w"> </span><span class="n">agent_memories</span><span class="p">(</span><span class="n">agent_id</span><span class="p">,</span><span class="w"> </span><span class="n">memory_type</span><span class="p">,</span><span class="w"> </span><span class="n">is_archived</span><span class="p">)</span>
+<span class="w">  </span><span class="k">WHERE</span><span class="w"> </span><span class="n">is_archived</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">FALSE</span><span class="p">;</span>
+
+<span class="k">CREATE</span><span class="w"> </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_agent_memories_shared</span>
+<span class="w">  </span><span class="k">ON</span><span class="w"> </span><span class="n">agent_memories</span><span class="p">(</span><span class="n">workgroup_id</span><span class="p">,</span><span class="w"> </span><span class="n">access_level</span><span class="p">,</span><span class="w"> </span><span class="n">is_archived</span><span class="p">)</span>
+<span class="w">  </span><span class="k">WHERE</span><span class="w"> </span><span class="n">access_level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">&#39;workgroup&#39;</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="n">is_archived</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">FALSE</span><span class="p">;</span>
+</code></pre></div></p>
+<p><strong>New index on <code>AgentMemory</code>:</strong>
+<div class="highlight"><pre><span></span><code><span class="c1"># For efficient retrieval by agent + type + confidence</span>
+<span class="n">Index</span><span class="p">(</span><span class="s2">&quot;ix_agent_memory_retrieval&quot;</span><span class="p">,</span> <span class="s2">&quot;agent_id&quot;</span><span class="p">,</span> <span class="s2">&quot;memory_type&quot;</span><span class="p">,</span> <span class="s2">&quot;confidence&quot;</span><span class="p">)</span>
+</code></pre></div></p>
+<h3 id="74-service-layer-changes">7.4 Service Layer Changes</h3>
+<p><strong>New service: <code>teaparty_app/services/agent_memory.py</code></strong>
+<div class="highlight"><pre><span></span><code>retrieve_agent_memories(agent_id, conversation, max_tokens) -&gt; str
+store_learning_event(agent_id, message_id, signal_type, value) -&gt; AgentLearningEvent
+create_memory(agent_id, conversation_id, memory_type, content, ...) -&gt; AgentMemory
+run_reflection(agent_id) -&gt; list[AgentMemory]
+detect_learning_signals(agent_id, message, conversation) -&gt; list[dict]
+</code></pre></div></p>
+<p><strong>Modified service: <code>agent_definition.py</code></strong>
+- <code>_build_prompt_body()</code> gains a memory retrieval call</p>
+<p><strong>Modified service: <code>agent_runtime.py</code></strong>
+- Post-response: call <code>detect_learning_signals()</code> and <code>store_learning_event()</code>
+- On conversation archive: call <code>create_memory()</code> for episodic summary</p>
+<h3 id="75-config-changes">7.5 Config Changes</h3>
+<div class="highlight"><pre><span></span><code><span class="c1"># New settings in config.py</span>
+<span class="n">reflection_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>          <span class="c1"># Global toggle</span>
+<span class="n">reflection_model</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>               <span class="c1"># Override model for reflection (defaults to cheap)</span>
+<span class="n">memory_retrieval_limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">8</span>          <span class="c1"># Max memories per prompt</span>
+<span class="n">memory_decay_days</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">30</span>              <span class="c1"># Days before unused memories decay</span>
+<span class="n">memory_consolidation_enabled</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># Phase 2</span>
+</code></pre></div>
+<hr />
+<h2 id="8-implementation-phases">8. Implementation Phases</h2>
+<h3 id="phase-1-memory-retrieval-low-risk-high-value">Phase 1: Memory Retrieval (Low Risk, High Value)</h3>
+<p>Wire up the existing <code>AgentMemory</code> table:</p>
+<ol>
+<li>Add <code>_retrieve_memories()</code> to <code>prompt_builder.py</code> -- query <code>agent_memories</code> for the current agent, score by recency + relevance + importance</li>
+<li>Inject retrieved memories into the system prompt via <code>_build_prompt_body()</code> in <code>agent_definition.py</code> -- new section between conversation context and guidelines</li>
+<li>Add <code>GET /api/agents/{id}/memories</code> endpoint for admin inspection</li>
+<li>Populate memories manually or via admin API to validate the retrieval pipeline before adding automatic learning</li>
+</ol>
+<p><strong>Files touched</strong>: <code>agent_definition.py</code>, <code>prompt_builder.py</code>, new router. No schema migration needed -- the <code>agent_memories</code> table and <code>_ensure_agent_memory_table()</code> migration already exist in <code>db.py</code>.</p>
+<p><strong>Estimated scope</strong>: ~200 lines across 3 files.</p>
+<h3 id="phase-2-reflection-engine-medium-risk-high-value">Phase 2: Reflection Engine (Medium Risk, High Value)</h3>
+<p>Add asynchronous post-turn reflection:</p>
+<ol>
+<li>Create <code>teaparty_app/services/reflection.py</code> -- uses <code>llm_client.create_message()</code> with <code>resolve_model(purpose="cheap")</code> for reflection calls</li>
+<li>Hook into <code>agent_runtime.py</code> after the agent message is persisted -- fire reflection in background thread, similar to the <code>_process_auto_responses_in_background()</code> pattern</li>
+<li>Add schema migration for new <code>AgentMemory</code> columns (<code>workgroup_id</code>, <code>access_level</code>, <code>relevance_count</code>, <code>last_accessed_at</code>, <code>is_archived</code>)</li>
+<li>Add <code>POST /api/agents/{id}/reflect</code> admin endpoint for debugging</li>
+</ol>
+<p><strong>Files touched</strong>: new <code>reflection.py</code>, <code>agent_runtime.py</code>, <code>db.py</code> (migration), new router.</p>
+<p><strong>Estimated scope</strong>: ~300 lines, 1 new file, 1 migration.</p>
+<h3 id="phase-3-signal-detection-observation">Phase 3: Signal Detection (Observation)</h3>
+<p>Implement <code>detect_learning_signals()</code> with keyword-based detection:
+- Write <code>AgentLearningEvent</code> records after each agent response
+- Surface learning events in the admin UI</p>
+<h3 id="phase-4-automatic-memory-formation">Phase 4: Automatic Memory Formation</h3>
+<p>Convert learning events into <code>AgentMemory</code> records:
+- Implement confidence scoring and deduplication
+- Episodic memory creation on conversation archive</p>
+<h3 id="phase-5-shared-memory-and-social-cognition-medium-risk-medium-value">Phase 5: Shared Memory and Social Cognition (Medium Risk, Medium Value)</h3>
+<p>Enable cross-agent knowledge sharing:</p>
+<ol>
+<li>Add <code>workgroup_id</code> and <code>access_level</code> to memory retrieval</li>
+<li>Add <code>share</code> tool to agent definitions</li>
+<li>Add <code>peer_skill</code> memory type with automatic extraction during workgroup sessions</li>
+<li>Add <code>GET /api/workgroups/{id}/shared-memories</code> endpoint</li>
+</ol>
+<p><strong>Estimated scope</strong>: ~200 lines across 4 files, extends Phase 2 migration.</p>
+<h3 id="phase-6-memory-consolidation-and-decay-low-risk-medium-value">Phase 6: Memory Consolidation and Decay (Low Risk, Medium Value)</h3>
+<p>Prevent memory bloat:</p>
+<ol>
+<li>Add consolidation task to the existing tick system (<code>process_triggered_todos</code>)</li>
+<li>Implement decay scoring in retrieval</li>
+<li>Add archival/pruning logic</li>
+<li>Add admin UI for viewing and managing agent memories</li>
+</ol>
+<p><strong>Estimated scope</strong>: ~250 lines, background task integration.</p>
+<h3 id="phase-7-procedural-memory-skill-libraries-high-risk-high-value">Phase 7: Procedural Memory / Skill Libraries (High Risk, High Value)</h3>
+<p>Agent-authored procedures and skills:</p>
+<ol>
+<li>Agents can define reusable "skills" (structured prompts/plans)</li>
+<li>Skills stored in a new table, indexed by capability description</li>
+<li>Retrieved during prompt construction when relevant</li>
+<li>Builds on workflow system but is agent-authored rather than admin-defined</li>
+</ol>
+<p>This is the most architecturally complex phase and should wait until Phases 1-5 are validated.</p>
+<hr />
+<h2 id="9-design-tensions-and-trade-offs">9. Design Tensions and Trade-offs</h2>
+<h3 id="autonomy-vs-control">Autonomy vs. Control</h3>
+<p>The research strongly supports giving agents autonomy over their memory (MemGPT pattern). But unbounded memory writing could lead to:
+- <strong>Cost</strong>: Every memory write is a future retrieval candidate, increasing prompt size
+- <strong>Quality</strong>: Agents may store low-quality or redundant memories
+- <strong>Privacy</strong>: Agents might memorize sensitive information</p>
+<p><strong>Mitigation</strong>: Rate limits on memory creation, confidence thresholds, and admin visibility.</p>
+<h3 id="memory-persistence-vs-forgetting">Memory Persistence vs. Forgetting</h3>
+<ul>
+<li>Too much persistence → context pollution, outdated information</li>
+<li>Too little → agents never develop, repeat mistakes</li>
+</ul>
+<p>Forgetting strategies from the literature:</p>
+<table>
+<thead>
+<tr>
+<th>Strategy</th>
+<th>Mechanism</th>
+<th>Example System</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Time-based decay</strong></td>
+<td>Activation decreases with time</td>
+<td>ACT-R, FadeMem</td>
+</tr>
+<tr>
+<td><strong>Access-based decay</strong></td>
+<td>Unused memories fade</td>
+<td>Soar, Generative Agents</td>
+</tr>
+<tr>
+<td><strong>Importance threshold</strong></td>
+<td>Only memories above score retained</td>
+<td>Generative Agents</td>
+</tr>
+<tr>
+<td><strong>Consolidation</strong></td>
+<td>Specific memories → general knowledge</td>
+<td>Generative Agents reflection</td>
+</tr>
+<tr>
+<td><strong>Capacity-based pruning</strong></td>
+<td>Lowest-activation items removed when limit hit</td>
+<td>FadeMem</td>
+</tr>
+</tbody>
+</table>
+<p>FadeMem results: With biologically-inspired decay, 82.1% retention of critical facts at 55% storage. Without decay: 78.4% at 100% storage. Selective forgetting actually <em>improves</em> what you remember.</p>
+<p><strong>Mitigation</strong>: Combine time-based decay with importance scoring. Memories fade naturally unless they're important or frequently accessed. Consolidation preserves the essence while allowing specifics to fade -- mirroring the human trajectory from vivid episodes to general knowledge.</p>
+<h3 id="individual-vs-collective-learning">Individual vs. Collective Learning</h3>
+<ul>
+<li>Individual memory is private and high-signal</li>
+<li>Shared memory enables workgroup coordination but introduces noise</li>
+</ul>
+<p><strong>Mitigation</strong>: Default to private; sharing is an explicit agent action. Workgroup admins can view all memories.</p>
+<h3 id="cost-of-reflection">Cost of Reflection</h3>
+<p>Each reflection call costs ~500-1000 tokens (using a cheap model). For a workgroup with 4 agents doing 20 interactions/day, that's ~80 extra cheap-model calls/day -- negligible cost.</p>
+<p>But reflection <em>quality</em> matters: bad reflections pollute memory. The cheap model may produce lower-quality insights than the main model.</p>
+<p><strong>Mitigation</strong>: Start with reflection disabled by default. Enable per-workgroup. Monitor memory quality.</p>
+<h3 id="latency">Latency</h3>
+<p>Memory retrieval adds a database query + scoring to each agent turn. This should be &lt;50ms for typical memory sizes (&lt;1000 memories per agent).</p>
+<p>Reflection is fully async and adds zero latency to the user-facing response.</p>
+<hr />
+<h2 id="10-references">10. References</h2>
+<h3 id="classical-cognitive-architectures">Classical Cognitive Architectures</h3>
+<ul>
+<li>Anderson. "An Integrated Theory of the Mind" (ACT-R), <em>Psychological Review</em>, 2004. -- Activation-based retrieval, production compilation.</li>
+<li>Laird. <em>The Soar Cognitive Architecture</em>, MIT Press, 2012. -- Impasse-driven learning, chunking, three-store memory.</li>
+<li>Sun. "The CLARION Cognitive Architecture", 2016. -- Dual-process implicit/explicit learning, metacognitive subsystem.</li>
+<li>Franklin et al. "LIDA: A Systems-level Architecture for Cognition, Emotion, and Learning", IEEE, 2014. -- Global workspace, attention gating.</li>
+<li>Baars. <em>A Cognitive Theory of Consciousness</em> (Global Workspace Theory), Cambridge University Press, 1988.</li>
+</ul>
+<h3 id="modern-llm-agent-architectures">Modern LLM-Agent Architectures</h3>
+<ul>
+<li>Sumers, Yao, Narasimhan &amp; Griffiths. <a href="https://arxiv.org/abs/2309.02427">"Cognitive Architectures for Language Agents"</a> (CoALA), TMLR 2024. -- The unifying theoretical framework.</li>
+<li>Park et al. <a href="https://arxiv.org/abs/2304.03442">"Generative Agents: Interactive Simulacra of Human Behavior"</a>, UIST 2023. -- Memory streams, three-factor retrieval, reflection.</li>
+<li>Shinn et al. <a href="https://arxiv.org/abs/2303.11366">"Reflexion: Language Agents with Verbal Reinforcement Learning"</a>, NeurIPS 2023. -- Self-reflection for learning.</li>
+<li>Wang et al. <a href="https://arxiv.org/abs/2305.16291">"Voyager: An Open-Ended Embodied Agent with Large Language Models"</a>, 2023. -- Skill libraries, auto-curriculum.</li>
+<li>Majumder et al. <a href="https://arxiv.org/abs/2310.10134">"CLIN: A Continually Learning Language Agent"</a>, 2024. -- Causal abstraction learning, cross-episode persistence.</li>
+<li>Packer et al. <a href="https://arxiv.org/abs/2310.08560">"MemGPT: Towards LLMs as Operating Systems"</a>, 2023. -- Agent-managed memory hierarchy.</li>
+<li>Zhao et al. <a href="https://arxiv.org/abs/2308.10144">"ExpeL: LLM Agents Are Experiential Learners"</a>, AAAI 2024. -- Contrastive learning from successes and failures.</li>
+<li><a href="https://arxiv.org/html/2601.22758v1">"AutoRefine"</a>, 2025. -- Dual-form experience patterns, automatic extraction outperforming manual design.</li>
+<li>Wu et al. <a href="https://arxiv.org/abs/2408.09176">"LLM-ACTR"</a>, 2024-2025. -- ACT-R decision-making embedded in LLMs.</li>
+<li><a href="https://www.nature.com/articles/s41467-025-63804-5">"Brain-Inspired Modular Agentic Planner"</a>, Nature Communications, 2025.</li>
+</ul>
+<h3 id="memory-systems">Memory Systems</h3>
+<ul>
+<li>Chhikara et al. <a href="https://arxiv.org/abs/2504.19413">"Mem0"</a>, 2025. -- Production-ready structured memory with graph variant.</li>
+<li><a href="https://www.co-r-e.com/method/agent-memory-forgetting">"FadeMem"</a>, 2025. -- Biologically-inspired forgetting, selective decay improves retention.</li>
+<li><a href="https://arxiv.org/abs/2502.06975">"Episodic Memory is the Missing Piece for Long-Term LLM Agents"</a>, 2025.</li>
+<li><a href="https://dl.acm.org/doi/10.1145/3765766.3765803">"ACT-R-inspired Memory for LLM Agents"</a>, 2024-2025.</li>
+</ul>
+<h3 id="multi-agent-collaborative-memory">Multi-Agent / Collaborative Memory</h3>
+<ul>
+<li>Rezazadeh et al. <a href="https://arxiv.org/abs/2505.18279">"Collaborative Memory: Multi-User Memory Sharing in LLM Agents"</a>, ICML 2025.</li>
+<li><a href="https://arxiv.org/html/2506.22815v1">"Memory as a Service (MaaS)"</a>, 2025.</li>
+<li><a href="https://arxiv.org/abs/2310.10701">"Theory of Mind for Multi-Agent Collaboration via LLMs"</a>, 2024.</li>
+<li>Gross. "Supporting Effortless Coordination", <em>CSCW Journal</em>, 2013. -- 25 years of awareness research.</li>
+</ul>
+<h3 id="surveys-and-related-work">Surveys and Related Work</h3>
+<ul>
+<li><a href="https://github.com/Shichun-Liu/Agent-Memory-Paper-List">Agent Memory Paper List</a> -- Curated bibliography.</li>
+<li>"A Survey on the Memory Mechanism of Large Language Model-based Agents", ACM TOIS, 2025.</li>
+<li>Khattab et al. <a href="https://arxiv.org/abs/2310.19115">"DSPy: Compiling Declarative Language Model Calls into Self-Improving Pipelines"</a>, 2024.</li>
+<li>Wu et al. <a href="https://arxiv.org/abs/2308.08155">"AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation"</a>, 2024.</li>
+<li><a href="https://github.com/letta-ai/letta">Letta (MemGPT)</a> -- Stateful agent platform with tiered memory</li>
+<li><a href="https://www.langchain.com/langgraph">LangGraph</a> -- Agent orchestration with persistence</li>
+</ul>
+<hr />
+<h2 id="11-summary">11. Summary</h2>
+<p>TeaParty already has the <em>schema</em> for cognitive architecture -- <code>AgentMemory</code>, <code>AgentLearningEvent</code>, <code>learning_state</code>, <code>learned_preferences</code>. What's missing is the <em>wiring</em>: retrieval during prompt construction, reflection after interactions, and agent tools for explicit memory management.</p>
+<p>The proposed architecture follows three principles from the research:</p>
+<ol>
+<li><strong>Memory retrieval matters more than memory storage</strong> -- the scoring and injection pipeline is the highest-value work</li>
+<li><strong>Reflection should be grounded and optional</strong> -- agents reflect on specific interactions, not abstractly, and only when it's useful</li>
+<li><strong>Agents manage their own memory</strong> -- following MemGPT, agents get tools for remember/recall/forget rather than having learning imposed on them</li>
+</ol>
+<p>Phase 1 (memory retrieval) can be implemented with ~200 lines and zero schema changes, using the tables that already exist. This is the recommended starting point.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

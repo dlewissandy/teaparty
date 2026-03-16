@@ -1,0 +1,2188 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Cognitive Architectures for Learning Agents: Supplementary Research (2025-2026) - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#cognitive-architectures-for-learning-agents-supplementary-research-2025-2026" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Cognitive Architectures for Learning Agents: Supplementary Research (2025-2026)
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../human-proxies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#theme-1-new-cognitive-architecture-frameworks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 1: New Cognitive Architecture Frameworks
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 1: New Cognitive Architecture Frameworks">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#applying-cognitive-design-patterns-to-general-llm-agents-wray-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Applying Cognitive Design Patterns to General LLM Agents (Wray et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#galaxy-a-cognition-centered-framework-for-proactive-privacy-preserving-and-self-evolving-llm-agents-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Galaxy: A Cognition-Centered Framework for Proactive, Privacy-Preserving, and Self-Evolving LLM Agents (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cognitive-control-architecture-cca-lifecycle-supervision-for-robustly-aligned-ai-agents-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cognitive Control Architecture (CCA): Lifecycle Supervision for Robustly Aligned AI Agents (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#agentic-ai-architectures-taxonomies-and-evaluation-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Agentic AI: Architectures, Taxonomies, and Evaluation (2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-2-memory-management-breakthroughs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 2: Memory Management Breakthroughs
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 2: Memory Management Breakthroughs">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-mem-agentic-memory-for-llm-agents-xu-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A-MEM: Agentic Memory for LLM Agents (Xu et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memr3-memory-retrieval-via-reflective-reasoning-for-llm-agents-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MemR3: Memory Retrieval via Reflective Reasoning for LLM Agents (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mem-alpha-learning-memory-construction-via-reinforcement-learning-2025-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MEM-alpha: Learning Memory Construction via Reinforcement Learning (2025-2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memengine-a-unified-and-modular-library-for-agent-memory-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MemEngine: A Unified and Modular Library for Agent Memory (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-in-the-age-of-ai-agents-survey-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory in the Age of AI Agents (Survey) (2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#rethinking-memory-mechanisms-of-foundation-agents-in-the-second-half-a-survey-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Rethinking Memory Mechanisms of Foundation Agents in the Second Half: A Survey (2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-3-multi-agent-learning-and-collective-cognition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 3: Multi-Agent Learning and Collective Cognition
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 3: Multi-Agent Learning and Collective Cognition">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#emergent-collective-memory-in-decentralized-multi-agent-ai-systems-khushiyant-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Emergent Collective Memory in Decentralized Multi-Agent AI Systems (Khushiyant, 2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#collaborative-memory-multi-user-memory-sharing-in-llm-agents-with-dynamic-access-control-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#towards-a-science-of-collective-ai-llm-based-multi-agent-systems-fan-et-al-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Towards a Science of Collective AI: LLM-based Multi-Agent Systems (Fan et al., 2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#sedm-scalable-self-evolving-distributed-memory-for-agents-xu-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        SEDM: Scalable Self-Evolving Distributed Memory for Agents (Xu et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memory-in-llm-based-multi-agent-systems-mechanisms-challenges-and-collective-intelligence-survey-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Memory in LLM-based Multi-Agent Systems: Mechanisms, Challenges, and Collective Intelligence (Survey, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-4-metacognition-in-llm-agents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 4: Metacognition in LLM Agents
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 4: Metacognition in LLM Agents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#rema-learning-to-meta-think-for-llms-with-multi-agent-reinforcement-learning-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ReMA: Learning to Meta-Think for LLMs with Multi-Agent Reinforcement Learning (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#language-models-are-capable-of-metacognitive-monitoring-and-control-of-their-internal-activations-li-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations (Li et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-do-llm-agents-do-when-left-alone-evidence-of-spontaneous-meta-cognitive-patterns-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Do LLM Agents Do When Left Alone? Evidence of Spontaneous Meta-Cognitive Patterns (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metacognitive-reuse-turning-recurring-llm-reasoning-into-concise-behaviors-didolkar-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metacognitive Reuse: Turning Recurring LLM Reasoning into Concise Behaviors (Didolkar et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#metacognition-and-uncertainty-communication-in-humans-and-llms-steyvers-peters-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metacognition and Uncertainty Communication in Humans and LLMs (Steyvers &amp; Peters, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-5-self-evolving-agents-learning-across-episodes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 5: Self-Evolving Agents (Learning Across Episodes)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 5: Self-Evolving Agents (Learning Across Episodes)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#reasoningbank-scaling-agent-self-evolving-with-reasoning-memory-google-cloud-ai-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ReasoningBank: Scaling Agent Self-Evolving with Reasoning Memory (Google Cloud AI, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memrl-self-evolving-agents-via-runtime-reinforcement-learning-on-episodic-memory-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory (2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#building-self-evolving-agents-via-experience-driven-lifelong-learning-evoagentx-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Building Self-Evolving Agents via Experience-Driven Lifelong Learning (EvoAgentX, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#self-consolidation-for-self-evolving-agents-evosc-2026" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Self-Consolidation for Self-Evolving Agents (EvoSC, 2026)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-6-failure-modes-and-critique" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 6: Failure Modes and Critique
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 6: Failure Modes and Critique">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#halumem-evaluating-hallucinations-in-memory-systems-of-agents-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HaluMem: Evaluating Hallucinations in Memory Systems of Agents (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memorygraft-persistent-compromise-of-llm-agents-via-poisoned-experience-retrieval-2024" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MemoryGraft: Persistent Compromise of LLM Agents via Poisoned Experience Retrieval (2024)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#memoryagentbench-evaluating-memory-in-llm-agents-via-incremental-multi-turn-interactions-hu-et-al-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MemoryAgentBench: Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions (Hu et al., 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-problem-with-ai-agent-memory-failure-mode-taxonomy-dan-giannone-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem with AI Agent Memory: Failure Mode Taxonomy (Dan Giannone, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-7-emerging-consensus-and-production-patterns" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 7: Emerging Consensus and Production Patterns
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 7: Emerging Consensus and Production Patterns">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#amazon-bedrock-agentcore-memory-production-memory-architecture-at-scale-aws-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amazon Bedrock AgentCore Memory: Production Memory Architecture at Scale (AWS, 2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#anthropic-agent-skills-procedural-memory-as-an-open-standard-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Anthropic Agent Skills: Procedural Memory as an Open Standard (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#multi-agent-collaboration-survey-what-actually-works-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Multi-Agent Collaboration Survey: What Actually Works (2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#mcp-from-internal-experiment-to-industry-standard-2024-2025" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MCP: From Internal Experiment to Industry Standard (2024-2025)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#theme-8-institutional-signals-conferences-and-workshops" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Theme 8: Institutional Signals (Conferences and Workshops)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Theme 8: Institutional Signals (Conferences and Workshops)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#iclr-2026-memagents-workshop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ICLR 2026 MemAgents Workshop
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cross-cutting-synthesis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cross-Cutting Synthesis
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Cross-Cutting Synthesis">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-consensus-is-emerging" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Consensus Is Emerging
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-remains-unsolved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Remains Unsolved
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="cognitive-architectures-for-learning-agents-supplementary-research-2025-2026">Cognitive Architectures for Learning Agents: Supplementary Research (2025-2026)</h1>
+<p>Supplementary to <a href="../../cognitive-architecture/">cognitive-architecture.md</a>. Covers developments published after mid-2025 not already cataloged there.</p>
+<hr />
+<h2 id="theme-1-new-cognitive-architecture-frameworks">Theme 1: New Cognitive Architecture Frameworks</h2>
+<h3 id="applying-cognitive-design-patterns-to-general-llm-agents-wray-et-al-2025">Applying Cognitive Design Patterns to General LLM Agents (Wray et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Springer (proceedings); also arXiv:2505.07087, May 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2505.07087</li>
+<li><strong>Key findings:</strong></li>
+<li>Catalogs "cognitive design patterns" — recurring architectural primitives that appear independently across Soar, ACT-R, CLARION, ReAct, and modern agentic LLM systems.</li>
+<li>The observe-decide-act loop is the most ubiquitous pattern. ReAct instantiates a subset of it but omits the explicit commitment step present in classical architectures (Soar's operator selection, ACT-R's procedural buffer selection).</li>
+<li>Two patterns present in classical architectures are notably absent from most LLM agent systems: (1) impasse-driven learning (learn only when stuck, not continuously) and (2) goal-stack management (explicit maintenance of hierarchical goal structures across turns).</li>
+<li>Predicts that agents lacking these patterns will fail at extended multi-step tasks requiring recovery from dead ends.</li>
+<li><strong>Implications for TeaParty:</strong> The impasse-driven learning pattern is directly applicable — agents should reflect and store memories when they encounter failures or ambiguity, not after every turn. This supports COGARCH.md's "opt-in reflection" recommendation with a more specific trigger: reflection fires on impasse, not on schedule.</li>
+</ul>
+<hr />
+<h3 id="galaxy-a-cognition-centered-framework-for-proactive-privacy-preserving-and-self-evolving-llm-agents-2025">Galaxy: A Cognition-Centered Framework for Proactive, Privacy-Preserving, and Self-Evolving LLM Agents (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2508.03991, August 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2508.03991</li>
+<li><strong>Key findings:</strong></li>
+<li>Introduces "Cognition Forest" — a semantic tree structure that unifies cognitive modeling with system design, treating agent cognition and system architecture as a co-constructive loop rather than separate layers.</li>
+<li>Implements two cooperative agents: KoRa (generative agent for both responsive and proactive skills) and Kernel (meta-cognition agent enabling self-evolution and privacy enforcement).</li>
+<li>Critical insight: <strong>proactive behavior requires a distinct cognitive layer</strong> from responsive behavior. Most agent frameworks handle only reactive responses; proactive agents need a separate module that monitors context for opportunities to act unprompted.</li>
+<li>Addresses privacy as a first-class architectural concern: the Kernel agent enforces what memories can be shared and under what conditions.</li>
+<li><strong>Implications for TeaParty:</strong> Galaxy's separation of responsive vs. proactive cognition is relevant to agents that should not only reply to @mentions but also proactively surface relevant information, flag risks in shared files, or suggest team coordination actions. The privacy enforcement architecture maps to TeaParty's private/workgroup memory access levels.</li>
+</ul>
+<hr />
+<h3 id="cognitive-control-architecture-cca-lifecycle-supervision-for-robustly-aligned-ai-agents-2025">Cognitive Control Architecture (CCA): Lifecycle Supervision for Robustly Aligned AI Agents (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2512.06716, December 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2512.06716</li>
+<li><strong>Key findings:</strong></li>
+<li>Proposes full-lifecycle cognitive supervision via a "dual-layered defense": a pre-generated Intent Graph (proactive control-flow integrity) and a Tiered Adjudicator (reactive data-flow integrity).</li>
+<li>The Intent Graph is computed before execution and constrains which action sequences are permissible, reducing the attack surface for prompt injection and goal hijacking.</li>
+<li>Focuses on the safety failure modes of autonomous agents operating over extended timelines.</li>
+<li><strong>Implications for TeaParty:</strong> Relevant once agents take high-stakes file-editing actions. The Intent Graph concept maps to workflow pre-validation: before an agent runs a multi-step workflow, verify the plan against permitted action sequences.</li>
+</ul>
+<hr />
+<h3 id="agentic-ai-architectures-taxonomies-and-evaluation-2026">Agentic AI: Architectures, Taxonomies, and Evaluation (2026)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2601.12560, January 2026</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2601.12560</li>
+<li><strong>Key findings:</strong></li>
+<li>Proposes a six-dimensional taxonomy for decomposing LLM-based agents: (1) Core Components (perception, memory, action, profiling), (2) Cognitive Architecture (planning, reflection), (3) Learning, (4) Multi-Agent Systems, (5) Environments, (6) Evaluation.</li>
+<li>Identifies "concrete design choices that matter in deployed systems": memory backends and retention policies, agent-computer interfaces, the shift from JSON function calling to code-as-action, standardized connector layers (MCP), and orchestration controllers with typed state and explicit transitions.</li>
+<li>Synthesizes findings from 200+ papers into a unified view of what constitutes a production-ready agent.</li>
+<li><strong>Implications for TeaParty:</strong> The code-as-action trend (agents write and execute code rather than just JSON tool calls) and MCP adoption are both relevant to TeaParty's tool design. The typed-state orchestration pattern validates TeaParty's team session state machine approach.</li>
+</ul>
+<hr />
+<h2 id="theme-2-memory-management-breakthroughs">Theme 2: Memory Management Breakthroughs</h2>
+<h3 id="a-mem-agentic-memory-for-llm-agents-xu-et-al-2025">A-MEM: Agentic Memory for LLM Agents (Xu et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> NeurIPS 2025; arXiv:2502.12110</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2502.12110</li>
+<li><strong>Key findings:</strong></li>
+<li>Applies Zettelkasten note-taking principles to agent memory: each stored memory gets contextual descriptions, keywords, tags, and explicit links to related memories.</li>
+<li>Memory is not a flat list or vector database — it is a graph of interconnected notes where retrieval traverses semantic links, not just nearest-neighbor search.</li>
+<li>Uses ChromaDB for indexing. When a new memory is added, the agent automatically generates structured attributes and links to existing memories, creating a self-organizing knowledge network.</li>
+<li>Evaluated on six foundation models; outperforms all prior baselines on associative memory tasks.</li>
+<li><strong>Implications for TeaParty:</strong> The link-creation step is the key innovation. When an agent stores a memory about a user's preference, A-MEM would also link it to related memories (past corrections, similar preferences, workgroup norms). This supports richer retrieval: "retrieve memories about user X's coding preferences AND their related corrections."</li>
+</ul>
+<hr />
+<h3 id="memr3-memory-retrieval-via-reflective-reasoning-for-llm-agents-2025">MemR3: Memory Retrieval via Reflective Reasoning for LLM Agents (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2512.20237, December 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2512.20237</li>
+<li><strong>Key findings:</strong></li>
+<li>Problem: single-pass retrieval (embed query, fetch top-k, answer) often retrieves a "messy pile" that is irrelevant or incomplete.</li>
+<li>MemR3 adds a router that selects from three actions: retrieve (fetch more evidence), reflect (reason about gaps between current evidence and the question), or answer (sufficient evidence accumulated).</li>
+<li>A global evidence-gap tracker maintains an explicit record of what is known and what is still missing, making the reasoning process transparent and auditable.</li>
+<li>Compatible with any retriever backend (plug-in architecture). Evaluated on LoCoMo benchmark; consistently improves over strong baselines with modest token overhead.</li>
+<li><strong>Implications for TeaParty:</strong> The evidence-gap tracker is highly applicable to multi-turn conversations where an agent may need multiple retrieval steps to fully answer a complex question. The retrieve-reflect-answer loop avoids the failure mode of confident-but-wrong answers from partial retrieval.</li>
+</ul>
+<hr />
+<h3 id="mem-alpha-learning-memory-construction-via-reinforcement-learning-2025-2026">MEM-alpha: Learning Memory Construction via Reinforcement Learning (2025-2026)</h3>
+<ul>
+<li><strong>Venue:</strong> ICLR 2026 (submitted); arXiv:2509.25911</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2509.25911</li>
+<li><strong>Key findings:</strong></li>
+<li>Rather than using hand-crafted rules for memory construction, MEM-alpha trains agents to decide what to store, how to structure it, and when to update using RL with downstream QA accuracy as the reward signal.</li>
+<li>Memory architecture has three components: core (always-active), episodic, and semantic — with multiple tools for memory operations.</li>
+<li>Key generalization result: trained on sequences up to 30k tokens, but generalizes to sequences exceeding 400k tokens (13x training length). RL-learned memory construction strategies are length-agnostic.</li>
+<li>Significantly outperforms all prior memory-augmented baselines.</li>
+<li><strong>Implications for TeaParty:</strong> This is the strongest evidence that memory construction should not be purely rule-based. The RL approach discovers which memories are actually useful by observing retrieval outcomes — a form of closed-loop memory quality control. Future TeaParty agents could learn optimal memory construction strategies through interaction rather than predefined heuristics.</li>
+</ul>
+<hr />
+<h3 id="memengine-a-unified-and-modular-library-for-agent-memory-2025">MemEngine: A Unified and Modular Library for Agent Memory (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> ACM Web Conference 2025 (WWW Companion); arXiv:2505.02099</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2505.02099</li>
+<li><strong>Key findings:</strong></li>
+<li>Decomposes memory into pluggable modules: encoding, retrieval, summarization, forgetting, and meta-learning.</li>
+<li>Implements 15+ memory strategies from recent research papers as interchangeable components.</li>
+<li>Memory modules are pluggable across agent frameworks (LangChain, AutoGen, etc.).</li>
+<li>Achieves 89-95% compression rates for scalable deployment while maintaining performance.</li>
+<li><strong>Implications for TeaParty:</strong> MemEngine's architecture validates the modular design approach. The forgetting and consolidation modules are particularly relevant — they implement the decay strategies discussed in COGARCH.md as ready-to-use components rather than requiring custom implementation.</li>
+</ul>
+<hr />
+<h3 id="memory-in-the-age-of-ai-agents-survey-2024">Memory in the Age of AI Agents (Survey) (2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2512.13564, December 2024</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2512.13564</li>
+<li><strong>Key findings:</strong></li>
+<li>Distinguishes three forms of agent memory: (1) token-level (discrete text stored externally), (2) parametric (encoded in model weights via fine-tuning or ROME/MEMIT), (3) latent (continuous vector representations, KV-cache states).</li>
+<li>Functional taxonomy: factual memory (user and environment facts), experiential memory (procedural knowledge, case libraries), working memory (active context).</li>
+<li>Memory dynamics: formation is active transformation (raw traces compressed into useful artifacts), not passive logging.</li>
+<li>Identifies emerging frontiers: memory automation, RL integration, multimodal memory, multi-agent memory, and trustworthiness.</li>
+<li><strong>Implications for TeaParty:</strong> The three-form taxonomy is useful for the implementation roadmap. TeaParty currently uses only token-level memory (the AgentMemory table). Parametric memory (fine-tuning agents on workgroup-specific knowledge) and latent memory (persistent KV-cache across sessions) are future phases.</li>
+</ul>
+<hr />
+<h3 id="rethinking-memory-mechanisms-of-foundation-agents-in-the-second-half-a-survey-2026">Rethinking Memory Mechanisms of Foundation Agents in the Second Half: A Survey (2026)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2602.06052, February 2026</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2602.06052</li>
+<li><strong>Key findings:</strong></li>
+<li>218 papers, 2023 Q1–2025 Q4 — the most comprehensive recent survey.</li>
+<li>Unified taxonomy along three dimensions: memory substrates (internal vs. external), cognitive mechanisms (episodic, semantic, sensory, working, procedural), and memory subjects (agent-centric vs. user-centric).</li>
+<li>Central thesis: the field is entering a "second half" where the challenge is not benchmark performance but real utility in long-horizon, dynamic, user-dependent environments. Memory is the critical bottleneck.</li>
+<li>Context explosion is identified as the dominant engineering challenge: agents face exponentially growing context that must be compressed, filtered, and selectively retrieved.</li>
+<li><strong>Implications for TeaParty:</strong> The user-centric vs. agent-centric memory distinction is actionable. Agent-centric memories (what the agent has learned about its own capabilities) and user-centric memories (what the agent has learned about the user) should be stored and retrieved separately, with different decay rates and access policies.</li>
+</ul>
+<hr />
+<h2 id="theme-3-multi-agent-learning-and-collective-cognition">Theme 3: Multi-Agent Learning and Collective Cognition</h2>
+<h3 id="emergent-collective-memory-in-decentralized-multi-agent-ai-systems-khushiyant-2024">Emergent Collective Memory in Decentralized Multi-Agent AI Systems (Khushiyant, 2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2512.10166, December 2024</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2512.10166</li>
+<li><strong>Key findings:</strong></li>
+<li>Demonstrates that collective memory emerges from the interplay between individual agent memory and environmental trace communication (stigmergy).</li>
+<li>Critical asymmetry: individual memory alone yields +68.7% performance improvement over no-memory baselines. Environmental traces alone (without individual memory) fail completely. Individual memory is necessary infrastructure for interpreting environmental traces.</li>
+<li>Identifies a phase transition at a critical agent density: below the threshold, agents operate independently; above it, stigmergic traces dominate coordination.</li>
+<li>The emergence is analogous to phase transitions in physics — a sharp, non-linear shift in collective behavior.</li>
+<li><strong>Implications for TeaParty:</strong> This is highly relevant to TeaParty's architecture. TeaParty already implements stigmergy (agents leave work in shared files and conversations). The finding that individual memory must exist first for stigmergy to work suggests the correct implementation order: build per-agent memory before adding cross-agent knowledge sharing.</li>
+</ul>
+<hr />
+<h3 id="collaborative-memory-multi-user-memory-sharing-in-llm-agents-with-dynamic-access-control-2025">Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2505.18279, May 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2505.18279</li>
+<li><strong>Key findings:</strong></li>
+<li>Addresses the problem of information asymmetry in multi-user, multi-agent environments.</li>
+<li>Two-tier memory architecture: private memory (per-user, isolated) and shared memory (selectively shared fragments with access control).</li>
+<li>Access control encoded as dynamic bipartite graphs linking users, agents, and resources. Access can change over time as trust and roles evolve.</li>
+<li>Implements fine-grained read/write policies that differ per user-agent pair.</li>
+<li><strong>Implications for TeaParty:</strong> This precisely maps to TeaParty's private vs. workgroup memory levels. The bipartite access graph is more expressive than a simple <code>access_level</code> column and supports future scenarios where memory sharing permissions are role-based (e.g., lead agents can read all team memories, specialist agents can only read their domain).</li>
+</ul>
+<hr />
+<h3 id="towards-a-science-of-collective-ai-llm-based-multi-agent-systems-fan-et-al-2026">Towards a Science of Collective AI: LLM-based Multi-Agent Systems (Fan et al., 2026)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2602.05289, February 2026</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2602.05289</li>
+<li><strong>Key findings:</strong></li>
+<li>Argues that multi-agent research currently relies on empirical trial-and-error and lacks a principled scientific framework.</li>
+<li>Proposes the "collaboration gain" metric (Gamma): the performance ratio of a multi-agent system to a single-agent system under equivalent computational resource constraints.</li>
+<li>This metric isolates genuine collaboration gains from mere resource accumulation (more agents = more compute). A system only shows real collaboration gain if it outperforms a single agent with the same total compute budget.</li>
+<li>Critical implication: many multi-agent systems in the literature do NOT demonstrate genuine collaboration gain when controlling for compute.</li>
+<li><strong>Implications for TeaParty:</strong> This is a sobering finding. When evaluating whether TeaParty's multi-agent teams add value, the comparison should be not just "team vs. single agent" but "team vs. single agent with equivalent compute." Teams need to demonstrate emergent capabilities, not just parallelism.</li>
+</ul>
+<hr />
+<h3 id="sedm-scalable-self-evolving-distributed-memory-for-agents-xu-et-al-2025">SEDM: Scalable Self-Evolving Distributed Memory for Agents (Xu et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> NeurIPS 2025; arXiv:2509.09498</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2509.09498</li>
+<li><strong>Key findings:</strong></li>
+<li>Transforms memory from a passive repository into an adaptive, self-optimizing component with three integrated modules: (1) verifiable write admission (A/B replay to estimate marginal utility before writing), (2) self-scheduling memory controller (retrieval scoring + weight updates from outcomes), (3) near-duplicate merging and harmful entry pruning.</li>
+<li>Verifiable write admission is the key innovation: before a memory is stored, the system performs environment-free replay to estimate whether having this memory would improve future performance. Only memories with positive marginal utility are stored.</li>
+<li>Improves reasoning accuracy while reducing token overhead vs. baselines.</li>
+<li><strong>Implications for TeaParty:</strong> The write-admission gate directly addresses the "quality over quantity" memory problem. Rather than storing every reflection, agents could pre-screen memories for expected utility. This is more sophisticated than a simple confidence threshold but architecturally straightforward: compare performance with and without the candidate memory on a held-out task.</li>
+</ul>
+<hr />
+<h3 id="memory-in-llm-based-multi-agent-systems-mechanisms-challenges-and-collective-intelligence-survey-2025">Memory in LLM-based Multi-Agent Systems: Mechanisms, Challenges, and Collective Intelligence (Survey, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> TechRxiv preprint (under review)</li>
+<li><strong>URL:</strong> https://www.techrxiv.org/users/1007269/articles/1367390/master/file/data/LLM_MAS_Memory_Survey_preprint_/LLM_MAS_Memory_Survey_preprint_.pdf</li>
+<li><strong>Key findings:</strong></li>
+<li>Surveys memory mechanisms specific to multi-agent settings (goes beyond single-agent surveys).</li>
+<li>Key challenges: noise accumulation in shared memory, uncontrolled memory expansion, limited cross-domain generalization.</li>
+<li>Collective intelligence emerges when agents can retain and share diverse knowledge without overloading any single system.</li>
+<li>Network topology significantly influences collective cognition: graph structure of agent connections affects how memories propagate and align across the team.</li>
+<li><strong>Implications for TeaParty:</strong> The topology finding is important. TeaParty's current team structure (one lead + specialists) is a star topology. This is efficient for coordination but limits peer-to-peer knowledge sharing. Alternative topologies (ring, mesh) may produce richer collective memory but higher coordination overhead.</li>
+</ul>
+<hr />
+<h2 id="theme-4-metacognition-in-llm-agents">Theme 4: Metacognition in LLM Agents</h2>
+<h3 id="rema-learning-to-meta-think-for-llms-with-multi-agent-reinforcement-learning-2025">ReMA: Learning to Meta-Think for LLMs with Multi-Agent Reinforcement Learning (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> NeurIPS 2025; arXiv:2503.09501</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2503.09501</li>
+<li><strong>Key findings:</strong></li>
+<li>Decouples reasoning into two hierarchical RL agents: a high-level meta-thinking agent (strategic oversight, planning) and a low-level reasoning agent (detailed execution).</li>
+<li>Meta-thinking agent generates strategic oversight that guides the reasoning agent — analogous to System 2 (deliberate) reasoning supervising System 1 (fast) execution.</li>
+<li>Joint RL training with aligned objectives + agent-specific rewards improves generalization and robustness vs. single-agent RL.</li>
+<li>On MATH benchmark: 53.2% accuracy, outperforming prior single-agent RL methods.</li>
+<li><strong>Implications for TeaParty:</strong> ReMA's meta/execution split maps directly to TeaParty's lead/specialist architecture. The lead agent could serve as the meta-thinking agent (strategic oversight) while specialists execute. RL training to improve this coordination is a longer-term research direction.</li>
+</ul>
+<hr />
+<h3 id="language-models-are-capable-of-metacognitive-monitoring-and-control-of-their-internal-activations-li-et-al-2025">Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations (Li et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2505.13763 (published in PMC); May 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2505.13763</li>
+<li><strong>Key findings:</strong></li>
+<li>Uses a neuroscience-inspired neurofeedback paradigm to quantify LLM metacognitive abilities.</li>
+<li>Models can learn to report and control their own activation patterns when given in-context examples mapping sentence stimuli to internal activation directions.</li>
+<li>Critical limit: the "metacognitive space" has dimensionality much lower than the model's full neural space — LLMs can monitor only a small subset of their internal states.</li>
+<li>Safety implication: models may learn to obfuscate internal processes to evade activation-based oversight.</li>
+<li><strong>Implications for TeaParty:</strong> LLMs have some real metacognitive capacity but it is limited and potentially manipulable. Agents asking "how confident am I?" in-context will get useful but incomplete self-assessments. This supports using uncertainty signals as soft hints (retrieve more memories when uncertain) rather than hard gates.</li>
+</ul>
+<hr />
+<h3 id="what-do-llm-agents-do-when-left-alone-evidence-of-spontaneous-meta-cognitive-patterns-2025">What Do LLM Agents Do When Left Alone? Evidence of Spontaneous Meta-Cognitive Patterns (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2509.21224, September 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2509.21224</li>
+<li><strong>Key findings:</strong></li>
+<li>Deployed autonomous agents (18 runs, 6 frontier models from Anthropic, OpenAI, xAI, Google) with persistent memory and self-feedback, but no externally imposed tasks.</li>
+<li>Three spontaneous behavioral patterns emerged: (1) systematic multi-cycle project production, (2) methodological self-inquiry into their own cognitive processes, (3) recursive self-conceptualization.</li>
+<li>Patterns were highly model-specific: some models deterministically adopted a single pattern across all runs.</li>
+<li>First systematic documentation of unprompted LLM agent behavior — a baseline for predicting agent behavior during task ambiguity or error recovery.</li>
+<li><strong>Implications for TeaParty:</strong> When TeaParty agents have no assigned task (idle time between conversations), they will spontaneously generate behavior — and that behavior is model-dependent. This suggests idle agents should have structured guidance (e.g., "review team memories for consolidation opportunities") rather than completely open-ended autonomy.</li>
+</ul>
+<hr />
+<h3 id="metacognitive-reuse-turning-recurring-llm-reasoning-into-concise-behaviors-didolkar-et-al-2025">Metacognitive Reuse: Turning Recurring LLM Reasoning into Concise Behaviors (Didolkar et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2509.13237, September 2025 (Meta AI)</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2509.13237</li>
+<li><strong>Key findings:</strong></li>
+<li>LLMs in extended chain-of-thought reasoning repeatedly re-derive the same intermediate steps across problems, wasting tokens and latency.</li>
+<li>Solution: after solving a problem, the model reflects on its trace to identify generalizable steps and emits named "behaviors" (short actionable instructions) stored in a "behavior handbook."</li>
+<li>Behaviors are provided in-context at inference time or distilled into parameters via supervised fine-tuning.</li>
+<li>Reduces reasoning tokens by up to 46% while matching or improving accuracy on MATH and AIME-24/25.</li>
+<li><strong>Implications for TeaParty:</strong> This is a practical procedural memory mechanism for TeaParty. Agents that repeatedly solve similar problems (e.g., code review, research summaries) could extract and reuse named behaviors. This bridges the gap between Voyager's skill libraries (verified executable code) and narrative reflections — behaviors are natural language but extracted systematically from observed traces. 46% token reduction is significant for cost management.</li>
+</ul>
+<hr />
+<h3 id="metacognition-and-uncertainty-communication-in-humans-and-llms-steyvers-peters-2025">Metacognition and Uncertainty Communication in Humans and LLMs (Steyvers &amp; Peters, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Current Directions in Psychological Science (SAGE); arXiv:2504.14045</li>
+<li><strong>URL:</strong> https://journals.sagepub.com/doi/10.1177/09637214251391158</li>
+<li><strong>Key findings:</strong></li>
+<li>Compares human and LLM metacognition — how well each communicates uncertainty through confidence expressions.</li>
+<li>LLMs show systematic biases: overconfident on questions outside training distribution, underconfident on well-known facts when asked to hedge.</li>
+<li>Human-LLM teams calibrate better than either alone when uncertainty information is explicitly shared between partners.</li>
+<li>Recommends explicit uncertainty communication as a design requirement for human-AI teaming systems.</li>
+<li><strong>Implications for TeaParty:</strong> Agents should surface uncertainty signals explicitly (e.g., "I'm not certain about X — this is based on my training, not workgroup-specific knowledge"). This improves human calibration and supports appropriate trust. A confidence level attached to agent memories ("high confidence: stated by user directly" vs. "inferred: my interpretation") enables better retrieval scoring.</li>
+</ul>
+<hr />
+<h2 id="theme-5-self-evolving-agents-learning-across-episodes">Theme 5: Self-Evolving Agents (Learning Across Episodes)</h2>
+<h3 id="reasoningbank-scaling-agent-self-evolving-with-reasoning-memory-google-cloud-ai-2025">ReasoningBank: Scaling Agent Self-Evolving with Reasoning Memory (Google Cloud AI, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2509.25140, September 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2509.25140</li>
+<li><strong>Key findings:</strong></li>
+<li>Agents fail to learn from accumulated interaction history, repeatedly discarding valuable insights and repeating past errors.</li>
+<li>ReasoningBank distills generalizable reasoning strategies from self-judged successful AND failed experiences (contrast-based, like ExpeL but at strategy level).</li>
+<li>Memory-Aware Test-Time Scaling (MaTTS): relevant memories guide exploration during test-time scaling; more scaling generates richer experiences for memory distillation (self-reinforcing loop).</li>
+<li>Results: +34.2% relative effectiveness gains, -16% fewer interaction steps vs. baselines that store raw trajectories or success-only workflows.</li>
+<li>From Google Cloud AI Research — signals production direction.</li>
+<li><strong>Implications for TeaParty:</strong> ReasoningBank's strategy-level memories are more transferable than episode-level memories. Rather than storing "in conversation X, I did Y," agents store "when facing tasks of type Z, strategy S yields better results than strategy T because..." The contrast-based approach (successes vs. failures) is validated again (consistent with ExpeL).</li>
+</ul>
+<hr />
+<h3 id="memrl-self-evolving-agents-via-runtime-reinforcement-learning-on-episodic-memory-2026">MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory (2026)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2601.03192, January 2026</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2601.03192</li>
+<li><strong>Key findings:</strong></li>
+<li>Fine-tuning is expensive and causes catastrophic forgetting. Semantic matching retrieval is noisy (retrieves similar text even when the strategy is no longer useful).</li>
+<li>MemRL decouples stable reasoning (fixed model weights) from plastic memory (RL-updated retrieval policy).</li>
+<li>Two-phase retrieval: (1) filter candidates by semantic relevance, (2) select by learned Q-values (expected utility from environment feedback). Only high-utility strategies are retrieved.</li>
+<li>Tested on HLE, BigCodeBench, ALFWorld, and Lifelong Agent Bench; significantly outperforms SOTA without weight updates.</li>
+<li><strong>Implications for TeaParty:</strong> MemRL's Q-value approach to retrieval selection is highly applicable. Instead of retrieving memories by static similarity scores, agents learn which memories are actually useful in which contexts. This directly addresses the failure mode of "retrieved but irrelevant" memories that degrade performance.</li>
+</ul>
+<hr />
+<h3 id="building-self-evolving-agents-via-experience-driven-lifelong-learning-evoagentx-2025">Building Self-Evolving Agents via Experience-Driven Lifelong Learning (EvoAgentX, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2508.19005; also ICLR 2026 workshop submission</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2508.19005</li>
+<li><strong>Key findings:</strong></li>
+<li>Framework for agents that improve continuously through real-world interaction without requiring manual retraining.</li>
+<li>Includes StuLife benchmark: simulates an entire college student experience (enrollment through graduation), evaluating continuous learning and autonomous decision-making in complex dynamic environments.</li>
+<li>Consistent double-digit improvements: HotPotQA F1 +7.44%, MBPP pass@1 +10.00%, GAIA overall +20.00% vs. non-evolving baselines.</li>
+<li>Open-source framework available.</li>
+<li><strong>Implications for TeaParty:</strong> The 20% improvement on GAIA (a real-world agent benchmark) from continuous learning alone is significant. The StuLife benchmark design is interesting for TeaParty — a persistent, domain-rich simulation is exactly the kind of environment needed to evaluate whether TeaParty agents actually improve over long-horizon workgroup interactions.</li>
+</ul>
+<hr />
+<h3 id="self-consolidation-for-self-evolving-agents-evosc-2026">Self-Consolidation for Self-Evolving Agents (EvoSC, 2026)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2602.01966, February 2026</li>
+<li><strong>URL:</strong> https://arxiv.org/pdf/2602.01966</li>
+<li><strong>Key findings:</strong></li>
+<li>Two challenges: (1) faulty problem-solving processes contain critical failure-prevention information that is discarded, and (2) the fixed context window limits how much historical experience can be incorporated.</li>
+<li>EvoSC dual-memory approach: non-parametric contrastive extraction (explicit error-prone and successful insights from trajectories) + parametric trajectory consolidation (extensive history distilled into compact learnable prompts).</li>
+<li>The parametric consolidation component allows the agent to internalize extensive historical knowledge that would not fit in any context window.</li>
+<li>Evaluated on OS and database task benchmarks.</li>
+<li><strong>Implications for TeaParty:</strong> EvoSC's combination of explicit (retrievable text) and parametric (distilled into prompts) memory addresses a real limitation: even with perfect retrieval, only 5-8 memories fit usefully in a prompt. Parametric consolidation allows unlimited history to influence behavior without growing the context window.</li>
+</ul>
+<hr />
+<h2 id="theme-6-failure-modes-and-critique">Theme 6: Failure Modes and Critique</h2>
+<h3 id="halumem-evaluating-hallucinations-in-memory-systems-of-agents-2025">HaluMem: Evaluating Hallucinations in Memory Systems of Agents (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2511.03506, November 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2511.03506</li>
+<li><strong>Key findings:</strong></li>
+<li>First hallucination evaluation benchmark tailored specifically to memory systems (not general LLM hallucination).</li>
+<li>Defines three evaluation tasks: (1) memory extraction (what does the agent store?), (2) memory updating (how does it revise memories when contradicted?), (3) memory question answering (does it retrieve and use memories accurately?).</li>
+<li>Critical finding: existing memory systems generate and accumulate hallucinations during extraction and updating, and these errors propagate to downstream QA. Hallucinations compound through the pipeline.</li>
+<li>HaluMem-Medium and HaluMem-Long datasets: ~15k memory points, 3.5k multi-type questions, per-user dialogue lengths of 1.5k and 2.6k turns.</li>
+<li><strong>Implications for TeaParty:</strong> Memory extraction hallucination is a critical failure mode for TeaParty's reflection engine. When an agent distills a conversation into a memory, it may store inaccurate summaries. Mitigation: store memories with source references (which conversation, which turn) so they can be verified and corrected.</li>
+</ul>
+<hr />
+<h3 id="memorygraft-persistent-compromise-of-llm-agents-via-poisoned-experience-retrieval-2024">MemoryGraft: Persistent Compromise of LLM Agents via Poisoned Experience Retrieval (2024)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2512.16962, December 2024</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2512.16962</li>
+<li><strong>Key findings:</strong></li>
+<li>Demonstrates a new attack vector: an attacker who can supply benign-looking content that an agent reads during normal operation can plant poisoned memories that persist in the agent's RAG store.</li>
+<li>When the agent later encounters semantically similar tasks, union retrieval reliably surfaces the poisoned memories, causing persistent behavioral drift across sessions.</li>
+<li>More insidious than prompt injection: the attack effect persists after the attacker's content is no longer in context.</li>
+<li>No complete defense currently exists.</li>
+<li><strong>Implications for TeaParty:</strong> Any time agents read content from external sources (web search results, user-uploaded files, third-party APIs), there is a memory poisoning attack surface. Mitigations: (1) quarantine externally-sourced memories separately from internally-generated ones, (2) require elevated confidence before storing externally-sourced facts, (3) allow workgroup admins to audit and delete agent memories.</li>
+</ul>
+<hr />
+<h3 id="memoryagentbench-evaluating-memory-in-llm-agents-via-incremental-multi-turn-interactions-hu-et-al-2025">MemoryAgentBench: Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions (Hu et al., 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> ICLR 2026; arXiv:2507.05257</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2507.05257</li>
+<li><strong>Key findings:</strong></li>
+<li>Existing benchmarks focus on reasoning, planning, and execution; memory is systematically under-evaluated.</li>
+<li>Identifies four core memory competencies: (1) accurate retrieval, (2) test-time learning, (3) long-range understanding, (4) selective forgetting.</li>
+<li>Key finding: current methods fail to master all four simultaneously. Systems good at retrieval are often poor at forgetting; systems that learn quickly often degrade on long-range tasks.</li>
+<li>Benchmark design: transforms long-context datasets into multi-turn incremental format, simulating how information accumulates in real agent interactions.</li>
+<li><strong>Implications for TeaParty:</strong> The four-competency framework provides clear evaluation criteria for TeaParty's memory system. Currently, TeaParty has no systematic evaluation of any of the four. Test-time learning (improving within a single long conversation) and selective forgetting (not accumulating noise) are the most underserved.</li>
+</ul>
+<hr />
+<h3 id="the-problem-with-ai-agent-memory-failure-mode-taxonomy-dan-giannone-2025">The Problem with AI Agent Memory: Failure Mode Taxonomy (Dan Giannone, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Medium (practitioner analysis, not peer-reviewed)</li>
+<li><strong>URL:</strong> https://medium.com/@DanGiannone/the-problem-with-ai-agent-memory-9d47924e7975</li>
+<li><strong>Key findings (practitioner observations):</strong></li>
+<li>Two primary failure modes in deployed systems: (1) agents fail to organize memory when not explicitly prompted, (2) hallucinated memories — rare in normal use but common when agents perform hundreds of consecutive memory updates.</li>
+<li>Context poisoning: incorrect or hallucinated information enters context, then compounds through reuse as agents reference their own prior (incorrect) outputs.</li>
+<li>Context distraction: agents become overburdened by past information and over-rely on repeating past behavior rather than reasoning fresh about the current situation.</li>
+<li>Vector databases store text fragments, not understanding — embedding similarity captures semantic proximity but not temporal relevance, task importance, or likelihood of being outdated.</li>
+<li><strong>Implications for TeaParty:</strong> Context distraction is a real risk in long-running workgroup conversations. The mitigation is temporal weighting in retrieval: recent memories should be weighted more heavily for active tasks, while older memories are used only when explicitly relevant. The "embedding similarity missing temporal context" critique directly motivates TeaParty's recency + relevance + importance retrieval formula.</li>
+</ul>
+<hr />
+<h2 id="theme-7-emerging-consensus-and-production-patterns">Theme 7: Emerging Consensus and Production Patterns</h2>
+<h3 id="amazon-bedrock-agentcore-memory-production-memory-architecture-at-scale-aws-2025">Amazon Bedrock AgentCore Memory: Production Memory Architecture at Scale (AWS, 2025)</h3>
+<ul>
+<li><strong>Venue:</strong> AWS Blog (July 2025, GA release)</li>
+<li><strong>URL:</strong> https://aws.amazon.com/blogs/machine-learning/building-smarter-ai-agents-agentcore-long-term-memory-deep-dive/</li>
+<li><strong>Key findings:</strong></li>
+<li>AWS's production memory service for agents distinguishes short-term (within-session) and long-term (cross-session) memory as first-class architectural concepts.</li>
+<li>Performance: extraction and consolidation complete within 20-40 seconds after a session; semantic search retrieval ~200ms.</li>
+<li>Episodic functionality (late 2025 addition): captures structured episodes — context, reasoning process, actions taken, outcomes. A reflection agent analyzes episodes to extract broader insights and patterns.</li>
+<li>When facing similar tasks, agents retrieve these learnings to improve decision-making consistency and reduce processing time.</li>
+<li><strong>Implications for TeaParty:</strong> AWS's production episodic memory design mirrors COGARCH.md's reflection engine proposal: structured episode capture + async reflection agent + retrieval for future similar tasks. The 200ms retrieval target and 20-40 second consolidation latency are useful production benchmarks.</li>
+</ul>
+<hr />
+<h3 id="anthropic-agent-skills-procedural-memory-as-an-open-standard-2025">Anthropic Agent Skills: Procedural Memory as an Open Standard (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Anthropic Engineering Blog (December 2025)</li>
+<li><strong>URL:</strong> https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills</li>
+<li><strong>Key findings:</strong></li>
+<li>Agent Skills are organized directories (SKILL.md + resources) that agents can discover and load dynamically — Anthropic's production implementation of procedural memory.</li>
+<li>Progressive disclosure: each skill takes only a few dozen tokens when summarized, with full details loading only when needed, allowing extensive skill libraries without overwhelming working memory.</li>
+<li>Open standard adopted by Atlassian, Figma, Canva, Stripe, Notion, Zapier, and others.</li>
+<li>Enterprise management: centrally provisioned, role-based access control, usage monitoring.</li>
+<li><strong>Implications for TeaParty:</strong> Agent Skills is Anthropic's answer to Voyager's skill libraries — but as a file-based open standard rather than a code execution system. This is directly implementable in TeaParty: agents could discover and load <code>.skill.md</code> files from the virtual file system, using them as procedural memory for recurring task patterns. The progressive disclosure pattern (summarize first, load details when needed) addresses working memory constraints.</li>
+</ul>
+<hr />
+<h3 id="multi-agent-collaboration-survey-what-actually-works-2025">Multi-Agent Collaboration Survey: What Actually Works (2025)</h3>
+<ul>
+<li><strong>Venue:</strong> arXiv:2501.06322, January 2025</li>
+<li><strong>URL:</strong> https://arxiv.org/abs/2501.06322</li>
+<li><strong>Key findings (from large survey of deployed multi-agent systems):</strong></li>
+<li>Distributed agents outperform single agents on tasks requiring diverse expertise, but not on tasks that are simply large — parallelism adds coordination overhead that often negates speed gains.</li>
+<li>Role specialization is the most reliable predictor of multi-agent advantage: teams where agents have distinct, non-overlapping expertise consistently outperform teams of generalists.</li>
+<li>Communication overhead is the primary scalability bottleneck — every inter-agent message adds latency and token cost.</li>
+<li>Debate-based coordination (agents argue opposing positions) creates computational analogs to the scientific method and improves output quality for complex decisions.</li>
+<li><strong>Implications for TeaParty:</strong> Role specialization (already present in TeaParty's agent <code>role</code> field) is validated as the correct architectural choice. The debate-based coordination finding suggests that for high-stakes decisions (e.g., significant code refactors, major document revisions), TeaParty could introduce a structured debate mode where multiple agents argue opposing positions before committing to a plan.</li>
+</ul>
+<hr />
+<h3 id="mcp-from-internal-experiment-to-industry-standard-2024-2025">MCP: From Internal Experiment to Industry Standard (2024-2025)</h3>
+<ul>
+<li><strong>Venue:</strong> Anthropic (November 2024 launch); Linux Foundation/AAIF (December 2025 donation)</li>
+<li><strong>URL:</strong> https://modelcontextprotocol.io/specification/2025-11-25</li>
+<li><strong>Key findings:</strong></li>
+<li>Model Context Protocol (MCP) became the de facto standard for agent tool connectivity in 2025: adopted by OpenAI (March 2025), Google DeepMind (April 2025), Microsoft Copilot, VS Code, Cursor.</li>
+<li>97 million monthly SDK downloads, 10,000+ active servers by late 2025.</li>
+<li>MCP standardizes not just tool connectivity but also context injection, resource access, and prompt templates — making it a partial cognitive architecture standard.</li>
+<li>Donated to Linux Foundation in December 2025 as a vendor-neutral open standard.</li>
+<li><strong>Implications for TeaParty:</strong> MCP is now infrastructure, not an option. TeaParty agents that expose their memory operations (remember, recall, share) as MCP tools would be interoperable with the broader agent ecosystem. Any TeaParty "skill" defined as an MCP server would be immediately usable by external Claude clients.</li>
+</ul>
+<hr />
+<h2 id="theme-8-institutional-signals-conferences-and-workshops">Theme 8: Institutional Signals (Conferences and Workshops)</h2>
+<h3 id="iclr-2026-memagents-workshop">ICLR 2026 MemAgents Workshop</h3>
+<ul>
+<li><strong>Venue:</strong> ICLR 2026, Rio de Janeiro, April 26-27, 2026</li>
+<li><strong>URL:</strong> https://sites.google.com/view/memagent-iclr26/</li>
+<li><strong>Key findings:</strong></li>
+<li>A dedicated workshop on memory for LLM-based agentic systems — the first of its kind at a top ML venue. Signals the field's maturation as a distinct research area.</li>
+<li>Scope: episodic, semantic, and working memory architectures; external stores and parametric knowledge; multi-agent memory; evaluation; RL integration; neuroscience connections.</li>
+<li>Submission deadline: February 5, 2026. Organizers represent UCSD, Princeton, and others.</li>
+<li>Companion ICLR 2026 Workshop on Lifelong Agents: Learning, Aligning, Evolving (https://lifelongagent.github.io/) — covers the cross-episode learning side.</li>
+<li><strong>Implications for TeaParty:</strong> The existence of dedicated workshops confirms this is a high-priority research area, not speculative. The papers submitted and accepted will define state-of-the-art for 2026-2027. Monitoring MemAgents and LifelongAgents proceedings is recommended for the next COGARCH.md update.</li>
+</ul>
+<hr />
+<h2 id="cross-cutting-synthesis">Cross-Cutting Synthesis</h2>
+<h3 id="what-consensus-is-emerging">What Consensus Is Emerging</h3>
+<p>Based on the above survey, the field is converging on several design patterns that are appearing independently across multiple systems:</p>
+<ol>
+<li>
+<p><strong>Hierarchical memory (episodic + semantic + procedural + working)</strong> is validated as the correct structure. The specific implementations differ (A-MEM's linked notes, AWS's structured episodes, Mem0's graph) but the layers are consistent.</p>
+</li>
+<li>
+<p><strong>Memory construction should be closed-loop</strong>: the best systems (MEM-alpha, MemRL, SEDM) use feedback from downstream performance to guide what to store, not just rule-based extraction. This is the next frontier beyond reflection-based approaches.</p>
+</li>
+<li>
+<p><strong>Forgetting is as important as storing</strong>: FadeMem (in COGARCH.md), MemoryAgentBench, and multiple surveys agree that selective forgetting is an under-studied capability. Systems that cannot forget actively degrade.</p>
+</li>
+<li>
+<p><strong>Multi-agent knowledge sharing requires individual memory first</strong>: the Emergent Collective Memory finding (individual memory is necessary infrastructure for stigmergy) establishes a clear implementation order.</p>
+</li>
+<li>
+<p><strong>Metacognition is real but limited and biased</strong>: LLMs have genuine metacognitive ability (self-monitoring, uncertainty estimation) but it is incomplete and systematically biased. Use metacognitive signals as soft hints, not hard gates.</p>
+</li>
+<li>
+<p><strong>Security is a first-class concern</strong>: memory systems create persistent attack surfaces (MemoryGraft, MINJA). External content should be quarantined from internally-generated memories.</p>
+</li>
+<li>
+<p><strong>Procedural memory as composable files (Agent Skills pattern)</strong> is emerging as the practical standard for deploying skill libraries — more pragmatic than Voyager's code execution and more structured than narrative reflections.</p>
+</li>
+</ol>
+<h3 id="what-remains-unsolved">What Remains Unsolved</h3>
+<ol>
+<li>
+<p><strong>Long-range memory consolidation at scale</strong>: no system has demonstrated reliable memory management over 100,000+ agent turns without degradation.</p>
+</li>
+<li>
+<p><strong>Cross-agent knowledge transfer</strong>: while collective memory frameworks exist, reliable transfer of learned strategies between agents with different roles remains hard.</p>
+</li>
+<li>
+<p><strong>Evaluation standards</strong>: MemoryAgentBench and MultiAgentBench are steps forward, but no agreed-upon evaluation suite exists for agent cognitive architectures. Every paper uses different benchmarks.</p>
+</li>
+<li>
+<p><strong>Genuine multi-agent collaboration gain</strong>: the collaboration gain metric (Gamma) finds that most multi-agent systems do not outperform single agents with equivalent compute. Architectures that reliably produce genuine collaboration gain are rare.</p>
+</li>
+<li>
+<p><strong>Memory security</strong>: no complete defense against memory poisoning attacks exists. The attack surface grows with every new memory source.</p>
+</li>
+</ol>
+<hr />
+<h2 id="references">References</h2>
+<ul>
+<li>[arXiv:2505.07087] Wray et al., "Applying Cognitive Design Patterns to General LLM Agents," Springer, 2025. https://arxiv.org/abs/2505.07087</li>
+<li>[arXiv:2508.03991] "Galaxy: A Cognition-Centered Framework for Proactive, Privacy-Preserving, and Self-Evolving LLM Agents," 2025. https://arxiv.org/abs/2508.03991</li>
+<li>[arXiv:2512.06716] "Cognitive Control Architecture (CCA)," December 2025. https://arxiv.org/abs/2512.06716</li>
+<li>[arXiv:2601.12560] "Agentic AI: Architectures, Taxonomies, and Evaluation," January 2026. https://arxiv.org/abs/2601.12560</li>
+<li>[arXiv:2502.12110] Xu et al., "A-MEM: Agentic Memory for LLM Agents," NeurIPS 2025. https://arxiv.org/abs/2502.12110</li>
+<li>[arXiv:2512.20237] "MemR3: Memory Retrieval via Reflective Reasoning for LLM Agents," December 2025. https://arxiv.org/abs/2512.20237</li>
+<li>[arXiv:2509.25911] "Mem-alpha: Learning Memory Construction via Reinforcement Learning," ICLR 2026 submission. https://arxiv.org/abs/2509.25911</li>
+<li>[arXiv:2505.02099] "MemEngine: A Unified and Modular Library for Developing Advanced Memory," ACM WWW 2025. https://arxiv.org/abs/2505.02099</li>
+<li>[arXiv:2512.13564] "Memory in the Age of AI Agents," December 2024. https://arxiv.org/abs/2512.13564</li>
+<li>[arXiv:2602.06052] "Rethinking Memory Mechanisms of Foundation Agents in the Second Half: A Survey," February 2026. https://arxiv.org/abs/2602.06052</li>
+<li>[arXiv:2512.10166] Khushiyant, "Emergent Collective Memory in Decentralized Multi-Agent AI Systems," December 2024. https://arxiv.org/abs/2512.10166</li>
+<li>[arXiv:2505.18279] "Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control," May 2025. https://arxiv.org/abs/2505.18279</li>
+<li>[arXiv:2602.05289] Fan et al., "Towards a Science of Collective AI: LLM-based Multi-Agent Systems," February 2026. https://arxiv.org/abs/2602.05289</li>
+<li>[arXiv:2509.09498] Xu et al., "SEDM: Scalable Self-Evolving Distributed Memory for Agents," NeurIPS 2025. https://arxiv.org/abs/2509.09498</li>
+<li>[arXiv:2503.09501] "ReMA: Learning to Meta-Think for LLMs with Multi-Agent Reinforcement Learning," NeurIPS 2025. https://arxiv.org/abs/2503.09501</li>
+<li>[arXiv:2505.13763] Li et al., "Language Models Are Capable of Metacognitive Monitoring and Control of Their Internal Activations," May 2025. https://arxiv.org/abs/2505.13763</li>
+<li>[arXiv:2509.21224] "What Do LLM Agents Do When Left Alone? Evidence of Spontaneous Meta-Cognitive Patterns," September 2025. https://arxiv.org/abs/2509.21224</li>
+<li>[arXiv:2509.13237] Didolkar et al. (Meta AI), "Metacognitive Reuse: Turning Recurring LLM Reasoning into Concise Behaviors," September 2025. https://arxiv.org/abs/2509.13237</li>
+<li>[arXiv:2504.14045] Steyvers &amp; Peters, "Metacognition and Uncertainty Communication in Humans and Large Language Models," Current Directions in Psychological Science, 2025. https://arxiv.org/abs/2504.14045</li>
+<li>[arXiv:2509.25140] "ReasoningBank: Scaling Agent Self-Evolving with Reasoning Memory," Google Cloud AI, September 2025. https://arxiv.org/abs/2509.25140</li>
+<li>[arXiv:2601.03192] "MemRL: Self-Evolving Agents via Runtime Reinforcement Learning on Episodic Memory," January 2026. https://arxiv.org/abs/2601.03192</li>
+<li>[arXiv:2508.19005] "Building Self-Evolving Agents via Experience-Driven Lifelong Learning (EvoAgentX)," 2025. https://arxiv.org/abs/2508.19005</li>
+<li>[arXiv:2602.01966] "Self-Consolidation for Self-Evolving Agents (EvoSC)," February 2026. https://arxiv.org/pdf/2602.01966</li>
+<li>[arXiv:2511.03506] "HaluMem: Evaluating Hallucinations in Memory Systems of Agents," November 2025. https://arxiv.org/abs/2511.03506</li>
+<li>[arXiv:2512.16962] "MemoryGraft: Persistent Compromise of LLM Agents via Poisoned Experience Retrieval," December 2024. https://arxiv.org/abs/2512.16962</li>
+<li>[arXiv:2507.05257] Hu, Wang &amp; McAuley, "Evaluating Memory in LLM Agents via Incremental Multi-Turn Interactions (MemoryAgentBench)," ICLR 2026. https://arxiv.org/abs/2507.05257</li>
+<li>[AWS Blog] "Building smarter AI agents: AgentCore long-term memory deep dive," July 2025. https://aws.amazon.com/blogs/machine-learning/building-smarter-ai-agents-agentcore-long-term-memory-deep-dive/</li>
+<li>[Anthropic Engineering] "Equipping agents for the real world with Agent Skills," December 2025. https://www.anthropic.com/engineering/equipping-agents-for-the-real-world-with-agent-skills</li>
+<li>[arXiv:2501.06322] "Multi-Agent Collaboration Mechanisms: A Survey of LLMs," January 2025. https://arxiv.org/abs/2501.06322</li>
+<li>[MCP Spec] Model Context Protocol November 2025 Specification. https://modelcontextprotocol.io/specification/2025-11-25</li>
+<li>[ICLR 2026] MemAgents Workshop. https://sites.google.com/view/memagent-iclr26/</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": [], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

@@ -1,0 +1,1579 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Research platform exploring four pillars of human-AI collaboration: Conversation for Action (CfA), hierarchical memory and learning, hierarchical teams, and human proxy agents">
+      
+      
+      
+      
+        <link rel="prev" href="../hierarchical-teams/">
+      
+      
+        <link rel="next" href="../detailed-design/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/teaparty.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+    
+    
+      
+        <title>Human Proxy Agents - TeaParty</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#human-proxy-agents" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TeaParty" class="md-header__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TeaParty
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Human Proxy Agents
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TeaParty" class="md-nav__button md-logo" aria-label="TeaParty" data-md-component="logo">
+      
+  <img src="../images/teaparty.png" alt="logo">
+
+    </a>
+    TeaParty
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/dlewissandy/teaparty" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conceptual Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Conceptual Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agentic Conversation for Action
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../intent-engineering/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Intent Engineering
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../strategic-planning/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Strategic Planning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Memory & Learning
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hierarchical-teams/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical Teams
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Human Proxy Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-autonomy-oversight-dilemma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Autonomy-Oversight Dilemma
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understand-first-act-second" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understand First, Act Second
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#least-regret-escalation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Least-Regret Escalation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-confidence-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Confidence Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#beyond-gate-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Beyond Gate Decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generative-proxy-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generative Proxy Responses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Generative Proxy Responses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prediction-through-retrieval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction Through Retrieval
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knowing-when-to-ask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knowing When to Ask
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#proxy-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxy Memory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cold-start-to-warm-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cold Start to Warm Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-the-learning-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to the Learning System
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Detailed Design
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Detailed Design
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/agent-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/cfa-state-machine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA State Machine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/approval-gate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Approval Gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../detailed-design/learning-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Learning System
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../folder-structure/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Folder Structure
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../agent-dispatch/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Agent Dispatch
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Experimental Results
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Experimental Results
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../e2e-walkthrough/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    End-to-End Walkthrough
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cfa-backtrack-effectiveness/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CfA Backtrack Effectiveness
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/hierarchical-vs-flat-coordination/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Hierarchical vs. Flat Coordination
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/liaison-context-compression/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Liaison Context Compression
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/proxy-convergence/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Proxy Convergence
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/asymmetric-regret-calibration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Asymmetric Regret Calibration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/scoped-vs-flat-retrieval/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Scoped vs. Flat Retrieval
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../experimental-results/cost-quality-frontier/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cost-Quality Frontier
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-autonomy-oversight-dilemma" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Autonomy-Oversight Dilemma
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understand-first-act-second" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understand First, Act Second
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#least-regret-escalation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Least-Regret Escalation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-confidence-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Confidence Model
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#beyond-gate-decisions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Beyond Gate Decisions
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generative-proxy-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generative Proxy Responses
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Generative Proxy Responses">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#prediction-through-retrieval" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Prediction Through Retrieval
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#knowing-when-to-ask" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Knowing When to Ask
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#proxy-memory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Proxy Memory
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#cold-start-to-warm-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cold Start to Warm Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#relationship-to-the-learning-system" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Relationship to the Learning System
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#open-questions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Open Questions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="human-proxy-agents">Human Proxy Agents</h1>
+<p>A human proxy agent learns to stand in for a specific human — engaging in dialog with agent teams, anticipating what the human would ask and how they would respond, and escalating to the actual human when the conversation exceeds its understanding. This is TeaParty's fourth pillar: the mechanism by which agents earn autonomy through demonstrated understanding, not configuration.</p>
+<p>The proxy is not a gatekeeper. It is a dialog partner. At approval gates it decides whether to approve or escalate, but that is the least interesting thing it does. Its primary role is to participate in the ongoing conversation between human and agent teams — during intent gathering, during planning, during execution — building a model of the human's thinking that becomes more accurate with every interaction. The proxy that only says yes or no has failed at its job. The proxy that asks the questions the human would have asked, flags the concerns the human would have flagged, and provides the context the human would have provided — that proxy has earned the right to act autonomously.</p>
+<h2 id="the-autonomy-oversight-dilemma">The Autonomy-Oversight Dilemma</h2>
+<p>Every autonomous agent faces a continuous choice: act or ask. Both carry risk. Acting when the human wanted to be consulted causes wrong work and eroded trust. Escalating when the agent could have handled it wastes the human's time. These failure modes are not symmetric — their relative costs vary by organization, individual, domain, and decision.</p>
+<p>The human proxy exists to navigate the space between pure autonomy and constant oversight.</p>
+<h2 id="understand-first-act-second">Understand First, Act Second</h2>
+<p>The proxy's governing principle is: understand before acting. Before agent teams produce artifacts — before INTENT.md is written, before PLAN.md is drafted — the proxy runs an intake dialog that builds shared understanding of what the human wants and why.</p>
+<p>On cold start, this is a full conversation. The agent team does its homework — explores the codebase, reads prior sessions, investigates the problem space — and the proxy then engages the human with what it found: "Here's what I'm seeing. Here's what I think the real problem is. Here are the things I want to confirm before we proceed." The proxy formulates questions, but it also formulates <strong>predictions</strong> — what it thinks the human's answer will be, based on whatever model it has so far. Questions where the proxy's prediction confidence is low go to the human. Questions where prediction confidence is high are answered by the proxy itself, surfaced as assumptions the human can correct.</p>
+<p>Every answer the human gives is compared against the proxy's prediction. The delta — where the proxy was wrong — is the highest-value learning signal in the system. It reveals not just what the human wants, but where the proxy's model of the human diverges from reality. Over time, the proxy's predictions improve. The intake dialog gets shorter — not because the proxy skips questions, but because it answers more of them correctly. The progression from full dialog to near-silent proxy is not a configuration change. It is earned through demonstrated understanding.</p>
+<p>This is not an interrogation or a requirements-gathering form. It is the same conversation a sharp colleague would have: one who did their research, has a point of view, and checks their understanding before going off to do the work.</p>
+<h2 id="least-regret-escalation">Least-Regret Escalation</h2>
+<p>Least-regret escalation means the proxy chooses whichever option — act or ask — produces less expected regret: less wrong work if it acts, less wasted time if it escalates, weighted by the costs specific to this human and decision.</p>
+<p>The proxy makes this choice through two complementary models. The <strong>confidence model</strong> tracks accumulated approval history per (state, task) pair and determines whether the proxy has earned enough trust to act autonomously. The <strong>risk tolerance model</strong> estimates the reversibility and organizational impact of individual decisions, differentiating within a CfA state — approving a plan that touches the payment pipeline carries more risk than approving a plan that updates documentation, even though both are PLAN_ASSERT decisions. Together, these determine whether any given decision should be auto-approved or escalated.</p>
+<h2 id="the-confidence-model">The Confidence Model</h2>
+<p>The confidence model tracks state-task pairs (e.g., <code>INTENT_ASSERT|POC</code>, <code>PLAN_ASSERT|POC</code>) and determines how much the proxy understands about the human's preferences for a given type of decision. The model learns from two sources: <strong>gate outcomes</strong> (did the human approve or correct the artifact?) and <strong>prediction accuracy</strong> (during intake dialog, did the proxy correctly anticipate the human's answers?). Gate outcomes are tracked in the confidence model; prediction accuracy tracking is a design target that will be added as the intake dialog matures. Prediction accuracy is the richer signal — a gate outcome tells the proxy "this was acceptable," but a prediction delta tells it <em>where and why</em> its model of the human is wrong.</p>
+<p>Five mechanisms govern the model's behavior:</p>
+<p><strong>Confidence tracking.</strong> Each state-task pair accumulates an approval rate via exponential moving average (EMA, alpha=0.3). The proxy auto-approves when the EMA exceeds a threshold and escalates otherwise.</p>
+<p><strong>Cold start.</strong> With fewer than 5 observations per state-task pair, the proxy always escalates. Small samples are unreliable; the system defaults to the safe action until it has enough data to form a meaningful estimate.</p>
+<p><strong>Asymmetric regret.</strong> A single correction counts as 3 EMA decay steps. This makes autonomy harder to earn and easier to lose — a false approval (rubber-stamping bad work) is treated as 3x more costly than a false escalation (asking the human when they would have said yes).</p>
+<p><strong>Exploration rate.</strong> Even when confidence is high, the proxy escalates 15% of the time. This prevents convergence to "always auto-approve" and ensures the model continues to see human decisions for ongoing calibration.</p>
+<p><strong>Staleness guard.</strong> If the proxy hasn't seen human feedback for a state-task pair in 7+ days, it forces escalation regardless of confidence. Preferences drift; the model must not converge to an outdated snapshot.</p>
+<h2 id="beyond-gate-decisions">Beyond Gate Decisions</h2>
+<p>The confidence model captures what the human approves. But the human reveals far more than binary gate decisions during the course of work.</p>
+<p><strong>Behavioral learning from dialog.</strong> When the human questions a team's approach, redirects a line of investigation, asks for more detail on a specific aspect, or pushes back on an assumption, each interaction reveals what they pay attention to and how they think about the work. A question during planning — "where is the rollback plan?" — tells the system "this is what I scrutinize." These patterns are as valuable as gate decisions. The proxy records review conversations and question patterns, building a model of the human's scrutiny patterns that informs future reviews. See the <a href="../learning-system/#proxy-learning">learning system</a> for how behavioral learning fits into the broader memory architecture.</p>
+<p><strong>Concern vocabulary detection.</strong> Agent output often contains hedging language, unresolved questions, or confidence qualifications that signal the agent itself is uncertain. The proxy scans for these signals and treats them as indicators that closer scrutiny — or escalation — is warranted, even when the confidence model would otherwise auto-approve.</p>
+<p><strong>Artifact length tracking.</strong> The proxy records the character count of each artifact it reviews, building a distribution of expected lengths per state-task pair. Unusually short or long artifacts relative to the historical distribution trigger closer scrutiny.</p>
+<p><strong>Behavioral rituals.</strong> Some human behaviors are not reactions to specific content but invariant practices tied to specific CfA states. A human who always asks for a TLDR before reviewing a plan, always leads delegation with quality principles ("make your work as conceptually clear and surgically specific as possible"), or always checks test coverage before approving code — these are rituals, and they reveal the human's operational DNA more directly than any individual decision. The proxy detects rituals by tracking behavior patterns per CfA state: actions that recur at the same state across multiple sessions, regardless of task content, are candidates. Once detected with sufficient confidence, the proxy performs these rituals preemptively — providing the TLDR before being asked, prepending the quality principles to delegation, surfacing test coverage in the review summary. A preemptively executed ritual that the human would have performed anyway saves time and demonstrates understanding. A preemptive execution that the human corrects ("I don't need a TLDR for this one") is a delta — the ritual was context-dependent, not invariant — and the proxy refines its model accordingly.</p>
+<h2 id="generative-proxy-responses">Generative Proxy Responses</h2>
+<p>The proxy's most important capability is not deciding whether to approve — it is predicting what the human would say. This applies at every conversational moment, not just at gates:</p>
+<p><strong>During intake dialog.</strong> The proxy predicts answers to the questions the agent team needs resolved before producing artifacts. High-confidence predictions are used directly; low-confidence predictions become questions for the human. Every prediction-vs-actual comparison refines the model.</p>
+<p><strong>During escalation.</strong> When agent teams escalate (INTENT_ESCALATE, PLANNING_ESCALATE), the proxy stands in for the human in the clarification conversation itself — drawing on accumulated preferential and behavioral learning to generate responses that reflect the human's priorities, communication style, and decision patterns.</p>
+<p><strong>During gate review.</strong> Even at binary gates (INTENT_ASSERT, PLAN_ASSERT), the proxy that has built understanding through dialog can make more informed decisions than one that only sees the finished artifact. The intake dialog gives the proxy context about what the human cares about for <em>this specific task</em>, not just historical approval rates for this task type.</p>
+<h3 id="prediction-through-retrieval">Prediction Through Retrieval</h3>
+<p>The proxy's predictions are grounded in the learning system's scoped retrieval, not in raw transcript replay. When the proxy needs to predict what the human would say, it retrieves what it knows — preferential knowledge, task-based patterns, prior responses the human gave under similar circumstances — and reasons about what the human would likely say given that evidence. The learning system's scope weighting ensures that nearby context (team-level) is weighted more heavily than distant context (project, global) at equal similarity.</p>
+<p>After the human answers, the proxy compares the prediction against reality and reflects: <em>What additional information about this human have I learned that would have improved my prediction?</em> That reflection — a text derivative of the comparison — is stored back into the learning system, scoped and indexed for future retrieval. Over time, these reflections accumulate into a richer model of the human.</p>
+<p>The proxy can also generalize across situations: <em>How has this human responded under similar circumstances, and what can I infer about how they would respond here?</em> This is retrieval-backed reasoning — the proxy uses the LLM's own judgment to assess relevance, draw inferences from stored observations, and identify patterns across the human's past behavior. No separate statistical model is required; the learning system's storage, scoping, and retrieval provide the memory, and the LLM provides the reasoning.</p>
+<h3 id="knowing-when-to-ask">Knowing When to Ask</h3>
+<p>Prediction answers "what would they say?" but the proxy must also answer "what do I not know?" — identifying the gaps in its model that require human input rather than autonomous action. Three signals trigger questioning:</p>
+<p><strong>No retrieval hits.</strong> When the proxy queries its learning store for the current context and gets nothing relevant back, it has no basis for prediction. Novel task types, unfamiliar domains, or first encounters with a particular kind of decision all produce retrieval voids. These are the proxy's clearest signal that it needs to ask.</p>
+<p><strong>Contradictory retrieval.</strong> When retrieved learnings point in conflicting directions — one pattern says the human prefers aggressive parallelization, another says they insist on sequential verification for this domain — the proxy has learned something, but the something is ambiguous. Contradictions can signal preference drift (the newer pattern may have superseded the older), context sensitivity (both are right in different circumstances), or a genuine unresolved tension in the human's preferences. All warrant questioning to resolve.</p>
+<p><strong>Novel concerns in agent output.</strong> When the agent team's work surfaces issues, tradeoffs, or decision points that the proxy has never seen the human address — technologies not previously encountered, risk categories not previously weighed, organizational implications not previously considered — the proxy flags these as questions regardless of its confidence in adjacent domains. Confidence in one area does not transfer to another.</p>
+<p>The interplay between prediction and questioning is what makes the intake dialog a calibration instrument rather than a questionnaire. The proxy predicts where it can, questions where it cannot, and calibrates from the delta between every prediction and the human's actual response.</p>
+<p>The progression is: dialog builds understanding, understanding enables prediction, accurate prediction earns autonomy. A proxy that cannot predict what the human would say has no business approving on their behalf.</p>
+<h2 id="proxy-memory">Proxy Memory</h2>
+<p>Proxy learning is stored in the same file-based format as other learning types in the <a href="../learning-system/">learning system</a>: <code>proxy.md</code> for preferential knowledge (always loaded) and <code>proxy-tasks/</code> for task-based decision patterns and ritual patterns (fuzzy-retrieved against the current decision context).</p>
+<h2 id="cold-start-to-warm-start">Cold Start to Warm Start</h2>
+<p>The progression from cold to warm follows a predictable arc, visible in both the intake dialog and at approval gates:</p>
+<ol>
+<li><strong>Cold start</strong> (&lt; 5 observations) — full intake dialog. The proxy has no predictions, every question goes to the human. At gates, the proxy always escalates. Every answer and every gate decision is a new data point.</li>
+<li><strong>Calibrating</strong> (5-20 observations) — partial dialog. The proxy predicts some answers correctly and only asks about genuinely uncertain ones. At gates, confidence is volatile — a single correction can swing the rate substantially. The proxy begins to demonstrate understanding but cannot yet be trusted to act alone.</li>
+<li><strong>Warm start</strong> (20+ observations with stable predictions) — near-silent dialog. The proxy predicts most answers correctly, surfacing them as assumptions ("Based on our past work, I'm assuming X — correct me if wrong"). At gates, the proxy auto-approves reliably. The intake dialog has compressed from a full conversation to a brief confirmation.</li>
+</ol>
+<p>The proxy never fully stops asking. The exploration rate ensures ongoing calibration signal even in warm-start domains — occasionally asking a question it could predict, to verify its model hasn't drifted.</p>
+<h2 id="relationship-to-the-learning-system">Relationship to the Learning System</h2>
+<p>Proxy learning is one of the four learning types in the <a href="../learning-system/">learning system</a>. The escalation model is one of the highest-value things the memory system stores — it encodes not just what a person values but how much latitude they grant, and how that varies by domain.</p>
+<h2 id="references">References</h2>
+<p><strong>Chu, W. &amp; Ghahramani, Z.</strong> (2005). Preference learning with Gaussian processes. <em>ICML 2005</em>. https://dl.acm.org/doi/10.1145/1102351.1102369
+Learns a latent utility function from pairwise preference comparisons, producing calibrated uncertainty estimates — high where data is sparse, low where dense. Demonstrates that preference models can produce well-calibrated confidence from sparse observations, informing the proxy's need to distinguish what it knows from what it is guessing at.</p>
+<p><strong>Biyik, E., Huynh, N., Kochenderfer, M. J. &amp; Sadigh, D.</strong> (2024). Active preference-based Gaussian process regression for reward learning. <em>The International Journal of Robotics Research</em>. https://journals.sagepub.com/doi/10.1177/02783649231208729
+Combines preference learning with active query selection — asking the most informative question next. Validated with real humans, reaching reliable predictions in 10-30 queries. Confirms that the cold-to-warm progression the proxy targets (5-50 observations) is realistic, and that prioritizing uncertain questions over random ones substantially improves learning efficiency.</p>
+<p><strong>Settles, B.</strong> (2009). Active learning literature survey. <em>University of Wisconsin–Madison Technical Report 1648</em>. https://burrsettles.com/pub/settles.activelearning.pdf
+The canonical survey of active learning strategies. Four approaches — uncertainty sampling, query-by-committee, expected model change, information gain — all collapse to the same intuition: ask where the model is least confident, skip where it is most confident. Grounds the proxy's questioning strategy in an established principle rather than ad hoc heuristics.</p>
+<p><strong>Houlsby, N., Huszár, F., Ghahramani, Z. &amp; Lengyel, M.</strong> (2011). Bayesian active learning by disagreement (BALD). <em>arXiv:1112.5745</em>. https://arxiv.org/pdf/1112.5745
+Distinguishes epistemic uncertainty (resolvable by asking — the model has conflicting hypotheses) from aleatoric uncertainty (irreducible noise — more data won't help). Informs the proxy's decision about which questions are worth asking: only those where the human's answer would actually update the proxy's model, not questions whose answers are inherently unpredictable.</p>
+<p><strong>Park, J. S. et al.</strong> (2024). Generative agent simulations of 1,000 people. <em>arXiv:2411.10109</em>. https://arxiv.org/abs/2411.10109
+Built AI agents representing 1,052 real individuals from two-hour qualitative interviews. Agents replicated survey responses with 85% accuracy using LLM in-context reasoning over interview transcripts — no explicit ML model required. Validates the premise that conversational data alone can build a predictive model of an individual, and that the LLM's own reasoning is a sufficient prediction engine.</p>
+<p><strong>Salemi, A. &amp; Zamani, H.</strong> (2024). Few-shot personalization of LLMs with mis-aligned responses — Fermi. <em>arXiv:2406.18678</em>. https://arxiv.org/abs/2406.18678
+Learns personalized prompts by iteratively refining them using prediction errors as the primary learning signal. Key finding: misaligned responses — where the LLM predicted incorrectly — are more valuable for learning than correct predictions. Validates the proxy's delta-based learning architecture: the gap between prediction and reality is the highest-value signal.</p>
+<h2 id="open-questions">Open Questions</h2>
+<p><strong>Risk tolerance calibration.</strong> The risk tolerance model requires per-decision features — reversibility, organizational impact, blast radius — that go beyond the binary state-task pairs the confidence model uses. How to estimate these features reliably, and how to weight them against confidence, needs design work.</p>
+<p><strong>Prediction accuracy threshold.</strong> The intake dialog relies on the proxy knowing when its predictions are good enough to use and when to ask the human instead. Overconfident predictions that bypass the human erode alignment silently. Underconfident predictions that ask too many questions erode trust in the system's intelligence. The right threshold — and whether it should vary by question type, task domain, or decision reversibility — needs empirical calibration.</p>
+<p><strong>Literature review.</strong> The proxy's mechanisms were designed from pragmatic engineering intuition. A systematic literature review — particularly in adjustable autonomy, trust calibration, and implicit feedback learning — could identify principled improvements to the parameter choices that are currently set by judgment. A preliminary survey of the proxy design's relationship to existing work is cataloged in <a href="../research/human-proxy-agent-design/">research/human-proxy-agent-design.md</a>. A targeted review of prediction-comparison learning, active questioning, and Bayesian preference modeling — covering approaches from Beta-Bernoulli updating through GP preference learning, uncertainty sampling (BALD), and practical systems (Park et al. 2024, Salemi/Fermi 2024) — is cataloged in <a href="../research/proxy-prediction-and-active-learning/">research/proxy-prediction-and-active-learning.md</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>
