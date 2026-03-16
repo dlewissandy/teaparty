@@ -160,6 +160,23 @@ class AgentRunner:
                 f"Original task: {ctx.task}"
             )
 
+        # On resume, all previous task/agent handles are dead.  The
+        # orchestrator process that owned them is gone — TaskOutput on
+        # any prior task ID will return "No task found".  Tell the agent
+        # so it doesn't burn budget polling phantom handles.
+        if ctx.resume_session:
+            prompt = (
+                '[SESSION RESUMED — STALE TASK HANDLES]\n'
+                'This conversation is being resumed after a restart. '
+                'All background task and agent handles from the previous '
+                'run are dead — calling TaskOutput or checking on prior '
+                'task IDs will fail with "No task found". Do not poll '
+                'them. Instead, assess progress from what is on disk '
+                '(files already written) and re-dispatch any incomplete '
+                'work.\n\n'
+                + prompt
+            )
+
         # Resolve agent definition file
         agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
 

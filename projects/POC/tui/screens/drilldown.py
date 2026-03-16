@@ -76,6 +76,9 @@ class DrilldownScreen(Screen):
         self._scroll_locked = False
         self._session = None
         self._dispatch_map: dict[int, object] = {}  # option index -> DispatchState
+        self._last_dispatch_key: str = ''  # fingerprint to skip no-op rebuilds
+        self._last_header: str = ''  # fingerprint to skip no-op header updates
+        self._last_meta: str = ''  # fingerprint to skip no-op meta updates
         self._last_todos: list[dict] = []
         self._input_latched = False  # True while input area is shown
         self._input_cooldown = False  # True briefly after submit to suppress re-show
@@ -166,34 +169,38 @@ class DrilldownScreen(Screen):
                 attention = '  \u23f3 YOUR INPUT'
             else:
                 attention = ''
-            header.update(
+            content = (
                 f'[bold]{s.project} \u25b8 Session {s.session_id}[/bold]  '
                 f'{phase_state}{attention}\n'
                 f'{s.task}'
             )
         else:
-            header.update(f'Session {self.session_id} (not found)')
+            content = f'Session {self.session_id} (not found)'
+        if content != self._last_header:
+            self._last_header = content
+            header.update(content)
 
     def _update_meta(self) -> None:
         meta = self.query_one('#session-meta', Static)
         if not self._session:
-            meta.update('')
-            return
+            content = ''
+        else:
+            s = self._session
+            phase = s.cfa_phase or '\u2014'
+            state = s.cfa_state or '\u2014'
 
-        s = self._session
-        phase = s.cfa_phase or '\u2014'
-        state = s.cfa_state or '\u2014'
+            intent_exists = self._find_doc('INTENT.md') is not None
+            plan_exists = self._find_doc('plan.md') is not None
 
-        intent_exists = self._find_doc('INTENT.md') is not None
-        plan_exists = self._find_doc('plan.md') is not None
-
-        lines = [
-            f'[bold]PHASE:[/bold]  {phase}',
-            f'[bold]STATE:[/bold]  {state}',
-            f'[bold]Intent:[/bold] {"INTENT.md" if intent_exists else "[dim](none)[/dim]"}',
-            f'[bold]Plan:[/bold]   {"plan.md" if plan_exists else "[dim](none)[/dim]"}',
-        ]
-        meta.update('\n'.join(lines))
+            content = '\n'.join([
+                f'[bold]PHASE:[/bold]  {phase}',
+                f'[bold]STATE:[/bold]  {state}',
+                f'[bold]Intent:[/bold] {"INTENT.md" if intent_exists else "[dim](none)[/dim]"}',
+                f'[bold]Plan:[/bold]   {"plan.md" if plan_exists else "[dim](none)[/dim]"}',
+            ])
+        if content != self._last_meta:
+            self._last_meta = content
+            meta.update(content)
 
     def _update_tasks(self) -> None:
         """Load the latest task list from stream files."""
@@ -206,19 +213,26 @@ class DrilldownScreen(Screen):
     def _update_dispatches(self) -> None:
         ol = self.query_one('#dispatch-list', OptionList)
 
-        if not self._session or not self._session.dispatches:
-            self._dispatch_map = {}
-            ol.clear_options()
-            ol.add_option(Option('(no dispatches)', disabled=True))
+        # Only show running dispatches — dead ones are noise after restart
+        active = [d for d in (self._session.dispatches if self._session else [])
+                  if d.status == 'active']
+
+        if not active:
+            if self._last_dispatch_key != '_empty_':
+                self._last_dispatch_key = '_empty_'
+                self._dispatch_map = {}
+                ol.clear_options()
+                ol.add_option(Option('(no dispatches)', disabled=True))
             return
 
         # Build options grouped by team
         by_team: dict[str, list] = {}
-        for d in self._session.dispatches:
+        for d in active:
             by_team.setdefault(d.team or '?', []).append(d)
 
         options = []
         new_map = {}
+        key_parts = []
         idx = 0
 
         for team, dispatches in sorted(by_team.items()):
@@ -236,7 +250,15 @@ class DrilldownScreen(Screen):
                 label = f'{icon} {name:<25} {age}'
                 options.append(Option(label))
                 new_map[idx] = d
+                key_parts.append(f'{team}:{name}:{d.status}')
                 idx += 1
+
+        # Skip rebuild if nothing visually changed — avoids layout reflow
+        # that causes scrollbar jitter in the activity log.
+        new_key = '|'.join(key_parts)
+        if new_key == self._last_dispatch_key:
+            return
+        self._last_dispatch_key = new_key
 
         self._dispatch_map = new_map
         ol.clear_options()

@@ -287,10 +287,28 @@ class StateReader:
                     dispatch_dir = os.path.join(team_dir, dispatch_ts)
                     if not os.path.isdir(dispatch_dir) or not dispatch_ts[0].isdigit():
                         continue
+
+                    # GC stale .running sentinels — the owning process
+                    # is dead so remove the file to keep disk clean.
+                    running_path = os.path.join(dispatch_dir, '.running')
+                    dispatch_alive = False
+                    if os.path.exists(running_path):
+                        if (_running_file_is_stale(running_path)
+                                or _running_pid_is_dead(running_path)):
+                            try:
+                                os.unlink(running_path)
+                            except OSError:
+                                pass
+                        else:
+                            dispatch_alive = True
+
                     entry = dispatch_by_sid.get(dispatch_ts)
                     if entry:
                         entry = dict(entry)
                         entry['_infra_dir'] = dispatch_dir
+                        # Override manifest status if process is dead
+                        if entry.get('status') == 'active' and not dispatch_alive:
+                            entry['status'] = 'complete'
                         matched.append(entry)
                     else:
                         # Synthetic entry for dir without manifest record
@@ -301,8 +319,7 @@ class StateReader:
                             'team': team,
                             'task': '',
                             'session_id': dispatch_ts,
-                            'status': 'active' if os.path.exists(
-                                os.path.join(dispatch_dir, '.running')) else 'complete',
+                            'status': 'active' if dispatch_alive else 'complete',
                             '_infra_dir': dispatch_dir,
                         })
             except OSError:
@@ -430,18 +447,29 @@ class StateReader:
         stream_age = -1
 
         if infra_dir:
-            is_running = os.path.exists(os.path.join(infra_dir, '.running'))
+            running_path = os.path.join(infra_dir, '.running')
+            is_running = (
+                os.path.exists(running_path)
+                and not _running_file_is_stale(running_path)
+                and not _running_pid_is_dead(running_path)
+            )
             cfa = self._read_cfa(os.path.join(infra_dir, '.cfa-state.json'))
             cfa_state = cfa.get('state', '')
             cfa_phase = cfa.get('phase', '')
             stream_age = self._stream_age(infra_dir, now)
+
+        # Derive status from actual PID liveness, not just the entry dict.
+        # A dispatch whose process is dead is complete, not active.
+        status = entry.get('status', 'active')
+        if status == 'active' and infra_dir and not is_running:
+            status = 'complete'
 
         return DispatchState(
             team=team,
             worktree_name=entry.get('name', ''),
             worktree_path=entry.get('path', ''),
             task=entry.get('task', ''),
-            status=entry.get('status', 'active'),
+            status=status,
             cfa_state=cfa_state,
             cfa_phase=cfa_phase,
             is_running=is_running,
@@ -533,7 +561,7 @@ class StateReader:
                 files.append(path)
 
         for d in session.dispatches:
-            if d.infra_dir:
+            if d.infra_dir and d.status == 'active':
                 for name in ('.exec-stream.jsonl', '.plan-stream.jsonl'):
                     path = os.path.join(d.infra_dir, name)
                     if os.path.exists(path):

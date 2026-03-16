@@ -571,6 +571,12 @@ class Session:
         # 8. Extract phase session IDs from stream JSONLs
         phase_session_ids = _extract_phase_session_ids(infra_dir)
 
+        # 8b. Clean up stale dispatch .running sentinels.
+        # All dispatches from the previous process are dead — their PIDs
+        # are gone and Claude's in-memory task handles are lost.  Remove
+        # the .running files so the TUI doesn't show them as active.
+        _cleanup_stale_dispatch_sentinels(infra_dir)
+
         # 9. Derive skip_intent — True if we're past the intent phase
         current_phase = phase_for_state(cfa.state)
         skip_intent = current_phase != 'intent'
@@ -925,6 +931,40 @@ def _ensure_project_repo(project_dir: str) -> str:
     )
     _log.info('Initialized new project repo at %s', project_dir)
     return project_dir
+
+
+def _cleanup_stale_dispatch_sentinels(infra_dir: str) -> int:
+    """Remove .running sentinels from all dispatch infra dirs under infra_dir.
+
+    On resume, every dispatch from the previous process is dead.  Their
+    .running files are stale — the PIDs are gone and Claude's in-memory
+    task handles are lost.  Removing these files lets the TUI show the
+    dispatches as complete rather than misleadingly active.
+
+    Returns the number of sentinels removed.
+    """
+    teams = ('art', 'writing', 'editorial', 'research', 'coding')
+    removed = 0
+    for team in teams:
+        team_dir = os.path.join(infra_dir, team)
+        if not os.path.isdir(team_dir):
+            continue
+        try:
+            for entry in os.listdir(team_dir):
+                dispatch_dir = os.path.join(team_dir, entry)
+                if not os.path.isdir(dispatch_dir):
+                    continue
+                running_path = os.path.join(dispatch_dir, '.running')
+                if os.path.exists(running_path):
+                    try:
+                        os.unlink(running_path)
+                        removed += 1
+                        _log.info('Removed stale dispatch sentinel: %s', running_path)
+                    except OSError:
+                        pass
+        except OSError:
+            continue
+    return removed
 
 
 def _find_repo_root_from(start_dir: str) -> str:
