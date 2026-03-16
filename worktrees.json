@@ -385,6 +385,16 @@
       "session_id": "20260314-202925-435464",
       "created_at": "2026-03-15T03:29:25.545397+00:00",
       "status": "active"
+    },
+    {
+      "name": "session-092347--make-a-detailed-review-of-the-",
+      "path": "/Users/darrell/git/teaparty/projects/POC/.worktrees/session-092347--make-a-detailed-review-of-the-",
+      "type": "session",
+      "team": "",
+      "task": "Make a detailed review of the codebase in the POC project (DO NOT CHANGE THE CODE).    1) create a detailed list of gaps between the conceptual and detialed desing (those can be in the docs folder) and what has been made.   Be brutal.  I want to ensure that the code faithfully implements the design.  put your analysis in gaps.md 2) Review the code for conceptual clarity.  come up with a style guide for conceptual clarity during intent (Syle.md) then ensure that it is consistently applied.  Style guidlines should be single line bullet points (e.g. * don't create objects when functions will do.  * Each function should have pydantic type information, etc).    Put style gaps in the \"style_gaps.md\".   Make other passes at your onw discresion, documenting the result of hte pass in an appropriately named file.   The goal is to have a comprehensive list of things that can be done to improve the conceptual clarity, human readability and modularity.",
+      "session_id": "20260316-092347",
+      "created_at": "2026-03-16T16:23:48.028922+00:00",
+      "status": "active"
     }
   ]
 }
