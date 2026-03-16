@@ -79,13 +79,22 @@ print(f'State updated: {len(manifest[\"items\"])} items marked seen')
 "
 echo ""
 
-# ── Step 4: Notify ─────────────────────────────────────────────────────────
+# ── Step 4: Create GitHub issues ──────────────────────────────────────────
 ANALYSIS="intake/analysis/analysis-$DATE.md"
 if [ -f "$ANALYSIS" ]; then
-    echo "Step 4: Sending notification..."
+    echo "Step 4: Creating GitHub issues..."
+    uv run python -m intake.create_issues "$ANALYSIS"
+else
+    echo "Step 4: No analysis file — skipping issue creation."
+fi
+echo ""
+
+# ── Step 5: Notify ─────────────────────────────────────────────────────────
+if [ -f "$ANALYSIS" ]; then
+    echo "Step 5: Sending notification..."
     uv run python -m intake.notify "$ANALYSIS"
 else
-    echo "Step 4: No analysis file found, sending no-new notification..."
+    echo "Step 5: No analysis file found, sending no-new notification..."
     uv run python -m intake.notify --no-new
 fi
 

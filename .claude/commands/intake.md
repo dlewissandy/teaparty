@@ -111,42 +111,18 @@ For each "Explore" verdict, create an idea file in `intake/ideas/<slug>.md`. Fol
 
 ## Step 6: Create GitHub Issues for Explore Items
 
-For each "Explore" verdict, create a GitHub issue and add it to the project backlog. Use `gh issue create`.
+Run the issue creation script. This handles everything: dedup against existing issues, creating with proper labels, adding to the project backlog with Status=Backlog and Source=research-intake, and updating idea files with issue numbers.
 
-Each issue should have:
-- **Title:** Short, action-oriented (e.g., "Add budget-aware dispatch using BAVT tree search")
-- **Label:** `intake` (create the label first if it doesn't exist: `gh label create intake --description "Research intake pipeline" --color 0E8A16` — only on the first run)
-- **Body:** A well-formed intent statement with three clear sections:
-
-```markdown
-## Scope
-
-What would be built or changed. Name specific files, modules, or systems in
-the TeaParty codebase that this work would touch (e.g., `engine.py`,
-`actors.py`, `learnings.py`, the proxy agent, the dispatch system).
-
-## Value
-
-Why this work matters for TeaParty. What problem it solves or what capability
-it enables. Tie it to a specific current limitation or priority from
-`intake/priorities.md`.
-
-## Source
-
-Where this idea came from — title, author, URL.
-
-> <key quote from the source that captures the core insight>
-
-Idea file: `intake/ideas/<slug>.md`
-Analysis: `intake/analysis/analysis-<YYYY-MM-DD>.md`
+```bash
+uv run python -m intake.create_issues intake/analysis/analysis-<YYYY-MM-DD>.md
 ```
 
-The intent should be specific enough that someone reading just the issue can understand:
-1. What the scope of work would be
-2. What components it would touch
-3. What the value of the work would be
-
-After creating each issue, note the issue number in the corresponding idea file (update the `Status` line to include the issue number).
+The script:
+- Checks all open issues for duplicates (fuzzy title matching, 60% word overlap threshold)
+- Skips items that already have a similar open issue
+- Creates issues with the `intake` label and a well-formed intent (Scope, Value, Source)
+- Adds each issue to the TeaParty GitHub project (#2) with Status=Backlog, Source=research-intake
+- Updates the corresponding idea file's Status line with the issue number
 
 ## Step 7: Update State and Notify
 
