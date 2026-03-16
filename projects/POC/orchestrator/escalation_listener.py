@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import tempfile
-from typing import Any, Awaitable, Callable
+from typing import Awaitable, Callable
 
 from projects.POC.orchestrator.events import (
     Event, EventBus, EventType, InputRequest,

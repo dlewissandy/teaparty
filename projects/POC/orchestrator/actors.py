@@ -12,12 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging as _logging
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from projects.POC.orchestrator.claude_runner import ClaudeRunner, ClaudeResult
 from projects.POC.orchestrator.events import (
@@ -78,8 +78,6 @@ class ActorContext:
 
 
 # ── Work summary generation ──────────────────────────────────────────────────
-
-import logging as _logging
 
 _actor_log = _logging.getLogger('orchestrator.actors')
 
@@ -413,8 +411,6 @@ def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
 
     Returns the absolute file_path from the Write tool input, or '' if not found.
     """
-    import json as _json
-
     if not stream_file or not os.path.isfile(stream_file):
         return ''
 
@@ -426,7 +422,7 @@ def _find_write_path_in_stream(stream_file: str, artifact_name: str) -> str:
                 if not line:
                     continue
                 try:
-                    evt = _json.loads(line)
+                    evt = json.loads(line)
                 except ValueError:
                     continue
                 for block in evt.get('message', {}).get('content', []):

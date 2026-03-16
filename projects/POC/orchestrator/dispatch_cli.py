@@ -30,7 +30,6 @@ from projects.POC.scripts.cfa_state import (
 )
 
 
-
 def _attach_event_writer(event_bus: EventBus, infra_dir: str) -> None:
     """Attach a simple JSONL event writer to the child's EventBus.
 
