@@ -23,7 +23,14 @@ import sys
 REPO = 'dlewissandy/teaparty'
 PROJECT_NUMBER = 2
 PROJECT_OWNER = 'dlewissandy'
+PROJECT_ID = 'PVT_kwHOAH4OHc4BR81E'  # Node ID for gh project item-edit
 LABEL = 'intake'
+
+# Field and option IDs for the TeaParty project board
+STATUS_FIELD_ID = 'PVTSSF_lAHOAH4OHc4BR81Ezg_oGbs'
+STATUS_BACKLOG_ID = 'a76a90c5'
+SOURCE_FIELD_ID = 'PVTSSF_lAHOAH4OHc4BR81Ezg_oGlo'
+SOURCE_INTAKE_ID = 'eced27cf'
 
 
 def _run_gh(*args: str, input_text: str = '') -> str:
@@ -96,13 +103,14 @@ def _create_issue(title: str, body: str) -> int | None:
 
 def _add_to_project(issue_number: int) -> None:
     """Add an issue to the TeaParty project and set Status=Backlog, Source=research-intake."""
-    # Add to project
     item_url = f'https://github.com/{REPO}/issues/{issue_number}'
-    add_output = _run_gh('project', 'item-add', str(PROJECT_NUMBER),
-                         '--owner', PROJECT_OWNER,
-                         '--url', item_url)
 
-    # Get the item ID from the project
+    # Add to project
+    _run_gh('project', 'item-add', str(PROJECT_NUMBER),
+            '--owner', PROJECT_OWNER,
+            '--url', item_url)
+
+    # Find the item ID we just added
     items_json = _run_gh('project', 'item-list', str(PROJECT_NUMBER),
                          '--owner', PROJECT_OWNER,
                          '--format', 'json')
@@ -114,49 +122,28 @@ def _add_to_project(issue_number: int) -> None:
     except json.JSONDecodeError:
         return
 
-    # Find the item we just added
     item_id = None
     for item in items.get('items', []):
-        content = item.get('content', {})
-        if content.get('number') == issue_number:
+        if item.get('content', {}).get('number') == issue_number:
             item_id = item.get('id')
             break
 
     if not item_id:
         return
 
-    # Get field IDs
-    fields_json = _run_gh('project', 'field-list', str(PROJECT_NUMBER),
-                          '--owner', PROJECT_OWNER,
-                          '--format', 'json')
-    if not fields_json:
-        return
+    # Set Status=Backlog (uses --project-id node ID, not --owner)
+    _run_gh('project', 'item-edit',
+            '--project-id', PROJECT_ID,
+            '--id', item_id,
+            '--field-id', STATUS_FIELD_ID,
+            '--single-select-option-id', STATUS_BACKLOG_ID)
 
-    try:
-        fields = json.loads(fields_json)
-    except json.JSONDecodeError:
-        return
-
-    for field in fields.get('fields', []):
-        if field['name'] == 'Status':
-            # Find Backlog option ID
-            for opt in field.get('options', []):
-                if opt['name'] == 'Backlog':
-                    _run_gh('project', 'item-edit', str(PROJECT_NUMBER),
-                            '--owner', PROJECT_OWNER,
-                            '--id', item_id,
-                            '--field-id', field['id'],
-                            '--single-select-option-id', opt['id'])
-                    break
-        elif field['name'] == 'Source':
-            for opt in field.get('options', []):
-                if opt['name'] == 'research-intake':
-                    _run_gh('project', 'item-edit', str(PROJECT_NUMBER),
-                            '--owner', PROJECT_OWNER,
-                            '--id', item_id,
-                            '--field-id', field['id'],
-                            '--single-select-option-id', opt['id'])
-                    break
+    # Set Source=research-intake
+    _run_gh('project', 'item-edit',
+            '--project-id', PROJECT_ID,
+            '--id', item_id,
+            '--field-id', SOURCE_FIELD_ID,
+            '--single-select-option-id', SOURCE_INTAKE_ID)
 
 
 def _update_idea_file(ideas_dir: str, slug: str, issue_number: int) -> None:
