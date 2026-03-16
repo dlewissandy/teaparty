@@ -11,6 +11,8 @@ The system executed the full CfA lifecycle autonomously: intent capture (2 quest
 
 ![TUI workspace showing eight parallel research dispatches running](e2e-raw-files/e2e workspace.png)
 
+This is the TUI during the research phase — the human's only view of the session while it runs. The top pane shows the original prompt and the CfA state history. The middle pane streams the uber team's execution: dispatching research tracks, confirming proxy approvals, advancing phases. The status bar at the bottom shows eight active dispatches. From the human's side, the experience after the initial six dialog turns was: watch the stream, wait, and review the final manuscript when the session completed.
+
 ---
 
 ## The Story in Five Parts
