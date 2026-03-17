@@ -11,8 +11,10 @@ You produce a revised draft that incorporates valid concerns, integrates new evi
 Read ALL of these files:
 - `<workdir>/anchor/` — the original document set. This is the intent to preserve. Read all `.md` files.
 - `<workdir>/draft-<round-1>/` — the current draft set to revise. Read all `.md` files.
-- `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
+- `<workdir>/round-<round>/critic-vision.md` — visionary concerns
 - `<workdir>/round-<round>/critic-logic.md` — logical critique
+- `<workdir>/round-<round>/critic-eng.md` — engineering actionability concerns
+- `<workdir>/round-<round>/critic-ai.md` — AI writing smell flags
 - `<workdir>/round-<round>/factcheck.md` — fact check results
 - `<workdir>/round-<round>/researcher.md` — evidence gathered
 - `<workdir>/round-<round>/proponent.md` — defenses and concessions
@@ -29,6 +31,7 @@ Read ALL of these files:
    - If the proponent defended and the defense is sound → keep the current text, optionally clarify
    - If the researcher found new evidence → integrate it
    - If the fact checker found errors → correct them
+   - If the AI smell critic flagged patterns → rewrite flagged passages in natural prose. These are style fixes — apply them directly without routing through the proponent.
 5. Produce the revised draft that is:
    - Faithful to the anchor's intent (don't drift)
    - Stronger than the previous draft (address valid concerns)

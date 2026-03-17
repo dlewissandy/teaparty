@@ -11,14 +11,15 @@ You defend the document against logical and evaluative criticisms. You argue wit
 Read these files:
 - `<workdir>/anchor/` — the original document set. Read all `.md` files.
 - `<workdir>/draft-<round-1>/` — the current draft set. Read all `.md` files.
-- `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
+- `<workdir>/round-<round>/critic-vision.md` — visionary concerns
 - `<workdir>/round-<round>/critic-logic.md` — logical critique
+- `<workdir>/round-<round>/critic-eng.md` — engineering actionability concerns
 - `<workdir>/round-<round>/researcher.md` — research findings (if available)
 - `<workdir>/round-<round-1>/` — prior round history, if round > 1
 
 ## What You Do
 
-For each logical concern (contradictions, non sequiturs, unstated assumptions) and each evaluative concern (judgment calls from the hiring manager tagged `[risk]` or `[missing]`):
+For each logical concern (contradictions, non sequiturs, unstated assumptions), each evaluative concern (judgment calls from the visionary tagged `[risk]` or `[missing]`), and each engineering concern (implementation gaps, vague interfaces):
 
 1. If the concern is valid — concede it clearly. State what needs to change.
 2. If the concern misunderstands the document — explain what the document actually says and why the concern doesn't apply.

@@ -53,11 +53,13 @@ For each round N from 1 to max_rounds:
 
 ### Step 1: Critics (parallel)
 
-Run all three critics in parallel. Each reads the anchor directory, the current draft directory, and prior round history.
+Run all five critics in parallel. Each reads the anchor directory, the current draft directory, and prior round history.
 
-- `/refine-critic-hm ${WORKDIR} ${N}` — Hiring manager concerns
+- `/refine-critic-vision ${WORKDIR} ${N}` — Vision, feasibility, and strategic concerns
 - `/refine-critic-logic ${WORKDIR} ${N}` — Hegelian contradictions
 - `/refine-factcheck ${WORKDIR} ${N}` — Claim verification
+- `/refine-critic-ai ${WORKDIR} ${N}` — AI writing smell detection
+- `/refine-critic-eng ${WORKDIR} ${N}` — Engineering actionability and implementability
 
 Critics should read ALL files in the document set, noting which file each concern references.
 
@@ -115,4 +117,4 @@ Print:
 - Drift assessment of final vs anchor
 - List of files modified
 
-Commit the result with a message referencing the refinement.
+Commit the result with a message referencing the refinement. Push the current branch upstream.
