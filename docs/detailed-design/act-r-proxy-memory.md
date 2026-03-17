@@ -384,34 +384,101 @@ The delta extraction calls are short-context (just the two prose strings, ~200 t
 
 ### Cache Economics
 
-The cost model for one session with G gates:
+The two-pass prediction model doubles the proxy's LLM calls per gate. Without cost mitigation, this is prohibitive. Prompt caching — reusing the processed KV state for a shared prompt prefix across calls — is the mitigation.
 
-**Without KV caching (current design):**
-```
-Cost = G × process(system_prompt + memories + gate_content)
-     = G × process(P + M + C)
-```
+#### How Anthropic Prompt Caching Works
 
-Every gate reprocesses the full prompt. For a session with 5 gates and 10 retrieved memories, that's 5 full processing passes over the same memory content.
+The Anthropic Messages API supports prompt caching via `cache_control` blocks. When a message prefix is marked cacheable:
 
-**With KV caching:**
-```
-Cost = process(P + M)                           # once at session start
-     + G × process(C)                           # per gate: only new content
-     + G × 2 × process(delta_extraction)        # per gate: surprise analysis
-```
+- **First call**: full price to process the prefix (input tokens at standard rate)
+- **Subsequent calls with the same prefix** (within 5-minute TTL): cached prefix tokens at ~10% of standard rate (e.g., 0.30/MTok instead of 3.00/MTok for Sonnet)
+- **Cache matching is account-level**, not session-level — two separate API calls with the same prefix hit the cache, even from different processes
 
-The memory prefix (P + M) is processed once. Each gate processes only the gate-specific content (C) against the cached prefix. The delta extraction calls are short-context.
+This last point is critical. The proxy invokes Claude as a subprocess (`subprocess.run(['claude', '-p', ...])`) — one process per pass. There is no shared state between processes. But prompt caching operates at the API backend, not the client. If the system prompt + memories are identical across calls, the second call gets the cache hit regardless of process isolation.
 
-For a session with 5 gates, 10 memories totaling 5000 tokens, and gate content averaging 2000 tokens:
+#### Prompt Structure for Caching
+
+Every proxy call shares a common prefix:
 
 ```
-Without caching: 5 × (5000 + 2000) = 35,000 tokens processed
-With caching:    5000 + 5 × 2000 + 5 × 2 × 500 = 20,000 tokens processed
-Savings:         ~43%
+┌─────────────────────────────────────────┐
+│ System prompt (proxy instructions)       │ ← cacheable
+│ Retrieved memories (top-k chunks)        │ ← cacheable
+├─────────────────────────────────────────┤
+│ Gate context (state, task, history)       │ ← varies per gate
+│ Artifact (Pass 2 only)                   │ ← varies per gate
+│ Instruction (prior vs posterior prompt)   │ ← varies per pass
+└─────────────────────────────────────────┘
 ```
 
-The savings increase with more gates per session and more loaded memories. A session with 10 gates saves ~55%.
+The prefix (system prompt + memories) is stable across all calls in a session. The suffix (gate context, artifact, instruction) varies per call.
+
+#### Cost Model
+
+Let:
+- P = system prompt tokens (~2,000)
+- M = memory tokens (~5,000 for 10 chunks)
+- C = gate content tokens per pass (~2,000)
+- D = delta extraction tokens (~500, only on surprise)
+- G = number of gates per session
+- r = cache discount rate (0.1 = 90% discount)
+
+**Current design (no two-pass, no caching):**
+```
+Cost = G × (P + M + C)
+     = G × 9,000 tokens at full price
+```
+
+**Two-pass without caching:**
+```
+Cost = G × 2 × (P + M + C)
+     = G × 18,000 tokens at full price    ← 2x the current cost
+```
+
+**Two-pass with prompt caching:**
+```
+Cost = (P + M)                             # first call: full price
+     + (2G - 1) × r × (P + M)             # remaining calls: cached prefix
+     + 2G × C                              # per-pass: gate content at full price
+     + surprise_rate × G × 2 × D           # delta extraction (surprise only)
+
+For G=5, surprise_rate=0.2 (20% of gates produce surprise):
+     = 7,000                               # first prefix
+     + 9 × 0.1 × 7,000                    # cached prefixes = 6,300
+     + 10 × 2,000                          # gate content = 20,000
+     + 0.2 × 5 × 2 × 500                  # delta extraction = 1,000
+     = 34,300 token-equivalents
+
+vs. current (no two-pass): 5 × 9,000 = 45,000
+vs. two-pass without caching: 10 × 9,000 = 90,000
+```
+
+**Summary for G=5 gates:**
+
+| Configuration | Token-equivalents | vs. Current |
+|---------------|-------------------|-------------|
+| Current (1 pass, no cache) | 45,000 | baseline |
+| Two-pass, no cache | 90,000 | +100% |
+| Two-pass, with cache | 34,300 | **-24%** |
+
+The two-pass model with prompt caching is **cheaper than the current single-pass model** because the cache discount on repeated prefix processing more than compensates for the extra pass. The savings increase with more gates per session:
+
+| Gates | Current | Two-pass + cache | Savings |
+|-------|---------|------------------|---------|
+| 3 | 27,000 | 23,100 | 14% |
+| 5 | 45,000 | 34,300 | 24% |
+| 10 | 90,000 | 62,600 | 30% |
+| 20 | 180,000 | 119,200 | 34% |
+
+#### Verification Needed
+
+This analysis assumes the `claude -p` CLI produces API calls whose prefixes match for cache purposes. This needs empirical verification:
+
+1. Do two sequential `claude -p` subprocess calls with the same system prompt hit the Anthropic prompt cache?
+2. Does the CLI add any per-call variation to the prompt (timestamps, session IDs) that would break prefix matching?
+3. What is the actual cache TTL, and does it survive the time between gates in a real session?
+
+If the CLI breaks caching, the proxy should be migrated to direct API calls. The proxy is a good candidate — it doesn't need tools, worktrees, or team sessions.
 
 ### Working Memory Capacity
 
