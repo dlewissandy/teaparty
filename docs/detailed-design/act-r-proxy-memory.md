@@ -161,7 +161,11 @@ def run_session(session):
 
         # Pass 1: Prior (from cache, no artifact)
         # The LLM reasons over its cached memories + the gate context.
-        # It has NOT seen the artifact.
+        # It has NOT seen the artifact. Output is STRUCTURED:
+        #   <action> \t <prose>
+        # where action is one of: approve, correct, escalate, withdraw
+        # This structured format makes the prior/posterior comparison
+        # deterministic — we compare action tokens, not free text.
         prior = llm_generate(
             cache=cache,                    # reused, not reprocessed
             suffix=format_gate_context(
@@ -169,14 +173,20 @@ def run_session(session):
                 task_type=gate.task_type,
                 session_history=gate.history,
                 instruction="Predict what the human would say. "
-                            "You have not seen the artifact.",
+                            "You have not seen the artifact.\n\n"
+                            "Respond with exactly one line:\n"
+                            "ACTION<TAB>REASONING\n"
+                            "where ACTION is: approve, correct, escalate, or withdraw",
             ),
             temperature=0,                  # deterministic prior
         )
-        # prior = {action: "approve", confidence: 0.8, reasoning: "..."}
+        prior = parse_structured_response(prior)
+        # prior = StructuredPrediction(action="approve", prose="This human
+        #         typically approves plans for documentation tasks.")
 
         # Pass 2: Posterior (cache + artifact)
-        # Same cache, extended with the artifact content.
+        # Same cache, extended with the artifact content. Same structured
+        # output format. The LLM sees its own prior and can revise.
         posterior = llm_generate(
             cache=cache,                    # same cached prefix
             suffix=format_gate_context(
@@ -185,34 +195,56 @@ def run_session(session):
                 session_history=gate.history,
                 artifact=gate.artifact_content,
                 prior_prediction=prior,
-                instruction="You previously predicted: {prior}. "
-                            "Now read the artifact and revise.",
+                instruction="You previously predicted: "
+                            f"{prior.action}\t{prior.prose}\n\n"
+                            "Now read the artifact and revise.\n\n"
+                            "Respond with exactly one line:\n"
+                            "ACTION<TAB>REASONING\n"
+                            "where ACTION is: approve, correct, escalate, or withdraw",
             ),
             temperature=0,                  # deterministic posterior
         )
-        # posterior = {action: "correct", confidence: 0.85, reasoning: "..."}
+        posterior = parse_structured_response(posterior)
+        # posterior = StructuredPrediction(action="correct", prose="Missing
+        #            rollback section for database migration.")
 
         # ── Bayesian surprise ───────────────────────────────────
         # The surprise is the delta between prior and posterior.
-        # This is the processed percept — what the artifact revealed
-        # that the proxy's model didn't predict.
+        # Because both are structured (action + prose), the comparison
+        # is deterministic on the action and semantic on the prose.
+        #
+        # Three levels of surprise:
+        #   1. Action changed (approve → correct): strong surprise.
+        #      The artifact contained something the proxy didn't predict.
+        #   2. Action same, prose differs: weak surprise.
+        #      The proxy's reasoning shifted but its decision didn't.
+        #   3. Action same, prose similar: no surprise.
+        #      The artifact confirmed expectations.
+        #
+        # Only strong surprise (level 1) triggers salient percept
+        # extraction. This avoids spending LLM calls on non-events.
+
         if prior.action != posterior.action:
             # Strong surprise: the artifact changed the decision.
+            # Extract what specifically caused the shift.
             surprise = SurpriseDelta(
-                magnitude=abs(posterior.confidence - prior.confidence),
-                direction="positive" if posterior.confidence > prior.confidence else "negative",
+                magnitude=1.0,  # action changed — maximum surprise
                 prior_action=prior.action,
+                prior_prose=prior.prose,
                 posterior_action=posterior.action,
-                description=extract_what_changed(prior.reasoning, posterior.reasoning),
-                salient_percepts=extract_salient_features(prior.reasoning, posterior.reasoning),
+                posterior_prose=posterior.prose,
+                description=extract_what_changed(prior.prose, posterior.prose),
+                salient_percepts=extract_salient_features(prior.prose, posterior.prose),
             )
         else:
-            # Weak or no surprise: artifact confirmed expectations.
+            # No or weak surprise: artifact confirmed expectations.
+            # No additional LLM calls needed.
             surprise = SurpriseDelta(
-                magnitude=abs(posterior.confidence - prior.confidence),
-                direction="confirmed",
+                magnitude=0.0,
                 prior_action=prior.action,
+                prior_prose=prior.prose,
                 posterior_action=posterior.action,
+                posterior_prose=posterior.prose,
                 description="",
                 salient_percepts=[],
             )
@@ -274,59 +306,81 @@ def run_session(session):
     discard_cache(cache)
 ```
 
-### The Surprise Computation — Detail
+### Structured Responses and Surprise Computation
 
-The surprise between prior and posterior is not a simple diff. It requires extracting *what specifically changed* in the proxy's reasoning.
+Both passes produce structured output: `ACTION<TAB>PROSE` — the same format used by the existing `classify_review.py`. The structured format makes prior/posterior comparison deterministic on the action token and semantic on the prose. No ambiguity about whether the prediction changed.
 
 ```python
 @dataclass
-class SurpriseDelta:
-    magnitude: float        # |posterior.confidence - prior.confidence|
-    direction: str          # "positive", "negative", or "confirmed"
-    prior_action: str       # what the proxy predicted before the artifact
-    posterior_action: str   # what the proxy predicted after the artifact
-    description: str        # natural language: what changed and why
-    salient_percepts: list  # specific artifact features that caused the shift
+class StructuredPrediction:
+    action: str    # approve, correct, escalate, withdraw
+    prose: str     # reasoning — what the proxy expects or observed
 
-def extract_what_changed(prior_reasoning: str, posterior_reasoning: str) -> str:
+def parse_structured_response(raw: str) -> StructuredPrediction:
+    """Parse ACTION<TAB>PROSE from LLM output."""
+    line = raw.strip().split('\n')[0]
+    parts = line.split('\t', 1)
+    action = parts[0].strip().lower()
+    prose = parts[1].strip() if len(parts) > 1 else ''
+    return StructuredPrediction(action=action, prose=prose)
+
+
+@dataclass
+class SurpriseDelta:
+    magnitude: float        # 1.0 if action changed, 0.0 if confirmed
+    prior_action: str       # structured action before artifact
+    prior_prose: str        # reasoning before artifact
+    posterior_action: str   # structured action after artifact
+    posterior_prose: str    # reasoning after artifact
+    description: str        # what changed (extracted only on strong surprise)
+    salient_percepts: list  # specific artifact features that caused the shift
+```
+
+Surprise extraction only runs when the action changed (strong surprise). This is critical for cost: confirmed predictions (no surprise) cost 2 LLM calls. Surprises cost 4. Since most gate interactions should be unsurprising (the proxy's prior is usually right), the average cost approaches 2 calls, not 4.
+
+```python
+def extract_what_changed(prior_prose: str, posterior_prose: str) -> str:
     """Extract the specific change between prior and posterior reasoning.
 
-    This is an LLM call — we ask the model to compare its own two
-    reasoning traces and identify what the artifact revealed.
-
-    Returns a concise description: 'Missing rollback section in
-    database migration plan changed prediction from approve to correct.'
+    Only called on strong surprise (action changed). This is an LLM call
+    that compares the two prose traces and identifies what the artifact
+    revealed.
     """
     return llm_generate(
-        prompt=f"""Compare these two predictions and identify what changed:
+        prompt=f"""The proxy changed its prediction after reading the artifact.
 
-PRIOR (before seeing artifact): {prior_reasoning}
-POSTERIOR (after seeing artifact): {posterior_reasoning}
+BEFORE (without artifact): {prior_prose}
+AFTER (with artifact): {posterior_prose}
 
-In one sentence, state what the artifact revealed that changed
-the prediction. If nothing changed, say 'confirmed'.""",
+In one sentence, what did the artifact reveal that changed the prediction?""",
         temperature=0,
     )
 
-def extract_salient_features(prior_reasoning: str, posterior_reasoning: str) -> list[str]:
-    """Extract the specific artifact features that caused the surprise.
+def extract_salient_features(prior_prose: str, posterior_prose: str) -> list[str]:
+    """Extract specific artifact features that caused the surprise.
 
-    Returns a list of short feature descriptions:
-    ['no rollback strategy', 'database migration risk']
+    Returns short feature descriptions: ['no rollback strategy', 'migration risk']
     """
-    return llm_generate(
-        prompt=f"""What specific features of the artifact caused this
-prediction change?
+    raw = llm_generate(
+        prompt=f"""What specific features of the artifact caused this change?
 
-PRIOR: {prior_reasoning}
-POSTERIOR: {posterior_reasoning}
+BEFORE: {prior_prose}
+AFTER: {posterior_prose}
 
 List each feature as a short phrase, one per line.""",
         temperature=0,
-    ).strip().split('\n')
+    )
+    return [line.strip() for line in raw.strip().split('\n') if line.strip()]
 ```
 
-Note: `extract_what_changed` and `extract_salient_features` are additional LLM calls. This means each gate interaction costs 4 LLM calls total: Pass 1 (prior), Pass 2 (posterior), delta extraction, feature extraction. The last two are short-context calls (just the two reasoning traces) and are cheap relative to the full-context passes.
+### Cost Per Gate
+
+| Scenario | LLM Calls | When |
+|----------|-----------|------|
+| No surprise (action unchanged) | 2 | Prior + posterior. Most common case. |
+| Strong surprise (action changed) | 4 | Prior + posterior + delta extraction + feature extraction. |
+
+The delta extraction calls are short-context (just the two prose strings, ~200 tokens each). They're cheap relative to the full-context passes.
 
 ### Cache Economics
 
