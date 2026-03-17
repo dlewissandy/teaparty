@@ -117,4 +117,4 @@ Print:
 - Drift assessment of final vs anchor
 - List of files modified
 
-Commit the result with a message referencing the refinement.
+Commit the result with a message referencing the refinement. Push the current branch upstream.
