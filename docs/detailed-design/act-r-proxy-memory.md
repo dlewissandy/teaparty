@@ -98,6 +98,55 @@ This design combines components with very different levels of empirical support.
 
 ---
 
+## Future Direction: KV Cache as Working Memory
+
+The current design retrieves memory chunks as text, inserts them into the LLM prompt, and lets the LLM reprocess them from tokens on every call. This works but it misses a deeper alignment between ACT-R's cognitive architecture and the LLM's.
+
+### The Insight
+
+The LLM already has a cognitive architecture: attention (spreading activation), the context window (working memory), pattern recognition, inference. ACT-R gives us the principled memory dynamics — what to load, when to forget. The LLM gives us the processing that ACT-R had to build from scratch with production rules. We are not reimplementing ACT-R. We are using ACT-R's memory theory to govern the interface between long-term storage and the LLM's native cognition.
+
+When the LLM processes a memory chunk, the KV cache entries it produces are far richer than any embedding vector. They capture the model's full understanding of that chunk in context — all the associations and implications inferred during processing. An embedding is a lossy compression into a single vector. The KV cache is the model's actual internal state.
+
+### The Architecture
+
+```
+Long-term storage (disk, SQLite, chunks with activation traces)
+        │
+        │  ACT-R activation: which chunks are most active?
+        ▼
+KV cache (working memory, loaded at session start)
+        │
+        │  Gate arrives → Pass 1 (prior from cache)
+        │  Artifact loads → Pass 2 (posterior from cache + artifact)
+        │  Delta = Bayesian surprise
+        ▼
+New chunk written to long-term storage
+(content = the surprise, not the raw interaction)
+```
+
+**ACT-R activation selects what enters working memory.** At session start, the retrieval runs: which memories are most active? Those chunks get loaded into the prompt, creating KV cache entries. Low-activation chunks never make it in. This is the attention bottleneck — the cache has a size limit, just like working memory.
+
+**The KV cache IS spreading activation.** When the LLM processes memory chunk A, the attention mechanism creates internal representations that influence how it processes everything that follows. "Thinking about proxy learning" primes the model for "backtrack patterns" — not because we computed an association score, but because the transformer's own attention made the connection. We don't need to build spreading activation. We need to get the right chunks into the cache and the LLM's attention does the rest.
+
+**Bayesian surprise determines what gets stored.** The two-pass prediction runs. The prior comes from the cached context. The artifact arrives, extending the cache. The posterior is computed. The delta — the surprise — is the processed percept that gets written to long-term storage. Not the raw artifact. Not the full interaction. The part that changed the proxy's mind. This is analogous to how ACT-R perceptual modules work: they don't store the raw sensory input, they store the processed percept that reached declarative memory.
+
+**The cache persists within a session.** The retrieved memories, once loaded, stay in the cache across all gates in the session. The proxy doesn't re-read its memories at every gate — it already "has them in mind." Each gate only processes the new content (artifact, question). This is where prompt caching via the Anthropic API would provide concrete savings: the memory prefix is processed once, and subsequent gates reuse the cached KV state.
+
+### Why This Is Future Work
+
+The proxy currently invokes Claude via `claude -p` (CLI subprocess). The CLI does not expose cache control parameters. To use explicit KV cache management, the proxy would need to switch to direct Anthropic API calls. The proxy is a good candidate for this — it doesn't need tools, worktrees, or team sessions. It just needs to reason over context and produce a prediction. But the migration from CLI to API is a separate effort.
+
+Additionally, persistent KV cache (saving cache state to disk and reloading across sessions) is not currently available in the Anthropic API. The cache is ephemeral within a TTL window. True cross-session working memory — where the proxy loads its KV state from the previous session rather than reprocessing from text — would require either API support for persistent caches or a local inference setup.
+
+### What This Means for the Current Design
+
+The current design (ACT-R activation → text retrieval → embedding-based ranking → LLM prompt) is the implementable version. It works today with the CLI. The KV cache architecture is the version that fully aligns ACT-R's memory theory with the LLM's native cognition — but it requires API-level control that we don't currently have.
+
+The designs are compatible. The transition from text retrieval to KV cache retrieval doesn't change what gets stored (chunks with activation traces) or how forgetting works (power-law decay on interaction counts). It changes how stored memories reach the LLM's processing — from re-reading text to loading pre-computed state. The memory theory is the same. The delivery mechanism improves.
+
+---
+
 ## References
 
 **Anderson, J. R., & Lebiere, C.** (1998). *The Atomic Components of Thought.* Lawrence Erlbaum Associates. — The definitive ACT-R reference. Chapter 4 covers declarative memory in full.
