@@ -24,6 +24,36 @@ git checkout -b fix/issue-<number>
 
 All subsequent work happens on this branch. Do not work directly on main.
 
+Move the issue to **In Progress** on the project board:
+
+```bash
+# 1. Find the project item ID for this issue
+ITEM_ID=$(gh api graphql -f query='
+{
+  user(login: "dlewissandy") {
+    projectV2(number: 2) {
+      items(first: 100) {
+        nodes {
+          id
+          content { ... on Issue { number } }
+        }
+      }
+    }
+  }
+}' --jq '.data.user.projectV2.items.nodes[] | select(.content.number == <number>) | .id')
+
+# 2. Set Status = In Progress
+gh api graphql -f query="
+mutation {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: \"PVT_kwHOAH4OHc4BR81E\"
+    itemId: \"${ITEM_ID}\"
+    fieldId: \"PVTSSF_lAHOAH4OHc4BR81Ezg_oGbs\"
+    value: { singleSelectOptionId: \"71f64e69\" }
+  }) { projectV2Item { id } }
+}"
+```
+
 ## Phase 1: Understand
 
 1. **Read the issue** using `gh issue view <number>`.
@@ -102,6 +132,39 @@ Post a final comment on the GitHub issue summarizing:
 gh issue comment <number> --body "<final summary>"
 ```
 
+Move the issue to **Done** on the project board and close it:
+
+```bash
+# 1. Find the project item ID for this issue
+ITEM_ID=$(gh api graphql -f query='
+{
+  user(login: "dlewissandy") {
+    projectV2(number: 2) {
+      items(first: 100) {
+        nodes {
+          id
+          content { ... on Issue { number } }
+        }
+      }
+    }
+  }
+}' --jq '.data.user.projectV2.items.nodes[] | select(.content.number == <number>) | .id')
+
+# 2. Set Status = Done
+gh api graphql -f query="
+mutation {
+  updateProjectV2ItemFieldValue(input: {
+    projectId: \"PVT_kwHOAH4OHc4BR81E\"
+    itemId: \"${ITEM_ID}\"
+    fieldId: \"PVTSSF_lAHOAH4OHc4BR81Ezg_oGbs\"
+    value: { singleSelectOptionId: \"42fb9610\" }
+  }) { projectV2Item { id } }
+}"
+
+# 3. Close the issue
+gh issue close <number>
+```
+
 ## Phase 7: Post-Mortem
 
 Run `/postmortem` against this fix. Post the post-mortem as a comment on the GitHub issue:
@@ -125,3 +188,9 @@ EOF
 ```
 
 Use `--no-ff` to preserve the branch history as a distinct unit of work.
+
+Push the result:
+
+```bash
+git push
+```
