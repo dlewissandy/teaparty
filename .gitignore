@@ -50,3 +50,6 @@ intake/ideas/
 intake/.state.json
 intake/.channel-ids.json
 intake/run.log
+
+# Refinement pipeline — working artifacts
+refinement/
