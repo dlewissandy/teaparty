@@ -209,6 +209,85 @@ The body is conversational prose — thesis with evidence and an alternative, no
 
 ---
 
+## Collaboration Dynamics
+
+A discussion is a conversation, not a form submission. The lifecycle diagram above shows three terminal actions (promote, dismiss, discuss) but that's the bookkeeping view. The behavioral view is richer: two people thinking together about a problem, with all the turn-taking, calibration, and rhythm that implies.
+
+### Turn-Taking and Proportionality
+
+The agent raises a topic. The human reacts — maybe with a question, not a decision. The agent responds to *that*, not with a full analysis but with a focused follow-up proportional to the question's scope. "Why do you think the proxy isn't learning?" gets two sentences pointing at evidence, not a 500-line systems analysis. If more depth is needed, the human asks for it.
+
+This is the opposite of how most AI tools work. The default AI behavior is to over-explain — to answer a narrow question with a comprehensive treatise. A collaborator matches the register of the conversation. Short question, short answer. Deep question, deeper answer. The agent reads the human's investment in the topic from the length and specificity of their responses and calibrates accordingly.
+
+### Questions That Beget Questions
+
+The most productive collaboration happens when both parties are exploring together, not when one reports and the other judges. The agent says "backtracks cluster at TASK_ASSERT." The human says "is that because the plans lack specificity?" The agent says "maybe — but I also noticed the intent phase runs in under 3 minutes. Could the intent itself be underspecified?" Now they're thinking together. The agent brought the data; the human brought the hypothesis; the agent extended it with a connected observation.
+
+Not every discussion reaches this depth. Some observations are straightforward — "this docstring is wrong" gets a promote and no conversation. But the design must support the full range, from one-turn triage to multi-turn joint reasoning.
+
+### Knowing When to Stop
+
+"Good point, let me think about it" is not promote, dismiss, or discuss. It's *pause*. The topic stays open, the agent doesn't push. A collaborator who keeps going after the conversation has reached its natural conclusion is exhausting. The agent must recognize when the human is done for now — even if no terminal action was taken — and wait.
+
+Similarly, when the agent has nothing useful to add, it should say so. "I don't have enough data to answer that — I'd need to see 5 more sessions with this pattern before I could say whether it's systematic." That's more useful than speculating.
+
+### Building on Previous Conversations
+
+Tuesday's discussion about proxy learning informs Thursday's observation about backtrack patterns. The agent connects threads: "this relates to what we discussed about the proxy — if it learned from backtracks, it might catch these plans before they fail." Conversations aren't isolated events; they're episodes in an ongoing relationship.
+
+### Episodic Memory
+
+The conversation history isn't just a transcript — it's a corpus of interactions that shapes the agent's understanding of how this human thinks. Each exchange is embedded and indexed into the same vector store infrastructure used for learning retrieval. When the agent is formulating a new observation or responding in a discussion, it retrieves similar past conversations — not just "what did I say about this module before" but "how did this human reason about this kind of question before."
+
+The retrieval is **recency-weighted with decay toward baseline** — the same principled forgetting that governs the confidence model. A conversation from 3 months ago about a module that's been rewritten carries less weight than one from last week about the same pattern in new code. Old conversations fade in relevance unless reinforced by new ones on the same theme.
+
+This gives the agent episodic memory of collaborating with this human:
+
+- "The human initially pushed back on the spec alignment observation, then asked two clarifying questions, then promoted it after seeing session log evidence — so lead with evidence, not the assertion."
+- "When I raised generalization suggestions, the human asked about blast radius every time — include blast radius in future observations of this type."
+- "The human disengages when I over-explain. Keep the first response short; elaborate only if asked."
+
+The episodic memory is what turns a report-generator into a collaborator. Without it, every conversation starts from zero. With it, the agent develops an evolving sense of how to work with this specific human — which arguments land, which framings fall flat, which topics deserve persistence and which deserve a lighter touch.
+
+### Discussion File Format
+
+To support multi-turn conversation, the discussion file carries a transcript:
+
+```yaml
+id: learning-proxy-retrieval
+lens: learning-and-development
+significance: high
+status: open
+code_refs:
+  - "projects/POC/orchestrator/proxy_agent.py:126"
+  - "projects/POC/.proxy-interactions.jsonl"
+chunk_hashes:
+  - "a3f8c2e1"
+created_at: "2026-03-16T22:00:00Z"
+groomed_at: "2026-03-17T22:00:00Z"
+```
+
+```markdown
+**[agent, 2026-03-16]** The proxy records outcomes to
+.proxy-interactions.jsonl but never retrieves them during prediction.
+The statistical layer updates, but the agent prompt receives no
+history of what it got wrong. This is accumulation without learning.
+
+**[human, 2026-03-17]** Is that because the retrieval was never
+implemented, or was it intentional?
+
+**[agent, 2026-03-17]** Never implemented. The retrieve path in
+memory_indexer.py exists and works for learning retrieval, but
+consult_proxy doesn't call it. The proxy agent prompt has a slot
+for "past interactions" but it's always empty.
+
+**[human, 2026-03-17]** Good point, let me think about it.
+```
+
+Each turn is indexed for retrieval. The `[human, date]` and `[agent, date]` markers structure the transcript without imposing a rigid schema. The agent reads the full history before responding, and the vector store indexes each exchange for cross-conversation retrieval.
+
+---
+
 ## Nightly Pipeline
 
 The Code Collaborator runs once per night alongside the `/intake` research pipeline. Each run follows this sequence:
