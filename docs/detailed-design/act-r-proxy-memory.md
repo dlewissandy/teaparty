@@ -37,18 +37,20 @@ The mathematical model for these two factors, combined with a noise term and a r
 
 ---
 
-## The Activation Equation
+## The Retrieval Model
 
-Every chunk in memory has a total activation `A`:
+Every chunk in memory has a retrieval score that combines three signals:
 
 ```
-A = B + S + noise
+score = activation_weight * B  +  semantic_weight * cosine(chunk, context)  +  noise
 ```
 
 Where:
-- `B` is the **base-level activation** (learning and forgetting)
-- `S` is the **spreading activation** (context sensitivity)
+- `B` is the **base-level activation** from ACT-R (learning and forgetting via power-law decay)
+- `cosine(chunk, context)` is the **semantic similarity** between the chunk's embedding and the current context embedding (replaces ACT-R's symbolic spreading activation)
 - `noise` is a random component (captures the inherent variability of memory)
+
+Structural filtering (SQL queries on state, outcome, task_type) narrows the candidate set before scoring. The score ranks within the filtered set.
 
 ### Base-Level Activation (B)
 
@@ -59,86 +61,88 @@ B = ln( sum over all accesses i:  t_i ^ (-d) )
 ```
 
 Where:
-- `t_i` is the time (in seconds) since the i-th access of this chunk
+- `t_i` is the number of **interactions** since the i-th access of this chunk (not wall-clock time — see below)
 - `d` is the **decay parameter**, standardly set to **0.5**
 - `ln` is the natural logarithm
 - The sum is over every time this chunk was accessed (created, retrieved, reinforced)
 
-**How it works.** Each time a chunk is accessed, it gets a **trace**. Each trace decays as a power function of time: `t^(-0.5)`. The sum of all decaying traces, passed through a logarithm, gives the base-level activation.
+**How it works.** Each time a chunk is accessed, it gets a **trace**. Each trace decays as a power function of interactions elapsed: `t^(-0.5)`. The sum of all decaying traces, passed through a logarithm, gives the base-level activation.
 
-**Worked example.** A chunk was accessed 3 times: 10 seconds ago, 100 seconds ago, and 10,000 seconds ago.
+### Interactions, Not Seconds
+
+In the ACT-R literature, `t` is measured in seconds — laboratory experiments use wall-clock time. For the proxy, we measure `t` in **interactions**: gate decisions, dialog turns, discovery responses. Each interaction advances the clock by 1.
+
+This is a better fit than wall-clock time for three reasons:
+
+1. **Between sessions, nothing happens.** If the proxy handles 5 gates on Monday and none until Thursday, wall-clock decay would erode Monday's memories over 3 idle days. Interaction-based decay doesn't advance — no interactions means no decay, which is correct because nothing happened to make the memories less relevant.
+
+2. **Anderson & Schooler's empirical basis is event-based.** Their 1991 analysis measured word *occurrences* in newspaper headlines, child-directed speech, and email. The power-law pattern they found was in events (how many headlines ago did this word last appear?), not in seconds. The environment's statistical structure is event-based; so should the memory system's.
+
+3. **Experience scales with activity, not calendar time.** A proxy that handled 100 interactions over a busy week has far more trace accumulation than one that handled 5 over the same calendar period. The memory should reflect *experience*, not elapsed time.
+
+**Worked example.** A chunk was accessed 3 times: 2 interactions ago, 10 interactions ago, and 50 interactions ago.
 
 ```
-B = ln( 10^(-0.5) + 100^(-0.5) + 10000^(-0.5) )
-  = ln( 0.316 + 0.100 + 0.010 )
-  = ln( 0.426 )
-  = -0.853
+B = ln( 2^(-0.5) + 10^(-0.5) + 50^(-0.5) )
+  = ln( 0.707 + 0.316 + 0.141 )
+  = ln( 1.164 )
+  = 0.152
 ```
 
-Now suppose the chunk is accessed again (right now, t=0... well, t=1 second to avoid division by zero):
+Now the proxy has another interaction (the chunk is accessed again, t=1):
 
 ```
-B = ln( 1^(-0.5) + 11^(-0.5) + 101^(-0.5) + 10001^(-0.5) )
-  = ln( 1.000 + 0.302 + 0.100 + 0.010 )
-  = ln( 1.412 )
-  = 0.345
+B = ln( 1^(-0.5) + 3^(-0.5) + 11^(-0.5) + 51^(-0.5) )
+  = ln( 1.000 + 0.577 + 0.302 + 0.140 )
+  = ln( 2.019 )
+  = 0.703
 ```
 
-The activation jumped from -0.853 to 0.345 — the chunk went from hard to retrieve to easy to retrieve, because it was just accessed.
+The activation jumped from 0.152 to 0.703 — the chunk went from moderately accessible to highly accessible, because it was just accessed.
 
 **Key properties:**
 - Recent accesses contribute much more than old ones (power-law decay)
 - Many accesses accumulate — a chunk accessed 50 times decays much slower than one accessed once
 - The logarithm compresses the range — you need exponentially more accesses to get linear activation gains
-- At `d = 0.5`, a single trace loses half its contribution when the elapsed time quadruples
+- At `d = 0.5`, a single trace loses half its contribution when the interaction count quadruples
+- Between sessions, the interaction counter doesn't advance — memories don't decay while the system is idle
 
 ### Why d = 0.5?
 
-Anderson and Schooler (1991) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that a word encountered in the past would be relevant now followed a power function with an exponent near 0.5. The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug — it is a rational response to the statistics of the world.
+Anderson and Schooler (1991) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function with an exponent near 0.5. Crucially, their analysis was event-based — they measured relevance as a function of how many *events* ago something last appeared, not how many seconds. This is why interaction-based `t` is the natural unit: the empirical basis for `d = 0.5` was always about event intervals, not clock intervals.
 
-### Spreading Activation (S)
+The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug — it is a rational response to the statistics of the world.
 
-Spreading activation captures context: chunks related to what you're currently thinking about receive a boost.
+### Context Sensitivity: Structural Filtering + Semantic Retrieval
+
+In ACT-R, context sensitivity is handled by **spreading activation** — a tag-based mechanism where chunks associated with the current focus receive an activation boost. ACT-R uses this because it operates on symbolic representations that have no notion of semantic similarity.
+
+We have something better: **vector embeddings**. Each chunk's free-text content (the delta, the conversation, the observation) is embedded into a dense vector via the same embedding infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity, rather than indirectly via shared tags and fan effects.
+
+This is not a novel combination. Activation-weighted embedding retrieval is the pattern underlying modern AI memory systems, including Claude's own persistent memory. The approach is deployed at scale.
+
+The proxy's context sensitivity operates in two layers:
+
+**Structural filtering** narrows the search space using the chunk's categorical fields. "Show me memories from PLAN_ASSERT gates on security tasks" is a SQL query on `state` and `task_type`. This is fast, exact, and captures the relational structure that embeddings miss — the ordering of the tuple (who did what to whom at which gate) is preserved in the schema, not in the embedding.
+
+**Semantic ranking** orders the filtered results by meaning. Within the set of PLAN_ASSERT memories, "missing rollback plan" should rank near "no recovery strategy" even though the words differ. Cosine similarity on the embedded content handles this.
+
+The combined retrieval score:
 
 ```
-S = sum over all sources j:  W_j * S_ji
+score = activation_weight * B  +  semantic_weight * cosine(chunk_embedding, context_embedding)
 ```
 
 Where:
-- `j` ranges over the **sources of activation** — the chunks currently in the agent's focus (e.g., the current CfA state, the current task, the current lens)
-- `W_j` is the **attentional weight** of source j. The total attention is a fixed budget (standardly `W = 1.0`) divided among the sources: if there are 3 sources, each gets `W_j = 1/3`
-- `S_ji` is the **associative strength** from source j to chunk i
+- `B` is the base-level activation (recency and frequency)
+- `cosine(...)` is the semantic similarity between the chunk and the current context
+- `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
-The associative strength `S_ji` reflects how strongly j and i are connected:
-
-```
-S_ji = S_max - ln(fan_j)
-```
-
-Where:
-- `S_max` is the maximum associative strength (standardly **1.5**)
-- `fan_j` is the number of chunks associated with source j
-
-**The fan effect.** A source connected to many chunks spreads its activation thinly — each association is weaker. A source connected to few chunks concentrates its activation — each association is stronger. This is why specific contexts produce better retrieval than vague ones: "proxy at PLAN_ASSERT for security task" activates fewer, more relevant chunks than "proxy at any gate for any task."
-
-**Worked example.** The agent is currently focused on two things: the CfA state `PLAN_ASSERT` (associated with 8 chunks in memory) and the task type `security` (associated with 3 chunks in memory). The attention budget W = 1.0 is split evenly: W_j = 0.5 each.
-
-For a chunk that is associated with both sources:
-```
-S = 0.5 * (1.5 - ln(8)) + 0.5 * (1.5 - ln(3))
-  = 0.5 * (1.5 - 2.08) + 0.5 * (1.5 - 1.10)
-  = 0.5 * (-0.58) + 0.5 * (0.40)
-  = -0.29 + 0.20
-  = -0.09
-```
-
-For a chunk associated only with PLAN_ASSERT (not security):
-```
-S = 0.5 * (1.5 - ln(8)) + 0
-  = -0.29
-```
-
-The chunk associated with both the state and the task type gets more spreading activation than one associated with only the state. Context narrows retrieval.
+This replaces ACT-R's spreading activation equation (`S = Σ W_j * S_ji`) with a mechanism that is both simpler and more powerful:
+- No tag maintenance or fan-count bookkeeping
+- Semantic similarity captures relationships that no tag vocabulary could enumerate
+- Structural filtering preserves the tuple ordering that embeddings would lose
+- The base-level activation component is unchanged from ACT-R
 
 ### Noise
 
@@ -152,7 +156,7 @@ For implementation: sample from a logistic distribution with location 0 and scal
 
 ### Retrieval
 
-A chunk is retrieved if its total activation `A = B + S + noise` exceeds the **retrieval threshold** `tau`:
+A chunk is retrieved if its total score (combining activation, semantic similarity, and noise) exceeds the **retrieval threshold** `tau`:
 
 ```
 Retrieved if A > tau
@@ -180,17 +184,17 @@ Where `F` and `f` are scaling parameters (standardly `F = 1.0`, `f = 1.0`). High
 
 ## Standard Parameter Values
 
-| Parameter | Symbol | Standard Value | Role |
-|-----------|--------|---------------|------|
-| Decay | d | 0.5 | Power-law decay exponent for traces |
-| Noise | s | 0.25 | Scale of retrieval noise (logistic) |
-| Retrieval threshold | tau | -0.5 | Minimum activation for retrieval |
-| Max associative strength | S_max | 1.5 | Ceiling on source-to-chunk association |
-| Total attention | W | 1.0 | Budget split among spreading activation sources |
-| Latency factor | F | 1.0 | Scales retrieval time (not needed for proxy) |
-| Latency exponent | f | 1.0 | Scales retrieval time (not needed for proxy) |
+| Parameter | Symbol | Starting Value | Role | Source |
+|-----------|--------|---------------|------|--------|
+| Decay | d | 0.5 | Power-law decay exponent for traces | ACT-R standard; Anderson & Schooler 1991 |
+| Noise | s | 0.25 | Scale of retrieval noise (logistic) | ACT-R standard |
+| Retrieval threshold | tau | -0.5 | Minimum score for retrieval | ACT-R standard |
+| Activation weight | — | 0.5 | Weight of base-level activation in score | Design parameter; calibrate empirically |
+| Semantic weight | — | 0.5 | Weight of cosine similarity in score | Design parameter; calibrate empirically |
 
-These values are empirically validated across hundreds of ACT-R models. For the proxy implementation, start with the standard values and adjust only if calibration against real session data warrants it.
+The ACT-R parameters (d, s, tau) are empirically validated across hundreds of cognitive models. The activation/semantic weights are design parameters for the hybrid retrieval — start at equal weighting and adjust based on retrieval quality in real sessions.
+
+Note: ACT-R's spreading activation parameters (S_max, W, fan counts) are not used. Semantic similarity via embeddings replaces that mechanism entirely.
 
 ---
 
@@ -209,9 +213,9 @@ Each chunk represents a **memory of an interaction** between the proxy and the h
     "lens": "",                      # for discovery mode: which lens produced this
     "delta": "",                     # what the proxy got wrong (prediction vs reality)
     "context_tags": ["proxy", "plan", "security"],  # for spreading activation
-    "traces": [                      # list of (timestamp, access_type) pairs
-        (1710600000, "created"),
-        (1710686400, "retrieved"),
+    "traces": [                      # list of interaction sequence numbers
+        42,                          # created at interaction #42
+        47,                          # retrieved at interaction #47
     ]
 }
 ```
@@ -318,7 +322,7 @@ class MemoryChunk:
     delta: str                       # what was wrong / dismissal reason
     content: str                     # full text of the interaction
     context_tags: list[str]          # for spreading activation fan computation
-    traces: list[float]              # list of timestamps (epoch seconds)
+    traces: list[int]                # list of interaction sequence numbers
     embedding: list[float] | None    # vector embedding for hybrid retrieval
 ```
 
@@ -336,62 +340,130 @@ CREATE TABLE proxy_chunks (
     lens TEXT DEFAULT '',
     delta TEXT DEFAULT '',
     content TEXT NOT NULL,
-    context_tags TEXT NOT NULL,      -- JSON array
-    traces TEXT NOT NULL,            -- JSON array of epoch timestamps
+    traces TEXT NOT NULL,            -- JSON array of interaction sequence numbers
     embedding TEXT                   -- JSON array of floats
 );
+
+-- Global interaction counter (monotonically increasing)
+CREATE TABLE proxy_state (
+    key TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
+INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
 ```
 
 ### Core Functions
 
 ```python
-def base_level_activation(traces: list[float], now: float, d: float = 0.5) -> float:
-    """Compute B = ln(sum t_i^(-d)) for a chunk's trace history."""
+def base_level_activation(
+    traces: list[int], current_interaction: int, d: float = 0.5,
+) -> float:
+    """Compute B = ln(sum t_i^(-d)) for a chunk's trace history.
+
+    traces: list of interaction sequence numbers when this chunk was accessed.
+    current_interaction: the global interaction counter right now.
+    d: decay parameter (standard: 0.5).
+    """
     total = 0.0
-    for t in traces:
-        age = max(now - t, 1.0)  # avoid division by zero
+    for trace in traces:
+        age = max(current_interaction - trace, 1)  # interactions since this access
         total += age ** (-d)
     if total <= 0:
         return -float('inf')  # effectively forgotten
     return math.log(total)
 
-def spreading_activation(
-    chunk_tags: list[str],
-    source_tags: list[str],
-    s_max: float = 1.5,
+
+def retrieval_score(
+    chunk: MemoryChunk,
+    context_embedding: list[float],
+    current_interaction: int,
+    activation_weight: float = 0.5,
+    semantic_weight: float = 0.5,
+    d: float = 0.5,
+    s: float = 0.25,
 ) -> float:
-    """Compute S = sum W_j * S_ji for context-based boosting."""
-    if not source_tags:
-        return 0.0
-    w_j = 1.0 / len(source_tags)
-    # Precompute fan for each source tag (number of chunks associated with it)
-    # In practice, fan counts are cached and updated on chunk creation
-    total = 0.0
-    for tag in source_tags:
-        if tag in chunk_tags:
-            fan = get_fan_count(tag)  # how many chunks have this tag
-            s_ji = s_max - math.log(max(fan, 1))
-            total += w_j * s_ji
-    return total
+    """Compute the combined retrieval score for a chunk.
+
+    Combines ACT-R base-level activation (recency/frequency) with
+    semantic similarity (embedding cosine distance) plus noise.
+    """
+    b = base_level_activation(chunk.traces, current_interaction, d)
+    sem = cosine_similarity(chunk.embedding, context_embedding) if chunk.embedding else 0.0
+    noise = logistic_noise(s)
+    return activation_weight * b + semantic_weight * sem + noise
+
 
 def retrieve(
-    context_tags: list[str],
-    now: float,
+    state: str = '',
+    task_type: str = '',
+    context_text: str = '',
+    current_interaction: int = 0,
     tau: float = -0.5,
-    s: float = 0.25,
     top_k: int = 10,
 ) -> list[MemoryChunk]:
-    """Retrieve the top-k chunks above threshold, ordered by activation."""
-    results = []
-    for chunk in all_chunks():
-        b = base_level_activation(chunk.traces, now)
-        sp = spreading_activation(chunk.context_tags, context_tags)
-        noise = logistic_noise(s)
-        a = b + sp + noise
-        if a > tau:
-            results.append((a, chunk))
-    results.sort(key=lambda x: -x[0])
-    return [chunk for _, chunk in results[:top_k]]
+    """Retrieve the top-k chunks above threshold.
+
+    1. Structural filter: SQL query on state, task_type (exact match)
+    2. Semantic ranking: score by activation + embedding similarity
+    3. Threshold: discard chunks below tau
+    4. Return top-k by score
+    """
+    # Step 1: structural filter
+    candidates = query_chunks(state=state, task_type=task_type)
+
+    # Step 2: embed the current context
+    context_embedding = embed(context_text)
+
+    # Step 3: score and filter
+    scored = []
+    for chunk in candidates:
+        score = retrieval_score(chunk, context_embedding, current_interaction)
+        if score > tau:
+            scored.append((score, chunk))
+
+    # Step 4: top-k
+    scored.sort(key=lambda x: -x[0])
+    return [chunk for _, chunk in scored[:top_k]]
+
+
+def record_interaction(
+    chunk_id: str | None,
+    interaction_type: str,
+    state: str,
+    task_type: str,
+    outcome: str,
+    content: str,
+    delta: str = '',
+    lens: str = '',
+) -> MemoryChunk:
+    """Record an interaction as a memory chunk.
+
+    If chunk_id matches an existing chunk (reinforcement), adds a trace.
+    Otherwise creates a new chunk with its first trace.
+    Increments the global interaction counter.
+    """
+    current = increment_interaction_counter()
+
+    if chunk_id and chunk_exists(chunk_id):
+        # Reinforcement: add a trace to existing chunk
+        add_trace(chunk_id, current)
+        return get_chunk(chunk_id)
+
+    # New chunk
+    chunk = MemoryChunk(
+        id=generate_id(),
+        type=interaction_type,
+        state=state,
+        task_type=task_type,
+        outcome=outcome,
+        lens=lens,
+        delta=delta,
+        content=content,
+        traces=[current],
+        embedding=embed(content),
+    )
+    store_chunk(chunk)
+    return chunk
 ```
 
 ### Integration Points
@@ -439,6 +511,32 @@ The transition can be incremental:
 3. **Phase 3: Full replacement.** Remove EMA. The proxy's confidence comes entirely from what it retrieves and the LLM's reasoning over those memories.
 
 Phase 1 can start immediately — it requires only the chunk storage and retrieval functions, no changes to the proxy's decision path.
+
+---
+
+## What's Established vs. What's Novel
+
+This design combines components with very different levels of empirical support. An engineer should know which parts are solid ground and which require experimentation.
+
+### Established
+
+**ACT-R base-level activation** — the power-law decay equation (`B = ln(Σ t_i^(-d))`) with `d = 0.5`. Validated across hundreds of published cognitive models reproducing human memory performance (reaction times, error rates, forgetting curves). The most empirically grounded component of this design. Source: Anderson & Lebiere 1998; Anderson & Schooler 1991.
+
+**Interaction-based time units** — Anderson & Schooler's 1991 analysis measured relevance as a function of event intervals (how many headlines ago, how many emails ago), not clock time. Using interaction counts as `t` is faithful to the original empirical basis, not a deviation from it.
+
+**Embedding retrieval for semantic similarity** — dense vector embeddings with cosine similarity for document retrieval. Widely deployed, well-understood. We already use this in `memory_indexer.py`.
+
+**Activation-weighted embedding retrieval** — combining recency/frequency weighting with semantic similarity for memory retrieval. This is the pattern underlying modern AI memory systems (including Claude's persistent memory). Deployed at scale, not experimental.
+
+**LLM reasoning over retrieved memories to predict human behavior** — Park et al. (2024) built generative agent simulations of 1,052 real people from interview transcripts. The agents replicated survey responses with 85% accuracy using LLM in-context reasoning over retrieved personal data. This validates the premise that conversational history, retrieved by relevance, is sufficient context for an LLM to predict individual human behavior.
+
+### Design Parameters Requiring Calibration
+
+**Activation/semantic weight balance** (starting at 0.5 / 0.5) — how much to weight recency/frequency vs. semantic similarity. This balance likely varies by use case: gate decisions may favor activation (recent similar gates are most relevant), while discovery mode may favor semantics (topically related observations matter more than recent ones). Calibrate against real session data.
+
+**Retrieval threshold** (tau = -0.5) — the ACT-R standard was calibrated for human lab experiments. The right threshold for proxy memory retrieval may differ. Too low: noisy retrieval. Too high: useful memories missed. Shadow mode (Phase 1) will reveal the right value.
+
+**Chunk granularity** — what constitutes one chunk (a gate decision? a dialog turn? an observation + response?) is a design decision, not an empirical finding. The choices in this document are reasonable starting points but may need revision based on retrieval quality.
 
 ---
 
