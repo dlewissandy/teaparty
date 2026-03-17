@@ -15,6 +15,33 @@ But it is neither. It is a **conversational partner in a codebase review**, lear
 
 ---
 
+## Relationship to the Human Proxy
+
+The Code Collaborator is not a new agent. It is the **human proxy operating outside the CfA session boundary**.
+
+During an active session, the proxy models the human at approval gates — predicting whether the human would approve an artifact, learning from the delta when it's wrong, and gradually earning autonomy. It sees one artifact at one gate and makes one decision. Its world is the session.
+
+Between sessions, the same proxy has no gate to staff, no artifact to approve, no active CfA cycle. But it still has a model of the human, accumulated learning from past sessions, and access to the codebase. The Code Collaborator is what happens when the proxy uses those off-duty hours to read, reflect, and form opinions.
+
+The two modes share the same infrastructure:
+
+| | Gate Mode (during session) | Discovery Mode (between sessions) |
+|---|---|---|
+| **Models** | Human's approval decisions | Human's attention and priorities |
+| **Input** | Artifact at a CfA gate | Codebase through a cognitive lens |
+| **Output** | Approve / correct / escalate | Promote / dismiss / discuss |
+| **Learning signal** | Was the approval prediction right? | Was the observation valued? |
+| **Confidence model** | `.proxy-confidence.json` | Same file, different state keys |
+| **Escalation** | Ask the human when not confident | Surface a discussion topic |
+
+Both modes refine the same underlying model of the human. A proxy that learns during sessions — "this human cares about spec fidelity, dismisses style nits, always corrects plans that lack contingencies" — brings that understanding to its nightly reviews. Conversely, a discovery that gets promoted to an issue teaches the proxy what the human considers worth acting on, which calibrates its gate decisions in future sessions.
+
+This unification has a practical consequence: the proxy doesn't need a separate learning pipeline for discovery mode. The same `record_outcome` / `compute_confidence` / `calibrate` infrastructure that powers approval gates can power discovery confidence. The state keys differ (`DISCOVERY_SPEC_ALIGNMENT` vs. `PLAN_ASSERT`) but the mechanism is identical.
+
+It also means the Code Collaborator improves as the proxy improves. Every session makes the proxy a better model of the human. Every nightly review tests that model against a broader surface area than any single session provides. The two modes are a flywheel: sessions provide depth (concentrated feedback at gates), discovery provides breadth (diffuse feedback across the codebase).
+
+---
+
 ## What It Is
 
 An autonomous agent that periodically reviews the codebase through multiple conceptual lenses, produces discussion topics and defect reports, maintains them over time, and learns from human responses.
@@ -67,9 +94,9 @@ Each lens produces both defects (invariant violations, security issues) and obse
 
 ## Learning from Human Responses
 
-The Code Collaborator uses the **same proxy confidence model infrastructure** as the approval gates in the existing system. Instead of modeling "will the human approve this artifact?", it models "will the human find this observation valuable?"
+As established above, the Code Collaborator is the proxy in discovery mode. It uses the same confidence model infrastructure — not by analogy, but literally the same code path. The proxy's model of the human spans both modes: gate decisions during sessions and observation responses between sessions.
 
-After each human response, the agent updates its proxy model:
+After each human response to a discussion topic, the proxy updates its model:
 
 - **Promoted to issue** → increase confidence for similar observations, this lens's phrasing, and this code area
 - **Dismissed** → decrease confidence, record the dismissal reason as a differential signal
