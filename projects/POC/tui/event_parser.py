@@ -48,7 +48,7 @@ THINK_MAX = 120
 class EventParser:
     """Parse JSONL events and produce Rich Text for the activity log."""
 
-    def __init__(self, show_progress: bool = True):
+    def __init__(self, show_progress: bool = False):
         self.show_progress = show_progress
         self.prev_todos: dict[str, str] = {}
 
@@ -72,11 +72,23 @@ class EventParser:
         # Assistant messages
         if t == 'assistant':
             content = event.get('message', {}).get('content', [])
+            # Check if this event has a SendMessage or Task — if so, prefer
+            # those over raw text blocks (which are internal reasoning that
+            # gets repeated in the broadcast).  Issue #174.
+            has_communication = any(
+                isinstance(b, dict)
+                and b.get('type') == 'tool_use'
+                and b.get('name') in ('SendMessage', 'Task')
+                for b in content
+            )
             results = []
             for block in content:
                 if not isinstance(block, dict):
                     continue
                 bt = block.get('type', '')
+                # Suppress text blocks when a SendMessage/Task follows
+                if bt == 'text' and has_communication:
+                    continue
                 result = self._format_block(bt, block, label)
                 if result is not None:
                     results.append(result)

@@ -41,7 +41,7 @@ class DispatchDrilldownScreen(Screen):
         super().__init__()
         self._dispatch = dispatch
         self._parent_session = parent_session
-        self.parser = EventParser(show_progress=True)
+        self.parser = EventParser()
         self.watcher = StreamWatcher(callback=self._on_stream_event)
         self._scroll_locked = False
 
