@@ -142,7 +142,7 @@ Where:
 
 ## How Does the Proxy Use Retrieved Chunks?
 
-When the proxy needs to make a decision — whether to auto-approve at a gate, what observation to surface, how to respond in a discussion:
+When the proxy needs to act — what question to ask at a gate, what observation to surface, how to respond in a discussion:
 
 1. **Filter structurally.** SQL query on state, task_type to narrow candidates.
 2. **Score.** For each candidate, compute base-level activation + semantic similarity + noise.
@@ -155,19 +155,11 @@ When the proxy needs to make a decision — whether to auto-approve at a gate, w
 
 ## Replacing the Current Confidence Model
 
-The current model answers one question: "what is my confidence that this human will approve at this gate?" It answers with a scalar: the EMA approval rate.
+The current model asks: "what is my confidence that this human will approve?" — a scalar that gates a binary decision. The ACT-R model asks: "what would this human say right now?" — a set of retrieved memories that the proxy reasons over to generate the questions, concerns, and dialog the human would produce.
 
-The ACT-R model answers a richer question: "what do I know about how this human has responded in situations similar to this one?" It answers with a set of retrieved memories — specific past interactions, weighted by recency, frequency, and contextual relevance.
+The proxy doesn't transition from "always escalate" to "auto-approve." It transitions from "I don't know this human, so I must ask them everything" to "I know what this human would ask, so I can ask it on their behalf." The decision emerges from the dialog, not from a threshold.
 
-| Current Model | ACT-R Replacement |
-|---|---|
-| EMA approval rate per (state, task_type) | Retrieved chunks from similar contexts |
-| Cold start threshold (< 5 observations) | Low base-level activation (few traces) → chunks below retrieval threshold |
-| Staleness guard (7-day timeout) | Power-law decay — unused chunks naturally fall below threshold |
-| Asymmetric regret (3x penalty for corrections) | Correction chunks are more distinctive (higher delta) → more retrievable |
-| Exploration rate (15% random escalation) | Retrieval noise — sometimes unexpected chunks surface, changing the decision |
-
-The cold start behavior emerges naturally. With zero chunks, there's nothing to retrieve — the proxy has no basis for prediction and must escalate. As chunks accumulate, the retrieval set grows. The transition from "always escalate" to "sometimes auto-approve" to "usually auto-approve" happens without explicit thresholds — it's driven by the activation levels of the accumulated memories.
+EMA remains as a system health monitor — tracking approval rates per (state, task_type) over time. A declining EMA signals that upstream agents are producing worse artifacts, not that the proxy should change its behavior.
 
 ---
 
@@ -378,9 +370,9 @@ def record_interaction(
 
 ### Integration Points
 
-1. **`consult_proxy()` in `proxy_agent.py`** — replace `.proxy-confidence.json` load + Laplace/EMA with: retrieve chunks for the current context, pass to the proxy agent prompt.
+1. **`consult_proxy()` in `proxy_agent.py`** — add ACT-R memory retrieval: load relevant chunks into the proxy agent prompt so it can generate the dialog the human would produce. EMA continues to update as a monitoring signal.
 
-2. **`record_outcome()` in `scripts/approval_gate.py`** — replace EMA/Laplace update with: create a new chunk (or reinforce an existing one).
+2. **`record_outcome()` in `scripts/approval_gate.py`** — add chunk creation alongside the existing EMA update. Both systems record the outcome; they serve different purposes.
 
 3. **`_calibrate_confidence()` in `proxy_agent.py`** — replace scalar confidence computation with: the retrieval set IS the confidence signal. The LLM reads the memories and calibrates itself.
 

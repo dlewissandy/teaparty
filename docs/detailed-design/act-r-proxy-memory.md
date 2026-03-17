@@ -1,6 +1,6 @@
 # ACT-R Memory Model for the Human Proxy
 
-This document describes how to replace the proxy agent's current confidence model (EMA + Laplace estimates) with an activation-based memory system derived from the ACT-R cognitive architecture.
+This document describes the proxy agent's memory architecture: an activation-based memory system derived from ACT-R for modeling how the human thinks, combined with EMA as a system health monitor.
 
 For the theory and equations, see [act-r.md](act-r.md).
 For the concrete proxy mapping, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md).
@@ -8,19 +8,33 @@ For the two-pass prediction model and learned attention, see [act-r-proxy-sensor
 
 ---
 
-## Why Replace the Current Model
+## The Proxy's Job
 
-The proxy currently tracks confidence as a single scalar per (state, task_type) pair — an exponential moving average of approval rates plus a Laplace smoothed estimate. This works for the narrow question "should I auto-approve at this gate?" but fails in several ways:
+The proxy's job is not to approve or reject. It is to **proxy the behavior of the human** — ask the questions the human would ask, probe the reasoning the human would probe, raise the concerns the human would raise, and reach a decision only after the kind of dialog the human would have conducted. Approval or rejection is the final act of a rich conversation, not a binary gate.
 
-**No forgetting toward baseline.** EMA decays toward the running average. If the human dismissed 10 observations during a spec rewrite, EMA drives confidence to zero for that category. When the spec stabilizes, the proxy won't recover without new positive signal. It has "learned" that spec alignment doesn't matter — permanently.
+This means the proxy needs to model how the human *thinks*, not just what they *decide*. What do they attend to? What questions do they ask? What concerns recur? How do they reason about tradeoffs? None of this is a scalar.
 
-**No context sensitivity.** The proxy at PLAN_ASSERT retrieves the same confidence whether the human is reviewing a plan for a security feature or a documentation update. The current model has no mechanism for context to influence retrieval.
+## Two Systems, Two Roles
 
-**No distinction between habitual and episodic patterns.** "This human always cares about containment" (reinforced across 20 sessions) and "this human rejected the last plan" (one event) are stored with the same machinery. The model can't distinguish stable preferences from one-off reactions.
+**ACT-R activation memory** models the human's thinking. It stores memories of past interactions — the questions the human asked, the concerns they raised, the reasoning they applied, the corrections they made. Retrieval surfaces the memories most relevant to the current context, giving the proxy the raw material to simulate the human's conversational behavior. This is the core of the proxy's cognitive capability.
 
-**No connection between gate mode and discovery mode.** The proxy operates in two modes — staffing approval gates during sessions and reviewing the codebase between sessions (see [autodiscovery.md](../autodiscovery.md)). Both modes need the same memory of the human, but the current scalar model can't represent the richer interactions that discovery mode produces.
+**EMA** monitors system health. It tracks approval rates per (state, task_type) over time — not to decide whether to approve, but to detect trends. "The approval rate at PLAN_ASSERT dropped from 0.8 to 0.4 over 10 sessions" doesn't mean "escalate more." It means "the planning agent is producing worse plans and the proxy is catching it." EMA is a diagnostic signal about how well the upstream agents are performing, not a decision mechanism for the proxy.
 
-ACT-R's declarative memory model solves all four problems with a single mechanism.
+The current system conflates these roles — EMA drives the approve/escalate decision. The new design separates them: ACT-R memory drives the proxy's behavior (what questions to ask, what to attend to, what the human would say). EMA observes the outcomes and reports on system health.
+
+## What Changes in the Current Model
+
+The current model uses EMA as a decision gate: confidence above threshold → auto-approve, below → escalate. This fails because:
+
+**It skips the dialog.** A high EMA means the proxy auto-approves without asking any questions. The human would have asked questions — probed the artifact, challenged assumptions, verified completeness — even when they ultimately approve. The dialog is how quality is maintained. Skipping it because the trend is positive is rubber-stamping.
+
+**It has no context sensitivity.** The same EMA applies whether the human is reviewing a security plan or a documentation update. The proxy can't ask different questions for different artifacts.
+
+**It can't distinguish habitual from episodic patterns.** "This human always asks about rollback plans" (stable) and "this human rejected the last plan" (one-off) are invisible to a scalar.
+
+**It has no connection to discovery mode.** The proxy's between-session reviews (see [autodiscovery.md](../autodiscovery.md)) produce richer interactions than a scalar can represent.
+
+ACT-R activation memory solves these problems. EMA stays, reframed as monitoring.
 
 ---
 
@@ -41,22 +55,18 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 ## What Changes, What Stays
 
 **Changes:**
-- `.proxy-confidence.json` (scalar EMA/Laplace per state-task pair) → `proxy_memory.db` (chunk-based activation memory)
-- `compute_confidence()` → `retrieve()` + LLM reasoning over retrieved chunks
-- `record_outcome()` → chunk creation with traces
-- Cold start threshold (hardcoded 5 observations) → emergent from low activation
-- Staleness guard (hardcoded 7 days) → emergent from power-law decay
-- Exploration rate (hardcoded 15%) → emergent from retrieval noise
+- EMA role: from decision gate (approve/escalate) to system health monitor (are upstream agents improving?)
+- Memory: from scalar per state-task pair to chunk-based activation memory (`proxy_memory.db`)
+- Decision process: from threshold check to simulated dialog (proxy asks the questions the human would ask, then decides)
+- `consult_proxy()`: from confidence lookup to retrieval + LLM reasoning over past interactions
 
 **Stays:**
+- `.proxy-confidence.json` — still tracks EMA per state-task pair, now as a monitoring signal
 - The proxy agent prompt structure (receives context, generates prediction)
 - The proxy agent's tools (file read, dialog)
-- The escalation decision point (confident → act, not confident → ask)
 - The delta-based learning signal (prediction vs. reality)
 - The intake dialog flow
 - The discovery mode concept and discussion lifecycle
-
-The architectural change is in *how the proxy knows what it knows* — not in what it does with that knowledge.
 
 ---
 
@@ -64,11 +74,11 @@ The architectural change is in *how the proxy knows what it knows* — not in wh
 
 The transition can be incremental:
 
-1. **Phase 1: Shadow mode.** Run ACT-R retrieval alongside the existing EMA model. Log both decisions. Compare. Don't change behavior yet.
-2. **Phase 2: Hybrid.** Use ACT-R retrieval to enrich the proxy agent's prompt (pass retrieved memories as context) while still using EMA for the auto-approve/escalate decision.
-3. **Phase 3: Full replacement.** Remove EMA. The proxy's confidence comes entirely from what it retrieves and the LLM's reasoning over those memories.
+1. **Phase 1: Shadow mode.** Run ACT-R retrieval alongside the existing model. The proxy generates dialog from retrieved memories but the existing EMA gate still controls the actual decision. Log the proxy's dialog and compare against what the human actually said.
+2. **Phase 2: Dialog mode.** The proxy's retrieved memories drive the full dialog — questions, follow-ups, reasoning — before reaching a decision. EMA continues to track outcomes as a health monitor.
+3. **Phase 3: Integrated.** ACT-R memory, two-pass prediction, and EMA monitoring are unified. The proxy conducts the dialog the human would have conducted. EMA surfaces trends in system performance.
 
-Phase 1 can start immediately — it requires only the chunk storage and retrieval functions, no changes to the proxy's decision path.
+Phase 1 can start immediately — it requires only the chunk storage and retrieval functions.
 
 ---
 
