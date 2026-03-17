@@ -26,7 +26,7 @@ Activation is not a fixed property. It changes continuously based on two factors
 
 ## Base-Level Activation (B)
 
-Base-level activation reflects how often and how recently a chunk has been accessed:
+Base-level activation reflects how often and how recently a chunk has been accessed (Anderson & Lebiere, 1998, Chapter 4; equation simplified from ACT-R Tutorial Unit 4):
 
 ```
 B = ln( sum over all accesses i:  t_i ^ (-d) )
@@ -84,13 +84,15 @@ The activation jumped from 0.152 to 0.703 — the chunk went from moderately acc
 
 ### Why d = 0.5?
 
-Anderson and Schooler (1991) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function with an exponent near 0.5. Crucially, their analysis was event-based — they measured relevance as a function of how many *events* ago something last appeared, not how many seconds. This is why interaction-based `t` is the natural unit: the empirical basis for `d = 0.5` was always about event intervals, not clock intervals.
+Anderson & Schooler (1991, "Reflections of the environment in memory," *Psychological Science* 2(6), 396-408) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function with an exponent near 0.5. Crucially, their analysis was event-based — they measured relevance as a function of how many *events* ago something last appeared, not how many seconds. This is why interaction-based `t` is the natural unit: the empirical basis for `d = 0.5` was always about event intervals, not clock intervals.
 
 The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug — it is a rational response to the statistics of the world.
 
 ---
 
 ## Noise
+
+Retrieval noise follows a logistic distribution (Anderson & Lebiere, 1998, Chapter 4):
 
 ```
 noise ~ Logistic(0, s)
@@ -104,7 +106,7 @@ For implementation: sample from a logistic distribution with location 0 and scal
 
 ## Retrieval
 
-A chunk is retrieved if its activation exceeds the **retrieval threshold** `tau`:
+A chunk is retrieved if its activation exceeds the **retrieval threshold** τ (Anderson & Lebiere, 1998, Chapter 4):
 
 ```
 Retrieved if A > tau
@@ -112,7 +114,7 @@ Retrieved if A > tau
 
 The standard value is `tau = -0.5`. Chunks with activation below this threshold are effectively forgotten — they exist in memory but cannot be accessed.
 
-The **probability of retrieval** follows a soft threshold (not a hard cutoff):
+The **probability of retrieval** follows a soft threshold (Anderson & Lebiere, 1998, eq. 4.4):
 
 ```
 P(retrieve) = 1 / (1 + exp(-(A - tau) / s))

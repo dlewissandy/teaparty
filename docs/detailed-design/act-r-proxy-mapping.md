@@ -121,7 +121,7 @@ Retrieval operates in two layers:
 
 **Semantic ranking** orders the filtered results by meaning. Within the set of PLAN_ASSERT memories, "missing rollback plan" should rank near "no recovery strategy" even though the words differ. Cosine similarity on the embedded content handles this.
 
-The combined retrieval score:
+The combined retrieval score (TeaParty design — not an ACT-R equation; replaces ACT-R's spreading activation with embedding similarity):
 
 ```
 score = activation_weight * B  +  semantic_weight * cosine(chunk_embedding, context_embedding)  +  noise
