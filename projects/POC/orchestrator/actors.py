@@ -199,7 +199,7 @@ class AgentRunner:
             'command': 'python3 projects/POC/orchestrator/worktree_hook.py',
         }
         hooks = settings.setdefault('hooks', [])
-        for tool in ('Read', 'Edit', 'Write'):
+        for tool in ('Read', 'Edit', 'Write', 'Glob', 'Grep'):
             hooks.append({
                 'event': 'PreToolUse',
                 'matchers': [{'tool': tool}],

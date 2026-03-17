@@ -203,7 +203,7 @@ class TestWorktreeJailHookWired(unittest.TestCase):
                 for m in hook.get('matchers', []):
                     hook_tools.add(m.get('tool'))
 
-        for tool in ('Read', 'Edit', 'Write'):
+        for tool in ('Read', 'Edit', 'Write', 'Glob', 'Grep'):
             self.assertIn(tool, hook_tools,
                           f'Missing PreToolUse jail hook for {tool}')
 
@@ -299,10 +299,10 @@ class TestWorktreeHook(unittest.TestCase):
     def setUp(self):
         self.worktree = '/Users/darrell/git/teaparty-issue-42'
 
-    def _check(self, tool_name, file_path):
+    def _check(self, tool_name, target_path, param='file_path'):
         from projects.POC.orchestrator.worktree_hook import _check
         with patch('os.getcwd', return_value=self.worktree):
-            return _check(tool_name, {'file_path': file_path})
+            return _check(tool_name, {param: target_path})
 
     def test_relative_path_allowed(self):
         """Relative paths are always allowed — they resolve within worktree."""
@@ -333,20 +333,11 @@ class TestWorktreeHook(unittest.TestCase):
         self.assertIn('projects/POC/orchestrator/session.py', result['reason'])
         self.assertIn('relative path', result['reason'])
 
-    def test_absolute_to_own_worktree_write_verb(self):
-        """Write tool gets 'write' verb in suggestion."""
-        result = self._check('Write', self.worktree + '/file.txt')
-        self.assertIn('write', result['reason'])
-
-    def test_absolute_to_own_worktree_read_verb(self):
-        """Read tool gets 'read' verb in suggestion."""
-        result = self._check('Read', self.worktree + '/file.txt')
-        self.assertIn('read', result['reason'])
-
-    def test_absolute_to_own_worktree_edit_verb(self):
-        """Edit tool gets 'write' verb in suggestion."""
-        result = self._check('Edit', self.worktree + '/file.txt')
-        self.assertIn('write', result['reason'])
+    def test_absolute_to_own_worktree_suggests_instead(self):
+        """All tools get the same 'instead' message for own-worktree absolute paths."""
+        for tool in ('Read', 'Edit', 'Write'):
+            result = self._check(tool, self.worktree + '/file.txt')
+            self.assertIn('instead', result['reason'])
 
     def test_empty_file_path_allowed(self):
         """Missing or empty file_path is allowed (e.g. Glob patterns)."""
@@ -365,6 +356,37 @@ class TestWorktreeHook(unittest.TestCase):
         result = self._check('Read', self.worktree)
         self.assertFalse(result['allowed'])
         self.assertIn('relative path', result['reason'])
+
+    # ── Glob/Grep path parameter ──
+
+    def test_glob_absolute_outside_blocked(self):
+        """Glob with absolute path outside worktree is blocked."""
+        result = self._check('Glob', '/tmp/other/dir', param='path')
+        self.assertFalse(result['allowed'])
+        self.assertEqual(result['reason'], 'You are restricted to files in your worktree')
+
+    def test_glob_absolute_own_worktree_suggests_relative(self):
+        """Glob with absolute path to own worktree suggests relative."""
+        result = self._check('Glob', self.worktree + '/projects/POC', param='path')
+        self.assertFalse(result['allowed'])
+        self.assertIn('projects/POC', result['reason'])
+
+    def test_glob_relative_allowed(self):
+        """Glob with relative path is allowed."""
+        result = self._check('Glob', 'projects/POC', param='path')
+        self.assertTrue(result['allowed'])
+
+    def test_grep_absolute_outside_blocked(self):
+        """Grep with absolute path outside worktree is blocked."""
+        result = self._check('Grep', '/usr/local/src', param='path')
+        self.assertFalse(result['allowed'])
+
+    def test_grep_no_path_allowed(self):
+        """Grep with no path (searches cwd) is allowed."""
+        from projects.POC.orchestrator.worktree_hook import _check
+        with patch('os.getcwd', return_value=self.worktree):
+            result = _check('Grep', {'pattern': 'foo'})
+        self.assertTrue(result['allowed'])
 
 
 if __name__ == '__main__':
