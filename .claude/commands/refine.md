@@ -16,6 +16,14 @@ SLUG = basename of root document without extension
 WORKDIR = refinement/${SLUG}
 ```
 
+### Clean Previous Run
+
+If `${WORKDIR}` exists from a prior run, delete it entirely before proceeding. Stale anchors, drafts, and round outputs from a previous refinement will contaminate the new run.
+
+```
+rm -rf ${WORKDIR}
+```
+
 ### Discover the Document Set
 
 Starting from ROOT, follow all relative markdown links (`[text](path.md)`) to find the full set of documents. Only follow links to `.md` files within the same directory or subdirectories. This produces a document set — the root plus all linked sub-documents.
