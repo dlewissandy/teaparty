@@ -96,60 +96,84 @@ Each lens produces both defects (invariant violations, security issues) and obse
 
 ---
 
-## Learning, Forgetting, and the Baseline
+## Memory Model: ACT-R Activation
 
-### The Baseline Prior
+The Code Collaborator's memory — its accumulated understanding of what this human cares about, how they reason, which observations resonate — follows the ACT-R cognitive architecture's declarative memory model. This isn't a metaphor. ACT-R is a computational model of human cognition developed by John Anderson at Carnegie Mellon, validated against hundreds of experiments on human memory, learning, and forgetting. We adopt its activation equation because it solves the learning, forgetting, and multidimensionality problems in a principled way.
 
-The Code Collaborator starts with a **baseline** — a prior belief about what matters, before any human feedback. The cognitive lenses (learning, architecture, emergence, self-deception) and engineering lenses (spec alignment, containment) define this prior. Each lens has a baseline weight representing the agent's default belief about its importance.
+### The Activation Equation
 
-Night one, everything is at baseline. The agent generates observations across all lenses proportional to their baseline weights. It has no model of what this human cares about, so it asks about everything the lenses suggest.
+Every memory chunk — every past interaction, every promote/dismiss decision, every conversational exchange — has an **activation level** that determines how accessible it is:
 
-This is the cold start — and it's principled. The agent isn't guessing or generating noise. It's asking: "Here's what my expertise says matters. Which of these resonate with you?"
+```
+A = B + S + noise
+```
 
-### Specialization Through Feedback
+**Base-level activation (B)** captures learning from experience:
 
-Human responses specialize the model away from the baseline. As established above, the Code Collaborator is the proxy in discovery mode — same confidence infrastructure, same learning pipeline.
+```
+B = ln(Σ t_i^(-d))    where d ≈ 0.5
+```
 
-After each human response to a discussion topic, the proxy updates its model:
+Each time a memory is accessed or reinforced, it gets a **trace**. Each trace decays as a power function of time since that access (`t^-0.5`). The sum of all decaying traces determines the chunk's current activation. This single equation produces all of the following behaviors:
 
-- **Promoted to issue** → increase confidence for this lens, this code area, this type of observation
-- **Dismissed** → decrease confidence, record the dismissal reason as a differential
-- **Discussed** → intermediate signal — the human engaged but didn't act, which is different from both promoting and dismissing
+- **Recency**: recent traces contribute more activation than old ones
+- **Frequency**: memories accessed many times have many overlapping traces — they stay active longer
+- **Forgetting**: memories with a single trace (one-off events) decay quickly; memories with many traces (habitual patterns) decay slowly
+- **Power-law forgetting**: the decay curve matches empirical human forgetting data — fast initial drop, long slow tail
 
-Over time, the model specializes: "This human cares deeply about spec alignment violations but dismisses style nits." "Containment issues always get promoted." "Learning-loop observations only resonate when they include session data as evidence."
+The critical insight: **there is no separate decay rate for different memory types.** The same equation governs everything. What differs is the **reinforcement pattern**:
 
-### Principled Forgetting
+| Pattern | Example | Traces | Emergent Behavior |
+|---|---|---|---|
+| Habitual | "Human always cares about containment" | Many traces, spread over months | High activation, very slow decay |
+| Contextual | "Human is currently interested in multi-agency" | Cluster of recent traces | High activation now, decays as context shifts |
+| Episodic | "Human was frustrated on Tuesday" | Single trace | Low activation, decays quickly |
 
-Without forgetting, the model becomes rigid. A dismissal from six months ago about a module that's been rewritten twice shouldn't still suppress observations about that module. An approval pattern learned during a sprint of security work shouldn't permanently bias the model toward containment findings after the sprint ends.
+A stable preference doesn't need a special "don't decay" flag. It stays active because the human keeps reinforcing it. An intellectual interest doesn't need a "drifting" tag. It naturally fades when the human stops engaging with it. A one-off mood doesn't need a "volatile" marker. It has one trace and decays on its own.
 
-The model must decay back toward the baseline in the absence of reinforcing signal. This is the same dynamic as biological memory:
+### Spreading Activation (S)
 
-- **Short-term**: an observation was just made, fully weighted in the model
-- **Consolidation**: the human responded (promote/dismiss/discuss), the response becomes a learned pattern
-- **Decay**: without reinforcement, the pattern fades toward the baseline prior
+The `S` component captures context: related chunks activate each other. When the agent is thinking about "proxy learning," chunks related to "confidence model," "approval gates," and "backtrack patterns" receive partial activation. This is how context shapes retrieval — the agent remembers things related to what it's currently thinking about.
 
-The mechanics:
+For the Code Collaborator, spreading activation means:
+- When reviewing through the "Learning and Development" lens, past interactions about proxy convergence, feedback loops, and learning extraction become more retrievable — even if they weren't tagged with that lens
+- When the human asks about backtracks, the agent's memory of past conversations about plan quality, intent specificity, and execution failures all become partially active
+- Connections between topics emerge naturally from the activation network rather than being explicitly coded
 
-Each confidence entry carries a `last_reinforced` timestamp. A decay function pulls confidence toward the **baseline rate** over time, not toward zero or toward the running average. The distinction matters:
+### How This Replaces the Ad-Hoc Design
 
-- **EMA decay** (what the proxy currently uses) decays toward the running average. If the human dismissed 10 spec-alignment observations in a row because the spec was in flux, EMA drives confidence to zero for that lens. When the spec stabilizes, the agent won't recover without new positive signal — it has "learned" that spec alignment doesn't matter.
+The earlier sections of this document proposed baseline priors, half-life parameters, and separate decay rates for promotions vs. dismissals. ACT-R replaces all of that:
 
-- **Baseline decay** returns to the prior. After the dismissals stop, confidence drifts back toward "I don't know what this human currently thinks about spec alignment, so I'll raise it again." The baseline represents the agent's *expertise* about what matters; the specialization represents what *this human* has told it. Forgetting the specialization doesn't erase the expertise.
+**Cold start.** Night one, all chunks have zero traces. The agent has no model of what this human cares about. It falls back on its expertise (the cognitive and engineering lenses) and generates observations broadly. Each human response creates traces. After a few nights, the activation pattern reflects what resonated.
 
-The half-life is a design parameter. Too short (days) and the model never stabilizes — it keeps re-asking about things the human already dismissed. Too long (months) and it's effectively permanent. A reasonable starting point: **30-day half-life** for dismissals, **60-day half-life** for promotions. Promotions decay slower because acting on an observation is a stronger signal than dismissing one.
+**Specialization.** The human promotes containment findings three times in a row. Each promotion creates a trace on "containment → promoted." The base-level activation of that pattern rises. The agent generates more containment observations because the retrieval of "human values containment" is highly active.
+
+**Forgetting.** The human stops promoting containment findings (maybe the security sprint ended). No new traces. The existing traces decay. After enough time, "human values containment" drops below the retrieval threshold. The agent's behavior drifts back toward its baseline expertise — not because of a configured half-life, but because the activation equation naturally produces that behavior.
+
+**Context sensitivity.** The human is working on the proxy this week. Conversations about the proxy create traces that spread activation to related concepts — learning, confidence, escalation. The agent's nightly review is primed to notice proxy-related patterns because the activation network is lit up in that region. Next week, when the human shifts to the TUI, the activation shifts with them.
+
+**No special cases.** The same equation handles the favorite-color problem (frequent reinforcement → stable), the mood problem (single trace → fast decay), and the intellectual-preference problem (context-dependent reinforcement → drifts with context). No tagging, no type system, no separate decay parameters.
 
 ### Consequences for Grooming
 
-Principled forgetting changes grooming economics. Instead of re-evaluating every open discussion against current code (expensive — one LLM call per discussion), old discussions that haven't been engaged with simply decay in significance. A 30-day-old discussion the human never looked at drops in significance naturally. The nightly groom only needs to re-evaluate discussions that:
+Grooming becomes activation-based. Open discussions that haven't been engaged with lose activation naturally — their traces decay. The nightly groom only needs to attend to discussions that:
 
-1. Reference code chunks whose hashes changed (the code evolved)
-2. Have been explicitly engaged with recently (the human is actively discussing)
+1. Have high activation (recently engaged, frequently reinforced)
+2. Reference code chunks whose hashes changed (the code evolved under an active discussion)
 
-Everything else decays quietly. This bounds grooming cost to the number of *active* discussions plus *changed* discussions, not the total number of open discussions.
+Low-activation discussions don't need re-evaluation. They're effectively forgotten until something re-activates them — a new conversation on a related topic, a code change in the referenced area, or the agent's spreading activation from a related lens.
 
-### Consequences for Cold Start
+### Consequences for Episodic Memory
 
-Cold start is now well-defined: everything at baseline, no specialization, no history. The first few nights are exploratory — the agent surfaces observations across all lenses and learns from the human's responses which specializations to develop. This mirrors how a new colleague operates: broad observations at first, increasingly targeted as they learn what you care about.
+The conversation history (described in the Collaboration Dynamics section) is indexed as chunks in the same activation system. Each conversational turn is a chunk with traces from when it was created and any subsequent retrievals. When the agent formulates a response, it retrieves past interactions by activation — which naturally favors recent, frequently-referenced, and contextually-relevant conversations.
+
+A conversation from three months ago about a rewritten module has low activation: its traces have decayed, and no new interactions have reinforced it. A conversation from last week about a pattern the human is currently working on has high activation: recent traces, plus spreading activation from the current context.
+
+### References
+
+- Anderson, J. R. (2007). *How Can the Human Mind Occur in the Physical Universe?* Oxford University Press. — The definitive ACT-R reference.
+- Anderson, J. R., & Schooler, L. J. (1991). Reflections of the environment in memory. *Psychological Science*, 2(6), 396-408. — Empirical basis for the power-law decay parameter.
+- Tulving, E. (1972). Episodic and semantic memory. In E. Tulving & W. Donaldson (Eds.), *Organization of Memory*. Academic Press. — The multiple memory systems framework that ACT-R's activation model unifies.
 
 ---
 
