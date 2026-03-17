@@ -185,10 +185,11 @@ class AgentRunner:
         # Resolve agent definition file
         agents_path = os.path.join(ctx.poc_root, ctx.phase_spec.agent_file)
 
-        # Build settings with env vars and permissions
+        # Build settings — do NOT inject env_vars into settings env.
+        # Issue #150: absolute paths in settings leak into agent context,
+        # causing agents to write to wrong locations.  Env vars are still
+        # available to subprocesses (dispatch_cli.py) via ClaudeRunner._build_env().
         settings = dict(ctx.phase_spec.settings_overlay)
-        if ctx.env_vars:
-            settings.setdefault('env', {}).update(ctx.env_vars)
 
         runner = ClaudeRunner(
             prompt=prompt,

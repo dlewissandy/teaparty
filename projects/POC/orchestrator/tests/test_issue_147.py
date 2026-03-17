@@ -136,33 +136,26 @@ class TestProceduralLearningReadsInfraDir(unittest.TestCase):
 # ── Agent --add-dir includes infra_dir ──────────────────────────────────
 
 
-class TestAddDirsIncludesInfraDir(unittest.TestCase):
-    """Agents must receive infra_dir via --add-dir so they can read artifacts."""
+class TestAddDirsEmpty(unittest.TestCase):
+    """_build_add_dirs must return empty — superseded by issue #150.
 
-    def test_build_add_dirs_includes_infra_dir(self):
-        """_build_add_dirs includes infra_dir so agents can read INTENT.md/PLAN.md."""
+    Issue #147 originally added infra_dir to --add-dir so agents could read
+    artifacts. Issue #150 removed all --add-dir flags because absolute paths
+    leak into agent context, causing writes to wrong locations. Artifacts
+    are now accessed from within the worktree.
+    """
+
+    def test_build_add_dirs_returns_empty(self):
+        """_build_add_dirs returns empty list (issue #150)."""
         from projects.POC.orchestrator.engine import Orchestrator
 
-        # Minimal orchestrator with distinct paths
         orch = Orchestrator.__new__(Orchestrator)
         orch.session_worktree = '/tmp/worktree'
         orch.project_workdir = '/tmp/project'
         orch.infra_dir = '/tmp/infra'
 
         dirs = orch._build_add_dirs()
-        self.assertIn('/tmp/infra', dirs)
-
-    def test_build_add_dirs_no_duplicate(self):
-        """infra_dir is not duplicated if it equals another dir."""
-        from projects.POC.orchestrator.engine import Orchestrator
-
-        orch = Orchestrator.__new__(Orchestrator)
-        orch.session_worktree = '/tmp/same'
-        orch.project_workdir = '/tmp/same'
-        orch.infra_dir = '/tmp/same'
-
-        dirs = orch._build_add_dirs()
-        self.assertEqual(dirs.count('/tmp/same'), 1)
+        self.assertEqual(dirs, [])
 
 
 # ── Merge exclusion safety net ─────────────────────────────────────────────

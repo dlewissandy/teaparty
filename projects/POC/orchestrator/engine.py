@@ -874,13 +874,8 @@ class Orchestrator:
         }
 
     def _build_add_dirs(self) -> list[str]:
-        dirs = []
-        if self.session_worktree:
-            dirs.append(self.session_worktree)
-        if self.project_workdir and self.project_workdir != self.session_worktree:
-            dirs.append(self.project_workdir)
-        # Include infra_dir so agents can read session artifacts
-        # (INTENT.md, PLAN.md) that live there (Issue #147).
-        if self.infra_dir and self.infra_dir not in dirs:
-            dirs.append(self.infra_dir)
-        return dirs
+        # Issue #150: return empty — agents must not receive --add-dir flags.
+        # The worktree (set as cwd) contains everything the agent needs.
+        # Extra --add-dir paths leak absolute paths into the agent's context,
+        # causing writes to wrong locations.
+        return []
