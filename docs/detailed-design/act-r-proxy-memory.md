@@ -72,32 +72,6 @@ Phase 1 can start immediately — it requires only the chunk storage and retriev
 
 ---
 
-## What's Established vs. What's Novel
-
-This design combines components with very different levels of empirical support. An engineer should know which parts are solid ground and which require experimentation.
-
-### Established
-
-**ACT-R base-level activation** — the power-law decay equation with `d = 0.5`. Validated across hundreds of published cognitive models. The most empirically grounded component of this design. Source: Anderson & Lebiere 1998; Anderson & Schooler 1991.
-
-**Interaction-based time units** — Anderson & Schooler's 1991 analysis measured relevance as a function of event intervals, not clock time. Using interaction counts as `t` is faithful to the original empirical basis.
-
-**Embedding retrieval for semantic similarity** — dense vector embeddings with cosine similarity. Widely deployed, well-understood. We already use this in `memory_indexer.py`.
-
-**Activation-weighted embedding retrieval** — combining recency/frequency weighting with semantic similarity. This is the pattern underlying modern AI memory systems (including Claude's persistent memory). Deployed at scale.
-
-**LLM reasoning over retrieved memories to predict human behavior** — Park et al. (2024) built generative agent simulations of 1,052 real people from interview transcripts, achieving 85% accuracy using LLM in-context reasoning over retrieved personal data.
-
-### Design Parameters Requiring Calibration
-
-**Activation/semantic weight balance** (starting at 0.5 / 0.5) — how much to weight recency/frequency vs. semantic similarity. Calibrate against real session data.
-
-**Retrieval threshold** (tau = -0.5) — the ACT-R standard was calibrated for human lab experiments. The right threshold for proxy memory retrieval may differ. Shadow mode (Phase 1) will reveal the right value.
-
-**Chunk granularity** — what constitutes one chunk is a design decision, not an empirical finding. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md) for the current choices.
-
----
-
 ## Future Direction: KV Cache as Working Memory
 
 The current design retrieves memory chunks as text, inserts them into the LLM prompt, and reprocesses them from tokens on every call. This works but misses a deeper alignment between ACT-R's cognitive architecture and the LLM's native machinery. This section specifies what a KV-cache-based architecture would look like concretely.
@@ -187,28 +161,7 @@ MemoryChunk
     embedding_situation, _stimulus, _response, _salience — independent vectors
 ```
 
-### Structured Output Format
-
-Both passes produce `ACTION<TAB>PROSE` — the same format used by the existing `classify_review.py`. Parsing extracts the first line, splits on tab, lowercases the action. The structured format makes prior/posterior comparison deterministic on the action and semantic on the prose.
-
-### Surprise Extraction
-
-Only runs when the action changed (strong surprise). Confirmed predictions (no surprise) cost 2 LLM calls. Surprises cost 4. Since most gate interactions should be unsurprising (the proxy's prior is usually right), the average cost approaches 2 calls, not 4.
-
-**Extract what changed**: LLM receives both prose traces, returns one sentence describing what the artifact revealed.
-
-**Extract salient features**: LLM receives both prose traces, returns a list of short feature descriptions (e.g., "no rollback strategy", "migration risk").
-
-Both extraction calls are short-context (~200 tokens each) and cheap relative to the full-context passes.
-
-### Cost Per Gate
-
-| Scenario | LLM Calls | When |
-|----------|-----------|------|
-| No surprise (action unchanged) | 2 | Prior + posterior. Most common case. |
-| Strong surprise (action changed) | 4 | Prior + posterior + delta extraction + feature extraction. |
-
-The delta extraction calls are short-context (just the two prose strings, ~200 tokens each). They're cheap relative to the full-context passes.
+Both passes produce `ACTION<TAB>PROSE` — the same structured format used by the existing `classify_review.py`. Surprise extraction (2 additional short-context LLM calls) only runs when the action changed. Most gates produce no surprise: 2 calls. Surprises cost 4.
 
 ### Cache Economics
 
@@ -310,44 +263,11 @@ If the CLI breaks caching, the proxy should be migrated to direct API calls. The
 
 ### Working Memory Capacity
 
-The context window imposes a hard limit on working memory — how many chunks can be loaded into the cache. This mirrors ACT-R's buffer capacity constraint.
-
-```python
-# Working memory budget calculation
-W = 200_000                          # context window (tokens)
-SYSTEM_PROMPT_TOKENS = 2_000         # proxy instructions
-GATE_RESERVE_TOKENS = 10_000         # artifact + question + generation
-MEMORY_BUDGET = W - SYSTEM_PROMPT_TOKENS - GATE_RESERVE_TOKENS
-                                     # = 188,000 tokens for memories
-
-# Average chunk size: ~500 tokens (a gate interaction summary)
-MAX_CHUNKS = MEMORY_BUDGET // 500    # ≈ 376 chunks
-
-# In practice, load far fewer — diminishing returns after ~50 chunks.
-# The ACT-R activation threshold (tau) naturally limits the set to
-# chunks with meaningful activation.
-PRACTICAL_LIMIT = 50
-```
-
-The activation threshold `tau` is the natural limiter. Only chunks above threshold are loaded. On cold start, few chunks exist and most are loaded. As memory accumulates across sessions, the threshold selects the most active subset. The working memory capacity is self-regulating through the activation equation.
+The context window limits how many chunks can be loaded. At ~500 tokens per chunk and a 200K context window, the theoretical max is ~376 chunks. In practice, the activation threshold τ limits loading to the 20-50 most active chunks — self-regulating as memory accumulates.
 
 ### Why This Is Future Work
 
-The proxy currently invokes Claude via `claude -p` (CLI subprocess). The CLI does not expose cache control parameters. To use explicit KV cache management, the proxy would need to switch to direct Anthropic API calls with `cache_control` message blocks. The proxy is a good candidate for this — it doesn't need tools, worktrees, or team sessions. It just needs to reason over context and produce a prediction. But the migration from CLI to API is a separate effort.
-
-Additionally, persistent KV cache (saving cache state to disk and reloading across sessions) is not currently available in the Anthropic API. The cache is ephemeral within a TTL window. True cross-session working memory would require either API support for persistent caches or a local inference setup.
-
-### Compatibility with the Current Design
-
-The current design (ACT-R activation → text retrieval → embedding ranking → LLM prompt via CLI) and this future design (ACT-R activation → KV cache loading → API calls) are compatible:
-
-- Same long-term storage (SQLite, chunks with traces)
-- Same activation equation for selection (`B = ln(Σ t_i^(-d))`)
-- Same interaction-based time units
-- Same two-pass prediction model
-- Same surprise-based chunk creation
-
-The transition changes *how* selected memories reach the LLM (re-reading text vs. loading cached state) without changing *which* memories are selected or *what* gets stored afterward.
+The proxy invokes Claude via `claude -p` (subprocess). The CLI doesn't expose cache control. Explicit KV management requires direct API calls. The proxy is a good candidate for migration — it doesn't need tools, worktrees, or team sessions. But that migration is a separate effort. The current text-retrieval design and this KV cache design share the same memory theory; only the delivery mechanism differs.
 
 ---
 
