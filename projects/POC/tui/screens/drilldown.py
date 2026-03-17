@@ -98,7 +98,7 @@ class DrilldownScreen(Screen):
     def __init__(self, session_id: str):
         super().__init__()
         self.session_id = session_id
-        self.parser = EventParser(show_progress=True)
+        self.parser = EventParser()
         self.watcher = StreamWatcher(callback=self._on_stream_event)
         self._scroll_locked = False
         self._session = None
