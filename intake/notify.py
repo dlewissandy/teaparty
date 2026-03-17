@@ -78,7 +78,7 @@ def notify_from_analysis(analysis_path: str) -> None:
         if in_table and line.startswith('|'):
             cells = [c.strip() for c in line.split('|')[1:-1]]
             if len(cells) >= 5:
-                verdict = cells[4].strip().lower().replace('*', '')
+                verdict = cells[3].strip().lower().replace('*', '')
                 item_name = cells[1].strip().replace('*', '')
                 if verdict == 'explore':
                     explore_items.append(item_name)
