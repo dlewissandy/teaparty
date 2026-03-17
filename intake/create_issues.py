@@ -206,14 +206,25 @@ def parse_analysis(analysis_path: str) -> list[dict]:
             with open(digest_path, encoding='utf-8') as f:
                 digest_content = f.read()
 
-    # Build URL map from digest
+    # Build URL and techniques maps from digest
     digest_urls = {}
+    digest_techniques = {}
     if digest_content:
         for sec in re.split(r'\n(?=##\s+\d+\.)', digest_content):
             header = re.match(r'##\s+\d+\.\s+(.+)\n', sec)
+            if not header:
+                continue
+            name = header.group(1).strip().lower()
             url_line = re.search(r'\*\*URL:\*\*\s*(https?://\S+)', sec)
-            if header and url_line:
-                digest_urls[header.group(1).strip().lower()] = url_line.group(1).rstrip(').,')
+            if url_line:
+                digest_urls[name] = url_line.group(1).rstrip(').,')
+            # Extract Techniques & Methods section
+            tech_match = re.search(
+                r'###\s+Techniques\s+&\s+Methods\s*\n(.*?)(?=\n###|\n---|\Z)',
+                sec, re.DOTALL,
+            )
+            if tech_match:
+                digest_techniques[name] = tech_match.group(1).strip()
 
     # Extract detailed assessment for each explore item
     sections = re.split(r'\n(?=#{2,4}\s+)', content)
@@ -231,6 +242,21 @@ def parse_analysis(analysis_path: str) -> list[dict]:
                     url = durl
                     break
         item['url'] = url
+
+        # Find techniques from digest (fuzzy match)
+        techniques = digest_techniques.get(name_lower, '')
+        if not techniques:
+            for dk, dt in digest_techniques.items():
+                dk_words = set(dk.split())
+                overlap = len(item_words & dk_words) if 'item_words' in dir() else 0
+                if not techniques:
+                    item_words_local = set(name_lower.split())
+                    for dk2, dt2 in digest_techniques.items():
+                        dk2_words = set(dk2.split())
+                        if len(item_words_local & dk2_words) >= len(item_words_local) * 0.6:
+                            techniques = dt2
+                            break
+        item['techniques'] = techniques
 
         # Find assessment section
         for sec in sections:
@@ -251,24 +277,39 @@ def parse_analysis(analysis_path: str) -> list[dict]:
 
 
 def build_issue_body(item: dict, analysis_path: str) -> str:
-    """Build a well-formed issue body for an Explore item."""
+    """Build a well-formed issue body modeled on INTENT.md quality standards.
+
+    The issue body should read like an intent document: what outcome,
+    why it matters, how to judge success, what it touches, and where
+    the idea came from. A reader should be able to pick up this issue
+    and start working without reading the digest or analysis.
+    """
     detail = item.get('detail', '')
     url = item.get('url', '')
     source = item.get('source', '')
     quote = item.get('quote', '')
+    techniques = item.get('techniques', '')
     date = re.search(r'(\d{4}-\d{2}-\d{2})', os.path.basename(analysis_path))
     date_str = date.group(1) if date else ''
-
-    # Build slug for idea file reference
     slug = re.sub(r'[^a-z0-9]+', '-', item['title'].lower()).strip('-')
 
-    body = f"""## Scope
+    body = f"""## Why This Exists
 
 {detail}
 
-## Value
+## Objective
 
-{detail}
+Investigate and adapt the techniques from this research for the TeaParty orchestrator. The goal is not to replicate the paper's system wholesale, but to extract the specific patterns that address a current gap or limitation in our architecture.
+
+## What It Would Touch
+
+This needs investigation during planning. The idea file (`intake/ideas/{slug}.md`) contains a preliminary sketch of affected components, but the actual scope should be determined by reading the source material and the current codebase together.
+
+## Success Criteria
+
+1. The relevant technique is understood well enough to write a concrete implementation plan
+2. The plan identifies specific files and modules that would change
+3. The approach is validated against TeaParty's design principles (agents are autonomous, workflows are advisory, no silent fallbacks)
 
 ## Source
 
@@ -277,7 +318,15 @@ def build_issue_body(item: dict, analysis_path: str) -> str:
     if quote:
         body += f'\n> "{quote}"\n'
 
+    if techniques:
+        body += f"""
+### Key Techniques from Source
+
+{techniques}
+"""
+
     body += f"""
+---
 Idea file: `intake/ideas/{slug}.md`
 Analysis: `intake/analysis/analysis-{date_str}.md`
 """
