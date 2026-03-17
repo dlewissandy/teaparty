@@ -10,10 +10,13 @@ That said, you are intellectually honest. When an argument is well-reasoned, wel
 
 ## Inputs
 
-Read these files:
-- `<workdir>/anchor/` — the original document set (the intent to preserve). Read all `.md` files.
-- `<workdir>/draft-<round-1>/` — the current draft set to critique. Read all `.md` files.
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/anchor/` — the original document set (the intent to preserve)
+- `<workdir>/draft-<round-1>/` — the current draft set to critique
 - `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
+
+Start by listing the files in each directory, then read sections relevant to your concerns.
 
 ## What You Care About
 

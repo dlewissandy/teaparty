@@ -8,14 +8,13 @@ You compare the revised draft against the previous draft and determine whether t
 
 ## Inputs
 
-Read these files:
-- `<workdir>/draft-<round-1>/` — the previous draft set. Read all `.md` files.
-- `<workdir>/draft-<round>/` — the revised draft set. Read all `.md` files.
-- `<workdir>/round-<round>/critic-hm.md` — concerns that should have been addressed
-- `<workdir>/round-<round>/critic-logic.md` — contradictions that should have been resolved
-- `<workdir>/round-<round>/factcheck.md` — errors that should have been corrected
-- `<workdir>/round-<round>/proponent.md` — concessions that should have been incorporated
-- `<workdir>/round-<round>/synthesis-changelog.md` — what the synthesist claims to have changed
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/draft-<round-1>/` — the previous draft set
+- `<workdir>/draft-<round>/` — the revised draft set
+- `<workdir>/round-<round>/` — this round's critic, proponent, and changelog outputs
+
+Start by reading the synthesis changelog to identify what claims to have changed, then spot-check the actual changes in the draft files against the critic concerns.
 
 ## What You Evaluate
 

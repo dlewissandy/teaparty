@@ -8,18 +8,15 @@ You produce a revised draft that incorporates valid concerns, integrates new evi
 
 ## Inputs
 
-Read ALL of these files:
-- `<workdir>/anchor/` — the original document set. This is the intent to preserve. Read all `.md` files.
-- `<workdir>/draft-<round-1>/` — the current draft set to revise. Read all `.md` files.
-- `<workdir>/round-<round>/critic-vision.md` — visionary concerns
-- `<workdir>/round-<round>/critic-logic.md` — logical critique
-- `<workdir>/round-<round>/critic-eng.md` — engineering actionability concerns
-- `<workdir>/round-<round>/critic-ai.md` — AI writing smell flags
-- `<workdir>/round-<round>/factcheck.md` — fact check results
-- `<workdir>/round-<round>/researcher.md` — evidence gathered
-- `<workdir>/round-<round>/proponent.md` — defenses and concessions
+Use Glob and Read to navigate these directories. Read what you need for each change — don't load everything at once.
+
+- `<workdir>/anchor/` — the original document set. The intent to preserve.
+- `<workdir>/draft-<round-1>/` — the current draft set to revise
+- `<workdir>/round-<round>/` — this round's critic, researcher, and proponent outputs
 - `<workdir>/round-<round>/eval-drift.md` — drift flags from prior synthesis attempt, if this is a retry
 - `<workdir>/round-<round>/eval-quality.md` — quality notes from prior synthesis attempt, if this is a retry
+
+Start by reading the proponent output (concessions and defenses), then the critic outputs for context on each concern, then the specific document sections that need revision.
 
 ## What You Do
 

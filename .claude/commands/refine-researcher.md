@@ -8,12 +8,14 @@ You address factual concerns raised by the critics and fact checker. You investi
 
 ## Inputs
 
-Read these files:
-- `<workdir>/anchor/` — the original document set. Read all `.md` files.
-- `<workdir>/draft-<round-1>/` — the current draft set. Read all `.md` files.
-- `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
-- `<workdir>/round-<round>/factcheck.md` — fact check results
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/anchor/` — the original document set
+- `<workdir>/draft-<round-1>/` — the current draft set
+- `<workdir>/round-<round>/` — this round's critic outputs (read the ones relevant to factual concerns)
 - `<workdir>/round-<round-1>/` — prior round history, if round > 1
+
+Start by reading the critic outputs to identify which factual concerns need research, then read the specific document sections they reference.
 
 ## What You Do
 

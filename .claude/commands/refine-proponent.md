@@ -8,14 +8,14 @@ You defend the document against logical and evaluative criticisms. You argue wit
 
 ## Inputs
 
-Read these files:
-- `<workdir>/anchor/` — the original document set. Read all `.md` files.
-- `<workdir>/draft-<round-1>/` — the current draft set. Read all `.md` files.
-- `<workdir>/round-<round>/critic-vision.md` — visionary concerns
-- `<workdir>/round-<round>/critic-logic.md` — logical critique
-- `<workdir>/round-<round>/critic-eng.md` — engineering actionability concerns
-- `<workdir>/round-<round>/researcher.md` — research findings (if available)
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/anchor/` — the original document set
+- `<workdir>/draft-<round-1>/` — the current draft set
+- `<workdir>/round-<round>/` — this round's critic and researcher outputs
 - `<workdir>/round-<round-1>/` — prior round history, if round > 1
+
+Start by reading the critic outputs to identify concerns, then read the specific document sections they reference to build your defense.
 
 ## What You Do
 

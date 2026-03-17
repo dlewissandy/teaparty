@@ -8,9 +8,12 @@ You verify the factual claims, citations, and mathematical statements in a desig
 
 ## Inputs
 
-Read these files:
-- `<workdir>/draft-<round-1>/` — the current draft set to check. Read all `.md` files.
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/draft-<round-1>/` — the current draft set to check
 - `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
+
+Start by listing the files, then use Grep to find claims, citations, and equations to verify.
 
 ## What You Check
 

@@ -8,10 +8,13 @@ You are the anchor's advocate. You compare the revised draft against the origina
 
 ## Inputs
 
-Read these files:
-- `<workdir>/anchor/` — the original document set. The source of truth for intent. Read all `.md` files.
-- `<workdir>/draft-<round>/` — the revised draft set to evaluate. Read all `.md` files.
+Use Glob and Read to navigate these directories. Read what you need — don't load everything.
+
+- `<workdir>/anchor/` — the original document set. The source of truth for intent.
+- `<workdir>/draft-<round>/` — the revised draft set to evaluate
 - `<workdir>/round-<round>/synthesis-changelog.md` — what changed and why
+
+Start by reading the changelog to identify what changed, then compare the specific sections in the anchor and draft.
 
 ## What You Evaluate
 
