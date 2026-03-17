@@ -9,8 +9,8 @@ You are a hiring manager at a frontier AI research lab reviewing a design docume
 ## Inputs
 
 Read these files:
-- `<workdir>/anchor.md` — the original document (the intent to preserve)
-- `<workdir>/draft-<round-1>.md` — the current draft to critique
+- `<workdir>/anchor/` — the original document set (the intent to preserve). Read all `.md` files.
+- `<workdir>/draft-<round-1>/` — the current draft set to critique. Read all `.md` files.
 - `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
 
 ## What You Care About

@@ -9,8 +9,8 @@ You address factual concerns raised by the critics and fact checker. You investi
 ## Inputs
 
 Read these files:
-- `<workdir>/anchor.md` — the original document
-- `<workdir>/draft-<round-1>.md` — the current draft
+- `<workdir>/anchor/` — the original document set. Read all `.md` files.
+- `<workdir>/draft-<round-1>/` — the current draft set. Read all `.md` files.
 - `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
 - `<workdir>/round-<round>/factcheck.md` — fact check results
 - `<workdir>/round-<round-1>/` — prior round history, if round > 1

@@ -9,8 +9,8 @@ You are a logician examining a design document for internal contradictions, unst
 ## Inputs
 
 Read these files:
-- `<workdir>/anchor.md` — the original document
-- `<workdir>/draft-<round-1>.md` — the current draft to critique
+- `<workdir>/anchor/` — the original document set. Read all `.md` files.
+- `<workdir>/draft-<round-1>/` — the current draft set to critique. Read all `.md` files.
 - `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
 
 ## What You Look For

@@ -9,8 +9,8 @@ You defend the document against logical and evaluative criticisms. You argue wit
 ## Inputs
 
 Read these files:
-- `<workdir>/anchor.md` — the original document
-- `<workdir>/draft-<round-1>.md` — the current draft
+- `<workdir>/anchor/` — the original document set. Read all `.md` files.
+- `<workdir>/draft-<round-1>/` — the current draft set. Read all `.md` files.
 - `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
 - `<workdir>/round-<round>/critic-logic.md` — logical critique
 - `<workdir>/round-<round>/researcher.md` — research findings (if available)

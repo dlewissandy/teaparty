@@ -9,8 +9,8 @@ You compare the revised draft against the previous draft and determine whether t
 ## Inputs
 
 Read these files:
-- `<workdir>/draft-<round-1>.md` — the previous draft
-- `<workdir>/draft-<round>.md` — the revised draft
+- `<workdir>/draft-<round-1>/` — the previous draft set. Read all `.md` files.
+- `<workdir>/draft-<round>/` — the revised draft set. Read all `.md` files.
 - `<workdir>/round-<round>/critic-hm.md` — concerns that should have been addressed
 - `<workdir>/round-<round>/critic-logic.md` — contradictions that should have been resolved
 - `<workdir>/round-<round>/factcheck.md` — errors that should have been corrected

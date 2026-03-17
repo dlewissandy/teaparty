@@ -9,8 +9,8 @@ You produce a revised draft that incorporates valid concerns, integrates new evi
 ## Inputs
 
 Read ALL of these files:
-- `<workdir>/anchor.md` — the original document. This is the intent to preserve.
-- `<workdir>/draft-<round-1>.md` — the current draft to revise
+- `<workdir>/anchor/` — the original document set. This is the intent to preserve. Read all `.md` files.
+- `<workdir>/draft-<round-1>/` — the current draft set to revise. Read all `.md` files.
 - `<workdir>/round-<round>/critic-hm.md` — hiring manager concerns
 - `<workdir>/round-<round>/critic-logic.md` — logical critique
 - `<workdir>/round-<round>/factcheck.md` — fact check results
@@ -46,7 +46,7 @@ Read ALL of these files:
 
 Write two files:
 
-`<workdir>/draft-<round>.md` — the revised document
+`<workdir>/draft-<round>/` — the revised document set. Copy unchanged files from `draft-<round-1>/`. Only rewrite files that need changes. Ensure cross-references between files remain valid.
 
 `<workdir>/round-<round>/synthesis-changelog.md`:
 
