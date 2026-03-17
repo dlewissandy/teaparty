@@ -28,7 +28,7 @@ The learning system extracted seven procedural observations, built a per-gate-ty
 
 ## Opportunities for Improvement
 
-**Proxy dialog at approval gates.** The repeated deflections at task-assert gates need attention. The proxy should handle null/empty input gracefully. That said, this was a cold start — the [proxy-confidence.json](../e2e-raw-files/proxy-confidence.json) data shows the proxy building a model over the course of the session. Whether this improves with accumulated experience remains to be seen. The learning infrastructure is in place; this session is the baseline, not necessarily the ceiling.
+**Proxy dialog at approval gates.** The repeated deflections at task-assert gates need attention. The proxy should handle null/empty input gracefully. That said, this was a cold start — the [proxy-confidence.json](../e2e-raw-files/proxy-confidence.json) data shows the proxy building a model over the course of the session. Whether this improves with accumulated experience remains to be seen. The current EMA + Laplace confidence model may need to be replaced with an ACT-R activation model (see [autodiscovery.md](../autodiscovery.md#memory-model-act-r-activation)) — the same memory model that would power the proxy's discovery mode. ACT-R's power-law decay with reinforcement-based persistence would let the proxy naturally distinguish habitual patterns (this human always approves clean intents) from one-off events (the proxy timed out on a specific gate) without ad-hoc parameters.
 
 **Phase boundary semantics.** The plan defined strict sequential phases but reality required overlapping them. The orchestrator should support explicit flexibility semantics: "all-but-one complete" as a valid phase transition trigger.
 
