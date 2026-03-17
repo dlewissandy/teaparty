@@ -134,6 +134,141 @@ class TestNoEnvVarsInSettings(unittest.TestCase):
                     )
 
 
+class TestWorktreeJailHookWired(unittest.TestCase):
+    """AgentRunner must inject worktree jail hooks into settings."""
+
+    def test_settings_contain_jail_hooks(self):
+        """Settings must have PreToolUse hooks for Read, Edit, Write."""
+        from projects.POC.orchestrator.actors import AgentRunner, ActorContext
+        from projects.POC.orchestrator.phase_config import PhaseSpec
+
+        spec = PhaseSpec(
+            name='intent',
+            agent_file='agents/intent-team.json',
+            lead='intent-lead',
+            permission_mode='plan',
+            stream_file='intent-stream.jsonl',
+            artifact='INTENT.md',
+            approval_state='INTENT_ASSERT',
+            settings_overlay={},
+        )
+
+        ctx = ActorContext(
+            state='PROPOSAL',
+            phase='intent',
+            task='test task',
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            stream_file='intent-stream.jsonl',
+            phase_spec=spec,
+            poc_root='/tmp/poc',
+            event_bus=MagicMock(),
+            session_id='test-session',
+            env_vars={},
+            add_dirs=[],
+        )
+
+        captured_settings = {}
+
+        with patch('projects.POC.orchestrator.actors.ClaudeRunner') as MockRunner:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.exit_code = 0
+            mock_result.stall_killed = False
+            mock_result.session_id = ''
+            mock_result.stream_file = ''
+            mock_result.stderr_lines = []
+
+            async def fake_run():
+                return mock_result
+            mock_instance.run = fake_run
+
+            def capture_init(**kwargs):
+                captured_settings.update(kwargs.get('settings', {}))
+                return mock_instance
+            MockRunner.side_effect = capture_init
+
+            import asyncio
+            runner = AgentRunner()
+            try:
+                asyncio.run(runner.run(ctx))
+            except Exception:
+                pass
+
+        hooks = captured_settings.get('hooks', [])
+        hook_tools = set()
+        for hook in hooks:
+            if hook.get('event') == 'PreToolUse':
+                for m in hook.get('matchers', []):
+                    hook_tools.add(m.get('tool'))
+
+        for tool in ('Read', 'Edit', 'Write'):
+            self.assertIn(tool, hook_tools,
+                          f'Missing PreToolUse jail hook for {tool}')
+
+    def test_jail_hook_uses_relative_path(self):
+        """Jail hook command must not contain absolute paths."""
+        from projects.POC.orchestrator.actors import AgentRunner, ActorContext
+        from projects.POC.orchestrator.phase_config import PhaseSpec
+
+        spec = PhaseSpec(
+            name='intent',
+            agent_file='agents/intent-team.json',
+            lead='intent-lead',
+            permission_mode='plan',
+            stream_file='intent-stream.jsonl',
+            artifact='INTENT.md',
+            approval_state='INTENT_ASSERT',
+            settings_overlay={},
+        )
+
+        ctx = ActorContext(
+            state='PROPOSAL', phase='intent', task='test',
+            infra_dir='/tmp/infra', project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree', stream_file='intent-stream.jsonl',
+            phase_spec=spec, poc_root='/tmp/poc', event_bus=MagicMock(),
+            session_id='test', env_vars={}, add_dirs=[],
+        )
+
+        captured_settings = {}
+
+        with patch('projects.POC.orchestrator.actors.ClaudeRunner') as MockRunner:
+            mock_instance = MagicMock()
+            mock_result = MagicMock()
+            mock_result.exit_code = 0
+            mock_result.stall_killed = False
+            mock_result.session_id = ''
+            mock_result.stream_file = ''
+            mock_result.stderr_lines = []
+
+            async def fake_run():
+                return mock_result
+            mock_instance.run = fake_run
+
+            def capture_init(**kwargs):
+                captured_settings.update(kwargs.get('settings', {}))
+                return mock_instance
+            MockRunner.side_effect = capture_init
+
+            import asyncio
+            runner = AgentRunner()
+            try:
+                asyncio.run(runner.run(ctx))
+            except Exception:
+                pass
+
+        for hook in captured_settings.get('hooks', []):
+            cmd = hook.get('handler', {}).get('command', '')
+            # The command should not contain absolute paths
+            parts = cmd.split()
+            for part in parts[1:]:  # skip 'python3'
+                self.assertFalse(
+                    part.startswith('/'),
+                    f'Hook command contains absolute path: {cmd}',
+                )
+
+
 class TestSubprocessEnvStillHasVars(unittest.TestCase):
     """ClaudeRunner must still receive env_vars for subprocess environment."""
 
@@ -156,6 +291,80 @@ class TestSubprocessEnvStillHasVars(unittest.TestCase):
         env = runner._build_env()
         self.assertEqual(env['POC_SESSION_DIR'], '/tmp/infra')
         self.assertEqual(env['POC_SESSION_WORKTREE'], '/tmp/worktree')
+
+
+class TestWorktreeHook(unittest.TestCase):
+    """PreToolUse hook must restrict file access to the worktree."""
+
+    def setUp(self):
+        self.worktree = '/Users/darrell/git/teaparty-issue-42'
+
+    def _check(self, tool_name, file_path):
+        from projects.POC.orchestrator.worktree_hook import _check
+        with patch('os.getcwd', return_value=self.worktree):
+            return _check(tool_name, {'file_path': file_path})
+
+    def test_relative_path_allowed(self):
+        """Relative paths are always allowed — they resolve within worktree."""
+        result = self._check('Write', 'projects/POC/orchestrator/session.py')
+        self.assertTrue(result['allowed'])
+
+    def test_relative_dotslash_allowed(self):
+        result = self._check('Edit', './README.md')
+        self.assertTrue(result['allowed'])
+
+    def test_absolute_outside_worktree_blocked(self):
+        """Absolute path to different project is blocked with generic message."""
+        result = self._check('Write', '/Users/darrell/git/teaparty/projects/foo/bar.py')
+        self.assertFalse(result['allowed'])
+        self.assertEqual(result['reason'], 'You are restricted to files in your worktree')
+
+    def test_absolute_outside_worktree_no_path_leak(self):
+        """Rejection message must not reveal the worktree path."""
+        result = self._check('Write', '/tmp/other/file.txt')
+        self.assertNotIn(self.worktree, result['reason'])
+        self.assertNotIn('/tmp', result['reason'])
+
+    def test_absolute_to_own_worktree_suggests_relative(self):
+        """Absolute path to own worktree is blocked with relative path suggestion."""
+        abs_path = self.worktree + '/projects/POC/orchestrator/session.py'
+        result = self._check('Write', abs_path)
+        self.assertFalse(result['allowed'])
+        self.assertIn('projects/POC/orchestrator/session.py', result['reason'])
+        self.assertIn('relative path', result['reason'])
+
+    def test_absolute_to_own_worktree_write_verb(self):
+        """Write tool gets 'write' verb in suggestion."""
+        result = self._check('Write', self.worktree + '/file.txt')
+        self.assertIn('write', result['reason'])
+
+    def test_absolute_to_own_worktree_read_verb(self):
+        """Read tool gets 'read' verb in suggestion."""
+        result = self._check('Read', self.worktree + '/file.txt')
+        self.assertIn('read', result['reason'])
+
+    def test_absolute_to_own_worktree_edit_verb(self):
+        """Edit tool gets 'write' verb in suggestion."""
+        result = self._check('Edit', self.worktree + '/file.txt')
+        self.assertIn('write', result['reason'])
+
+    def test_empty_file_path_allowed(self):
+        """Missing or empty file_path is allowed (e.g. Glob patterns)."""
+        result = self._check('Glob', '')
+        self.assertTrue(result['allowed'])
+
+    def test_no_file_path_key_allowed(self):
+        """No file_path key is allowed."""
+        from projects.POC.orchestrator.worktree_hook import _check
+        with patch('os.getcwd', return_value=self.worktree):
+            result = _check('Grep', {'pattern': 'foo'})
+        self.assertTrue(result['allowed'])
+
+    def test_worktree_root_itself_blocked(self):
+        """Absolute path to worktree root itself is blocked with suggestion."""
+        result = self._check('Read', self.worktree)
+        self.assertFalse(result['allowed'])
+        self.assertIn('relative path', result['reason'])
 
 
 if __name__ == '__main__':

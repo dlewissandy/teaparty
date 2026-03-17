@@ -191,6 +191,21 @@ class AgentRunner:
         # available to subprocesses (dispatch_cli.py) via ClaudeRunner._build_env().
         settings = dict(ctx.phase_spec.settings_overlay)
 
+        # Issue #150: worktree jail hook — reject Read/Edit/Write calls
+        # that use absolute paths or target files outside the worktree.
+        # Path is relative to cwd (the worktree), which is a full repo checkout.
+        jail_hook = {
+            'type': 'command',
+            'command': 'python3 projects/POC/orchestrator/worktree_hook.py',
+        }
+        hooks = settings.setdefault('hooks', [])
+        for tool in ('Read', 'Edit', 'Write'):
+            hooks.append({
+                'event': 'PreToolUse',
+                'matchers': [{'tool': tool}],
+                'handler': jail_hook,
+            })
+
         runner = ClaudeRunner(
             prompt=prompt,
             cwd=ctx.session_worktree,
