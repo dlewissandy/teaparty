@@ -100,6 +100,14 @@ The current design retrieves memory chunks as text, inserts them into the LLM pr
 
 The session lifecycle has three phases: loading working memory at session start, a per-gate prediction loop, and storage of processed percepts. Working memory is populated once and reused across all gates via the KV cache. Each gate runs the two-pass prediction (prior without artifact, posterior with), computes surprise from the structured action delta, and stores only the surprise — not the raw interaction — as a new memory chunk. Loaded memories are reinforced on each gate interaction, keeping active memories above the retrieval threshold for future sessions.
 
+### Concurrency
+
+Dispatches run in parallel. Multiple gates may arrive concurrently from different subteams. The proxy does not split into parallel instances — it is one brain with one memory and one interaction counter.
+
+Gates enter a **FIFO queue** and the proxy processes them one at a time. This is how a human works: concurrent tasks compete for attention, but attention is serial. The queue ordering means that what the proxy learns from dispatch A's gate is available when it processes dispatch B's gate — cross-task learning happens naturally through the sequential processing of concurrently-produced work.
+
+At WORK_ASSERT (the rollup), the proxy doesn't need a special aggregation step. It has already processed each dispatch gate individually, storing surprises and building understanding throughout the session. WORK_ASSERT is just another gate where the proxy reasons over its accumulated memories — which now include the fresh chunks from all the dispatch gates it processed during this session.
+
 ```
 SESSION START
     read interaction counter N from storage
@@ -108,8 +116,10 @@ SESSION START
     sort chunks by B descending
     load top chunks into prompt prefix while B > τ and budget remains
     process prefix into KV cache
+    initialize gate queue (FIFO)
 
-    for each gate in session:
+    as gates arrive from dispatches, enqueue them
+    for each gate dequeued:
         increment N
 
         PASS 1 — PRIOR
