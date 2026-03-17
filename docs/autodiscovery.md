@@ -96,19 +96,60 @@ Each lens produces both defects (invariant violations, security issues) and obse
 
 ---
 
-## Learning from Human Responses
+## Learning, Forgetting, and the Baseline
 
-As established above, the Code Collaborator is the proxy in discovery mode. It uses the same confidence model infrastructure — not by analogy, but literally the same code path. The proxy's model of the human spans both modes: gate decisions during sessions and observation responses between sessions.
+### The Baseline Prior
+
+The Code Collaborator starts with a **baseline** — a prior belief about what matters, before any human feedback. The cognitive lenses (learning, architecture, emergence, self-deception) and engineering lenses (spec alignment, containment) define this prior. Each lens has a baseline weight representing the agent's default belief about its importance.
+
+Night one, everything is at baseline. The agent generates observations across all lenses proportional to their baseline weights. It has no model of what this human cares about, so it asks about everything the lenses suggest.
+
+This is the cold start — and it's principled. The agent isn't guessing or generating noise. It's asking: "Here's what my expertise says matters. Which of these resonate with you?"
+
+### Specialization Through Feedback
+
+Human responses specialize the model away from the baseline. As established above, the Code Collaborator is the proxy in discovery mode — same confidence infrastructure, same learning pipeline.
 
 After each human response to a discussion topic, the proxy updates its model:
 
-- **Promoted to issue** → increase confidence for similar observations, this lens's phrasing, and this code area
-- **Dismissed** → decrease confidence, record the dismissal reason as a differential signal
-- **Discussed** → intermediate signal, refine the model based on what was discussed
+- **Promoted to issue** → increase confidence for this lens, this code area, this type of observation
+- **Dismissed** → decrease confidence, record the dismissal reason as a differential
+- **Discussed** → intermediate signal — the human engaged but didn't act, which is different from both promoting and dismissing
 
-Over time, the proxy learns patterns like: "This human cares deeply about spec alignment violations but dismisses style nits." "Containment issues always get promoted." "Generalizations only matter if they affect 3+ call sites." "This human prefers architectural simplification over optimization."
+Over time, the model specializes: "This human cares deeply about spec alignment violations but dismisses style nits." "Containment issues always get promoted." "Learning-loop observations only resonate when they include session data as evidence."
 
-The agent's proxy model entry (state like `DISCOVERY_ASSERT`) lives in the same `.proxy-confidence.json` infrastructure as other approval gates, persisting and refining across sessions.
+### Principled Forgetting
+
+Without forgetting, the model becomes rigid. A dismissal from six months ago about a module that's been rewritten twice shouldn't still suppress observations about that module. An approval pattern learned during a sprint of security work shouldn't permanently bias the model toward containment findings after the sprint ends.
+
+The model must decay back toward the baseline in the absence of reinforcing signal. This is the same dynamic as biological memory:
+
+- **Short-term**: an observation was just made, fully weighted in the model
+- **Consolidation**: the human responded (promote/dismiss/discuss), the response becomes a learned pattern
+- **Decay**: without reinforcement, the pattern fades toward the baseline prior
+
+The mechanics:
+
+Each confidence entry carries a `last_reinforced` timestamp. A decay function pulls confidence toward the **baseline rate** over time, not toward zero or toward the running average. The distinction matters:
+
+- **EMA decay** (what the proxy currently uses) decays toward the running average. If the human dismissed 10 spec-alignment observations in a row because the spec was in flux, EMA drives confidence to zero for that lens. When the spec stabilizes, the agent won't recover without new positive signal — it has "learned" that spec alignment doesn't matter.
+
+- **Baseline decay** returns to the prior. After the dismissals stop, confidence drifts back toward "I don't know what this human currently thinks about spec alignment, so I'll raise it again." The baseline represents the agent's *expertise* about what matters; the specialization represents what *this human* has told it. Forgetting the specialization doesn't erase the expertise.
+
+The half-life is a design parameter. Too short (days) and the model never stabilizes — it keeps re-asking about things the human already dismissed. Too long (months) and it's effectively permanent. A reasonable starting point: **30-day half-life** for dismissals, **60-day half-life** for promotions. Promotions decay slower because acting on an observation is a stronger signal than dismissing one.
+
+### Consequences for Grooming
+
+Principled forgetting changes grooming economics. Instead of re-evaluating every open discussion against current code (expensive — one LLM call per discussion), old discussions that haven't been engaged with simply decay in significance. A 30-day-old discussion the human never looked at drops in significance naturally. The nightly groom only needs to re-evaluate discussions that:
+
+1. Reference code chunks whose hashes changed (the code evolved)
+2. Have been explicitly engaged with recently (the human is actively discussing)
+
+Everything else decays quietly. This bounds grooming cost to the number of *active* discussions plus *changed* discussions, not the total number of open discussions.
+
+### Consequences for Cold Start
+
+Cold start is now well-defined: everything at baseline, no specialization, no history. The first few nights are exploratory — the agent surfaces observations across all lenses and learns from the human's responses which specializations to develop. This mirrors how a new colleague operates: broad observations at first, increasingly targeted as they learn what you care about.
 
 ---
 
