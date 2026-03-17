@@ -112,266 +112,94 @@ The current design retrieves memory chunks as text, inserts them into the LLM pr
 
 **Bayesian surprise** is the perceptual filter. The two-pass prediction (prior without artifact, posterior with) identifies what in the artifact changed the proxy's mind. The surprise — the processed percept — is what gets stored as a new chunk. Raw artifacts and raw interactions do not enter long-term memory.
 
-### Session Lifecycle — Pseudocode
+### Session Lifecycle
 
-```python
-def run_session(session):
-    """Full session lifecycle with KV cache as working memory."""
+The session lifecycle has three phases: loading working memory at session start, a per-gate prediction loop, and storage of processed percepts. Working memory is populated once and reused across all gates via the KV cache. Each gate runs the two-pass prediction (prior without artifact, posterior with), computes surprise from the structured action delta, and stores only the surprise — not the raw interaction — as a new memory chunk. Loaded memories are reinforced on each gate interaction, keeping active memories above the retrieval threshold for future sessions.
 
-    # ── Session start: load working memory ──────────────────────
-    counter = get_interaction_counter()
-    all_chunks = get_all_chunks()
+```
+SESSION START
+    read interaction counter N from storage
+    for each chunk in long-term storage:
+        compute B = ln(Σ (N − trace_i)^(−0.5))
+    sort chunks by B descending
+    load top chunks into prompt prefix while B > τ and budget remains
+    process prefix into KV cache
 
-    # ACT-R activation ranks every chunk in long-term storage.
-    # B = ln(Σ t_i^(-d)) for each chunk, where t_i is interactions
-    # since the i-th access of that chunk.
-    ranked = []
-    for chunk in all_chunks:
-        b = base_level_activation(chunk.traces, counter, d=0.5)
-        ranked.append((b, chunk))
-    ranked.sort(key=lambda x: -x[0])
+    for each gate in session:
+        increment N
 
-    # Select top-k chunks that fit the context window budget.
-    # W = context window size (tokens).
-    # Reserve space for system prompt, gate content, and generation.
-    budget = W - SYSTEM_PROMPT_TOKENS - GATE_RESERVE_TOKENS
-    loaded_chunks = []
-    tokens_used = 0
-    for activation, chunk in ranked:
-        if activation < tau:
-            break  # below retrieval threshold, stop loading
-        chunk_tokens = token_count(chunk.content)
-        if tokens_used + chunk_tokens > budget:
-            break  # working memory is full
-        loaded_chunks.append(chunk)
-        tokens_used += chunk_tokens
+        PASS 1 — PRIOR
+            generate from cached prefix + gate context, no artifact
+            output: ACTION <tab> PROSE, temperature 0
+            parse → prior.action, prior.prose
 
-    # Build the cached prefix: system prompt + loaded memories.
-    # This prefix is processed ONCE into KV cache entries.
-    # All subsequent gates reuse this cache.
-    prefix = build_prefix(
-        system_prompt=PROXY_SYSTEM_PROMPT,
-        memories=loaded_chunks,
-    )
-    cache = create_kv_cache(prefix)  # one LLM forward pass
+        PASS 2 — POSTERIOR
+            generate from cached prefix + gate context + artifact + prior
+            output: ACTION <tab> PROSE, temperature 0
+            parse → posterior.action, posterior.prose
 
-    # ── Per-gate loop ───────────────────────────────────────────
-    for gate in session.gates:
-        counter = increment_interaction_counter()
+        SURPRISE
+            if prior.action ≠ posterior.action:
+                extract what changed → one-sentence description (LLM call)
+                extract salient features → list of percept phrases (LLM call)
+            else:
+                no surprise, no additional calls
 
-        # Pass 1: Prior (from cache, no artifact)
-        # The LLM reasons over its cached memories + the gate context.
-        # It has NOT seen the artifact. Output is STRUCTURED:
-        #   <action> \t <prose>
-        # where action is one of: approve, correct, escalate, withdraw
-        # This structured format makes the prior/posterior comparison
-        # deterministic — we compare action tokens, not free text.
-        prior = llm_generate(
-            cache=cache,                    # reused, not reprocessed
-            suffix=format_gate_context(
-                state=gate.state,
-                task_type=gate.task_type,
-                session_history=gate.history,
-                instruction="Predict what the human would say. "
-                            "You have not seen the artifact.\n\n"
-                            "Respond with exactly one line:\n"
-                            "ACTION<TAB>REASONING\n"
-                            "where ACTION is: approve, correct, escalate, or withdraw",
-            ),
-            temperature=0,                  # deterministic prior
-        )
-        prior = parse_structured_response(prior)
-        # prior = StructuredPrediction(action="approve", prose="This human
-        #         typically approves plans for documentation tasks.")
+        DECISION
+            execute gate using posterior
+            receive human response if escalated
 
-        # Pass 2: Posterior (cache + artifact)
-        # Same cache, extended with the artifact content. Same structured
-        # output format. The LLM sees its own prior and can revise.
-        posterior = llm_generate(
-            cache=cache,                    # same cached prefix
-            suffix=format_gate_context(
-                state=gate.state,
-                task_type=gate.task_type,
-                session_history=gate.history,
-                artifact=gate.artifact_content,
-                prior_prediction=prior,
-                instruction="You previously predicted: "
-                            f"{prior.action}\t{prior.prose}\n\n"
-                            "Now read the artifact and revise.\n\n"
-                            "Respond with exactly one line:\n"
-                            "ACTION<TAB>REASONING\n"
-                            "where ACTION is: approve, correct, escalate, or withdraw",
-            ),
-            temperature=0,                  # deterministic posterior
-        )
-        posterior = parse_structured_response(posterior)
-        # posterior = StructuredPrediction(action="correct", prose="Missing
-        #            rollback section for database migration.")
+        STORE
+            create chunk from surprise + human response + proxy error
+            embed situation, stimulus, response, salience independently
+            store with first trace = N
 
-        # ── Bayesian surprise ───────────────────────────────────
-        # The surprise is the delta between prior and posterior.
-        # Because both are structured (action + prose), the comparison
-        # is deterministic on the action and semantic on the prose.
-        #
-        # Three levels of surprise:
-        #   1. Action changed (approve → correct): strong surprise.
-        #      The artifact contained something the proxy didn't predict.
-        #   2. Action same, prose differs: weak surprise.
-        #      The proxy's reasoning shifted but its decision didn't.
-        #   3. Action same, prose similar: no surprise.
-        #      The artifact confirmed expectations.
-        #
-        # Only strong surprise (level 1) triggers salient percept
-        # extraction. This avoids spending LLM calls on non-events.
+        REINFORCE
+            add trace N to each loaded chunk
 
-        if prior.action != posterior.action:
-            # Strong surprise: the artifact changed the decision.
-            # Extract what specifically caused the shift.
-            surprise = SurpriseDelta(
-                magnitude=1.0,  # action changed — maximum surprise
-                prior_action=prior.action,
-                prior_prose=prior.prose,
-                posterior_action=posterior.action,
-                posterior_prose=posterior.prose,
-                description=extract_what_changed(prior.prose, posterior.prose),
-                salient_percepts=extract_salient_features(prior.prose, posterior.prose),
-            )
-        else:
-            # No or weak surprise: artifact confirmed expectations.
-            # No additional LLM calls needed.
-            surprise = SurpriseDelta(
-                magnitude=0.0,
-                prior_action=prior.action,
-                prior_prose=prior.prose,
-                posterior_action=posterior.action,
-                posterior_prose=posterior.prose,
-                description="",
-                salient_percepts=[],
-            )
-
-        # ── Use the posterior for the actual decision ───────────
-        decision = posterior  # this is what the proxy acts on
-
-        # ... gate executes (auto-approve, escalate, etc.) ...
-        # ... human responds (if escalated) ...
-
-        human_response = gate.execute(decision)
-
-        # ── Store the processed percept ─────────────────────────
-        # What gets stored is NOT the raw artifact or the full
-        # interaction. It is the surprise — what the proxy learned.
-        new_chunk = MemoryChunk(
-            id=generate_id(),
-            type="gate_outcome",
-            state=gate.state,
-            task_type=gate.task_type,
-            outcome=human_response.action,
-            prior_prediction=prior.action,
-            prior_confidence=prior.confidence,
-            posterior_prediction=posterior.action,
-            posterior_confidence=posterior.confidence,
-            prediction_delta=surprise.description,
-            salient_percepts=surprise.salient_percepts,
-            human_response=human_response.text,
-            delta=compute_proxy_error(posterior, human_response),
-            content=build_chunk_content(
-                surprise=surprise,
-                human_response=human_response,
-                gate_context=gate,
-            ),
-            traces=[counter],
-            # Embeddings per percept dimension (see act-r-proxy-mapping.md)
-            embedding_situation=embed(f"{gate.state} {gate.task_type}"),
-            embedding_stimulus=embed(surprise.description) if surprise.description else None,
-            embedding_response=embed(human_response.text) if human_response.text else None,
-            embedding_salience=embed(
-                " ".join(surprise.salient_percepts)
-            ) if surprise.salient_percepts else None,
-            # NOTE: no artifact embedding. The artifact is referenced,
-            # not embedded. If this chunk is retrieved in a future session,
-            # the LLM reads the original artifact via file tools.
-        )
-        store_chunk(new_chunk)
-
-        # Mark loaded chunks as retrieved (adds a trace to each,
-        # reinforcing memories that were in working memory during
-        # this interaction).
-        for chunk in loaded_chunks:
-            add_trace(chunk.id, counter)
-
-    # ── Session end ─────────────────────────────────────────────
-    # Cache is discarded. Next session starts fresh with a new
-    # ACT-R retrieval and a new cache. The chunks in long-term
-    # storage have updated traces from this session's interactions.
-    discard_cache(cache)
+SESSION END
+    discard cache
 ```
 
-### Structured Responses and Surprise Computation
+### Data Structures
 
-Both passes produce structured output: `ACTION<TAB>PROSE` — the same format used by the existing `classify_review.py`. The structured format makes prior/posterior comparison deterministic on the action token and semantic on the prose. No ambiguity about whether the prediction changed.
+```
+StructuredPrediction
+    action    : one of {approve, correct, escalate, withdraw}
+    prose     : free-text reasoning
 
-```python
-@dataclass
-class StructuredPrediction:
-    action: str    # approve, correct, escalate, withdraw
-    prose: str     # reasoning — what the proxy expects or observed
+SurpriseDelta
+    magnitude       : 1.0 (action changed) or 0.0 (confirmed)
+    prior action    : action before artifact
+    prior prose     : reasoning before artifact
+    posterior action : action after artifact
+    posterior prose  : reasoning after artifact
+    description     : what changed (only on strong surprise)
+    salient percepts : list of artifact features that caused the shift
 
-def parse_structured_response(raw: str) -> StructuredPrediction:
-    """Parse ACTION<TAB>PROSE from LLM output."""
-    line = raw.strip().split('\n')[0]
-    parts = line.split('\t', 1)
-    action = parts[0].strip().lower()
-    prose = parts[1].strip() if len(parts) > 1 else ''
-    return StructuredPrediction(action=action, prose=prose)
-
-
-@dataclass
-class SurpriseDelta:
-    magnitude: float        # 1.0 if action changed, 0.0 if confirmed
-    prior_action: str       # structured action before artifact
-    prior_prose: str        # reasoning before artifact
-    posterior_action: str   # structured action after artifact
-    posterior_prose: str    # reasoning after artifact
-    description: str        # what changed (extracted only on strong surprise)
-    salient_percepts: list  # specific artifact features that caused the shift
+MemoryChunk
+    id, type, state, task_type, outcome              — structural (SQL-filtered)
+    prior action, prior prose                         — Pass 1 result
+    posterior action, posterior prose                  — Pass 2 result
+    surprise description, salient percepts            — processed percept
+    human response, proxy error                       — ground truth
+    traces                                            — list of interaction numbers
+    embedding_situation, _stimulus, _response, _salience — independent vectors
 ```
 
-Surprise extraction only runs when the action changed (strong surprise). This is critical for cost: confirmed predictions (no surprise) cost 2 LLM calls. Surprises cost 4. Since most gate interactions should be unsurprising (the proxy's prior is usually right), the average cost approaches 2 calls, not 4.
+### Structured Output Format
 
-```python
-def extract_what_changed(prior_prose: str, posterior_prose: str) -> str:
-    """Extract the specific change between prior and posterior reasoning.
+Both passes produce `ACTION<TAB>PROSE` — the same format used by the existing `classify_review.py`. Parsing extracts the first line, splits on tab, lowercases the action. The structured format makes prior/posterior comparison deterministic on the action and semantic on the prose.
 
-    Only called on strong surprise (action changed). This is an LLM call
-    that compares the two prose traces and identifies what the artifact
-    revealed.
-    """
-    return llm_generate(
-        prompt=f"""The proxy changed its prediction after reading the artifact.
+### Surprise Extraction
 
-BEFORE (without artifact): {prior_prose}
-AFTER (with artifact): {posterior_prose}
+Only runs when the action changed (strong surprise). Confirmed predictions (no surprise) cost 2 LLM calls. Surprises cost 4. Since most gate interactions should be unsurprising (the proxy's prior is usually right), the average cost approaches 2 calls, not 4.
 
-In one sentence, what did the artifact reveal that changed the prediction?""",
-        temperature=0,
-    )
+**Extract what changed**: LLM receives both prose traces, returns one sentence describing what the artifact revealed.
 
-def extract_salient_features(prior_prose: str, posterior_prose: str) -> list[str]:
-    """Extract specific artifact features that caused the surprise.
+**Extract salient features**: LLM receives both prose traces, returns a list of short feature descriptions (e.g., "no rollback strategy", "migration risk").
 
-    Returns short feature descriptions: ['no rollback strategy', 'migration risk']
-    """
-    raw = llm_generate(
-        prompt=f"""What specific features of the artifact caused this change?
-
-BEFORE: {prior_prose}
-AFTER: {posterior_prose}
-
-List each feature as a short phrase, one per line.""",
-        temperature=0,
-    )
-    return [line.strip() for line in raw.strip().split('\n') if line.strip()]
-```
+Both extraction calls are short-context (~200 tokens each) and cheap relative to the full-context passes.
 
 ### Cost Per Gate
 
