@@ -70,20 +70,54 @@ def _get_open_issues() -> list[dict]:
         return []
 
 
-def _is_duplicate(title: str, existing: list[dict], threshold: float = 0.6) -> int | None:
-    """Check if a similar issue already exists. Returns issue number or None.
+def _normalize(text: str) -> str:
+    """Normalize text for comparison: lowercase, strip punctuation, remove stop words."""
+    import re as _re
+    stop = {
+        'add', 'implement', 'investigate', 'evaluate', 'integrate', 'build',
+        'create', 'use', 'using', 'for', 'from', 'the', 'a', 'an', 'in',
+        'on', 'at', 'to', 'of', 'and', 'with', 'via', 'into', 'by',
+        'new', 'based', 'system', 'approach',
+    }
+    text = _re.sub(r'[^a-z0-9\s]', ' ', text.lower())
+    words = [w for w in text.split() if w not in stop and len(w) > 1]
+    return ' '.join(words)
 
-    Uses word overlap ratio for fuzzy matching.
+
+def _bigrams(text: str) -> set[str]:
+    """Extract character bigrams from normalized text for fuzzy matching."""
+    text = _normalize(text)
+    if len(text) < 2:
+        return set()
+    return {text[i:i+2] for i in range(len(text) - 1)}
+
+
+def _is_duplicate(title: str, existing: list[dict]) -> int | None:
+    """Check if a similar issue already exists using bigram similarity.
+
+    Uses Dice coefficient on character bigrams of normalized text.
+    This catches semantic near-duplicates like:
+      "Add autonomous context compression" vs
+      "Investigate agent-controlled context compression for CfA phase boundaries"
+
+    Returns the issue number of the duplicate, or None.
     """
-    title_words = set(title.lower().split())
+    title_bigrams = _bigrams(title)
+    if not title_bigrams:
+        return None
+
     for issue in existing:
-        issue_words = set(issue['title'].lower().split())
-        if not title_words or not issue_words:
+        issue_bigrams = _bigrams(issue['title'])
+        if not issue_bigrams:
             continue
-        overlap = len(title_words & issue_words)
-        ratio = overlap / max(len(title_words), len(issue_words))
-        if ratio >= threshold:
+
+        # Dice coefficient: 2 * |intersection| / (|A| + |B|)
+        intersection = len(title_bigrams & issue_bigrams)
+        dice = (2 * intersection) / (len(title_bigrams) + len(issue_bigrams))
+
+        if dice >= 0.45:
             return issue['number']
+
     return None
 
 
