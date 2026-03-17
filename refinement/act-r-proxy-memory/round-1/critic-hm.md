@@ -1,0 +1,44 @@
+# Hiring Manager Review — Round 1
+
+## Concerns
+
+### 1. No evaluation criteria or success metrics
+[evaluation] The design never defines what "working" means. There is no metric for whether ACT-R retrieval produces better proxy behavior than the current EMA gate. The shadow mode (Phase 1) says "log the proxy's dialog and compare against what the human actually said" but doesn't specify what comparison looks like. Is it action match rate? Dialog similarity? Surprise calibration? Without a concrete metric, you cannot tell if this is an improvement or an expensive lateral move. There is no ablation plan -- you cannot isolate whether the value comes from the ACT-R decay dynamics, the multi-dimensional embeddings, the two-pass prediction, or just from giving the LLM more context. (act-r-proxy-memory.md, Migration Path)
+
+### 2. The multi-dimensional embedding retrieval is underspecified and untested
+[feasibility] The design calls for 5 independent embeddings per chunk, averaged at retrieval time (act-r-proxy-mapping.md, retrieval_score function). This is presented as "the equivalent of low-fan spreading activation" but that equivalence is asserted, not demonstrated. Averaging cosine similarities across dimensions with equal weight is a strong assumption -- it means a chunk that matches perfectly on situation but poorly on salience scores the same as one that matches moderately on both. The document acknowledges the activation_weight/semantic_weight split needs empirical calibration (0.5/0.5 starting point) but says nothing about the relative weighting across the 5 embedding dimensions, which is a harder problem. There is no experiment proposed to validate that 5 separate embeddings retrieve better than 1 blended embedding.
+
+### 3. The combined score mixes incompatible scales
+[feasibility] The retrieval score is `activation_weight * B + semantic_weight * cosine(...) + noise`. B is an unbounded real number (can be negative, grows logarithmically with trace count). Cosine similarity is bounded [-1, 1]. Logistic noise has unbounded tails. These are on different scales. A 0.5/0.5 weighting doesn't mean equal influence -- a chunk with 20 traces might have B around 2.5, which at weight 0.5 contributes 1.25, drowning out any cosine signal. The document never addresses normalization. This will bite hard in practice: heavily-accessed chunks will dominate retrieval regardless of semantic relevance, defeating the purpose of the embedding system. (act-r-proxy-mapping.md, combined retrieval score)
+
+### 4. "Interaction-based time" is reasonable but the d=0.5 justification doesn't transfer cleanly
+[evidence] The document correctly cites Anderson & Schooler (1991) as event-based, but their events were word occurrences in natural language corpora -- high-frequency, high-volume signals. Proxy gate interactions happen maybe 5-20 times per session, with sessions potentially days apart. The statistical regime is completely different. d=0.5 was validated for environments with thousands of events. Whether it produces useful forgetting curves at 50-200 total lifetime interactions is an open empirical question that the document treats as settled. (act-r.md, "Why d = 0.5?")
+
+### 5. Cold start problem is unaddressed
+[missing] The design assumes the proxy has accumulated enough memories for retrieval to be useful. What happens for the first 10, 20, 50 interactions? The current EMA system at least has the Laplace prior to fall back on. The new design says "I don't know this human, so I must ask them everything" but never specifies what "ask them everything" means mechanically. Does the proxy escalate every gate? Does it have a default behavior? How does it bootstrap without being annoying? This is the state the system will be in for every new user and the design hand-waves it.
+
+### 6. The two-pass prediction assumes LLM consistency that may not hold
+[risk] Pass 1 generates a prediction without the artifact. Pass 2 generates a prediction with it. The delta between them is the salience signal. But LLM outputs are stochastic even at temperature 0 (the document specifies temperature 0). Two calls with overlapping but different prompts will produce different outputs for reasons that have nothing to do with the artifact -- phrasing differences, context ordering effects, prompt boundary artifacts. The design treats the prior-posterior delta as a clean signal of "what the artifact changed" but it is contaminated by prompt-sensitivity noise. No filtering or validation of the delta signal is proposed. (act-r-proxy-sensorium.md, Two-Pass Prediction; act-r-proxy-memory.md, Session Lifecycle pseudocode)
+
+### 7. Surprise is binary but attention is not
+[missing] The surprise mechanism triggers only when `prior.action != posterior.action` (act-r-proxy-memory.md, Session Lifecycle SURPRISE block). This means a case where the prior says "approve with low confidence" and the posterior says "approve with high confidence because the plan is unusually thorough" produces zero surprise -- no salient percepts are extracted, no salience embedding is stored. The proxy learns nothing from cases where the artifact was noteworthy but didn't change the categorical action. This is a significant information loss. The confidence values are stored but never used in the surprise calculation.
+
+### 8. Embedding cost is buried
+[missing] Each chunk requires up to 5 embedding API calls at creation time. The cost model (act-r-proxy-memory.md, Cache Economics) accounts for LLM prediction calls but completely ignores embedding costs. At scale (hundreds of chunks, each with 5 embeddings), plus retrieval-time embedding of the current context across multiple dimensions, this is a non-trivial API cost that should be in the budget.
+
+### 9. The KV cache section is speculative infrastructure planning
+[feasibility] Roughly 40% of act-r-proxy-memory.md (lines 85-291) is devoted to a future KV cache design that the document itself says cannot be built yet ("the CLI doesn't expose cache control"). The cost model assumes prompt caching behavior that is explicitly flagged as needing empirical verification. Building the cost argument for the two-pass model on unverified caching assumptions weakens the case. The core design should stand on its own economics, and if it can't, that's a real problem.
+
+### 10. No discussion of memory maintenance or garbage collection
+[missing] The traces list grows without bound. Every retrieval adds a trace to every loaded chunk (the REINFORCE step in the session lifecycle). With 20-50 chunks loaded per session and multiple gates, traces accumulate fast. The document says activation threshold tau self-regulates which chunks are loaded, but never addresses whether old chunks should be pruned, whether the traces list should be compacted, or what happens to the SQLite database after 1000 sessions. This is an operational concern that matters for any system intended to run long-term.
+
+### 11. "Explicit reinforcement" is vague and dangerous
+[risk] Trace creation rule 3 in act-r-proxy-mapping.md says: "When a new interaction produces a similar outcome to a past one -- the human approves at PLAN_ASSERT again -- the matching chunk gets an additional trace even if it wasn't explicitly retrieved." What defines "similar outcome"? Exact match on (state, outcome)? That would reinforce every prior approve at PLAN_ASSERT whenever a new approve happens -- a runaway positive feedback loop that makes approval chunks permanently dominant. The similarity criterion is left unspecified, and the naive interpretation creates a serious bias problem.
+
+## What's Strong
+
+The core insight -- replacing a scalar confidence gate with structured episodic memory that supports dialog generation -- is the right direction. The critique of the current EMA system is precise and well-argued. The ACT-R theory document is genuinely well-written as a standalone explainer; it would work as internal documentation even if the rest of the design changed. The separation of structural filtering from semantic ranking is a good architectural instinct.
+
+## Bottom Line
+
+I would not fund this as-is. The design is thoughtful and the motivation is clear, but it ships with zero evaluation plan, several unaddressed scale/numerical issues, and a cost model built on unverified assumptions. What would change my mind: (1) a concrete evaluation protocol with specific metrics, run against even synthetic data, showing the retrieval system surfaces the right memories; (2) normalization of the combined score so activation and similarity contribute on comparable scales; (3) an ablation plan that isolates the value of multi-dimensional embeddings vs. single embedding, ACT-R decay vs. simple recency, and two-pass vs. single-pass. The theory is promising. The engineering needs another pass.
