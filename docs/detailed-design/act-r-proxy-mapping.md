@@ -1,6 +1,6 @@
 # ACT-R Proxy Mapping: Chunks, Traces, and Retrieval
 
-This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r-primer.md](act-r-primer.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md).
+This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r.md](act-r.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md).
 
 ---
 
@@ -10,23 +10,55 @@ Each chunk represents a **memory of an interaction** between the proxy and the h
 
 ```python
 {
+    # Structural fields (SQL-filtered, exact match)
     "type": "gate_outcome",          # or "dialog_turn", "discovery_response"
     "state": "PLAN_ASSERT",          # CfA state where interaction occurred
     "task_type": "security",         # project/task category
-    "outcome": "approve",            # approve, correct, dismiss, promote, discuss
+    "outcome": "correct",            # approve, correct, dismiss, promote, discuss
     "lens": "",                      # for discovery mode: which lens produced this
-    "delta": "",                     # what the proxy got wrong (prediction vs reality)
+
+    # Two-pass prediction results (see act-r-proxy-sensorium.md)
+    "prior_prediction": "approve",   # Pass 1: prediction without artifact
+    "prior_confidence": 0.8,
+    "posterior_prediction": "correct",  # Pass 2: prediction with artifact
+    "posterior_confidence": 0.85,
+    "prediction_delta": "Missing rollback section changed prediction",
+    "salient_percepts": ["no rollback strategy", "database migration risk"],
+
+    # Content fields
+    "human_response": "Add a rollback strategy for the migration",
+    "delta": "",                     # what the proxy got wrong vs human response
     "content": "...",                # full text of the interaction
+
+    # Memory dynamics
     "traces": [42, 47],              # interaction sequence numbers when accessed
-    "embedding": [0.12, -0.34, ...]  # vector embedding of the content field only
+
+    # Independent embeddings per percept dimension
+    "embedding_situation": [...],    # state + task type
+    "embedding_artifact": [...],     # the artifact content at review time
+    "embedding_stimulus": [...],     # the question or observation
+    "embedding_response": [...],     # the human's response
+    "embedding_salience": [...],     # the prediction delta (what surprised the proxy)
 }
 ```
 
-The **structural fields** (type, state, task_type, outcome, lens) are categorical — queried by exact match via SQL. They preserve the relational structure of the interaction: who did what at which gate with what result. Embeddings cannot capture this ordering reliably.
+The chunk has three layers:
 
-The **content fields** (delta, content) are free text — ranked by semantic similarity via cosine on the embedding. "Missing rollback plan" should match "no recovery strategy" even though the words differ.
+**Structural fields** (type, state, task_type, outcome, lens) are categorical — queried by exact match via SQL. They preserve the relational structure of the interaction: who did what at which gate with what result. Embeddings cannot capture this ordering reliably.
 
-The **embedding covers only the content fields**, not the structural fields. This separation ensures that structural queries are exact and semantic queries are meaningful.
+**Two-pass prediction fields** capture the prior (before seeing the artifact), the posterior (after), and the delta between them. The delta is the salience signal — what in the artifact changed the proxy's mind. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) for the full design.
+
+**Independent embeddings** represent each percept dimension as a separate vector. At retrieval time, matching across multiple dimensions produces specific, selective associations — the equivalent of low-fan spreading activation. A chunk that scores high on situation AND artifact AND salience is a strong association. A chunk that scores high on only one dimension is a weak one.
+
+| Embedding | What it captures | Retrieval use |
+|-----------|-----------------|---------------|
+| **Situation** | CfA state + task type | "What happened at PLAN_ASSERT for security?" |
+| **Artifact** | The artifact under review | "What happened when the plan had gaps?" |
+| **Stimulus** | The question or observation | "What happened when the proxy asked this?" |
+| **Response** | The human's actual response | "Has the human given this kind of feedback before?" |
+| **Salience** | The prediction delta | "When has the proxy been surprised by this pattern?" |
+
+This replaces the single content embedding with a multi-dimensional representation that separates what the proxy sensed from what happened — enabling retrieval by any dimension or intersection of dimensions.
 
 ---
 
@@ -98,7 +130,7 @@ score = activation_weight * B  +  semantic_weight * cosine(chunk_embedding, cont
 Where:
 - `B` is the base-level activation (recency and frequency via ACT-R)
 - `cosine(...)` is the semantic similarity between the chunk and the current context
-- `noise` is logistic noise (see [act-r-primer.md](act-r-primer.md))
+- `noise` is logistic noise (see [act-r.md](act-r.md))
 - `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
 | Parameter | Starting Value | Role | Source |
@@ -162,10 +194,20 @@ class MemoryChunk:
     task_type: str                   # project slug or empty
     outcome: str                     # approve, correct, dismiss, promote, discuss
     lens: str                        # discovery lens (empty for gate mode)
-    delta: str                       # what was wrong / dismissal reason
+    prior_prediction: str            # Pass 1 prediction (without artifact)
+    prior_confidence: float          # Pass 1 confidence
+    posterior_prediction: str        # Pass 2 prediction (with artifact)
+    posterior_confidence: float      # Pass 2 confidence
+    prediction_delta: str            # what changed between passes (salience)
+    human_response: str              # what the human actually did
+    delta: str                       # proxy error vs human response
     content: str                     # full text of the interaction
     traces: list[int]                # list of interaction sequence numbers
-    embedding: list[float] | None    # vector embedding for semantic retrieval
+    embedding_situation: list[float] | None
+    embedding_artifact: list[float] | None
+    embedding_stimulus: list[float] | None
+    embedding_response: list[float] | None
+    embedding_salience: list[float] | None
 ```
 
 ### Storage
@@ -178,10 +220,20 @@ CREATE TABLE proxy_chunks (
     task_type TEXT DEFAULT '',
     outcome TEXT NOT NULL,
     lens TEXT DEFAULT '',
+    prior_prediction TEXT DEFAULT '',
+    prior_confidence REAL DEFAULT 0,
+    posterior_prediction TEXT DEFAULT '',
+    posterior_confidence REAL DEFAULT 0,
+    prediction_delta TEXT DEFAULT '',
+    human_response TEXT DEFAULT '',
     delta TEXT DEFAULT '',
     content TEXT NOT NULL,
-    traces TEXT NOT NULL,            -- JSON array of interaction sequence numbers
-    embedding TEXT                   -- JSON array of floats
+    traces TEXT NOT NULL,              -- JSON array of interaction sequence numbers
+    embedding_situation TEXT,          -- JSON array of floats
+    embedding_artifact TEXT,
+    embedding_stimulus TEXT,
+    embedding_response TEXT,
+    embedding_salience TEXT
 );
 
 -- Global interaction counter (monotonically increasing)
@@ -210,16 +262,38 @@ def base_level_activation(
 
 def retrieval_score(
     chunk: MemoryChunk,
-    context_embedding: list[float],
+    context_embeddings: dict[str, list[float]],
     current_interaction: int,
     activation_weight: float = 0.5,
     semantic_weight: float = 0.5,
     d: float = 0.5,
     s: float = 0.25,
 ) -> float:
-    """Combined retrieval score: ACT-R activation + semantic similarity + noise."""
+    """Combined retrieval score: ACT-R activation + multi-dimensional
+    semantic similarity + noise.
+
+    context_embeddings: dict mapping dimension names to embedding vectors.
+    Only dimensions present in both the context and the chunk contribute.
+    The semantic score is the average cosine across matched dimensions —
+    chunks matching on more dimensions score higher (intersection effect).
+    """
     b = base_level_activation(chunk.traces, current_interaction, d)
-    sem = cosine_similarity(chunk.embedding, context_embedding) if chunk.embedding else 0.0
+
+    # Multi-dimensional semantic similarity
+    dim_map = {
+        'situation': chunk.embedding_situation,
+        'artifact': chunk.embedding_artifact,
+        'stimulus': chunk.embedding_stimulus,
+        'response': chunk.embedding_response,
+        'salience': chunk.embedding_salience,
+    }
+    similarities = []
+    for dim, context_vec in context_embeddings.items():
+        chunk_vec = dim_map.get(dim)
+        if chunk_vec and context_vec:
+            similarities.append(cosine_similarity(chunk_vec, context_vec))
+    sem = sum(similarities) / len(similarities) if similarities else 0.0
+
     noise = logistic_noise(s)
     return activation_weight * b + semantic_weight * sem + noise
 
@@ -227,17 +301,22 @@ def retrieval_score(
 def retrieve(
     state: str = '',
     task_type: str = '',
-    context_text: str = '',
+    context_embeddings: dict[str, list[float]] | None = None,
     current_interaction: int = 0,
     tau: float = -0.5,
     top_k: int = 10,
 ) -> list[MemoryChunk]:
-    """Retrieve top-k chunks above threshold."""
+    """Retrieve top-k chunks above threshold.
+
+    1. Structural filter on state, task_type
+    2. Multi-dimensional semantic scoring
+    3. Threshold and rank
+    """
     candidates = query_chunks(state=state, task_type=task_type)
-    context_embedding = embed(context_text)
+    context_embeddings = context_embeddings or {}
     scored = []
     for chunk in candidates:
-        score = retrieval_score(chunk, context_embedding, current_interaction)
+        score = retrieval_score(chunk, context_embeddings, current_interaction)
         if score > tau:
             scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
@@ -253,10 +332,19 @@ def record_interaction(
     content: str,
     delta: str = '',
     lens: str = '',
+    prior_prediction: str = '',
+    prior_confidence: float = 0.0,
+    posterior_prediction: str = '',
+    posterior_confidence: float = 0.0,
+    prediction_delta: str = '',
+    human_response: str = '',
+    artifact_text: str = '',
+    stimulus_text: str = '',
 ) -> MemoryChunk:
     """Record an interaction as a memory chunk.
     If chunk_id matches existing chunk, adds a trace (reinforcement).
-    Otherwise creates a new chunk. Increments global interaction counter.
+    Otherwise creates a new chunk with independent per-dimension embeddings.
+    Increments global interaction counter.
     """
     current = increment_interaction_counter()
     if chunk_id and chunk_exists(chunk_id):
@@ -269,10 +357,20 @@ def record_interaction(
         task_type=task_type,
         outcome=outcome,
         lens=lens,
+        prior_prediction=prior_prediction,
+        prior_confidence=prior_confidence,
+        posterior_prediction=posterior_prediction,
+        posterior_confidence=posterior_confidence,
+        prediction_delta=prediction_delta,
+        human_response=human_response,
         delta=delta,
         content=content,
         traces=[current],
-        embedding=embed(content),
+        embedding_situation=embed(f'{state} {task_type}'),
+        embedding_artifact=embed(artifact_text) if artifact_text else None,
+        embedding_stimulus=embed(stimulus_text) if stimulus_text else None,
+        embedding_response=embed(human_response) if human_response else None,
+        embedding_salience=embed(prediction_delta) if prediction_delta else None,
     )
     store_chunk(chunk)
     return chunk

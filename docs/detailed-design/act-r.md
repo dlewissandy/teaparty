@@ -1,8 +1,11 @@
-# ACT-R Declarative Memory: A Primer for Engineers
+# ACT-R Declarative Memory
 
-This document explains ACT-R's declarative memory system — the theory, the equations, and the parameter values — for an engineer who has never used ACT-R. It is self-contained: everything you need to implement the memory model is here.
+This document explains ACT-R's declarative memory system — the theory, the equations, and the parameter values — for an engineer who has never used ACT-R. It is self-contained: everything you need to understand the memory model is here.
 
-For how this applies to the TeaParty proxy agent specifically, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md).
+For how this applies to the TeaParty proxy agent, see:
+- [act-r-proxy-memory.md](act-r-proxy-memory.md) — motivation and migration plan
+- [act-r-proxy-mapping.md](act-r-proxy-mapping.md) — chunks, traces, retrieval implementation
+- [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) — two-pass prediction and learned attention
 
 ---
 

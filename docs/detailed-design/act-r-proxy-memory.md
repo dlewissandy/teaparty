@@ -2,8 +2,9 @@
 
 This document describes how to replace the proxy agent's current confidence model (EMA + Laplace estimates) with an activation-based memory system derived from the ACT-R cognitive architecture.
 
-For the theory and equations, see [act-r-primer.md](act-r-primer.md).
+For the theory and equations, see [act-r.md](act-r.md).
 For the concrete proxy mapping, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md).
+For the two-pass prediction model and learned attention, see [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md).
 
 ---
 
@@ -27,7 +28,7 @@ ACT-R's declarative memory model solves all four problems with a single mechanis
 
 Replace the scalar confidence model with **activation-weighted embedding retrieval**:
 
-- **Base-level activation** from ACT-R handles forgetting. Each memory has traces that decay as a power function of interactions elapsed. Frequently reinforced memories stay active; one-off events fade. The equation is `B = ln(Σ t_i^(-d))` with `d = 0.5`. See [act-r-primer.md](act-r-primer.md) for the full derivation.
+- **Base-level activation** from ACT-R handles forgetting. Each memory has traces that decay as a power function of interactions elapsed. Frequently reinforced memories stay active; one-off events fade. The equation is `B = ln(Σ t_i^(-d))` with `d = 0.5`. See [act-r.md](act-r.md) for the full derivation.
 
 - **Vector embeddings** handle context sensitivity. Each memory chunk's content is embedded; retrieval uses cosine similarity to find semantically relevant memories. This replaces ACT-R's symbolic spreading activation with a mechanism that is both simpler and more powerful.
 
