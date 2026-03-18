@@ -109,17 +109,55 @@ Each dispatch:
 6. On success, generates a commit message (LLM call via Haiku) and **squash-merges** results back into the parent session worktree
 7. Writes a `MEMORY.md` in the dispatch infra dir for the learning rollup chain
 8. Cleans up the dispatch worktree
-9. Returns JSON status: `status` (completed/failed), `exit_reason` (completed, plan_escalation, work_escalation, failed), `terminal_state`, `backtrack_count`
+9. Returns JSON status with fields: `status` (completed/failed), `exit_reason` (completed, plan_escalation, work_escalation, failed), `terminal_state` (final CfA state), `backtrack_count`
 
-Process boundaries provide context isolation by design — each subteam runs in its own `claude -p` process with its own context window.
+### Dispatch Result Schema
 
-**Issue [#144](https://github.com/dlewissandy/teaparty/issues/144)** tracks replacing this subprocess-based dispatch with an `AskTeam` MCP tool — the same pattern as `AskQuestion`. Liaisons would call `AskTeam(team, task)` instead of invoking `dispatch_cli.py` via Bash. The orchestrator would manage the full subteam lifecycle (worktree, child CfA, merge, learning rollup) behind the tool call.
+The dispatch function returns a JSON object with the following fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `completed` or `failed` |
+| `exit_reason` | string | `completed`, `plan_escalation`, `work_escalation`, `failed`, or `retry_limit_exceeded` |
+| `terminal_state` | object | Final CfA state (phase, state, actor, history, backtrack_count, etc.) |
+| `backtrack_count` | int | Total cross-phase backtracks during the dispatch |
+| `team` | string | Team slug that was dispatched |
+| `timestamp` | string | ISO timestamp of dispatch completion |
+
+The calling agent parses this JSON to determine whether to continue execution or escalate to the parent.
+
+### Process Isolation and Intent Scope
+
+Process boundaries provide context isolation by design — each subteam runs in its own `claude -p` process with its own context window. This ensures subteams don't pollute the parent's working memory and can focus on their narrow task without distraction.
+
+Child CfA skips intent gathering (inherited from parent). This is a policy choice to avoid redundant dialogue, justified by the assumption that intent is monotonic — if task X is part of project P, and project P is part of intent I, then task X is part of intent I. Future work could consider intent re-validation at narrower scope for tasks that specialize the parent's intent.
+
+**Issue [#144](https://github.com/dlewissandy/teaparty/issues/144)** tracks replacing this subprocess-based dispatch with an `AskTeam` MCP tool — the same pattern as `AskQuestion`. Liaisons would call `AskTeam(team, task)` instead of invoking `dispatch_cli.py` via Bash. The orchestrator would manage the full subteam lifecycle (worktree, child CfA, merge, learning rollup) behind the tool call. The isolation benefit is real and will be preserved in the MCP version.
+
+---
+
+## Event Bus and Observability
+
+The orchestrator publishes events to an `EventBus` (`events.py`), which serves as the pub-sub backbone for observability. The TUI and logging systems subscribe to these events.
+
+Major event types:
+- `LOG` — text output (agent steps, orchestrator decisions)
+- `INPUT_REQUEST` — question asked to human
+- `ACTOR_START` — agent or approval gate invocation begins
+- `ACTOR_DONE` — agent or approval gate completes
+- `STATE_TRANSITION` — CfA state change
+- `APPROVAL_REQUIRED` — human review requested
+- `ESCALATION` — decision escalated to human
+
+The EventBus is created in the main orchestrator entry point and flows through `Session` → `Orchestrator` → individual actors. It survives across all phases and is the mechanism that the TUI uses to display real-time progress.
+
+This is infrastructure detail, not core to understanding CfA or agent runtime, but important for observability and debugging.
 
 ---
 
 ## Phase Configuration
 
-`phase-config.json` maps phases to agent files, leads, permission modes, artifact paths, and approval states:
+Phase configuration is loaded by `phase_config.py:PhaseConfig.load()`; validation happens at orchestrator startup. The configuration file (`phase-config.json`) maps phases to agent files, leads, permission modes, artifact paths, and approval states:
 
 | Phase | Agent File | Lead | Permission Mode | Artifact | Approval State |
 |-------|-----------|------|-----------------|----------|----------------|
@@ -166,6 +204,6 @@ Sessions can be resumed (`Session.resume_from_disk()`) by reloading CfA state, e
 | `orchestrator/escalation_listener.py` | Unix socket bridge for AskQuestion → proxy → human |
 | `orchestrator/phase_config.py` | Phase and team configuration loader |
 | `orchestrator/procedural_learning.py` | Skill candidate archival and crystallization |
-| `orchestrator/skill_lookup.py` | System 1 skill matching |
+| `orchestrator/skill_lookup.py` | System 1 skill matching (threshold-based retrieval, default threshold=0.15) |
 | `phase-config.json` | Phase/team/permission configuration |
 | `agents/*.json` | Agent team definitions |
