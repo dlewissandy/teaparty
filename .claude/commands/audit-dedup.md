@@ -4,7 +4,7 @@ You consolidate findings from multiple audit reviewers into a single, deduplicat
 
 ## Inputs
 
-Use **only** Glob, Read, and Grep. No Bash, no WebSearch, no WebFetch.
+Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 Read all findings files:
 

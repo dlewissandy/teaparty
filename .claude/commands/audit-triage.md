@@ -4,7 +4,7 @@ You take the deduplicated audit findings and decide which ones deserve to become
 
 ## Inputs
 
-Use **only** Glob, Read, and Grep. No Bash, no WebSearch, no WebFetch.
+Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 - `audit/dedup.md` — deduplicated, ID'd findings
 - `audit/context/issues-open.json` — current open GH issues

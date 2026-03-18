@@ -10,7 +10,7 @@ If a topic is given (e.g., "learning system", "dispatch coordination"), use Grep
 
 ## Inputs
 
-Use **only** Glob, Read, and Grep. No Bash, no WebSearch, no WebFetch.
+Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 ### Primary: The Code
 
