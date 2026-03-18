@@ -1,44 +1,81 @@
-# Logical Review -- Round 3
-
-## Status of Prior Concerns
-
-All contradictions, non sequiturs, and unstated assumptions raised in rounds 1 and 2 have been resolved or explicitly documented. Specifically:
-
-- Embedding schema: harmonized to 5 dimensions across all documents.
-- Auto-approval tension: resolved with explicit distinction between EMA-based (skips inspection) and two-pass (completes inspection).
-- Tau semantics: corrected to threshold on raw B, composite for ranking only.
-- Cosine averaging: corrected to divide by total dimensions (5), not populated dimensions.
-- REINFORCE broadcast: removed; traces created only on creation and retrieval.
-- salient_percepts: added to dataclass, SQL schema, and record_interaction.
-- Chunk creation for non-surprise gates: explicitly documented.
-- Cost model scope: acknowledged as input-token-focused.
-- Parameter provenance: design choices distinguished from ACT-R standards.
-- Cold start argument: tightened to mechanical comparison.
+# Logical Review — Round 3
 
 ## New Issues
 
-### 1. The soft-threshold equation is offered as a gating function but the implementation uses a hard threshold
+### 1. Cosine-divide-by-5 penalty contradicts documented retrieval patterns
 
-The act-r.md retrieval section (lines 119-127) presents the soft-threshold probability equation `P(retrieve) = 1 / (1 + exp(-(B - tau) / s))` and states: "This soft-threshold equation can serve as the gating function on raw B, providing probabilistic filtering before ranking."
+Act-r-proxy-mapping.md (lines 140-141) scores chunks by averaging cosine similarity across all 5 dimensions, dividing by 5 regardless of how many dimensions are populated. This means a chunk matching strongly on situation alone (sim=0.9) scores (0.9 + 0 + 0 + 0 + 0) / 5 = 0.18. A chunk matching weakly on all five dimensions (each sim=0.4) scores 0.4. The system mathematically heavily penalizes sparse matching.
 
-The mapping document's `retrieve()` function (lines 354-359) applies a hard threshold: `if b > tau: survivors.append(...)`. This is a deterministic cutoff, not a probabilistic one. A chunk with B = -0.51 is always excluded; a chunk with B = -0.49 is always included.
+Yet act-r-proxy-sensorium.md (line 155) lists "Situation alone: What happens at PLAN_ASSERT?" as a valid retrieval pattern. The design permits the query but the scoring function penalizes its results. The document states this "rewards breadth of matching," but does not acknowledge that breadth-weighting makes situation-only retrieval nearly impossible to win. Either situation-only retrieval is intended (and the cosine division should be by populated dimensions only, not by 5) or it is not intended (and sensorium.md should remove it from the valid patterns list). The contradiction is unresolved.
 
-The round 2 changelog states: "The soft-threshold retrieval probability equation is now referenced as the gating function on raw B, resolving the logic critic's concern that it was presented but never implemented." But the implementation still uses a hard threshold. The prose says "can serve as"; the code says `if b > tau`. This is a weaker version of the round 2 contradiction (where tau was applied to the wrong quantity). The quantity is now correct, but the mechanism (hard vs. soft) is still inconsistent between theory and implementation.
+### 2. Activation threshold tau = -0.5 inverts ACT-R semantics
 
-This is a minor consistency issue. The hedge "can serve as" acknowledges optionality, and either mechanism is defensible. But the round 2 changelog claims this was resolved, and it was not fully resolved -- it was shifted from "wrong quantity" to "wrong mechanism."
+Act-r.md (line 119) uses tau = -0.5, justified as "desirable in a low-interaction system where useful chunks may hover near zero activation." This admits chunks with negative activation — below the retrieval threshold in standard ACT-R.
 
-### 2. Noise is added to the composite score, but the theory says noise controls retrieval probability
+In ACT-R, the retrieval threshold (default tau = 0) is where activation transitions from "below threshold, effectively forgotten" to "above threshold, accessible." The document adapts this downward to tau = -0.5, expanding the accessible range to include "effectively forgotten" chunks.
 
-The act-r.md noise section (lines 96-106) describes noise as governing retrieval via the logistic soft threshold. The composite_score function (mapping document, line 333) adds noise as a random offset to the ranking score: `return activation_weight * b_norm + semantic_weight * sem + noise`. These are different roles. In the theory, noise determines whether a near-threshold chunk is retrieved at all (via the sigmoid). In the implementation, noise perturbs the ranking order among already-admitted chunks.
+This is a defensible design choice for low-volume systems. The rationale is sound. But it creates a semantic mismatch: the proxy's "active memory" (chunks above -0.5) includes chunks that ACT-R would classify as "effectively forgotten" (chunks below 0). The proxy's memory accessibility model no longer aligns with the theory it claims to implement.
 
-Both roles are reasonable. But the document presents one theory of noise and implements another. The noise parameter s = 0.25 was chosen as a design value for retrieval-probability noise (act-r.md line 103: "low enough to keep retrieval mostly deterministic while allowing occasional exploration"). When the same s = 0.25 is used as additive ranking noise, its effect is different: on a composite score where activation and similarity each contribute roughly [0, 0.5], a logistic noise sample with scale 0.25 can produce values up to ~1.5 (rare) or commonly ~0.3, which is large enough to dominate the ranking signal. The parameter value was justified for one role and deployed in another.
+The chunk retention policy (act-r-proxy-mapping.md, line 200) archives chunks that have been below tau for N consecutive sessions. If tau = -0.5 admits "effectively forgotten" chunks into retrieval, the archival threshold should reflect this divergence from ACT-R semantics. The document does not specify how N interacts with the inverted threshold. Is a chunk below -0.5 considered "below threshold" for archival purposes? If so, archival contradicts retrieval (retrieval includes negative B, archival excludes it). If not, the distinction between archival and retrieval becomes semantic only.
 
-This is not a contradiction in the logical sense -- the design works either way -- but it is a mismatch between the stated justification for s = 0.25 and its actual effect in the implementation.
+### 3. Embedding model migration lacks policy
 
-## Assessment
+Act-r-proxy-mapping.md (line 273) notes the embedding_model column exists "enabling re-embedding migration when the model changes." But the document never specifies the migration policy. If the embedding model is upgraded (e.g., from text-embedding-3-small to text-embedding-3-large), what happens to existing chunks?
 
-The document set is logically coherent. The core argument holds: ACT-R base-level activation provides the forgetting curve, vector embeddings provide context sensitivity as a replacement for spreading activation, two-pass prediction provides the salience signal, and the three components combine into a retrieval system that serves the proxy's needs. The migration path is concrete, the evaluation criteria are specified, and the epistemic claims are appropriately scoped.
+Option A: Re-embed all chunks with the new model (expensive, e.g., 1000 chunks × 5 dimensions = 5000 embedding calls). Option B: Keep old chunks with old embeddings, only use new model for new chunks (semantic inconsistency in retrieval). Option C: Defer re-embedding until chunks are retrieved (performance unpredictable, mixing old and new embeddings in same query).
 
-The two issues above are consistency gaps between the theory document's description of noise and the retrieval threshold, and the implementation's use of both. They are implementation-level details that would be resolved naturally during coding (choose hard or soft threshold; choose where noise enters the pipeline). Neither affects the soundness of the design.
+The retrieval function (act-r-proxy-mapping.md, line 333) assumes context_embeddings are generated with the same model as chunk embeddings: `cosine_similarity(chunk_vec, context_vec)`. Mixing embedding models produces meaningless cosine similarities. This is not a theoretical problem; it is a data quality issue that must have an explicit policy before production use.
 
-No new contradictions, non sequiturs, or unstated assumptions.
+### 4. Interaction counter race condition in concurrent dispatch
+
+Act-r-proxy-memory.md (line 149) states "The proxy does not split into parallel instances. It is one brain with one memory and one interaction counter." The design uses a FIFO queue to serialize gate processing.
+
+But act-r-proxy-memory.md (line 90) lists "Concurrency control for interaction counter" as a Phase 0 design decision requiring specification. The current implementation (act-r-proxy-mapping.md, lines 418-420) shows `record_interaction()` calling `increment_interaction_counter()`. In a multi-process or multi-thread environment, reading the counter, incrementing, and writing back is a race condition unless wrapped in a database transaction with proper isolation.
+
+The document acknowledges this gap ("specify transaction semantics and isolation levels") but defers it without guidance. If concurrent gates fire before the counter increment from gate A is committed, gate B and gate A could both read counter = N, both increment to N+1, and both write N+1 back. Traces would have the same age despite being created at different times, breaking the temporal ordering assumption in the decay formula.
+
+The SQLite implementation (act-r-proxy-mapping.md, lines 266-270) uses a single proxy_state table with interaction_counter as a row. SQLite's default transaction isolation is sufficient for simple single-row increments if each process wraps the read-increment-write in a transaction. But the document does not specify this. Implementation code must use `BEGIN IMMEDIATE` or similar to prevent dirty reads.
+
+### 5. Autonomy criterion conflates prediction accuracy with inspection (persists from Round 2)
+
+Act-r-proxy-sensorium.md (line 175-179) grants autonomy when "the prior is specific enough that the posterior rarely diverges." The document claims the proxy "has demonstrated that it attends to what the human would attend to, inspects the artifact through two-pass prediction."
+
+But posterior agreement with prior is evidence of prediction accuracy, not evidence of this-decision inspection. A system with a perfectly accurate prior (learned from previous decisions) will produce posteriors that agree with the prior by definition. The posterior agrees because the prior is accurate, not because the proxy inspected and confirmed.
+
+The sensorium document acknowledges this distinction (line 212): "A proxy that auto-approves because its prior correctly anticipated the artifact would have no issues, and the posterior confirmed it, has demonstrated accurate prediction through systematic inspection." But the autonomy criterion (posterior agreement) does not distinguish "the proxy correctly predicted because it examined the artifact features" from "the proxy correctly predicted because its learned prior is accurate and needs no artifact revision."
+
+A fallback mitigation would be to require that posterior reasoning cite specific artifact features. But the current design does not enforce this. The posterior is free-text LLM output. The proxy could generate output like "I predicted approve before reading the artifact, and the artifact does not change this prediction" without examining the artifact at all.
+
+This is a known limitation of the design. It is explicitly acknowledged in the document. But it remains a logical gap: the autonomy criterion (posterior agreement) is insufficient to establish the inspection property it claims to measure.
+
+## Previously Raised Issues Still Unresolved
+
+### EMA reintegration through indirection (Round 2)
+
+Act-r-proxy-mapping.md (line 180) states EMA and memory operate on "separate data paths." But act-r-proxy-memory.md (line 204) describes the causal path: "When upstream quality degrades, the memory system responds through its normal operation. More correction chunks accumulate, shifting retrieval toward skeptical patterns."
+
+This is integration by indirection. EMA detects degradation → more correction chunks are created → retrieval favors skepticism. The two systems do not share state, but their behavior outcomes are coupled. The document frames this as separation ("they operate on separate data paths") while describing integration ("EMA trends flow into decisions through the memory system").
+
+The contradiction between "separated" and "functionally integrated" is asserted but not resolved. Acceptable resolutions would be: (a) acknowledge they are integrated and describe the coupling explicitly, or (b) show that the coupling is weak enough to be negligible. The document does neither. It claims separation while describing integration.
+
+## Convergence Assessment
+
+**Overall coherence: HIGH.** The document set is logically sound across most dimensions. The major contradictions from Rounds 1-2 have been resolved or properly scoped:
+
+- REINFORCE removal is explicit.
+- Dialog equivocation is acknowledged as a design choice, not a logical error.
+- Confidence measurement is flagged as unstable but included in Phase 1 validation.
+- Sparse signal training is acknowledged and measured in shadow mode.
+- EMA integration is described in terms of causal flow (though still framed as separation).
+
+**Remaining issues: IMPLEMENTATION AND EDGE CASE LEVEL.** The new issues (Round 3) are not fundamental contradictions but design decisions that lack explicit specification:
+
+- Cosine-divide-by-5 vs. situation-only retrieval: minor, addressable by clarifying intent.
+- Tau = -0.5 semantic mismatch: minor, aligns with the stated reason (low-volume systems). The design trades off semantic alignment with ACT-R for practical feasibility.
+- Embedding model migration: important for production, but specification is deferred to implementation, which is acceptable.
+- Interaction counter race condition: important for correctness, but specification is deferred to Phase 0, which is correct.
+- Autonomy criterion logically insufficient: acknowledged limitation, not a flaw.
+
+**Diminishing returns:** Further critique would target design assumptions that the document explicitly marks for empirical validation: whether confidence thresholds are calibrable, whether d=0.5 is optimal for sparse time series, whether multi-dimensional embedding adds enough value to justify the cost. These are empirical questions, not logical ones. Logical critique of a design that acknowledges its empirical assumptions is diminishing returns.
+
+**Recommendation:** The document is ready for Phase 0 specification. All open design decisions are properly identified. The remaining logical coherence improvements require empirical data from shadow mode, not further theoretical critique.

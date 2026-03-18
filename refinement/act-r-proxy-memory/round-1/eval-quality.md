@@ -4,54 +4,48 @@
 
 ## Concerns Addressed
 
-- **Noise parameter s = 0.25 claimed as ACT-R standard** (factcheck) — addressed: reframed as design choice in act-r.md, parameter table updated with "Design choice; ACT-R tutorials use 0.2-0.5" in Source column, calibration flagged.
-- **Retrieval threshold tau = -0.5 claimed as ACT-R standard** (factcheck) — addressed: reframed as design choice with rationale for negative threshold, parameter table updated.
-- **Cost model arithmetic errors G=10 and G=20** (factcheck) — addressed: incorrect rows removed from summary table rather than corrected in place; the formula remains for readers to verify. Acceptable resolution.
-- **Embedding dimensions inconsistent across documents** (logic #1) — addressed: all four documents now use the 5-dimension schema from the mapping document. The sensorium's "upstream" dimension was removed; the root document's MemoryChunk gained `embedding_artifact`.
-- **Combined score mixes incompatible scales** (HM #3) — addressed: `normalize(B)` added to score formula, `normalize_activation()` function added to implementation sketch, explanatory paragraph added, Park et al. citation for precedent.
-- **"Explicit reinforcement" trace rule 3 is vague and dangerous** (HM #11) — addressed: rule removed entirely. Traces now created only on creation and retrieval, matching standard ACT-R.
-- **Chunk creation ambiguity for non-surprise gates** (logic #4) — addressed: explicit statement added that every gate produces a chunk; non-surprise chunks have empty salience fields. Session lifecycle STORE step updated.
-- **Auto-approval tension between root and sensorium documents** (logic #3) — addressed: root document now includes a note distinguishing EMA-based auto-approval (skips inspection) from two-pass auto-approval (completes inspection). Sensorium expanded to make the distinction explicit.
-- **Surprise is binary but should be graded** (HM #7) — addressed: surprise now triggers on action change (strong) OR confidence delta > 0.3 (moderate). SurpriseDelta.magnitude updated. Session lifecycle pseudocode updated.
-- **No evaluation criteria or success metrics** (HM #1) — addressed: concrete metrics added (action match rate, prior calibration, surprise calibration, retrieval relevance) plus an ablation plan isolating each design component.
-- **Embedding cost buried** (HM #8) — addressed: noted in sensorium Implementation section and added to cost model variable list.
-- **No memory maintenance or garbage collection** (HM #10) — addressed: new "Memory Maintenance" section in mapping document with trace compaction, chunk pruning, and database maintenance.
-- **Cold start unaddressed** (HM #5) — addressed: new "Cold Start Behavior" section in mapping document making explicit that zero chunks = escalate everything.
-- **"Deployed at scale" and Claude memory claims unverifiable** (factcheck) — addressed: removed and replaced with specific published citations (Park et al. 2023, Nuxoll & West HAI 2024, Bhatia et al. Frontiers 2026).
-- **"Low-fan spreading activation" analogy overstated** (logic non-sequitur #4) — addressed: phrasing removed, replaced with direct description of the intersection effect. Note added that multi-dimensional retrieval is a novel design choice needing ablation.
-- **d = 0.5 justification doesn't transfer cleanly** (HM #4, logic non-sequitur #3) — addressed: caveat paragraph added acknowledging the regime difference, framing d = 0.5 as principled starting point rather than validated parameter.
-- **Two-pass delta noise unacknowledged** (HM #6) — addressed: "A note on signal quality" paragraph added to sensorium document.
-- **Cost model omits output tokens and cache-write premium** (logic non-sequitur #2) — addressed: output tokens (O), cache-write premium (w), and embedding cost (E) added to variables. Explicit note that the model focuses on input token-equivalents.
-- **376-chunk arithmetic unexplained** (factcheck) — addressed: explicit assumption stated (reserving ~12,000 tokens for system prompt and gate content).
-- **Anderson & Schooler "event-based" framing overstated** (logic non-sequitur #3) — addressed: parenthetical clarification added that "event-based" is a reasonable interpretation, not a direct quote, with primary units noted.
-- **AutoDiscovery "hypothesis ranking" imprecise** (factcheck) — addressed: changed to "guiding hypothesis exploration."
-- **EMA/ACT-R separation too rigid** (logic unstated assumption #5) — addressed: note added about indirect information flow and operational actions.
-- **Cross-task learning may contaminate** (logic unstated assumption #3) — addressed: sentence added noting structural filtering mitigates contamination.
-- **KV cache section framing blurs core vs. future economics** (HM #9) — addressed: framing sentence added separating the core design from the future direction.
+- **:rt default value (fact check)** — addressed: act-r.md line 119 now reads "The ACT-R default for `:rt` is 0 (zero)" with clear separation from `:ans` which defaults to NIL. Correct.
+- **Cache matching scope (fact check)** — addressed: act-r-proxy-memory.md line 226 now reads "workspace-level (as of February 2026; previously organization-level)". Correct.
+- **Anderson & Schooler d=0.5 overstatement (fact check + researcher)** — addressed: act-r.md lines 87-89 now distinguish the environmental power-law finding from the specific exponent value. The existing caveat (line 93) is preserved. Good balance.
+- **"Bayesian surprise" misnamed (visionary #2 + researcher)** — addressed: renamed to "prediction-change salience" across all files with Itti & Baldi cited as conceptual inspiration. Consistent across documents.
+- **Trace compaction (visionary #5 + engineering #6 + researcher)** — addressed: act-r-proxy-mapping.md line 197 now references the standard ACT-R approximation and Petrov (2006). Jensen's inequality violation noted. Petrov added to references.
+- **Embedding drift (visionary #6)** — addressed: `embedding_model TEXT NOT NULL` added to SQL schema at line 254. Field present in dataclass.
+- **Cost model needs absolute numbers (visionary #7)** — addressed: worked example with Sonnet pricing at lines 279-296, showing ~$0.35 current vs ~$0.47 two-pass per session. Concrete and useful.
+- **1-hour TTL option (researcher)** — addressed: line 225 adds the 1-hour TTL at 2x write premium.
+- **Dialog equivocation (logic #2)** — addressed: act-r-proxy-memory.md line 31 now frames the argument around inspection rather than dialog. "Quality requires artifact inspection."
+- **"Genuine understanding" (logic non-sequitur #2)** — addressed: act-r-proxy-memory.md line 41 and act-r-proxy-sensorium.md line 169 now use "consistent inspection with accurate predictions" rather than "genuine understanding."
+- **Cold start "populates faster" (logic non-sequitur #3)** — addressed: act-r-proxy-mapping.md line 169 now hedges: "Whether this richer data translates to faster convergence toward useful retrieval is an empirical question."
+- **EMA direct/indirect equivocation (logic #3)** — addressed: act-r-proxy-mapping.md line 179 and act-r-proxy-memory.md line 179 now state the separation mechanism clearly.
+- **Noise placement departure (logic #4)** — addressed: act-r-proxy-mapping.md lines 337-341 acknowledge the departure from ACT-R semantics in a code comment.
+- **delta_from_posterior naming (engineering #9)** — addressed: act-r-proxy-sensorium.md line 115 now uses `"delta"` matching the canonical schema.
+- **Autonomy criterion underspecified (visionary #4)** — addressed: act-r-proxy-sensorium.md lines 167 adds explicit acknowledgment that autonomy criteria are a design gap requiring operational specification before Phase 3.
+- **ACT-R framing (visionary #1)** — addressed: act-r-proxy-memory.md lines 15-17 and 21 now explicitly state the division of labor (ACT-R models memory accessibility; LLM reasons over retrieved memories).
+- **AI writing patterns** — partially addressed: em dashes reduced, "This is" patterns varied, some "not X but Y" patterns reworked. Improvement visible but not transformative.
 
 ## Concerns Correctly Rejected
 
-- **"Corrections are more informative" is a non sequitur** (logic non-sequitur #1) — defended: the proponent's argument that error-describing text is inherently more specific than success-confirming text held. Phrasing tightened from "richer" to "more specific associations" without abandoning the claim.
-- **LLM may not produce meaningfully different Pass 1 vs Pass 2 outputs** (logic unstated assumption #1) — defended: conditioning on presence/absence of a multi-page artifact is a substantive input difference. The concern is reasonable as a monitoring item but not a design flaw.
-- **Cosine similarity is not spreading activation** (logic unstated assumption #2) — defended: the documents explicitly state this is a replacement, not a replication. The "low-fan" analogy was softened (a concession), but the substitution itself stands.
-- **Activation threshold may not be self-regulating** (logic unstated assumption #4) — defended: directionally correct that a fixed threshold on a decaying function limits loading. Note added about tau adjustment, but no heavyweight analysis added — appropriately deferred to shadow mode.
-- **Multi-dimensional embeddings need validation** (HM #2) — defended: the architecture is preserved with an ablation plan committed. The question is empirical, not structural.
-- **KV cache section should be removed** (HM #9) — defended: section preserved with adjusted framing. It demonstrates architectural continuity and is clearly labeled future work.
+- **"ACT-R is just an index" / recharacterize as RAG** — defended: the document now states ACT-R's role explicitly while maintaining the claim that retrieval shapes reasoning. The proponent's argument held.
+- **Retrieval-reinforcement loop identical to REINFORCE** — defended: the distinction between selective (retrieval) and blanket (REINFORCE) reinforcement is maintained. The proponent's argument held.
+- **Five embeddings should be removed** — defended: the existing ablation plan is sufficient. The activation counterbalance argument is reasonable.
+- **Dialog claim untestable** — defended: action match rate as pragmatic proxy is acknowledged.
+- **Embedding cosine similarity assumption** — defended: scope correctly delegated to parent document.
 
 ## Concerns Missed
 
-- **The KV cache section's cost model still presents specific G=3 and G=5 numbers as though the input-only comparison tells the full story.** The synthesis added disclaimers about output tokens and cache-write premium, but the remaining summary table (G=3, G=5) still shows the input-only "token-equivalents" comparison with a "vs. Current" column that says "-24%". A reader skimming the table gets the old misleading conclusion. The table should either include output costs or carry a footnote at the table itself (not just in surrounding prose).
-- **The sensorium document's "Upstream" dimension was removed from the table but the prose at line 14 of draft-0 still listed "upstream context" as a percept the proxy has access to.** The draft-1 sensorium still lists upstream context in the Problem section's bullet list (line 14) but there is no corresponding embedding dimension for it. This is a minor coherence gap: the proxy senses upstream context but has no dedicated retrieval pathway for it. The synthesis changelog says upstream was removed because it wasn't in the mapping schema, but did not address how upstream context enters retrieval at all — presumably it folds into the artifact or stimulus embedding, but this is unstated.
+- **Engineering #1 (embedding model not specified)** — the `embedding_model` column was added to the schema, but the actual model choice (which API, what dimensionality) is still unspecified. The changelog lists this as "explicitly scoped out as implementation decisions" but neither the changelog nor the document says this explicitly. The document should note that the embedding model is an implementation choice with constraints (must be deterministic, must support re-embedding).
+- **Engineering #7 (concurrency control for interaction counter)** — not addressed. The FIFO queue is described in the future KV cache section but the current design has no concurrency specification. This concern was conceded in the proponent's "engineering gaps" section but not incorporated.
+- **Engineering #10 (chunk serialization format for LLM prompt)** — not addressed. The proponent conceded this as a blocking gap but the synthesis didn't add a serialization specification.
+- **Engineering #2, #3, #4 (prompt templates, output parsing, confidence format)** — not addressed. These were conceded as real gaps but the synthesis noted they should be "explicitly scoped out." The document doesn't do this explicitly.
 
 ## Regressions
 
-- **The cost summary table lost information.** Draft-0 had a table showing G=3, 5, 10, 20 with specific numbers and savings percentages. Draft-1 removed G=10 and G=20 rows to fix arithmetic errors but did not replace them with corrected values. This makes the scaling argument weaker — the reader can no longer see at a glance that savings improve with more gates.
-- **The "Corrections are more informative" passage in the mapping document changed from "richer associations" to "more specific associations" but then added a hedging sentence ("Whether this specificity translates to better retrieval precision is an empirical question to validate during shadow mode"). The hedge is appropriate for epistemic honesty but weakens a claim the proponent successfully defended.** This is a minor regression — the claim is still present but reads as less confident than the defense warranted.
+- **EMA section in act-r-proxy-mapping.md (line 179)** has minor redundancy: "EMA remains as a system health monitor — tracking approval rates per (state, task_type) over time. A declining EMA signals that upstream agents are producing worse artifacts, not that the proxy should change its behavior." is followed immediately by "EMA and the memory system operate on separate data paths. EMA tracks approval rates over time and produces trend reports." The approval-rate tracking is stated twice in adjacent sentences. Should be tightened.
+- No other regressions detected. All equations, worked examples, code, schemas, and references from draft-0 are preserved in draft-1.
 
 ## Coherence
 
-The revised document set reads as a unified whole — the embedding schema is consistent, cross-references are accurate, the auto-approval tension is resolved, and the tone is uniform across all four documents.
+The documents read as a unified set with consistent terminology; the "prediction-change salience" rename and "inspection" reframe are applied consistently across all four files.
 
 ## Overall
 
-Draft-1 is substantially better than draft-0. Every factual error the fact-checker identified has been corrected or removed. Every concern the proponent conceded has been addressed. The defended claims remain intact. The documents gained three new sections (cold start, memory maintenance, evaluation metrics) that fill genuine gaps. The epistemic calibration improved significantly: the draft now distinguishes clearly between what is established ACT-R theory, what is a design choice for this system, and what is novel and unvalidated. The cost model is more honest about its scope. The only regressions are minor (truncated cost table, slightly over-hedged correction claim). The synthesis was well-executed.
+Draft-1 is meaningfully better than draft-0. The factual corrections (:rt default, cache scope, d=0.5 attribution) are clean. The conceptual tightenings (inspection vs. dialog, retrieval vs. thinking, prediction accuracy vs. understanding) make the document more honest without losing its ambition. The new content (cost example, 1-hour TTL, embedding_model column, Petrov citation, autonomy gap acknowledgment) addresses real gaps. The missed engineering concerns (embedding model choice, chunk serialization, concurrency, prompt templates) are the main weakness — four conceded gaps that weren't incorporated. These don't make draft-1 worse than draft-0 (they were absent in draft-0 too), but they represent missed opportunities for improvement. A second round should address them.

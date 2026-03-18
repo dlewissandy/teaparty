@@ -60,7 +60,7 @@ The chunk has three layers:
 
 This replaces the single content embedding with a multi-dimensional representation that separates what the proxy sensed from what happened — enabling retrieval by any dimension or intersection of dimensions.
 
-**Note on multi-dimensional retrieval.** Using 5 independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores — but those are different signal types, not faceted semantic embeddings. The Phase 1 shadow mode should include an explicit ablation comparing multi-dimensional retrieval against a single blended embedding to determine whether the added complexity and 5x embedding cost earn their keep.
+**Note on multi-dimensional retrieval.** Using 5 independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores — but those are different signal types, not faceted semantic embeddings. The Phase 1 shadow mode should include an explicit ablation comparing multi-dimensional retrieval against a single blended embedding to determine whether the added complexity and 5x embedding cost earn their keep.
 
 ---
 
@@ -71,7 +71,7 @@ A trace is added to a chunk (incrementing the global interaction counter) when:
 1. **The chunk is created.** The proxy observes a gate outcome, a dialog exchange, or a discovery response. This is the first trace.
 2. **The chunk is retrieved.** When the proxy retrieves this chunk while making a decision, the retrieval itself reinforces the memory. Memories that are useful stay active; memories that are never retrieved decay.
 
-These two rules match standard ACT-R, where traces are created by access (creation and retrieval).
+These two rules match standard ACT-R, where traces are created by access (creation and retrieval). In ACT-R, a chunk is reinforced only when it is specifically retrieved for a task and actively referenced by a production rule — not merely when it is present in working memory (ACT-R Tutorial Unit 4). Loading chunks into the prompt prefix for context is analogous to having chunks in declarative memory above threshold; it does not constitute retrieval-and-use.
 
 ---
 
@@ -108,7 +108,7 @@ Every gate interaction produces a chunk. Chunks always include structural fields
 Each conversational exchange in a discussion creates its own chunk:
 - `type` = `dialog_turn`
 - `content` = the exchange (human question + agent response)
-- These chunks capture *how* the human reasons, not just *what* they decided
+- These chunks capture how the human reasons and what they chose to emphasize.
 
 ---
 
@@ -116,35 +116,37 @@ Each conversational exchange in a discussion creates its own chunk:
 
 In ACT-R, context sensitivity is handled by **spreading activation** — a graph-based mechanism where chunks associated with the current focus receive an activation boost. ACT-R uses this because it operates on symbolic representations with typed associations between chunks.
 
-We replace spreading activation with **vector embeddings**. Each chunk's content is embedded via the same infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity. This substitution provides context-sensitive retrieval without requiring a pre-built associative graph, which is an advantage for a system where associations are learned from unstructured text. However, it is a different mechanism with different properties — embeddings capture semantic overlap in text, not structural associations between concepts.
+We replace spreading activation with **vector embeddings**. Each chunk's content is embedded via the same infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity. This substitution provides context-sensitive retrieval without requiring a pre-built associative graph, which is an advantage for a system where associations are learned from unstructured text. However, it is a different mechanism with different properties. Embeddings capture semantic overlap in text, not structural associations between concepts.
 
-This combination of activation-based decay with embedding similarity has direct precedent in the research literature. Nuxoll & West (HAI 2024) combine ACT-R base-level activation with cosine similarity for LLM agent memory. Bhatia et al. (Frontiers, 2026) integrate language model embeddings into the ACT-R framework directly. Park et al.'s (2023) generative agents use a structurally similar weighted combination of recency, importance, and relevance — establishing the pattern of hybrid retrieval for agent memory.
+This combination of activation-based decay with embedding similarity has direct precedent in the research literature. Honda, Fujita, Zempo, & Fukushima (HAI '25) combine ACT-R base-level activation with cosine similarity for LLM agent memory retrieval. Meghdadi, Duff, & Demberg (Frontiers in Language Sciences, 2026) demonstrate that language model embedding cosine similarity is a valid substitute for hand-coded association strengths within the ACT-R framework. Their work is in psycholinguistic modeling (associative priming in the Lexical Decision Task), but the methodological pattern of using LM embeddings where ACT-R uses symbolic associations transfers to our context. Park, J.S., et al.'s (2023) generative agents use a structurally similar weighted combination of recency, importance, and relevance — establishing the pattern of hybrid retrieval for agent memory.
 
-Retrieval operates in two layers:
+Retrieval operates in two stages:
 
-**Structural filtering** narrows the search space using the chunk's categorical fields. "Show me memories from PLAN_ASSERT gates on security tasks" is a SQL query on `state` and `task_type`. This is fast, exact, and captures the relational structure that embeddings miss — the ordering of the tuple is preserved in the schema, not in the embedding.
+**Stage 1: Activation filtering.** Compute raw base-level activation B for each chunk. Discard chunks with B below tau (-0.5). This is the ACT-R retrieval threshold. It filters for memory accessibility. Chunks below threshold are effectively forgotten. This keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
 
-**Semantic ranking** orders the filtered results by meaning. Within the set of PLAN_ASSERT memories, "missing rollback plan" should rank near "no recovery strategy" even though the words differ. Cosine similarity on the embedded content handles this.
-
-The combined retrieval score (TeaParty design — not an ACT-R equation; replaces ACT-R's spreading activation with embedding similarity):
+**Stage 2: Composite scoring and ranking.** For survivors of the activation filter, compute a composite score for ranking:
 
 ```
-score = activation_weight * normalize(B)  +  semantic_weight * cosine(chunk_embedding, context_embedding)  +  noise
+composite = activation_weight * normalize(B)  +  semantic_weight * cosine_avg  +  noise
 ```
 
 Where:
 - `B` is the base-level activation (recency and frequency via ACT-R)
 - `normalize(B)` maps B to [0, 1] via min-max scaling over the candidate set, so that activation and similarity contribute on comparable scales
-- `cosine(...)` is the semantic similarity between the chunk and the current context (already bounded [-1, 1])
+- `cosine_avg` is the average cosine similarity across all 5 embedding dimensions (see below)
 - `noise` is logistic noise (see [act-r.md](act-r.md))
 - `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
-**Why normalization is needed.** B is unbounded (can range from negative values to ~3+ for heavily-accessed chunks), while cosine similarity is bounded [-1, 1]. Without normalization, heavily-accessed chunks would dominate retrieval regardless of semantic relevance. Min-max normalization over the candidate set ensures both signals contribute proportionally. This follows the approach of Park et al. (2023), who normalize all retrieval components to [0, 1] before combining. The normalization range should be refined during shadow mode when real activation distributions are observed.
+**Cosine averaging.** The semantic score is computed by summing cosine similarities across all matched dimensions and dividing by the total number of dimensions (5), not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 5 gets `(sim1 + sim2 + 0 + 0 + 0) / 5`, while a chunk with moderate similarity across all 5 gets `(sim1 + sim2 + sim3 + sim4 + sim5) / 5`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal.
+
+**Why normalization is needed.** B is unbounded (can range from negative values to ~3+ for heavily-accessed chunks), while cosine similarity is bounded [-1, 1]. Without normalization, heavily-accessed chunks would dominate retrieval regardless of semantic relevance. Min-max normalization over the candidate set ensures both signals contribute proportionally. This follows the approach of Park, J.S., et al. (2023), who normalize all retrieval components to [0, 1] before combining. The normalization range should be refined during shadow mode when real activation distributions are observed.
+
+Note that because normalization is computed over the candidate set, the effective influence of the activation_weight / semantic_weight balance varies by query. When all candidates have similar activation, semantic relevance dominates — which is the correct behavior. When activation varies widely, it has strong discriminating power. The 0.5 / 0.5 starting point is a design parameter whose effective behavior is query-dependent.
 
 | Parameter | Starting Value | Role | Source |
 |-----------|---------------|------|--------|
-| Activation weight | 0.5 | Weight of normalized base-level activation in score | Design parameter; calibrate empirically |
-| Semantic weight | 0.5 | Weight of cosine similarity in score | Design parameter; calibrate empirically |
+| Activation weight | 0.5 | Weight of normalized base-level activation in composite | Design parameter; calibrate empirically |
+| Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
 
 ---
 
@@ -152,12 +154,11 @@ Where:
 
 When the proxy needs to act — what question to ask at a gate, what observation to surface, how to respond in a discussion:
 
-1. **Filter structurally.** SQL query on state, task_type to narrow candidates.
-2. **Score.** For each candidate, compute normalized base-level activation + semantic similarity + noise.
-3. **Threshold.** Discard chunks with score below `tau` (-0.5).
-4. **Retrieve top-k.** Return the highest-scoring chunks.
-5. **Reason.** The proxy's LLM prompt receives the retrieved chunks as context: "Here are your relevant memories of working with this human..." The LLM reasons over them to produce a prediction, an observation, or a response.
-6. **Record.** After the human responds, a new chunk is created (or an existing chunk is reinforced with a new trace). The cycle continues.
+1. **Filter by activation.** Compute raw B for all chunks matching structural criteria (state, task_type). Discard chunks with B below tau (-0.5).
+2. **Score.** For each survivor, compute the composite score (normalized activation + semantic similarity + noise).
+3. **Retrieve top-k.** Return the highest-scoring chunks.
+4. **Reason.** The proxy's LLM prompt receives the retrieved chunks as context: "Here are your relevant memories of working with this human..." The LLM reasons over them to produce a prediction, an observation, or a response.
+5. **Record.** After the human responds, a new chunk is created (or an existing chunk is reinforced with a new trace). The cycle continues.
 
 ---
 
@@ -165,7 +166,7 @@ When the proxy needs to act — what question to ask at a gate, what observation
 
 With zero chunks in memory, retrieval returns nothing. The proxy's LLM receives no memories and must reason from the system prompt and artifact alone. This is equivalent to the proxy escalating every gate to the human — the correct cold-start behavior, because when you know nothing about the human, you ask them.
 
-The current system's Laplace prior serves the same function (start uncertain, converge toward confidence). The difference is that the new system's cold start produces dialog (the proxy asks questions because it has no memories to draw on), while the current system's cold start produces escalation (the proxy punts because the scalar is below threshold). Both are conservative; the new system's conservatism is more informative because it generates interaction data that builds the memory from the first session onward.
+The current system's Laplace prior serves the same function (start uncertain, converge toward confidence). The difference is mechanical: the new system's cold start produces dialog (the proxy asks questions because it has no memories to draw on), while the current system's cold start produces escalation (the proxy punts because the scalar is below threshold). Both are conservative. The new system generates richer interaction data per gate (questions, responses, reasoning, structured chunks with embeddings) compared to a single binary outcome update. Whether this richer data translates to faster convergence toward useful retrieval is an empirical question for the Phase 1 ablations.
 
 ---
 
@@ -175,7 +176,7 @@ The current model asks: "what is my confidence that this human will approve?" �
 
 The proxy doesn't transition from "always escalate" to "auto-approve." It transitions from "I don't know this human, so I must ask them everything" to "I know what this human would ask, so I can ask it on their behalf." The decision emerges from the dialog, not from a threshold.
 
-EMA remains as a system health monitor — tracking approval rates per (state, task_type) over time. A declining EMA signals that upstream agents are producing worse artifacts, not that the proxy should change its behavior. Note that EMA trend information does flow into the proxy's decisions indirectly: if upstream quality degrades, the proxy encounters more corrections and surprises, producing correction chunks with richer salience deltas. The memory system naturally becomes more skeptical as corrections accumulate. EMA may also trigger operational actions (alerting the team, adjusting dispatch configuration) even though it does not directly alter per-gate decisions.
+EMA remains as a system health monitor — tracking approval rates per (state, task_type) over time. A declining EMA signals that upstream agents are producing worse artifacts, not that the proxy should change its behavior. EMA and the memory system operate on separate data paths. EMA tracks approval rates over time and produces trend reports. The memory system records interactions as chunks. The two systems don't share state. If upstream quality degrades, the memory system responds to the degradation through its normal operation (more correction chunks accumulate), not through EMA influencing retrieval.
 
 ---
 
@@ -193,7 +194,7 @@ EMA remains as a system health monitor — tracking approval rates per (state, t
 
 The traces list grows as chunks are retrieved and reinforced across sessions. Without maintenance, long-lived chunks could accumulate thousands of traces. The design needs a compaction strategy:
 
-- **Trace compaction.** Traces older than a configurable horizon (e.g., 500 interactions) are replaced with a summary: a count and an average interval. The base-level activation formula uses the summary for old traces (contributing a precomputed constant) and individual traces for recent ones. This bounds the traces list without losing the activation signal from historical access patterns.
+- **Trace compaction.** Use the ACT-R standard base-level approximation B ≈ ln(n/(1-d)) - d*ln(L), where n = total presentations and L = lifetime in interactions. Petrov (2006) developed a more accurate hybrid approximation that combines this formula with direct computation for recent traces. Both are well-studied alternatives with known error bounds, unlike the naive averaging approach which violates Jensen's inequality for the concave t^(-d) function.
 - **Chunk pruning.** Chunks that have been below threshold tau for N consecutive sessions (e.g., N = 10) are archived to cold storage. They can be restored if a future retrieval query specifically targets their structural fields, but they do not participate in routine scoring.
 - **Database maintenance.** SQLite VACUUM runs periodically (e.g., at session start if the database exceeds a size threshold).
 
@@ -217,10 +218,12 @@ class MemoryChunk:
     posterior_prediction: str        # Pass 2 prediction (with artifact)
     posterior_confidence: float      # Pass 2 confidence
     prediction_delta: str            # what changed between passes (salience)
+    salient_percepts: list[str]      # artifact features that caused the shift
     human_response: str              # what the human actually did
     delta: str                       # proxy error vs human response
     content: str                     # full text of the interaction
     traces: list[int]                # list of interaction sequence numbers
+    embedding_model: str             # which model produced the vectors
     embedding_situation: list[float] | None
     embedding_artifact: list[float] | None
     embedding_stimulus: list[float] | None
@@ -243,10 +246,12 @@ CREATE TABLE proxy_chunks (
     posterior_prediction TEXT DEFAULT '',
     posterior_confidence REAL DEFAULT 0,
     prediction_delta TEXT DEFAULT '',
+    salient_percepts TEXT DEFAULT '[]', -- JSON array of strings
     human_response TEXT DEFAULT '',
     delta TEXT DEFAULT '',
     content TEXT NOT NULL,
     traces TEXT NOT NULL,              -- JSON array of interaction sequence numbers
+    embedding_model TEXT NOT NULL,     -- which model produced the vectors
     embedding_situation TEXT,          -- JSON array of floats
     embedding_artifact TEXT,
     embedding_stimulus TEXT,
@@ -262,9 +267,14 @@ CREATE TABLE proxy_state (
 INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
 ```
 
+The embedding_model column records which model produced the vectors, enabling re-embedding migration when the model changes.
+
 ### Core Functions
 
 ```python
+TOTAL_EMBEDDING_DIMENSIONS = 5  # situation, artifact, stimulus, response, salience
+
+
 def base_level_activation(
     traces: list[int], current_interaction: int, d: float = 0.5,
 ) -> float:
@@ -285,7 +295,7 @@ def normalize_activation(b: float, b_min: float, b_max: float) -> float:
     return max(0.0, min(1.0, (b - b_min) / (b_max - b_min)))
 
 
-def retrieval_score(
+def composite_score(
     chunk: MemoryChunk,
     context_embeddings: dict[str, list[float]],
     current_interaction: int,
@@ -296,18 +306,19 @@ def retrieval_score(
     d: float = 0.5,
     s: float = 0.25,
 ) -> float:
-    """Combined retrieval score: normalized ACT-R activation +
+    """Composite ranking score: normalized ACT-R activation +
     multi-dimensional semantic similarity + noise.
 
     context_embeddings: dict mapping dimension names to embedding vectors.
-    Only dimensions present in both the context and the chunk contribute.
-    The semantic score is the average cosine across matched dimensions —
-    chunks matching on more dimensions score higher (intersection effect).
+    The semantic score sums cosine similarities across matched dimensions
+    and divides by TOTAL_EMBEDDING_DIMENSIONS (5), not the number of
+    populated dimensions. This rewards breadth: chunks matching across
+    more dimensions score higher than chunks matching narrowly on fewer.
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = normalize_activation(b, b_min, b_max)
 
-    # Multi-dimensional semantic similarity
+    # Multi-dimensional semantic similarity (divide by total dimensions)
     dim_map = {
         'situation': chunk.embedding_situation,
         'artifact': chunk.embedding_artifact,
@@ -315,14 +326,19 @@ def retrieval_score(
         'response': chunk.embedding_response,
         'salience': chunk.embedding_salience,
     }
-    similarities = []
+    sim_sum = 0.0
     for dim, context_vec in context_embeddings.items():
         chunk_vec = dim_map.get(dim)
         if chunk_vec and context_vec:
-            similarities.append(cosine_similarity(chunk_vec, context_vec))
-    sem = sum(similarities) / len(similarities) if similarities else 0.0
+            sim_sum += cosine_similarity(chunk_vec, context_vec)
+    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
 
     noise = logistic_noise(s)
+    # Note: in standard ACT-R, noise is added to activation alone, not to a
+    # composite score. Adding noise to the composite is a simplification — it
+    # perturbs the combined ranking rather than just the accessibility signal.
+    # The practical effect is small at s = 0.25, but the departure from ACT-R
+    # semantics should be noted.
     return activation_weight * b_norm + semantic_weight * sem + noise
 
 
@@ -334,32 +350,39 @@ def retrieve(
     tau: float = -0.5,
     top_k: int = 10,
 ) -> list[MemoryChunk]:
-    """Retrieve top-k chunks above threshold.
+    """Retrieve top-k chunks above activation threshold.
 
     1. Structural filter on state, task_type
-    2. Compute activation range for normalization
-    3. Multi-dimensional semantic scoring
-    4. Threshold and rank
+    2. Activation filter: discard chunks with raw B below tau
+    3. Compute activation range for normalization over survivors
+    4. Composite scoring and ranking
     """
     candidates = query_chunks(state=state, task_type=task_type)
     context_embeddings = context_embeddings or {}
 
-    # Compute activation range for normalization
-    activations = [
-        base_level_activation(c.traces, current_interaction)
-        for c in candidates
-    ]
-    b_min = min(activations) if activations else 0.0
-    b_max = max(activations) if activations else 0.0
+    # Stage 1: filter by raw activation (tau on B, not on composite)
+    survivors = []
+    for c in candidates:
+        b = base_level_activation(c.traces, current_interaction)
+        if b > tau:
+            survivors.append((b, c))
 
+    if not survivors:
+        return []
+
+    # Compute activation range for normalization over survivors
+    activations = [b for b, _ in survivors]
+    b_min = min(activations)
+    b_max = max(activations)
+
+    # Stage 2: composite scoring for ranking
     scored = []
-    for chunk in candidates:
-        score = retrieval_score(
+    for _, chunk in survivors:
+        score = composite_score(
             chunk, context_embeddings, current_interaction,
             b_min, b_max,
         )
-        if score > tau:
-            scored.append((score, chunk))
+        scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
     return [chunk for _, chunk in scored[:top_k]]
 
@@ -371,6 +394,7 @@ def record_interaction(
     task_type: str,
     outcome: str,
     content: str,
+    embedding_model: str,
     delta: str = '',
     lens: str = '',
     prior_prediction: str = '',
@@ -378,6 +402,7 @@ def record_interaction(
     posterior_prediction: str = '',
     posterior_confidence: float = 0.0,
     prediction_delta: str = '',
+    salient_percepts: list[str] | None = None,
     human_response: str = '',
     artifact_text: str = '',
     stimulus_text: str = '',
@@ -403,10 +428,12 @@ def record_interaction(
         posterior_prediction=posterior_prediction,
         posterior_confidence=posterior_confidence,
         prediction_delta=prediction_delta,
+        salient_percepts=salient_percepts or [],
         human_response=human_response,
         delta=delta,
         content=content,
         traces=[current],
+        embedding_model=embedding_model,
         embedding_situation=embed(f'{state} {task_type}'),
         embedding_artifact=embed(artifact_text) if artifact_text else None,
         embedding_stimulus=embed(stimulus_text) if stimulus_text else None,
@@ -431,8 +458,10 @@ def record_interaction(
 
 ## References
 
-**Park, S., et al.** (2023). Generative Agents: Interactive Simulacra of Human Behavior. *UIST '23*. — Weighted combination of recency, importance, and relevance with min-max normalization. Direct precedent for hybrid retrieval scoring.
+**Park, J.S., et al.** (2023). Generative Agents: Interactive Simulacra of Human Behavior. *UIST '23*. — Weighted combination of recency, importance, and relevance with min-max normalization. Direct precedent for hybrid retrieval scoring.
 
-**Nuxoll, A., & West, R.** (2024). Human-Like Remembering and Forgetting in LLM Agents. *HAI '24*. — ACT-R base-level activation + cosine similarity for LLM agent memory retrieval.
+**Honda, Y., Fujita, Y., Zempo, K., & Fukushima, S.** (2025). Human-Like Remembering and Forgetting in LLM Agents: An ACT-R-Inspired Memory Architecture. In *Proceedings of the 13th International Conference on Human-Agent Interaction* (HAI '25), pp. 229-237. ACM. DOI: 10.1145/3765766.3765803 — ACT-R base-level activation + cosine similarity for LLM agent memory retrieval. Best Paper Award, HAI 2025.
 
-**Bhatia, S., et al.** (2026). Integrating language model embeddings into the ACT-R cognitive modeling framework. *Frontiers in Language Sciences*. — Embedding-based replacement for hand-coded ACT-R associations.
+**Meghdadi, M., Duff, J., & Demberg, V.** (2026). Integrating language model embeddings into the ACT-R cognitive modeling framework. *Frontiers in Language Sciences*, 5. DOI: 10.3389/flang.2026.1721326 — Demonstrates that LM embedding cosine similarity is a valid substitute for hand-coded association strengths within the ACT-R framework. The paper's domain is psycholinguistic modeling (associative priming in the Lexical Decision Task); the relevance here is the methodological pattern of using LM embeddings where ACT-R uses symbolic associations.
+
+**Petrov, A.** (2006). Computationally Efficient Approximation of the Base-Level Learning Equation in ACT-R. In *Proceedings of the Seventh International Conference on Cognitive Modeling* (ICCM '06). — Hybrid approximation combining the ACT-R standard formula with direct computation, providing more accurate activation estimates than naive averaging.

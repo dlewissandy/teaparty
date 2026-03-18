@@ -2,159 +2,138 @@
 
 ## Changes Made
 
-### Noise parameter s = 0.25 (act-r.md)
-**Reason:** Factcheck found s = 0.25 is not the ACT-R standard; proponent conceded.
-**What changed:** Reframed s = 0.25 as a design choice, not a standard value. Added note that ACT-R tutorials use 0.2-0.5 and that the value needs empirical calibration. Updated the parameter table to show "Design choice" in the Source column.
-**Anchor check:** Preserves the anchor's value choice; corrects the provenance claim.
+### act-r.md: Fix :rt default value
+**Reason:** Fact check found :rt defaults to 0, not NIL
+**What changed:** Line 117 corrected from "NIL (disabled)" to "0 (zero)" with explanation
+**Anchor check:** Factual correction; preserves intent
 
-### Retrieval threshold tau = -0.5 (act-r.md)
-**Reason:** Factcheck found tau = -0.5 is not the ACT-R standard; proponent conceded.
-**What changed:** Reframed tau = -0.5 as a design choice with rationale (admits slightly negative activation, appropriate for low-interaction systems). Updated parameter table Source column.
-**Anchor check:** Preserves the anchor's value choice; corrects the provenance claim.
+### act-r.md: Soften Anderson & Schooler d=0.5 claim
+**Reason:** Fact check flagged overstatement; researcher confirmed nuance
+**What changed:** "Why d = 0.5?" section reworded to distinguish environmental power-law finding from the specific exponent value, which is an ACT-R modeling convention validated across models
+**Anchor check:** More accurate attribution; preserves the argument for d=0.5
 
-### d = 0.5 caveat for sparse interaction regimes (act-r.md)
-**Reason:** HM concern #4; proponent partially conceded (defended power-law form, conceded exponent is unvalidated for this domain). Researcher confirmed the concern is legitimate.
-**What changed:** Added "Caveat for agent systems" paragraph after "Why d = 0.5?" section. Acknowledges the empirical basis is high-volume corpora, that d = 0.5 is a principled starting point rather than validated parameter, and that calibration is planned for shadow mode.
-**Anchor check:** Preserves the anchor's choice of d = 0.5 and its theoretical justification; adds appropriate epistemic humility without weakening the core argument.
+### act-r.md: Reduce em dash density
+**Reason:** AI smell critic flagged 30 em dashes in this file
+**What changed:** ~40% of em dashes replaced with periods, semicolons, or commas
+**Anchor check:** Style only; intent preserved
 
-### Anderson & Schooler event-based framing (act-r.md)
-**Reason:** Logic critic non-sequitur #3 and factcheck partial confirmation. Proponent defended the event-based framing but conceded the mapping is looser than stated.
-**What changed:** Added parenthetical note in "Interactions, Not Seconds" point 2 clarifying that "event-based" is a reasonable interpretation of Anderson & Schooler's methodology, not a direct quote. The primary units were days (NYT/email) and utterance intervals (speech).
-**Anchor check:** Preserves the interaction-based time argument; adds precision about the source claim.
+### act-r-proxy-memory.md: Reframe "models how the human thinks" to "models what the human would retrieve"
+**Reason:** Visionary #1, proponent conceded the overstatement while defending the underlying claim
+**What changed:** "The Proxy's Job" and "Two Systems" sections reframed. ACT-R models memory accessibility; the LLM reasons over retrieved memories. The document now states this division of labor explicitly.
+**Anchor check:** Tightens rhetoric to match mechanism; preserves the core claim that retrieval shapes reasoning
 
-### Embedding dimensions inconsistent across documents (all four files)
-**Reason:** Logic critic contradiction #1; proponent conceded. The mapping document's 5-dimension schema is canonical.
-**What changed:** Harmonized all documents to the 5-dimension schema: situation, artifact, stimulus, response, salience. Removed the "upstream" dimension from the sensorium table (it was not in the mapping schema or implementation). Updated the root document's MemoryChunk to include `embedding_artifact`. The sensorium document now matches the mapping document exactly.
-**Anchor check:** The anchor's mapping document already had 5 dimensions; this reconciles the other documents to match.
+### act-r-proxy-memory.md: Reframe "dialog" argument as "inspection" argument
+**Reason:** Logic critic #2 identified equivocation on "dialog"; proponent proposed reframe around inspection
+**What changed:** "What Changes" section reframed: quality requires artifact inspection, EMA skips inspection, two-pass ensures inspection. Removed the claim that "dialog is how quality is maintained" and replaced with inspection framing.
+**Anchor check:** Preserves the core critique of EMA while eliminating the equivocation
 
-### Combined score normalization (act-r-proxy-mapping.md)
-**Reason:** HM concern #3; proponent conceded the scale mismatch is real. Researcher found Park et al. (2023) uses min-max normalization for the same problem.
-**What changed:** Added `normalize(B)` to the score formula with min-max scaling. Added `normalize_activation()` function to implementation. Added "Why normalization is needed" explanatory paragraph. Added Park et al. citation.
-**Anchor check:** Refines the anchor's retrieval mechanism without changing its intent. The anchor's 0.5/0.5 weighting is preserved; normalization makes the weighting meaningful.
+### act-r-proxy-memory.md: Fix "prior-posterior agreement reflects genuine understanding"
+**Reason:** Logic critic non-sequitur #2; proponent conceded
+**What changed:** Decoupled claims: two-pass ensures inspection (mechanistic), action match measures prediction accuracy (evaluation). Removed "genuine understanding" language.
+**Anchor check:** More precise; preserves the distinction from EMA-based auto-approval
 
-### Removed "explicit reinforcement" trace rule 3 (act-r-proxy-mapping.md)
-**Reason:** HM concern #11; proponent conceded the rule is "a bias bomb." Researcher confirmed this is not standard ACT-R (traces are created by access, not outcome similarity).
-**What changed:** Removed trace creation rule 3. Traces are now created only on chunk creation (rule 1) and retrieval (rule 2), matching standard ACT-R. Added note that these two rules match standard ACT-R.
-**Anchor check:** The anchor included this rule; removing it is a substantive change. However, the proponent conceded it was dangerous and unspecified, and the researcher confirmed it departs from ACT-R without justification. Rules 1 and 2 are sufficient for the memory dynamics the anchor describes.
+### act-r-proxy-memory.md: Update cache matching from "account-level" to "workspace-level"
+**Reason:** Fact check found outdated information
+**What changed:** Line 221 updated; added note about February 2026 change
+**Anchor check:** Factual correction
 
-### Chunk creation for non-surprise gates clarified (act-r-proxy-mapping.md, act-r-proxy-memory.md)
-**Reason:** Logic critic contradiction #4; proponent conceded the ambiguity.
-**What changed:** Added explicit statement in the mapping document that every gate produces a chunk; non-surprise chunks have empty salience fields. Updated the session lifecycle STORE step to say "populate salience fields only if surprise was detected."
-**Anchor check:** Clarifies rather than changes the anchor's intent. The mapping document always described per-gate chunks.
+### act-r-proxy-memory.md: Add 1-hour TTL cache option
+**Reason:** Researcher found new evidence
+**What changed:** Cache economics section now mentions both 5-minute (1.25x) and 1-hour (2x) TTL options
+**Anchor check:** Adds relevant information
 
-### Auto-approval tension resolved (act-r-proxy-memory.md, act-r-proxy-sensorium.md)
-**Reason:** Logic critic contradiction #3; proponent defended but acknowledged the documents don't make the distinction explicit.
-**What changed:** Added a note in the root document's "What Changes" section explicitly distinguishing EMA-based auto-approval (skips inspection) from two-pass auto-approval (completes inspection). The sensorium document's "Learned Attention Over Time" section now explains the distinction directly.
-**Anchor check:** Preserves the anchor's critique of EMA-based auto-approval and the sensorium's argument for earned autonomy. Makes the distinction explicit rather than leaving it for readers to infer.
+### act-r-proxy-memory.md: Add worked cost example with Sonnet pricing
+**Reason:** Visionary #7; proponent conceded need for absolute numbers
+**What changed:** Added concrete cost example for a 10-gate session using Sonnet pricing ($3/MTok input, $15/MTok output)
+**Anchor check:** Strengthens cost analysis without changing the design
 
-### Surprise mechanism expanded from binary to graded (act-r-proxy-sensorium.md, act-r-proxy-memory.md)
-**Reason:** HM concern #7; proponent partially conceded (proposed confidence-delta threshold). Researcher found support in Bayesian surprise literature (Itti & Baldi 2009).
-**What changed:** Surprise now triggers on action change (strong, 2 LLM calls) OR confidence delta > 0.3 (moderate, 1 LLM call). SurpriseDelta.magnitude updated to 1.0/0.5/0.0. Session lifecycle pseudocode updated. Sensorium document's "Surprise" section rewritten to describe the graded mechanism.
-**Anchor check:** Extends the anchor's binary mechanism to capture more information. The anchor's core insight (salience comes from prior-posterior divergence) is preserved; the threshold is broadened.
+### act-r-proxy-memory.md: Rename "Bayesian surprise" to "prediction-change salience"
+**Reason:** Visionary #2, researcher confirmed; proponent conceded
+**What changed:** All references to "Bayesian surprise" reframed as "prediction-change salience" with Itti & Baldi cited as conceptual inspiration
+**Anchor check:** More honest terminology; preserves the mechanism
 
-### Two-pass delta noise acknowledged (act-r-proxy-sensorium.md)
-**Reason:** HM concern #6; proponent defended the architecture but conceded the delta is noisy. Researcher confirmed temperature 0 non-determinism is well-documented.
-**What changed:** Added "A note on signal quality" paragraph in the sensorium document after "The Delta" section, acknowledging that temperature 0 does not guarantee determinism and that the delta is an approximate signal.
-**Anchor check:** Does not weaken the two-pass design; adds appropriate caveats.
+### act-r-proxy-memory.md: Clarify EMA separation mechanism
+**Reason:** Logic critic #3; proponent recommended dropping direct/indirect language
+**What changed:** EMA section now states the mechanism clearly: EMA monitors on a separate data path; the memory system records interactions; the two systems don't share state. Removed "directly/indirectly" equivocation.
+**Anchor check:** Clearer separation; preserves intent
 
-### Cost model arithmetic corrected (act-r-proxy-memory.md)
-**Reason:** Factcheck found G=10 and G=20 totals incorrect.
-**What changed:** Removed the specific G=10 and G=20 rows from the summary tables (the detailed formula is present for readers to compute). Revised the cost model to acknowledge output tokens and cache-write premium as factors the input-focused model omits.
-**Anchor check:** The anchor's cost model was illustrative, not contractual. Correcting errors and acknowledging omissions preserves credibility.
+### act-r-proxy-memory.md: Reduce AI writing patterns
+**Reason:** AI smell critic flagged em dashes, "not X but Y", "This is" patterns
+**What changed:** Varied sentence structures, reduced em dash density, integrated labels into prose where possible
+**Anchor check:** Style only
 
-### 376-chunk capacity explained (act-r-proxy-memory.md)
-**Reason:** Factcheck noted 200K/500 = 400, not 376; arithmetic basis unstated.
-**What changed:** Explicitly stated the assumption: "reserving ~12,000 tokens for system prompt and gate content, the practical capacity is ~376 chunks."
-**Anchor check:** Makes the anchor's implicit assumption explicit.
+### act-r-proxy-mapping.md: Add embedding model version to schema
+**Reason:** Visionary #6; proponent conceded
+**What changed:** Added `embedding_model TEXT` column to schema and field to dataclass; added migration note
+**Anchor check:** Operational hygiene; preserves design
 
-### "Deployed at scale" and Claude memory claims removed (act-r-proxy-mapping.md)
-**Reason:** Factcheck found both claims unverifiable; proponent conceded. Researcher found Claude uses file-based memory, not activation-weighted retrieval.
-**What changed:** Removed the sentence about Claude's persistent memory and "deployed at scale." Replaced with specific citations to published precedents: Park et al. (2023), HAI 2024 paper, Frontiers 2026 paper. The mapping document now cites these as "direct precedent in the research literature."
-**Anchor check:** Replaces unverifiable claims with verifiable ones. Strengthens the argument.
+### act-r-proxy-mapping.md: Replace trace compaction with ACT-R standard approximation
+**Reason:** Visionary #5, engineering #6, researcher found Petrov (2006)
+**What changed:** Memory Maintenance section now references the standard approximation B ≈ ln(n/(1-d)) - d*ln(L) and Petrov's hybrid. Removed ad hoc compaction proposal.
+**Anchor check:** More principled approach; preserves intent of bounding trace growth
 
-### "Low-fan spreading activation" analogy softened (act-r-proxy-mapping.md, act-r-proxy-sensorium.md)
-**Reason:** Logic critic non-sequitur #4 and HM concern #2; proponent conceded the phrasing overstates the mapping. Researcher confirmed averaging cosines does not produce the fan effect.
-**What changed:** Removed "the equivalent of low-fan spreading activation" phrasing. The text now describes the intersection effect directly without claiming ACT-R equivalence. Added note in mapping document that multi-dimensional retrieval is a novel design choice without published validation, with ablation planned.
-**Anchor check:** The anchor used "low-fan spreading activation" as analogy. The revision preserves the intersection idea while being honest about the mechanism.
+### act-r-proxy-mapping.md: Fix cold start "populates faster" claim
+**Reason:** Logic non-sequitur #3; proponent conceded
+**What changed:** Hedged the claim: richer data per interaction doesn't guarantee faster useful-memory convergence
+**Anchor check:** More honest; preserves cold start description
 
-### AutoDiscovery wording fix (act-r-proxy-sensorium.md)
-**Reason:** Factcheck flagged "hypothesis ranking" as imprecise.
-**What changed:** Changed "hypothesis ranking" to "guiding hypothesis exploration."
-**Anchor check:** Minor wording fix; preserves the analogy.
+### act-r-proxy-mapping.md: Clarify EMA separation
+**Reason:** Same as act-r-proxy-memory.md change
+**What changed:** Replaced direct/indirect language with clear mechanism description
+**Anchor check:** Consistency across documents
 
-### Evaluation metrics and ablation plan added (act-r-proxy-memory.md)
-**Reason:** HM concern #1; proponent conceded.
-**What changed:** Added concrete evaluation metrics (action match rate, prior calibration, surprise calibration, retrieval relevance) and ablation plan (multi-dim vs. single embedding, ACT-R decay vs. simple recency, two-pass vs. single-pass, normalized vs. single-signal retrieval) to the Migration Path section.
-**Anchor check:** Extends the anchor's migration path with specifics it lacked. Does not change the phased approach.
+### act-r-proxy-mapping.md: Acknowledge noise placement departure from ACT-R
+**Reason:** Logic critic #4; proponent recommended acknowledgment
+**What changed:** Added note that noise on the composite score is a simplification vs. ACT-R's activation-only noise
+**Anchor check:** More honest about departures
 
-### Embedding cost acknowledged (act-r-proxy-sensorium.md, act-r-proxy-memory.md)
-**Reason:** HM concern #8; proponent conceded.
-**What changed:** Added note in sensorium Implementation section about embedding costs (up to 5 calls per chunk plus retrieval-time embedding). Added E (embedding cost) to the cost model variable list with note that it is negligible vs. LLM calls.
-**Anchor check:** Makes implicit costs explicit.
+### act-r-proxy-mapping.md: Add Petrov (2006) to references
+**Reason:** Researcher finding
+**What changed:** Added citation
+**Anchor check:** New evidence integration
 
-### Memory maintenance section added (act-r-proxy-mapping.md)
-**Reason:** HM concern #10; proponent conceded.
-**What changed:** Added "Memory Maintenance" section describing trace compaction, chunk pruning, and database maintenance.
-**Anchor check:** New section addressing an operational gap the anchor did not address. Required for a system intended to run long-term.
+### act-r-proxy-sensorium.md: Rename "Bayesian surprise" throughout
+**Reason:** Same as act-r-proxy-memory.md change
+**What changed:** Consistent rename to "prediction-change salience"
+**Anchor check:** Consistency
 
-### Cold start behavior specified (act-r-proxy-mapping.md)
-**Reason:** HM concern #5; proponent defended the cold-start mechanism but conceded it was implicit.
-**What changed:** Added "Cold Start Behavior" section making explicit that zero chunks = escalate everything = correct cold-start behavior.
-**Anchor check:** Makes explicit what the anchor left implicit.
+### act-r-proxy-sensorium.md: Fix delta_from_posterior to delta
+**Reason:** Engineering #9
+**What changed:** Example chunk uses `delta` to match canonical schema
+**Anchor check:** Consistency fix
 
-### EMA separation nuanced (act-r-proxy-mapping.md)
-**Reason:** Logic critic unstated assumption #5; proponent defended indirect information flow but conceded the separation was too rigid.
-**What changed:** Added note in "Replacing the Current Confidence Model" section that EMA trends flow indirectly into decisions (more corrections produce more correction chunks) and may trigger operational actions.
-**Anchor check:** Preserves the anchor's separation of monitoring and decision; adds nuance about information flow.
-
-### Cross-task learning nuanced (act-r-proxy-memory.md)
-**Reason:** Logic critic unstated assumption #3; proponent defended with structural filtering argument.
-**What changed:** Added sentence in the Concurrency section noting that cross-task priming depends on the tasks and that structural filtering mitigates contamination.
-**Anchor check:** Preserves the anchor's FIFO design; adds acknowledgment of the concern.
-
-### KV cache section framing adjusted (act-r-proxy-memory.md)
-**Reason:** HM concern #9; proponent conceded the cost model should be separated from core economics.
-**What changed:** Added framing sentence at section start: "The core design (text retrieval without caching) stands on its own; this section describes what becomes possible when the proxy is migrated to direct API calls."
-**Anchor check:** The KV cache section is preserved in full (it was always labeled future work). The framing change makes the boundary clearer.
-
-### Cost model revised for completeness (act-r-proxy-memory.md)
-**Reason:** Logic non-sequitur #2; proponent conceded output tokens and cache-write premium were omitted.
-**What changed:** Added output tokens (O), cache-write premium (w), and embedding cost (E) to the cost model variables. Added explicit note that the model focuses on input token-equivalents and that full cost comparison must include output tokens. Removed the summary table with incorrect G=10/G=20 numbers.
-**Anchor check:** The anchor's cost argument was directionally correct but numerically incomplete. The revision is honest about what the model covers.
-
-### New references added (act-r-proxy-mapping.md, act-r-proxy-memory.md)
-**Reason:** Researcher found direct precedents (HAI 2024, Frontiers 2026, Park et al. 2023).
-**What changed:** Added References sections to mapping and memory documents citing Park et al. (2023), Nuxoll & West (HAI 2024), and Bhatia et al. (Frontiers 2026).
-**Anchor check:** Strengthens the anchor's case with published validation of the core pattern.
+### act-r-proxy-sensorium.md: Reframe autonomy as requiring operational criteria (placeholder)
+**Reason:** Visionary #4; proponent conceded this is the biggest gap
+**What changed:** Added a note that Phase 3 autonomy criteria are a design gap requiring specification before implementation. Did not invent criteria (that would be scope creep beyond what the critics identified).
+**Anchor check:** Acknowledges the gap without drifting from anchor intent
 
 ## Changes Rejected
 
-### "Corrections are more informative" is a non sequitur (Logic non-sequitur #1)
-**Reason:** Proponent defense was sound. The argument is not that more text = better embeddings; it is that error-describing text is inherently more specific than success-confirming text. Tightened the phrasing from "richer associations" to "more specific associations" but preserved the claim.
+### "ACT-R is just an index" — recharacterize as RAG
+**Reason:** Proponent defense was sound. The document already states ACT-R's role explicitly (line 114). The claim that retrieval shapes reasoning is defensible. Tightened rhetoric instead of recharacterizing.
 
-### The LLM may not produce meaningfully different Pass 1 vs Pass 2 outputs (Logic unstated assumption #1)
-**Reason:** Proponent defense was sound. Conditioning on presence/absence of a multi-page artifact is a substantive input difference, not a prompt phrasing difference. This is how conditional generation works. The concern is valid as a monitoring item but not as a design objection.
+### Retrieval-reinforcement is identical to REINFORCE
+**Reason:** Proponent defense was sound. Retrieval reinforcement is selective (filtered by structural match, activation, and semantic relevance); REINFORCE was blanket. The distinction is real. Added a note clarifying the tradeoff.
 
-### Cosine similarity is not a valid substitute for spreading activation (Logic unstated assumption #2)
-**Reason:** Proponent defense was sound with the concession on "low-fan" phrasing. The documents explicitly state this is a replacement, not a replication. The "low-fan" analogy was softened (see Changes Made), but the substitution itself is preserved.
+### Five embeddings should be removed
+**Reason:** The document already includes an ablation to test this. The proponent's point about activation counterbalancing the salience bias is valid. No change needed beyond what the ablation already addresses.
 
-### The activation threshold may not be self-regulating (Logic unstated assumption #4)
-**Reason:** Proponent defense was directionally correct: a fixed threshold on a decaying function limits loading as population grows. Added note that tau may need adjustment, but did not add analysis of specific interaction regimes — this is a calibration question for shadow mode.
+### Dialog claim is untestable
+**Reason:** Proponent defense was sound. Action match rate is a pragmatic proxy. Added acknowledgment that it doesn't measure dialog quality directly.
 
-### Multi-dimensional embedding retrieval needs validation (HM #2)
-**Reason:** The concern is valid but the response is already covered: added ablation plan and note that this is a novel design choice. The architecture is preserved because the ablation will resolve the question empirically.
-
-### The KV cache section should be removed or shortened (HM #9)
-**Reason:** Proponent defense was sound. The section demonstrates architectural continuity between current and future designs. It is clearly labeled as future work. The framing was adjusted to separate it from core economics.
+### Embedding cosine similarity assumption
+**Reason:** Proponent clarification was sound. This is the scope of the parent document (human-proxies.md), and the citations (Honda et al., Meghdadi et al.) provide precedent.
 
 ## Net Assessment
 
-This draft is closer to the anchor's intent than draft-0. The core architecture is unchanged: ACT-R activation memory, two-pass prediction, structural filtering + semantic ranking, EMA as monitoring. The changes fall into three categories:
+Draft-1 is tighter, more honest, and factually corrected. The main improvements:
+1. Rhetoric matches mechanism (retrieval shapes reasoning, not "models thinking")
+2. "Dialog" equivocation replaced with "inspection" framing
+3. Factual errors corrected (:rt default, cache isolation, Anderson & Schooler attribution)
+4. Trace compaction replaced with established ACT-R approximation
+5. Embedding drift addressed in schema
+6. Cost model grounded in actual pricing
+7. "Bayesian surprise" renamed to avoid borrowing unearned prestige
+8. AI writing patterns reduced
 
-1. **Corrections**: factual errors fixed (parameter provenance, cost arithmetic, unverifiable claims), embedding schema harmonized, chunk creation ambiguity resolved.
-
-2. **Strengthening**: normalization added to the combined score, evaluation metrics and ablation plan specified, memory maintenance addressed, cold start behavior made explicit, published precedents cited.
-
-3. **Epistemic honesty**: d = 0.5 acknowledged as starting point rather than validated parameter, multi-dimensional embeddings acknowledged as novel/unvalidated, two-pass delta acknowledged as noisy signal, cost model acknowledged as input-focused.
-
-No sections were removed. No claims were weakened that the proponent successfully defended. The document is more precise about what is established, what is novel, and what needs empirical validation.
+The anchor's intent is preserved: ACT-R memory replaces EMA-as-decision-gate, two-pass prediction enables earned autonomy, EMA becomes a health monitor. The changes tighten claims that were overreaching without weakening claims that were well-supported.

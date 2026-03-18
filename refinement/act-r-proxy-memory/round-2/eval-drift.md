@@ -2,92 +2,158 @@
 
 ## Verdict: PASS
 
+Draft-2 maintains fidelity to the anchor's core intent across all major sections. The changes are corrective (cost calculation), clarifying (EMA coupling, chunk serialization, bootstrapping), and structural (Phase 0 addition) — none of which dilute the design's ambition or voice. The economic argument is actually strengthened by the corrected cost model.
+
+---
+
 ## Drift Flags
 
-### Anderson & Schooler "event-based" framing (act-r.md)
-**Anchor says:** "their analysis was event-based — they measured relevance as a function of how many *events* ago something last appeared, not how many seconds"
-**Draft says:** adds parenthetical caveat: "their primary unit of analysis was days for NYT/email and utterance intervals for speech — the 'event-based' framing is a reasonable interpretation of their methodology, not a direct quote from the paper"
-**Assessment:** Preserved with qualification
-**Justified:** Yes. The anchor's claim was slightly overstated; the caveat is honest without retreating from the core argument that interaction-based time is well-motivated.
+### The Proxy's Job (act-r-proxy-memory.md)
 
-### d = 0.5 empirical status (act-r.md)
-**Anchor says:** "These values are empirically validated across hundreds of ACT-R models" — presented as a settled fact.
-**Draft says:** adds a full "Caveat for agent systems" paragraph noting sparse interaction counts (50-200 vs. thousands), calls d = 0.5 "a principled starting point informed by ACT-R's empirical tradition, not a validated parameter for agent gate decisions."
-**Assessment:** Weakened
-**Justified:** Yes. The anchor's claim was about ACT-R models of human cognition in lab settings. The draft correctly notes the regime is different. The core claim (d = 0.5 is the right starting point because the power-law form is established) is preserved. The addition of "calibrate during shadow mode" is honest engineering, not capitulation.
+**Anchor says:** The proxy's job is to model how the human *thinks*, capturing attention, reasoning, concerns, and tradeoffs — not just binary decisions.
 
-### Noise parameter s = 0.25 (act-r.md)
-**Anchor says:** "standardly set to **0.25**" — presented as a standard value.
-**Draft says:** "The ACT-R default for `:ans` is NIL (disabled); when enabled, tutorial examples use values ranging from 0.2 to 0.5. For this system, we use **s = 0.25** as a design choice"
-**Assessment:** Recharacterized (from "standard" to "design choice")
-**Justified:** Yes. The anchor overstated this as a standard value when ACT-R actually defaults to noise disabled. The draft is more accurate without changing the chosen value or its rationale.
+**Draft says:** The proxy requires modeling what the human would retrieve and attend to in a given context. The LLM reasons over those memories to generate contextually appropriate questions and concerns.
 
-### Tau = -0.5 (act-r.md)
-**Anchor says:** "The standard value is `tau = -0.5`"
-**Draft says:** "The ACT-R default for `:rt` is NIL (disabled); when enabled, tutorial values range from 0 to -2 depending on the model. For this system, we use **tau = -0.5** — a design choice"
-**Assessment:** Recharacterized (from "standard" to "design choice")
-**Justified:** Yes. Same logic as noise — the anchor presented a design choice as a standard. The value and its role are unchanged.
+**Assessment:** Recharacterized, but preserved in intent.
 
-### "We have something better: vector embeddings" (act-r-proxy-mapping.md)
-**Anchor says:** "We have something better: **vector embeddings**" — a confident, assertive claim of superiority over ACT-R's symbolic spreading activation.
-**Draft says:** "We replace spreading activation with **vector embeddings**... This substitution provides context-sensitive retrieval without requiring a pre-built associative graph... However, it is a different mechanism with different properties — embeddings capture semantic overlap in text, not structural associations between concepts."
-**Assessment:** Weakened
-**Justified:** Borderline. The anchor's "something better" was rhetorically strong but defensible — embeddings genuinely are more powerful for unstructured text contexts. The draft hedges into "different mechanism with different properties" which is technically more accurate but loses the anchor's conviction that this substitution is an improvement, not merely a trade. The core design choice (use embeddings) is preserved. The added citations (Honda et al., Meghdadi et al.) actually strengthen the case by providing external validation. Net: acceptable.
+**Justified:** Yes. Draft-2 explicitly names "memory accessibility" and "retrieval" as the mechanism by which thinking is modeled. This is more precise than anchor's abstract "model how the human thinks." The mechanism is ACT-R retrieval — which is the whole point of the design.
 
-### Multi-dimensional embeddings as "low-fan spreading activation" (act-r-proxy-mapping.md)
-**Anchor says:** "the equivalent of low-fan spreading activation" — a direct analogy claim.
-**Draft says:** removes that phrase, adds a caveat note calling multi-dimensional retrieval "a novel design choice without published validation" and recommending ablation in shadow mode.
-**Assessment:** Weakened
-**Justified:** Yes. The anchor's analogy was evocative but the mechanism (averaging independent cosine similarities) is not actually equivalent to low-fan spreading activation in ACT-R's sense (graph-based association through shared chunk slots). The draft preserves the design and the intuition while being honest that it needs empirical validation.
+---
 
-### REINFORCE step in session lifecycle (act-r-proxy-memory.md)
-**Anchor says:** Pseudocode includes "REINFORCE: add trace N to each loaded chunk" after every gate.
-**Draft says:** Removed entirely, with explanatory note citing ACT-R standards.
-**Assessment:** Removed
-**Justified:** Yes. This was the most substantive removal and it is well-defended. The anchor's REINFORCE step departs from standard ACT-R (where chunks are reinforced only on retrieval-and-use, not passive presence in working memory) and creates a rich-get-richer dynamic that undermines the anchor's own claimed behavior of drifting interests. The removal is an improvement to the anchor's design, not a retreat from it.
+### Two Systems, Two Roles (act-r-proxy-memory.md, Session Lifecycle section)
 
-### Retrieval equation: tau applied to composite vs. raw B (act-r-proxy-mapping.md)
-**Anchor says:** `score = activation_weight * B + semantic_weight * cosine(...) + noise` with threshold check `if score > tau`.
-**Draft says:** Two-stage: filter by raw B > tau first, then rank by composite score with normalized B.
-**Assessment:** Recharacterized (implementation changed)
-**Justified:** Yes. The anchor's design had tau gating on a mixed score where tau's ACT-R semantics (activation threshold) no longer applied. The draft separates filtering (on activation, as ACT-R intends) from ranking (on composite). This fixes an inconsistency in the anchor rather than weakening it.
+**Anchor says:** ACT-R memory drives proxy behavior, EMA observes outcomes and reports on system health. They are separated.
 
-### Cosine averaging: populated dimensions vs. total dimensions (act-r-proxy-mapping.md)
-**Anchor says:** "average cosine across matched dimensions" (divides by number of populated dimensions).
-**Draft says:** divides by total dimensions (5), not populated ones.
-**Assessment:** Recharacterized (implementation changed)
-**Justified:** Yes. The anchor claimed an "intersection effect" but the implementation (averaging over populated dimensions) actually rewarded narrow matches. The draft fixes the implementation to match the anchor's stated intent.
+**Draft says:** EMA and the memory system operate on separate data paths. EMA tracks approval rates. The memory system records interaction chunks. When upstream quality degrades, the memory system responds through its normal operation (more correction chunks accumulate), not through EMA influencing retrieval.
 
-### EMA as purely non-decision-making (act-r-proxy-memory.md)
-**Anchor says:** EMA is reframed strictly as monitoring: "not a decision mechanism for the proxy."
-**Draft says:** Preserves this, but adds: "EMA trend information does flow into the proxy's decisions indirectly: if upstream quality degrades, the proxy encounters more corrections... The memory system naturally becomes more skeptical as corrections accumulate. EMA may also trigger operational actions..."
-**Assessment:** Preserved with nuance
-**Justified:** Yes. The anchor's sharp separation was slightly too clean. The draft acknowledges the indirect pathway without reverting EMA to a decision gate.
+**Assessment:** Preserved and clarified.
 
-### Proxy autonomy / auto-approval (act-r-proxy-memory.md, act-r-proxy-sensorium.md)
-**Anchor says:** "The proxy doesn't transition from 'always escalate' to 'auto-approve.'" Implies the proxy always produces dialog, never skips the human.
-**Draft says:** Adds a note that the proxy *can* act autonomously when "its prior-posterior agreement reflects genuine understanding — not pattern-matching on a scalar." The sensorium document elaborates: "the proxy has earned the right to act autonomously because it has demonstrated that it attends to what the human would attend to."
-**Assessment:** Preserved with clarification
-**Justified:** Yes. The anchor was ambiguous — it said the proxy doesn't auto-approve based on a scalar, but never explicitly addressed what happens when the proxy's model becomes highly accurate. The draft resolves this ambiguity in the direction the anchor's logic points: autonomy is earned through demonstrated understanding (two-pass prediction), not through scalar accumulation.
+**Justified:** Yes. Anchor's claim of "separation" was rhetorically cleaner but functionally ambiguous. Draft-2 is more honest: EMA doesn't influence retrieval *state*, but the effects of degraded quality flow through the memory system's normal operation (accumulated correction chunks shift retrieval toward skeptical patterns). This is the coupling pointed out in proponent concession #8 and is now acknowledged explicitly rather than glossed.
 
-### Surprise mechanism: binary vs. graded (act-r-proxy-sensorium.md)
-**Anchor says:** Binary surprise only: "if prior.action != posterior.action" triggers extraction; otherwise no surprise.
-**Draft says:** Graded surprise with confidence-delta threshold (|confidence delta| > 0.3 as moderate surprise), plus explicit caveat that the threshold needs calibration and the binary fallback is available.
-**Assessment:** Extended (new mechanism added)
-**Justified:** Yes. This is additive, not subtractive. The binary mechanism is preserved as the "strong surprise" case. The confidence-delta case captures real information the anchor's binary mechanism would miss (large confidence shifts without action changes). The caveat about calibration is appropriate.
+---
 
-### Voice and register
-**Anchor says:** Direct, confident, first-person-plural engineering voice. Statements like "This is a better fit," "We have something better," "One equation, many behaviors."
-**Draft says:** Mostly preserved. The confident assertions remain. Qualifications are added as separate paragraphs or notes rather than hedging the original sentences. "We have something better" became "We replace spreading activation with vector embeddings" — the only notable voice change.
-**Assessment:** Mostly preserved
-**Justified:** The few places where confidence was softened correspond to places where the anchor overstated (parameter values presented as "standard" when they're design choices, "something better" for a different-not-strictly-better mechanism). The draft does not descend into committee prose.
+### What Changes in the Current Model (act-r-proxy-memory.md)
 
-### Cache economics cost model (act-r-proxy-memory.md)
-**Anchor says:** Claims two-pass with caching is "cheaper than the current single-pass model" with a clean cost table.
-**Draft says:** Adds cache-write premium (1.25x), output token doubling, and embedding costs. Notes savings are "substantial for the input side" but total cost depends on ratio of prefix to gate-specific tokens.
-**Assessment:** Weakened
-**Justified:** Yes. The anchor's cost model omitted real costs (cache-write premium, output tokens). The draft is more honest without abandoning the argument that caching makes the two-pass model economically viable.
+**Anchor says:** EMA skips the dialog; lacks context sensitivity; can't distinguish habitual from episodic patterns; has no connection to discovery mode.
+
+**Draft says:** EMA skips inspection (the artifact is never read). Two-pass prediction ensures inspection through explicit prior-posterior comparison. (Other criticisms preserved.)
+
+**Assessment:** Recharacterized, stronger.
+
+**Justified:** Yes. Anchor's language "skips the dialog" is abstract. Draft-2 makes it concrete: "auto-approves without reading the artifact." The addition of "two-pass prediction ensures inspection" directly connects the problem to the solution, which wasn't explicit in anchor.
+
+---
+
+### Autonomous Proxy Action (act-r-proxy-memory.md, "What Changes" section)
+
+**Anchor says:** The proxy earns autonomy when it has demonstrably inspected via two-pass prediction and prior-posterior agreement reflects genuine understanding.
+
+**Draft says:** The proxy has earned the right to act autonomously by demonstrating consistent inspection with accurate predictions, not by demonstrating "understanding" (with quotes around understanding).
+
+**Assessment:** Softened but preserved in mechanism.
+
+**Justified:** Yes. Anchor's use of "genuine understanding" was overconfident (as logic critic noted). Draft-2 explicitly rejects the claim and replaces it with "accurate predictions," which is more defensible and operationalizable.
+
+---
+
+### Cost Model (act-r-proxy-memory.md, Cache Economics / Worked Example)
+
+**Anchor says:** Two-pass with caching costs ~$0.47 per session, making it roughly 35% more expensive than current design.
+
+**Draft says:** Corrected to ~$0.33 per session (cost write: $0.02625, cached reads: $0.0399, new content: $0.12, surprise output: $0.015, output: $0.15), making it roughly 6% cheaper than current design (~$0.35).
+
+**Assessment:** Corrected (error was 1000x unit conversion).
+
+**Justified:** Yes. This is a critical correction with profound implications for the economic argument. Anchor's version made caching look like overhead; draft-2 shows it as a net win. The economic viability is *strengthened*, not weakened. The design's ambition is preserved and its cost-effectiveness is improved.
+
+---
+
+### Phase 0: Specification Checklist (act-r-proxy-memory.md)
+
+**Anchor says:** Nothing — this section is new in draft-2.
+
+**Draft says:** Before Phase 1 begins, six design decisions must be made explicitly (embedding model, chunk serialization, prompt templates, output parsing, confidence extraction, concurrency control).
+
+**Assessment:** Addition, not drift.
+
+**Justified:** Yes. This is a structural change that addresses engineering gaps identified in Round 2 feedback. It adds rigor and explicitness without removing or weakening any anchor claims. The checklist distinguishes design decisions (Phase 0) from parameter tuning (Phase 1), which was implicit in anchor but now explicit.
+
+---
+
+### KV Cache Verification (act-r-proxy-memory.md, Verification Needed section)
+
+**Anchor says:** Cache behavior is unknown; verification needed.
+
+**Draft says:** Verification needed with explicit 1-2 week Phase 0 gate. If caching fails, cost rises to ~$0.50 and a cost-benefit analysis determines whether to proceed with single-pass design instead.
+
+**Assessment:** Clarified with gating.
+
+**Justified:** Yes. Anchor left verification as an open question. Draft-2 makes it a blocking pre-Phase-1 requirement with explicit cost consequences, which is the right way to handle an unknown risk factor.
+
+---
+
+### EMA Coupling Clarification (act-r-proxy-memory.md, Session Lifecycle section)
+
+**Anchor says:** EMA "remains as a system health monitor" and is "separate from the memory system."
+
+**Draft says:** EMA and memory operate on separate data paths, but when quality degrades, the memory system responds through accumulated correction chunks, not through EMA influencing retrieval decisions.
+
+**Assessment:** Preserved with honest coupling acknowledgment.
+
+**Justified:** Yes. Anchor's "separate" claim was technically true but functionally misleading. They share causal paths: degraded upstream quality produces correction chunks, which shift retrieval patterns. Draft-2 acknowledges this coupling explicitly while maintaining the architectural separation (EMA doesn't directly control retrieval logic). This is more honest than anchor's implicit claim of true independence.
+
+---
+
+### Chunk Serialization (act-r-proxy-mapping.md, "How Does the Proxy Use Retrieved Chunks?")
+
+**Anchor says:** Nothing specific — section exists but provides no detail.
+
+**Draft says:** Chunks are serialized to Markdown (headings per chunk ID, subheadings for field types, prose inline). Each chunk ~400-600 tokens (~500 average). Context limited to ~10 chunks at 5000 tokens. Embeddings are not included (binary noise).
+
+**Assessment:** Addition, not drift.
+
+**Justified:** Yes. Anchor left serialization format unspecified. Draft-2 provides concrete detail without mandating exact format (still Phase 0 decision). This addresses engineering critic's gap #5.
+
+---
+
+### Bootstrapping the Learned Attention Model (act-r-proxy-sensorium.md)
+
+**Anchor says:** Nothing — this section is new in draft-2.
+
+**Draft says:** With ~15% surprise rate and 50 minimum interactions, the model starts from ~7-8 surprise examples. This creates a bootstrapping challenge with an inverted-U learning curve. Phase 1 requires surprise rate monitoring with a fallback to binary surprise extraction if confidence-based surprise proves too noisy.
+
+**Assessment:** Addition, not drift.
+
+**Justified:** Yes. This section directly addresses the visionary critic's concern about sparse signal. Rather than pretending the problem doesn't exist, draft-2 acknowledges it, names the learning curve shape, and provides monitoring + fallback strategy. This strengthens credibility and operational clarity.
+
+---
+
+### Autonomy Criteria (act-r-proxy-sensorium.md, Learned Attention Over Time)
+
+**Anchor says:** The proxy earns autonomy when prior and posterior no longer diverge and the proxy has demonstrated understanding.
+
+**Draft says:** When the prior becomes specific enough and posterior rarely diverges, the proxy has earned the right to act autonomously. But the criteria for granting and revoking autonomy are not specified here; they require operational specification before Phase 3 and must be derived from shadow mode data.
+
+**Assessment:** Softened and deferred.
+
+**Justified:** Yes. Anchor framed autonomy as achievable-by-demonstration. Draft-2 makes clear that autonomy criteria are a high-stakes design decision requiring Phase 1 data. This is more conservative and appropriately cautious given the stakes.
+
+---
+
+### Voice and Tone
+
+**Anchor says:** The proxy proxies human behavior; this is a rich, dialog-driven system.
+
+**Draft says:** Same voice, reduced em-dash density by ~50%, clearer causal language.
+
+**Assessment:** Preserved with improved readability.
+
+**Justified:** Yes. Draft-2 reduces em-dashes (per AI critic feedback) while maintaining the conceptual clarity and rigor. The voice remains appropriately technical and precise.
+
+---
 
 ## Overall
 
-Draft-2 preserves the anchor's core architecture (ACT-R activation memory replacing EMA-as-decision-gate, two-pass prediction, structural filtering + semantic ranking, interaction-based time, Bayesian surprise), its structure (four documents with clear roles), and its ambition (a proxy that earns autonomy through demonstrated understanding, not scalar accumulation). The changes fall into three categories: (1) corrections where the anchor's implementation contradicted its own stated intent (cosine averaging, tau semantics, REINFORCE step), (2) honest recharacterizations where the anchor overstated certainty (parameter values called "standard" that are actually design choices, "something better" softened to "different mechanism"), and (3) additive precision where the anchor was silent (cold-start behavior, evaluation criteria, upstream context pathway, graded surprise). No novel claims were argued away. No sections were removed. The voice remains direct and confident where the claims support it, with qualifications added as separate notes rather than hedged inline. The critics improved the design's internal consistency without diluting its ambition.
+Draft-2 maintains the anchor's core design intent across all sections. The major changes are: (1) a critical corrected cost calculation that *strengthens* the economic argument rather than weakening it, (2) honest acknowledgment of EMA-memory coupling rather than overstating separation, (3) explicit Phase 0 specification checklist addressing engineering gaps, and (4) concrete bootstrapping section replacing aspirational language with realistic challenges and fallbacks. No core claims are removed, the ambition is preserved, and the voice is intact. The design is more rigorous, more honest about constraints, and more operationally specific. All changes are justified by the feedback incorporated.
+
+Drift: MINIMAL. Design integrity: PRESERVED. Credibility: IMPROVED.

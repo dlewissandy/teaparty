@@ -48,7 +48,7 @@ This is a better fit than wall-clock time for three reasons:
 
 1. **Between sessions, nothing happens.** If the agent handles 5 decisions on Monday and none until Thursday, wall-clock decay would erode Monday's memories over 3 idle days. Interaction-based decay doesn't advance — no interactions means no decay, which is correct because nothing happened to make the memories less relevant.
 
-2. **Anderson & Schooler's empirical basis is event-based.** Their 1991 analysis measured word *occurrences* in newspaper headlines, child-directed speech, and email. The power-law pattern they found was in events (how many headlines ago did this word last appear?), not in seconds. The environment's statistical structure is event-based; so should the memory system's.
+2. **Anderson & Schooler's empirical basis is event-based.** Their 1991 analysis measured word *occurrences* in newspaper headlines, child-directed speech, and email. The power-law pattern they found was in events (how many headlines ago did this word last appear?), not in seconds. The environment's statistical structure is event-based; so should the memory system's. (Note: their primary unit of analysis was days for NYT/email and utterance intervals for speech — the "event-based" framing is a reasonable interpretation of their methodology, not a direct quote from the paper.)
 
 3. **Experience scales with activity, not calendar time.** An agent that handled 100 interactions over a busy week has far more trace accumulation than one that handled 5 over the same calendar period. The memory should reflect *experience*, not elapsed time.
 
@@ -84,9 +84,11 @@ The activation jumped from 0.152 to 0.703 — the chunk went from moderately acc
 
 ### Why d = 0.5?
 
-Anderson & Schooler (1991, "Reflections of the environment in memory," *Psychological Science* 2(6), 396-408) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function with an exponent near 0.5. Crucially, their analysis was event-based — they measured relevance as a function of how many *events* ago something last appeared, not how many seconds. This is why interaction-based `t` is the natural unit: the empirical basis for `d = 0.5` was always about event intervals, not clock intervals.
+Anderson & Schooler (1991, "Reflections of the environment in memory," *Psychological Science* 2(6), 396-408) showed that this value isn't arbitrary — it matches the statistical structure of the real world. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function with an exponent near 0.5. Their analysis was event-based — they measured relevance as a function of temporal intervals in the event stream. This is why interaction-based `t` is the natural unit: the empirical basis for `d = 0.5` was always about event intervals, not clock intervals.
 
 The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug — it is a rational response to the statistics of the world.
+
+**Caveat for agent systems.** Anderson & Schooler's corpora (newspaper headlines, speech, email) are high-volume natural language streams with thousands to tens of thousands of observations. Proxy gate interactions are sparse by comparison — perhaps 50-200 total lifetime interactions. The power-law form is well-established as the right functional shape for memory decay, and d = 0.5 produces moderate decay that is neither too aggressive nor too conservative. But whether 0.5 is optimal for this specific interaction regime is an open empirical question. The value is a principled starting point informed by ACT-R's empirical tradition, not a validated parameter for agent gate decisions. The migration plan includes empirical calibration of d during shadow mode.
 
 ---
 
@@ -98,7 +100,7 @@ Retrieval noise follows a logistic distribution (Anderson & Lebiere, 1998, Chapt
 noise ~ Logistic(0, s)
 ```
 
-Where `s` is the **noise parameter**, standardly set to **0.25**. This adds randomness to retrieval — sometimes you remember something unexpected, sometimes you fail to retrieve something you should. The noise ensures the system doesn't become deterministic, which would prevent exploration of its own memory.
+Where `s` is the **noise parameter**. The ACT-R default for `:ans` is NIL (disabled); when enabled, tutorial examples use values ranging from 0.2 to 0.5. For this system, we use **s = 0.25** as a design choice — low enough to keep retrieval mostly deterministic while allowing occasional exploration of less-active memories. This value needs empirical calibration during shadow mode.
 
 For implementation: sample from a logistic distribution with location 0 and scale `s`. In Python: `random.random()` transformed via `s * log(p / (1 - p))` where p is uniform on (0, 1).
 
@@ -106,26 +108,28 @@ For implementation: sample from a logistic distribution with location 0 and scal
 
 ## Retrieval
 
-A chunk is retrieved if its activation exceeds the **retrieval threshold** τ (Anderson & Lebiere, 1998, Chapter 4):
+A chunk is retrieved if its base-level activation exceeds the **retrieval threshold** tau (Anderson & Lebiere, 1998, Chapter 4):
 
 ```
-Retrieved if A > tau
+Retrieved if B > tau
 ```
 
-The standard value is `tau = -0.5`. Chunks with activation below this threshold are effectively forgotten — they exist in memory but cannot be accessed.
+The ACT-R default for `:rt` is NIL (disabled); when enabled, tutorial values range from 0 to -2 depending on the model. For this system, we use **tau = -0.5** — a design choice that admits chunks with slightly negative activation, which is desirable in a low-interaction system where useful chunks may hover near zero activation. This value needs empirical calibration during shadow mode based on observed activation distributions.
+
+In this design, tau is a threshold on raw B — it filters for memory accessibility (is this chunk active enough to be a candidate?). The filtered candidates are then ranked by a composite score that incorporates both activation and semantic similarity (see [act-r-proxy-mapping.md](act-r-proxy-mapping.md)). This separation keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
 
 The **probability of retrieval** follows a soft threshold (Anderson & Lebiere, 1998, eq. 4.4):
 
 ```
-P(retrieve) = 1 / (1 + exp(-(A - tau) / s))
+P(retrieve) = 1 / (1 + exp(-(B - tau) / s))
 ```
 
-This is a logistic function centered at the threshold. Chunks well above threshold are almost certainly retrieved. Chunks well below are almost certainly not. Chunks near the threshold are retrieved probabilistically — sometimes yes, sometimes no.
+This is a logistic function centered at the threshold. Chunks well above threshold are almost certainly retrieved. Chunks well below are almost certainly not. Chunks near the threshold are retrieved probabilistically — sometimes yes, sometimes no. This soft-threshold equation can serve as the gating function on raw B, providing probabilistic filtering before ranking.
 
 **Retrieval latency** also follows from activation:
 
 ```
-latency = F * exp(-f * A)
+latency = F * exp(-f * B)
 ```
 
 Where `F` and `f` are scaling parameters (standardly `F = 1.0`, `f = 1.0`). High-activation chunks are retrieved faster. This isn't directly relevant to agent implementations but explains why the model predicts human reaction times so accurately.
@@ -134,15 +138,15 @@ Where `F` and `f` are scaling parameters (standardly `F = 1.0`, `f = 1.0`). High
 
 ## Standard Parameter Values
 
-| Parameter | Symbol | Standard Value | Role |
-|-----------|--------|---------------|------|
-| Decay | d | 0.5 | Power-law decay exponent for traces |
-| Noise | s | 0.25 | Scale of retrieval noise (logistic) |
-| Retrieval threshold | tau | -0.5 | Minimum activation for retrieval |
-| Latency factor | F | 1.0 | Scales retrieval time (not needed for agents) |
-| Latency exponent | f | 1.0 | Scales retrieval time (not needed for agents) |
+| Parameter | Symbol | Value | Role | Source |
+|-----------|--------|-------|------|--------|
+| Decay | d | 0.5 | Power-law decay exponent for traces | ACT-R standard (Anderson & Schooler, 1991) |
+| Noise | s | 0.25 | Scale of retrieval noise (logistic) | Design choice; ACT-R tutorials use 0.2-0.5 |
+| Retrieval threshold | tau | -0.5 | Minimum activation for retrieval | Design choice; ACT-R tutorials use 0 to -2 |
+| Latency factor | F | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
+| Latency exponent | f | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
 
-These values are empirically validated across hundreds of ACT-R models.
+The decay parameter d = 0.5 is empirically validated across hundreds of ACT-R models. The noise and threshold values are design choices for this system, informed by the ACT-R literature but not canonical standards. All parameters should be calibrated during shadow mode.
 
 ---
 

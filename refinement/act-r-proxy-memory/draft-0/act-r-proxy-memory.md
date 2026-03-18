@@ -1,6 +1,6 @@
 # ACT-R Memory Model for the Human Proxy
 
-This document describes the proxy agent's memory architecture: an activation-based memory system derived from ACT-R for modeling how the human thinks, combined with EMA as a system health monitor.
+This document describes the proxy agent's memory architecture: an activation-based memory system derived from ACT-R that models what the human would retrieve and attend to, combined with EMA as a system health monitor.
 
 For the theory and equations, see [act-r.md](act-r.md).
 For the concrete proxy mapping, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md).
@@ -12,11 +12,11 @@ For the two-pass prediction model and learned attention, see [act-r-proxy-sensor
 
 The proxy's job is not to approve or reject. It is to **proxy the behavior of the human** — ask the questions the human would ask, probe the reasoning the human would probe, raise the concerns the human would raise, and reach a decision only after the kind of dialog the human would have conducted. Approval or rejection is the final act of a rich conversation, not a binary gate.
 
-This means the proxy needs to model how the human *thinks*, not just what they *decide*. What do they attend to? What questions do they ask? What concerns recur? How do they reason about tradeoffs? None of this is a scalar.
+This requires modeling what the human would retrieve and attend to in a given context. The LLM then reasons over those retrieved memories to generate contextually appropriate questions and concerns. ACT-R doesn't model thinking directly; it models memory accessibility. What the proxy retrieves shapes what the LLM reasons about, and that selection mechanism is how past interactions influence current behavior. The dimensions that matter are not scalars: which memories activate, what their content suggests, how they connect to the current situation.
 
 ## Two Systems, Two Roles
 
-**ACT-R activation memory** models the human's thinking. It stores memories of past interactions — the questions the human asked, the concerns they raised, the reasoning they applied, the corrections they made. Retrieval surfaces the memories most relevant to the current context, giving the proxy the raw material to simulate the human's conversational behavior. This is the core of the proxy's cognitive capability.
+**ACT-R activation memory** models memory accessibility — which past interactions are active enough to influence current reasoning. It stores memories of past interactions (the questions the human asked, the concerns they raised, the reasoning they applied, the corrections they made) and surfaces the memories most relevant to the current context. The LLM then uses these retrieved memories as raw material to simulate the human's conversational behavior. This is the core of the proxy's cognitive capability.
 
 **EMA** monitors system health. It tracks approval rates per (state, task_type) over time — not to decide whether to approve, but to detect trends. "The approval rate at PLAN_ASSERT dropped from 0.8 to 0.4 over 10 sessions" doesn't mean "escalate more." It means "the planning agent is producing worse plans and the proxy is catching it." EMA is a diagnostic signal about how well the upstream agents are performing, not a decision mechanism for the proxy.
 
@@ -24,9 +24,9 @@ The current system conflates these roles — EMA drives the approve/escalate dec
 
 ## What Changes in the Current Model
 
-The current model uses EMA as a decision gate: confidence above threshold → auto-approve, below → escalate. This fails because:
+The current model uses EMA as a decision gate: confidence above threshold -> auto-approve, below -> escalate. This fails because:
 
-**It skips the dialog.** A high EMA means the proxy auto-approves without asking any questions. The human would have asked questions — probed the artifact, challenged assumptions, verified completeness — even when they ultimately approve. The dialog is how quality is maintained. Skipping it because the trend is positive is rubber-stamping.
+**It skips inspection.** A high EMA means the proxy auto-approves without reading the artifact. The human would have read it — probed the details, challenged assumptions, verified completeness — even when they ultimately approve. Quality requires artifact inspection. EMA skips inspection entirely. Two-pass prediction ensures inspection through explicit prior-posterior comparison.
 
 **It has no context sensitivity.** The same EMA applies whether the human is reviewing a security plan or a documentation update. The proxy can't ask different questions for different artifacts.
 
@@ -36,19 +36,21 @@ The current model uses EMA as a decision gate: confidence above threshold → au
 
 ACT-R activation memory solves these problems. EMA stays, reframed as monitoring.
 
+Note: the new design does permit autonomous proxy action (without escalation to the human) when the proxy has demonstrably inspected the artifact via two-pass prediction and its predictions match the human's patterns — earned through consistent inspection, not inferred from a scalar. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) for how this differs from EMA-based auto-approval.
+
 ---
 
 ## The Approach
 
 Replace the scalar confidence model with **activation-weighted embedding retrieval**:
 
-- **Base-level activation** from ACT-R handles forgetting. Each memory has traces that decay as a power function of interactions elapsed. Frequently reinforced memories stay active; one-off events fade. The equation is `B = ln(Σ t_i^(-d))` with `d = 0.5`. See [act-r.md](act-r.md) for the full derivation.
+- **Base-level activation** from ACT-R handles forgetting. Each memory has traces that decay as a power function of interactions elapsed. Frequently reinforced memories stay active; one-off events fade. The equation is `B = ln(Sigma t_i^(-d))` with `d = 0.5` (see [act-r.md](act-r.md) for the full derivation).
 
-- **Vector embeddings** handle context sensitivity. Each memory chunk's content is embedded; retrieval uses cosine similarity to find semantically relevant memories. This replaces ACT-R's symbolic spreading activation with a mechanism that is both simpler and more powerful.
+- **Vector embeddings** handle context sensitivity. Each memory chunk's content is embedded; retrieval uses cosine similarity to find semantically relevant memories. This replaces ACT-R's symbolic spreading activation with semantic overlap in embedding space, achieving context-sensitive retrieval through a different mechanism than structural graph associations.
 
-- **Structural filtering** handles the relational structure. The chunk is a tuple (state, outcome, task_type, ...) where field ordering matters. SQL queries on structural fields narrow the candidate set; semantic ranking orders within the filtered set. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md) for the chunk schema.
+- **Structural filtering** handles the relational structure. The chunk is a tuple (state, outcome, task_type, ...) where field ordering matters. SQL queries on structural fields narrow the candidate set; semantic ranking orders within the filtered set (see [act-r-proxy-mapping.md](act-r-proxy-mapping.md) for the chunk schema).
 
-- **Interaction-based time** replaces wall-clock seconds. The decay equation uses interaction counts (gate decisions, dialog turns, discovery responses), not seconds. Between sessions, the counter doesn't advance — memories don't decay while the system is idle. This is faithful to Anderson & Schooler's (1991) event-based empirical analysis.
+- **Interaction-based time** replaces wall-clock seconds. The decay equation uses interaction counts (gate decisions, dialog turns, discovery responses), not seconds. Between sessions, the counter doesn't advance; memories don't decay while the system is idle. Event-based time is well-motivated: Anderson & Schooler's (1991) empirical analysis was event-based, and wall-clock decay during idle periods would be inappropriate for an agent system. The specific decay exponent (d = 0.5) is a principled starting point from ACT-R's empirical tradition, to be calibrated during shadow mode.
 
 ---
 
@@ -75,7 +77,28 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 The transition can be incremental:
 
 1. **Phase 1: Shadow mode.** Run ACT-R retrieval alongside the existing model. The proxy generates dialog from retrieved memories but the existing EMA gate still controls the actual decision. Log the proxy's dialog and compare against what the human actually said.
+
+   **Evaluation metrics for shadow mode:**
+   - Action match rate: did the proxy's posterior action match the human's actual decision?
+   - Prior calibration: how often did the prior match the posterior? (measures how well the proxy predicts before seeing the artifact)
+   - Surprise calibration: when surprise was detected, did the human's response confirm that the salient percepts were relevant?
+   - Retrieval relevance: human spot-checks of retrieved memory sets for qualitative assessment
+
+   **Go/no-go criteria for Phase 2 transition:**
+   - Minimum sample: 50 gate interactions spanning at least 3 task types and 4 CfA states before any evaluation is meaningful. At a tempo of 5-10 gates per session with 2-3 sessions per week, this is approximately 3-5 weeks.
+   - Action match rate: >= 70% agreement between proxy posterior action and human actual decision. Below 60% indicates the memory model is not learning useful patterns and the approach needs rethinking. Between 60-70% warrants investigation but does not block Phase 2.
+   - Multi-dimensional embedding ablation: if single-embedding retrieval achieves >= 95% of multi-dimensional retrieval's match rate, the 5x embedding cost is not justified — simplify to single embedding.
+   - ACT-R decay vs. simple recency ablation: if most-recent-N retrieval achieves >= 95% of ACT-R decay's match rate, the activation machinery is not earning its complexity.
+   - If metrics are ambiguous after 50 interactions, extend shadow mode to 100 interactions before deciding. If still ambiguous at 100, default to the simpler configuration (single embedding, simple recency) unless qualitative spot-checks show clear retrieval quality advantages for the complex configuration.
+
+   **Ablations to run during shadow mode:**
+   - Multi-dimensional embeddings (5 vectors) vs. single blended embedding
+   - ACT-R decay vs. simple recency (most-recent-N)
+   - Two-pass prediction vs. single-pass (posterior only)
+   - Composite score vs. activation-only and similarity-only retrieval
+
 2. **Phase 2: Dialog mode.** The proxy's retrieved memories drive the full dialog — questions, follow-ups, reasoning — before reaching a decision. EMA continues to track outcomes as a health monitor.
+
 3. **Phase 3: Integrated.** ACT-R memory, two-pass prediction, and EMA monitoring are unified. The proxy conducts the dialog the human would have conducted. EMA surfaces trends in system performance.
 
 Phase 1 can start immediately — it requires only the chunk storage and retrieval functions.
@@ -84,7 +107,7 @@ Phase 1 can start immediately — it requires only the chunk storage and retriev
 
 ## Future Direction: KV Cache as Working Memory
 
-The current design retrieves memory chunks as text, inserts them into the LLM prompt, and reprocesses them from tokens on every call. This works but misses a deeper alignment between ACT-R's cognitive architecture and the LLM's native machinery. This section specifies what a KV-cache-based architecture would look like concretely.
+The current design retrieves memory chunks as text, inserts them into the LLM prompt, and reprocesses them from tokens on every call. This works but misses a deeper alignment between ACT-R's cognitive architecture and the LLM's native machinery. This section specifies what a KV-cache-based architecture would look like concretely. The core design (text retrieval without caching) stands on its own; this section describes what becomes possible when the proxy is migrated to direct API calls.
 
 ### Roles of the Three Systems
 
@@ -92,19 +115,19 @@ The current design retrieves memory chunks as text, inserts them into the LLM pr
 
 **The KV cache** is working memory. It holds the LLM's processed understanding of the loaded memories. Once a memory is in the cache, the LLM doesn't re-read it — the processed state is already there. The cache persists within a session (across gates) and is populated at session start.
 
-**The LLM's transformer attention** is spreading activation. When the LLM processes chunk A, its attention mechanism creates internal representations that prime processing of subsequent chunks. Associations emerge from the LLM's own reasoning over the cached content, not from precomputed scores.
+**The LLM's transformer attention** provides context sensitivity. When the LLM processes chunk A, its attention mechanism creates internal representations that prime processing of subsequent chunks. Associations emerge from the LLM's own reasoning over the cached content, not from precomputed scores.
 
-**Bayesian surprise** is the perceptual filter. The two-pass prediction (prior without artifact, posterior with) identifies what in the artifact changed the proxy's mind. The surprise — the processed percept — is what gets stored as a new chunk. Raw artifacts and raw interactions do not enter long-term memory.
+**prediction-change salience** is the perceptual filter. The two-pass prediction (prior without artifact, posterior with) identifies what in the artifact changed the proxy's mind. The surprise — the processed percept — is what gets stored as a new chunk. Raw artifacts and raw interactions do not enter long-term memory.
 
 ### Session Lifecycle
 
-The session lifecycle has three phases: loading working memory at session start, a per-gate prediction loop, and storage of processed percepts. Working memory is populated once and reused across all gates via the KV cache. Each gate runs the two-pass prediction (prior without artifact, posterior with), computes surprise from the structured action delta, and stores only the surprise — not the raw interaction — as a new memory chunk. Loaded memories are reinforced on each gate interaction, keeping active memories above the retrieval threshold for future sessions.
+The session lifecycle has three phases: loading working memory at session start, a per-gate prediction loop, and storage of processed percepts. Working memory is populated once and reused across all gates via the KV cache. Each gate runs the two-pass prediction (prior without artifact, posterior with), computes surprise from the structured action delta, and stores only the surprise — not the raw interaction — as a new memory chunk.
 
 ### Concurrency
 
 Dispatches run in parallel. Multiple gates may arrive concurrently from different subteams. The proxy does not split into parallel instances — it is one brain with one memory and one interaction counter.
 
-Gates enter a **FIFO queue** and the proxy processes them one at a time. This is how a human works: concurrent tasks compete for attention, but attention is serial. The queue ordering means that what the proxy learns from dispatch A's gate is available when it processes dispatch B's gate — cross-task learning happens naturally through the sequential processing of concurrently-produced work.
+Gates enter a **FIFO queue** and the proxy processes them one at a time. This is how a human works: concurrent tasks compete for attention, but attention is serial. The queue ordering means that what the proxy learns from dispatch A's gate is available when it processes dispatch B's gate — cross-task learning happens naturally through the sequential processing of concurrently-produced work. Whether cross-task priming is beneficial or contaminating depends on the tasks: cross-cutting patterns ("this human always asks about test coverage") generalize usefully, while domain-specific patterns do not. The structural filtering in retrieval mitigates contamination — when processing a documentation gate, security-specific chunks are not surfaced unless the semantic match is strong.
 
 At WORK_ASSERT (the rollup), the proxy doesn't need a special aggregation step. It has already processed each dispatch gate individually, storing surprises and building understanding throughout the session. WORK_ASSERT is just another gate where the proxy reasons over its accumulated memories — which now include the fresh chunks from all the dispatch gates it processed during this session.
 
@@ -112,9 +135,10 @@ At WORK_ASSERT (the rollup), the proxy doesn't need a special aggregation step. 
 SESSION START
     read interaction counter N from storage
     for each chunk in long-term storage:
-        compute B = ln(Σ (N − trace_i)^(−0.5))
-    sort chunks by B descending
-    load top chunks into prompt prefix while B > τ and budget remains
+        compute B = ln(Sigma (N - trace_i)^(-0.5))
+    filter chunks where B > tau
+    sort survivors by B descending
+    load top chunks into prompt prefix while budget remains
     process prefix into KV cache
     initialize gate queue (FIFO)
 
@@ -122,20 +146,21 @@ SESSION START
     for each gate dequeued:
         increment N
 
-        PASS 1 — PRIOR
+        PASS 1 -- PRIOR
             generate from cached prefix + gate context, no artifact
             output: ACTION <tab> PROSE, temperature 0
-            parse → prior.action, prior.prose
+            parse -> prior.action, prior.prose
 
-        PASS 2 — POSTERIOR
+        PASS 2 -- POSTERIOR
             generate from cached prefix + gate context + artifact + prior
             output: ACTION <tab> PROSE, temperature 0
-            parse → posterior.action, posterior.prose
+            parse -> posterior.action, posterior.prose
 
         SURPRISE
-            if prior.action ≠ posterior.action:
-                extract what changed → one-sentence description (LLM call)
-                extract salient features → list of percept phrases (LLM call)
+            if prior.action != posterior.action:
+                strong surprise: extract description + salient percepts (2 LLM calls)
+            else if |posterior.confidence - prior.confidence| > 0.3:
+                moderate surprise: extract salient percepts (1 LLM call)
             else:
                 no surprise, no additional calls
 
@@ -144,16 +169,18 @@ SESSION START
             receive human response if escalated
 
         STORE
-            create chunk from surprise + human response + proxy error
+            create chunk from prediction results + human response + proxy error
+            populate salience fields only if surprise was detected
             embed situation, stimulus, response, salience independently
             store with first trace = N
-
-        REINFORCE
-            add trace N to each loaded chunk
 
 SESSION END
     discard cache
 ```
+
+Note: the REINFORCE step present in earlier drafts has been removed. In standard ACT-R, chunks are reinforced only when specifically retrieved for a task and actively referenced by a production rule, not merely by being present in working memory (ACT-R Tutorial Unit 4; Anderson & Lebiere, 1998, Chapter 4). Loading chunks into the prompt prefix is analogous to having chunks in declarative memory above threshold; it does not constitute retrieval-and-use. Chunks earn traces through creation (rule 1) and retrieval (rule 2) only. This prevents the rich-get-richer feedback loop where already-active chunks accumulate traces from every gate regardless of relevance.
+
+Also note: EMA and the memory system operate on separate data paths. EMA tracks approval rates per (state, task_type); the memory system records interaction chunks. They don't share state; EMA is purely a health monitor, not part of the retrieval mechanism.
 
 ### Data Structures
 
@@ -163,7 +190,7 @@ StructuredPrediction
     prose     : free-text reasoning
 
 SurpriseDelta
-    magnitude       : 1.0 (action changed) or 0.0 (confirmed)
+    magnitude       : 1.0 (action changed), 0.5 (confidence shifted), or 0.0 (confirmed)
     prior action    : action before artifact
     prior prose     : reasoning before artifact
     posterior action : action after artifact
@@ -172,16 +199,16 @@ SurpriseDelta
     salient percepts : list of artifact features that caused the shift
 
 MemoryChunk
-    id, type, state, task_type, outcome              — structural (SQL-filtered)
-    prior action, prior prose                         — Pass 1 result
-    posterior action, posterior prose                  — Pass 2 result
-    surprise description, salient percepts            — processed percept
-    human response, proxy error                       — ground truth
-    traces                                            — list of interaction numbers
-    embedding_situation, _stimulus, _response, _salience — independent vectors
+    id, type, state, task_type, outcome              -- structural (SQL-filtered)
+    prior action, prior prose                         -- Pass 1 result
+    posterior action, posterior prose                  -- Pass 2 result
+    surprise description, salient percepts            -- processed percept (empty if no surprise)
+    human response, proxy error                       -- ground truth
+    traces                                            -- list of interaction numbers
+    embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
 ```
 
-Both passes produce `ACTION<TAB>PROSE` — the same structured format used by the existing `classify_review.py`. Surprise extraction (2 additional short-context LLM calls) only runs when the action changed. Most gates produce no surprise: 2 calls. Surprises cost 4.
+Both passes produce `ACTION<TAB>PROSE` — the same structured format used by the existing `classify_review.py`. Surprise extraction only runs when the action changed (2 additional short-context LLM calls) or confidence shifted significantly (1 call). Most gates produce no surprise: 2 calls. Strong surprises cost 4; moderate surprises cost 3.
 
 ### Cache Economics
 
@@ -191,9 +218,10 @@ The two-pass prediction model doubles the proxy's LLM calls per gate. Without co
 
 The Anthropic Messages API supports prompt caching via `cache_control` blocks. When a message prefix is marked cacheable:
 
-- **First call**: full price to process the prefix (input tokens at standard rate)
+- **First call**: full price to process the prefix (input tokens at standard rate), plus a 1.25x cache-write premium
 - **Subsequent calls with the same prefix** (within 5-minute TTL): cached prefix tokens at ~10% of standard rate (e.g., 0.30/MTok instead of 3.00/MTok for Sonnet)
-- **Cache matching is account-level**, not session-level — two separate API calls with the same prefix hit the cache, even from different processes
+- **5-minute cache TTL**: Anthropic also offers a 1-hour TTL at 2x write premium, which may be more cost-effective for sessions where gates are spaced more than 5 minutes apart
+- **Cache matching is workspace-level** (as of February 2026; previously organization-level), not session-level — two separate API calls with the same prefix hit the cache, even from different processes
 
 This last point is critical. The proxy invokes Claude as a subprocess (`subprocess.run(['claude', '-p', ...])`) — one process per pass. There is no shared state between processes. But prompt caching operates at the API backend, not the client. If the system prompt + memories are identical across calls, the second call gets the cache hit regardless of process isolation.
 
@@ -202,14 +230,14 @@ This last point is critical. The proxy invokes Claude as a subprocess (`subproce
 Every proxy call shares a common prefix:
 
 ```
-┌─────────────────────────────────────────┐
-│ System prompt (proxy instructions)       │ ← cacheable
-│ Retrieved memories (top-k chunks)        │ ← cacheable
-├─────────────────────────────────────────┤
-│ Gate context (state, task, history)       │ ← varies per gate
-│ Artifact (Pass 2 only)                   │ ← varies per gate
-│ Instruction (prior vs posterior prompt)   │ ← varies per pass
-└─────────────────────────────────────────┘
++------------------------------------------+
+| System prompt (proxy instructions)       | <- cacheable
+| Retrieved memories (top-k chunks)        | <- cacheable
++------------------------------------------+
+| Gate context (state, task, history)       | <- varies per gate
+| Artifact (Pass 2 only)                   | <- varies per gate
+| Instruction (prior vs posterior prompt)   | <- varies per pass
++------------------------------------------+
 ```
 
 The prefix (system prompt + memories) is stable across all calls in a session. The suffix (gate context, artifact, instruction) varies per call.
@@ -220,56 +248,50 @@ Let:
 - P = system prompt tokens (~2,000)
 - M = memory tokens (~5,000 for 10 chunks)
 - C = gate content tokens per pass (~2,000)
+- O = output tokens per pass (~500)
 - D = delta extraction tokens (~500, only on surprise)
 - G = number of gates per session
 - r = cache discount rate (0.1 = 90% discount)
+- w = cache-write premium (1.25)
+- E = embedding cost per chunk (~5 calls at ~$0.0001 each, negligible vs. LLM calls)
 
 **Current design (no two-pass, no caching):**
 ```
-Cost = G × (P + M + C)
-     = G × 9,000 tokens at full price
+Input cost  = G x (P + M + C) = G x 9,000 tokens at full price
+Output cost = G x O = G x 500 tokens
 ```
 
-**Two-pass without caching:**
+**Two-pass with prompt caching (input tokens only, for comparison):**
 ```
-Cost = G × 2 × (P + M + C)
-     = G × 18,000 tokens at full price    ← 2x the current cost
-```
+Input cost = w x (P + M)                      # first call: cache write premium
+           + (2G - 1) x r x (P + M)           # remaining calls: cached prefix
+           + 2G x C                            # per-pass: gate content at full price
+           + surprise_rate x G x 2 x D         # delta extraction (surprise only)
 
-**Two-pass with prompt caching:**
-```
-Cost = (P + M)                             # first call: full price
-     + (2G - 1) × r × (P + M)             # remaining calls: cached prefix
-     + 2G × C                              # per-pass: gate content at full price
-     + surprise_rate × G × 2 × D           # delta extraction (surprise only)
-
-For G=5, surprise_rate=0.2 (20% of gates produce surprise):
-     = 7,000                               # first prefix
-     + 9 × 0.1 × 7,000                    # cached prefixes = 6,300
-     + 10 × 2,000                          # gate content = 20,000
-     + 0.2 × 5 × 2 × 500                  # delta extraction = 1,000
-     = 34,300 token-equivalents
-
-vs. current (no two-pass): 5 × 9,000 = 45,000
-vs. two-pass without caching: 10 × 9,000 = 90,000
+Output cost = 2G x O                           # doubles with two passes
+            + surprise_rate x G x 2 x 200      # delta extraction output
 ```
 
-**Summary for G=5 gates:**
+The cost model above focuses on input token-equivalents for the prefix reuse argument. The full cost comparison must include output tokens (which double) and the cache-write premium (1.25x on the first call). The savings from prefix caching are substantial for the input side; whether the total cost (input + output) is lower than single-pass depends on the ratio of prefix tokens to gate-specific tokens. For sessions with many gates and a large memory prefix, the cached design is cheaper overall. For sessions with few gates, the savings are smaller.
 
-| Configuration | Token-equivalents | vs. Current |
-|---------------|-------------------|-------------|
-| Current (1 pass, no cache) | 45,000 | baseline |
-| Two-pass, no cache | 90,000 | +100% |
-| Two-pass, with cache | 34,300 | **-24%** |
+#### Worked Example
 
-The two-pass model with prompt caching is **cheaper than the current single-pass model** because the cache discount on repeated prefix processing more than compensates for the extra pass. The savings increase with more gates per session:
+For a 10-gate session using Sonnet ($3/MTok input, $0.30/MTok cached, $15/MTok output):
 
-| Gates | Current | Two-pass + cache | Savings |
-|-------|---------|------------------|---------|
-| 3 | 27,000 | 23,100 | 14% |
-| 5 | 45,000 | 34,300 | 24% |
-| 10 | 90,000 | 62,600 | 30% |
-| 20 | 180,000 | 119,200 | 34% |
+**Current design:**
+- 10 gates × 9,000 input tokens (prompt + memory + content) = 90,000 input tokens @ $3/MTok = $0.27
+- 10 gates × 500 output tokens = 5,000 output tokens @ $15/MTok = $0.075
+- Total: ~$0.35
+
+**Two-pass with caching:**
+- Cache write: (2,000 + 5,000) × $3 × 1.25 = $26.25
+- Cached reads: (20 gates - 1) × (7,000 tokens) × $0.30 = $39.90
+- New gate content: 20 passes × 2,000 tokens × $3 = $0.12
+- Surprise extraction (20% rate): 2 gates × 500 tokens × $15 = $0.015
+- Output (20 passes): 20 × 500 tokens × $15 = $0.15
+- Total: ~$0.47
+
+The two-pass design costs roughly 35% more per session. For 2-3 sessions per week, the incremental cost is approximately $0.35-$0.50/week.
 
 #### Verification Needed
 
@@ -283,7 +305,7 @@ If the CLI breaks caching, the proxy should be migrated to direct API calls. The
 
 ### Working Memory Capacity
 
-The context window limits how many chunks can be loaded. At ~500 tokens per chunk and a 200K context window, the theoretical max is ~376 chunks. In practice, the activation threshold τ limits loading to the 20-50 most active chunks — self-regulating as memory accumulates.
+The context window limits how many chunks can be loaded. At ~500 tokens per chunk and a 200K context window, reserving ~12,000 tokens for system prompt and gate content, the practical capacity is ~376 chunks. In practice, the activation threshold tau limits loading to a smaller set — self-regulating as memory accumulates. The actual loading count depends on interaction tempo and reinforcement patterns; tau may need adjustment based on observed activation distributions in shadow mode.
 
 ### Why This Is Future Work
 
@@ -296,5 +318,9 @@ The proxy invokes Claude via `claude -p` (subprocess). The CLI doesn't expose ca
 **Anderson, J. R., & Lebiere, C.** (1998). *The Atomic Components of Thought.* Lawrence Erlbaum Associates. — The definitive ACT-R reference. Chapter 4 covers declarative memory in full.
 
 **Anderson, J. R., & Schooler, L. J.** (1991). Reflections of the environment in memory. *Psychological Science*, 2(6), 396-408. — Empirical basis for the power-law decay parameter. Read this first for intuition about why the math works.
+
+**Park, J.S., et al.** (2023). Generative Agents: Interactive Simulacra of Human Behavior. *UIST '23*. — Weighted combination of recency, importance, and relevance with min-max normalization. Direct precedent for hybrid retrieval scoring.
+
+**Honda, Y., Fujita, Y., Zempo, K., & Fukushima, S.** (2025). Human-Like Remembering and Forgetting in LLM Agents: An ACT-R-Inspired Memory Architecture. In *Proceedings of the 13th International Conference on Human-Agent Interaction* (HAI '25), pp. 229-237. ACM. DOI: 10.1145/3765766.3765803 — ACT-R base-level activation + cosine similarity for LLM agent memory retrieval. Best Paper Award, HAI 2025.
 
 **ACT-R Tutorial, Unit 4: Activation of Chunks and Base-Level Learning.** Carnegie Mellon University. http://act-r.psy.cmu.edu/wordpress/wp-content/themes/ACT-R/tutorials/unit4.htm — Step-by-step tutorial with worked examples and code. The best starting point for implementation.
