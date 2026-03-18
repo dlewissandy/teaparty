@@ -76,7 +76,7 @@ Surprise extraction triggers when the prior and posterior meaningfully diverge.
 
 **Action changed** (e.g., approve to correct): strong surprise. Extract a one-sentence description of what changed and a list of salient percept phrases (2 additional short-context LLM calls).
 
-**Confidence delta exceeds threshold** (e.g., |posterior_confidence - prior_confidence| > 0.3, same action): moderate surprise. Extract salient percepts but with a lighter-weight extraction (1 LLM call). Note: the 0.3 threshold is a starting heuristic, not a precision instrument. LLM-generated confidence scores are poorly calibrated, so this threshold needs empirical calibration during shadow mode. If confidence values prove too noisy, the fallback is the binary mechanism (action change only), which is more robust because it thresholds on a categorical variable.
+**Confidence delta exceeds threshold** (e.g., |posterior_confidence - prior_confidence| > 0.3, same action): moderate surprise. Extract salient percepts but with a lighter-weight extraction (1 LLM call). Note: the 0.3 threshold is a starting heuristic, not a precision instrument. LLM-generated confidence scores are poorly calibrated, so this threshold needs empirical calibration during Phase 1. If confidence values prove too noisy, the fallback is the binary mechanism (action change only), which is more robust because it thresholds on a categorical variable.
 
 **Neither**: no surprise. No additional calls. The chunk is still stored but with empty salience fields.
 
@@ -92,7 +92,7 @@ The learned attention model is seeded from surprising interactions (minority-cla
 
 A proxy with poor initial accuracy generates more surprises and richer training signal. A proxy with good initial accuracy learns slowly. This creates an inverted-U learning curve where learning is fastest in the middle regime (25-50% surprise rate) and slowest at the extremes.
 
-Phase 1 shadow mode must include surprise rate monitoring to detect slow learning. If surprise rate stabilizes below 5% early in the session (before 50 interactions), the learned attention model may not develop sufficient signal. If surprise rate does not converge by the end of Phase 1 (above 15% throughout), the prior remains poorly calibrated and the proxy is not ready for autonomy.
+Phase 1 must include surprise rate monitoring to detect slow learning. If surprise rate stabilizes below 5% early in the session (before 50 interactions), the learned attention model may not develop sufficient signal. If surprise rate does not converge by the end of Phase 1 (above 15% throughout), the prior remains poorly calibrated and the proxy is not ready for autonomy.
 
 The binary surprise mechanism (action change only) is the robust fallback if confidence-based surprise proves too noisy. It eliminates the calibration problem entirely by thresholding on a categorical variable. If Phase 1 shows that confidence-based surprise adds noise without signal, the system reverts to binary surprise extraction and the salience model trains on fewer but higher-quality examples.
 
@@ -174,7 +174,7 @@ Because learned attention is built from surprising interactions (a minority of g
 
 The next time the proxy reaches PLAN_ASSERT, its **Pass 1 prior** already reflects this learned attention. "I should look for safety mechanisms and intent coverage." The prior becomes more specific over time because the proxy has learned what to expect. When the prior is specific enough, the posterior rarely diverges. And the proxy has earned the right to act autonomously.
 
-The criteria for granting and revoking autonomy (how low the surprise rate must be, over how many interactions, and what triggers re-escalation) are not specified here. These are the highest-stakes design decisions in the system and require operational specification before Phase 3 implementation. The shadow mode metrics provide the evaluation framework; the autonomy thresholds must be derived from that data.
+The criteria for granting and revoking autonomy (how low the surprise rate must be, over how many interactions, and what triggers re-escalation) are not specified here. These are the highest-stakes design decisions in the system and require operational specification before Phase 3 implementation. The Phase 1 metrics provide the evaluation framework; the autonomy thresholds must be derived from that data.
 
 This is fundamentally different from the auto-approval that the root document criticizes. EMA-based auto-approval skips inspection entirely. It never reads the artifact, never asks questions, just checks a scalar and waves things through. Two-pass auto-approval completes the full inspection: the proxy runs both passes, examines the artifact, confirms that its model of the human's attention patterns predicts approval, and the posterior agrees. The dialog happened inside the proxy's reasoning. The proxy earned its autonomy by demonstrating consistent inspection with accurate predictions, not by demonstrating "understanding."
 
