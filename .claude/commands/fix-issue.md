@@ -2,7 +2,7 @@
 
 Systematically investigate, test, and resolve a GitHub issue with full traceability.
 
-All work is performed on an isolated branch. The branch is merged back to main at the end.
+All work is performed on an isolated branch. The branch is merged back to develop at the end.
 
 ## Argument
 
@@ -16,13 +16,18 @@ Every commit in this workflow uses a multiline message:
 
 ## Phase 0: Create Working Branch
 
-Create an isolated branch for this work and switch to it:
+Ensure the develop branch exists and is up to date, then branch from it:
 
 ```bash
+# Create develop from main if it doesn't exist yet
+git fetch origin
+git checkout develop 2>/dev/null || git checkout -b develop main
+
+# Create the working branch from develop
 git checkout -b fix/issue-<number>
 ```
 
-All subsequent work happens on this branch. Do not work directly on main.
+All subsequent work happens on this branch. Do not work directly on develop or main.
 
 Move the issue to **In Progress** on the project board:
 
@@ -173,12 +178,12 @@ Run `/postmortem` against this fix. Post the post-mortem as a comment on the Git
 gh issue comment <number> --body "<postmortem output>"
 ```
 
-## Phase 8: Merge to Main
+## Phase 8: Merge to Develop
 
-Merge the working branch back to main:
+Merge the working branch back to develop:
 
 ```bash
-git checkout main
+git checkout develop
 git merge --no-ff fix/issue-<number> -m "$(cat <<'EOF'
 Merge fix/issue-<number>: <short description>
 
@@ -192,5 +197,5 @@ Use `--no-ff` to preserve the branch history as a distinct unit of work.
 Push the result:
 
 ```bash
-git push
+git push origin develop
 ```
