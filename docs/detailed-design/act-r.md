@@ -90,7 +90,7 @@ The specific value d = 0.5 became the ACT-R standard through subsequent modeling
 
 The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug. It is a rational response to the statistics of the world.
 
-**Caveat for agent systems.** Anderson & Schooler's corpora (newspaper headlines, speech, email) are high-volume natural language streams with thousands to tens of thousands of observations. Proxy gate interactions are sparse by comparison. Perhaps 50-200 total lifetime interactions. The power-law form is well-established as the right functional shape for memory decay, and d = 0.5 produces moderate decay that is neither too aggressive nor too conservative. But whether 0.5 is optimal for this specific interaction regime is an open empirical question. The value is a principled starting point informed by ACT-R's empirical tradition, not a validated parameter for agent gate decisions. The migration plan includes empirical calibration of d during shadow mode.
+**Caveat for agent systems.** Anderson & Schooler's corpora (newspaper headlines, speech, email) are high-volume natural language streams with thousands to tens of thousands of observations. Proxy gate interactions are sparse by comparison. Perhaps 50-200 total lifetime interactions. The power-law form is well-established as the right functional shape for memory decay, and d = 0.5 produces moderate decay that is neither too aggressive nor too conservative. But whether 0.5 is optimal for this specific interaction regime is an open empirical question. The value is a principled starting point informed by ACT-R's empirical tradition, not a validated parameter for agent gate decisions. The migration plan includes empirical calibration of d during Phase 1.
 
 ---
 
@@ -102,7 +102,7 @@ Retrieval noise follows a logistic distribution. From Anderson & Lebiere (1998, 
 noise ~ Logistic(0, s)
 ```
 
-Where `s` is the **noise parameter**. The ACT-R default for `:ans` is NIL (disabled). When enabled, tutorial examples use values ranging from 0.2 to 0.5. For this system, we use **s = 0.25** as a design choice. Low enough to keep retrieval mostly deterministic while allowing occasional exploration of less-active memories. This value needs empirical calibration during shadow mode.
+Where `s` is the **noise parameter**. The ACT-R default for `:ans` is NIL (disabled). When enabled, tutorial examples use values ranging from 0.2 to 0.5. For this system, we use **s = 0.25** as a design choice. Low enough to keep retrieval mostly deterministic while allowing occasional exploration of less-active memories. This value needs empirical calibration during Phase 1.
 
 For implementation: sample from a logistic distribution with location 0 and scale `s`. In Python: `random.random()` transformed via `s * log(p / (1 - p))` where p is uniform on (0, 1).
 
@@ -116,7 +116,7 @@ A chunk is retrieved if its base-level activation exceeds the **retrieval thresh
 Retrieved if B > tau
 ```
 
-The ACT-R default for `:rt` is 0 (zero). When `:rt` is explicitly set in tutorial examples, values range from 0 to -2 depending on the model. The parameter `:ans` (noise scale) defaults to NIL (disabled) independently. For this system, we use **tau = -0.5**. A design choice that admits chunks with slightly negative activation, which is desirable in a low-interaction system where useful chunks may hover near zero activation. This value needs empirical calibration during shadow mode based on observed activation distributions.
+The ACT-R default for `:rt` is 0 (zero). When `:rt` is explicitly set in tutorial examples, values range from 0 to -2 depending on the model. The parameter `:ans` (noise scale) defaults to NIL (disabled) independently. For this system, we use **tau = -0.5**. A design choice that admits chunks with slightly negative activation, which is desirable in a low-interaction system where useful chunks may hover near zero activation. This value needs empirical calibration during Phase 1 based on observed activation distributions.
 
 In this design, tau is a threshold on raw B. It filters for memory accessibility (is this chunk active enough to be a candidate?). The filtered candidates are then ranked by a composite score that incorporates both activation and semantic similarity. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md). This separation keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
 
@@ -148,7 +148,7 @@ Where `F` and `f` are scaling parameters (standardly `F = 1.0`, `f = 1.0`). High
 | Latency factor | F | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
 | Latency exponent | f | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
 
-The decay parameter d = 0.5 is empirically validated across hundreds of ACT-R models. The noise and threshold values are design choices for this system, informed by the ACT-R literature but not canonical standards. All parameters should be calibrated during shadow mode.
+The decay parameter d = 0.5 is empirically validated across hundreds of ACT-R models. The noise and threshold values are design choices for this system, informed by the ACT-R literature but not canonical standards. All parameters should be calibrated during Phase 1.
 
 ---
 
