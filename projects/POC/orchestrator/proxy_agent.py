@@ -3,20 +3,21 @@
 Every time the system needs the human's input — whether it's an approval gate,
 an agent escalation, or a clarifying question — it goes through the same path:
 
-  1. Gather context: learned patterns, similar past interactions
-  2. Invoke the proxy agent (Claude CLI with tools)
-  3. Agent generates text + self-assessed confidence
-  4. Statistical calibration adjusts confidence based on historical accuracy
-  5. If confident → agent's text IS the answer
-  6. If not confident → same question goes to the human
-  7. Both predicted text and actual text feed into learning
+  1. Gather context: ACT-R memory retrieval + learned patterns
+  2. Two-pass prediction:
+     Pass 1 (prior): predict without seeing the artifact
+     Pass 2 (posterior): predict after reading the artifact
+  3. Statistical calibration adjusts confidence as a safety net
+  4. If confident → agent's text IS the answer
+  5. If not confident → same question goes to the human
+  6. Both predicted text and actual text feed into learning (memory chunks)
 
 The proxy agent always runs.  Statistics never gate whether the agent is
 consulted — they calibrate confidence after the agent has spoken.
 
-The proxy agent has file-read tools, receives learned behavioral patterns and
-past interaction history, and can engage in multi-turn dialog with the requester
-before deciding.
+The proxy agent has file-read tools, receives ACT-R memory chunks and
+learned behavioral patterns, and can engage in multi-turn dialog with
+the requester before deciding.
 
 This module is the single proxy invocation path used by both ApprovalGate
 (for approval gates) and EscalationListener (for agent questions via MCP).
@@ -29,7 +30,7 @@ import logging
 import os
 import re
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 _log = logging.getLogger('orchestrator.proxy_agent')
@@ -41,6 +42,13 @@ class ProxyResult:
     text: str                   # Full text response (what the human would say)
     confidence: float           # 0.0–1.0: how confident the agent is this matches the human
     from_agent: bool = True     # True if agent generated this, False if stats escalated
+    # Two-pass prediction data (populated when ACT-R memory is active)
+    prior_action: str = ''
+    prior_confidence: float = 0.0
+    posterior_action: str = ''
+    posterior_confidence: float = 0.0
+    prediction_delta: str = ''
+    salient_percepts: list[str] = field(default_factory=list)
 
 
 # Confidence threshold for the proxy agent's text response.
@@ -100,6 +108,7 @@ async def consult_proxy(
     # Gather learning context (patterns, similar interactions) for the agent.
     learned_patterns = ''
     similar: list = []
+    actr_memories = ''
     try:
         model_path = resolve_team_model_path(proxy_model_path, team)
         project_dir = os.path.dirname(model_path)
@@ -113,17 +122,26 @@ async def consult_proxy(
             except OSError:
                 pass
 
-        # Tier 2: retrieve similar past interactions
+        # Tier 2: retrieve similar past interactions (legacy)
         log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
         similar = retrieve_similar_interactions(
             log_path=log_path, state=state, project=project_slug, top_k=5,
         )
+
+        # Tier 3: ACT-R memory retrieval
+        actr_memories = _retrieve_actr_memories(
+            proxy_model_path=proxy_model_path,
+            team=team,
+            state=state,
+            task_type=project_slug,
+            question=question,
+        )
     except Exception:
         _log.debug('Failed to load learning context', exc_info=True)
 
-    # Always invoke the proxy agent.
+    # Always invoke the proxy agent (two-pass prediction).
     try:
-        text, agent_confidence = await run_proxy_agent(
+        two_pass = await run_proxy_agent(
             question=question,
             state=state,
             artifact_path=artifact_path,
@@ -131,23 +149,32 @@ async def consult_proxy(
             infra_dir=infra_dir,
             learned_patterns=learned_patterns,
             similar_interactions=similar,
+            actr_memories=actr_memories,
             dialog_history=dialog_history,
         )
     except Exception:
         _log.debug('Exception invoking proxy agent', exc_info=True)
         return ProxyResult(text='', confidence=0.0, from_agent=False)
 
-    if not text:
+    if not two_pass.text:
         return ProxyResult(text='', confidence=0.0, from_agent=True)
 
-    # Statistical calibration: adjust the agent's self-assessed confidence
-    # based on historical accuracy at this gate.  The agent always speaks;
-    # statistics only modulate how much the caller trusts the response.
+    # Statistical calibration: safety net ceiling on confidence.
     confidence = _calibrate_confidence(
-        agent_confidence, state, project_slug, proxy_model_path, team,
+        two_pass.confidence, state, project_slug, proxy_model_path, team,
     )
 
-    return ProxyResult(text=text, confidence=confidence, from_agent=True)
+    return ProxyResult(
+        text=two_pass.text,
+        confidence=confidence,
+        from_agent=True,
+        prior_action=two_pass.prior_action,
+        prior_confidence=two_pass.prior_confidence,
+        posterior_action=two_pass.posterior_action,
+        posterior_confidence=two_pass.posterior_confidence,
+        prediction_delta=two_pass.prediction_delta,
+        salient_percepts=two_pass.salient_percepts,
+    )
 
 
 def _calibrate_confidence(
@@ -213,6 +240,72 @@ def _calibrate_confidence(
     return min(agent_confidence, stats_confidence)
 
 
+def _retrieve_actr_memories(
+    *,
+    proxy_model_path: str,
+    team: str,
+    state: str,
+    task_type: str,
+    question: str,
+) -> str:
+    """Retrieve ACT-R memory chunks for the current gate context."""
+    try:
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db,
+            resolve_memory_db_path,
+            retrieve_chunks,
+            serialize_chunks_for_prompt,
+            get_interaction_counter,
+        )
+        from projects.POC.scripts.memory_indexer import try_embed, detect_provider
+
+        db_path = resolve_memory_db_path(proxy_model_path, team)
+        if not os.path.isfile(db_path):
+            return ''
+
+        conn = open_proxy_db(db_path)
+        try:
+            current = get_interaction_counter(conn)
+            if current == 0:
+                return ''
+
+            # Build context embeddings for retrieval
+            provider, model = detect_provider()
+            context_embeddings: dict[str, list[float]] = {}
+            sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
+            if sit_vec:
+                context_embeddings['situation'] = sit_vec
+            stim_vec = try_embed(question, conn=conn, provider=provider, model=model)
+            if stim_vec:
+                context_embeddings['stimulus'] = stim_vec
+
+            chunks = retrieve_chunks(
+                conn, state=state, task_type=task_type,
+                context_embeddings=context_embeddings,
+                current_interaction=current,
+            )
+            return serialize_chunks_for_prompt(chunks)
+        finally:
+            conn.close()
+    except Exception:
+        _log.debug('ACT-R memory retrieval failed', exc_info=True)
+        return ''
+
+
+@dataclass
+class _TwoPassResult:
+    """Internal result from two-pass prediction."""
+    text: str = ''
+    confidence: float = 0.0
+    prior_action: str = ''
+    prior_confidence: float = 0.0
+    prior_text: str = ''
+    posterior_action: str = ''
+    posterior_confidence: float = 0.0
+    prediction_delta: str = ''
+    salient_percepts: list[str] = field(default_factory=list)
+
+
 async def run_proxy_agent(
     question: str,
     *,
@@ -222,56 +315,21 @@ async def run_proxy_agent(
     infra_dir: str = '',
     learned_patterns: str = '',
     similar_interactions: list | None = None,
+    actr_memories: str = '',
     dialog_history: str = '',
-) -> tuple[str, float]:
-    """Invoke a Claude agent as the human proxy.
+) -> _TwoPassResult:
+    """Invoke the proxy agent with two-pass prediction.
 
-    The agent reads the artifact under review and generates a full text
-    response — what it predicts the human would say.  Returns (text,
-    confidence) where confidence is the agent's self-assessed certainty.
+    Pass 1 (prior): predict without seeing the artifact.
+    Pass 2 (posterior): predict after reading the artifact + prior.
 
-    The agent has file-read tools, receives learned patterns and past
-    interactions, and can be called in a dialog loop (with dialog_history
-    from prior turns).
+    Returns a _TwoPassResult with both predictions and surprise data.
     """
-    # Build context: artifact and upstream context paths
-    context_parts = []
+    # Build shared context blocks
+    memory_block = ''
+    if actr_memories:
+        memory_block = f'\n{actr_memories}\n'
 
-    if artifact_path and os.path.isfile(artifact_path):
-        context_parts.append(f'Artifact under review: {artifact_path}')
-    elif not artifact_path and session_worktree and state in ('TASK_ASSERT', 'TASK_ESCALATE'):
-        # No specific artifact — direct the proxy to review deliverables
-        # in the worktree using its file-read tools.  Issue #155.
-        context_parts.append(
-            f'No specific artifact to review. The task deliverables are in '
-            f'the session worktree at {session_worktree}. Use your Read, '
-            f'Glob, and Grep tools to find and review the deliverables.'
-        )
-
-    # Upstream context — INTENT.md for PLAN_ASSERT and TASK_ASSERT,
-    # INTENT.md + PLAN.md for WORK_ASSERT and TASK_ASSERT.
-    if state in ('PLAN_ASSERT', 'WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
-        for name in ('INTENT.md',):
-            for search_dir in (infra_dir, session_worktree):
-                if not search_dir:
-                    continue
-                path = os.path.join(search_dir, name)
-                if os.path.isfile(path):
-                    context_parts.append(f'Upstream context: {path}')
-                    break
-    if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
-        for name in ('PLAN.md', '.work-summary.md'):
-            for search_dir in (infra_dir, session_worktree):
-                if not search_dir:
-                    continue
-                path = os.path.join(search_dir, name)
-                if os.path.isfile(path):
-                    context_parts.append(f'Upstream context: {path}')
-                    break
-
-    context_block = '\n'.join(context_parts) if context_parts else ''
-
-    # Build learning context
     learning_block = ''
     if learned_patterns:
         learning_block += (
@@ -303,25 +361,136 @@ async def run_proxy_agent(
             f'Continue the dialog based on what was said above.\n'
         )
 
-    prompt = (
-        f"You are a human proxy agent. You stand in for the human at a CfA "
-        f"approval gate. Your job is to predict what the human would say.\n\n"
-        f"Question: {question}\n\n"
-        f"{context_block}\n"
+    # Build artifact/upstream context block
+    context_parts = _build_artifact_context(
+        artifact_path, session_worktree, infra_dir, state,
+    )
+    context_block = '\n'.join(context_parts) if context_parts else ''
+
+    # ── Pass 1: Prior (without artifact) ─────────────────────────────────
+    prior_prompt = (
+        f"You are a human proxy agent. You predict what the human would say "
+        f"at a CfA approval gate. You have NOT seen the artifact yet.\n\n"
+        f"{memory_block}"
         f"{learning_block}"
         f"{dialog_block}\n"
-        f"Read the artifact and any upstream context files, then respond "
-        f"exactly as the human would. Your response should be natural text "
-        f"— it may be approval, a question, a correction, or a concern. "
-        f"You may ask clarifying questions before deciding. "
-        f"Use the learned patterns and past interactions to inform your "
-        f"prediction of what the human would say.\n\n"
-        f"After your response, on a FINAL line by itself, write your "
-        f"confidence that the human would say essentially the same thing, "
-        f"as a decimal between 0.0 and 1.0.\n"
-        f"Format exactly: CONFIDENCE: 0.85"
+        f"State: {state}\n"
+        f"Question: {question}\n\n"
+        f"Based on your memories of working with this human and the context "
+        f"above, predict what the human would do.\n\n"
+        f"On the FINAL lines, write:\n"
+        f"ACTION: approve\n"
+        f"CONFIDENCE: 0.85\n\n"
+        f"ACTION must be one of: approve, correct, escalate, withdraw.\n"
+        f"CONFIDENCE is a decimal 0.0 to 1.0."
     )
 
+    prior_text, prior_confidence, prior_action = await _invoke_claude_proxy(
+        prior_prompt, session_worktree,
+    )
+
+    # ── Pass 2: Posterior (with artifact + prior) ────────────────────────
+    prior_block = ''
+    if prior_action:
+        prior_block = (
+            f'\nYour prior prediction (before seeing the artifact):\n'
+            f'ACTION: {prior_action}\n'
+            f'Reasoning: {prior_text[:500]}\n'
+        )
+
+    posterior_prompt = (
+        f"You are a human proxy agent. You predict what the human would say "
+        f"at a CfA approval gate. You have now seen the artifact.\n\n"
+        f"{memory_block}"
+        f"{learning_block}"
+        f"{dialog_block}\n"
+        f"State: {state}\n"
+        f"Question: {question}\n\n"
+        f"{prior_block}\n"
+        f"Now read the artifact and any upstream context files. Revise your "
+        f"prediction based on what you find.\n\n"
+        f"{context_block}\n\n"
+        f"Respond as the human would. If the artifact changed your prediction, "
+        f"explain what changed and why.\n\n"
+        f"On the FINAL lines, write:\n"
+        f"ACTION: approve\n"
+        f"CONFIDENCE: 0.85\n\n"
+        f"ACTION must be one of: approve, correct, escalate, withdraw.\n"
+        f"CONFIDENCE is a decimal 0.0 to 1.0."
+    )
+
+    post_text, post_confidence, post_action = await _invoke_claude_proxy(
+        posterior_prompt, session_worktree,
+    )
+
+    # ── Surprise detection ───────────────────────────────────────────────
+    prediction_delta = ''
+    salient_percepts: list[str] = []
+    action_changed = prior_action and post_action and prior_action != post_action
+    confidence_shifted = abs(post_confidence - prior_confidence) > 0.3
+
+    if action_changed or confidence_shifted:
+        prediction_delta, salient_percepts = await _extract_surprise(
+            prior_action, prior_confidence, prior_text,
+            post_action, post_confidence, post_text,
+            artifact_path, session_worktree,
+        )
+
+    return _TwoPassResult(
+        text=post_text or prior_text,
+        confidence=post_confidence if post_text else prior_confidence,
+        prior_action=prior_action,
+        prior_confidence=prior_confidence,
+        prior_text=prior_text,
+        posterior_action=post_action,
+        posterior_confidence=post_confidence,
+        prediction_delta=prediction_delta,
+        salient_percepts=salient_percepts,
+    )
+
+
+def _build_artifact_context(
+    artifact_path: str, session_worktree: str,
+    infra_dir: str, state: str,
+) -> list[str]:
+    """Build context parts for artifact and upstream documents."""
+    context_parts = []
+
+    if artifact_path and os.path.isfile(artifact_path):
+        context_parts.append(f'Artifact under review: {artifact_path}')
+    elif not artifact_path and session_worktree and state in ('TASK_ASSERT', 'TASK_ESCALATE'):
+        context_parts.append(
+            f'No specific artifact to review. The task deliverables are in '
+            f'the session worktree at {session_worktree}. Use your Read, '
+            f'Glob, and Grep tools to find and review the deliverables.'
+        )
+
+    if state in ('PLAN_ASSERT', 'WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
+        for name in ('INTENT.md',):
+            for search_dir in (infra_dir, session_worktree):
+                if not search_dir:
+                    continue
+                path = os.path.join(search_dir, name)
+                if os.path.isfile(path):
+                    context_parts.append(f'Upstream context: {path}')
+                    break
+    if state in ('WORK_ASSERT', 'TASK_ASSERT', 'TASK_ESCALATE'):
+        for name in ('PLAN.md', '.work-summary.md'):
+            for search_dir in (infra_dir, session_worktree):
+                if not search_dir:
+                    continue
+                path = os.path.join(search_dir, name)
+                if os.path.isfile(path):
+                    context_parts.append(f'Upstream context: {path}')
+                    break
+
+    return context_parts
+
+
+async def _invoke_claude_proxy(
+    prompt: str, session_worktree: str,
+) -> tuple[str, float, str]:
+    """Invoke claude -p and parse output. Returns (text, confidence, action)."""
     try:
         result = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -335,14 +504,67 @@ async def run_proxy_agent(
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         _log.warning('Proxy agent invocation failed')
-        return ('', 0.0)
+        return ('', 0.0, '')
 
     if result.returncode != 0 or not result.stdout.strip():
         _log.warning('Proxy agent returned non-zero or empty output')
-        return ('', 0.0)
+        return ('', 0.0, '')
 
     output = result.stdout.strip()
-    return parse_proxy_agent_output(output)
+    text, confidence = parse_proxy_agent_output(output)
+    action = parse_action_from_output(output)
+    return (text, confidence, action)
+
+
+async def _extract_surprise(
+    prior_action: str, prior_confidence: float, prior_text: str,
+    post_action: str, post_confidence: float, post_text: str,
+    artifact_path: str, session_worktree: str,
+) -> tuple[str, list[str]]:
+    """Extract surprise description and salient percepts when prediction changed."""
+    prompt = (
+        f"The proxy's prediction changed after seeing the artifact.\n\n"
+        f"Prior: {prior_action} ({prior_confidence:.2f})\n"
+        f"Posterior: {post_action} ({post_confidence:.2f})\n\n"
+        f"Prior reasoning: {prior_text[:300]}\n"
+        f"Posterior reasoning: {post_text[:300]}\n"
+    )
+    if artifact_path:
+        prompt += f"\nArtifact: {artifact_path}\n"
+    prompt += (
+        f"\nIn one sentence, describe what in the artifact caused the "
+        f"prediction to change.\n"
+        f"Then list 2-5 specific artifact features (phrases) that drove "
+        f"the change, one per line prefixed with \"- \"."
+    )
+
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ['claude', '-p', '--output-format', 'text',
+                 '--permission-mode', 'bypassPermissions'],
+                input=prompt, capture_output=True, text=True, timeout=30,
+                cwd=session_worktree or None,
+            ),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ('', [])
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return ('', [])
+
+    lines = result.stdout.strip().split('\n')
+    description = ''
+    percepts: list[str] = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith('- '):
+            percepts.append(stripped[2:])
+        elif not description and stripped:
+            description = stripped
+
+    return (description, percepts)
 
 
 def parse_proxy_agent_output(output: str) -> tuple[str, float]:
@@ -368,3 +590,22 @@ def parse_proxy_agent_output(output: str) -> tuple[str, float]:
             return (text, confidence)
     # No confidence marker — treat as low confidence so human is asked
     return (output, 0.0)
+
+
+_VALID_ACTIONS = frozenset(['approve', 'correct', 'escalate', 'withdraw'])
+
+
+def parse_action_from_output(output: str) -> str:
+    """Extract ACTION: <action> from proxy agent output.
+
+    Searches from the end of the output. Returns the action string
+    (approve, correct, escalate, withdraw) or empty string if not found.
+    """
+    lines = output.rstrip().split('\n')
+    for i in range(len(lines) - 1, max(len(lines) - 5, -1), -1):
+        match = re.search(r'ACTION:\s*(\w+)', lines[i], re.IGNORECASE)
+        if match:
+            action = match.group(1).lower()
+            if action in _VALID_ACTIONS:
+                return action
+    return ''
