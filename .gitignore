@@ -53,3 +53,6 @@ intake/run.log
 
 # Refinement pipeline — working artifacts
 refinement/
+
+# Audit pipeline — scratch findings
+audit/
