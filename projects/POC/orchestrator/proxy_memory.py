@@ -364,7 +364,13 @@ def retrieve_chunks(
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
-    return [chunk for _, chunk in scored[:top_k]]
+    retrieved = [chunk for _, chunk in scored[:top_k]]
+
+    # ACT-R Rule 2: retrieval reinforces the chunk (adds a trace).
+    for chunk in retrieved:
+        add_trace(conn, chunk.id, current_interaction)
+
+    return retrieved
 
 
 # ── Recording ────────────────────────────────────────────────────────────────
@@ -434,7 +440,7 @@ def record_interaction(
         content=content,
         traces=[current],
         embedding_model=embedding_model,
-        embedding_situation=_embed(f'{state} {task_type}') if situation_text or state else None,
+        embedding_situation=_embed(situation_text or f'{state} {task_type}') if situation_text or state else None,
         embedding_artifact=_embed(artifact_text) if artifact_text else None,
         embedding_stimulus=_embed(stimulus_text) if stimulus_text else None,
         embedding_response=_embed(human_response) if human_response else None,

@@ -454,8 +454,8 @@ class TestStatisticalCalibration(unittest.TestCase):
         # Stats show mostly corrections → confidence should be well below agent's 0.9
         self.assertLess(result.confidence, 0.5)
 
-    def test_calibration_never_inflates(self):
-        """Calibration can only reduce confidence, never inflate it."""
+    def test_calibration_is_bidirectional(self):
+        """Calibration blends agent and stats via geometric mean — can lift underconfidence."""
         model = _make_warm_model_json()  # 10/10 approvals → high stats confidence
         model_path = self._make_model_file(model)
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Looks okay I guess.', confidence=0.3))
@@ -466,8 +466,10 @@ class TestStatisticalCalibration(unittest.TestCase):
                 proxy_model_path=model_path,
             ))
 
-        # Agent said 0.3 — stats are high but should not inflate above 0.3
-        self.assertLessEqual(result.confidence, 0.3)
+        # Agent said 0.3, stats are high → geometric mean lifts above 0.3
+        self.assertGreater(result.confidence, 0.3)
+        # But shouldn't be as high as the stats alone
+        self.assertLess(result.confidence, 0.9)
 
 
 # ── parse_proxy_agent_output ────────────────────────────────────────────────

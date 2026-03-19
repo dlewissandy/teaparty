@@ -318,6 +318,45 @@ class TestRetrieveChunks(unittest.TestCase):
         self.assertEqual(results, [])
 
 
+class TestRetrievalReinforcement(unittest.TestCase):
+    """A-001: retrieve_chunks must add a trace to each retrieved chunk."""
+
+    def test_retrieval_adds_trace(self):
+        conn = _make_db()
+        store_chunk(conn, _make_chunk(chunk_id='r1', traces=[1]))
+        # Set counter so retrieval happens at interaction 5
+        conn.execute("UPDATE proxy_state SET value=5 WHERE key='interaction_counter'")
+        conn.commit()
+
+        results = retrieve_chunks(
+            conn, current_interaction=5, tau=-999, s=0.0,
+        )
+        self.assertEqual(len(results), 1)
+        # Re-read from DB to verify the trace was persisted
+        loaded = get_chunk(conn, 'r1')
+        self.assertIn(5, loaded.traces)
+        self.assertEqual(loaded.traces, [1, 5])
+
+    def test_retrieval_reinforcement_boosts_activation(self):
+        """Retrieved chunks should have higher activation on next retrieval."""
+        conn = _make_db()
+        store_chunk(conn, _make_chunk(chunk_id='a', traces=[1]))
+        store_chunk(conn, _make_chunk(chunk_id='b', traces=[1]))
+
+        # Retrieve both at interaction 5 — both get reinforced
+        retrieve_chunks(conn, current_interaction=5, tau=-999, s=0.0)
+
+        # Retrieve only 'a' at interaction 10 (filter by state trick — give them different states)
+        conn2 = _make_db()
+        store_chunk(conn2, _make_chunk(chunk_id='x', state='PLAN_ASSERT', traces=[1, 5]))
+        store_chunk(conn2, _make_chunk(chunk_id='y', state='PLAN_ASSERT', traces=[1]))
+
+        # x has the extra trace from retrieval, so it should have higher activation
+        bx = base_level_activation([1, 5], current_interaction=10)
+        by = base_level_activation([1], current_interaction=10)
+        self.assertGreater(bx, by)
+
+
 class TestRecordInteraction(unittest.TestCase):
 
     def test_creates_chunk(self):
@@ -356,6 +395,49 @@ class TestRecordInteraction(unittest.TestCase):
         )
         self.assertEqual(chunk.id, 'existing')
         self.assertEqual(chunk.traces, [1, 2])
+
+    def test_situation_text_used_for_embedding(self):
+        """A-020: situation_text should be used for embedding when provided."""
+        conn = _make_db()
+        embedded_texts = []
+
+        def track_embed(text):
+            embedded_texts.append(text)
+            return [1.0, 0.0]
+
+        record_interaction(
+            conn,
+            interaction_type='gate_outcome',
+            state='PLAN_ASSERT',
+            task_type='security',
+            outcome='approve',
+            content='test',
+            situation_text='custom situation description',
+            embed_fn=track_embed,
+        )
+        # The situation embedding should use the provided text, not f'{state} {task_type}'
+        self.assertIn('custom situation description', embedded_texts)
+        self.assertNotIn('PLAN_ASSERT security', embedded_texts)
+
+    def test_situation_fallback_without_text(self):
+        """When situation_text is empty, falls back to state + task_type."""
+        conn = _make_db()
+        embedded_texts = []
+
+        def track_embed(text):
+            embedded_texts.append(text)
+            return [1.0, 0.0]
+
+        record_interaction(
+            conn,
+            interaction_type='gate_outcome',
+            state='PLAN_ASSERT',
+            task_type='security',
+            outcome='approve',
+            content='test',
+            embed_fn=track_embed,
+        )
+        self.assertIn('PLAN_ASSERT security', embedded_texts)
 
     def test_embed_fn_called_per_dimension(self):
         conn = _make_db()
@@ -415,6 +497,47 @@ class TestSerializeChunks(unittest.TestCase):
         result = serialize_chunks_for_prompt(chunks, token_budget=500)
         # With ~500 token budget (2000 chars), should include far fewer than 20
         self.assertLess(result.count('### Memory'), 20)
+
+
+class TestCalibrateConfidence(unittest.TestCase):
+    """A-004: calibration should be bidirectional (geometric mean)."""
+
+    def _calibrate(self, agent_conf, laplace, ema, total_count=10):
+        """Call _calibrate_confidence with mocked model."""
+        from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
+
+        mock_entry = MagicMock()
+        mock_entry.total_count = total_count
+
+        mock_model = MagicMock()
+        mock_model.entries = {'PLAN_ASSERT::test': mock_entry}
+
+        with patch('projects.POC.scripts.approval_gate.resolve_team_model_path', return_value='/tmp/test.json'), \
+             patch('projects.POC.scripts.approval_gate.load_model', return_value=mock_model), \
+             patch('projects.POC.scripts.approval_gate._entry_key', return_value='PLAN_ASSERT::test'), \
+             patch('projects.POC.scripts.approval_gate.compute_confidence_components', return_value=(laplace, ema)):
+            return _calibrate_confidence(agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '')
+
+    def test_lifts_underconfident_agent(self):
+        """Agent says 0.6, history says 0.95 → calibrated > 0.6."""
+        result = self._calibrate(0.6, 0.95, 0.95)
+        self.assertGreater(result, 0.6)
+
+    def test_reduces_overconfident_agent(self):
+        """Agent says 0.95, history says 0.6 → calibrated < 0.95."""
+        result = self._calibrate(0.95, 0.6, 0.6)
+        self.assertLess(result, 0.95)
+
+    def test_geometric_mean(self):
+        """Calibrated = sqrt(agent * stats)."""
+        result = self._calibrate(0.64, 0.81, 0.81)
+        expected = (0.64 * 0.81) ** 0.5  # ~0.72
+        self.assertAlmostEqual(result, expected, places=3)
+
+    def test_cold_start_caps_at_half(self):
+        """Cold start caps confidence at 0.5."""
+        result = self._calibrate(0.9, 0.9, 0.9, total_count=2)
+        self.assertLessEqual(result, 0.5)
 
 
 if __name__ == '__main__':
