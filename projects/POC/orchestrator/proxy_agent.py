@@ -7,13 +7,16 @@ an agent escalation, or a clarifying question — it goes through the same path:
   2. Two-pass prediction:
      Pass 1 (prior): predict without seeing the artifact
      Pass 2 (posterior): predict after reading the artifact
-  3. Statistical calibration adjusts confidence as a safety net
+  3. Confidence calibration blends the agent's self-assessment with
+     statistical history (Laplace/EMA) via geometric mean
   4. If confident → agent's text IS the answer
   5. If not confident → same question goes to the human
   6. Both predicted text and actual text feed into learning (memory chunks)
 
 The proxy agent always runs.  Statistics never gate whether the agent is
-consulted — they calibrate confidence after the agent has spoken.
+consulted — they calibrate confidence after the agent has spoken.  The
+calibration is bidirectional: history can both reduce overconfidence and
+lift underconfidence toward the empirical approval rate.
 
 The proxy agent has file-read tools, receives ACT-R memory chunks and
 learned behavioral patterns, and can engage in multi-turn dialog with
@@ -186,14 +189,17 @@ def _calibrate_confidence(
 ) -> float:
     """Adjust agent confidence using statistical history.
 
-    The agent's self-assessed confidence is the starting point.  Historical
-    data can only reduce it — never inflate it above what the agent claimed.
+    Blends the agent's self-assessed confidence with the statistical
+    confidence (Laplace/EMA) using an equal-weight geometric mean.
+    This allows history to both reduce overconfident agents and lift
+    underconfident agents toward the empirical approval rate.
 
     - Cold start (< COLD_START_THRESHOLD samples): cap at 0.5 so the caller
       knows there's no track record yet.
-    - With history: take the minimum of the agent's confidence and the
-      statistical confidence (Laplace/EMA).  If the model has been wrong
-      before at this gate, the calibrated score reflects that.
+    - With history: geometric mean of agent confidence and statistical
+      confidence.  If the agent says 0.6 but history says 0.95, calibrated
+      confidence rises toward ~0.75.  If the agent says 0.95 but history
+      says 0.6, it drops toward ~0.75.
     """
     from projects.POC.scripts.approval_gate import (
         COLD_START_THRESHOLD,
@@ -234,10 +240,10 @@ def _calibrate_confidence(
     if entry.total_count < COLD_START_THRESHOLD:
         return min(agent_confidence, 0.5)
 
-    # Enough history — use statistical confidence as a ceiling.
+    # Enough history — blend agent and statistical confidence via geometric mean.
     laplace, ema = compute_confidence_components(entry)
     stats_confidence = min(laplace, ema)
-    return min(agent_confidence, stats_confidence)
+    return (agent_confidence * stats_confidence) ** 0.5
 
 
 def _retrieve_actr_memories(

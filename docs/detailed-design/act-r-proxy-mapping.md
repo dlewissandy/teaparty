@@ -254,7 +254,7 @@ CREATE TABLE proxy_chunks (
     delta TEXT DEFAULT '',
     content TEXT NOT NULL,
     traces TEXT NOT NULL,              -- JSON array of interaction sequence numbers
-    embedding_model TEXT NOT NULL,     -- which model produced the vectors
+    embedding_model TEXT DEFAULT '',   -- which model produced the vectors (determined internally)
     embedding_situation TEXT,          -- JSON array of floats
     embedding_artifact TEXT,
     embedding_stimulus TEXT,

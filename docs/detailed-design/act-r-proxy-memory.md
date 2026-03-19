@@ -85,7 +85,7 @@ Before Phase 1 implementation begins, the following design decisions must be mad
 1. **Embedding model choice** — which service and model? (e.g., OpenAI text-embedding-3-small, Anthropic, local). Affects cost, dimensionality, and API contracts.
 2. **Chunk serialization format** — how are chunks converted to text for the proxy's LLM prompt? What fields are included? What is the token budget per chunk?
 3. **Prompt templates** — provide draft templates or specify constraints for Pass 1, Pass 2, and surprise extraction prompts. These must support the output parsing requirements.
-4. **Output parsing and error handling** — how are ACTION/PROSE and confidence values extracted from free-text LLM output? What happens on parse failures?
+4. **Output parsing and error handling** — ACTION and CONFIDENCE are parsed from the final lines of LLM output via regex (`ACTION:\s*(\w+)`, `CONFIDENCE:\s*([\d.]+)`). Parse failures default to confidence 0.0 (always escalate to human).
 5. **Confidence extraction method** — specify the exact format for confidence in prompts (e.g., "0-10 scale", probability, categorical). Define validation and fallback behavior.
 6. **Concurrency control for interaction counter** — specify transaction semantics and isolation levels for multi-process access to `proxy_memory.db`.
 
@@ -165,12 +165,12 @@ SESSION START
 
         PASS 1 -- PRIOR
             generate from cached prefix + gate context, no artifact
-            output: ACTION <tab> PROSE, temperature 0
+            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
             parse -> prior.action, prior.prose
 
         PASS 2 -- POSTERIOR
             generate from cached prefix + gate context + artifact + prior
-            output: ACTION <tab> PROSE, temperature 0
+            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
             parse -> posterior.action, posterior.prose
 
         SURPRISE
@@ -225,7 +225,7 @@ MemoryChunk
     embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
 ```
 
-Both passes produce `ACTION<TAB>PROSE`. The same structured format used by the existing `classify_review.py`. Surprise extraction only runs when the action changed (2 additional short-context LLM calls) or confidence shifted significantly (1 call). Most gates produce no surprise: 2 calls. Strong surprises cost 4; moderate surprises cost 3.
+Both passes produce free text followed by `ACTION: <action>` and `CONFIDENCE: <float>` on the final lines, parsed from the end of output. Surprise extraction only runs when the action changed or confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3.
 
 ### Cache Economics
 
