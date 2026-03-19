@@ -50,8 +50,10 @@ Sources checked: 18
 - ...
 ### Notable Quotes
 > "..." — <attribution>
-### Relevance Signal
-<one sentence>
+### Applicability
+**Addresses:** <specific TeaParty component, design gap, or open question>
+**Mechanism:** <what specific technique from this source could be used — name the method, not the topic>
+**Differs from current approach by:** <how this is NOT what we already do — if you can't articulate the difference, it's not relevant>
 ```
 
 ### Step 3: Triage

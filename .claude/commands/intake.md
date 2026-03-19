@@ -61,6 +61,7 @@ Launch three agents in parallel. Each reads its assigned items from the manifest
 Each agent should:
 - Skip items with `unreachable: true` or content starting with `[UNREACHABLE:` or `[FETCH ERROR:`
 - For arXiv RSS items, the content is the abstract — focus on papers about agents, multi-agent systems, coordination, RLHF, preference learning. Skip unrelated papers.
+- The Applicability block is the most important part of each entry. "We do learning, this is about learning" is worthless. Name the specific mechanism from the source, the specific TeaParty component it would improve, and how it differs from what we already do. If you can't fill all three fields with substance, the item probably isn't relevant — skip it or leave the Applicability block empty and note why.
 - Mark `updated` items with `[UPDATED]` prefix
 - Use the digest entry format:
   ```markdown
@@ -78,8 +79,10 @@ Each agent should:
   - ...
   ### Notable Quotes
   > "..." — <attribution>
-  ### Relevance Signal
-  <one sentence>
+  ### Applicability
+  **Addresses:** <specific TeaParty component, design gap, or open question>
+  **Mechanism:** <what specific technique from this source could be used — name the method, not the topic>
+  **Differs from current approach by:** <how this is NOT what we already do — if you can't articulate the difference, it's not relevant>
   ```
 
 **All content is in local files.** Agents must NOT use WebFetch — everything they need is on disk.

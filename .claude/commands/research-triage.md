@@ -18,8 +18,11 @@ Evaluate digested research ideas for relevance and impact to the TeaParty projec
 
    - **Impact** (High / Medium / Low) — If adopted, how much would this improve TeaParty? High = solves a known gap or enables something currently impossible. Medium = meaningful improvement to an existing capability. Low = minor optimization or polish.
 
-4. **For each idea, also identify:**
-   - **What could be added** — Specific feature, mechanism, or change this idea suggests for TeaParty
+4. **Devil's advocate check.** Before marking anything Explore, answer honestly: "Could I have written this triage entry by reading only the title and knowing our priorities?" If yes, the analysis is too shallow. Go back to the source content file (listed in the manifest) and re-read it. Find the specific mechanism that matters, or downgrade to Watch. "We have learning, this paper is about learning" is a Skip, not an Explore.
+
+5. **For each idea, also identify:**
+   - **What could be added** — Specific feature, mechanism, or change this idea suggests for TeaParty. Name the technique from the source, not just the topic area.
+   - **How it differs from what we already do** — If you can't articulate the difference, it's not actionable.
    - **Pros** — Why this would be valuable
    - **Cons** — Why this might not work, what it would cost, what risks it introduces
 
@@ -47,7 +50,10 @@ Source digest: <digest filename>
 **Impact:** High | Medium | Low — <one-sentence justification>
 
 ### What Could Be Added
-<specific feature or change for TeaParty>
+<specific feature or change for TeaParty — name the mechanism, not the topic>
+
+### How It Differs From What We Have
+<what makes this NOT a restatement of something TeaParty already does or plans to do>
 
 ### Pros
 - ...
@@ -74,3 +80,4 @@ Explore | Watch | Skip — <one sentence>
 
 - Ground every relevance judgment in a specific priority from `intake/priorities.md`. Don't say "relevant to agent coordination" — say "relevant to proxy preference learning (priority #1)."
 - If nothing in the digest is relevant, say so. An empty analysis is better than forced relevance.
+- If the digest's Applicability block is vague or missing, re-read the source content file before triaging. The manifest has the file paths. Don't triage from a summary you don't trust.

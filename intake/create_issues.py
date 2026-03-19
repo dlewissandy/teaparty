@@ -310,61 +310,111 @@ def parse_analysis(analysis_path: str) -> list[dict]:
     return explores
 
 
-def build_issue_body(item: dict, analysis_path: str) -> str:
-    """Build a well-formed issue body modeled on INTENT.md quality standards.
+def _extract_section(content: str, heading: str) -> str:
+    """Extract the content of a markdown section by heading name.
 
-    The issue body should read like an intent document: what outcome,
-    why it matters, how to judge success, what it touches, and where
-    the idea came from. A reader should be able to pick up this issue
-    and start working without reading the digest or analysis.
+    Looks for ## Heading or any heading level, captures everything until
+    the next heading of the same or higher level.
     """
-    detail = item.get('detail', '')
-    url = item.get('url', '')
-    source = item.get('source', '')
-    quote = item.get('quote', '')
-    techniques = item.get('techniques', '')
+    pattern = rf'^(#{1,4})\s+{re.escape(heading)}\s*\n(.*?)(?=\n#{1,4}\s|\Z)'
+    match = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+    if match:
+        return match.group(2).strip()
+    return ''
+
+
+def _load_idea_file(ideas_dir: str, slug: str) -> str:
+    """Find and read the idea file matching this slug."""
+    if not os.path.isdir(ideas_dir):
+        return ''
+    slug_words = set(slug.replace('-', ' ').split())
+    for fname in os.listdir(ideas_dir):
+        if not fname.endswith('.md') or fname == 'INDEX.md':
+            continue
+        fname_words = set(fname.replace('-', ' ').replace('.md', '').split())
+        overlap = len(slug_words & fname_words)
+        if overlap >= len(slug_words) * 0.5:
+            fpath = os.path.join(ideas_dir, fname)
+            try:
+                with open(fpath, encoding='utf-8') as f:
+                    return f.read()
+            except OSError:
+                pass
+    return ''
+
+
+def build_issue_body(item: dict, analysis_path: str) -> str:
+    """Build an issue body from the idea file content.
+
+    The idea file is the primary source of truth. It contains the deep
+    analysis: what the idea is, how TeaParty currently behaves, what would
+    change (with pseudocode), and why the evidence suggests it would work.
+    The issue body carries that content through, not boilerplate.
+    """
     date = re.search(r'(\d{4}-\d{2}-\d{2})', os.path.basename(analysis_path))
     date_str = date.group(1) if date else ''
     slug = re.sub(r'[^a-z0-9]+', '-', item['title'].lower()).strip('-')
+    ideas_dir = os.path.join(os.path.dirname(analysis_path), '..', 'ideas')
 
-    body = f"""## Why This Exists
+    idea_content = _load_idea_file(ideas_dir, slug)
 
-{detail}
+    if idea_content:
+        # Pull sections from the idea file — these are the real content
+        the_idea = _extract_section(idea_content, 'The Idea')
+        current = _extract_section(idea_content, 'Current Behavior')
+        proposed = _extract_section(idea_content, 'Proposed Change')
+        evidence = _extract_section(idea_content, 'Why This Would Work')
+        risks = _extract_section(idea_content, 'Risks')
 
-## Objective
+        # Fall back to old-format idea files
+        if not the_idea:
+            the_idea = _extract_section(idea_content, 'Problem')
+        if not proposed:
+            proposed = _extract_section(idea_content, 'How It Works')
+        if not evidence:
+            evidence = _extract_section(idea_content, 'Evidence')
 
-Investigate and adapt the techniques from this research for the TeaParty orchestrator. The goal is not to replicate the paper's system wholesale, but to extract the specific patterns that address a current gap or limitation in our architecture.
+    else:
+        the_idea = item.get('detail', '')
+        current = ''
+        proposed = ''
+        evidence = ''
+        risks = ''
 
-## What It Would Touch
+    url = item.get('url', '')
+    source = item.get('source', '')
 
-This needs investigation during planning. The idea file (`intake/ideas/{slug}.md`) contains a preliminary sketch of affected components, but the actual scope should be determined by reading the source material and the current codebase together.
+    # Build the body from idea file content, not boilerplate
+    parts = []
 
-## Success Criteria
+    if the_idea:
+        parts.append(f'## The Idea\n\n{the_idea}')
 
-1. The relevant technique is understood well enough to write a concrete implementation plan
-2. The plan identifies specific files and modules that would change
-3. The approach is validated against TeaParty's design principles (agents are autonomous, workflows are advisory, no silent fallbacks)
+    if current:
+        parts.append(f'## Current Behavior\n\n{current}')
 
-## Source
+    if proposed:
+        parts.append(f'## Proposed Change\n\n{proposed}')
 
-{source} — {url}
-"""
-    if quote:
-        body += f'\n> "{quote}"\n'
+    if evidence:
+        parts.append(f'## Why This Would Work\n\n{evidence}')
 
-    if techniques:
-        body += f"""
-### Key Techniques from Source
+    if risks:
+        parts.append(f'## Risks\n\n{risks}')
 
-{techniques}
-"""
+    if not parts:
+        # Fallback: use whatever detail we have from the analysis
+        detail = item.get('detail', 'No idea file found.')
+        parts.append(f'## The Idea\n\n{detail}')
 
-    body += f"""
----
-Idea file: `intake/ideas/{slug}.md`
-Analysis: `intake/analysis/analysis-{date_str}.md`
-"""
-    return body.strip()
+    parts.append(f'## Source\n\n{source} — {url}')
+    parts.append(
+        f'---\n'
+        f'Idea file: `intake/ideas/{slug}.md`\n'
+        f'Analysis: `intake/analysis/analysis-{date_str}.md`'
+    )
+
+    return '\n\n'.join(parts)
 
 
 def main():
