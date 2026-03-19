@@ -135,6 +135,42 @@ Once messages flow through a bus with an adapter interface:
 
 ---
 
+## Compliance
+
+Anthropic's terms draw a hard line between consumer subscription use (OAuth, Free/Pro/Max plans) and API key use (Console, Bedrock, Vertex). This affects the messaging system directly.
+
+**What the terms say:**
+
+- OAuth tokens from Free/Pro/Max accounts are for Claude Code and Claude.ai only. Using them in any other product, tool, or service is a violation of the Consumer Terms.
+- "Automated or non-human means, whether through a bot, script, or otherwise" are prohibited except when accessed via API key.
+- Developers building products or services must use API key authentication through Claude Console or a supported cloud provider.
+- Pro and Max plan usage limits "assume ordinary, individual usage."
+
+**What this means for TeaParty:**
+
+The POC running locally for single-user development is ordinary individual usage. The current `claude -p` invocations under a subscription plan are fine for personal research and development.
+
+The moment TeaParty routes messages through Slack, Teams, or any external adapter, it becomes a product or service built on Claude. A Slack bot that invokes `claude -p` on behalf of a user is automated non-human access. This requires API key authentication under the Commercial Terms, not subscription OAuth.
+
+The multi-session orchestrator (concurrent `claude -p` for subteams, dispatch parallelism) may also exceed "ordinary, individual usage" at scale. API keys are the safe path for any deployment beyond single-user local development.
+
+**Implications for the adapter architecture:**
+
+| Deployment | Auth Required | Terms |
+|---|---|---|
+| Local POC (single user, TUI) | OAuth or API key | Consumer Terms |
+| Multi-project orchestration at scale | API key recommended | Commercial Terms |
+| Slack/Teams/external adapter | API key required | Commercial Terms |
+| Mobile access via external app | API key required | Commercial Terms |
+
+The adapter interface is auth-agnostic — it doesn't care how `claude -p` authenticates. But the deployment documentation must specify that any non-local adapter requires API key authentication. The POC adapter (local SQLite + Textual) works under either auth method. External adapters require Commercial Terms.
+
+This is not a design constraint — the architecture doesn't change. It is a deployment constraint that must be documented and enforced at the configuration level, not the code level.
+
+Sources: [Anthropic Legal and Compliance](https://code.claude.com/docs/en/legal-and-compliance), [Anthropic Terms of Service](https://www.anthropic.com/terms), [Anthropic Usage Policy](https://www.anthropic.com/news/usage-policy-update).
+
+---
+
 ## Open Questions
 
 1. **Polling vs. push in the POC.** The TUI polls for new messages. The orchestrator polls for human responses. What polling interval balances responsiveness with resource use? The FIFO was instant (blocking read). Polling adds latency.
