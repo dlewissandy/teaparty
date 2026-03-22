@@ -154,12 +154,13 @@ class TestGenerate(unittest.TestCase):
             result = mod.generate("WORK_ASSERT", "What happened?")
         self.assertEqual(result, mod.FALLBACK_RESPONSE)
 
-    def test_output_truncated(self):
+    def test_output_not_truncated(self):
+        """Issue #182: Agent output must never be truncated."""
         long_response = "First sentence. " + "More text. " * 100
         with patch('subprocess.run',
                    return_value=self._mock_llm(long_response)):
             result = mod.generate("WORK_ASSERT", "Tell me everything")
-        self.assertLessEqual(len(result), mod.MAX_OUTPUT_CHARS)
+        self.assertEqual(result, long_response.strip())
 
     def test_prompt_includes_state_and_question(self):
         with patch('subprocess.run',

@@ -232,7 +232,8 @@ class TestGenerate(unittest.TestCase):
         finally:
             os.unlink(path)
 
-    def test_oversized_llm_output_truncated(self):
+    def test_oversized_llm_output_not_truncated(self):
+        """Issue #182: Agent output must never be truncated."""
         path = self._make_file()
         try:
             long_output = "Sentence one. " * 100  # Way over 800 chars
@@ -241,7 +242,7 @@ class TestGenerate(unittest.TestCase):
             mock_result.stdout = long_output
             with patch('subprocess.run', return_value=mock_result):
                 result = mod.generate(path, "INTENT_ASSERT", "test")
-            self.assertLessEqual(len(result), mod.MAX_OUTPUT_CHARS + 100)
+            self.assertEqual(result, long_output.strip())
         finally:
             os.unlink(path)
 
