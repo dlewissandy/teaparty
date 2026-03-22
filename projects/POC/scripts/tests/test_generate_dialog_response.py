@@ -47,26 +47,6 @@ class TestReadExecStream(unittest.TestCase):
         self.assertEqual(mod.read_exec_stream("/nonexistent/stream.jsonl"), "")
 
 
-class TestTruncateOutput(unittest.TestCase):
-
-    def test_short_text_unchanged(self):
-        self.assertEqual(mod.truncate_output("Hello."), "Hello.")
-
-    def test_long_text_truncated_at_sentence(self):
-        text = "First sentence. Second sentence. Third is very long " + "x" * 600
-        result = mod.truncate_output(text, max_chars=100)
-        self.assertLessEqual(len(result), 100)
-        # Should break at a sentence boundary when possible
-        self.assertIn("sentence", result)
-
-    def test_long_text_without_sentences(self):
-        text = "x" * 1000
-        result = mod.truncate_output(text, max_chars=100)
-        self.assertLessEqual(len(result), 100)
-
-    def test_empty_string(self):
-        self.assertEqual(mod.truncate_output(""), "")
-
 
 class TestBuildContext(unittest.TestCase):
 

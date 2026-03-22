@@ -20,7 +20,6 @@ import sys
 MAX_ARTIFACT_CHARS = 4000
 MAX_EXEC_CHARS = 2000
 MAX_FILE_CHARS = 3000
-MAX_OUTPUT_CHARS = 600
 
 FALLBACK_RESPONSE = (
     "I'm not sure I can answer that right now. "
@@ -84,18 +83,6 @@ def read_exec_stream(path: str, max_chars: int = MAX_EXEC_CHARS) -> str:
     except (FileNotFoundError, PermissionError, OSError):
         return ""
 
-
-def truncate_output(text: str, max_chars: int = MAX_OUTPUT_CHARS) -> str:
-    """Truncate output to max chars, breaking at sentence boundaries."""
-    if len(text) <= max_chars:
-        return text.strip()
-    truncated = text[:max_chars]
-    # Try to break at last sentence boundary
-    for sep in [". ", "! ", "? "]:
-        idx = truncated.rfind(sep)
-        if idx > max_chars // 2:
-            return truncated[:idx + 1].strip()
-    return truncated.strip()
 
 
 def _get_changed_files(worktree: str) -> list[str]:
@@ -222,7 +209,7 @@ def generate(state: str, question: str,
     if result.returncode != 0 or not result.stdout.strip():
         return FALLBACK_RESPONSE
 
-    return truncate_output(result.stdout.strip())
+    return result.stdout.strip()
 
 
 if __name__ == "__main__":
