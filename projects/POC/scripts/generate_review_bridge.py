@@ -15,7 +15,7 @@ import sys
 
 MAX_FILE_CHARS = 4000
 MAX_CONTEXT_CHARS = 2000
-MAX_OUTPUT_CHARS = 800
+
 MAX_FALLBACK_LINES = 5
 
 # ── Prompt templates keyed by CfA state ──
@@ -197,20 +197,6 @@ def fallback_bridge(file_path: str, state: str) -> str:
     return '\n'.join(parts)
 
 
-def truncate_output(text: str) -> str:
-    """If output exceeds MAX_OUTPUT_CHARS, truncate to first 3 sentences."""
-    if len(text) <= MAX_OUTPUT_CHARS:
-        return text
-    # Find first 3 sentence endings
-    count = 0
-    for i, ch in enumerate(text):
-        if ch in '.!?' and i + 1 < len(text) and text[i + 1] in ' \n':
-            count += 1
-            if count >= 3:
-                return text[:i + 1]
-    # If we can't find 3 sentences, hard truncate
-    return text[:MAX_OUTPUT_CHARS]
-
 
 def generate(
     file_path: str, state: str, task: str,
@@ -261,7 +247,7 @@ def generate(
     if result.returncode != 0 or not output:
         return fallback_bridge(file_path, state)
 
-    return truncate_output(output)
+    return output
 
 
 if __name__ == "__main__":

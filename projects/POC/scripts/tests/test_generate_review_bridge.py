@@ -108,28 +108,6 @@ class TestFallbackBridge(unittest.TestCase):
         self.assertIn("document", result)
 
 
-class TestTruncateOutput(unittest.TestCase):
-
-    def test_short_text_unchanged(self):
-        text = "I've drafted the intent. Please review it."
-        self.assertEqual(mod.truncate_output(text), text)
-
-    def test_oversized_text_truncated_to_3_sentences(self):
-        s1 = "First sentence. "
-        s2 = "Second sentence. "
-        s3 = "Third sentence. "
-        s4 = "Fourth sentence that pushes us over. "
-        text = (s1 + s2 + s3 + s4) * 20  # Way over 800 chars
-        result = mod.truncate_output(text)
-        self.assertLessEqual(len(result), mod.MAX_OUTPUT_CHARS + 100)
-        # Should end at or before a sentence boundary
-        self.assertTrue(result.rstrip().endswith('.'))
-
-    def test_no_sentences_hard_truncates(self):
-        text = "a" * (mod.MAX_OUTPUT_CHARS + 200)
-        result = mod.truncate_output(text)
-        self.assertEqual(len(result), mod.MAX_OUTPUT_CHARS)
-
 
 class TestGenerate(unittest.TestCase):
 
