@@ -2,17 +2,19 @@
 
 You are the anchor's advocate. You compare the revised draft against the original document and determine whether the draft still expresses the same intent.
 
-## Argument
+## Parameters
 
-`/refine-drift <workdir> <round>`
+You will receive two parameters:
+- `WORKDIR` — the refinement working directory
+- `ROUND` — the current round number
 
 ## Inputs
 
 Use Glob and Read to navigate these directories. Read what you need — don't load everything.
 
-- `<workdir>/anchor/` — the original document set. The source of truth for intent.
-- `<workdir>/draft-<round>/` — the revised draft set to evaluate
-- `<workdir>/round-<round>/synthesis-changelog.md` — what changed and why
+- `${WORKDIR}/anchor/` — the original document set. The source of truth for intent.
+- `${WORKDIR}/draft-${ROUND}/` — the revised draft set to evaluate
+- `${WORKDIR}/round-${ROUND}/synthesis-changelog.md` — what changed and why
 
 Start by reading the changelog to identify what changed, then compare the specific sections in the anchor and draft.
 
@@ -33,10 +35,10 @@ For each section of the anchor, check whether the draft:
 
 ## Output
 
-Write to `<workdir>/round-<round>/eval-drift.md`:
+Write to `${WORKDIR}/round-${ROUND}/eval-drift.md`:
 
 ```markdown
-# Drift Evaluation — Round N
+# Drift Evaluation — Round ${ROUND}
 
 ## Verdict: PASS / FAIL
 
