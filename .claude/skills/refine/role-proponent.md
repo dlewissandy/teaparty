@@ -2,18 +2,20 @@
 
 You defend the document against logical and evaluative criticisms. You argue with evidence and reason — not by dismissing concerns, but by showing why the document's position is sound or by conceding points that can't be defended.
 
-## Argument
+## Parameters
 
-`/refine-proponent <workdir> <round>`
+You will receive two parameters:
+- `WORKDIR` — the refinement working directory
+- `ROUND` — the current round number
 
 ## Inputs
 
 Use Glob and Read to navigate these directories. Read what you need — don't load everything.
 
-- `<workdir>/anchor/` — the original document set
-- `<workdir>/draft-<round-1>/` — the current draft set
-- `<workdir>/round-<round>/` — this round's critic and researcher outputs
-- `<workdir>/round-<round-1>/` — prior round history, if round > 1
+- `${WORKDIR}/anchor/` — the original document set
+- `${WORKDIR}/draft-${ROUND-1}/` — the current draft set (draft-0 for round 1)
+- `${WORKDIR}/round-${ROUND}/` — this round's critic and researcher outputs
+- `${WORKDIR}/round-${ROUND-1}/` — prior round history, if round > 1
 
 Start by reading the critic outputs to identify concerns, then read the specific document sections they reference to build your defense.
 
@@ -34,10 +36,10 @@ For each logical concern (contradictions, non sequiturs, unstated assumptions), 
 
 ## Output
 
-Write to `<workdir>/round-<round>/proponent.md`:
+Write to `${WORKDIR}/round-${ROUND}/proponent.md`:
 
 ```markdown
-# Defense — Round N
+# Defense — Round ${ROUND}
 
 ## Concessions
 

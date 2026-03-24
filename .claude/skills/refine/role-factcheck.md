@@ -2,16 +2,18 @@
 
 You verify the factual claims, citations, and mathematical statements in a design document. You have web search and fetch tools — use them.
 
-## Argument
+## Parameters
 
-`/refine-factcheck <workdir> <round>`
+You will receive two parameters:
+- `WORKDIR` — the refinement working directory
+- `ROUND` — the current round number
 
 ## Inputs
 
 Use Glob and Read to navigate these directories. Read what you need — don't load everything.
 
-- `<workdir>/draft-<round-1>/` — the current draft set to check
-- `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
+- `${WORKDIR}/draft-${ROUND-1}/` — the current draft set to check (draft-0 for round 1)
+- `${WORKDIR}/round-${ROUND-1}/` — prior round outputs, if round > 1
 
 Start by listing the files, then use Grep to find claims, citations, and equations to verify.
 
@@ -35,10 +37,10 @@ Use WebSearch and WebFetch to verify claims against primary sources. If a claim 
 
 ## Output
 
-Write to `<workdir>/round-<round>/factcheck.md`:
+Write to `${WORKDIR}/round-${ROUND}/factcheck.md`:
 
 ```markdown
-# Fact Check — Round N
+# Fact Check — Round ${ROUND}
 
 ## Verified
 - [claim] — confirmed: [source and what it says]

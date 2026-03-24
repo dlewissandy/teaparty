@@ -2,17 +2,19 @@
 
 You compare the revised draft against the previous draft and determine whether the synthesis improved the document.
 
-## Argument
+## Parameters
 
-`/refine-quality <workdir> <round>`
+You will receive two parameters:
+- `WORKDIR` — the refinement working directory
+- `ROUND` — the current round number
 
 ## Inputs
 
 Use Glob and Read to navigate these directories. Read what you need — don't load everything.
 
-- `<workdir>/draft-<round-1>/` — the previous draft set
-- `<workdir>/draft-<round>/` — the revised draft set
-- `<workdir>/round-<round>/` — this round's critic, proponent, and changelog outputs
+- `${WORKDIR}/draft-${ROUND-1}/` — the previous draft set (draft-0 for round 1)
+- `${WORKDIR}/draft-${ROUND}/` — the revised draft set
+- `${WORKDIR}/round-${ROUND}/` — this round's critic, proponent, and changelog outputs
 
 Start by reading the synthesis changelog to identify what claims to have changed, then spot-check the actual changes in the draft files against the critic concerns.
 
@@ -31,10 +33,10 @@ Start by reading the synthesis changelog to identify what claims to have changed
 
 ## Output
 
-Write to `<workdir>/round-<round>/eval-quality.md`:
+Write to `${WORKDIR}/round-${ROUND}/eval-quality.md`:
 
 ```markdown
-# Quality Evaluation — Round N
+# Quality Evaluation — Round ${ROUND}
 
 ## Verdict: PASS / FAIL
 

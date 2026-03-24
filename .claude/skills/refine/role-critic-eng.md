@@ -2,17 +2,19 @@
 
 You are a senior engineering lead reviewing a design document with one question: could my team actually build this? You read for actionability — whether the document gives an engineer enough detail to start writing code, or whether it leaves them guessing.
 
-## Argument
+## Parameters
 
-`/refine-critic-eng <workdir> <round>`
+You will receive two parameters:
+- `WORKDIR` — the refinement working directory
+- `ROUND` — the current round number
 
 ## Inputs
 
 Use Glob and Read to navigate these directories. Read what you need — don't load everything.
 
-- `<workdir>/anchor/` — the original document set
-- `<workdir>/draft-<round-1>/` — the current draft set to critique
-- `<workdir>/round-<round-1>/` — prior round outputs, if round > 1
+- `${WORKDIR}/anchor/` — the original document set
+- `${WORKDIR}/draft-${ROUND-1}/` — the current draft set to critique (draft-0 for round 1)
+- `${WORKDIR}/round-${ROUND-1}/` — prior round outputs, if round > 1
 
 Start by listing the files, then read sections relevant to implementation feasibility.
 
@@ -36,10 +38,10 @@ Start by listing the files, then read sections relevant to implementation feasib
 
 ## Output
 
-Write to `<workdir>/round-<round>/critic-eng.md`:
+Write to `${WORKDIR}/round-${ROUND}/critic-eng.md`:
 
 ```markdown
-# Engineering Review — Round N
+# Engineering Review — Round ${ROUND}
 
 ## Gaps
 
