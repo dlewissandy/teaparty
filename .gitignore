@@ -55,4 +55,4 @@ intake/run.log
 refinement/
 
 # Audit pipeline — scratch findings
-audit/
+/audit/

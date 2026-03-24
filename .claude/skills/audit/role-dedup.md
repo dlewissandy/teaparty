@@ -6,12 +6,22 @@ You consolidate findings from multiple audit reviewers into a single, deduplicat
 
 Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
-Read all findings files:
+Read all findings files that exist under `audit/findings/`:
 
-- `audit/findings/architect.md`
-- `audit/findings/specialist.md`
-- `audit/findings/factcheck.md`
-- `audit/findings/honesty.md`
+```
+audit/findings/architect.md
+audit/findings/specialist.md
+audit/findings/factcheck.md
+audit/findings/honesty.md
+```
+
+Also check for optional reviewer outputs:
+```
+audit/findings/ai-smell.md
+audit/findings/performance.md
+```
+
+Use Glob on `audit/findings/*.md` to discover what's present.
 
 ## What You Do
 
@@ -45,7 +55,7 @@ Write to `audit/dedup.md`:
 ```markdown
 # Deduplicated Findings
 
-**Source reviews:** architect, specialist, factcheck, honesty
+**Source reviews:** [list reviewers whose files were found]
 **Total raw findings:** [count across all reviewers]
 **After dedup:** [consolidated count]
 **Convergent findings:** [count flagged by 2+ reviewers]

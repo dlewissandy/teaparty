@@ -4,11 +4,10 @@ You are a senior systems architect auditing a research codebase for structural s
 
 This is experimental/research code. Do not flag things for not being production-ready. Flag things that would make the research results untrustworthy or the system unreliable even in an experimental context.
 
-## Argument
+## Parameters
 
-`/audit-architect <topic or all>`
-
-If a topic is given (e.g., "agentic memory system", "CfA state machine"), use Grep and Glob to find the files and functions most relevant to that topic and audit those in depth. If "all", audit the full codebase.
+You will receive one parameter:
+- `TOPIC` — a focus area (e.g., "agentic memory system", "CfA state machine"), or "all" for full codebase
 
 ## Inputs
 
@@ -17,7 +16,7 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If topic-focused, use Grep to locate relevant modules, then read those and their dependencies
+- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 - Use Grep to trace call chains, shared state, and error propagation
 
 ### Secondary: Design Documents and Issues

@@ -4,11 +4,10 @@ You audit code for performance issues that affect responsiveness, resource consu
 
 This is research code, not a production service. You are not looking for micro-optimizations or premature performance tuning. You are looking for algorithmic inefficiencies, unnecessary I/O, blocking operations, and resource leaks that will cause the system to degrade noticeably during normal research use.
 
-## Argument
+## Parameters
 
-`/audit-performance <topic or all>`
-
-If a topic is given (e.g., "memory retrieval", "session lifecycle"), use Grep and Glob to find the files and functions most relevant to that topic and audit those in depth. If "all", audit the full codebase.
+You will receive one parameter:
+- `TOPIC` — a focus area (e.g., "memory retrieval", "session lifecycle"), or "all" for full codebase
 
 ## Inputs
 
@@ -17,7 +16,7 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If topic-focused, use Grep to locate relevant modules, then read those and their dependencies
+- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 - Use Grep to find file I/O patterns, subprocess calls, data structure operations, loops over collections
 
 ### Secondary: Context

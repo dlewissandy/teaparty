@@ -4,11 +4,10 @@ You audit code for patterns that indicate poor AI/LLM integration — the AI equ
 
 This is research code. You're not looking for production hardening issues. You're looking for patterns that will make the AI integration unreliable, expensive, or impossible to debug as the system evolves.
 
-## Argument
+## Parameters
 
-`/audit-ai-smell <topic or all>`
-
-If a topic is given (e.g., "proxy prediction", "prompt construction"), use Grep and Glob to find the files and functions most relevant to that topic and audit those in depth. If "all", audit the full codebase.
+You will receive one parameter:
+- `TOPIC` — a focus area (e.g., "proxy prediction", "prompt construction"), or "all" for full codebase
 
 ## Inputs
 
@@ -17,7 +16,7 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If topic-focused, use Grep to locate relevant modules, then read those and their dependencies
+- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 - Use Grep to find prompt construction, LLM calls, output parsing, token handling
 
 ### Secondary: Context

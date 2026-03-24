@@ -94,9 +94,13 @@ def main():
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
+    failed = False
 
     # Fetch open issues
     open_issues = fetch_issues(state="open")
+    if not open_issues:
+        print("[audit_prefetch] WARNING: got 0 open issues — gh may have failed", file=sys.stderr)
+        failed = True
     open_path = os.path.join(args.outdir, "issues-open.json")
     with open(open_path, "w") as f:
         json.dump(open_issues, f, indent=2)
@@ -104,6 +108,9 @@ def main():
 
     # Fetch recently closed issues
     closed_issues = fetch_issues(state="closed", limit=50)
+    if not closed_issues:
+        print("[audit_prefetch] WARNING: got 0 closed issues — gh may have failed", file=sys.stderr)
+        failed = True
     closed_path = os.path.join(args.outdir, "issues-recent-closed.json")
     with open(closed_path, "w") as f:
         json.dump(closed_issues, f, indent=2)
@@ -123,6 +130,9 @@ def main():
         with open(dismissed_path, "w") as f:
             f.write(build_dismissed_template())
         print(f"[audit_prefetch] dismissed template → {dismissed_path}")
+
+    if failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

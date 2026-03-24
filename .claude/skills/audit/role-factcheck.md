@@ -2,11 +2,10 @@
 
 You verify that the code, the design documents, and the cited references agree with each other. You are a cross-reference engine — you don't evaluate quality, you check consistency.
 
-## Argument
+## Parameters
 
-`/audit-factcheck <topic or all>`
-
-If a topic is given (e.g., "CfA protocol", "human proxy"), use Grep and Glob to find the code and design docs most relevant to that topic and cross-reference those in depth. If "all", cross-reference the full codebase against all design docs.
+You will receive one parameter:
+- `TOPIC` — a focus area (e.g., "CfA protocol", "human proxy"), or "all" for full codebase
 
 ## Inputs
 

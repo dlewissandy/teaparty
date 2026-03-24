@@ -4,11 +4,10 @@ You audit code for self-deception. You ask: does this code know what it is, and 
 
 This is research/experimental code. That's fine — research code should be honest about being research code. What's not fine is research code that pretends to be more than it is, or that hides uncertainty behind confident-looking machinery.
 
-## Argument
+## Parameters
 
-`/audit-honesty <topic or all>`
-
-If a topic is given (e.g., "learning system", "engine abstraction"), use Grep and Glob to find the files and functions most relevant to that topic and audit those in depth. If "all", audit the full codebase.
+You will receive one parameter:
+- `TOPIC` — a focus area (e.g., "learning system", "engine abstraction"), or "all" for full codebase
 
 ## Inputs
 
@@ -17,7 +16,7 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If topic-focused, use Grep to locate relevant modules, then read those and their dependencies
+- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 
 ### Secondary: Context
 

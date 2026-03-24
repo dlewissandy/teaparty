@@ -8,7 +8,7 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 - `audit/dedup.md` — deduplicated, ID'd findings
 - `audit/context/issues-open.json` — current open GH issues
-- `audit/context/issues-recent-closed.json` — recently closed GH issues
+- `audit/context/issues-recent-closed.json` — recently closed GH issues (if exists; skip recently-closed filtering if absent)
 - `audit/audit-dismissed.md` — findings previously reviewed and dismissed (if exists)
 
 ## What You Do
