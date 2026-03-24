@@ -47,26 +47,6 @@ class TestReadExecStream(unittest.TestCase):
         self.assertEqual(mod.read_exec_stream("/nonexistent/stream.jsonl"), "")
 
 
-class TestTruncateOutput(unittest.TestCase):
-
-    def test_short_text_unchanged(self):
-        self.assertEqual(mod.truncate_output("Hello."), "Hello.")
-
-    def test_long_text_truncated_at_sentence(self):
-        text = "First sentence. Second sentence. Third is very long " + "x" * 600
-        result = mod.truncate_output(text, max_chars=100)
-        self.assertLessEqual(len(result), 100)
-        # Should break at a sentence boundary when possible
-        self.assertIn("sentence", result)
-
-    def test_long_text_without_sentences(self):
-        text = "x" * 1000
-        result = mod.truncate_output(text, max_chars=100)
-        self.assertLessEqual(len(result), 100)
-
-    def test_empty_string(self):
-        self.assertEqual(mod.truncate_output(""), "")
-
 
 class TestBuildContext(unittest.TestCase):
 
@@ -154,12 +134,13 @@ class TestGenerate(unittest.TestCase):
             result = mod.generate("WORK_ASSERT", "What happened?")
         self.assertEqual(result, mod.FALLBACK_RESPONSE)
 
-    def test_output_truncated(self):
+    def test_output_not_truncated(self):
+        """Issue #182: Agent output must never be truncated."""
         long_response = "First sentence. " + "More text. " * 100
         with patch('subprocess.run',
                    return_value=self._mock_llm(long_response)):
             result = mod.generate("WORK_ASSERT", "Tell me everything")
-        self.assertLessEqual(len(result), mod.MAX_OUTPUT_CHARS)
+        self.assertEqual(result, long_response.strip())
 
     def test_prompt_includes_state_and_question(self):
         with patch('subprocess.run',
