@@ -4,7 +4,7 @@ Master catalog of peer-reviewed and authoritative research informing TeaParty de
 
 Research is organized by topic file. Each entry includes: title, authors/year, tags, and a one-line summary.
 
-See [learning-system.md](../learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
+See [learning-system.md](../conceptual-design/learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
 
 ## Scope and Research Positioning
 
@@ -16,8 +16,10 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 - Browse by tag to find papers relevant to a specific design question.
 - Each entry links to the detail file where full citations and implications are recorded.
-- "COGARCH" entries are cataloged in `/docs/cognitive-architecture.md` (the primary cognitive architecture document).
+- "COGARCH" entries are cataloged in `/docs/proposals/cognitive-architecture.md` (the primary cognitive architecture document).
 - "SUPPLEMENT" entries are in `docs/research/cognitive-architectures-supplement.md`.
+- [act-r.md](act-r.md) — Vanilla ACT-R declarative memory: theory, equations, parameters.
+- [soar.md](soar.md) — Soar cognitive architecture: memory systems, decision cycle, chunking, RL.
 
 ---
 
@@ -41,6 +43,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Title | Authors, Year | Tags | One-line Summary | Source |
 |-------|--------------|------|-----------------|--------|
 | Cognitive Architectures for Language Agents (CoALA) | Sumers et al., 2024 | `#memory` `#multi-agent` `#teaparty-direct` | The unifying taxonomy: maps classical cognitive architecture (ACT-R, SOAR) onto LLM agents across memory types, action space, and learning. | COGARCH §2.1 |
+| Soar Cognitive Architecture — Memory Systems Reference | Laird et al. (University of Michigan) | `#memory` `#working-memory` `#episodic` `#semantic` `#procedural` | Self-contained reference covering Soar's decision cycle, WMEs, production memory, smem (base-level + spreading activation), epmem (snapshot + graph-match retrieval), chunking, and Soar-RL update rule. | `soar.md` |
 | Generative Agents | Park et al., 2023 | `#memory` `#episodic` `#reflection` `#teaparty-direct` | 25 simulated agents with memory streams, three-factor retrieval (recency × relevance × importance), and periodic reflection. Reflection was the critical ingredient for emergent behavior. | COGARCH §2.2 |
 | Reflexion | Shinn et al., 2023 | `#episodic` `#self-evolving` | Verbal self-reflection stored as persistent memory enables learning without weight updates. Near-human HumanEval performance after 2-3 cycles. | COGARCH §2.3 |
 | Voyager | Wang et al., 2023 | `#procedural` `#skill-library` | Skill library of verified executable JavaScript functions in Minecraft. Procedural memory as code is more reliable than natural language. | COGARCH §2.4 |
@@ -244,6 +247,24 @@ Traces the research lineage behind specific mechanisms in TeaParty's human proxy
 | prefect | 2026 | `#workflow` `#orchestration` | Data pipeline orchestration framework; requires Prefect server; designed for DAG-style batch jobs, not agent session lifecycle. | `python-state-machine-libraries.md` |
 | automat (glyph) | 2026 | `#state-machine` | Twisted-era, callback-model async; no hierarchical states; MIT. Reject for asyncio projects. | `python-state-machine-libraries.md` |
 | xstate-python (Stately) | 2026 | `#state-machine` | Official Python port of XState; explicitly "work in progress" as of 2026; not production-ready. | `python-state-machine-libraries.md` |
+
+---
+
+## Conversation Protocols and Speech Act Theory
+
+Foundational work on speech act theory and its application to coordination protocols. These papers underpin TeaParty's Conversation for Action (CfA) design. See `docs/background/conversation-patterns.md` for the narrative essay situating this work.
+
+| Title | Authors, Year | Tags | One-line Summary | Source |
+|-------|--------------|------|-----------------|--------|
+| How to Do Things with Words | Austin, 1962 | `#speech-acts` `#coordination` | Foundational: utterances are not descriptions but performative acts; distinguishes locutionary, illocutionary, and perlocutionary acts. | `docs/background/conversation-patterns.md` |
+| Speech Acts: An Essay in the Philosophy of Language | Searle, 1969 | `#speech-acts` `#coordination` | Systematized speech act theory with explicit rules for illocutionary force; five categories: assertives, directives, commissives, expressives, declarations. | `docs/background/conversation-patterns.md` |
+| Expression and Meaning | Searle, 1979 | `#speech-acts` `#coordination` | Refined five-category taxonomy with illocutionary point, direction of fit, and psychological state as the three distinguishing dimensions. | `docs/background/conversation-patterns.md` |
+| Understanding Computers and Cognition | Winograd & Flores, 1986 | `#cfa` `#speech-acts` `#coordination` `#teaparty-direct` | Introduced the Conversation for Action state machine; treats coordination as structured speech acts rather than information exchange. Direct ancestor of TeaParty's CfA protocol. | `docs/background/conversation-patterns.md` |
+| The Contract Net Protocol | Smith, 1980 | `#multi-agent` `#coordination` | Market-inspired task allocation via announcement/bid/award; handles task assignment but assumes unambiguous task descriptions — does not address intent alignment. | `docs/background/conversation-patterns.md` |
+| A Blackboard Architecture for Control | Hayes-Roth, 1985 | `#multi-agent` `#coordination` | Shared working memory with opportunistic knowledge-source scheduling; coordination by shared state, not commitment; poor fit for human-AI mixed teams. | `docs/background/conversation-patterns.md` |
+| ReAct: Synergizing Reasoning and Acting in Language Models | Yao et al., ICLR 2023 | `#agent-reasoning` `#llm` | Interleaved reasoning traces and actions improve single-agent task performance; plan-execute loop with local recovery; no intent alignment or cross-phase backtrack. | `docs/background/conversation-patterns.md` |
+| Plan-and-Solve Prompting | Wang et al., ACL 2023 | `#agent-reasoning` `#llm` | Separates plan generation from execution to reduce missing-step errors; treats human request as complete specification; no approval gate mechanism. | `docs/background/conversation-patterns.md` |
+| AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation | Wu et al., 2023 | `#multi-agent` `#llm` `#coordination` | Flexible multi-agent conversation framework (LLMs, humans, tools); conversation structure is content-driven, not protocol-enforced; no commitment tracking. | `docs/background/conversation-patterns.md` |
 
 ---
 

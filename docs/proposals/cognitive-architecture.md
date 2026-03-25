@@ -1,6 +1,6 @@
 # Cognitive Architecture for Learning Agents
 
-> **FUTURE PHASE** -- This document describes a future phase of the platform (`teaparty_app/`). Agent cognition and memory systems are not part of the current MVP.
+This document proposes extending memory and learning capabilities to all TeaParty agents, building on the ACT-R proxy memory system that is already implemented for human proxy agents.
 
 A design for giving TeaParty agents the ability to learn, remember, and adapt over time -- grounded in cognitive science research and mapped to the existing system.
 
@@ -198,7 +198,7 @@ Recent finding: "Episodic Memory is the Missing Piece for Long-Term LLM Agents" 
 **What works in practice**:
 - **Selective injection**: retrieve only relevant memories into the prompt
 - **Summarization**: compress old context rather than dropping it
-- **MemGPT's approach**: agent explicitly manages what's in working memory via tools
+- **Agent-managed tools**: agent explicitly manages what's in working memory
 
 ---
 
@@ -261,76 +261,58 @@ Multi-agent workgroups can share knowledge in several ways:
 
 For TeaParty, **stigmergy** is already the dominant pattern -- agents leave their work in shared files and conversations. The opportunity is to layer *explicit* knowledge sharing on top.
 
+**Note on broadcast learning and messaging**: Broadcast learning and shared knowledge are addressed by the messaging proposal (see [messaging.md](messaging.md)). Team leads bridge uber and subteam contexts via liaisons, enabling implicit coordination through structured message passing.
+
 ---
 
 ## 5. TeaParty's Current State
 
-### 5.1 Existing Infrastructure
+### 5.1 Proxy Memory (Implemented)
 
-TeaParty already has significant scaffolding for agent learning, though most of it is unused:
+The **ACT-R proxy memory system** (`proxy_memory.py`) provides cognitive foundations for human proxy agents:
 
-**AgentLearningEvent** (`models.py:180-188`):
-- Stores discrete learning signals tied to specific messages
-- Fields: `agent_id`, `message_id`, `signal_type`, `value` (JSON)
-- Not currently written to by any code path
+- **Activation-based chunk storage**: Memories stored as chunks with computed activation levels
+- **Two-stage retrieval**: (1) activation computation based on recency, frequency, and context; (2) retrieval threshold filtering
+- **Temporal dynamics**: Decay of unused memories, strengthening through access
 
-**AgentMemory** (`models.py:191-201`):
-- Stores typed memories: "insight", "correction", "pattern", "domain_knowledge"
-- Fields: `agent_id`, `conversation_id`, `memory_type`, `content`, `source_summary`, `confidence`
-- Not currently written to or read by any code path
+This foundation is production-ready and used by the human proxy in the POC orchestrator.
 
-### 5.2 Current Agent Cognition Flow
+### 5.2 Two-Pass Prediction (Implemented)
 
-```
-User message
-    |
-    v
-agent_runtime.run_agent_auto_responses()
-    |
-    +--> _agents_for_auto_response()       # Who responds?
-    +--> _run_single_agent_responses() OR   # Single agent
-         _run_team_response()               # Multi-agent workgroup
-             |
-             v
-         build_agent_json()                 # Build identity prompt
-         build_user_message()               # Build conversation history
-             |
-             v
-         run_claude()                       # Shell out to claude CLI
-             |
-             v
-         Store Message, record LLM usage
-```
+The **two-pass prediction system** (`proxy_agent.py`) extracts learning signals from agent interactions:
 
-**What agents currently "know":**
-- Their identity (name, role, personality, backstory) -- from `Agent` record
-- The conversation context (kind, name, description) -- from `Conversation` record
-- Recent conversation history (last 40 messages, max 12K chars) -- from `build_user_message()`
-- Workflow skills (if matched by name) -- from workgroup files
-- Teammate roster (if lead in multi-agent mode)
+- **Prior prediction**: Agent predicts outcome before taking action
+- **Posterior update**: Agent observes actual result
+- **Surprise extraction**: Mismatch between prior and posterior reveals unexpected patterns
 
-**What agents currently lack:**
-- Memory of past conversations
-- Knowledge of what worked and what didn't
-- Ability to learn user preferences over time
-- Cross-conversation knowledge transfer
-- Self-reflection on their own performance
+This enables proxy agents to identify when their assumptions were violated -- a key learning signal.
 
-### 5.3 Key Gaps
+### 5.3 Learning Extraction (Implemented)
 
-1. **No memory retrieval pipeline**: `AgentMemory` exists but nothing reads from it during prompt construction. The injection point is `_build_prompt_body()` in `agent_definition.py` -- between the conversation context block and the guidelines block.
-2. **No reflection loop**: `AgentLearningEvent` exists but nothing triggers learning or writes to it. The hook point is in `agent_runtime.py` -- immediately after the agent message is persisted (`session.add(agent_message)` / `session.flush()`).
-3. **No memory decay/consolidation**: Memories accumulate without pruning
-4. **No cross-agent knowledge sharing**: Each agent's memory is siloed. `AgentMemory` lacks a `workgroup_id` column for cross-conversation retrieval.
-5. **No capability modeling**: Agents don't know what their teammates are good at
-6. **No metacognition**: Agents can't monitor their own uncertainty or ask for help strategically
-7. **No cross-conversation awareness**: Agents perceive only their current conversation (40-message window via `build_user_message`). No visibility into other conversations, past interactions, or workgroup-level patterns.
+The **learning extraction system** (`learnings.py`) runs post-session and hierarchically structures discoveries:
+
+- **Institutional learning**: Patterns applicable to all agents in the system
+- **Task-based learning**: Patterns specific to a task type or domain
+- **Proxy learning**: Proxy-specific heuristics and preferences
+- **Promotion chain**: Learnings propagate from narrow (proxy) to broad (institutional) scope
+- **Hierarchical scoping**: 10-level taxonomy from specific to general
+
+Details are in [learning-system.md](../conceptual-design/learning-system.md).
+
+### 5.4 Still Missing
+
+TeaParty does not yet have:
+
+1. **General agent memory**: Only proxy agents have activation-based memory. Intent and uber agents lack episodic/semantic recall.
+2. **Semantic memory**: Extracted patterns (from learning extraction) are not yet indexed or retrievable during task execution.
+3. **Reflection**: No mechanism for agents to reflect on their own performance and extract learnings in-session.
+4. **Procedural memory**: No skill libraries or learned action preferences.
+5. **Metacognition**: Agents cannot monitor their own uncertainty or ask for help.
+6. **Decay and consolidation**: No memory maintenance mechanisms; learnings accumulate unbounded.
 
 ---
 
 ## 6. Proposed Cognitive Architecture
-
-> **Superseded by [learning-system.md](learning-system.md).** Sections 6–8 below describe an earlier design for agent memory and learning in `teaparty_app/`. The current design — including the three learning types (institutional, task-based, proxy), the promotion chain, and the 10-scope taxonomy — is in [learning-system.md](learning-system.md). The research foundations in sections 1–5 remain valid background.
 
 ### 6.1 Design Principles
 
@@ -339,7 +321,7 @@ Following TeaParty's philosophy:
 1. **Agents are agents** -- Memory and learning are *tools available to the agent*, not imposed pipelines. The agent chooses when to reflect, what to remember, and when to retrieve.
 2. **Advisory, not mandatory** -- cognitive systems inform but don't constrain
 3. **Minimal overhead** -- Don't add latency or cost to every interaction. Learning happens *asynchronously* after interactions, not blocking the response path.
-4. **Build on what exists** -- Use the `AgentMemory`, `AgentLearningEvent`, and `learning_state` schemas that already exist.
+4. **Build on what exists** -- Use the activation-based proxy memory and learning extraction that already work.
 5. **Start with episodic + semantic** -- Procedural memory (skill libraries) and metacognition are later phases.
 
 ### 6.2 Memory System
@@ -355,18 +337,18 @@ Mapping cognitive architecture research to TeaParty:
          v                    v                    v
 +----------------+  +------------------+  +-------------------+
 | EPISODIC       |  | SEMANTIC         |  | PROCEDURAL        |
-| AgentMemory    |  | AgentMemory      |  | Agent.learning    |
-| type=episode   |  | type=insight     |  |   _state          |
-|                |  | type=pattern     |  | (skill refs,      |
-| Conversation   |  | type=domain      |  |  tool prefs,      |
-| summaries,     |  |   _knowledge     |  |  response styles) |
-| key moments,   |  |                  |  |                   |
-| outcomes       |  | Synthesized      |  | "When asked about |
-|                |  | knowledge from   |  |  code, use the    |
-| "Last Tuesday  |  | many episodes    |  |  file tools first"|
+| Memory store   |  | Memory store     |  | Task context      |
+| (timestamped)  |  | (indexed)        |  | (agent-managed)   |
+|                |  |                  |  |                   |
+| Conversation   |  | Synthesized      |  | "When doing code  |
+| summaries,     |  | knowledge from   |  |  review, use file |
+| key moments,   |  | many episodes    |  |  tools first"     |
+| outcomes       |  |                  |  |                   |
+|                |  | "User prefers    |  |                   |
+| "Last Tuesday  |  |  concise answers"|  |                   |
 |  we discussed  |  |                  |  |                   |
-|  the API..."   |  | "User prefers    |  |                   |
-|                |  |  concise answers"|  |                   |
+|  the API..."   |  | "The codebase    |  |                   |
+|                |  |  uses FastAPI"   |  |                   |
 +----------------+  +------------------+  +-------------------+
          |                    |                    |
          +--------------------+--------------------+
@@ -382,45 +364,49 @@ Mapping cognitive architecture research to TeaParty:
 
 **What:** Compressed records of past conversations and significant events.
 
-**Storage:** `AgentMemory` rows with `memory_type = "episode"`
+**Storage:** Timestamped memory store indexed by agent, task, and timestamp.
 
 **Contents:**
 ```json
 {
-  "content": "Discussed API redesign with user. They wanted REST over GraphQL. We agreed on versioned endpoints. User was satisfied with the v2/resources pattern.",
-  "source_summary": "job:API Redesign, 3 messages",
+  "timestamp": "2026-02-15T14:30:00Z",
+  "task_id": "api-redesign-job",
+  "summary": "Discussed API redesign with user. They wanted REST over GraphQL. We agreed on versioned endpoints. User was satisfied with the v2/resources pattern.",
+  "outcome": "success",
   "confidence": 0.9
 }
 ```
 
-**When created:** At conversation archival, or when a conversation exceeds N messages without a summary. A "cheap" LLM call summarizes the conversation into an episode.
+**When created:** At task completion, or when a task exceeds N messages without a summary. A "cheap" LLM call summarizes the session into an episode.
 
-**Retrieval:** By recency (most recent episodes first) and relevance (keyword/semantic match to current conversation topic).
+**Retrieval:** By recency (most recent episodes first) and relevance (keyword/semantic match to current task context).
 
 #### 6.2.2 Semantic Memory
 
-**What:** Distilled knowledge -- patterns, insights, domain facts -- synthesized from multiple episodes.
+**What:** Distilled knowledge -- patterns, insights, domain facts -- synthesized from multiple episodes and learning events.
 
-**Storage:** `AgentMemory` rows with `memory_type` in ("insight", "pattern", "domain_knowledge")
+**Storage:** Indexed memory store with memory type, confidence score, and scope level.
 
 **Contents:**
 ```json
 {
   "memory_type": "pattern",
   "content": "This workgroup prefers TypeScript over JavaScript for new modules.",
-  "confidence": 0.85
+  "scope": "task-based",
+  "confidence": 0.85,
+  "extracted_at": "2026-02-20T10:00:00Z"
 }
 ```
 
-**When created:** Periodically via a reflection cycle (see 6.3), or when the agent notices a recurring pattern across episodes.
+**When created:** Via the learning extraction system (post-session), or when an agent detects a recurring pattern across episodes.
 
-**Retrieval:** All high-confidence semantic memories relevant to the current context are included in the prompt.
+**Retrieval:** All high-confidence semantic memories relevant to the current context are indexed and retrieved for injection.
 
 #### 6.2.3 Procedural Memory
 
 **What:** How to do things -- preferred tools, response styles, task-specific strategies.
 
-**Storage:** `Agent.learning_state` JSON field (compact, always loaded)
+**Storage:** Agent-scoped configuration, always loaded with agent context.
 
 **Contents:**
 ```json
@@ -432,35 +418,31 @@ Mapping cognitive architecture research to TeaParty:
   "response_style": {
     "preferred_length": "medium",
     "format_preferences": ["uses code blocks", "includes examples"]
-  },
-  "skill_proficiencies": {
-    "python": 0.9,
-    "rust": 0.3
   }
 }
 ```
 
-**When updated:** After successful tool use sequences, after user feedback.
+**When updated:** After successful tool use sequences, after user feedback, or through explicit agent request.
 
-**Retrieval:** Always included (lives on the Agent record).
+**Retrieval:** Always included (lives with agent context).
 
 ### 6.3 Learning Cycle
 
 Inspired by Soar's perceive-decide-act-learn cycle and Reflexion's verbal RL:
 
 ```
-            User message arrives
+            Task begins
                     |
                     v
         +----------------------+
         |   1. PERCEIVE        |    Retrieve relevant memories
-        |   Assemble context   |    for current conversation
+        |   Assemble context   |    from episodic and semantic stores
         +----------------------+
                     |
                     v
         +----------------------+
         |   2. RESPOND         |    Normal agent response
-        |   (existing path)    |    via claude CLI
+        |   (existing path)    |    in conversation
         +----------------------+
                     |
                     v
@@ -471,38 +453,38 @@ Inspired by Soar's perceive-decide-act-learn cycle and Reflexion's verbal RL:
                     |               - correction patterns
                     v               - new information
         +----------------------+
-        |   4. LEARN           |    Write AgentLearningEvent,
-        |   Update memory      |    update AgentMemory,
-        +----------------------+    adjust learning_state
+        |   4. LEARN           |    Write learning events,
+        |   Update memory      |    update memory stores
+        +----------------------+
                     |
                     v
         +----------------------+
-        |   5. REFLECT         |    Periodic: synthesize
-        |   (async, batched)   |    episodes into insights
+        |   5. REFLECT         |    Post-session: synthesize
+        |   (post-task, async) |    into semantic knowledge
         +----------------------+
 ```
 
 #### 6.3.1 Signal Detection (Step 3: OBSERVE)
 
-Learning signals extracted from conversation flow:
+Learning signals extracted from task flow:
 
 | Signal | Detection Method | Example |
 |--------|-----------------|---------|
 | Explicit praise | Keyword + sentiment | "Great answer!", "Perfect" |
 | Explicit correction | Keyword + negation | "Actually, it should be X", "No, I meant..." |
-| Task outcome | Conversation archival status | Job completed vs. cancelled |
-| User re-engagement | Same topic in new conversation | User asks the same question again |
+| Task outcome | Task completion status | Completed vs. cancelled |
+| User re-engagement | Same topic in new task | User asks the same question again |
 | Preference expression | Keyword patterns | "I prefer...", "Always use...", "Don't..." |
-| Tool success/failure | Tool result analysis | Error in tool_result vs. successful output |
+| Tool success/failure | Tool result analysis | Error in tool output vs. successful execution |
 
 **Implementation:** A lightweight post-response analyzer runs after each agent message. Uses keyword matching first (zero LLM cost), falling back to a cheap LLM call only when ambiguous.
 
 #### 6.3.2 Memory Formation (Step 4: LEARN)
 
 When a signal is detected:
-1. Write an `AgentLearningEvent` record (signal_type, value, linked to message)
-2. If the signal implies a durable fact: create/update an `AgentMemory` record
-3. If the signal implies a procedural change: update `Agent.learning_state`
+1. Write a learning event record (signal type, value, linked to message/task)
+2. If the signal implies a durable fact: create or update a semantic memory record
+3. If the signal implies a procedural change: update procedural memory
 
 **Confidence scoring:**
 - Single observation: 0.5
@@ -512,52 +494,33 @@ When a signal is detected:
 
 #### 6.3.3 Reflection (Step 5: REFLECT)
 
-Inspired by Generative Agents' reflection process. Runs asynchronously, not on the hot path:
+Inspired by Generative Agents' reflection process. Runs asynchronously after task completion:
 
-**Trigger:** When an agent accumulates N new learning events since last reflection (default: 10), or on a time schedule via `AgentTodoItem` triggers.
+**Trigger:** When a task completes, or when an agent accumulates N learning events since last reflection.
 
 **Process:**
-1. Gather recent `AgentLearningEvent` records
-2. Gather recent `AgentMemory` episodes
+1. Gather recent learning events for the agent
+2. Gather recent episodic memories
 3. Send to cheap LLM: "Given these recent experiences, what patterns, insights, or corrections should I remember?"
-4. Store resulting insights as semantic memories
+4. Store resulting insights as semantic memories, scoped appropriately
 5. Prune low-confidence, old, or contradicted memories
 
 ### 6.4 Memory Retrieval for Prompt Assembly
 
 The critical integration point -- how memories enter the agent's working memory (context window):
 
-```python
-def _build_prompt_body(agent, conversation, workgroup, ...):
-    parts = []
-
-    # ... existing identity, context, team roster ...
-
-    # COGNITIVE EXTENSION: inject relevant memories
-    memory_block = retrieve_agent_memories(
-        agent_id=agent.id,
-        conversation=conversation,
-        max_tokens=800,  # budget for memory in prompt
-    )
-    if memory_block:
-        parts.append("")
-        parts.append(memory_block)
-
-    # ... existing guidelines ...
-```
-
-The retrieval function:
-1. Loads `Agent.learning_state` (procedural memory -- always included, compact)
-2. Queries `AgentMemory` for relevant semantic memories (high confidence, keyword match)
-3. Queries `AgentMemory` for recent episodic memories (if same topic/participants)
-4. Formats into a natural-language block, budget-constrained
+When preparing an agent for a new task:
+1. Load procedural memory (task preferences, tools, styles)
+2. Query episodic memories for relevant past tasks (by keyword/semantic match, recency)
+3. Query semantic memories for relevant patterns and knowledge (high confidence, scope match)
+4. Format into a natural-language block, budget-constrained to ~800 tokens
 
 **Example prompt injection:**
 ```
 From your experience:
 - This workgroup prefers TypeScript for new modules (high confidence)
 - User tends to ask for examples alongside explanations
-- Previous conversation on this topic: discussed REST vs GraphQL, agreed on versioned endpoints
+- Previous task on this topic: discussed REST vs GraphQL, agreed on versioned endpoints
 ```
 
 **Retrieval scoring:**
@@ -567,204 +530,81 @@ score = α·recency(m) + β·relevance(m, query) + γ·importance(m)
 
 where:
   recency(m)    = exponential decay from m.created_at
-  relevance(m)  = keyword/embedding similarity to current conversation context
+  relevance(m)  = keyword/embedding similarity to current task context
   importance(m) = f(m.confidence, m.relevance_count)
   α, β, γ       = tunable weights (default: 0.2, 0.5, 0.3)
 ```
 
-Budget: retrieve at most **5-8 memories** per turn to avoid context bloat.
+Budget: retrieve at most **5-8 memories** per task to avoid context bloat.
 
-### 6.5 Multi-Agent Learning
+### 6.5 Multi-Agent Learning and Messaging
 
-In workgroup sessions, agents can learn from observing each other:
+In workgroup sessions, agents can learn from observing each other and from structured communication:
 
-**Shared workgroup knowledge:** Semantic memories with `memory_type = "domain_knowledge"` are shared across all agents in a workgroup. When one agent learns a domain fact, all agents in the workgroup can access it.
+**Shared workgroup knowledge:** Semantic memories at "institutional" or "task-based" scope are shared across agents working on the same task or in the same domain.
 
-**Private agent memories:** Insights, corrections, and patterns are private to each agent unless explicitly promoted to shared.
+**Private agent memories:** Agent-specific observations and preferences remain private unless explicitly promoted to shared scope.
 
-**Workgroup reflection:** After a multi-agent job completes, a reflection cycle runs for each participating agent, with access to the full conversation (not just their own contributions).
-
----
-
-## 7. API Implications
-
-### 7.1 New Endpoints
-
-```
-# Memory CRUD
-GET    /api/agents/{agent_id}/memories                  # List memories with filters
-POST   /api/agents/{agent_id}/memories                  # Manually create a memory
-PATCH  /api/agents/{agent_id}/memories/{memory_id}      # Edit memory content/confidence
-DELETE /api/agents/{agent_id}/memories/{memory_id}      # Remove a memory
-
-# Learning events (read-only audit trail)
-GET    /api/agents/{agent_id}/learning-events            # List learning signals
-
-# Learning state (procedural memory)
-GET    /api/agents/{agent_id}/learning-state             # Current learning state
-PATCH  /api/agents/{agent_id}/learning-state             # Manual adjustment
-
-# Reflection trigger
-POST   /api/agents/{agent_id}/reflect                    # Trigger reflection cycle
-
-# Workgroup shared knowledge
-GET    /api/workgroups/{wg_id}/knowledge                 # Shared knowledge base
-POST   /api/workgroups/{wg_id}/knowledge                 # Add shared knowledge
-
-# Trigger manual reflection
-POST   /api/agents/{agent_id}/reflect
-     (Primarily for debugging/admin use)
-```
-
-### 7.2 Modified Endpoints
-
-```
-# Existing agent endpoint -- add memory stats to response
-GET    /api/agents/{agent_id}
-  + memory_count: int
-  + last_reflection_at: datetime | null
-  + learning_event_count: int
-
-# Existing conversation archive -- trigger episode creation
-POST   /api/conversations/{conv_id}/archive
-  + (side effect) Creates episodic memory for participating agents
-```
-
-### 7.3 Database Schema Changes
-
-**New columns on `Agent`:**
-```python
-last_reflection_at: datetime | None = Field(default=None)
-memory_budget_tokens: int = Field(default=800)  # max tokens for memory in prompt
-```
-
-**Extend agent_memories table:**
-```sql
-ALTER TABLE agent_memories ADD COLUMN workgroup_id TEXT REFERENCES workgroups(id);
-ALTER TABLE agent_memories ADD COLUMN access_level TEXT DEFAULT 'private';
-ALTER TABLE agent_memories ADD COLUMN relevance_count INTEGER DEFAULT 0;
-ALTER TABLE agent_memories ADD COLUMN last_accessed_at TIMESTAMP;
-ALTER TABLE agent_memories ADD COLUMN is_archived BOOLEAN DEFAULT FALSE;
-
--- Index for retrieval
-CREATE INDEX idx_agent_memories_retrieval
-  ON agent_memories(agent_id, memory_type, is_archived)
-  WHERE is_archived = FALSE;
-
-CREATE INDEX idx_agent_memories_shared
-  ON agent_memories(workgroup_id, access_level, is_archived)
-  WHERE access_level = 'workgroup' AND is_archived = FALSE;
-```
-
-**New index on `AgentMemory`:**
-```python
-# For efficient retrieval by agent + type + confidence
-Index("ix_agent_memory_retrieval", "agent_id", "memory_type", "confidence")
-```
-
-### 7.4 Service Layer Changes
-
-**New service: `teaparty_app/services/agent_memory.py`**
-```
-retrieve_agent_memories(agent_id, conversation, max_tokens) -> str
-store_learning_event(agent_id, message_id, signal_type, value) -> AgentLearningEvent
-create_memory(agent_id, conversation_id, memory_type, content, ...) -> AgentMemory
-run_reflection(agent_id) -> list[AgentMemory]
-detect_learning_signals(agent_id, message, conversation) -> list[dict]
-```
-
-**Modified service: `agent_definition.py`**
-- `_build_prompt_body()` gains a memory retrieval call
-
-**Modified service: `agent_runtime.py`**
-- Post-response: call `detect_learning_signals()` and `store_learning_event()`
-- On conversation archive: call `create_memory()` for episodic summary
-
-### 7.5 Config Changes
-
-```python
-# New settings in config.py
-reflection_enabled: bool = True          # Global toggle
-reflection_model: str = ""               # Override model for reflection (defaults to cheap)
-memory_retrieval_limit: int = 8          # Max memories per prompt
-memory_decay_days: int = 30              # Days before unused memories decay
-memory_consolidation_enabled: bool = False  # Phase 2
-```
+**Cross-agent messaging:** The messaging system (see [messaging.md](messaging.md)) enables agents to explicitly share learnings via liaisons. Team leads consolidate subteam experiences and broadcast institutional patterns upward.
 
 ---
 
 ## 8. Implementation Phases
 
-### Phase 1: Memory Retrieval (Low Risk, High Value)
+### Phase 1: ACT-R Proxy Memory (DONE)
 
-Wire up the existing `AgentMemory` table:
+- Activation-based chunk storage with recency/frequency/context weighting
+- Two-stage retrieval with threshold filtering
+- Temporal dynamics (decay, strengthening)
+- Status: Implemented in `proxy_memory.py` and deployed in the POC
 
-1. Add `_retrieve_memories()` to `prompt_builder.py` -- query `agent_memories` for the current agent, score by recency + relevance + importance
-2. Inject retrieved memories into the system prompt via `_build_prompt_body()` in `agent_definition.py` -- new section between conversation context and guidelines
-3. Add `GET /api/agents/{id}/memories` endpoint for admin inspection
-4. Populate memories manually or via admin API to validate the retrieval pipeline before adding automatic learning
+### Phase 2: General Agent Memory Retrieval
 
-**Files touched**: `agent_definition.py`, `prompt_builder.py`, new router. No schema migration needed -- the `agent_memories` table and `_ensure_agent_memory_table()` migration already exist in `db.py`.
+Extend memory retrieval to all agents (not just proxies):
+- Implement episodic memory store (indexed by agent, task, timestamp)
+- Implement semantic memory store (indexed by agent, scope, confidence)
+- Implement retrieval pipeline: score by recency + relevance + importance
+- Integrate into agent prompt construction (similar to proxy memory but expanded to all agents)
 
-**Estimated scope**: ~200 lines across 3 files.
+### Phase 3: Reflection Engine
 
-### Phase 2: Reflection Engine (Medium Risk, High Value)
+Add asynchronous post-task reflection:
+- After task completion, trigger reflection cycle (async, non-blocking)
+- Agent synthesizes learning events and episodic memories into semantic knowledge
+- Use cheap LLM for reflection (lower cost than full model)
+- Implements scoping and promotion chain for hierarchical learning
 
-Add asynchronous post-turn reflection:
+### Phase 4: Signal Detection and Learning Events
 
-1. Create `teaparty_app/services/reflection.py` -- uses `llm_client.create_message()` with `resolve_model(purpose="cheap")` for reflection calls
-2. Hook into `agent_runtime.py` after the agent message is persisted -- fire reflection in background thread, similar to the `_process_auto_responses_in_background()` pattern
-3. Add schema migration for new `AgentMemory` columns (`workgroup_id`, `access_level`, `relevance_count`, `last_accessed_at`, `is_archived`)
-4. Add `POST /api/agents/{id}/reflect` admin endpoint for debugging
+Implement automated learning signal extraction:
+- Keyword-based signal detection (explicit feedback, corrections, preferences)
+- Fallback to cheap LLM for ambiguous signals
+- Write learning event records (immutable audit trail)
+- Low cost, high signal reliability
 
-**Files touched**: new `reflection.py`, `agent_runtime.py`, `db.py` (migration), new router.
-
-**Estimated scope**: ~300 lines, 1 new file, 1 migration.
-
-### Phase 3: Signal Detection (Observation)
-
-Implement `detect_learning_signals()` with keyword-based detection:
-- Write `AgentLearningEvent` records after each agent response
-- Surface learning events in the admin UI
-
-### Phase 4: Automatic Memory Formation
-
-Convert learning events into `AgentMemory` records:
-- Implement confidence scoring and deduplication
-- Episodic memory creation on conversation archive
-
-### Phase 5: Shared Memory and Social Cognition (Medium Risk, Medium Value)
+### Phase 5: Shared Memory via Messaging
 
 Enable cross-agent knowledge sharing:
+- Semantic memories scoped to "institutional" and "task-based" levels are shared
+- Team leads access subteam memories for consolidation
+- Messaging system (liaisons) handles explicit broadcast
+- Enables implicit coordination without conversation overload
 
-1. Add `workgroup_id` and `access_level` to memory retrieval
-2. Add `share` tool to agent definitions
-3. Add `peer_skill` memory type with automatic extraction during workgroup sessions
-4. Add `GET /api/workgroups/{id}/shared-memories` endpoint
+### Phase 6: Consolidation and Decay
 
-**Estimated scope**: ~200 lines across 4 files, extends Phase 2 migration.
+Implement memory maintenance:
+- Time-based decay: memories fade if unused
+- Importance-based retention: high-confidence memories persist
+- Consolidation: specific episodes → general knowledge patterns
+- Prevents memory bloat and improves recall quality
 
-### Phase 6: Memory Consolidation and Decay (Low Risk, Medium Value)
+### Phase 7: Procedural Memory and Skill Libraries
 
-Prevent memory bloat:
-
-1. Add consolidation task to the existing tick system (`process_triggered_todos`)
-2. Implement decay scoring in retrieval
-3. Add archival/pruning logic
-4. Add admin UI for viewing and managing agent memories
-
-**Estimated scope**: ~250 lines, background task integration.
-
-### Phase 7: Procedural Memory / Skill Libraries (High Risk, High Value)
-
-Agent-authored procedures and skills:
-
-1. Agents can define reusable "skills" (structured prompts/plans)
-2. Skills stored in a new table, indexed by capability description
-3. Retrieved during prompt construction when relevant
-4. Builds on workflow system but is agent-authored rather than admin-defined
-
-This is the most architecturally complex phase and should wait until Phases 1-5 are validated.
+Agent-authored procedures and capabilities:
+- Agents can define reusable "skills" (structured task descriptions)
+- Skills stored and indexed by capability description
+- Retrieved during prompt construction when relevant
+- Builds on workflow system but is agent-authored rather than admin-defined
 
 ---
 
@@ -866,7 +706,7 @@ Reflection is fully async and adds zero latency to the user-facing response.
 
 ## 11. Summary
 
-TeaParty already has the *schema* for cognitive architecture -- `AgentMemory`, `AgentLearningEvent`, `learning_state`, `learned_preferences`. What's missing is the *wiring*: retrieval during prompt construction, reflection after interactions, and agent tools for explicit memory management.
+TeaParty's proxy agents have **activated, working memory systems** (ACT-R basis, two-pass prediction, learning extraction). The next step is extending these capabilities to all agents in the POC orchestrator.
 
 The proposed architecture follows three principles from the research:
 
@@ -874,4 +714,4 @@ The proposed architecture follows three principles from the research:
 2. **Reflection should be grounded and optional** -- agents reflect on specific interactions, not abstractly, and only when it's useful
 3. **Agents manage their own memory** -- following MemGPT, agents get tools for remember/recall/forget rather than having learning imposed on them
 
-Phase 1 (memory retrieval) can be implemented with ~200 lines and zero schema changes, using the tables that already exist. This is the recommended starting point.
+Phase 1 and Phase 2 (general agent memory retrieval) can be implemented by adapting the proxy memory retrieval pipeline to all agents, using similar episodic and semantic storage. This is the recommended starting point.

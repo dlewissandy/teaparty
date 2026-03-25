@@ -7,7 +7,7 @@ Review all open GitHub issues against the project documentation and codebase to 
 1. **Fetch all open GitHub issues** using `gh issue list --state open --limit 100` and read the details of each issue.
 
 2. **Read the docs folder** — read everything under `docs/` (and nowhere else) to understand the project's claims, architecture, and design intent. Pay special attention to:
-   - `docs/ARCHITECTURE.md` — the master conceptual model
+   - `docs/overview.md` — the master conceptual model
    - `docs/detailed-design/` — implementation status and gap analysis
    - `docs/experimental-results/` — what we claim to have demonstrated
 

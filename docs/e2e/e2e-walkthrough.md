@@ -15,7 +15,7 @@ The system executed the full CfA lifecycle autonomously: intent capture (2 quest
 
 The entire interaction — from the initial prompt through intent capture, planning, and all five execution phases — occurred within the TeaParty interactive console. The human typed the four-sentence prompt, answered six questions across two brief dialogs, and then watched.
 
-![TUI workspace showing eight parallel research dispatches running](e2e-raw-files/e2e workspace.png)
+![TUI workspace showing eight parallel research dispatches running](../e2e-raw-files/e2e workspace.png)
 
 This is the TUI during the research phase. The top pane shows the original prompt and the CfA state history — each transition from IDEA through PLAN visible as it happened. The middle pane streams the uber team's execution in real time: dispatching research tracks into worktrees, confirming proxy approvals at sub-team gates, advancing phases as deliverables land on disk. The status bar at the bottom shows eight active dispatches running concurrently.
 
@@ -27,17 +27,17 @@ There was no context-switching between tools, no manual file management, no copy
 
 ## The Story in Five Parts
 
-**[Intent & Planning](e2e/dialog.md)** — Two agents, six questions, 21 minutes. The dialog transcripts show how a four-sentence prompt became a complete intent document and a five-phase execution plan — with the agents bringing proposals, not open-ended questions.
+**[Intent & Planning](dialog.md)** — Two agents, six questions, 21 minutes. The dialog transcripts show how a four-sentence prompt became a complete intent document and a five-phase execution plan — with the agents bringing proposals, not open-ended questions.
 
-**[Execution](e2e/execution.md)** — Eight parallel research tracks, eight spec agents, seven chapter drafts, two editorial passes, two verification passes — all dispatched hierarchically into isolated worktrees. How the uber team coordinated five phases without becoming a bottleneck.
+**[Execution](execution.md)** — Eight parallel research tracks, eight spec agents, seven chapter drafts, two editorial passes, two verification passes — all dispatched hierarchically into isolated worktrees. How the uber team coordinated five phases without becoming a bottleneck.
 
-**[The Manuscript](e2e/results.md)** — What the session actually produced: a complete popular non-fiction book with links to every chapter draft, from initial to final.
+**[The Manuscript](results.md)** — What the session actually produced: a complete popular non-fiction book with links to every chapter draft, from initial to final.
 
-**[Obstacles](e2e/obstacles.md)** — Watchdog timeouts, token limits, rate-limit collisions, a prologue that refused to persist, and agents that couldn't figure out where they were in the worktree hierarchy. What went wrong and how the system adapted.
+**[Obstacles](obstacles.md)** — Watchdog timeouts, token limits, rate-limit collisions, a prologue that refused to persist, and agents that couldn't figure out where they were in the worktree hierarchy. What went wrong and how the system adapted.
 
-**[Learnings](e2e/learnings.md)** — The learning system's self-assessment: alignment observations, the proxy confidence model, and the "frustration misinterpretation" where the proxy read timeouts as human annoyance.
+**[Learnings](learnings.md)** — The learning system's self-assessment: alignment observations, the proxy confidence model, and the "frustration misinterpretation" where the proxy read timeouts as human annoyance.
 
-**[Key Takeaways](e2e/takeaways.md)** — What the session demonstrates about the four pillars, where the opportunities lie, and the overall assessment.
+**[Key Takeaways](takeaways.md)** — What the session demonstrates about the four pillars, where the opportunities lie, and the overall assessment.
 
 ---
 

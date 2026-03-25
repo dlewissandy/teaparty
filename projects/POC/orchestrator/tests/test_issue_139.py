@@ -36,6 +36,7 @@ from projects.POC.orchestrator.events import EventBus
 from projects.POC.orchestrator.phase_config import PhaseSpec
 from projects.POC.orchestrator.proxy_agent import (
     ProxyResult,
+    _TwoPassResult,
     consult_proxy,
     parse_proxy_agent_output,
     run_proxy_agent,
@@ -336,7 +337,7 @@ class TestAgentAlwaysInvoked(unittest.TestCase):
     def test_agent_invoked_on_cold_start(self):
         """Cold start (no history) — agent still runs."""
         model_path = self._make_model_file()  # empty entries = cold start
-        mock_agent = AsyncMock(return_value=('Looks good to me.', 0.9))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Looks good to me.', confidence=0.9))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -351,7 +352,7 @@ class TestAgentAlwaysInvoked(unittest.TestCase):
     def test_agent_invoked_with_no_model_file(self):
         """No model file at all — agent still runs."""
         model_path = os.path.join(self.tmpdir, 'nonexistent.json')
-        mock_agent = AsyncMock(return_value=('Approved.', 0.85))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.85))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -375,7 +376,7 @@ class TestAgentAlwaysInvoked(unittest.TestCase):
         entry['ema_approval_rate'] = 0.2
         model_path = self._make_model_file(model)
 
-        mock_agent = AsyncMock(return_value=('I have concerns about section 3.', 0.7))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='I have concerns about section 3.', confidence=0.7))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -407,7 +408,7 @@ class TestStatisticalCalibration(unittest.TestCase):
     def test_cold_start_caps_at_half(self):
         """Cold start caps confidence at 0.5 regardless of agent self-assessment."""
         model_path = self._make_model_file()  # empty = cold start
-        mock_agent = AsyncMock(return_value=('Approved.', 0.95))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.95))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -421,7 +422,7 @@ class TestStatisticalCalibration(unittest.TestCase):
         """Warm model with high approval rate preserves agent confidence."""
         model = _make_warm_model_json()  # 10/10 approvals
         model_path = self._make_model_file(model)
-        mock_agent = AsyncMock(return_value=('Approved.', 0.85))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.85))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -442,7 +443,7 @@ class TestStatisticalCalibration(unittest.TestCase):
         entry['total_count'] = 10
         entry['ema_approval_rate'] = 0.2
         model_path = self._make_model_file(model)
-        mock_agent = AsyncMock(return_value=('Approved.', 0.9))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.9))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -453,11 +454,11 @@ class TestStatisticalCalibration(unittest.TestCase):
         # Stats show mostly corrections → confidence should be well below agent's 0.9
         self.assertLess(result.confidence, 0.5)
 
-    def test_calibration_never_inflates(self):
-        """Calibration can only reduce confidence, never inflate it."""
+    def test_calibration_is_bidirectional(self):
+        """Calibration blends agent and stats via geometric mean — can lift underconfidence."""
         model = _make_warm_model_json()  # 10/10 approvals → high stats confidence
         model_path = self._make_model_file(model)
-        mock_agent = AsyncMock(return_value=('Looks okay I guess.', 0.3))
+        mock_agent = AsyncMock(return_value=_TwoPassResult(text='Looks okay I guess.', confidence=0.3))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
             result = _run(consult_proxy(
@@ -465,8 +466,10 @@ class TestStatisticalCalibration(unittest.TestCase):
                 proxy_model_path=model_path,
             ))
 
-        # Agent said 0.3 — stats are high but should not inflate above 0.3
-        self.assertLessEqual(result.confidence, 0.3)
+        # Agent said 0.3, stats are high → geometric mean lifts above 0.3
+        self.assertGreater(result.confidence, 0.3)
+        # But shouldn't be as high as the stats alone
+        self.assertLess(result.confidence, 0.9)
 
 
 # ── parse_proxy_agent_output ────────────────────────────────────────────────

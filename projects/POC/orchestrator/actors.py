@@ -558,6 +558,7 @@ class ApprovalGate:
         self.poc_root = poc_root
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
+        self._last_proxy_result = None  # Most recent ProxyResult for memory recording
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state.
@@ -700,6 +701,7 @@ class ApprovalGate:
             proxy_enabled=self.proxy_enabled,
             dialog_history=dialog_history,
         )
+        self._last_proxy_result = proxy_result
 
         proxy_confident = (
             proxy_result.from_agent
@@ -742,7 +744,8 @@ class ApprovalGate:
         artifact_path: str = '', feedback: str = '', conversation: str = '',
         team: str = '', prediction: str = '', predicted_response: str = '',
     ) -> None:
-        """Record human decision for proxy learning."""
+        """Record human decision for proxy learning (EMA + ACT-R memory)."""
+        # EMA recording (existing)
         try:
             model_path = resolve_team_model_path(self.proxy_model_path, team)
             model = load_model(model_path)
@@ -761,6 +764,50 @@ class ApprovalGate:
             save_model(model, model_path)
         except Exception:
             pass
+
+        # ACT-R memory chunk recording
+        pr = self._last_proxy_result
+        try:
+            from projects.POC.orchestrator.proxy_memory import (
+                open_proxy_db,
+                resolve_memory_db_path,
+                record_interaction,
+            )
+            db_path = resolve_memory_db_path(self.proxy_model_path, team)
+            conn = open_proxy_db(db_path)
+            try:
+                # Read artifact summary for embedding (truncated)
+                artifact_text = ''
+                if artifact_path and os.path.isfile(artifact_path):
+                    try:
+                        with open(artifact_path) as f:
+                            artifact_text = f.read(4000)
+                    except OSError:
+                        pass
+
+                record_interaction(
+                    conn,
+                    interaction_type='gate_outcome',
+                    state=state,
+                    task_type=project_slug,
+                    outcome=outcome,
+                    content=conversation or feedback or '',
+                    delta=feedback if outcome == 'correct' else '',
+                    human_response=feedback or predicted_response or '',
+                    prior_prediction=pr.prior_action if pr else '',
+                    prior_confidence=pr.prior_confidence if pr else 0.0,
+                    posterior_prediction=pr.posterior_action if pr else '',
+                    posterior_confidence=pr.posterior_confidence if pr else 0.0,
+                    prediction_delta=pr.prediction_delta if pr else '',
+                    salient_percepts=pr.salient_percepts if pr else [],
+                    situation_text=f'{state} {project_slug}',
+                    artifact_text=artifact_text,
+                    stimulus_text=conversation[:500] if conversation else '',
+                )
+            finally:
+                conn.close()
+        except Exception:
+            _actor_log.debug('ACT-R memory recording failed', exc_info=True)
 
     def _log_interaction(
         self, ctx: ActorContext, project_slug: str,

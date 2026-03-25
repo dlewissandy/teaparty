@@ -37,10 +37,10 @@ Tests: `projects/POC/orchestrator/tests/`
 
 ## Docs
 
-- [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) -- Master conceptual model
-- [docs/cfa-state-machine.md](../docs/cfa-state-machine.md) -- CfA protocol specification
+- [docs/overview.md](../docs/overview.md) -- Master conceptual model
+- [docs/conceptual-design/cfa-state-machine.md](../docs/conceptual-design/cfa-state-machine.md) -- CfA protocol specification
 - [docs/detailed-design/](../docs/detailed-design/index.md) -- Implementation status, gap analysis
-- [docs/learning-system.md](../docs/learning-system.md) -- Hierarchical memory and learning
-- [docs/human-proxies.md](../docs/human-proxies.md) -- Human proxy agents
-- [docs/hierarchical-teams.md](../docs/hierarchical-teams.md) -- Hierarchical agent teams
-- [docs/intent-engineering.md](../docs/intent-engineering.md) -- Intent capture dialog
+- [docs/conceptual-design/learning-system.md](../docs/conceptual-design/learning-system.md) -- Hierarchical memory and learning
+- [docs/conceptual-design/human-proxies.md](../docs/conceptual-design/human-proxies.md) -- Human proxy agents
+- [docs/conceptual-design/hierarchical-teams.md](../docs/conceptual-design/hierarchical-teams.md) -- Hierarchical agent teams
+- [docs/conceptual-design/intent-engineering.md](../docs/conceptual-design/intent-engineering.md) -- Intent capture dialog

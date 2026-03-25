@@ -429,7 +429,7 @@ The Code Collaborator has clear boundaries:
 
 - [Allen AI Blog - AutoDiscovery](https://allenai.org/blog/autodiscovery)
 - [Karpathy's AutoResearch](https://github.com/karpathy/autoresearch)
-- [TeaParty Learning System](learning-system.md) — Vector store, proxy model, learning moments
-- [TeaParty Human Proxies](human-proxies.md) — Proxy confidence model, intake dialog
+- [TeaParty Learning System](../conceptual-design/learning-system.md) — Vector store, proxy model, learning moments
+- [TeaParty Human Proxies](../conceptual-design/human-proxies.md) — Proxy confidence model, intake dialog
 - [TeaParty /intake Pipeline](../intake/create_issues.py) — Bigram dedup, issue creation
-- [TeaParty Detailed Design](detailed-design/index.md) — Approval gates, proxy state, confidence tracking
+- [TeaParty Detailed Design](../detailed-design/index.md) — Approval gates, proxy state, confidence tracking

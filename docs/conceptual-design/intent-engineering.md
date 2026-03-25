@@ -70,7 +70,7 @@ The intent gathering conversation itself has two specific constraints: it must c
 
 ## Open Questions
 
-Open research questions for this area are collected in [Research Directions](research-directions.md).
+Open research questions for this area are collected in [Research Directions](../reference/research-directions.md).
 
 ## References
 

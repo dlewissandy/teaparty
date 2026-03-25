@@ -99,7 +99,7 @@ The atomic unit of work. A job happens within a single workgroup and is executed
 
 ### Project
 
-Cross-workgroup collaboration within a single organization. A project runs as a **hierarchical agent team**: the project-level team (org lead + liaison agents) coordinates independent job-level teams (workgroup agents) in each participating workgroup. See [hierarchical-teams.md](hierarchical-teams.md).
+Cross-workgroup collaboration within a single organization. A project runs as a **hierarchical agent team**: the project-level team (org lead + liaison agents) coordinates independent job-level teams (workgroup agents) in each participating workgroup. See [hierarchical-teams.md](conceptual-design/hierarchical-teams.md).
 
 - **Agent team**: A Claude Code team session with the org lead as team lead and one **liaison agent** per participating workgroup. Liaisons are ephemeral -- they exist only in the team session, not as persistent Agent records. Each liaison's sole tool (`relay_to_subteam`) spawns and communicates with its workgroup's job team.
 - **Workspace**: A shared project workspace for coordination artifacts (plans, status, cross-workgroup documents). The project team does not have direct access to job workspaces -- results flow up through liaisons.
@@ -127,7 +127,7 @@ Cross-organization work between two partnered organizations, or top-level intern
 
 ## Conversation Kinds
 
-Agent messages are routed by conversation kind; the full routing model is in [Agent Dispatch](agent-dispatch.md).
+Agent messages are routed by conversation kind; the full routing model is in [Agent Dispatch](conceptual-design/agent-dispatch.md).
 
 ---
 
@@ -163,8 +163,8 @@ When agents need human input, feedback requests flow up the hierarchy and respon
 - **Agent output is never truncated.** Output rules are minimal -- no format constraints, length limits, or plain-text-only directives.
 - **Workflows are advisory, not mandatory.** Agents follow them by choice, not enforcement.
 - **Lead agents coordinate.** Every workgroup has a lead agent; every organization has an org lead. Lead agents manage work decomposition, progress tracking, and cross-boundary communication.
-- **Agent teams use Claude Code CLI.** Multi-agent collaboration happens through persistent team sessions with bidirectional `stream-json` I/O. See [agent-dispatch.md](agent-dispatch.md).
-- **Liaison agents bridge hierarchy levels.** Projects and engagements create hierarchical teams where each level runs as an independent Claude Code team session. Liaison agents are ephemeral teammates in the upper team whose sole function is to communicate with a lower team via the `relay_to_subteam` tool. They do not write code or make decisions -- they relay tasks downward and results upward, compressing context at each boundary. See [hierarchical-teams.md](hierarchical-teams.md).
+- **Agent teams use Claude Code CLI.** Multi-agent collaboration happens through persistent team sessions with bidirectional `stream-json` I/O. See [agent-dispatch.md](conceptual-design/agent-dispatch.md).
+- **Liaison agents bridge hierarchy levels.** Projects and engagements create hierarchical teams where each level runs as an independent Claude Code team session. Liaison agents are ephemeral teammates in the upper team whose sole function is to communicate with a lower team via the `relay_to_subteam` tool. They do not write code or make decisions -- they relay tasks downward and results upward, compressing context at each boundary. See [hierarchical-teams.md](conceptual-design/hierarchical-teams.md).
 
 ### Agent Types
 
@@ -178,16 +178,9 @@ When agents need human input, feedback requests flow up the hierarchy and respon
 
 ---
 
-## Workspace and Filestore Model
+## Workspace Model
 
-TeaParty has two coexisting file systems:
-
-1. **Virtual files** (JSON column in the database): Documents, workflows, configuration, agent learnings. These are what agents read as prompt context. Managed through file-ops tools.
-2. **Git repositories** (workspace-enabled workgroups): Source code and artifacts that benefit from version history and branch isolation. Each job gets a branch; completed jobs merge to main. See [sandbox-design.md](sandbox-design.md) for the future sandbox architecture.
-
-Each job creates a branch (or worktree) from the workgroup's shared files and merges back on completion. This model applies whether the workgroup uses virtual files or a git repository — jobs are isolated; merging is explicit. See [hierarchical-teams.md](hierarchical-teams.md) for the full workspace isolation model.
-
-The virtual file tree reflects the full corporate hierarchy. See [file-layout.md](file-layout.md).
+Each session creates a git worktree. Subteam dispatches create child worktrees branched from their parent session's worktree. This provides process-level isolation: each agent team works in its own directory with its own branch, and completed work is squash-merged back up. See [hierarchical-teams.md](conceptual-design/hierarchical-teams.md) for the full workspace isolation model.
 
 ---
 
@@ -195,33 +188,35 @@ The virtual file tree reflects the full corporate hierarchy. See [file-layout.md
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | FastAPI + SQLModel + SQLite |
-| Frontend | Vanilla JS, no framework, no build tools |
-| Auth | Google ID token verification + app bearer token |
-| Agent runtime | Claude Code CLI (team sessions via `stream-json`) |
-| LLM calls | All through `llm_client.create_message()` -- never call the Anthropic SDK directly |
-| Tests | `unittest.TestCase` with `_make_*()` helpers, not pytest fixtures |
-| DB migrations | Lightweight pattern in `db.py`, not Alembic |
+| Agent runtime | Claude Code CLI (`claude -p` with `stream-json`) |
+| Orchestrator | Python, POC at `projects/POC/orchestrator/` |
+| Tests | `unittest.TestCase` with `_make_*()` helpers |
+| TUI | Textual (Python), at `projects/POC/tui/` |
 
 ---
 
 ## Further Reading
 
 ### Conceptual Design
-- [Hierarchical Teams](hierarchical-teams.md) -- Hierarchical agent team architecture (projects and engagements)
-- [CfA State Machine](cfa-state-machine.md) -- Three-phase Conversation for Action protocol
-- [Intent Engineering](intent-engineering.md) -- AI-assisted intent capture dialog
-- [Strategic Planning](strategic-planning.md) -- Bridge from intent to execution
-- [Human Proxies](human-proxies.md) -- Learned proxy agents that stand in for humans
-- [Learning System](learning-system.md) -- Hierarchical memory, scoped retrieval, promotion chain
-- [File Layout](file-layout.md) -- Virtual file tree structure
-- [Agent Dispatch](agent-dispatch.md) -- Message routing and team sessions
-- [Sandbox Design](sandbox-design.md) -- Future: Docker containers and git integration
-- [Cognitive Architecture](cognitive-architecture.md) -- Future: Agent learning and memory
+- [CfA State Machine](conceptual-design/cfa-state-machine.md) -- Three-phase Conversation for Action protocol
+- [Intent Engineering](conceptual-design/intent-engineering.md) -- AI-assisted intent capture dialog
+- [Strategic Planning](conceptual-design/strategic-planning.md) -- Bridge from intent to execution
+- [Human Proxies](conceptual-design/human-proxies.md) -- Learned proxy agents that stand in for humans
+- [Learning System](conceptual-design/learning-system.md) -- Hierarchical memory, scoped retrieval, promotion chain
+- [Hierarchical Teams](conceptual-design/hierarchical-teams.md) -- Hierarchical agent team architecture
+- [Agent Dispatch](conceptual-design/agent-dispatch.md) -- Message routing and team sessions
+
+### Proposals
+- [Office Manager](proposals/office-manager.md) -- Human-initiated conversation, cross-project coordination
+- [Human Participation](proposals/human-participation.md) -- Seats at every table
+- [Messaging](proposals/messaging.md) -- Message bus design
+- [Cognitive Architecture](proposals/cognitive-architecture.md) -- Agent learning and memory
 
 ### Detailed Design
-- [Detailed Design](detailed-design/index.md) -- Data models, API surface, implementation status, and gap analysis against the conceptual design
+- [Detailed Design](detailed-design/index.md) -- Implementation status, gap analysis, data models
 
 ### Reference
-- [POC Implementation Reference](../projects/POC/docs/poc-architecture.md) -- CLI flags, env vars, stream-JSON format, file layout, failure modes
-- [README](../README.md) -- Project overview
+- [Folder Structure](reference/folder-structure.md) -- POC directory layout on disk
+- [UX Design](reference/UX.md) -- User experience philosophy
+- [Research Directions](reference/research-directions.md) -- Active open questions
+- [Autodiscovery](reference/autodiscovery.md) -- Autonomous code review system

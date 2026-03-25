@@ -34,7 +34,7 @@ It has no context sensitivity. The same EMA applies whether the human is reviewi
 
 It cannot distinguish habitual from episodic patterns. A human's stable preference ("always asks about rollback plans") is invisible to a scalar, as is their recent shift ("rejected the last two migration plans").
 
-It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../autodiscovery.md) for details.
+It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../reference/autodiscovery.md) for details.
 
 ACT-R activation memory solves these problems. EMA stays, reframed as monitoring.
 
@@ -52,7 +52,7 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 
 **Structural filtering** handles the relational structure. The chunk is a tuple (state, outcome, task_type, ...) where field ordering matters. SQL queries on structural fields narrow the candidate set; semantic ranking orders within the filtered set. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md) for the chunk schema.
 
-**Interaction-based time** replaces wall-clock seconds. The decay equation uses interaction counts (gate decisions, dialog turns, discovery responses), not seconds. Between sessions, the counter does not advance; memories do not decay while the system is idle. Event-based time is well-motivated: Anderson & Schooler's (1991) empirical analysis was event-based. Wall-clock decay during idle periods would be inappropriate for an agent system. The specific decay exponent (d = 0.5) is a principled starting point from ACT-R's empirical tradition, to be calibrated during shadow mode.
+**Interaction-based time** replaces wall-clock seconds. The decay equation uses interaction counts (gate decisions, dialog turns, discovery responses), not seconds. Between sessions, the counter does not advance; memories do not decay while the system is idle. Event-based time is well-motivated: Anderson & Schooler's (1991) empirical analysis was event-based. Wall-clock decay during idle periods would be inappropriate for an agent system. The specific decay exponent (d = 0.5) is a principled starting point from ACT-R's empirical tradition, to be calibrated during Phase 1.
 
 ---
 
@@ -85,17 +85,17 @@ Before Phase 1 implementation begins, the following design decisions must be mad
 1. **Embedding model choice** — which service and model? (e.g., OpenAI text-embedding-3-small, Anthropic, local). Affects cost, dimensionality, and API contracts.
 2. **Chunk serialization format** — how are chunks converted to text for the proxy's LLM prompt? What fields are included? What is the token budget per chunk?
 3. **Prompt templates** — provide draft templates or specify constraints for Pass 1, Pass 2, and surprise extraction prompts. These must support the output parsing requirements.
-4. **Output parsing and error handling** — how are ACTION/PROSE and confidence values extracted from free-text LLM output? What happens on parse failures?
+4. **Output parsing and error handling** — ACTION and CONFIDENCE are parsed from the final lines of LLM output via regex (`ACTION:\s*(\w+)`, `CONFIDENCE:\s*([\d.]+)`). Parse failures default to confidence 0.0 (always escalate to human).
 5. **Confidence extraction method** — specify the exact format for confidence in prompts (e.g., "0-10 scale", probability, categorical). Define validation and fallback behavior.
 6. **Concurrency control for interaction counter** — specify transaction semantics and isolation levels for multi-process access to `proxy_memory.db`.
 
 These decisions determine implementation feasibility. They need explicit answers (even if the answer is "defer to Phase 1 with documented constraints") before coding begins.
 
-### Phase 1: Shadow Mode
+### Phase 1: Integration
 
-Run ACT-R retrieval alongside the existing model. The proxy generates dialog from retrieved memories but the existing EMA gate still controls the actual decision. Log the proxy's dialog and compare against what the human actually said.
+Build the ACT-R memory system and two-pass prediction on the develop branch, replacing the EMA decision gate directly. The proxy's retrieved memories drive the full dialog (questions, follow-ups, reasoning) before reaching a decision. EMA continues as a system health monitor.
 
-**Evaluation metrics for shadow mode:**
+**Evaluation metrics:**
 - Action match rate: did the proxy's posterior action match the human's actual decision?
 - Prior calibration: how often did the prior match the posterior? (measures how well the proxy predicts before seeing the artifact)
 - Surprise calibration: when surprise was detected, did the human's response confirm that the salient percepts were relevant?
@@ -106,21 +106,17 @@ Run ACT-R retrieval alongside the existing model. The proxy generates dialog fro
 - Action match rate: >= 70% agreement between proxy posterior action and human actual decision. Below 60% indicates the memory model is not learning useful patterns and the approach needs rethinking. Between 60-70% warrants investigation but does not block Phase 2.
 - Multi-dimensional embedding ablation: if single-embedding retrieval achieves >= 95% of multi-dimensional retrieval's match rate, the 5x embedding cost is not justified. Simplify to single embedding.
 - ACT-R decay vs. simple recency ablation: if most-recent-N retrieval achieves >= 95% of ACT-R decay's match rate, the activation machinery is not earning its complexity.
-- If metrics are ambiguous after 50 interactions, extend shadow mode to 100 interactions before deciding. If still ambiguous at 100, default to the simpler configuration (single embedding, simple recency) unless qualitative spot-checks show clear retrieval quality advantages for the complex configuration.
+- If metrics are ambiguous after 50 interactions, extend to 100 before deciding. If still ambiguous at 100, default to the simpler configuration (single embedding, simple recency) unless qualitative spot-checks show clear retrieval quality advantages for the complex configuration.
 
-**Ablations to run during shadow mode:**
+**Ablations to run during Phase 1:**
 - Multi-dimensional embeddings (5 vectors) vs. single blended embedding
 - ACT-R decay vs. simple recency (most-recent-N)
 - Two-pass prediction vs. single-pass (posterior only)
 - Composite score vs. activation-only and similarity-only retrieval
 
-### Phase 2: Dialog Mode
+### Phase 2: Learned Attention
 
-The proxy's retrieved memories drive the full dialog (questions, follow-ups, reasoning) before reaching a decision. EMA continues to track outcomes as a health monitor.
-
-### Phase 3: Integrated
-
-ACT-R memory, two-pass prediction, and EMA monitoring are unified. The proxy conducts the dialog the human would have conducted. EMA surfaces trends in system performance.
+ACT-R memory, two-pass prediction, and EMA monitoring are unified. The proxy conducts the dialog the human would have conducted. The accumulated prior-posterior deltas build a learned attention model. EMA surfaces trends in system performance.
 
 Phase 1 can start immediately once Phase 0 decisions are made. It requires only the chunk storage and retrieval functions.
 
@@ -169,12 +165,12 @@ SESSION START
 
         PASS 1 -- PRIOR
             generate from cached prefix + gate context, no artifact
-            output: ACTION <tab> PROSE, temperature 0
+            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
             parse -> prior.action, prior.prose
 
         PASS 2 -- POSTERIOR
             generate from cached prefix + gate context + artifact + prior
-            output: ACTION <tab> PROSE, temperature 0
+            output: free text + ACTION: <action> / CONFIDENCE: <float> on final lines
             parse -> posterior.action, posterior.prose
 
         SURPRISE
@@ -229,7 +225,7 @@ MemoryChunk
     embedding_situation, _artifact, _stimulus, _response, _salience -- independent vectors
 ```
 
-Both passes produce `ACTION<TAB>PROSE`. The same structured format used by the existing `classify_review.py`. Surprise extraction only runs when the action changed (2 additional short-context LLM calls) or confidence shifted significantly (1 call). Most gates produce no surprise: 2 calls. Strong surprises cost 4; moderate surprises cost 3.
+Both passes produce free text followed by `ACTION: <action>` and `CONFIDENCE: <float>` on the final lines, parsed from the end of output. Surprise extraction only runs when the action changed or confidence shifted significantly (1 additional LLM call). Most gates produce no surprise: 2 calls. Surprises cost 3.
 
 ### Cache Economics
 
@@ -328,7 +324,7 @@ Phase 0 verification (1-2 weeks): Test prompt caching behavior with `claude -p` 
 
 ### Working Memory Capacity
 
-The context window limits how many chunks can be loaded. At ~500 tokens per chunk and a 200K context window, reserving ~12,000 tokens for system prompt and gate content, the practical capacity is ~376 chunks. In practice, the activation threshold tau limits loading to a smaller set, self-regulating as memory accumulates. The actual loading count depends on interaction tempo and reinforcement patterns; tau may need adjustment based on observed activation distributions in shadow mode.
+The context window limits how many chunks can be loaded. At ~500 tokens per chunk and a 200K context window, reserving ~12,000 tokens for system prompt and gate content, the practical capacity is ~376 chunks. In practice, the activation threshold tau limits loading to a smaller set, self-regulating as memory accumulates. The actual loading count depends on interaction tempo and reinforcement patterns; tau may need adjustment based on observed activation distributions during Phase 1.
 
 ### Why This Is Future Work
 

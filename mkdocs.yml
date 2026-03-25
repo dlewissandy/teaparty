@@ -30,32 +30,41 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
+extra_css:
+  - stylesheets/extra.css
+
 nav:
-  - Home: index.md
+  - Introduction:
+    - What is TeaParty: index.md
+    - Overview: overview.md
+  - Background:
+    - Conversation Patterns for Agents: background/conversation-patterns.md
+    - Agent Memory and Learning: background/agent-memory.md
+    - Human-AI Collaboration and Oversight: background/human-ai-collaboration.md
+    - Research Library: research/INDEX.md
+    - Cognitive Architectures Supplement: research/cognitive-architectures-supplement.md
+    - Human Proxy Agent Design: research/human-proxy-agent-design.md
+    - Proxy Prediction & Active Learning: research/proxy-prediction-and-active-learning.md
   - Conceptual Design:
-    - Agentic Conversation for Action: cfa-state-machine.md
-    - Intent Engineering: intent-engineering.md
-    - Strategic Planning: strategic-planning.md
-    - Hierarchical Memory & Learning: learning-system.md
-    - Hierarchical Teams: hierarchical-teams.md
-    - Human Proxy Agents: human-proxies.md
+    - Agentic Conversation for Action: conceptual-design/cfa-state-machine.md
+    - Intent Engineering: conceptual-design/intent-engineering.md
+    - Strategic Planning: conceptual-design/strategic-planning.md
+    - Hierarchical Memory & Learning: conceptual-design/learning-system.md
+    - Hierarchical Teams: conceptual-design/hierarchical-teams.md
+    - Human Proxy Agents: conceptual-design/human-proxies.md
+    - Agent Dispatch: conceptual-design/agent-dispatch.md
   - Detailed Design:
     - Overview: detailed-design/index.md
     - Agent Runtime: detailed-design/agent-runtime.md
     - CfA State Machine: detailed-design/cfa-state-machine.md
     - Approval Gate: detailed-design/approval-gate.md
     - Learning System: detailed-design/learning-system.md
-    - Folder Structure: folder-structure.md
-    - Agent Dispatch: agent-dispatch.md
-  - End-to-End Walkthrough:
-    - Overview: e2e-walkthrough.md
-    - Intent & Planning: e2e/dialog.md
-    - Execution: e2e/execution.md
-    - The Manuscript: e2e/results.md
-    - Obstacles: e2e/obstacles.md
-    - Learnings: e2e/learnings.md
-    - Key Takeaways: e2e/takeaways.md
-  - Experimental Results:
+    - ACT-R Adaptations: detailed-design/act-r.md
+    - ACT-R Proxy Memory: detailed-design/act-r-proxy-memory.md
+    - ACT-R Proxy Mapping: detailed-design/act-r-proxy-mapping.md
+    - ACT-R Proxy Sensorium: detailed-design/act-r-proxy-sensorium.md
+    - Folder Structure: reference/folder-structure.md
+  - Evaluation:
     - Overview: experimental-results/index.md
     - CfA Backtrack Effectiveness: experimental-results/cfa-backtrack-effectiveness.md
     - Hierarchical vs. Flat Coordination: experimental-results/hierarchical-vs-flat-coordination.md
@@ -64,3 +73,23 @@ nav:
     - Asymmetric Regret Calibration: experimental-results/asymmetric-regret-calibration.md
     - Scoped vs. Flat Retrieval: experimental-results/scoped-vs-flat-retrieval.md
     - Cost-Quality Frontier: experimental-results/cost-quality-frontier.md
+  - Discussion:
+    - UX Design: reference/UX.md
+    - Autodiscovery: reference/autodiscovery.md
+  - Building Blocks:
+    - ACT-R Declarative Memory: research/act-r.md
+    - Soar Cognitive Architecture: research/soar.md
+  - End-to-End Walkthrough:
+    - Overview: e2e/e2e-walkthrough.md
+    - Intent & Planning: e2e/dialog.md
+    - Execution: e2e/execution.md
+    - The Manuscript: e2e/results.md
+    - Obstacles: e2e/obstacles.md
+    - Learnings: e2e/learnings.md
+    - Key Takeaways: e2e/takeaways.md
+  - Future Work:
+    - Research Directions: reference/research-directions.md
+    - Office Manager: proposals/office-manager.md
+    - Human Participation: proposals/human-participation.md
+    - Messaging: proposals/messaging.md
+    - Cognitive Architecture: proposals/cognitive-architecture.md

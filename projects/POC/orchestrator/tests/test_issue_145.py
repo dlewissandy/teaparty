@@ -241,13 +241,14 @@ class TestTaskAssertUpstreamContext(unittest.TestCase):
                     stdout='Looks correct.\nCONFIDENCE: 0.9',
                 )
                 from projects.POC.orchestrator.proxy_agent import run_proxy_agent
-                text, conf = _run(run_proxy_agent(
+                result = _run(run_proxy_agent(
                     question='Does this look right?',
                     state='TASK_ASSERT',
                     artifact_path=artifact,
                     session_worktree=tmpdir,
                     infra_dir=tmpdir,
                 ))
+                text, conf = result.text, result.confidence
 
             # The prompt sent to claude must include INTENT.md and PLAN.md paths
             prompt = mock_run.call_args[1].get('input', '') or mock_run.call_args[0][0] if mock_run.call_args[0] else ''

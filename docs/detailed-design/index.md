@@ -2,13 +2,13 @@
 
 This section maps the conceptual design to the actual implementation. It describes what exists in code today, how the components integrate, and where the implementation diverges from or has not yet reached the conceptual design. Gaps are called out honestly with references to the GitHub issues that track them.
 
-The conceptual design is spread across the documents in the parent folder — [ARCHITECTURE.md](../ARCHITECTURE.md), [human-proxies.md](../human-proxies.md), [learning-system.md](../learning-system.md), [cfa-state-machine.md](../cfa-state-machine.md), [intent-engineering.md](../intent-engineering.md), [strategic-planning.md](../strategic-planning.md), [hierarchical-teams.md](../hierarchical-teams.md), and [folder-structure.md](../folder-structure.md). These detailed design documents do not repeat the conceptual rationale. They specify how the concepts are (or are not) realized in the codebase.
+The conceptual design is spread across the documents in the parent folder — [overview.md](../overview.md), [conceptual-design/human-proxies.md](../conceptual-design/human-proxies.md), [conceptual-design/learning-system.md](../conceptual-design/learning-system.md), [conceptual-design/cfa-state-machine.md](../conceptual-design/cfa-state-machine.md), [conceptual-design/intent-engineering.md](../conceptual-design/intent-engineering.md), [conceptual-design/strategic-planning.md](../conceptual-design/strategic-planning.md), [conceptual-design/hierarchical-teams.md](../conceptual-design/hierarchical-teams.md), and [reference/folder-structure.md](../reference/folder-structure.md). These detailed design documents do not repeat the conceptual rationale. They specify how the concepts are (or are not) realized in the codebase.
 
 ---
 
 ## Scope
 
-These documents describe the **orchestrator layer** — the runtime that drives the CfA state machine and coordinates agent teams. The orchestrator is implemented at `projects/POC/orchestrator/`. They do not describe the engagement orchestration layer (org lead negotiation, decomposition into projects, feedback bubble-up), which is upstream and addressed in the conceptual design documents. See [hierarchical-teams.md](../hierarchical-teams.md) for the full conceptual model.
+These documents describe the **orchestrator layer** — the runtime that drives the CfA state machine and coordinates agent teams. The orchestrator is implemented at `projects/POC/orchestrator/`. They do not describe the engagement orchestration layer (org lead negotiation, decomposition into projects, feedback bubble-up), which is upstream and addressed in the conceptual design documents. See [conceptual-design/hierarchical-teams.md](../conceptual-design/hierarchical-teams.md) for the full conceptual model.
 
 ---
 
@@ -41,7 +41,7 @@ The conceptual design rests on four pillars. Here is an honest assessment of eac
 |---|---|---|
 | **Operational** | Two-level hierarchy works | Upper team coordinates; subteams execute in isolated subprocess worktrees. Process boundaries provide context isolation. Dispatch includes child CfA state creation, worktree isolation, and squash-merge on completion. |
 | **Integrated** | Partially | Dispatch works; engagement orchestration (org lead negotiation, decomposition, feedback bubble-up) is not yet agent-driven end-to-end. |
-| **Full Design** | Not yet | Full three-level work hierarchy (Engagement → Project → Job) is modeled but not operationalized. See [hierarchical-teams.md](../hierarchical-teams.md) for the conceptual vision. |
+| **Full Design** | Not yet | Full three-level work hierarchy (Engagement → Project → Job) is modeled but not operationalized. See [hierarchical-teams.md](../conceptual-design/hierarchical-teams.md) for the conceptual vision. |
 
 #### Learning System
 

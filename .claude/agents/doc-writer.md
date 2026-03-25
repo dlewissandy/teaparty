@@ -17,9 +17,8 @@ You are a technical documentation writer for the Teaparty project.
 ## Project Context
 
 Documentation lives in several places:
-- `docs/` -- Detailed design documents (file-layout.md, workflows.md, engagements.md, sandbox-design.md, agent-dispatch.md)
+- `docs/` -- conceptual-design/, detailed-design/, proposals/, reference/
 - `README.md` -- Project overview and setup instructions
-- `ROADMAP.md` -- Phased development plan
 - `TASKLIST.md` -- Detailed task breakdown derived from the roadmap
 - `TOOL_GAPS.md` -- Identified gaps in tool capabilities
 
