@@ -5,10 +5,11 @@
   padding-top: 0.6em;
 }
 
-/* Horizontal rule under the right-side page table of contents */
-.md-sidebar--secondary .md-sidebar__inner {
+/* Horizontal rule below "Table of contents" label, above first entry */
+.md-nav--secondary > .md-nav__title {
   border-bottom: 1px solid var(--md-default-fg-color--lightest);
-  padding-bottom: 0.6em;
+  padding-bottom: 0.4em;
+  margin-bottom: 0.4em;
 }
 
 /* Nav separator: above Building Blocks (7th item) — separates paper body from appendices */
