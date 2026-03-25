@@ -41,6 +41,10 @@ nav:
     - Conversation Patterns for Agents: background/conversation-patterns.md
     - Agent Memory and Learning: background/agent-memory.md
     - Human-AI Collaboration and Oversight: background/human-ai-collaboration.md
+    - Research Library: research/INDEX.md
+    - Cognitive Architectures Supplement: research/cognitive-architectures-supplement.md
+    - Human Proxy Agent Design: research/human-proxy-agent-design.md
+    - Proxy Prediction & Active Learning: research/proxy-prediction-and-active-learning.md
   - Conceptual Design:
     - Agentic Conversation for Action: conceptual-design/cfa-state-machine.md
     - Intent Engineering: conceptual-design/intent-engineering.md
@@ -72,13 +76,9 @@ nav:
   - Discussion:
     - UX Design: reference/UX.md
     - Autodiscovery: reference/autodiscovery.md
-  - References:
-    - Research Library: research/INDEX.md
+  - Building Blocks:
     - ACT-R Declarative Memory: research/act-r.md
     - Soar Cognitive Architecture: research/soar.md
-    - Cognitive Architectures Supplement: research/cognitive-architectures-supplement.md
-    - Human Proxy Agent Design: research/human-proxy-agent-design.md
-    - Proxy Prediction & Active Learning: research/proxy-prediction-and-active-learning.md
     - Python State Machine Libraries: research/python-state-machine-libraries.md
     - Python Statemachine Persistence: research/python-statemachine-persistence.md
     - Textual TUI Selection Widgets: research/textual-tui-selection-widgets.md
