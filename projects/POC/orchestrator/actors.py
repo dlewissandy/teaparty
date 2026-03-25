@@ -763,7 +763,7 @@ class ApprovalGate:
             )
             save_model(model, model_path)
         except Exception:
-            pass
+            _actor_log.warning('EMA recording failed', exc_info=True)
 
         # ACT-R memory chunk recording
         pr = self._last_proxy_result

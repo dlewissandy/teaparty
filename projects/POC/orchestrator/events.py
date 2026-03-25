@@ -6,10 +6,13 @@ Replaces filesystem polling for sessions the TUI starts in-process.
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Awaitable, Callable
+
+_log = logging.getLogger('orchestrator.events')
 
 
 class EventType(Enum):
@@ -71,4 +74,4 @@ class EventBus:
             try:
                 await cb(event)
             except Exception:
-                pass  # Don't let a bad subscriber break the orchestrator
+                _log.warning('EventBus subscriber %r failed', cb, exc_info=True)

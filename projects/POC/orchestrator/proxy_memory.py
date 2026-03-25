@@ -485,6 +485,7 @@ def _default_embed(conn: sqlite3.Connection):
             return try_embed(text, conn=conn, provider=provider, model=model)
         return _embed
     except Exception:
+        _log.warning('memory_indexer unavailable, embeddings disabled', exc_info=True)
         return lambda text: None
 
 
