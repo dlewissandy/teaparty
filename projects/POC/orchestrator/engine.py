@@ -858,11 +858,14 @@ class Orchestrator:
             artifact='',
             bridge_text=bridge_text,
         ))
-        r = response.strip().lower()
-        if 'backtrack' in r:
-            return 'backtrack'
-        if 'withdraw' in r:
-            return 'withdraw'
+        try:
+            from projects.POC.scripts.classify_review import classify
+            raw = classify('FAILURE', response)
+            action = raw.split('\t', 1)[0]
+        except Exception:
+            action = '__fallback__'
+        if action in ('backtrack', 'withdraw'):
+            return action
         return 'retry'
 
     def _mark_false_positives(self, reason: str) -> None:
