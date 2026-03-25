@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "feedparser>=6.0.12",
+    "filelock>=3.0",
     "mcp>=1.26.0",
     "pyyaml>=6.0",
     "textual>=3.0.0",

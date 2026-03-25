@@ -36,7 +36,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install dependencies
-        run: uv run pip install mkdocs-material mkdocs-macros-plugin
+        run: uv sync
 
       - name: Build docs
         run: uv run mkdocs build
