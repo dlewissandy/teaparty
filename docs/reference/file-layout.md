@@ -151,7 +151,7 @@ These are visible in the tree at `./tools/<toolkit>/toolkit.json` -- read-only, 
 
 The **orchestration toolkit** provides cross-workgroup capabilities needed by org lead agents. These tools require the agent's workgroup to be the designated operations workgroup -- other workgroups cannot use them.
 
-The **sandbox toolkit** provides code execution and git operations inside isolated Docker containers. Each workgroup has a git repository; each job gets a branch and a sandbox container with Claude Code CLI. See [sandbox-design.md](../conceptual-design/sandbox-design.md) for the full architecture (future phase).
+The **sandbox toolkit** provides code execution and git operations inside isolated Docker containers. Each workgroup has a git repository; each job gets a branch and a sandbox container with Claude Code CLI. See [sandbox-design.md](../proposals/sandbox-design.md) for the full architecture (future phase).
 
 ### Organization Custom Tools
 
@@ -257,7 +257,7 @@ Workspace-enabled workgroups have a git repository on the host filesystem. The v
 
 The main branch is synced to `Workgroup.files` so the file browser shows the current codebase state alongside documents. Job worktrees are read directly from the filesystem -- they are not synced to JSON while work is active.
 
-Each job gets a git branch (`job/<job-id>`) and its own worktree. The branch isolates the job's code changes from other concurrent jobs -- this is critical when multiple jobs within a project modify the same files. Completed jobs merge back to main. See [sandbox-design.md](../conceptual-design/sandbox-design.md) for the full design (future phase).
+Each job gets a git branch (`job/<job-id>`) and its own worktree. The branch isolates the job's code changes from other concurrent jobs -- this is critical when multiple jobs within a project modify the same files. Completed jobs merge back to main. See [sandbox-design.md](../proposals/sandbox-design.md) for the full design (future phase).
 
 ## Agent File Access
 

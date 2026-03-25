@@ -1,6 +1,6 @@
 # Cognitive Architectures for Learning Agents: Supplementary Research (2025-2026)
 
-Supplementary to [cognitive-architecture.md](../conceptual-design/cognitive-architecture.md). Covers developments published after mid-2025 not already cataloged there.
+Supplementary to [cognitive-architecture.md](../proposals/cognitive-architecture.md). Covers developments published after mid-2025 not already cataloged there.
 
 ---
 

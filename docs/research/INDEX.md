@@ -16,7 +16,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 - Browse by tag to find papers relevant to a specific design question.
 - Each entry links to the detail file where full citations and implications are recorded.
-- "COGARCH" entries are cataloged in `/docs/cognitive-architecture.md` (the primary cognitive architecture document).
+- "COGARCH" entries are cataloged in `/docs/proposals/cognitive-architecture.md` (the primary cognitive architecture document).
 - "SUPPLEMENT" entries are in `docs/research/cognitive-architectures-supplement.md`.
 
 ---

@@ -38,7 +38,7 @@ Learning is not a storage problem. It is a retrieval problem — getting the rig
 
 A promotion chain moves validated learnings up through the organizational hierarchy — from team sessions through projects to global scope. Four learning moments (prospective, in-flight, corrective, retrospective) capture knowledge at the points where it matters most. Fuzzy retrieval injects relevant knowledge into each agent's scoped context, bridging the gap that context scoping creates.
 
-[Learning System →](conceptual-design/learning-system.md) · [Research Foundations →](conceptual-design/cognitive-architecture.md)
+[Learning System →](conceptual-design/learning-system.md) · [Research Foundations →](proposals/cognitive-architecture.md)
 
 ### Hierarchical Teams
 

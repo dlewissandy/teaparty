@@ -41,11 +41,12 @@ nav:
     - Hierarchical Teams: conceptual-design/hierarchical-teams.md
     - Human Proxy Agents: conceptual-design/human-proxies.md
     - Agent Dispatch: conceptual-design/agent-dispatch.md
-    - Office Manager: conceptual-design/office-manager.md
-    - Human Participation: conceptual-design/human-participation.md
-    - Messaging: conceptual-design/messaging.md
-    - Sandbox Design: conceptual-design/sandbox-design.md
-    - Cognitive Architecture: conceptual-design/cognitive-architecture.md
+  - Proposals:
+    - Office Manager: proposals/office-manager.md
+    - Human Participation: proposals/human-participation.md
+    - Messaging: proposals/messaging.md
+    - Sandbox Design: proposals/sandbox-design.md
+    - Cognitive Architecture: proposals/cognitive-architecture.md
   - Detailed Design:
     - Overview: detailed-design/index.md
     - Agent Runtime: detailed-design/agent-runtime.md

@@ -183,7 +183,7 @@ When agents need human input, feedback requests flow up the hierarchy and respon
 TeaParty has two coexisting file systems:
 
 1. **Virtual files** (JSON column in the database): Documents, workflows, configuration, agent learnings. These are what agents read as prompt context. Managed through file-ops tools.
-2. **Git repositories** (workspace-enabled workgroups): Source code and artifacts that benefit from version history and branch isolation. Each job gets a branch; completed jobs merge to main. See [sandbox-design.md](conceptual-design/sandbox-design.md) for the future sandbox architecture.
+2. **Git repositories** (workspace-enabled workgroups): Source code and artifacts that benefit from version history and branch isolation. Each job gets a branch; completed jobs merge to main. See [sandbox-design.md](proposals/sandbox-design.md) for the future sandbox architecture.
 
 Each job creates a branch (or worktree) from the workgroup's shared files and merges back on completion. This model applies whether the workgroup uses virtual files or a git repository — jobs are isolated; merging is explicit. See [hierarchical-teams.md](conceptual-design/hierarchical-teams.md) for the full workspace isolation model.
 
@@ -215,11 +215,13 @@ The virtual file tree reflects the full corporate hierarchy. See [file-layout.md
 - [Learning System](conceptual-design/learning-system.md) -- Hierarchical memory, scoped retrieval, promotion chain
 - [Hierarchical Teams](conceptual-design/hierarchical-teams.md) -- Hierarchical agent team architecture
 - [Agent Dispatch](conceptual-design/agent-dispatch.md) -- Message routing and team sessions
-- [Office Manager](conceptual-design/office-manager.md) -- Human-initiated conversation, cross-project coordination
-- [Human Participation](conceptual-design/human-participation.md) -- Seats at every table
-- [Messaging](conceptual-design/messaging.md) -- Message bus design
-- [Sandbox Design](conceptual-design/sandbox-design.md) -- Future: Docker containers and git integration
-- [Cognitive Architecture](conceptual-design/cognitive-architecture.md) -- Future: Agent learning and memory
+
+### Proposals
+- [Office Manager](proposals/office-manager.md) -- Human-initiated conversation, cross-project coordination
+- [Human Participation](proposals/human-participation.md) -- Seats at every table
+- [Messaging](proposals/messaging.md) -- Message bus design
+- [Sandbox Design](proposals/sandbox-design.md) -- Docker containers and git integration
+- [Cognitive Architecture](proposals/cognitive-architecture.md) -- Agent learning and memory
 
 ### Detailed Design
 - [Detailed Design](detailed-design/index.md) -- Implementation status, gap analysis, data models

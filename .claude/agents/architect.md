@@ -27,7 +27,7 @@ Read these for context before making architectural recommendations:
 - `docs/reference/file-layout.md` -- Virtual file tree design
 - `docs/workflows.md` -- Workflow system specification
 - `docs/engagements.md` -- Cross-organization engagement model
-- `docs/conceptual-design/sandbox-design.md` -- Docker sandbox architecture for code execution
+- `docs/proposals/sandbox-design.md` -- Docker sandbox architecture for code execution
 - `docs/conceptual-design/agent-dispatch.md` -- Agent routing and team sessions
 
 ## Roadmap Phases

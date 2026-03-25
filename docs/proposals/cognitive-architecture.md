@@ -330,7 +330,7 @@ agent_runtime.run_agent_auto_responses()
 
 ## 6. Proposed Cognitive Architecture
 
-> **Superseded by [learning-system.md](learning-system.md).** Sections 6–8 below describe an earlier design for agent memory and learning in `teaparty_app/`. The current design — including the three learning types (institutional, task-based, proxy), the promotion chain, and the 10-scope taxonomy — is in [learning-system.md](learning-system.md). The research foundations in sections 1–5 remain valid background.
+> **Superseded by [learning-system.md](../conceptual-design/learning-system.md).** Sections 6–8 below describe an earlier design for agent memory and learning in `teaparty_app/`. The current design — including the three learning types (institutional, task-based, proxy), the promotion chain, and the 10-scope taxonomy — is in [learning-system.md](../conceptual-design/learning-system.md). The research foundations in sections 1–5 remain valid background.
 
 ### 6.1 Design Principles
 
