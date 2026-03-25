@@ -1,51 +1,18 @@
-# ACT-R Declarative Memory
+# ACT-R Adaptations for TeaParty
 
-This document explains ACT-R's declarative memory system. The theory, the equations, and the parameter values. For an engineer who has never used ACT-R. It is self-contained: everything you need to understand the memory model is here.
+How TeaParty's proxy memory system adapts ACT-R declarative memory for agent gate decisions. This document covers only where we depart from vanilla ACT-R. For the theory, equations, and standard parameter values, see [research/act-r.md](../research/act-r.md).
 
-For how this applies to the TeaParty proxy agent, see:
+Related:
 - [act-r-proxy-memory.md](act-r-proxy-memory.md) — motivation and migration plan
 - [act-r-proxy-mapping.md](act-r-proxy-mapping.md) — chunks, traces, retrieval implementation
 - [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) — two-pass prediction and learned attention
-For conceptual design, see [../conceptual-design/human-proxies.md](../conceptual-design/human-proxies.md)
+- [../conceptual-design/human-proxies.md](../conceptual-design/human-proxies.md) — conceptual design
 
 ---
 
-## What ACT-R Is
+## Interactions, Not Seconds
 
-ACT-R (Adaptive Control of Thought — Rational) is a cognitive architecture developed by John Anderson at Carnegie Mellon University. It is a computational model of human cognition. Not a metaphor or a framework, but a running system that reproduces human performance data across hundreds of experiments on memory, learning, and decision-making.
-
-ACT-R's central claim about memory: **the probability of retrieving a memory reflects the statistical patterns of the environment.** Things you encountered recently and frequently are more likely to be relevant now. The memory system is rational. It forgets at the rate that makes its retrievals most useful given the actual patterns of the world.
-
-Memory in ACT-R is organized as **chunks**. Structured units of knowledge. Each chunk has an **activation level** that determines how accessible it is. High-activation chunks are retrieved quickly and reliably. Low-activation chunks are effectively forgotten. They remain stored but fall below the retrieval threshold.
-
-Activation is not a fixed property. It changes continuously based on two factors:
-
-1. **Base-level activation** — how often and how recently this chunk has been accessed. This is the learning-and-forgetting component.
-2. **Context sensitivity** — how related this chunk is to what you are currently thinking about. ACT-R uses symbolic spreading activation for this; we use vector embeddings. See the proxy mapping document for details.
-
----
-
-## Base-Level Activation (B)
-
-Base-level activation reflects how often and how recently a chunk has been accessed. From Anderson & Lebiere (1998, Chapter 4); equation simplified from ACT-R Tutorial Unit 4.
-
-```
-B = ln( sum over all accesses i:  t_i ^ (-d) )
-```
-
-Where:
-- `t_i` is the number of **interactions** since the i-th access of this chunk (see "Interactions, Not Seconds" below)
-- `d` is the **decay parameter**, standardly set to **0.5**
-- `ln` is the natural logarithm
-- The sum is over every time this chunk was accessed (created, retrieved, reinforced)
-
-**How it works.** Each time a chunk is accessed, it gets a **trace**. Each trace decays as a power function of interactions elapsed: `t^(-0.5)`. The sum of all decaying traces, passed through a logarithm, gives the base-level activation.
-
-### Interactions, Not Seconds
-
-In the ACT-R literature, `t` is measured in seconds. Laboratory experiments use wall-clock time. For agent systems, we measure `t` in **interactions**: decisions, dialog turns, observations. Each interaction advances the clock by 1.
-
-This is a better fit than wall-clock time for three reasons.
+In ACT-R, `t` in the base-level activation equation is measured in seconds. We measure `t` in **interactions**: gate decisions, dialog turns, observations. Each interaction advances the clock by 1.
 
 **Between sessions, nothing happens.** If the agent handles 5 decisions on Monday and none until Thursday, wall-clock decay would erode Monday's memories over 3 idle days. Interaction-based decay does not advance. No interactions means no decay, which is correct because nothing happened to make the memories less relevant.
 
@@ -53,126 +20,62 @@ This is a better fit than wall-clock time for three reasons.
 
 **Experience scales with activity, not calendar time.** An agent that handled 100 interactions over a busy week has far more trace accumulation than one that handled 5 over the same calendar period. The memory should reflect *experience*, not elapsed time.
 
-### Worked Example
+---
 
-A chunk was accessed 3 times: 2 interactions ago, 10 interactions ago, and 50 interactions ago.
+## Parameter Choices
 
-```
-B = ln( 2^(-0.5) + 10^(-0.5) + 50^(-0.5) )
-  = ln( 0.707 + 0.316 + 0.141 )
-  = ln( 1.164 )
-  = 0.152
-```
+We depart from ACT-R defaults for noise and retrieval threshold.
 
-Now the agent has another interaction (the chunk is accessed again, t=1):
+| Parameter | ACT-R Default | Our Value | Rationale |
+|-----------|---------------|-----------|-----------|
+| Decay (d) | 0.5 | **0.5** | No departure. Empirically validated. |
+| Noise (s) | NIL (disabled) | **0.25** | Low enough for mostly-deterministic retrieval, high enough for occasional exploration. Needs empirical calibration. |
+| Retrieval threshold (tau) | 0 | **-0.5** | Admits chunks with slightly negative activation. Desirable in a low-interaction system (50-200 lifetime interactions) where useful chunks may hover near zero. Needs empirical calibration. |
 
-```
-B = ln( 1^(-0.5) + 3^(-0.5) + 11^(-0.5) + 51^(-0.5) )
-  = ln( 1.000 + 0.577 + 0.302 + 0.140 )
-  = ln( 2.019 )
-  = 0.703
-```
-
-The activation jumped from 0.152 to 0.703. The chunk went from moderately accessible to highly accessible because it was just accessed.
-
-### Key Properties
-
-- Recent accesses contribute much more than old ones (power-law decay)
-- Many accesses accumulate. A chunk accessed 50 times decays much slower than one accessed once
-- The logarithm compresses the range. You need exponentially more accesses to get linear activation gains
-- At `d = 0.5`, a single trace loses half its contribution when the interaction count quadruples
-- Between sessions, the interaction counter does not advance. Memories do not decay while the system is idle
-
-### Why d = 0.5?
-
-Anderson & Schooler (1991, "Reflections of the environment in memory," *Psychological Science* 2(6), 396-408) showed that environmental statistics follow power-law distributions matching human memory decay curves. They analyzed newspaper headlines, child-directed speech, and email archives. In all three domains, the probability that an item encountered in the past would be relevant now followed a power function. Their analysis was event-based. They measured relevance as a function of temporal intervals in the event stream.
-
-The specific value d = 0.5 became the ACT-R standard through subsequent modeling work. It achieves a rational match between memory decay and environmental relevance. This is why interaction-based `t` is the natural unit: the empirical basis for power-law decay was always about event intervals, not clock intervals.
-
-The memory system's decay rate matches the environment's relevance rate. Forgetting is not a bug. It is a rational response to the statistics of the world.
-
-**Caveat for agent systems.** Anderson & Schooler's corpora (newspaper headlines, speech, email) are high-volume natural language streams with thousands to tens of thousands of observations. Proxy gate interactions are sparse by comparison. Perhaps 50-200 total lifetime interactions. The power-law form is well-established as the right functional shape for memory decay, and d = 0.5 produces moderate decay that is neither too aggressive nor too conservative. But whether 0.5 is optimal for this specific interaction regime is an open empirical question. The value is a principled starting point informed by ACT-R's empirical tradition, not a validated parameter for agent gate decisions. The migration plan includes empirical calibration of d during Phase 1.
+**Caveat on d = 0.5.** Anderson & Schooler's corpora are high-volume streams (thousands of observations). Proxy gate interactions are sparse — perhaps 50-200 total lifetime interactions. The power-law form is the right functional shape, and d = 0.5 produces moderate decay. But whether 0.5 is optimal for this interaction regime is an open empirical question.
 
 ---
 
-## Noise
+## Context Sensitivity via Embeddings
 
-Retrieval noise follows a logistic distribution. From Anderson & Lebiere (1998, Chapter 4).
+ACT-R uses **symbolic spreading activation** for context sensitivity: activation spreads from the current goal through associative links between chunks. The spread depends on fan (how many chunks share an association) and source activation.
 
-```
-noise ~ Logistic(0, s)
-```
+We replace this with **vector embeddings and cosine similarity**. Each chunk has up to 5 independent embedding dimensions (situation, artifact, stimulus, response, salience). At retrieval, cosine similarity between query embeddings and chunk embeddings provides the context-sensitivity signal.
 
-Where `s` is the **noise parameter**. The ACT-R default for `:ans` is NIL (disabled). When enabled, tutorial examples use values ranging from 0.2 to 0.5. For this system, we use **s = 0.25** as a design choice. Low enough to keep retrieval mostly deterministic while allowing occasional exploration of less-active memories. This value needs empirical calibration during Phase 1.
-
-For implementation: sample from a logistic distribution with location 0 and scale `s`. In Python: `random.random()` transformed via `s * log(p / (1 - p))` where p is uniform on (0, 1).
+This is a fundamental departure. ACT-R's spreading activation is symbolic, discrete, and structure-aware. Cosine similarity over embeddings is continuous, learned, and structure-blind. The trade-off: we lose the ability to reason about structural relationships between chunks, but we gain the ability to match on semantic meaning without manually defining associative links.
 
 ---
 
-## Retrieval
+## Two-Stage Retrieval
 
-A chunk is retrieved if its base-level activation exceeds the **retrieval threshold** tau. From Anderson & Lebiere (1998, Chapter 4).
+ACT-R retrieves the single chunk with highest activation above threshold. We retrieve a **ranked set** using a two-stage process:
 
-```
-Retrieved if B > tau
-```
+1. **Activation filter**: all chunks with B > tau survive (standard ACT-R)
+2. **Composite ranking**: survivors are scored by `activation_weight * normalized_B + semantic_weight * cosine_sim + noise` and the top-k are returned
 
-The ACT-R default for `:rt` is 0 (zero). When `:rt` is explicitly set in tutorial examples, values range from 0 to -2 depending on the model. The parameter `:ans` (noise scale) defaults to NIL (disabled) independently. For this system, we use **tau = -0.5**. A design choice that admits chunks with slightly negative activation, which is desirable in a low-interaction system where useful chunks may hover near zero activation. This value needs empirical calibration during Phase 1 based on observed activation distributions.
+The composite score mixes ACT-R activation with semantic similarity. This is not ACT-R — it is a hybrid that uses ACT-R's activation as one signal among two. The design doc for this is [act-r-proxy-mapping.md](act-r-proxy-mapping.md).
 
-In this design, tau is a threshold on raw B. It filters for memory accessibility (is this chunk active enough to be a candidate?). The filtered candidates are then ranked by a composite score that incorporates both activation and semantic similarity. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md). This separation keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
-
-The **probability of retrieval** follows a soft threshold. From Anderson & Lebiere (1998, eq. 4.4).
-
-```
-P(retrieve) = 1 / (1 + exp(-(B - tau) / s))
-```
-
-This is a logistic function centered at the threshold. Chunks well above threshold are almost certainly retrieved. Chunks well below are almost certainly not. Chunks near the threshold are retrieved probabilistically. Sometimes yes, sometimes no. This soft-threshold equation can serve as the gating function on raw B, providing probabilistic filtering before ranking.
-
-**Retrieval latency** also follows from activation.
-
-```
-latency = F * exp(-f * B)
-```
-
-Where `F` and `f` are scaling parameters (standardly `F = 1.0`, `f = 1.0`). High-activation chunks are retrieved faster. This is not directly relevant to agent implementations but explains why the model predicts human reaction times so accurately.
+Normalization is min-max over the candidate set. This makes the effective weight of activation relative to the current query, not absolute. See issue #192 for known limitations.
 
 ---
 
-## Standard Parameter Values
+## Reinforcement Model
 
-| Parameter | Symbol | Value | Role | Source |
-|-----------|--------|-------|------|--------|
-| Decay | d | 0.5 | Power-law decay exponent for traces | ACT-R standard (Anderson & Schooler, 1991) |
-| Noise | s | 0.25 | Scale of retrieval noise (logistic) | Design choice; ACT-R tutorials use 0.2-0.5 |
-| Retrieval threshold | tau | -0.5 | Minimum activation for retrieval | Design choice; ACT-R tutorials use 0 to -2 |
-| Latency factor | F | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
-| Latency exponent | f | 1.0 | Scales retrieval time (not needed for agents) | ACT-R standard |
+In ACT-R, a chunk is reinforced (gets a new trace) every time it participates in a production rule firing. In our system, reinforcement happens at two points:
 
-The decay parameter d = 0.5 is empirically validated across hundreds of ACT-R models. The noise and threshold values are design choices for this system, informed by the ACT-R literature but not canonical standards. All parameters should be calibrated during Phase 1.
+1. **On chunk creation** — the initial trace
+2. **On explicit reinforcement** — after the proxy has consumed retrieved memories and produced a response, the caller explicitly reinforces the chunks that were used via `reinforce_retrieved()`
+
+Retrieval itself does not add traces (see issue #191). This departs from some ACT-R implementations where retrieval automatically reinforces, but aligns with the ACT-R specification that reinforcement occurs when a chunk is "specifically retrieved for a task and actively referenced by a production rule."
 
 ---
 
-## Emergent Behaviors
+## What We Don't Use
 
-The remarkable thing about the base-level activation equation is how much behavior emerges from one formula.
+Several ACT-R mechanisms are not implemented:
 
-**Stable preferences** (frequently reinforced) emerge when a chunk is accessed across 20 sessions, giving 20+ overlapping traces. Even as each individual trace decays, the sum stays high. The preference "sticks" because it keeps being reinforced.
-
-**Drifting interests** (recently clustered) appear when a chunk is accessed 5 times this week but never before. A burst of recent traces gives high activation now, but if the accesses stop, the cluster decays as a unit. The interest "drifts" with context.
-
-**One-off events** (single trace) fade quickly. A chunk created once and never accessed again has a single decaying trace. The event is "forgotten" unless something brings it back.
-
-**Context-triggered recall** occurs when a chunk that dropped below threshold (effectively forgotten) is accessed again. The old traces still contribute, albeit weakly. A new access adds a fresh trace that pushes activation above threshold. This produces the "oh, I remember that!" phenomenon.
-
-One equation, many behaviors.
-
----
-
-## References
-
-**Anderson, J. R., & Lebiere, C.** (1998). *The Atomic Components of Thought.* Lawrence Erlbaum Associates. — The definitive ACT-R reference. Complete derivation of the activation equations, retrieval dynamics, and parameter values. Chapter 4 covers declarative memory in full.
-
-**Anderson, J. R., & Schooler, L. J.** (1991). Reflections of the environment in memory. *Psychological Science*, 2(6), 396-408. — Empirical basis for the power-law decay parameter (d = 0.5). Demonstrates that human forgetting curves match the statistical structure of real-world information relevance. Read this first for intuition about why the math works.
-
-**ACT-R Tutorial, Unit 4: Activation of Chunks and Base-Level Learning.** Carnegie Mellon University. http://act-r.psy.cmu.edu/wordpress/wp-content/themes/ACT-R/tutorials/unit4.htm — Step-by-step tutorial with worked examples and code. The best starting point for implementation.
+- **Spreading activation** — replaced by embedding similarity (see above)
+- **Partial matching** — ACT-R can retrieve chunks that partially match a query, with a penalty. We use cosine similarity instead, which provides a continuous match score.
+- **Production compilation** — ACT-R's procedural learning mechanism (combining two production rules into one). Not applicable to our system.
+- **Utility learning** — ACT-R learns which production rules to prefer via reward. Not applicable; we have a separate confidence calibration mechanism.
+- **Soft-threshold retrieval probability** — the logistic P(retrieve) function from ACT-R eq. 4.4. We use a hard threshold (B > tau) for stage 1 filtering. The soft threshold could replace this; it's documented in [research/act-r.md](../research/act-r.md) for future consideration.

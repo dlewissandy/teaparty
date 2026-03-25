@@ -18,6 +18,8 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 - Each entry links to the detail file where full citations and implications are recorded.
 - "COGARCH" entries are cataloged in `/docs/proposals/cognitive-architecture.md` (the primary cognitive architecture document).
 - "SUPPLEMENT" entries are in `docs/research/cognitive-architectures-supplement.md`.
+- [act-r.md](act-r.md) — Vanilla ACT-R declarative memory: theory, equations, parameters.
+- [soar.md](soar.md) — Soar cognitive architecture: memory systems, decision cycle, chunking, RL.
 
 ---
 
@@ -41,6 +43,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Title | Authors, Year | Tags | One-line Summary | Source |
 |-------|--------------|------|-----------------|--------|
 | Cognitive Architectures for Language Agents (CoALA) | Sumers et al., 2024 | `#memory` `#multi-agent` `#teaparty-direct` | The unifying taxonomy: maps classical cognitive architecture (ACT-R, SOAR) onto LLM agents across memory types, action space, and learning. | COGARCH §2.1 |
+| Soar Cognitive Architecture — Memory Systems Reference | Laird et al. (University of Michigan) | `#memory` `#working-memory` `#episodic` `#semantic` `#procedural` | Self-contained reference covering Soar's decision cycle, WMEs, production memory, smem (base-level + spreading activation), epmem (snapshot + graph-match retrieval), chunking, and Soar-RL update rule. | `soar.md` |
 | Generative Agents | Park et al., 2023 | `#memory` `#episodic` `#reflection` `#teaparty-direct` | 25 simulated agents with memory streams, three-factor retrieval (recency × relevance × importance), and periodic reflection. Reflection was the critical ingredient for emergent behavior. | COGARCH §2.2 |
 | Reflexion | Shinn et al., 2023 | `#episodic` `#self-evolving` | Verbal self-reflection stored as persistent memory enables learning without weight updates. Near-human HumanEval performance after 2-3 cycles. | COGARCH §2.3 |
 | Voyager | Wang et al., 2023 | `#procedural` `#skill-library` | Skill library of verified executable JavaScript functions in Minecraft. Procedural memory as code is more reliable than natural language. | COGARCH §2.4 |
