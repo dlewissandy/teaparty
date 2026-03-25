@@ -30,6 +30,9 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
+extra_css:
+  - stylesheets/extra.css
+
 nav:
   - Introduction:
     - What is TeaParty: index.md

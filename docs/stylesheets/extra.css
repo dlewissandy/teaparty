@@ -1,0 +1,9 @@
+/* Horizontal rule in the nav sidebar between References and End-to-End Walkthrough.
+   Uses nth-child to target the 8th top-level section (End-to-End Walkthrough)
+   in the nav order: Introduction, Background, Conceptual Design, Detailed Design,
+   Evaluation, Discussion, References, [hr], End-to-End Walkthrough, Future Work. */
+.md-nav--primary > .md-nav__list > .md-nav__item:nth-child(8) {
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+}
