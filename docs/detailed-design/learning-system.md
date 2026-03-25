@@ -1,6 +1,6 @@
 # Learning System
 
-The learning system implements the memory architecture described in [learning-system.md](../learning-system.md). Post-session learning extraction runs via `learnings.py` (called from `session.py`). The storage layer combines markdown files (source of truth) with a SQLite FTS5 index (derived, for retrieval). Helper modules handle memory indexing, session summarization, reinforcement tracking, and memory compaction.
+The learning system implements the memory architecture described in [learning-system.md](../conceptual-design/learning-system.md). Post-session learning extraction runs via `learnings.py` (called from `session.py`). The storage layer combines markdown files (source of truth) with a SQLite FTS5 index (derived, for retrieval). Helper modules handle memory indexing, session summarization, reinforcement tracking, and memory compaction.
 
 ---
 

@@ -24,7 +24,7 @@ Winograd and Flores (*Understanding Computers and Cognition*, 1986) recognized t
 
 TeaParty adapts their Conversation for Action framework for this reality. A three-phase protocol — Intent, Planning, Execution — is formalized as a state machine with explicit transitions and cross-phase backtracks. Each phase produces artifacts that make implicit context explicit: what to optimize for, what to protect, and what tradeoffs are acceptable. Approval gates between phases are not just checkpoints — they are learning opportunities where the system observes human corrections and preferences, feeding the memory and proxy systems described below. The result is intent engineering — agents operating from a shared specification of purpose, not an ambiguous request.
 
-[Intent Engineering →](intent-engineering.md) · [Strategic Planning →](strategic-planning.md) · [CfA State Machine →](cfa-state-machine.md)
+[Intent Engineering →](conceptual-design/intent-engineering.md) · [Strategic Planning →](conceptual-design/strategic-planning.md) · [CfA State Machine →](conceptual-design/cfa-state-machine.md)
 
 ### Hierarchical Memory and Learning
 
@@ -38,7 +38,7 @@ Learning is not a storage problem. It is a retrieval problem — getting the rig
 
 A promotion chain moves validated learnings up through the organizational hierarchy — from team sessions through projects to global scope. Four learning moments (prospective, in-flight, corrective, retrospective) capture knowledge at the points where it matters most. Fuzzy retrieval injects relevant knowledge into each agent's scoped context, bridging the gap that context scoping creates.
 
-[Learning System →](learning-system.md) · [Research Foundations →](cognitive-architecture.md)
+[Learning System →](conceptual-design/learning-system.md) · [Research Foundations →](conceptual-design/cognitive-architecture.md)
 
 ### Hierarchical Teams
 
@@ -52,7 +52,7 @@ TeaParty organizes agent teams in a hierarchy that mirrors how real organization
 
 Agents serve as context boundaries. The hierarchy provides scoping — each agent sees only what is relevant to its role and level. Reducing the scope of what each agent works on mitigates context rot within each scoped conversation.
 
-[Hierarchical Teams →](hierarchical-teams.md)
+[Hierarchical Teams →](conceptual-design/hierarchical-teams.md)
 
 ### Human Proxy Agents
 
@@ -62,7 +62,7 @@ As agent teams grow, the human becomes a bottleneck. Other agents escalate quest
 
 The human proxy agent's single job is to learn to stand in for the human. It answers clarifying questions from other agents, responds to escalations, engages in dialog about the human's preferences, and approves or rejects plans — all based on an evolving model of what the human would decide. Over time it observes human reactions: corrections indicate the model was wrong, rubber-stamps indicate it was right. Asymmetric regret weighting ensures false approvals cost more than false escalations. The proxy earns autonomy through demonstrated alignment, reducing the burden on the human without removing them from the loop.
 
-[Human Proxy Agents →](human-proxies.md) · [Least-Regret Escalation →](intent-engineering.md#least-regret-escalation)
+[Human Proxy Agents →](conceptual-design/human-proxies.md) · [Least-Regret Escalation →](conceptual-design/intent-engineering.md#least-regret-escalation)
 
 ## Proof of Concept
 

@@ -2,7 +2,7 @@
 
 The proxy agent does not just predict what the human will decide. It predicts what the human will **attend to** before deciding. This document describes how the proxy's sensorium works. What does it sense, how does it determine salience, and how does it learn to focus on the percepts that matter.
 
-For the memory model underlying this, see [act-r.md](act-r.md). For the chunk structure and retrieval, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md). For the overall motivation, see [act-r-proxy-memory.md](act-r-proxy-memory.md).
+For the memory model underlying this, see [act-r.md](act-r.md). For the chunk structure and retrieval, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md). For the overall motivation, see [act-r-proxy-memory.md](act-r-proxy-memory.md). For autodiscovery, see [../reference/autodiscovery.md](../reference/autodiscovery.md).
 
 ---
 
@@ -220,5 +220,5 @@ A proxy that auto-approves because its prior says "this human always approves do
 - **[act-r.md](act-r.md)** — the base-level activation equation that governs how memory chunks decay and are retrieved
 - **[act-r-proxy-mapping.md](act-r-proxy-mapping.md)** — the chunk structure and retrieval mechanism that this document extends with salience embeddings
 - **[act-r-proxy-memory.md](act-r-proxy-memory.md)** — the overall motivation for replacing EMA/Laplace with activation-based memory
-- **[autodiscovery.md](../autodiscovery.md)** — the discovery mode where the proxy reviews the codebase between sessions, using the same memory and attention model
-- **[human-proxies.md](../human-proxies.md)** — the conceptual design for the proxy agent, which this document extends with a concrete attention mechanism
+- **[autodiscovery.md](../reference/autodiscovery.md)** — the discovery mode where the proxy reviews the codebase between sessions, using the same memory and attention model
+- **[human-proxies.md](../conceptual-design/human-proxies.md)** — the conceptual design for the proxy agent, which this document extends with a concrete attention mechanism

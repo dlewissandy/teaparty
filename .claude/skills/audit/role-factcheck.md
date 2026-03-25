@@ -15,8 +15,8 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 - `projects/POC/orchestrator/`, `projects/POC/scripts/` — the implementation
 - `docs/detailed-design/` — what the implementation should do
-- `docs/ARCHITECTURE.md` — conceptual model
-- `docs/cfa-state-machine.md` — CfA protocol specification
+- `docs/overview.md` — conceptual model
+- `docs/conceptual-design/cfa-state-machine.md` — CfA protocol specification
 - `projects/POC/cfa-state-machine.json` — machine-readable state machine definition
 
 ### Secondary: Context

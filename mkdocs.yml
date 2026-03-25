@@ -32,23 +32,34 @@ markdown_extensions:
 
 nav:
   - Home: index.md
+  - Overview: overview.md
   - Conceptual Design:
-    - Agentic Conversation for Action: cfa-state-machine.md
-    - Intent Engineering: intent-engineering.md
-    - Strategic Planning: strategic-planning.md
-    - Hierarchical Memory & Learning: learning-system.md
-    - Hierarchical Teams: hierarchical-teams.md
-    - Human Proxy Agents: human-proxies.md
+    - Agentic Conversation for Action: conceptual-design/cfa-state-machine.md
+    - Intent Engineering: conceptual-design/intent-engineering.md
+    - Strategic Planning: conceptual-design/strategic-planning.md
+    - Hierarchical Memory & Learning: conceptual-design/learning-system.md
+    - Hierarchical Teams: conceptual-design/hierarchical-teams.md
+    - Human Proxy Agents: conceptual-design/human-proxies.md
+    - Agent Dispatch: conceptual-design/agent-dispatch.md
+    - Office Manager: conceptual-design/office-manager.md
+    - Human Participation: conceptual-design/human-participation.md
+    - Messaging: conceptual-design/messaging.md
+    - Sandbox Design: conceptual-design/sandbox-design.md
+    - Cognitive Architecture: conceptual-design/cognitive-architecture.md
   - Detailed Design:
     - Overview: detailed-design/index.md
     - Agent Runtime: detailed-design/agent-runtime.md
     - CfA State Machine: detailed-design/cfa-state-machine.md
     - Approval Gate: detailed-design/approval-gate.md
     - Learning System: detailed-design/learning-system.md
-    - Folder Structure: folder-structure.md
-    - Agent Dispatch: agent-dispatch.md
+  - Reference:
+    - File Layout: reference/file-layout.md
+    - Folder Structure: reference/folder-structure.md
+    - UX Design: reference/UX.md
+    - Research Directions: reference/research-directions.md
+    - Autodiscovery: reference/autodiscovery.md
   - End-to-End Walkthrough:
-    - Overview: e2e-walkthrough.md
+    - Overview: e2e/e2e-walkthrough.md
     - Intent & Planning: e2e/dialog.md
     - Execution: e2e/execution.md
     - The Manuscript: e2e/results.md

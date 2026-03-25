@@ -1,6 +1,6 @@
 # CfA State Machine
 
-The CfA state machine (`projects/POC/scripts/cfa_state.py`) implements the three-phase Conversation for Action protocol described in [cfa-state-machine.md](../cfa-state-machine.md). It is integrated with the orchestrator — `engine.py` takes `CfaState` as a core parameter, and `actors.py` routes to the appropriate actor (AgentRunner or ApprovalGate) based on CfA state.
+The CfA state machine (`projects/POC/scripts/cfa_state.py`) implements the three-phase Conversation for Action protocol described in [conceptual-design/cfa-state-machine.md](../conceptual-design/cfa-state-machine.md). It is integrated with the orchestrator — `engine.py` takes `CfaState` as a core parameter, and `actors.py` routes to the appropriate actor (AgentRunner or ApprovalGate) based on CfA state.
 
 ---
 
@@ -66,7 +66,7 @@ The orchestrator marks certain states (TASK_ASSERT, TASK_ESCALATE) as **never-es
 
 **Consequence for learning:** When the proxy's guess is wrong at a never-escalate state, no human sees the decision, so no differential is recorded. This silence means high-value learning signals are lost at the task level. The proxy can only learn from escalations at ASSERT states (intent, plan, work).
 
-This is a deliberate tradeoff: uninterrupted execution (goal) vs. task-level learning (cost). See [approval-gate.md](approval-gate.md) for the full discussion.
+This is a deliberate tradeoff: uninterrupted execution (goal) vs. task-level learning (cost). See [approval-gate.md](approval-gate.md) for the full discussion of never-escalate states.
 
 ---
 

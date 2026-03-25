@@ -8,7 +8,7 @@ The office manager fixes this by giving humans a seat at the coordination level.
 
 ## Position in the Hierarchy
 
-The office manager is a team lead, one level above projects. It sits in the corporate hierarchy the same way the org lead sits above workgroups in ARCHITECTURE.md.
+The office manager is a team lead, one level above projects. It sits in the corporate hierarchy the same way the org lead sits above workgroups in [overview.md](../overview.md).
 
 ```
     Office Manager (team lead)

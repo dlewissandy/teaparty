@@ -21,9 +21,9 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 
 - `audit/context/design-docs-index.md` — index of design docs
 - `docs/detailed-design/` — theoretical foundations and design rationale
-- `docs/ARCHITECTURE.md` — conceptual model
-- `docs/cfa-state-machine.md` — CfA protocol specification
-- `docs/learning-system.md` — learning and memory design
+- `docs/overview.md` — conceptual model
+- `docs/conceptual-design/cfa-state-machine.md` — CfA protocol specification
+- `docs/conceptual-design/learning-system.md` — learning and memory design
 - Referenced academic papers (where available locally)
 
 ## What You Look For

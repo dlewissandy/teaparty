@@ -34,7 +34,7 @@ It has no context sensitivity. The same EMA applies whether the human is reviewi
 
 It cannot distinguish habitual from episodic patterns. A human's stable preference ("always asks about rollback plans") is invisible to a scalar, as is their recent shift ("rejected the last two migration plans").
 
-It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../autodiscovery.md) for details.
+It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../reference/autodiscovery.md) for details.
 
 ACT-R activation memory solves these problems. EMA stays, reframed as monitoring.
 

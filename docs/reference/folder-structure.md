@@ -42,7 +42,7 @@ Each project in `projects/` is a separate git repository with its own history, b
 
 ## Memory Hierarchy
 
-Memory files are scoped to the hierarchy level where the learning occurred. The [promotion chain](learning-system.md) moves validated learnings upward:
+Memory files are scoped to the hierarchy level where the learning occurred. The [promotion chain](../conceptual-design/learning-system.md) moves validated learnings upward:
 
 ```
 projects/MEMORY.md                                          # global scope
@@ -52,7 +52,7 @@ projects/<project>/.sessions/<ts>/<team>/MEMORY.md          # team scope
 projects/<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md  # dispatch scope
 ```
 
-Each scope level also has typed memory stores — `institutional.md` (always loaded) and task-based stores (fuzzy-retrieved). See [Learning System](learning-system.md) for the full design.
+Each scope level also has typed memory stores — `institutional.md` (always loaded) and task-based stores (fuzzy-retrieved). See [Learning System](../conceptual-design/learning-system.md) for the full design.
 
 ---
 

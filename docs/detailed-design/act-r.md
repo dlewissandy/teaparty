@@ -6,6 +6,7 @@ For how this applies to the TeaParty proxy agent, see:
 - [act-r-proxy-memory.md](act-r-proxy-memory.md) — motivation and migration plan
 - [act-r-proxy-mapping.md](act-r-proxy-mapping.md) — chunks, traces, retrieval implementation
 - [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) — two-pass prediction and learned attention
+For conceptual design, see [../conceptual-design/human-proxies.md](../conceptual-design/human-proxies.md)
 
 ---
 

@@ -4,7 +4,7 @@ This document describes the virtual tree structure that TeaParty exposes for sto
 
 For human readability, internal identifiers are replaced with entity names throughout the tree. Names need not be unique since they are keyed by identifiers internally.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the conceptual model this tree reflects.
+See [overview.md](../overview.md) for the conceptual model this tree reflects.
 
 ## Full Tree
 
@@ -111,7 +111,7 @@ Each conversation is scoped to a subtree. Agents and users in that conversation 
 
 A scope includes everything below it. A workgroup admin conversation can see all agents, jobs, files, and workflows in that workgroup. A job conversation can only see files within that job's folder. An org admin conversation can see all workgroups, engagements, projects, and members in the org.
 
-**Note**: Humans can DM the org lead (scoped to the org lead's agent folder). Humans cannot DM workgroup leads or workgroup members directly. See [ARCHITECTURE.md](ARCHITECTURE.md) for the human interaction model.
+**Note**: Humans can DM the org lead (scoped to the org lead's agent folder). Humans cannot DM workgroup leads or workgroup members directly. See [overview.md](../overview.md) for the human interaction model.
 
 ## Configuration Files
 
@@ -151,7 +151,7 @@ These are visible in the tree at `./tools/<toolkit>/toolkit.json` -- read-only, 
 
 The **orchestration toolkit** provides cross-workgroup capabilities needed by org lead agents. These tools require the agent's workgroup to be the designated operations workgroup -- other workgroups cannot use them.
 
-The **sandbox toolkit** provides code execution and git operations inside isolated Docker containers. Each workgroup has a git repository; each job gets a branch and a sandbox container with Claude Code CLI. See [sandbox-design.md](sandbox-design.md) for the full architecture (future phase).
+The **sandbox toolkit** provides code execution and git operations inside isolated Docker containers. Each workgroup has a git repository; each job gets a branch and a sandbox container with Claude Code CLI. See [sandbox-design.md](../conceptual-design/sandbox-design.md) for the full architecture (future phase).
 
 ### Organization Custom Tools
 
@@ -257,7 +257,7 @@ Workspace-enabled workgroups have a git repository on the host filesystem. The v
 
 The main branch is synced to `Workgroup.files` so the file browser shows the current codebase state alongside documents. Job worktrees are read directly from the filesystem -- they are not synced to JSON while work is active.
 
-Each job gets a git branch (`job/<job-id>`) and its own worktree. The branch isolates the job's code changes from other concurrent jobs -- this is critical when multiple jobs within a project modify the same files. Completed jobs merge back to main. See [sandbox-design.md](sandbox-design.md) for the full design (future phase).
+Each job gets a git branch (`job/<job-id>`) and its own worktree. The branch isolates the job's code changes from other concurrent jobs -- this is critical when multiple jobs within a project modify the same files. Completed jobs merge back to main. See [sandbox-design.md](../conceptual-design/sandbox-design.md) for the full design (future phase).
 
 ## Agent File Access
 

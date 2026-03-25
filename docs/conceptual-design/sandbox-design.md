@@ -17,7 +17,7 @@ TeaParty stores workgroup files as JSON blobs in a SQLite column (`Workgroup.fil
 ## Design Principles
 
 1. **Don't reimplement Claude Code.** Claude Code is a battle-tested coding agent with Bash execution, git operations, file editing, test running, and planning. TeaParty should orchestrate it, not duplicate it.
-2. **Git is the source of truth for code.** Workgroup files (JSON blobs) remain for documents, workflows, and config (see [file-layout.md](file-layout.md)). Code lives in git repos on disk.
+2. **Git is the source of truth for code.** Workgroup files (JSON blobs) remain for documents, workflows, and config (see [file-layout.md](../reference/file-layout.md)). Code lives in git repos on disk.
 3. **Jobs map to branches.** Each job works on an isolated branch via git worktrees, enabling concurrent tasks without interference.
 4. **Containers are the sandbox boundary.** Claude Code runs inside containers with the job's files mounted. The container enforces resource limits and isolation. The host never executes untrusted commands.
 5. **TeaParty is the collaboration layer.** It manages who can access what, coordinates multi-agent workflows, tracks history and decisions, and presents a unified UI. The actual coding happens inside the sandbox.
@@ -755,7 +755,7 @@ GET    /api/workgroups/{workgroup_id}/sandboxes    List running sandbox containe
 
 ## Open Questions
 
-Open research questions for this area are collected in [Research Directions](research-directions.md).
+Open research questions for this area are collected in [Research Directions](../reference/research-directions.md).
 
 ## Dependencies
 

@@ -4,7 +4,7 @@ Master catalog of peer-reviewed and authoritative research informing TeaParty de
 
 Research is organized by topic file. Each entry includes: title, authors/year, tags, and a one-line summary.
 
-See [learning-system.md](../learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
+See [learning-system.md](../conceptual-design/learning-system.md) for the conceptual design of TeaParty's learning system, which builds on the research foundations in this index.
 
 ## Scope and Research Positioning
 

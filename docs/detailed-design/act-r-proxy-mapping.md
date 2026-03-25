@@ -1,6 +1,6 @@
 # ACT-R Proxy Mapping: Chunks, Traces, and Retrieval
 
-This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r.md](act-r.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md).
+This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r.md](act-r.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md). For two-pass prediction and learned attention, see [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md).
 
 ---
 

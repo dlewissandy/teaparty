@@ -62,7 +62,7 @@ mutation {
 ## Phase 1: Understand
 
 1. **Read the issue** using `gh issue view <number>`.
-2. **Read the docs** -- read everything under `docs/` (and nowhere else) that is relevant to the issue. Start with `docs/ARCHITECTURE.md` and follow references.
+2. **Read the docs** -- read everything under `docs/` (and nowhere else) that is relevant to the issue. Start with `docs/overview.md` and follow references.
 3. **Read the code** -- read the relevant source files in `projects/POC/orchestrator/` and its tests in `projects/POC/orchestrator/tests/`. Understand the current behavior.
 
 Do not proceed until you have a clear understanding of what the issue describes, what the code currently does, and what the docs say it should do.

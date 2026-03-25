@@ -8,9 +8,9 @@ Evaluate digested research ideas for relevance and impact to the TeaParty projec
 
 2. **Read project context.** Read these files to ground your analysis:
    - `intake/priorities.md` — current research priorities and focus areas (READ THIS FIRST)
-   - `docs/ARCHITECTURE.md` — system architecture
-   - `docs/cfa-state-machine.md` — CfA protocol specification
-   - `docs/human-proxies.md` — human proxy agent design
+   - `docs/overview.md` — system architecture
+   - `docs/conceptual-design/cfa-state-machine.md` — CfA protocol specification
+   - `docs/conceptual-design/human-proxies.md` — human proxy agent design
 
 3. **For each idea in the digest, evaluate two dimensions:**
 

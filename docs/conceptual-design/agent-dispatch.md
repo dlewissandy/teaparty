@@ -44,7 +44,7 @@ Every organizational level has an explicit lead agent (`is_lead=True`) that serv
 | Organization | Organization is created | Orchestrates engagements, projects; decomposes work to workgroups |
 | Workgroup | Workgroup is created | Manages jobs, onboards agents |
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) for the full hierarchy and how lead agents interact across levels.
+See [overview.md](../overview.md) for the full hierarchy and how lead agents interact across levels.
 
 ---
 
