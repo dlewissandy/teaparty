@@ -241,9 +241,15 @@ def _calibrate_confidence(
         return min(agent_confidence, 0.5)
 
     # Enough history — blend agent and statistical confidence via geometric mean.
+    # Floor agent_confidence at 0.05 to prevent zero-collapse when the LLM
+    # output doesn't contain a CONFIDENCE marker (parse returns 0.0).
+    # This is a heuristic, not a principled calibration — the geometric mean
+    # was chosen for its conservative blending properties, not derived from
+    # a formal cost model.
     laplace, ema = compute_confidence_components(entry)
     stats_confidence = min(laplace, ema)
-    return (agent_confidence * stats_confidence) ** 0.5
+    floored_agent = max(agent_confidence, 0.05)
+    return (floored_agent * stats_confidence) ** 0.5
 
 
 def _retrieve_actr_memories(
