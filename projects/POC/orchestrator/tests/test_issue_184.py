@@ -33,7 +33,7 @@ class TestRecordInteractionAtomicity(unittest.TestCase):
         self.assertEqual(get_interaction_counter(conn), 0)
 
         with patch(
-            'projects.POC.orchestrator.proxy_memory.store_chunk',
+            'projects.POC.orchestrator.proxy_memory._store_chunk_no_commit',
             side_effect=sqlite3.OperationalError('simulated disk error'),
         ):
             with self.assertRaises(sqlite3.OperationalError):
@@ -77,7 +77,7 @@ class TestRecordInteractionAtomicity(unittest.TestCase):
         self.assertEqual(get_interaction_counter(conn), 1)
 
         with patch(
-            'projects.POC.orchestrator.proxy_memory.add_trace',
+            'projects.POC.orchestrator.proxy_memory._add_trace_no_commit',
             side_effect=sqlite3.OperationalError('simulated disk error'),
         ):
             with self.assertRaises(sqlite3.OperationalError):

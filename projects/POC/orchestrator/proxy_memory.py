@@ -125,17 +125,23 @@ def get_interaction_counter(conn: sqlite3.Connection) -> int:
     return row[0] if row else 0
 
 
+def _increment_counter_no_commit(conn: sqlite3.Connection) -> int:
+    """Increment the interaction counter without committing (for use in transactions)."""
+    conn.execute(
+        "UPDATE proxy_state SET value = value + 1 WHERE key='interaction_counter'"
+    )
+    row = conn.execute(
+        "SELECT value FROM proxy_state WHERE key='interaction_counter'"
+    ).fetchone()
+    return row[0]
+
+
 def increment_interaction_counter(conn: sqlite3.Connection) -> int:
     conn.execute('BEGIN IMMEDIATE')
     try:
-        conn.execute(
-            "UPDATE proxy_state SET value = value + 1 WHERE key='interaction_counter'"
-        )
-        row = conn.execute(
-            "SELECT value FROM proxy_state WHERE key='interaction_counter'"
-        ).fetchone()
+        result = _increment_counter_no_commit(conn)
         conn.commit()
-        return row[0]
+        return result
     except Exception:
         conn.rollback()
         raise
@@ -143,7 +149,8 @@ def increment_interaction_counter(conn: sqlite3.Connection) -> int:
 
 # ── Chunk CRUD ───────────────────────────────────────────────────────────────
 
-def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
+def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
+    """Insert/replace a chunk without committing (for use in transactions)."""
     conn.execute(
         """INSERT OR REPLACE INTO proxy_chunks
            (id, type, state, task_type, outcome, lens,
@@ -170,6 +177,10 @@ def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
             _embed_to_json(chunk.embedding_salience),
         ),
     )
+
+
+def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
+    _store_chunk_no_commit(conn, chunk)
     conn.commit()
 
 
@@ -182,7 +193,8 @@ def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
     return _row_to_chunk(row)
 
 
-def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
+def _add_trace_no_commit(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
+    """Add a trace to a chunk without committing (for use in transactions)."""
     row = conn.execute(
         'SELECT traces FROM proxy_chunks WHERE id=?', (chunk_id,),
     ).fetchone()
@@ -194,6 +206,10 @@ def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None
         'UPDATE proxy_chunks SET traces=? WHERE id=?',
         (json.dumps(traces), chunk_id),
     )
+
+
+def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
+    _add_trace_no_commit(conn, chunk_id, interaction)
     conn.commit()
 
 
@@ -428,17 +444,9 @@ def record_interaction(
     If chunk_id matches an existing chunk, adds a trace (reinforcement).
     Otherwise creates a new chunk with independent per-dimension embeddings.
     """
-    current = increment_interaction_counter(conn)
-
-    if chunk_id:
-        existing = get_chunk(conn, chunk_id)
-        if existing:
-            add_trace(conn, chunk_id, current)
-            return get_chunk(conn, chunk_id)  # type: ignore[return-value]
-
+    # Prepare embeddings before the transaction to minimize lock duration
     _embed = embed_fn or _default_embed(conn)
 
-    # Determine embedding model
     provider, model = '', ''
     try:
         from projects.POC.scripts.memory_indexer import detect_provider
@@ -447,32 +455,47 @@ def record_interaction(
         pass
     embedding_model = f'{provider}/{model}' if provider else ''
 
-    chunk = MemoryChunk(
-        id=str(uuid.uuid4()),
-        type=interaction_type,
-        state=state,
-        task_type=task_type,
-        outcome=outcome,
-        lens=lens,
-        prior_prediction=prior_prediction,
-        prior_confidence=prior_confidence,
-        posterior_prediction=posterior_prediction,
-        posterior_confidence=posterior_confidence,
-        prediction_delta=prediction_delta,
-        salient_percepts=salient_percepts or [],
-        human_response=human_response,
-        delta=delta,
-        content=content,
-        traces=[current],
-        embedding_model=embedding_model,
-        embedding_situation=_embed(situation_text or f'{state} {task_type}') if situation_text or state else None,
-        embedding_artifact=_embed(artifact_text) if artifact_text else None,
-        embedding_stimulus=_embed(stimulus_text) if stimulus_text else None,
-        embedding_response=_embed(human_response) if human_response else None,
-        embedding_salience=_embed(prediction_delta) if prediction_delta else None,
-    )
-    store_chunk(conn, chunk)
-    return chunk
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        current = _increment_counter_no_commit(conn)
+
+        if chunk_id:
+            existing = get_chunk(conn, chunk_id)
+            if existing:
+                _add_trace_no_commit(conn, chunk_id, current)
+                conn.commit()
+                return get_chunk(conn, chunk_id)  # type: ignore[return-value]
+
+        chunk = MemoryChunk(
+            id=str(uuid.uuid4()),
+            type=interaction_type,
+            state=state,
+            task_type=task_type,
+            outcome=outcome,
+            lens=lens,
+            prior_prediction=prior_prediction,
+            prior_confidence=prior_confidence,
+            posterior_prediction=posterior_prediction,
+            posterior_confidence=posterior_confidence,
+            prediction_delta=prediction_delta,
+            salient_percepts=salient_percepts or [],
+            human_response=human_response,
+            delta=delta,
+            content=content,
+            traces=[current],
+            embedding_model=embedding_model,
+            embedding_situation=_embed(situation_text or f'{state} {task_type}') if situation_text or state else None,
+            embedding_artifact=_embed(artifact_text) if artifact_text else None,
+            embedding_stimulus=_embed(stimulus_text) if stimulus_text else None,
+            embedding_response=_embed(human_response) if human_response else None,
+            embedding_salience=_embed(prediction_delta) if prediction_delta else None,
+        )
+        _store_chunk_no_commit(conn, chunk)
+        conn.commit()
+        return chunk
+    except Exception:
+        conn.rollback()
+        raise
 
 
 def _default_embed(conn: sqlite3.Connection):
