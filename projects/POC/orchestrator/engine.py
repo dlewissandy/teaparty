@@ -226,6 +226,10 @@ class Orchestrator:
                         if overload_decision == 'retry':
                             continue
                         # 'escalate' — fall through to human dialog
+                        # (unless never_escalate, in which case return failure
+                        # so the parent dispatch loop can coordinate retries)
+                        if self.never_escalate:
+                            return self._make_result(self.cfa.state)
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'withdraw':
                         self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
@@ -264,6 +268,8 @@ class Orchestrator:
                         overload_decision = await self._handle_overloaded('planning')
                         if overload_decision == 'retry':
                             continue
+                        if self.never_escalate:
+                            return self._make_result(self.cfa.state)
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'backtrack':
                         self.skip_intent = False
@@ -305,6 +311,8 @@ class Orchestrator:
                     overload_decision = await self._handle_overloaded('execution')
                     if overload_decision == 'retry':
                         continue
+                    if self.never_escalate:
+                        return self._make_result(self.cfa.state)
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'backtrack':
                     self.skip_intent = False
