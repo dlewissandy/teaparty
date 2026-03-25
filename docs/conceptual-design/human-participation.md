@@ -53,7 +53,7 @@ The transition works like this:
 
 **Human leaves.** The proxy resumes. Gate questions go to the proxy, which generates predictions and either acts autonomously or escalates based on its confidence. The proxy now has fresh observation chunks from the human's direct participation. It saw what the human said, what they cared about, what they corrected. Its next predictions incorporate that.
 
-**Human never shows up.** The proxy handles everything at that level, earning autonomy through accurate prediction as described in [act-r-proxy-memory.md](act-r-proxy-memory.md).
+**Human never shows up.** The proxy handles everything at that level, earning autonomy through accurate prediction as described in [act-r-proxy-memory.md](../detailed-design/act-r-proxy-memory.md).
 
 The current implementation only supports the "human never shows up at subteams" and "human always shows up at project level" patterns. Making the transition dynamic (human drops in mid-session, proxy steps aside) is a Phase 2 capability that requires the approval gate to detect presence and switch modes.
 
