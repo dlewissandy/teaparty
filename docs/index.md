@@ -94,3 +94,7 @@ The architectural claims above are testable. The [Experimental Results](experime
 - [Asymmetric Regret Calibration →](experimental-results/asymmetric-regret-calibration.md)
 - [Scoped vs. Flat Retrieval →](experimental-results/scoped-vs-flat-retrieval.md)
 - [Cost-Quality Frontier →](experimental-results/cost-quality-frontier.md)
+
+## Contributing
+
+See [CONTRIBUTING.md](contributing.md) for development workflows, coding standards, and how to use TeaParty to build TeaParty.
