@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import random
 import sys
 
 from projects.POC.orchestrator import find_poc_root
@@ -181,6 +182,7 @@ async def dispatch(
     retries = 0
     max_retries = config.max_dispatch_retries
     result = None
+    api_overloaded = False
 
     while retries <= max_retries:
         result = await orchestrator.run()
@@ -188,6 +190,17 @@ async def dispatch(
             break
         if result.escalation_type:  # escalation — don't retry, surface it
             break
+
+        # Detect 529 exhaustion: the child orchestrator returned non-terminal
+        # after exhausting its own overload retries.  Check sentinel file.
+        overload_sentinel = os.path.join(dispatch_infra, '.api-overloaded')
+        if os.path.exists(overload_sentinel):
+            api_overloaded = True
+            # Add jitter to prevent dispatch stampede on recovery.
+            # Random 30-120s prevents all subteams from retrying simultaneously.
+            jitter = random.uniform(30, 120)
+            await asyncio.sleep(jitter)
+
         retries += 1
 
     # Merge back into parent session worktree
@@ -254,6 +267,7 @@ async def dispatch(
         'backtrack_count': result.backtrack_count if result else 0,
         'deliverables': deliverables,
         'escalation_type': escalation_type,
+        'api_overloaded': api_overloaded,
     }
 
 

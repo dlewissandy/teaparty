@@ -11,6 +11,7 @@ Covers:
  7. Dispatch surfaces api_overloaded in result dict for parent coordination
 """
 import asyncio
+import os
 import sys
 import time
 import unittest
@@ -419,24 +420,118 @@ class TestApiOverloadedEventType(unittest.TestCase):
 
 # ── Layer 3: Dispatch coordination ──────────────────────────────────────────
 
+class TestEngineNeverEscalateOverload(unittest.TestCase):
+    """When never_escalate=True and overload retries are exhausted, engine must
+    return a non-terminal result instead of calling _failure_dialog (which would
+    crash on the unreachable input_provider).
+    """
+
+    def test_never_escalate_returns_without_dialog_after_overload_exhaustion(self):
+        """With never_escalate=True, exhausted overload retries return non-terminal."""
+        orch = _make_orchestrator()
+        orch.never_escalate = True
+
+        failure_dialog_called = False
+
+        async def crash_dialog(reason):
+            nonlocal failure_dialog_called
+            failure_dialog_called = True
+            raise RuntimeError('never_escalate=True but _failure_dialog was called')
+
+        orch._failure_dialog = crash_dialog
+
+        # Always return api_overloaded
+        async def mock_run_phase(phase_name):
+            return PhaseResult(
+                infrastructure_failure=True,
+                failure_reason='api_overloaded',
+            )
+
+        with patch.object(orch, '_run_phase', side_effect=mock_run_phase), \
+             patch.object(orch, '_auto_bridge', new=AsyncMock()), \
+             patch.object(orch, '_try_skill_lookup', new=AsyncMock(return_value=False)), \
+             patch('asyncio.sleep', new=AsyncMock()):
+            orch.skip_intent = True
+            orch.execute_only = True
+            result = _run(orch._run_loop())
+
+        self.assertFalse(
+            failure_dialog_called,
+            "_failure_dialog must NOT be called with never_escalate=True",
+        )
+        # Should return the current CfA state (non-terminal)
+        self.assertNotIn(result.terminal_state, ('COMPLETED_WORK', 'WITHDRAWN'))
+
+
+class TestStateWriterOverload(unittest.TestCase):
+    """StateWriter handles API_OVERLOADED events for TUI visibility."""
+
+    def test_overload_event_writes_sentinel(self):
+        """StateWriter writes .api-overloaded sentinel on API_OVERLOADED event."""
+        import tempfile
+        from projects.POC.orchestrator.state_writer import StateWriter
+        from projects.POC.orchestrator.events import Event, EventBus, EventType
+
+        tmpdir = tempfile.mkdtemp()
+        bus = EventBus()
+        writer = StateWriter(tmpdir, bus)
+        _run(writer.start())
+
+        event = Event(
+            type=EventType.API_OVERLOADED,
+            data={'phase': 'execution', 'retry_count': 1, 'max_retries': 3, 'cooldown_seconds': 120},
+        )
+        _run(bus.publish(event))
+
+        sentinel = os.path.join(tmpdir, '.api-overloaded')
+        self.assertTrue(os.path.exists(sentinel), '.api-overloaded sentinel must be written')
+
+        # Clean up
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_state_change_clears_sentinel(self):
+        """StateWriter clears .api-overloaded sentinel on STATE_CHANGED event."""
+        import tempfile
+        from projects.POC.orchestrator.state_writer import StateWriter
+        from projects.POC.orchestrator.events import Event, EventBus, EventType
+
+        tmpdir = tempfile.mkdtemp()
+        bus = EventBus()
+        writer = StateWriter(tmpdir, bus)
+        _run(writer.start())
+
+        # Write sentinel
+        sentinel = os.path.join(tmpdir, '.api-overloaded')
+        with open(sentinel, 'w') as f:
+            f.write('{}')
+
+        # Publish state change
+        event = Event(
+            type=EventType.STATE_CHANGED,
+            data={'previous_state': 'PROPOSAL', 'state': 'INTENT_ASSERT', 'action': 'assert'},
+        )
+        _run(bus.publish(event))
+
+        self.assertFalse(os.path.exists(sentinel), '.api-overloaded sentinel must be cleared')
+
+        import shutil
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 class TestDispatchOverloadedResult(unittest.TestCase):
     """Dispatch must surface api_overloaded in result dict so parent can coordinate."""
 
-    def test_dispatch_result_includes_api_overloaded_field(self):
-        """When a child orchestrator fails with 529, the dispatch result must
-        include api_overloaded=True so the parent can apply coordinated backoff.
-        """
-        # This tests the contract: dispatch() result dict has the field.
-        # The actual dispatch function is complex to mock end-to-end,
-        # so we verify the result dict structure from a simulated scenario.
+    def test_dispatch_result_dict_has_api_overloaded_key(self):
+        """dispatch() result dict must include api_overloaded field."""
+        # Verify the field is present in a successful dispatch result.
+        # Full end-to-end dispatch() is too complex to mock; verify contract
+        # by inspecting the return statement structure.
+        import inspect
         from projects.POC.orchestrator.dispatch_cli import dispatch
-
-        # We'd need extensive mocking to run dispatch() — this test
-        # verifies the result dict contract by checking that when
-        # the orchestrator returns with api_overloaded, it propagates.
-        # For now, this is a structural test that will fail until
-        # dispatch_cli.py is updated to include the field.
-        pass  # Covered by integration — dispatch surfaces orchestrator result
+        source = inspect.getsource(dispatch)
+        self.assertIn("'api_overloaded'", source,
+                       "dispatch() return dict must include 'api_overloaded' key")
 
 
 if __name__ == '__main__':

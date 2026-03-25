@@ -195,6 +195,8 @@ class DrilldownScreen(Screen):
                 attention = '  \u26a0 ORPHANED'
             elif s.needs_input:
                 attention = '  \u23f3 YOUR INPUT'
+            elif self._check_overloaded(s):
+                attention = '  \u23f1 API OVERLOADED \u2014 retrying'
             else:
                 attention = ''
             content = (
@@ -614,6 +616,12 @@ class DrilldownScreen(Screen):
 
         # Return to the dashboard (issue #159)
         self.app.pop_screen()
+
+    def _check_overloaded(self, session) -> bool:
+        """Check if the session is currently in API overload recovery."""
+        if not session.infra_dir:
+            return False
+        return os.path.exists(os.path.join(session.infra_dir, '.api-overloaded'))
 
     def action_go_back(self) -> None:
         self.app.pop_screen()
