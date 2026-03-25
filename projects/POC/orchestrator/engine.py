@@ -612,14 +612,12 @@ class Orchestrator:
             self._detect_and_retire_stage()
 
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
-        """Auto-commit artifacts to the session worktree after writes.
+        """Auto-commit deliverables to the session worktree after writes.
 
-        INTENT.md and PLAN.md are committed to the worktree branch so that
-        dispatch worktrees (which branch from this branch) inherit the
-        current artifacts.  After commit, _relocate_misplaced_artifact
-        moves them to infra_dir for the orchestrator's own reads.  The
-        git history preserves them for branching; infra_dir is the live
-        read path.  Issue #147.
+        Only execution deliverables are committed (TASK_ASSERT).  INTENT.md
+        and PLAN.md live exclusively in infra_dir — they are not committed
+        to the worktree.  Dispatch agents receive context via the task
+        string, not git branch inheritance.  Issue #148.
         """
         wt = self.session_worktree
         if not wt:
@@ -627,13 +625,7 @@ class Orchestrator:
 
         new_state = self.cfa.state
         try:
-            if new_state == 'INTENT_ASSERT':
-                v = await artifact_version(wt, 'INTENT.md')
-                await commit_artifact(wt, ['INTENT.md'], f'Intent v{v}: {action}')
-            elif new_state == 'PLAN_ASSERT':
-                v = await artifact_version(wt, 'PLAN.md')
-                await commit_artifact(wt, ['PLAN.md'], f'Plan v{v}: {action}')
-            elif new_state == 'TASK_ASSERT':
+            if new_state == 'TASK_ASSERT':
                 await commit_artifact(wt, ['.'], f'Execution: {action}')
         except Exception as exc:
             _log.warning('Artifact commit failed (non-fatal): %s', exc)

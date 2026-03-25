@@ -4,8 +4,8 @@
 Covers:
  1. commit_artifact() stages and commits specified files.
  2. artifact_version() returns the correct version number from git history.
- 3. Engine._commit_artifacts() commits INTENT.md on INTENT_ASSERT transition.
- 4. Engine._commit_artifacts() commits PLAN.md on PLAN_ASSERT transition.
+ 3. Engine._commit_artifacts() does NOT commit INTENT.md (Issue #148).
+ 4. Engine._commit_artifacts() does NOT commit PLAN.md (Issue #148).
  5. Engine._commit_artifacts() commits all files on TASK_ASSERT transition.
  6. Commit failures are non-fatal (logged, not raised).
 """
@@ -178,15 +178,14 @@ def _make_actor_result(action='approve'):
 
 
 class TestEngineCommitOnIntentAssert(unittest.TestCase):
-    """Engine no longer commits INTENT.md to worktree (lives in infra_dir, Issue #147)."""
+    """Engine must NOT commit INTENT.md — it lives only in infra_dir.  Issue #148."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_intent_committed_on_assert(self):
-        """INTENT.md is committed to the worktree branch so dispatch worktrees
-        inherit it.  After relocation it lives in infra_dir for reads."""
-        # Start at PROPOSAL so assert → INTENT_ASSERT
+        """INTENT.md must not appear in git history after INTENT_ASSERT.
+        Artifacts live only in infra_dir, not the worktree.  Issue #148."""
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')  # → PROPOSAL
 
@@ -197,18 +196,18 @@ class TestEngineCommitOnIntentAssert(unittest.TestCase):
 
         self.assertEqual(orch.cfa.state, 'INTENT_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'INTENT.md')
-        self.assertEqual(len(log), 1)
+        self.assertEqual(len(log), 0)
 
 
 class TestEngineCommitOnPlanAssert(unittest.TestCase):
-    """Engine commits PLAN.md so dispatch worktrees inherit it."""
+    """Engine must NOT commit PLAN.md — it lives only in infra_dir.  Issue #148."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
     def test_plan_committed_on_assert(self):
-        """PLAN.md is committed to the worktree branch so dispatch worktrees
-        inherit it.  After relocation it lives in infra_dir for reads."""
+        """PLAN.md must not appear in git history after PLAN_ASSERT.
+        Artifacts live only in infra_dir, not the worktree.  Issue #148."""
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')       # → PROPOSAL
         cfa = transition(cfa, 'auto-approve')   # → INTENT
@@ -221,7 +220,7 @@ class TestEngineCommitOnPlanAssert(unittest.TestCase):
 
         self.assertEqual(orch.cfa.state, 'PLAN_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'PLAN.md')
-        self.assertEqual(len(log), 1)
+        self.assertEqual(len(log), 0)
 
 
 class TestEngineCommitOnTaskAssert(unittest.TestCase):
@@ -275,14 +274,14 @@ class TestEngineCommitFailureNonFatal(unittest.TestCase):
 
 
 class TestEngineVersionIncrementsOnCorrection(unittest.TestCase):
-    """INTENT.md is committed to worktree branch for dispatch inheritance."""
+    """INTENT.md must not be committed even after correction cycles.  Issue #148."""
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()
 
-    def test_intent_version_increments_on_correction(self):
-        """After two assert cycles (original + correction), the worktree
-        git log should show two versioned INTENT.md commits."""
+    def test_intent_not_committed_after_correction(self):
+        """After correction cycles, INTENT.md must still not be in git history.
+        Artifacts live only in infra_dir.  Issue #148."""
         # First assertion: PROPOSAL → INTENT_ASSERT
         cfa = make_initial_state(task_id='test')
         cfa = transition(cfa, 'propose')  # → PROPOSAL
@@ -302,7 +301,7 @@ class TestEngineVersionIncrementsOnCorrection(unittest.TestCase):
 
         self.assertEqual(orch.cfa.state, 'INTENT_ASSERT')
         log = _git_log_oneline(orch.session_worktree, 'INTENT.md')
-        self.assertEqual(len(log), 2)
+        self.assertEqual(len(log), 0)
 
 
 if __name__ == '__main__':

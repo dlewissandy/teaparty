@@ -1146,8 +1146,8 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
-        # Source remains in place (copy, not move — Issue #147)
-        self.assertTrue(os.path.exists(misplaced))
+        # Source is removed (move, not copy — Issue #148)
+        self.assertFalse(os.path.exists(misplaced))
         import shutil
         shutil.rmtree(wrong_dir, ignore_errors=True)
 
@@ -1166,8 +1166,8 @@ class TestRelocateMisplacedArtifact(unittest.TestCase):
 
         self.assertTrue(result)
         self.assertTrue(os.path.exists(os.path.join(self.worktree, 'INTENT.md')))
-        # Source remains in place (copy, not move — Issue #147)
-        self.assertTrue(os.path.exists(misplaced))
+        # Source is removed (move, not copy — Issue #148)
+        self.assertFalse(os.path.exists(misplaced))
         import shutil
         shutil.rmtree(repo_root, ignore_errors=True)
 
