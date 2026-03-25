@@ -97,4 +97,4 @@ The architectural claims above are testable. The [Experimental Results](experime
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md) for development workflows, coding standards, and how to use TeaParty to build TeaParty.
+See [CONTRIBUTING.md](contributing.md) for development workflows, coding standards, and how to use TeaParty to build TeaParty.
