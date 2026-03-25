@@ -202,6 +202,107 @@ class TestTransitionsDictCompat(unittest.TestCase):
         self.assertIn('auto-approve', action_names)
 
 
+# ── Test: Machine hooks (history, backtrack counting) ──────────────────────
+
+class TestMachineHooks(unittest.TestCase):
+    """after_transition hook records history and counts backtracks."""
+
+    def test_history_recorded_by_hook(self):
+        """Machine's after_transition hook records history entries."""
+        from projects.POC.scripts.cfa_machine import (
+            CfAMachine, CfATransitionModel, PHASE_SETS,
+        )
+        model = CfATransitionModel(
+            phase_sets=PHASE_SETS,
+            last_action='propose',
+            last_actor='human',
+        )
+        sm = CfAMachine(start_value='IDEA', cfa_model=model)
+        sm.send('propose')
+        self.assertEqual(len(model.history), 1)
+        self.assertEqual(model.history[0]['state'], 'IDEA')
+        self.assertEqual(model.history[0]['action'], 'propose')
+        self.assertEqual(model.history[0]['actor'], 'human')
+        self.assertIn('timestamp', model.history[0])
+
+    def test_backtrack_counted_by_hook(self):
+        """Machine's after_transition hook increments backtrack_count on cross-phase."""
+        from projects.POC.scripts.cfa_machine import (
+            CfAMachine, CfATransitionModel, PHASE_SETS,
+        )
+        # Start at DRAFT (planning), do refine-intent -> INTENT_RESPONSE (intent)
+        model = CfATransitionModel(
+            phase_sets=PHASE_SETS,
+            last_action='refine-intent',
+            last_actor='human',
+        )
+        sm = CfAMachine(start_value='DRAFT', cfa_model=model)
+        sm.send('refine_intent')
+        self.assertEqual(model.backtrack_count, 1)
+
+    def test_non_backtrack_not_counted(self):
+        """Forward transitions don't increment backtrack_count."""
+        from projects.POC.scripts.cfa_machine import (
+            CfAMachine, CfATransitionModel, PHASE_SETS,
+        )
+        model = CfATransitionModel(
+            phase_sets=PHASE_SETS,
+            last_action='propose',
+            last_actor='human',
+        )
+        sm = CfAMachine(start_value='IDEA', cfa_model=model)
+        sm.send('propose')
+        self.assertEqual(model.backtrack_count, 0)
+
+    def test_history_via_transition_function(self):
+        """transition() history comes from the machine hook, not manual code."""
+        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        cfa = make_initial_state()
+        cfa = transition(cfa, 'propose')
+        cfa = transition(cfa, 'auto-approve')
+        self.assertEqual(len(cfa.history), 2)
+        self.assertEqual(cfa.history[0]['action'], 'propose')
+        self.assertEqual(cfa.history[1]['action'], 'auto-approve')
+
+
+# ── Test: Machine guards (backtrack suppression) ──────────────────────────
+
+class TestMachineGuards(unittest.TestCase):
+    """Backtrack transitions are gated by the backtrack_allowed guard."""
+
+    def test_backtrack_allowed_by_default(self):
+        """Backtrack transitions work when suppress_backtracks=False (default)."""
+        from projects.POC.scripts.cfa_machine import CfAMachine
+        sm = CfAMachine(start_value='DRAFT')
+        sm.send('refine_intent')  # backtrack: DRAFT -> INTENT_RESPONSE
+        self.assertEqual(sm.current_state_value, 'INTENT_RESPONSE')
+
+    def test_backtrack_suppressed(self):
+        """Backtrack transitions are blocked when suppress_backtracks=True."""
+        from projects.POC.scripts.cfa_machine import CfAMachine
+        sm = CfAMachine(start_value='DRAFT', suppress_backtracks=True)
+        with self.assertRaises(Exception):
+            sm.send('refine_intent')
+
+    def test_non_backtrack_unaffected_by_suppression(self):
+        """Non-backtrack transitions work even with suppress_backtracks=True."""
+        from projects.POC.scripts.cfa_machine import CfAMachine
+        sm = CfAMachine(start_value='DRAFT', suppress_backtracks=True)
+        sm.send('auto_approve')  # not a backtrack
+        self.assertEqual(sm.current_state_value, 'PLAN')
+
+    def test_backtrack_edges_match_json(self):
+        """BACKTRACK_EDGES matches every edge with backtrack:true in JSON."""
+        from projects.POC.scripts.cfa_machine import BACKTRACK_EDGES
+        machine_json = _load_json_machine()
+        expected = set()
+        for from_state, edges in machine_json['transitions'].items():
+            for edge in edges:
+                if edge.get('backtrack'):
+                    expected.add((from_state, edge['action']))
+        self.assertEqual(set(BACKTRACK_EDGES), expected)
+
+
 # ── Test: RunnerSM exists and works ────────────────────────────────────────
 
 class TestRunnerSMExists(unittest.TestCase):
