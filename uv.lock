@@ -596,6 +596,15 @@ wheels = [
 ]
 
 [[package]]
+name = "python-statemachine"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/a6/d0626b1efb56d9502fe8686fa5dbf23d444b5985adac974be2aa8780c956/python_statemachine-3.0.0.tar.gz", hash = "sha256:91523f9ead73c1d6fecc975d5c6e0bfe363fbf537c5f0bf309bcd0f94f9441b2", size = 852800 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/ba/9863be42c209d66623e188223484c1502f25a2412f258f00505c613f6e5d/python_statemachine-3.0.0-py3-none-any.whl", hash = "sha256:f967ee864cfd26375c91f49560e790357613482811efcec8b2020c1f874a5eaf", size = 103801 },
+]
+
+[[package]]
 name = "pywin32"
 version = "311"
 source = { registry = "https://pypi.org/simple" }
@@ -820,6 +829,7 @@ dependencies = [
     { name = "feedparser" },
     { name = "filelock" },
     { name = "mcp" },
+    { name = "python-statemachine" },
     { name = "pyyaml" },
     { name = "textual" },
     { name = "youtube-transcript-api" },
@@ -830,6 +840,7 @@ requires-dist = [
     { name = "feedparser", specifier = ">=6.0.12" },
     { name = "filelock", specifier = ">=3.0" },
     { name = "mcp", specifier = ">=1.26.0" },
+    { name = "python-statemachine", specifier = ">=3.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "textual", specifier = ">=3.0.0" },
     { name = "youtube-transcript-api", specifier = ">=1.2.4" },

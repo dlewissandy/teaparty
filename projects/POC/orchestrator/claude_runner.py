@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from projects.POC.orchestrator.events import Event, EventBus, EventType
+from projects.POC.orchestrator.runner_machine import RunnerSM
 
 
 @dataclass
@@ -80,6 +81,7 @@ class ClaudeRunner:
         self.session_id = session_id
         self._process: asyncio.subprocess.Process | None = None
         self._extracted_session_id: str = ''
+        self._sm = RunnerSM()
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
@@ -97,6 +99,7 @@ class ClaudeRunner:
             env = self._build_env()
             start_time = time.time()
 
+            self._lifecycle('launch')
             self._process = await asyncio.create_subprocess_exec(
                 *args,
                 stdin=asyncio.subprocess.PIPE,
@@ -120,6 +123,13 @@ class ClaudeRunner:
             except _StallTimeout:
                 stall_killed = True
                 exit_code = -1
+                self._lifecycle('kill')
+
+            if not stall_killed:
+                if exit_code == 0:
+                    self._lifecycle('finish')
+                else:
+                    self._lifecycle('error')
 
             return ClaudeResult(
                 exit_code=exit_code,
@@ -210,12 +220,16 @@ class ClaudeRunner:
 
         async def read_stdout():
             nonlocal last_output_time, has_running_agents
+            first_output = True
             with open(self.stream_file, 'a') as f:
                 async for line in proc.stdout:
                     line_str = line.decode().rstrip()
                     if not line_str:
                         continue
                     last_output_time = time.time()
+                    if first_output:
+                        first_output = False
+                        self._lifecycle('stream')
 
                     # Persist to stream file
                     f.write(line_str + '\n')
@@ -283,6 +297,7 @@ class ClaudeRunner:
                 if has_running_agents:
                     effective_timeout = max(self.stall_timeout, 7200)
                 if age >= effective_timeout:
+                    self._lifecycle('stall')
                     _kill_process_tree(proc.pid)
                     raise _StallTimeout()
 
@@ -307,6 +322,24 @@ class ClaudeRunner:
         """Kill the child subprocess and its process tree if still running."""
         if self._process and self._process.returncode is None:
             _kill_process_tree(self._process.pid)
+
+    def _lifecycle(self, event_name: str) -> None:
+        """Send a lifecycle event to the RunnerSM.
+
+        Logs a warning (rather than crashing) if the transition is invalid,
+        since async races in subprocess management can cause out-of-order
+        lifecycle events.  Once the lifecycle is proven clean in production,
+        this guard can be tightened to raise.
+        """
+        from statemachine.exceptions import TransitionNotAllowed
+        try:
+            self._sm.send(event_name)
+        except TransitionNotAllowed:
+            import logging
+            logging.getLogger('claude_runner').warning(
+                'RunnerSM: invalid lifecycle transition %r from %s',
+                event_name, self._sm.current_state_value,
+            )
 
     def _maybe_extract_session_id(self, event: dict) -> None:
         if (event.get('type') == 'system'
