@@ -25,6 +25,7 @@ from projects.POC.orchestrator.proxy_memory import (
     get_chunk,
     add_trace,
     query_chunks,
+    reinforce_retrieved,
     retrieve_chunks,
     record_interaction,
     serialize_chunks_for_prompt,
@@ -144,10 +145,9 @@ class TestCosineSimilarity(unittest.TestCase):
 
 class TestCompositeScore(unittest.TestCase):
 
-    def test_breadth_rewards(self):
-        """Chunk matching 5 dimensions scores higher than chunk matching 2."""
+    def test_perfect_match_equal_regardless_of_populated_dims(self):
+        """A perfect match on N/N populated dims scores the same as M/M."""
         vec_a = [1.0, 0.0, 0.0]
-        vec_b = [0.0, 1.0, 0.0]
 
         chunk_broad = _make_chunk(
             chunk_id='broad', traces=[9],
@@ -173,14 +173,15 @@ class TestCompositeScore(unittest.TestCase):
             'response': vec_a,
             'salience': vec_a,
         }
-        # Use s=0 to eliminate noise
         score_broad = composite_score(
             chunk_broad, ctx, 10, 0.0, 1.0, s=0.0,
         )
         score_narrow = composite_score(
             chunk_narrow, ctx, 10, 0.0, 1.0, s=0.0,
         )
-        self.assertGreater(score_broad, score_narrow)
+        # Both are perfect matches on their populated dimensions —
+        # semantic component should be equal (1.0).
+        self.assertAlmostEqual(score_broad, score_narrow, places=5)
 
 
 class TestChunkCRUD(unittest.TestCase):
@@ -319,39 +320,37 @@ class TestRetrieveChunks(unittest.TestCase):
 
 
 class TestRetrievalReinforcement(unittest.TestCase):
-    """A-001: retrieve_chunks must add a trace to each retrieved chunk."""
+    """Retrieval is a pure read; reinforcement is a separate explicit step."""
 
-    def test_retrieval_adds_trace(self):
+    def test_retrieve_does_not_add_trace(self):
         conn = _make_db()
         store_chunk(conn, _make_chunk(chunk_id='r1', traces=[1]))
-        # Set counter so retrieval happens at interaction 5
-        conn.execute("UPDATE proxy_state SET value=5 WHERE key='interaction_counter'")
-        conn.commit()
 
         results = retrieve_chunks(
             conn, current_interaction=5, tau=-999, s=0.0,
         )
         self.assertEqual(len(results), 1)
-        # Re-read from DB to verify the trace was persisted
+        loaded = get_chunk(conn, 'r1')
+        self.assertEqual(loaded.traces, [1],
+                         "retrieve_chunks should not mutate traces")
+
+    def test_reinforce_retrieved_adds_trace(self):
+        """Explicit reinforce_retrieved adds traces for used chunks."""
+        conn = _make_db()
+        store_chunk(conn, _make_chunk(chunk_id='r1', traces=[1]))
+
+        results = retrieve_chunks(
+            conn, current_interaction=5, tau=-999, s=0.0,
+        )
+        # Caller explicitly reinforces after using the chunks
+        reinforce_retrieved(conn, results, current_interaction=5)
+
         loaded = get_chunk(conn, 'r1')
         self.assertIn(5, loaded.traces)
         self.assertEqual(loaded.traces, [1, 5])
 
-    def test_retrieval_reinforcement_boosts_activation(self):
-        """Retrieved chunks should have higher activation on next retrieval."""
-        conn = _make_db()
-        store_chunk(conn, _make_chunk(chunk_id='a', traces=[1]))
-        store_chunk(conn, _make_chunk(chunk_id='b', traces=[1]))
-
-        # Retrieve both at interaction 5 — both get reinforced
-        retrieve_chunks(conn, current_interaction=5, tau=-999, s=0.0)
-
-        # Retrieve only 'a' at interaction 10 (filter by state trick — give them different states)
-        conn2 = _make_db()
-        store_chunk(conn2, _make_chunk(chunk_id='x', state='PLAN_ASSERT', traces=[1, 5]))
-        store_chunk(conn2, _make_chunk(chunk_id='y', state='PLAN_ASSERT', traces=[1]))
-
-        # x has the extra trace from retrieval, so it should have higher activation
+    def test_reinforcement_boosts_activation(self):
+        """Reinforced chunks have higher activation than unreinforced."""
         bx = base_level_activation([1, 5], current_interaction=10)
         by = base_level_activation([1], current_interaction=10)
         self.assertGreater(bx, by)

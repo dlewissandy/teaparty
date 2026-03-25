@@ -110,6 +110,7 @@ def open_proxy_db(db_path: str) -> sqlite3.Connection:
     """Open (or create) the proxy memory database."""
     os.makedirs(os.path.dirname(db_path) or '.', exist_ok=True)
     conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.executescript(_SCHEMA)
     return conn
@@ -178,7 +179,7 @@ def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
     ).fetchone()
     if not row:
         return None
-    return _row_to_chunk(row, conn)
+    return _row_to_chunk(row)
 
 
 def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
@@ -209,25 +210,28 @@ def query_chunks(
         params.append(task_type)
     where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
     rows = conn.execute(f'SELECT * FROM proxy_chunks{where}', params).fetchall()
-    return [_row_to_chunk(r, conn) for r in rows]
+    return [_row_to_chunk(r) for r in rows]
 
 
-def _row_to_chunk(row: tuple, conn: sqlite3.Connection) -> MemoryChunk:
+def _row_to_chunk(row: sqlite3.Row) -> MemoryChunk:
     return MemoryChunk(
-        id=row[0], type=row[1], state=row[2], task_type=row[3],
-        outcome=row[4], lens=row[5],
-        prior_prediction=row[6], prior_confidence=row[7],
-        posterior_prediction=row[8], posterior_confidence=row[9],
-        prediction_delta=row[10],
-        salient_percepts=json.loads(row[11]) if row[11] else [],
-        human_response=row[12], delta=row[13], content=row[14],
-        traces=json.loads(row[15]) if row[15] else [],
-        embedding_model=row[16],
-        embedding_situation=_json_to_embed(row[17]),
-        embedding_artifact=_json_to_embed(row[18]),
-        embedding_stimulus=_json_to_embed(row[19]),
-        embedding_response=_json_to_embed(row[20]),
-        embedding_salience=_json_to_embed(row[21]),
+        id=row['id'], type=row['type'], state=row['state'],
+        task_type=row['task_type'], outcome=row['outcome'], lens=row['lens'],
+        prior_prediction=row['prior_prediction'],
+        prior_confidence=row['prior_confidence'],
+        posterior_prediction=row['posterior_prediction'],
+        posterior_confidence=row['posterior_confidence'],
+        prediction_delta=row['prediction_delta'],
+        salient_percepts=json.loads(row['salient_percepts']) if row['salient_percepts'] else [],
+        human_response=row['human_response'], delta=row['delta'],
+        content=row['content'],
+        traces=json.loads(row['traces']) if row['traces'] else [],
+        embedding_model=row['embedding_model'],
+        embedding_situation=_json_to_embed(row['embedding_situation']),
+        embedding_artifact=_json_to_embed(row['embedding_artifact']),
+        embedding_stimulus=_json_to_embed(row['embedding_stimulus']),
+        embedding_response=_json_to_embed(row['embedding_response']),
+        embedding_salience=_json_to_embed(row['embedding_salience']),
     )
 
 
@@ -276,6 +280,13 @@ def logistic_noise(s: float = NOISE_SCALE) -> float:
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
     """Cosine similarity between two equal-length vectors."""
+    if len(a) != len(b):
+        raise ValueError(
+            f'Vector length mismatch: {len(a)} vs {len(b)}. '
+            f'Chunks may have been embedded by different models.'
+        )
+    if not a:
+        return 0.0
     dot = sum(x * y for x, y in zip(a, b))
     mag_a = sum(x * x for x in a) ** 0.5
     mag_b = sum(x * x for x in b) ** 0.5
@@ -312,11 +323,16 @@ def composite_score(
         'salience': chunk.embedding_salience,
     }
     sim_sum = 0.0
+    matched_dims = 0
     for dim, context_vec in context_embeddings.items():
         chunk_vec = dim_map.get(dim)
         if chunk_vec and context_vec:
-            sim_sum += cosine_similarity(chunk_vec, context_vec)
-    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
+            try:
+                sim_sum += cosine_similarity(chunk_vec, context_vec)
+                matched_dims += 1
+            except ValueError:
+                _log.debug('Skipping dim %s: vector length mismatch', dim)
+    sem = sim_sum / matched_dims if matched_dims > 0 else 0.0
 
     noise = logistic_noise(s)
     return activation_weight * b_norm + semantic_weight * sem + noise
@@ -364,13 +380,22 @@ def retrieve_chunks(
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
-    retrieved = [chunk for _, chunk in scored[:top_k]]
+    return [chunk for _, chunk in scored[:top_k]]
 
-    # ACT-R Rule 2: retrieval reinforces the chunk (adds a trace).
-    for chunk in retrieved:
+
+def reinforce_retrieved(
+    conn: sqlite3.Connection,
+    chunks: list[MemoryChunk],
+    current_interaction: int,
+) -> None:
+    """ACT-R Rule 2: reinforce chunks that were actually used.
+
+    Call this after the proxy has consumed the retrieved memories,
+    not during retrieval itself. Only reinforce chunks the proxy
+    actually referenced in its response.
+    """
+    for chunk in chunks:
         add_trace(conn, chunk.id, current_interaction)
-
-    return retrieved
 
 
 # ── Recording ────────────────────────────────────────────────────────────────
