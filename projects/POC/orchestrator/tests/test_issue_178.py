@@ -316,7 +316,8 @@ class TestEngineAutoRetryOn529(unittest.TestCase):
 
         with patch.object(orch, '_run_phase', side_effect=mock_run_phase), \
              patch.object(orch, '_auto_bridge', new=AsyncMock()), \
-             patch.object(orch, '_try_skill_lookup', new=AsyncMock(return_value=False)):
+             patch.object(orch, '_try_skill_lookup', new=AsyncMock(return_value=False)), \
+             patch('asyncio.sleep', new=AsyncMock()):
             orch.skip_intent = True
             orch.execute_only = True
             result = _run(orch._run_loop())
@@ -351,7 +352,8 @@ class TestEngineAutoRetryOn529(unittest.TestCase):
              patch.object(orch, '_auto_bridge', new=AsyncMock()), \
              patch.object(orch, '_try_skill_lookup', new=AsyncMock(return_value=False)), \
              patch('projects.POC.orchestrator.engine.save_state'), \
-             patch('projects.POC.orchestrator.engine.set_state_direct', return_value=orch.cfa):
+             patch('projects.POC.orchestrator.engine.set_state_direct', return_value=orch.cfa), \
+             patch('asyncio.sleep', new=AsyncMock()):
             orch.skip_intent = True
             orch.execute_only = True
             result = _run(orch._run_loop())

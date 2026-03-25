@@ -26,6 +26,7 @@ class EventType(Enum):
     STREAM_ERROR = 'stream_error'
     FAILURE = 'failure'
     LOG = 'log'
+    API_OVERLOADED = 'api_overloaded'
 
 
 @dataclass

@@ -233,8 +233,9 @@ class AgentRunner:
             })
 
         if result.exit_code != 0:
+            reason = 'api_overloaded' if result.api_overloaded else 'nonzero_exit'
             return ActorResult(action='failed', data={
-                'reason': 'nonzero_exit',
+                'reason': reason,
                 'exit_code': result.exit_code,
                 'stderr_lines': result.stderr_lines,
             })
