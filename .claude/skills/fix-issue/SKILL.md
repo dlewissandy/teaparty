@@ -1,12 +1,19 @@
+---
+name: fix-issue
+description: Fix GitHub Issue. Systematically investigate, test, and resolve a GitHub issue with full traceability — branching, pre-mortem, failing tests, root cause analysis, fix, post-mortem, and merge.
+argument-hint: <issue-number>
+user-invocable: true
+---
+
 # Fix GitHub Issue
 
 Systematically investigate, test, and resolve a GitHub issue with full traceability.
 
 All work is performed on an isolated branch. The branch is merged back to develop at the end.
 
-## Argument
+## Arguments
 
-The GitHub issue number: `/fix-issue 123`
+- `$0` — the GitHub issue number (required)
 
 ## Commit Convention
 
