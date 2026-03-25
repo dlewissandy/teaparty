@@ -508,7 +508,7 @@ async def _invoke_claude_proxy(
             None,
             lambda: subprocess.run(
                 ['claude', '-p', '--output-format', 'text',
-                 '--allowedTools', 'Read,Glob,Grep,Bash',
+                 '--allowedTools', 'Read,Glob,Grep',
                  '--permission-mode', 'bypassPermissions'],
                 input=prompt, capture_output=True, text=True, timeout=60,
                 cwd=session_worktree or None,

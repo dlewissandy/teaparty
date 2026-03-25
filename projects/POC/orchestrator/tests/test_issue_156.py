@@ -41,6 +41,7 @@ def _make_phase_config():
 
 def _make_dispatch_listener():
     """Build a minimal DispatchListener for testing."""
+    from projects.POC.orchestrator import find_poc_root
     from projects.POC.orchestrator.dispatch_listener import DispatchListener
     from projects.POC.orchestrator.events import EventBus
     return DispatchListener(
@@ -48,6 +49,7 @@ def _make_dispatch_listener():
         session_worktree='/tmp/worktree',
         infra_dir='/tmp/infra',
         project_slug='test',
+        poc_root=find_poc_root(),
     )
 
 
@@ -165,7 +167,7 @@ class TestDispatchTeamValidation(unittest.TestCase):
     def test_invalid_team_rejected(self):
         """A team name not in phase-config.json must be rejected."""
         listener = _make_dispatch_listener()
-        result = asyncio.get_event_loop().run_until_complete(
+        result = asyncio.run(
             listener._handle_dispatch('evil-team', 'do bad things')
         )
         self.assertEqual(result['status'], 'failed')
@@ -180,16 +182,16 @@ class TestDispatchTeamValidation(unittest.TestCase):
         # We only test that the team name validation passes —
         # the actual dispatch will fail because there's no real session.
         # We patch dispatch() to isolate the validation.
-        for team_name in config.teams:
-            with patch('projects.POC.orchestrator.dispatch_listener.dispatch',
-                       return_value={'status': 'completed'}):
-                result = asyncio.get_event_loop().run_until_complete(
-                    listener._handle_dispatch(team_name, 'test task')
-                )
-                self.assertNotEqual(
-                    result.get('reason', ''), f'unknown team: {team_name}',
-                    f'Valid team {team_name!r} should not be rejected',
-                )
+        async def _run_all():
+            for team_name in config.teams:
+                with patch('projects.POC.orchestrator.dispatch_listener.dispatch',
+                           return_value={'status': 'completed'}):
+                    result = await listener._handle_dispatch(team_name, 'test task')
+                    self.assertNotEqual(
+                        result.get('reason', ''), f'unknown team: {team_name}',
+                        f'Valid team {team_name!r} should not be rejected',
+                    )
+        asyncio.run(_run_all())
 
 
 if __name__ == '__main__':
