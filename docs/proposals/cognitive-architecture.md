@@ -261,7 +261,7 @@ Multi-agent workgroups can share knowledge in several ways:
 
 For TeaParty, **stigmergy** is already the dominant pattern -- agents leave their work in shared files and conversations. The opportunity is to layer *explicit* knowledge sharing on top.
 
-**Note on broadcast learning and messaging**: Broadcast learning and shared knowledge are addressed by the messaging proposal (see [messaging-design.md](messaging-design.md)). Team leads bridge uber and subteam contexts via liaisons, enabling implicit coordination through structured message passing.
+**Note on broadcast learning and messaging**: Broadcast learning and shared knowledge are addressed by the messaging proposal (see [messaging.md](messaging.md)). Team leads bridge uber and subteam contexts via liaisons, enabling implicit coordination through structured message passing.
 
 ---
 
@@ -545,7 +545,7 @@ In workgroup sessions, agents can learn from observing each other and from struc
 
 **Private agent memories:** Agent-specific observations and preferences remain private unless explicitly promoted to shared scope.
 
-**Cross-agent messaging:** The messaging system (see [messaging-design.md](messaging-design.md)) enables agents to explicitly share learnings via liaisons. Team leads consolidate subteam experiences and broadcast institutional patterns upward.
+**Cross-agent messaging:** The messaging system (see [messaging.md](messaging.md)) enables agents to explicitly share learnings via liaisons. Team leads consolidate subteam experiences and broadcast institutional patterns upward.
 
 ---
 

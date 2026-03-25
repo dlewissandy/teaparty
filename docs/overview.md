@@ -220,5 +220,3 @@ Each session creates a git worktree. Subteam dispatches create child worktrees b
 - [UX Design](reference/UX.md) -- User experience philosophy
 - [Research Directions](reference/research-directions.md) -- Active open questions
 - [Autodiscovery](reference/autodiscovery.md) -- Autonomous code review system
-- [POC Implementation Reference](../projects/POC/docs/poc-architecture.md) -- CLI flags, env vars, stream-JSON format
-- [README](../README.md) -- Project overview
