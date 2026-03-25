@@ -22,9 +22,17 @@ We follow gitflow:
 - **`develop`** — integration branch. Feature work merges here first. All tests must pass.
 - **`fix/issue-<number>`** or **`feature/<name>`** — working branches. One branch per issue. Branch from develop, merge back to develop.
 
+### Always Be Running
+
+**`main` and `develop` must always be in a working state.** Tests pass, docs build, the system runs. This is non-negotiable. If you merge something that breaks develop, fixing it is your top priority — above whatever you were working on.
+
+Feature branches are where things break. Experiment freely, commit broken intermediate states, push work-in-progress. That is what branches are for. But before you open a PR to develop, rebase on develop and verify that tests pass and docs build. CI enforces this — PRs that fail checks cannot merge.
+
 ### Pull Requests and Human Approval
 
 **No work merges to develop or main without a pull request and human approval.** This is not negotiable. Agent-produced code, documentation, and design changes all require human review before integration. The PR description should explain what changed and why.
+
+PRs to develop require a rebase on develop before merging (linear history is enforced). PRs to main are squash-merged — the PR description becomes the commit message on main, so write it like a release note.
 
 ### Worktrees
 
