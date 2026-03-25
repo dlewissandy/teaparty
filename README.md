@@ -13,7 +13,8 @@
 <p align="center">
   <a href="https://dlewissandy.github.io/teaparty/">Documentation</a> &middot;
   <a href="https://dlewissandy.github.io/teaparty/experimental-results/">Experimental Results</a> &middot;
-  <a href="https://github.com/dlewissandy/teaparty/issues">Issues</a>
+  <a href="https://github.com/dlewissandy/teaparty/issues">Issues</a> &middot;
+  <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 ---
