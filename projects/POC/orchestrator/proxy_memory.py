@@ -444,7 +444,9 @@ def record_interaction(
     If chunk_id matches an existing chunk, adds a trace (reinforcement).
     Otherwise creates a new chunk with independent per-dimension embeddings.
     """
-    # Prepare embeddings before the transaction to minimize lock duration
+    # Compute embeddings BEFORE the transaction — _default_embed routes to
+    # try_embed which calls conn.commit() on the embedding_cache table,
+    # so embedding calls must not happen inside our BEGIN IMMEDIATE block.
     _embed = embed_fn or _default_embed(conn)
 
     provider, model = '', ''
@@ -454,6 +456,12 @@ def record_interaction(
     except Exception:
         pass
     embedding_model = f'{provider}/{model}' if provider else ''
+
+    emb_situation = _embed(situation_text or f'{state} {task_type}') if situation_text or state else None
+    emb_artifact = _embed(artifact_text) if artifact_text else None
+    emb_stimulus = _embed(stimulus_text) if stimulus_text else None
+    emb_response = _embed(human_response) if human_response else None
+    emb_salience = _embed(prediction_delta) if prediction_delta else None
 
     conn.execute('BEGIN IMMEDIATE')
     try:
@@ -484,11 +492,11 @@ def record_interaction(
             content=content,
             traces=[current],
             embedding_model=embedding_model,
-            embedding_situation=_embed(situation_text or f'{state} {task_type}') if situation_text or state else None,
-            embedding_artifact=_embed(artifact_text) if artifact_text else None,
-            embedding_stimulus=_embed(stimulus_text) if stimulus_text else None,
-            embedding_response=_embed(human_response) if human_response else None,
-            embedding_salience=_embed(prediction_delta) if prediction_delta else None,
+            embedding_situation=emb_situation,
+            embedding_artifact=emb_artifact,
+            embedding_stimulus=emb_stimulus,
+            embedding_response=emb_response,
+            embedding_salience=emb_salience,
         )
         _store_chunk_no_commit(conn, chunk)
         conn.commit()

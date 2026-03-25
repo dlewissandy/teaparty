@@ -98,6 +98,53 @@ class TestRecordInteractionAtomicity(unittest.TestCase):
             'operations are not atomic',
         )
 
+    def test_embed_fn_runs_outside_transaction(self):
+        """Embedding calls must happen before BEGIN IMMEDIATE, not inside it.
+
+        _default_embed routes to try_embed which calls conn.commit() on the
+        embedding_cache table. If _embed runs inside the transaction, that
+        commit would prematurely commit the counter increment, destroying
+        atomicity. This test verifies embeddings are computed before the
+        transaction by checking that an embed_fn that commits doesn't
+        interfere with rollback.
+        """
+        conn = _make_db()
+        self.assertEqual(get_interaction_counter(conn), 0)
+
+        def committing_embed(text):
+            """Simulates try_embed writing to embedding_cache and committing."""
+            conn.execute(
+                "INSERT OR REPLACE INTO embedding_cache "
+                "(hash, provider, model, embedding, updated_at) "
+                "VALUES (?, ?, ?, ?, 0)",
+                (text, 'test', 'test', '[1.0]'),
+            )
+            conn.commit()
+            return [1.0, 0.0]
+
+        with patch(
+            'projects.POC.orchestrator.proxy_memory._store_chunk_no_commit',
+            side_effect=sqlite3.OperationalError('simulated failure after embed'),
+        ):
+            with self.assertRaises(sqlite3.OperationalError):
+                record_interaction(
+                    conn,
+                    interaction_type='gate_outcome',
+                    state='PLAN_ASSERT',
+                    task_type='security',
+                    outcome='approve',
+                    content='test',
+                    embed_fn=committing_embed,
+                )
+
+        # If embed ran inside the transaction, its conn.commit() would have
+        # committed the counter increment, making rollback impossible.
+        self.assertEqual(
+            get_interaction_counter(conn), 0,
+            'embed_fn commit leaked the counter increment — '
+            'embeddings are being computed inside the transaction',
+        )
+
     def test_successful_record_still_works(self):
         """Sanity check: record_interaction still works end-to-end after refactor."""
         conn = _make_db()
