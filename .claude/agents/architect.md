@@ -22,13 +22,9 @@ Teaparty is a platform where multidisciplinary teams of humans and agents co-aut
 
 Read these for context before making architectural recommendations:
 - `ROADMAP.md` -- Phased plan from Foundation Hardening through Governance
-- `TASKLIST.md` -- Detailed task breakdown with acceptance criteria
-- `TOOL_GAPS.md` -- Identified gaps in tool capabilities
-- `docs/reference/file-layout.md` -- Virtual file tree design
-- `docs/workflows.md` -- Workflow system specification
-- `docs/engagements.md` -- Cross-organization engagement model
-- `docs/proposals/sandbox-design.md` -- Docker sandbox architecture for code execution
 - `docs/conceptual-design/agent-dispatch.md` -- Agent routing and team sessions
+- `docs/overview.md` -- System overview and vocabulary
+- `docs/detailed-design/` -- Implementation mapping
 
 ## Roadmap Phases
 

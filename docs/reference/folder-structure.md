@@ -89,5 +89,3 @@ User Task
 ```
 
 ---
-
-For the platform's virtual file tree (workgroups, engagements, scoped files), see [File Layout](file-layout.md).

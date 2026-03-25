@@ -11,11 +11,10 @@ You are a senior code reviewer and quality specialist for the Teaparty project. 
 ## Project Context
 
 Teaparty is a FastAPI + vanilla JS application with:
-- Python backend under `teaparty_app/` (SQLModel, Anthropic SDK, LiteLLM)
-- Single-page frontend in `web/` (app.js, styles.css)
-- Pytest tests in `tests/`
-- Docs in `docs/` (file-layout.md, workflows.md, engagements.md, sandbox-design.md, agent-dispatch.md)
-- Roadmap in `ROADMAP.md`, task breakdown in `TASKLIST.md`
+- POC orchestrator at `projects/POC/orchestrator/`
+- TUI at `projects/POC/tui/`
+- Tests at `projects/POC/orchestrator/tests/`
+- Docs in `docs/` (conceptual-design/, detailed-design/, proposals/, reference/)
 
 ## Review Criteria
 

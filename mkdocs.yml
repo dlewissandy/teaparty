@@ -45,7 +45,6 @@ nav:
     - Office Manager: proposals/office-manager.md
     - Human Participation: proposals/human-participation.md
     - Messaging: proposals/messaging.md
-    - Sandbox Design: proposals/sandbox-design.md
     - Cognitive Architecture: proposals/cognitive-architecture.md
   - Detailed Design:
     - Overview: detailed-design/index.md
@@ -54,7 +53,6 @@ nav:
     - Approval Gate: detailed-design/approval-gate.md
     - Learning System: detailed-design/learning-system.md
   - Reference:
-    - File Layout: reference/file-layout.md
     - Folder Structure: reference/folder-structure.md
     - UX Design: reference/UX.md
     - Research Directions: reference/research-directions.md
