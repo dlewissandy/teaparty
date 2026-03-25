@@ -109,6 +109,15 @@ The `.claude/` directory contains skills and agent definitions that automate com
 
 These skills use subagent isolation to prevent context window exhaustion. Each reviewer or role runs in its own context window, communicating through the filesystem.
 
+## CI
+
+CI runs automatically on PRs to main and develop. Both jobs must pass before a PR can merge:
+
+- **test** — runs `uv run pytest projects/POC/orchestrator/tests/`
+- **docs** — runs `uv run mkdocs build`
+
+These cover the deterministic layer: state machine logic, activation math, dispatch, learning extraction, proxy memory, and doc cross-references. The agentic layer (LLM calls, approval gate decisions, session behavior) is non-deterministic and cannot be tested in CI — that is what dogfooding sessions are for.
+
 ## Getting Started
 
 ```bash
@@ -117,6 +126,13 @@ cd teaparty
 uv sync
 uv run pytest projects/POC/orchestrator/tests/ --tb=short -q   # verify tests pass
 uv run mkdocs serve                                              # browse docs at localhost:8000
+```
+
+To run a session interactively (requires Claude Code CLI and a human at the approval gates):
+
+```bash
+./teaparty.sh                                                    # TUI dashboard
+uv run python -m projects.POC.orchestrator "Your task"           # CLI session
 ```
 
 Read `docs/index.md` for the research overview, then `docs/overview.md` for the system architecture. The background essays in `docs/background/` provide the intellectual context.
