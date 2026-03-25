@@ -79,9 +79,6 @@ nav:
   - Building Blocks:
     - ACT-R Declarative Memory: research/act-r.md
     - Soar Cognitive Architecture: research/soar.md
-    - Python State Machine Libraries: research/python-state-machine-libraries.md
-    - Python Statemachine Persistence: research/python-statemachine-persistence.md
-    - Textual TUI Selection Widgets: research/textual-tui-selection-widgets.md
   - End-to-End Walkthrough:
     - Overview: e2e/e2e-walkthrough.md
     - Intent & Planning: e2e/dialog.md
