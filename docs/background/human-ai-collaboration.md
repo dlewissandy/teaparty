@@ -72,24 +72,24 @@ This positions TeaParty against the intellectual landscape in a specific way. Th
 
 Anderson, J. R., & Lebiere, C. (1998). *The Atomic Components of Thought*. Lawrence Erlbaum Associates.
 
-Bradshaw, J. M., Feltovich, P., Jung, H., Kulkarni, S., Taysom, W., & Uszok, A. (2003). Dimensions of adjustable autonomy and mixed-initiative interaction. *Proceedings of the 2003 International Conference on Agents and Computational Autonomy (AUTONOMY 2003)*. Springer. https://dl.acm.org/doi/10.1007/978-3-540-25928-2_3
+Bradshaw, J. M., Feltovich, P., Jung, H., Kulkarni, S., Taysom, W., & Uszok, A. (2003). [Dimensions of adjustable autonomy and mixed-initiative interaction](https://dl.acm.org/doi/10.1007/978-3-540-25928-2_3). *Proceedings of the 2003 International Conference on Agents and Computational Autonomy (AUTONOMY 2003)*. Springer.
 
-Christiano, P., Leike, J., Brown, T. B., Martic, M., Legg, S., & Amodei, D. (2017). Deep reinforcement learning from human preferences. *Advances in Neural Information Processing Systems (NeurIPS 2017)*. https://arxiv.org/abs/1706.03741
+Christiano, P., Leike, J., Brown, T. B., Martic, M., Legg, S., & Amodei, D. (2017). [Deep reinforcement learning from human preferences](https://arxiv.org/abs/1706.03741). *Advances in Neural Information Processing Systems (NeurIPS 2017)*.
 
-Houlsby, N., Huszar, F., Ghahramani, Z., & Lengyel, M. (2011). Bayesian active learning for classification and preference learning. *arXiv preprint arXiv:1112.5745*. https://arxiv.org/abs/1112.5745
+Houlsby, N., Huszar, F., Ghahramani, Z., & Lengyel, M. (2011). [Bayesian active learning for classification and preference learning](https://arxiv.org/abs/1112.5745). *arXiv preprint arXiv:1112.5745*.
 
-Lee, J. D., & See, K. A. (2004). Trust in automation: Designing for appropriate reliance. *Human Factors: The Journal of the Human Factors and Ergonomics Society, 46*(1), 50--80. https://journals.sagepub.com/doi/10.1518/hfes.46.1.50_30392
+Lee, J. D., & See, K. A. (2004). [Trust in automation: Designing for appropriate reliance](https://journals.sagepub.com/doi/10.1518/hfes.46.1.50_30392). *Human Factors: The Journal of the Human Factors and Ergonomics Society, 46*(1), 50--80.
 
-Lieberman, H. (1995). Letizia: An agent that assists web browsing. *Proceedings of the 14th International Joint Conference on Artificial Intelligence (IJCAI 1995)*, 924--929. https://dl.acm.org/citation.cfm?id=1625975
+Lieberman, H. (1995). [Letizia: An agent that assists web browsing](https://dl.acm.org/citation.cfm?id=1625975). *Proceedings of the 14th International Joint Conference on Artificial Intelligence (IJCAI 1995)*, 924--929.
 
-Maes, P. (1994). Agents that reduce work and information overload. *Communications of the ACM, 37*(7), 30--40. https://dl.acm.org/doi/10.1145/176789.176792
+Maes, P. (1994). [Agents that reduce work and information overload](https://dl.acm.org/doi/10.1145/176789.176792). *Communications of the ACM, 37*(7), 30--40.
 
-Ouyang, L., Wu, J., et al. (2022). Training language models to follow instructions with human feedback. *Advances in Neural Information Processing Systems (NeurIPS 2022)*. https://arxiv.org/abs/2203.02155
+Ouyang, L., Wu, J., et al. (2022). [Training language models to follow instructions with human feedback](https://arxiv.org/abs/2203.02155). *Advances in Neural Information Processing Systems (NeurIPS 2022)*.
 
-Parasuraman, R., Sheridan, T. B., & Wickens, C. D. (2000). A model for types and levels of human interaction with automation. *IEEE Transactions on Systems, Man, and Cybernetics -- Part A: Systems and Humans, 30*(3), 286--297. https://dl.acm.org/doi/10.1109/3468.844354
+Parasuraman, R., Sheridan, T. B., & Wickens, C. D. (2000). [A model for types and levels of human interaction with automation](https://dl.acm.org/doi/10.1109/3468.844354). *IEEE Transactions on Systems, Man, and Cybernetics -- Part A: Systems and Humans, 30*(3), 286--297.
 
-Sarter, N. B., & Woods, D. D. (1995). How in the world did we ever get into that mode? Mode error and awareness in supervisory control. *Human Factors, 37*(1), 5--19. https://journals.sagepub.com/doi/10.1518/001872095779049516
+Sarter, N. B., & Woods, D. D. (1995). [How in the world did we ever get into that mode? Mode error and awareness in supervisory control](https://journals.sagepub.com/doi/10.1518/001872095779049516). *Human Factors, 37*(1), 5--19.
 
 Sheridan, T. B. (1992). *Telerobotics, Automation, and Human Supervisory Control*. MIT Press.
 
-Tian, T., et al. (2024). Active preference learning for large language models. *arXiv preprint arXiv:2402.08114*. https://arxiv.org/abs/2402.08114
+Tian, T., et al. (2024). [Active preference learning for large language models](https://arxiv.org/abs/2402.08114). *arXiv preprint arXiv:2402.08114*.

@@ -84,22 +84,22 @@ The bet is that explicit commitment structure — carried in the protocol rather
 
 ## References
 
-- Austin, J.L. (1962). *How to Do Things with Words*. Harvard University Press. https://pure.mpg.de/rest/items/item_2271128/component/file_2271430/content
+- Austin, J.L. (1962). [*How to Do Things with Words*](https://pure.mpg.de/rest/items/item_2271128/component/file_2271430/content). Harvard University Press.
 
-- Demir, M., McNeese, N. J., & Cooke, N. J. (2020). Understanding human-robot teams in light of all-human teams: Aspects of team interaction and shared cognition. *International Journal of Human-Computer Studies*, 140, 102436. https://doi.org/10.1016/j.ijhcs.2020.102436
+- Demir, M., McNeese, N. J., & Cooke, N. J. (2020). [Understanding human-robot teams in light of all-human teams: Aspects of team interaction and shared cognition](https://doi.org/10.1016/j.ijhcs.2020.102436). *International Journal of Human-Computer Studies*, 140, 102436.
 
-- Hayes-Roth, B. (1985). A blackboard architecture for control. *Artificial Intelligence*, 26(3), 251–321. https://dl.acm.org/doi/10.1016/0004-3702(85)90063-3
+- Hayes-Roth, B. (1985). [A blackboard architecture for control](https://dl.acm.org/doi/10.1016/0004-3702(85)90063-3). *Artificial Intelligence*, 26(3), 251–321.
 
 - Searle, J.R. (1969). *Speech Acts: An Essay in the Philosophy of Language*. Cambridge University Press.
 
-- Searle, J.R. (1979). *Expression and Meaning: Studies in the Theory of Speech Acts*. Cambridge University Press. https://altexploit.files.wordpress.com/2019/10/john-r.-searle-expression-and-meaning-_-studies-in-the-theory-of-speech-acts-1979.pdf
+- Searle, J.R. (1979). [*Expression and Meaning: Studies in the Theory of Speech Acts*](https://altexploit.files.wordpress.com/2019/10/john-r.-searle-expression-and-meaning-_-studies-in-the-theory-of-speech-acts-1979.pdf). Cambridge University Press.
 
-- Smith, R.G. (1980). The Contract Net Protocol: High-level communication and control in a distributed problem solver. *IEEE Transactions on Computers*, 29(12), 1104–1113. https://dl.acm.org/doi/10.1109/TC.1980.1675516
+- Smith, R.G. (1980). [The Contract Net Protocol: High-level communication and control in a distributed problem solver](https://dl.acm.org/doi/10.1109/TC.1980.1675516). *IEEE Transactions on Computers*, 29(12), 1104–1113.
 
-- Wang, L., Xu, W., Lan, Y., Hu, Z., Lan, Y., Lee, R.K.-W., & Lim, E.-P. (2023). Plan-and-Solve Prompting: Improving zero-shot chain-of-thought reasoning by large language models. In *Proceedings of ACL 2023*. https://aclanthology.org/2023.acl-long.147/
+- Wang, L., Xu, W., Lan, Y., Hu, Z., Lan, Y., Lee, R.K.-W., & Lim, E.-P. (2023). [Plan-and-Solve Prompting: Improving zero-shot chain-of-thought reasoning by large language models](https://aclanthology.org/2023.acl-long.147/). In *Proceedings of ACL 2023*.
 
-- Winograd, T., & Flores, F. (1986). *Understanding Computers and Cognition: A New Foundation for Design*. Ablex. https://dl.acm.org/doi/book/10.5555/5245
+- Winograd, T., & Flores, F. (1986). [*Understanding Computers and Cognition: A New Foundation for Design*](https://dl.acm.org/doi/book/10.5555/5245). Ablex.
 
-- Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang, L., Zhang, X., Zhang, S., Liu, J., Awadallah, A.H., White, R.W., Burger, D., & Wang, C. (2024). AutoGen: Enabling next-gen LLM applications via multi-agent conversation. *Proceedings of COLM 2024*. https://arxiv.org/abs/2308.08155
+- Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang, L., Zhang, X., Zhang, S., Liu, J., Awadallah, A.H., White, R.W., Burger, D., & Wang, C. (2024). [AutoGen: Enabling next-gen LLM applications via multi-agent conversation](https://arxiv.org/abs/2308.08155). *Proceedings of COLM 2024*.
 
-- Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023). ReAct: Synergizing reasoning and acting in language models. In *Proceedings of ICLR 2023*. https://arxiv.org/abs/2210.03629
+- Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023). [ReAct: Synergizing reasoning and acting in language models](https://arxiv.org/abs/2210.03629). In *Proceedings of ICLR 2023*.

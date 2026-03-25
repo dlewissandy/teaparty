@@ -76,28 +76,28 @@ The field is converging on a set of principles that TeaParty's architecture larg
 
 ## References
 
-Anderson, J. R., & Lebiere, C. (1998). *The Atomic Components of Thought*. Lawrence Erlbaum Associates. https://www.amazon.com/Atomic-Components-Thought-John-Anderson/dp/0805824545
+Anderson, J. R., & Lebiere, C. (1998). [*The Atomic Components of Thought*](https://www.amazon.com/Atomic-Components-Thought-John-Anderson/dp/0805824545). Lawrence Erlbaum Associates.
 
-Laird, J. E. (2012). *The Soar Cognitive Architecture*. MIT Press. https://direct.mit.edu/books/monograph/2938/The-Soar-Cognitive-Architecture
+Laird, J. E. (2012). [*The Soar Cognitive Architecture*](https://direct.mit.edu/books/monograph/2938/The-Soar-Cognitive-Architecture). MIT Press.
 
-Majumder, B. P., Dalvi, B., Clark, P., Sabharwal, A., & Mishra, B. D. (2023). CLIN: A Continually Learning Language Agent for Rapid Task Adaptation and Generalization. arXiv:2310.10134. https://arxiv.org/abs/2310.10134
+Majumder, B. P., Dalvi, B., Clark, P., Sabharwal, A., & Mishra, B. D. (2023). [CLIN: A Continually Learning Language Agent for Rapid Task Adaptation and Generalization](https://arxiv.org/abs/2310.10134). arXiv:2310.10134.
 
-Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., & Gonzalez, J. E. (2023). MemGPT: Towards LLMs as Operating Systems. arXiv:2310.08560. https://arxiv.org/abs/2310.08560
+Packer, C., Wooders, S., Lin, K., Fang, V., Patil, S. G., Stoica, I., & Gonzalez, J. E. (2023). [MemGPT: Towards LLMs as Operating Systems](https://arxiv.org/abs/2310.08560). arXiv:2310.08560.
 
-Park, J. S., O'Brien, J., Cai, C. J., Morris, M. R., Liang, P., & Bernstein, M. S. (2023). Generative Agents: Interactive Simulacra of Human Behavior. *Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology (UIST)*. https://dl.acm.org/doi/10.1145/3586183.3606763
+Park, J. S., O'Brien, J., Cai, C. J., Morris, M. R., Liang, P., & Bernstein, M. S. (2023). [Generative Agents: Interactive Simulacra of Human Behavior](https://dl.acm.org/doi/10.1145/3586183.3606763). *Proceedings of the 36th Annual ACM Symposium on User Interface Software and Technology (UIST)*.
 
-Rezazadeh, A., Li, J., et al. (2025). Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control. arXiv:2505.18279. https://arxiv.org/abs/2505.18279
+Rezazadeh, A., Li, J., et al. (2025). [Collaborative Memory: Multi-User Memory Sharing in LLM Agents with Dynamic Access Control](https://arxiv.org/abs/2505.18279). arXiv:2505.18279.
 
-Shinn, N., Cassano, F., Berman, E., Gopinath, A., Narasimhan, K., & Yao, S. (2023). Reflexion: Language Agents with Verbal Reinforcement Learning. *Advances in Neural Information Processing Systems (NeurIPS 2023)*. https://arxiv.org/abs/2303.11366
+Shinn, N., Cassano, F., Berman, E., Gopinath, A., Narasimhan, K., & Yao, S. (2023). [Reflexion: Language Agents with Verbal Reinforcement Learning](https://arxiv.org/abs/2303.11366). *Advances in Neural Information Processing Systems (NeurIPS 2023)*.
 
-Wang, G., Xie, Y., Jiang, Y., Mandlekar, A., Xiao, C., Zhu, Y., Fan, L., & Anandkumar, A. (2023). Voyager: An Open-Ended Embodied Agent with Large Language Models. arXiv:2305.16291. https://arxiv.org/abs/2305.16291
+Wang, G., Xie, Y., Jiang, Y., Mandlekar, A., Xiao, C., Zhu, Y., Fan, L., & Anandkumar, A. (2023). [Voyager: An Open-Ended Embodied Agent with Large Language Models](https://arxiv.org/abs/2305.16291). arXiv:2305.16291.
 
-Zhao, A., Huang, D., Xu, Q., Lin, M., Liu, Y.-J., & Huang, G. (2024). ExpeL: LLM Agents Are Experiential Learners. *Proceedings of the AAAI Conference on Artificial Intelligence*. https://ojs.aaai.org/index.php/AAAI/article/view/29936
+Zhao, A., Huang, D., Xu, Q., Lin, M., Liu, Y.-J., & Huang, G. (2024). [ExpeL: LLM Agents Are Experiential Learners](https://ojs.aaai.org/index.php/AAAI/article/view/29936). *Proceedings of the AAAI Conference on Artificial Intelligence*.
 
-FadeMem: Biologically-Inspired Forgetting for Efficient Agent Memory. (2025). arXiv:2601.18642. https://arxiv.org/abs/2601.18642
+[FadeMem: Biologically-Inspired Forgetting for Efficient Agent Memory](https://arxiv.org/abs/2601.18642). (2025). arXiv:2601.18642.
 
-Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory. (2025). arXiv:2504.19413. https://arxiv.org/abs/2504.19413
+[Mem0: Building Production-Ready AI Agents with Scalable Long-Term Memory](https://arxiv.org/abs/2504.19413). (2025). arXiv:2504.19413.
 
-AutoRefine: From Trajectories to Reusable Expertise for Continual LLM Agent Refinement. (2025). arXiv:2601.22758. https://arxiv.org/abs/2601.22758
+[AutoRefine: From Trajectories to Reusable Expertise for Continual LLM Agent Refinement](https://arxiv.org/abs/2601.22758). (2025). arXiv:2601.22758.
 
-Memory as a Service (MaaS): Rethinking Contextual Memory as Service-Oriented Modules for Collaborative Agents. (2025). arXiv:2506.22815. https://arxiv.org/abs/2506.22815
+[Memory as a Service (MaaS): Rethinking Contextual Memory as Service-Oriented Modules for Collaborative Agents](https://arxiv.org/abs/2506.22815). (2025). arXiv:2506.22815.
