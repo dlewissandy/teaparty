@@ -941,11 +941,9 @@ class ApprovalGate:
             artifact='',
             bridge_text=bridge_text,
         ))
-        response = response.strip().lower()
-        if 'backtrack' in response:
-            return 'backtrack'
-        if 'withdraw' in response:
-            return 'withdraw'
+        action, _feedback = self._classify_review('FAILURE', response)
+        if action in ('backtrack', 'withdraw'):
+            return action
         return 'retry'
 
 
