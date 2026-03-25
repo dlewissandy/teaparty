@@ -278,7 +278,8 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
     def test_skill_match_advances_cfa_to_plan_assert(self):
         """When a skill matches, CfA state advances to PLAN_ASSERT."""
         with tempfile.TemporaryDirectory() as worktree, \
-             tempfile.TemporaryDirectory() as project_dir:
+             tempfile.TemporaryDirectory() as project_dir, \
+             tempfile.TemporaryDirectory() as infra_dir:
             with open(os.path.join(worktree, 'INTENT.md'), 'w') as f:
                 f.write('Research and write a paper surveying distributed consensus.')
 
@@ -292,7 +293,7 @@ class TestSkillLookupIntegrationWithEngine(unittest.TestCase):
                     body='## Decomposition\n\n1. Survey\n2. Argue\n3. Draft',
                 ))
 
-            orch = self._make_orchestrator(worktree, project_dir)
+            orch = self._make_orchestrator(worktree, project_dir, infra_dir=infra_dir)
             asyncio.run(orch._try_skill_lookup())
 
             self.assertEqual(orch.cfa.state, 'PLAN_ASSERT')
