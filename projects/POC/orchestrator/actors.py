@@ -596,8 +596,10 @@ class ApprovalGate:
             # Label for dialog history — Issue #151
             speaker = 'PROXY' if from_proxy else 'HUMAN'
 
-            # Classify the response.
-            action, feedback = self._classify_review(
+            # Classify the response (offloaded to executor — Issue #180).
+            loop = asyncio.get_running_loop()
+            action, feedback = await loop.run_in_executor(
+                None, self._classify_review,
                 ctx.state, response_text, dialog_history,
             )
 
@@ -658,11 +660,13 @@ class ApprovalGate:
             # Dialog — generate a reply, then loop back.  The reply becomes
             # the bridge text for the next turn so the human sees the answer.
             dialog_history += f'{speaker}: {response_text}\n'
-            agent_reply = self._generate_dialog_response(
-                ctx.state, response_text, artifact_path,
-                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                ctx.task, dialog_history,
-                session_worktree=ctx.session_worktree,
+            agent_reply = await loop.run_in_executor(
+                None, lambda: self._generate_dialog_response(
+                    ctx.state, response_text, artifact_path,
+                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                    ctx.task, dialog_history,
+                    session_worktree=ctx.session_worktree,
+                ),
             )
             dialog_history += f'AGENT: {agent_reply}\n'
             next_bridge = agent_reply
