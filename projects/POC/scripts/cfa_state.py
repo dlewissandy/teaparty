@@ -201,19 +201,30 @@ def transition(cfa: CfaState, action: str) -> CfaState:
     Raises InvalidTransition if the action is not valid from cfa.state.
     Does not mutate the original CfaState.
 
-    Validation is performed by the CfAMachine (python-statemachine).  The
-    machine is the authoritative source for whether a transition is valid;
-    the TRANSITIONS dict is a parallel lookup for actor metadata.
+    The CfAMachine handles:
+      - Transition validation (rejects invalid actions)
+      - History tracking (after_transition hook)
+      - Backtrack counting (after_transition hook)
+      - Backtrack guards (cond='backtrack_allowed' on backtrack edges)
     """
     from statemachine.exceptions import TransitionNotAllowed
-    from projects.POC.scripts.cfa_machine import CfAMachine, TRANSITION_ACTORS
+    from projects.POC.scripts.cfa_machine import (
+        CfAMachine, CfATransitionModel, PHASE_SETS, TRANSITION_ACTORS,
+    )
 
     current = cfa.state
 
-    # Validate via the state machine
+    # Build the transition model so the machine's hooks can record side effects
+    model = CfATransitionModel(
+        phase_sets=PHASE_SETS,
+        last_action=action,
+        last_actor=cfa.actor,
+    )
+
+    # Validate and execute via the state machine
     event_name = action.replace('-', '_')
     try:
-        sm = CfAMachine(start_value=current)
+        sm = CfAMachine(start_value=current, cfa_model=model)
         sm.send(event_name)
     except (TransitionNotAllowed, ValueError):
         valid = [a for a, _ in available_actions(current)]
@@ -224,22 +235,11 @@ def transition(cfa: CfaState, action: str) -> CfaState:
 
     target_state = sm.current_state_value
     next_actor = TRANSITION_ACTORS.get((current, action), 'system')
-
-    # Record backtracking
-    backtrack_count = cfa.backtrack_count
-    if is_backtrack(current, action):
-        backtrack_count += 1
-
-    # Build history entry
-    history_entry = {
-        'state': current,
-        'action': action,
-        'actor': cfa.actor,
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-    }
-
-    new_history = list(cfa.history) + [history_entry]
     new_phase = phase_for_state(target_state)
+
+    # History and backtrack_count come from the machine's after_transition hook
+    new_history = list(cfa.history) + model.history
+    backtrack_count = cfa.backtrack_count + model.backtrack_count
 
     return CfaState(
         phase=new_phase,
