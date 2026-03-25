@@ -31,6 +31,16 @@ class ClaudeResult:
     def had_errors(self) -> bool:
         return bool(self.stderr_lines)
 
+    @property
+    def api_overloaded(self) -> bool:
+        """True when stderr indicates the Anthropic API returned 529 (overloaded).
+
+        Checks for multiple indicators to be resilient against CLI wording changes:
+        - 'overloaded_error' (API error type in JSON responses)
+        - '529' (HTTP status code)
+        """
+        return _stderr_indicates_overload(self.stderr_lines)
+
 
 class ClaudeRunner:
     """Manages a single Claude CLI invocation."""
@@ -239,12 +249,20 @@ class ClaudeRunner:
                         pass
 
         async def read_stderr():
+            nonlocal last_output_time
             assert proc.stderr
             async for line in proc.stderr:
                 line_str = line.decode().rstrip()
                 if not line_str:
                     continue
                 stderr_lines.append(line_str)
+
+                # Constraint #5: If the CLI is actively retrying a 529,
+                # stderr activity counts as liveness — reset the watchdog
+                # so it doesn't kill the process during legitimate retry.
+                if _line_indicates_overload(line_str):
+                    last_output_time = time.time()
+
                 # Publish each stderr line as an event for live observability
                 if self.event_bus:
                     await self.event_bus.publish(Event(
@@ -295,6 +313,31 @@ class ClaudeRunner:
                 and event.get('subtype') == 'init'
                 and not self._extracted_session_id):
             self._extracted_session_id = event.get('session_id', '')
+
+
+# ── 529 overload detection ───────────────────────────────────────────────────
+
+# Patterns that indicate the Anthropic API returned HTTP 529 (overloaded).
+# Checked against each stderr line.  Multiple indicators make detection
+# resilient to CLI wording changes.
+_OVERLOAD_PATTERNS = ('overloaded_error', '529')
+
+
+def _stderr_indicates_overload(stderr_lines: list[str]) -> bool:
+    """Return True if any stderr line contains a 529/overload indicator."""
+    for line in stderr_lines:
+        for pattern in _OVERLOAD_PATTERNS:
+            if pattern in line:
+                return True
+    return False
+
+
+def _line_indicates_overload(line: str) -> bool:
+    """Return True if a single stderr line contains a 529/overload indicator."""
+    for pattern in _OVERLOAD_PATTERNS:
+        if pattern in line:
+            return True
+    return False
 
 
 class _StallTimeout(Exception):

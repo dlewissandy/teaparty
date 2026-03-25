@@ -6,6 +6,7 @@ backtracks, infrastructure failures, and review dialog loops.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from dataclasses import dataclass, field
@@ -220,6 +221,11 @@ class Orchestrator:
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.infrastructure_failure:
+                    if result.failure_reason == 'api_overloaded':
+                        overload_decision = await self._handle_overloaded('intent')
+                        if overload_decision == 'retry':
+                            continue
+                        # 'escalate' — fall through to human dialog
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'withdraw':
                         self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
@@ -254,6 +260,10 @@ class Orchestrator:
                         self.skip_intent = False
                         continue
                 if result.infrastructure_failure:
+                    if result.failure_reason == 'api_overloaded':
+                        overload_decision = await self._handle_overloaded('planning')
+                        if overload_decision == 'retry':
+                            continue
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'backtrack':
                         self.skip_intent = False
@@ -291,6 +301,10 @@ class Orchestrator:
                     self.skip_intent = True
                     continue
             if result.infrastructure_failure:
+                if result.failure_reason == 'api_overloaded':
+                    overload_decision = await self._handle_overloaded('execution')
+                    if overload_decision == 'retry':
+                        continue
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'backtrack':
                     self.skip_intent = False
@@ -467,7 +481,7 @@ class Orchestrator:
             # Handle the actor result
             if actor_result.action == 'failed':
                 reason = actor_result.data.get('reason', 'unknown')
-                if reason in ('stall_timeout', 'nonzero_exit'):
+                if reason in ('stall_timeout', 'nonzero_exit', 'api_overloaded'):
                     return PhaseResult(
                         infrastructure_failure=True,
                         failure_reason=reason,
@@ -776,6 +790,50 @@ class Orchestrator:
                 base_task += cold_start_context
 
         return base_task
+
+    # Maximum auto-retries for API overloaded (529) before escalating to human.
+    # Each retry adds a flat cooldown — not exponential, since the CLI already
+    # did exponential backoff internally.
+    _MAX_OVERLOAD_RETRIES = 3
+    _OVERLOAD_COOLDOWN_SECONDS = 120
+
+    async def _handle_overloaded(self, phase_name: str) -> str:
+        """Handle an API overloaded (529) failure with auto-retry.
+
+        Tracks retry count per phase.  On each retry, emits an API_OVERLOADED
+        event and waits a flat cooldown.  After exhausting retries, returns
+        'escalate' so the caller falls through to _failure_dialog.
+
+        Returns 'retry' or 'escalate'.
+        """
+        counter_key = f'_overload_retries_{phase_name}'
+        count = getattr(self, counter_key, 0) + 1
+        setattr(self, counter_key, count)
+
+        if count > self._MAX_OVERLOAD_RETRIES:
+            return 'escalate'
+
+        # Emit event for TUI observability
+        await self.event_bus.publish(Event(
+            type=EventType.API_OVERLOADED,
+            data={
+                'phase': phase_name,
+                'retry_count': count,
+                'max_retries': self._MAX_OVERLOAD_RETRIES,
+                'cooldown_seconds': self._OVERLOAD_COOLDOWN_SECONDS,
+            },
+            session_id=self.session_id,
+        ))
+
+        _log.info(
+            'API overloaded (529) — auto-retry %d/%d for %s, '
+            'cooling down %ds',
+            count, self._MAX_OVERLOAD_RETRIES, phase_name,
+            self._OVERLOAD_COOLDOWN_SECONDS,
+        )
+
+        await asyncio.sleep(self._OVERLOAD_COOLDOWN_SECONDS)
+        return 'retry'
 
     async def _failure_dialog(self, reason: str) -> str:
         """Ask human what to do after infrastructure failure.
