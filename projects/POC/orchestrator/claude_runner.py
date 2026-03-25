@@ -203,8 +203,30 @@ class ClaudeRunner:
             args.extend(['--mcp-config', mcp_file.name])
         return args
 
+    # Env vars the Claude CLI needs to function.  Everything else is
+    # stripped so agent subprocesses don't inherit credentials, tokens,
+    # or other sensitive state from the orchestrator's environment.
+    _ENV_ALLOWLIST = frozenset({
+        # Core POSIX / macOS
+        'PATH', 'HOME', 'TMPDIR', 'SHELL', 'USER', 'LOGNAME',
+        'LANG', 'TERM',
+        # Locale (LC_* wildcard handled below)
+        # Credentials the CLI itself needs
+        'ANTHROPIC_API_KEY',
+        # Python / uv
+        'VIRTUAL_ENV', 'PYENV_ROOT',
+    })
+
+    # Prefixes that are always passed through (e.g. CLAUDE_*, POC_*, LC_*).
+    _ENV_PREFIX_ALLOWLIST = ('CLAUDE_', 'POC_', 'LC_')
+
     def _build_env(self) -> dict[str, str]:
-        env = dict(os.environ)
+        env: dict[str, str] = {}
+        for key, value in os.environ.items():
+            if key in self._ENV_ALLOWLIST:
+                env[key] = value
+            elif key.startswith(self._ENV_PREFIX_ALLOWLIST):
+                env[key] = value
         env['CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS'] = '1'
         env['CLAUDE_CODE_MAX_OUTPUT_TOKENS'] = '128000'
         env.update(self.env_vars)

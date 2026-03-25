@@ -35,7 +35,7 @@
       "approval_state": "WORK_ASSERT",
       "settings_overlay": {
         "permissions": {
-          "allow": ["Write", "Edit", "WebFetch", "WebSearch", "SendMessage", "Bash", "Task", "TaskOutput", "mcp__ask-question__AskQuestion", "mcp__ask-question__AskTeam"]
+          "allow": ["Write", "Edit", "SendMessage", "Bash", "Task", "TaskOutput", "mcp__ask-question__AskQuestion", "mcp__ask-question__AskTeam"]
         }
       }
     }
