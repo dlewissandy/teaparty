@@ -38,7 +38,7 @@ from projects.POC.orchestrator.actors import (
     InputProvider,
 )
 from projects.POC.orchestrator.escalation_listener import EscalationListener
-from projects.POC.orchestrator.worktree import artifact_version, commit_artifact
+from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
