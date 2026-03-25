@@ -60,21 +60,21 @@ class TestCfAMachineExists(unittest.TestCase):
         expected_states = set()
         for phase_info in machine_json['phases'].values():
             expected_states.update(phase_info['states'])
-        machine_states = {s.id for s in CfAMachine.states}
+        machine_states = {s.value for s in CfAMachine.states}
         self.assertEqual(machine_states, expected_states)
 
     def test_machine_initial_state_is_idea(self):
         """CfAMachine starts at IDEA."""
         from projects.POC.scripts.cfa_machine import CfAMachine
         sm = CfAMachine()
-        self.assertEqual(sm.current_state.id, 'IDEA')
+        self.assertEqual(sm.current_state_value, 'IDEA')
 
     def test_machine_terminal_states(self):
         """COMPLETED_WORK and WITHDRAWN are final states."""
         from projects.POC.scripts.cfa_machine import CfAMachine
-        final_ids = {s.id for s in CfAMachine.states if s.final}
-        self.assertIn('COMPLETED_WORK', final_ids)
-        self.assertIn('WITHDRAWN', final_ids)
+        final_values = {s.value for s in CfAMachine.states if s.final}
+        self.assertIn('COMPLETED_WORK', final_values)
+        self.assertIn('WITHDRAWN', final_values)
 
 
 class TestCfAMachineTransitions(unittest.TestCase):
@@ -90,7 +90,7 @@ class TestCfAMachineTransitions(unittest.TestCase):
                 sm = CfAMachine(start_value=from_state)
                 event_name = action.replace('-', '_')
                 sm.send(event_name)
-                actual_to = sm.current_state.id
+                actual_to = sm.current_state_value
                 if actual_to != to_state:
                     failures.append(
                         f'{from_state} --{action}--> expected {to_state}, got {actual_to}'
@@ -115,7 +115,7 @@ class TestCfAMachineTransitions(unittest.TestCase):
             all_states.update(phase_info['states'])
         for state in all_states:
             sm = CfAMachine(start_value=state)
-            self.assertEqual(sm.current_state.id, state)
+            self.assertEqual(sm.current_state_value, state)
 
 
 # ── Test: transition() uses the machine ────────────────────────────────────
@@ -220,18 +220,18 @@ class TestRunnerSMExists(unittest.TestCase):
         """RunnerSM starts at idle."""
         from projects.POC.orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
-        self.assertEqual(sm.current_state.id, 'idle')
+        self.assertEqual(sm.current_state_value, 'idle')
 
     def test_runner_sm_happy_path(self):
         """RunnerSM: idle -> launching -> streaming -> done."""
         from projects.POC.orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         sm.send('launch')
-        self.assertEqual(sm.current_state.id, 'launching')
+        self.assertEqual(sm.current_state_value, 'launching')
         sm.send('stream')
-        self.assertEqual(sm.current_state.id, 'streaming')
+        self.assertEqual(sm.current_state_value, 'streaming')
         sm.send('finish')
-        self.assertEqual(sm.current_state.id, 'done')
+        self.assertEqual(sm.current_state_value, 'done')
 
     def test_runner_sm_stall_kill_path(self):
         """RunnerSM: idle -> launching -> streaming -> stalled -> killed."""
@@ -240,9 +240,9 @@ class TestRunnerSMExists(unittest.TestCase):
         sm.send('launch')
         sm.send('stream')
         sm.send('stall')
-        self.assertEqual(sm.current_state.id, 'stalled')
+        self.assertEqual(sm.current_state_value, 'stalled')
         sm.send('kill')
-        self.assertEqual(sm.current_state.id, 'killed')
+        self.assertEqual(sm.current_state_value, 'killed')
 
     def test_runner_sm_error_path(self):
         """RunnerSM: launching -> failed on error."""
@@ -250,7 +250,7 @@ class TestRunnerSMExists(unittest.TestCase):
         sm = RunnerSM()
         sm.send('launch')
         sm.send('error')
-        self.assertEqual(sm.current_state.id, 'failed')
+        self.assertEqual(sm.current_state_value, 'failed')
 
     def test_runner_sm_invalid_transition(self):
         """RunnerSM rejects invalid transitions."""

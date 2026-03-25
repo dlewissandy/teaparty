@@ -8,6 +8,7 @@ dependencies = [
     "feedparser>=6.0.12",
     "filelock>=3.0",
     "mcp>=1.26.0",
+    "python-statemachine>=3.0.0",
     "pyyaml>=6.0",
     "textual>=3.0.0",
     "youtube-transcript-api>=1.2.4",

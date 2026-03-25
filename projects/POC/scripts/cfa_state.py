@@ -200,25 +200,30 @@ def transition(cfa: CfaState, action: str) -> CfaState:
 
     Raises InvalidTransition if the action is not valid from cfa.state.
     Does not mutate the original CfaState.
+
+    Validation is performed by the CfAMachine (python-statemachine).  The
+    machine is the authoritative source for whether a transition is valid;
+    the TRANSITIONS dict is a parallel lookup for actor metadata.
     """
+    from statemachine.exceptions import TransitionNotAllowed
+    from projects.POC.scripts.cfa_machine import CfAMachine, TRANSITION_ACTORS
+
     current = cfa.state
-    if current not in TRANSITIONS:
-        raise InvalidTransition(f"Unknown state: {current!r}")
 
-    target_state = None
-    next_actor = None
-    for act, tgt, actor in TRANSITIONS[current]:
-        if act == action:
-            target_state = tgt
-            next_actor = actor
-            break
-
-    if target_state is None:
+    # Validate via the state machine
+    event_name = action.replace('-', '_')
+    try:
+        sm = CfAMachine(start_value=current)
+        sm.send(event_name)
+    except (TransitionNotAllowed, ValueError):
         valid = [a for a, _ in available_actions(current)]
         raise InvalidTransition(
             f"Action {action!r} is not valid from state {current!r}. "
             f"Valid actions: {valid}"
         )
+
+    target_state = sm.current_state_value
+    next_actor = TRANSITION_ACTORS.get((current, action), 'system')
 
     # Record backtracking
     backtrack_count = cfa.backtrack_count
