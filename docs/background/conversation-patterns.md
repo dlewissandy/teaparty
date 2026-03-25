@@ -54,7 +54,7 @@ The Contract Net Protocol (Smith, 1980) is the foundational result. Published in
 
 Blackboard architectures (Hayes-Roth, 1985) take a different approach: multiple specialized knowledge sources read from and write to a shared working memory. A scheduler determines which knowledge source should act next based on the current state of the blackboard. This is coordination by shared state rather than by message passing. It handles incremental, opportunistic problem-solving well — each knowledge source contributes when it has something to contribute — but it scales poorly to systems where the agents are humans or LLMs, and it offers no mechanism for commitment tracking or accountability.
 
-Contemporary multi-agent LLM frameworks preserve these structural choices while updating the implementation. AutoGen (Wu et al., 2023) provides a programming model for multi-agent conversations where agents can be humans, LLMs, or tools, and where conversations are structured as back-and-forth message exchanges. It is genuinely flexible and has proven useful across a wide range of applications. But the conversation structure it provides is essentially unstructured: agents send messages to each other, and the content of those messages determines what happens next. There is no protocol enforcing that a planning phase must be approved before execution begins, no mechanism for a cross-phase backtrack when execution reveals that the original intent was misunderstood, and no concept of mutual acknowledgment as the formal closure of a coordination unit. LangGraph offers a graph-based state machine for agent workflows, which adds more structure, but the structure is control flow rather than speech acts — it specifies the sequence of operations rather than the conversational commitments those operations constitute.
+Contemporary multi-agent LLM frameworks preserve these structural choices while updating the implementation. AutoGen (Wu et al., 2024) provides a programming model for multi-agent conversations where agents can be humans, LLMs, or tools, and where conversations are structured as back-and-forth message exchanges. It is genuinely flexible and has proven useful across a wide range of applications. But the conversation structure it provides is essentially unstructured: agents send messages to each other, and the content of those messages determines what happens next. There is no protocol enforcing that a planning phase must be approved before execution begins, no mechanism for a cross-phase backtrack when execution reveals that the original intent was misunderstood, and no concept of mutual acknowledgment as the formal closure of a coordination unit. LangGraph offers a graph-based state machine for agent workflows, which adds more structure, but the structure is control flow rather than speech acts — it specifies the sequence of operations rather than the conversational commitments those operations constitute.
 
 ---
 
@@ -62,7 +62,7 @@ Contemporary multi-agent LLM frameworks preserve these structural choices while 
 
 The gap these frameworks leave open becomes most visible in mixed human-agent teams.
 
-Human teams develop shared mental models — overlapping representations of the task, the team's capabilities, and the coordination requirements — through conversation, observation, and accumulated experience working together. This shared model is what makes implicit coordination possible: experienced teammates can anticipate each other's moves, interpret ambiguous signals correctly, and recover from misalignment without explicit negotiation. Research on human-AI teaming has found consistently that AI teammates impede this process: communication with AI is more difficult, shared mental models develop more slowly, and teams with more human members are better at coordination precisely because the rich back-channel of human communication is available to them.
+Human teams develop shared mental models — overlapping representations of the task, the team's capabilities, and the coordination requirements — through conversation, observation, and accumulated experience working together. This shared model is what makes implicit coordination possible: experienced teammates can anticipate each other's moves, interpret ambiguous signals correctly, and recover from misalignment without explicit negotiation. Studies of human-AI teaming have found that AI teammates can impede this process: communication with AI tends to be more constrained, shared mental models develop more slowly, and the rich back-channel of human communication — tone, hesitation, shared references — is unavailable (Demir et al., 2020).
 
 The fundamental issue is that what human teams leave implicit, human-AI teams cannot. An AI agent has no accumulated context about the team's history, no sensitivity to the pragmatic implications of phrasing, no ability to read the room. This is not a deficiency that can be patched with better prompts — it is a structural feature of the situation. The shared background that Winograd and Flores could assume is simply absent.
 
@@ -86,6 +86,8 @@ The bet is that explicit commitment structure — carried in the protocol rather
 
 - Austin, J.L. (1962). *How to Do Things with Words*. Harvard University Press. https://pure.mpg.de/rest/items/item_2271128/component/file_2271430/content
 
+- Demir, M., McNeese, N. J., & Cooke, N. J. (2020). Understanding human-robot teams in light of all-human teams: Aspects of team interaction and shared cognition. *International Journal of Human-Computer Studies*, 140, 102436. https://doi.org/10.1016/j.ijhcs.2020.102436
+
 - Hayes-Roth, B. (1985). A blackboard architecture for control. *Artificial Intelligence*, 26(3), 251–321. https://dl.acm.org/doi/10.1016/0004-3702(85)90063-3
 
 - Searle, J.R. (1969). *Speech Acts: An Essay in the Philosophy of Language*. Cambridge University Press.
@@ -98,6 +100,6 @@ The bet is that explicit commitment structure — carried in the protocol rather
 
 - Winograd, T., & Flores, F. (1986). *Understanding Computers and Cognition: A New Foundation for Design*. Ablex. https://dl.acm.org/doi/book/10.5555/5245
 
-- Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang, L., Zhang, X., Zhang, S., Liu, J., Awadallah, A.H., White, R.W., Burger, D., & Wang, C. (2023). AutoGen: Enabling next-gen LLM applications via multi-agent conversation. arXiv:2308.08155. https://arxiv.org/abs/2308.08155
+- Wu, Q., Bansal, G., Zhang, J., Wu, Y., Li, B., Zhu, E., Jiang, L., Zhang, X., Zhang, S., Liu, J., Awadallah, A.H., White, R.W., Burger, D., & Wang, C. (2024). AutoGen: Enabling next-gen LLM applications via multi-agent conversation. *Proceedings of COLM 2024*. https://arxiv.org/abs/2308.08155
 
 - Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K., & Cao, Y. (2023). ReAct: Synergizing reasoning and acting in language models. In *Proceedings of ICLR 2023*. https://arxiv.org/abs/2210.03629
