@@ -44,7 +44,7 @@ The approval gate's capabilities stack across three tiers:
 
 **Tier 2 (Operational now):** Retrieval-backed patterns from `.proxy-interactions.jsonl` (legacy similar interactions) and `proxy-patterns.md` (flat behavioral patterns). These are loaded as context for the proxy agent's two-pass prediction. ACT-R memory chunks (Tier 3) supplement these with structured retrieval.
 
-**Tier 3 (Operational now):** ACT-R memory retrieval feeds task-specific memories into proxy context. Memory chunks carry situation, stimulus, and outcome data, retrieved via hybrid BM25 + vector search. Retrieved chunks are reinforced after the proxy agent consumes them (ACT-R Rule 2). Behavioral rituals, gap-detection questioning, and text derivative learning remain design targets.
+**Tier 3 (Operational now):** ACT-R memory retrieval feeds task-specific memories into proxy context. Memory chunks carry situation, stimulus, and outcome data, retrieved via two-stage ranking: activation filter (power-law decay) then composite scoring (normalized activation + multi-dimensional cosine similarity). Retrieved chunks are reinforced after the proxy agent consumes them (ACT-R Rule 2). Behavioral rituals, gap-detection questioning, and text derivative learning remain design targets.
 
 All three tiers are wired into `consult_proxy()`. The proxy architecture was designed to decouple tiers, but all three now contribute to every proxy invocation.
 
@@ -59,7 +59,7 @@ All three tiers are wired into `consult_proxy()`. The proxy architecture was des
 3. **Gather learning context**:
    - Tier 1: read flat behavioral patterns from `proxy-patterns.md`
    - Tier 2: retrieve similar past interactions from `.proxy-interactions.jsonl`
-   - Tier 3: ACT-R memory retrieval via `_retrieve_actr_memories()` — hybrid BM25 + vector search over structured memory chunks, scoped by state and task type
+   - Tier 3: ACT-R memory retrieval via `_retrieve_actr_memories()` — two-stage retrieval: activation filter (power-law decay over retrieval traces), then composite ranking (normalized activation + multi-dimensional cosine similarity), scoped by state and task type
 4. **Two-pass prediction** via `run_proxy_agent()` — a Claude CLI session with file-read tools:
    - **Pass 1 (prior)**: predict without seeing the artifact, using only memories and learned patterns
    - **Pass 2 (posterior)**: predict after reading the artifact + prior prediction
