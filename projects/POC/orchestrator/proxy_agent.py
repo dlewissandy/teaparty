@@ -431,6 +431,11 @@ async def run_proxy_agent(
         prior_prompt, session_worktree,
     )
 
+    # Fast-fail: if Pass 1 returned nothing, the CLI is degraded.
+    # Skip Pass 2 and surprise extraction to bound worst-case latency.
+    if not prior_text and not prior_action:
+        return _TwoPassResult()
+
     # ── Pass 2: Posterior (with artifact + prior) ────────────────────────
     prior_block = ''
     if prior_action:
@@ -464,6 +469,17 @@ async def run_proxy_agent(
     post_text, post_confidence, post_action = await _invoke_claude_proxy(
         posterior_prompt, session_worktree,
     )
+
+    # Fast-fail: if Pass 2 returned nothing, fall back to the prior result.
+    # Skip surprise extraction to avoid a third CLI call on a degraded CLI.
+    if not post_text and not post_action:
+        return _TwoPassResult(
+            text=prior_text,
+            confidence=prior_confidence,
+            prior_action=prior_action,
+            prior_confidence=prior_confidence,
+            prior_text=prior_text,
+        )
 
     # ── Surprise detection ───────────────────────────────────────────────
     prediction_delta = ''
