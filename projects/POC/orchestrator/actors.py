@@ -567,6 +567,9 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self._last_proxy_result = None  # Most recent ProxyResult for memory recording
+        # Set by engine when a skill-based plan is active (Issue #146).
+        # Used by _log_interaction to tag gate outcomes with the skill name.
+        self._active_skill: dict[str, str] | None = None
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state.
@@ -847,6 +850,9 @@ class ApprovalGate:
             'delta': delta,
             'exploration': exploration,
         }
+        # Tag with skill name when a skill-based plan is active (Issue #146)
+        if self._active_skill:
+            entry['skill_name'] = self._active_skill['name']
         try:
             with open(log_path, 'a') as f:
                 f.write(json.dumps(entry) + '\n')

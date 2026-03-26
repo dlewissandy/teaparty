@@ -150,6 +150,16 @@ async def extract_learnings(
         project_dir=project_dir,
     )
 
+    # ── Skill reflection: apply gate corrections to skill template (#146) ───
+
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
+    if os.path.isfile(sidecar_path):
+        await _run_scope(
+            'skill-reflect', _reflect_on_skill_outcomes,
+            infra_dir=infra_dir,
+            project_dir=project_dir,
+        )
+
     # ── Proxy pattern compaction (#11) ────────────────────────────────────────
 
     await _run_scope(
@@ -466,6 +476,74 @@ def _crystallize_skills(*, project_dir: str) -> None:
     """Attempt to crystallize accumulated skill candidates into reusable skills."""
     from projects.POC.orchestrator.procedural_learning import crystallize_skills
     crystallize_skills(project_dir=project_dir)
+
+
+# ── Skill reflection: gate outcomes as reward signal (#146) ──────────────────
+
+def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
+    """Apply gate correction deltas to the skill that produced the plan.
+
+    Reads .active-skill.json (written by engine on skill match) and
+    .proxy-interactions.jsonl to find gate outcomes scoped to that skill.
+    Calls reflect_on_skill() to apply corrections and update_skill_stats()
+    to track approval rates.
+    """
+    import json
+    from projects.POC.orchestrator.procedural_learning import (
+        reflect_on_skill,
+        update_skill_stats,
+    )
+
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
+    try:
+        with open(sidecar_path) as f:
+            skill_info = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    skill_name = skill_info.get('name', '')
+    skill_path = skill_info.get('path', '')
+    if not skill_name or not skill_path or not os.path.isfile(skill_path):
+        return
+
+    # Read gate outcomes from the interaction log, scoped to this skill
+    log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
+    if not os.path.isfile(log_path):
+        return
+
+    corrections = []
+    outcomes = []
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get('skill_name') != skill_name:
+                    continue
+                outcome = entry.get('outcome', '')
+                if outcome:
+                    outcomes.append(outcome)
+                if outcome == 'correct' and entry.get('delta'):
+                    corrections.append({
+                        'state': entry.get('state', ''),
+                        'outcome': outcome,
+                        'delta': entry['delta'],
+                    })
+    except OSError:
+        return
+
+    # Apply corrections to skill template (if any)
+    if corrections:
+        reflect_on_skill(skill_path=skill_path, corrections=corrections)
+
+    # Update skill stats with all outcomes
+    if outcomes:
+        update_skill_stats(skill_path=skill_path, outcomes=outcomes)
 
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
