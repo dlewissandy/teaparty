@@ -31,7 +31,7 @@ from projects.POC.orchestrator.proxy_memory import (
     serialize_chunks_for_prompt,
     DECAY,
     RETRIEVAL_THRESHOLD,
-    TOTAL_EMBEDDING_DIMENSIONS,
+    EXPERIENCE_EMBEDDING_DIMENSIONS,
 )
 
 
@@ -146,8 +146,9 @@ class TestCosineSimilarity(unittest.TestCase):
 class TestCompositeScore(unittest.TestCase):
 
     def test_broad_match_outscores_narrow_match(self):
-        """A perfect match on 5/5 dims outscores a perfect match on 2/5,
-        because composite_score divides by TOTAL_EMBEDDING_DIMENSIONS."""
+        """A perfect match on 4/4 experience dims outscores a perfect match
+        on 2/4, because composite_score divides by EXPERIENCE_EMBEDDING_DIMENSIONS.
+        (Updated by #227: salience excluded from composite scoring.)"""
         vec_a = [1.0, 0.0, 0.0]
 
         chunk_broad = _make_chunk(
@@ -156,7 +157,6 @@ class TestCompositeScore(unittest.TestCase):
             embedding_artifact=vec_a,
             embedding_stimulus=vec_a,
             embedding_response=vec_a,
-            embedding_salience=vec_a,
         )
         chunk_narrow = _make_chunk(
             chunk_id='narrow', traces=[9],
@@ -164,7 +164,6 @@ class TestCompositeScore(unittest.TestCase):
             embedding_artifact=vec_a,
             embedding_stimulus=None,
             embedding_response=None,
-            embedding_salience=None,
         )
 
         ctx = {
@@ -172,7 +171,6 @@ class TestCompositeScore(unittest.TestCase):
             'artifact': vec_a,
             'stimulus': vec_a,
             'response': vec_a,
-            'salience': vec_a,
         }
         score_broad = composite_score(
             chunk_broad, ctx, 10, 0.0, 1.0, s=0.0,
@@ -180,8 +178,8 @@ class TestCompositeScore(unittest.TestCase):
         score_narrow = composite_score(
             chunk_narrow, ctx, 10, 0.0, 1.0, s=0.0,
         )
-        # Broad match covers all 5 dims → sem = 5/5 = 1.0
-        # Narrow match covers 2 dims → sem = 2/5 = 0.4
+        # Broad match covers all 4 experience dims → sem = 4/4 = 1.0
+        # Narrow match covers 2 dims → sem = 2/4 = 0.5
         # Breadth is rewarded per design spec.
         self.assertGreater(score_broad, score_narrow)
 

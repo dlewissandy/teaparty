@@ -29,9 +29,13 @@ NOISE_SCALE = 0.25
 RETRIEVAL_THRESHOLD = -0.5
 ACTIVATION_WEIGHT = 0.5
 SEMANTIC_WEIGHT = 0.5
-TOTAL_EMBEDDING_DIMENSIONS = 5
+TOTAL_EMBEDDING_DIMENSIONS = 5  # All dimensions including salience (storage)
 
-# Embedding dimension names
+# Experience dimensions — used for composite scoring (issue #227)
+EXPERIENCE_EMBEDDING_DIMENSIONS = 4
+EXPERIENCE_DIMS = ('situation', 'artifact', 'stimulus', 'response')
+
+# All embedding dimension names (including salience — used for storage)
 EMBEDDING_DIMS = ('situation', 'artifact', 'stimulus', 'response', 'salience')
 
 
@@ -336,18 +340,20 @@ def composite_score(
     """Composite ranking score: normalized ACT-R activation +
     multi-dimensional semantic similarity + noise.
 
-    Cosine similarities are summed across matched dimensions and divided
-    by TOTAL_EMBEDDING_DIMENSIONS (5), rewarding breadth of matching.
+    Cosine similarities are summed across the 4 experience dimensions
+    (situation, artifact, stimulus, response) and divided by
+    EXPERIENCE_EMBEDDING_DIMENSIONS (4).  Salience is excluded from
+    composite scoring and retrieved independently (issue #227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = normalize_activation(b, b_min, b_max)
 
+    # Experience dimensions only — salience is retrieved separately (#227)
     dim_map = {
         'situation': chunk.embedding_situation,
         'artifact': chunk.embedding_artifact,
         'stimulus': chunk.embedding_stimulus,
         'response': chunk.embedding_response,
-        'salience': chunk.embedding_salience,
     }
     sim_sum = 0.0
     for dim, context_vec in context_embeddings.items():
@@ -357,7 +363,7 @@ def composite_score(
                 sim_sum += cosine_similarity(chunk_vec, context_vec)
             except ValueError:
                 _log.debug('Skipping dim %s: vector length mismatch', dim)
-    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
+    sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
 
     noise = logistic_noise(s)
     return activation_weight * b_norm + semantic_weight * sem + noise
@@ -404,6 +410,52 @@ def retrieve_chunks(
             b_min, b_max, d=d, s=s,
         )
         scored.append((score, chunk))
+    scored.sort(key=lambda x: -x[0])
+    return [chunk for _, chunk in scored[:top_k]]
+
+
+def retrieve_salience(
+    conn: sqlite3.Connection,
+    *,
+    context_embedding: list[float],
+    current_interaction: int = 0,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 5,
+    d: float = DECAY,
+) -> list[MemoryChunk]:
+    """Retrieve chunks by salience embedding similarity.
+
+    Independent retrieval path for the learned attention model (issue #227).
+    Returns only chunks with non-null salience embeddings, ranked by
+    cosine similarity between the chunk's salience embedding and the
+    provided context embedding.  Activation filtering still applies.
+    """
+    rows = conn.execute(
+        'SELECT * FROM proxy_chunks WHERE embedding_salience IS NOT NULL',
+    ).fetchall()
+    candidates = [_row_to_chunk(r) for r in rows]
+
+    # Stage 1: filter by raw activation
+    survivors: list[tuple[float, MemoryChunk]] = []
+    for c in candidates:
+        if not c.embedding_salience:
+            continue
+        b = base_level_activation(c.traces, current_interaction, d)
+        if b > tau:
+            survivors.append((b, c))
+
+    if not survivors:
+        return []
+
+    # Stage 2: rank by cosine similarity to the salience query
+    scored: list[tuple[float, MemoryChunk]] = []
+    for _, chunk in survivors:
+        try:
+            sim = cosine_similarity(chunk.embedding_salience, context_embedding)  # type: ignore[arg-type]
+        except ValueError:
+            continue
+        scored.append((sim, chunk))
+
     scored.sort(key=lambda x: -x[0])
     return [chunk for _, chunk in scored[:top_k]]
 
@@ -605,18 +657,41 @@ def _default_embed(conn: sqlite3.Connection):
 # ── Serialization ────────────────────────────────────────────────────────────
 
 def serialize_chunks_for_prompt(
-    chunks: list[MemoryChunk], token_budget: int = 5000,
+    chunks: list[MemoryChunk],
+    token_budget: int = 5000,
+    salience_chunks: list[MemoryChunk] | None = None,
+    salience_token_budget: int = 2000,
 ) -> str:
     """Serialize retrieved chunks to Markdown for the proxy's LLM prompt.
 
-    Approximate token budget: ~4 chars per token. Chunks are serialized in
-    order (highest-scoring first) until the budget is exhausted.
+    Experience chunks and salience chunks are rendered as separate sections
+    (issue #227).  Approximate token budget: ~4 chars per token.
     """
-    if not chunks:
-        return ''
+    parts: list[str] = []
 
+    # Experience section
+    if chunks:
+        parts.append(_serialize_section(
+            chunks, '--- RETRIEVED MEMORIES ---', token_budget,
+        ))
+
+    # Salience section (independent attention retrieval, issue #227)
+    if salience_chunks:
+        parts.append(_serialize_section(
+            salience_chunks,
+            '--- WHAT HAS SURPRISED YOU (LEARNED ATTENTION) ---',
+            salience_token_budget,
+        ))
+
+    return '\n\n'.join(parts)
+
+
+def _serialize_section(
+    chunks: list[MemoryChunk], heading: str, token_budget: int,
+) -> str:
+    """Serialize a list of chunks under a heading within a token budget."""
     char_budget = token_budget * 4
-    parts = ['--- RETRIEVED MEMORIES ---']
+    parts = [heading]
     used = len(parts[0])
 
     for chunk in chunks:
