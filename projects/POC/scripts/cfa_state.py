@@ -257,9 +257,10 @@ def transition(cfa: CfaState, action: str) -> CfaState:
 # ── Persistence ─────────────────────────────────────────────────────────────────
 
 def save_state(cfa: CfaState, path: str) -> None:
-    """Serialize CfaState to a JSON file at path."""
+    """Serialize CfaState to a JSON file at path (atomic write)."""
     import os
-    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+    dir_name = os.path.dirname(path) if os.path.dirname(path) else '.'
+    os.makedirs(dir_name, exist_ok=True)
     data = {
         'phase': cfa.phase,
         'state': cfa.state,
@@ -271,8 +272,16 @@ def save_state(cfa: CfaState, path: str) -> None:
         'team_id': cfa.team_id,
         'depth': cfa.depth,
     }
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def load_state(path: str) -> CfaState:
