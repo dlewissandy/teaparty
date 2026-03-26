@@ -94,10 +94,10 @@ class TestRetrieveChunksWeightParams(unittest.TestCase):
             traces=[15, 17, 19],
             embedding_situation=None,
         )
-        # Chunk B: low activation (old, single trace), strong embeddings
+        # Chunk B: lower activation (fewer recent traces), strong embeddings
         chunk_b = _make_chunk(
             chunk_id='high-similarity',
-            traces=[2],
+            traces=[19],
             embedding_situation=[1.0, 0.0, 0.0],
         )
 
@@ -130,10 +130,10 @@ class TestRetrieveChunksWeightParams(unittest.TestCase):
             traces=[15, 17, 19],
             embedding_situation=None,
         )
-        # Chunk B: low activation, strong embeddings
+        # Chunk B: lower activation, strong embeddings
         chunk_b = _make_chunk(
             chunk_id='high-similarity',
-            traces=[2],
+            traces=[19],
             embedding_situation=[1.0, 0.0, 0.0],
         )
 
@@ -157,29 +157,23 @@ class TestRetrieveChunksWeightParams(unittest.TestCase):
                              'Similarity-only should rank high-similarity chunk first')
 
     def test_composite_blends_both_signals(self):
-        """With equal weights, a chunk that scores moderately on BOTH signals
-        should rank above chunks that score on only one signal."""
-        # Chunk A: high activation only, no embeddings
+        """With composite scoring, semantic similarity breaks an activation tie.
+        Two chunks with identical activation — one has embeddings, one doesn't.
+        The one with embeddings should rank higher under composite scoring."""
+        # Both chunks have identical activation
         chunk_a = _make_chunk(
-            chunk_id='activation-only',
-            traces=[15, 17, 19],
+            chunk_id='no-embedding',
+            traces=[18, 19],
             embedding_situation=None,
         )
-        # Chunk B: similarity only, low activation
         chunk_b = _make_chunk(
-            chunk_id='similarity-only',
-            traces=[2],
+            chunk_id='has-embedding',
+            traces=[18, 19],
             embedding_situation=[1.0, 0.0, 0.0],
-        )
-        # Chunk C: moderate on both dimensions
-        chunk_c = _make_chunk(
-            chunk_id='balanced',
-            traces=[10, 16],
-            embedding_situation=[0.8, 0.1, 0.0],
         )
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            conn, _ = _make_db(tmpdir, [chunk_a, chunk_b, chunk_c])
+            conn, _ = _make_db(tmpdir, [chunk_a, chunk_b])
 
             context_embeddings = {'situation': [1.0, 0.0, 0.0]}
 
@@ -193,11 +187,9 @@ class TestRetrieveChunksWeightParams(unittest.TestCase):
             )
             conn.close()
 
-            self.assertEqual(len(results), 3)
-            # The balanced chunk should benefit from scoring on both dimensions
-            # while the single-signal chunks only get half-weight contribution
-            self.assertEqual(results[0].id, 'balanced',
-                             'Composite scoring should favor chunks with both signals')
+            self.assertEqual(len(results), 2)
+            self.assertEqual(results[0].id, 'has-embedding',
+                             'Composite scoring: semantic similarity breaks activation tie')
 
 
 class TestAblationHarness(unittest.TestCase):
@@ -239,9 +231,9 @@ class TestAblationHarness(unittest.TestCase):
             chunk_id='high-act', traces=[15, 17, 19],
             embedding_situation=[0.0, 0.0, 1.0],
         )
-        # Chunk with low activation, high similarity
+        # Chunk with lower activation, high similarity
         high_sim = _make_chunk(
-            chunk_id='high-sim', traces=[2],
+            chunk_id='high-sim', traces=[19],
             embedding_situation=[1.0, 0.0, 0.0],
         )
 

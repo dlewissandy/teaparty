@@ -376,6 +376,8 @@ def retrieve_chunks(
     top_k: int = 10,
     d: float = DECAY,
     s: float = NOISE_SCALE,
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
 ) -> list[MemoryChunk]:
     """Two-stage retrieval: activation filter, then composite ranking."""
     candidates = query_chunks(conn, state=state, task_type=task_type)
@@ -401,7 +403,10 @@ def retrieve_chunks(
     for _, chunk in survivors:
         score = composite_score(
             chunk, context_embeddings, current_interaction,
-            b_min, b_max, d=d, s=s,
+            b_min, b_max,
+            activation_weight=activation_weight,
+            semantic_weight=semantic_weight,
+            d=d, s=s,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
@@ -422,6 +427,53 @@ def reinforce_retrieved(
     """
     for chunk in chunks:
         add_trace(conn, chunk.id, current_interaction)
+
+
+# ── Ablation ──────────────────────────────────────────────────────────────────
+
+ABLATION_CONFIGS = {
+    'composite': {'activation_weight': 0.5, 'semantic_weight': 0.5},
+    'activation_only': {'activation_weight': 1.0, 'semantic_weight': 0.0},
+    'similarity_only': {'activation_weight': 0.0, 'semantic_weight': 1.0},
+}
+
+
+def run_scoring_ablation(
+    conn: sqlite3.Connection,
+    *,
+    state: str = '',
+    task_type: str = '',
+    context_embeddings: dict[str, list[float]] | None = None,
+    current_interaction: int = 0,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 10,
+    d: float = DECAY,
+) -> dict[str, list[MemoryChunk]]:
+    """Run retrieval under three weight configurations on the same data.
+
+    Returns a dict mapping config name to the ranked list of retrieved chunks.
+    Noise is disabled (s=0.0) for deterministic comparison.
+
+    Configs:
+      composite:        activation_weight=0.5, semantic_weight=0.5
+      activation_only:  activation_weight=1.0, semantic_weight=0.0
+      similarity_only:  activation_weight=0.0, semantic_weight=1.0
+    """
+    results: dict[str, list[MemoryChunk]] = {}
+    for name, weights in ABLATION_CONFIGS.items():
+        results[name] = retrieve_chunks(
+            conn,
+            state=state,
+            task_type=task_type,
+            context_embeddings=context_embeddings,
+            current_interaction=current_interaction,
+            tau=tau,
+            top_k=top_k,
+            d=d,
+            s=0.0,
+            **weights,
+        )
+    return results
 
 
 # ── Recording ────────────────────────────────────────────────────────────────
