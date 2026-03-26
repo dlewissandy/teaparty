@@ -622,5 +622,43 @@ class TestAsymmetricConfidenceDecay(unittest.TestCase):
         self.assertAlmostEqual(ratio, 2.0, places=1)
 
 
+# ── LLM classifier functions exist ───────────────────────────────────────────
+
+
+class TestLLMClassifierFunctions(unittest.TestCase):
+    """LLM-based conflict classification functions are importable and callable."""
+
+    def test_classify_conflict_llm_exists(self):
+        """_classify_conflict_llm must be importable."""
+        from projects.POC.orchestrator.proxy_agent import _classify_conflict_llm
+        self.assertTrue(callable(_classify_conflict_llm))
+
+    def test_classify_conflict_llm_for_entries_exists(self):
+        """_classify_conflict_llm_for_entries must be importable."""
+        from projects.POC.orchestrator.proxy_agent import _classify_conflict_llm_for_entries
+        self.assertTrue(callable(_classify_conflict_llm_for_entries))
+
+    def test_conflict_classify_prompt_template_exists(self):
+        """The prompt template for LLM classification must exist."""
+        from projects.POC.orchestrator.proxy_agent import _CONFLICT_CLASSIFY_PROMPT
+        self.assertIn('preference_drift', _CONFLICT_CLASSIFY_PROMPT)
+        self.assertIn('context_sensitivity', _CONFLICT_CLASSIFY_PROMPT)
+        self.assertIn('genuine_tension', _CONFLICT_CLASSIFY_PROMPT)
+        self.assertIn('retrieval_noise', _CONFLICT_CLASSIFY_PROMPT)
+
+    def test_consolidation_taxonomy_constants_exist(self):
+        """ADD/UPDATE/DELETE/SKIP constants must be importable."""
+        from projects.POC.orchestrator.proxy_memory import (
+            CONSOLIDATION_ADD,
+            CONSOLIDATION_UPDATE,
+            CONSOLIDATION_DELETE,
+            CONSOLIDATION_SKIP,
+        )
+        self.assertEqual(CONSOLIDATION_ADD, 'ADD')
+        self.assertEqual(CONSOLIDATION_UPDATE, 'UPDATE')
+        self.assertEqual(CONSOLIDATION_DELETE, 'DELETE')
+        self.assertEqual(CONSOLIDATION_SKIP, 'SKIP')
+
+
 if __name__ == '__main__':
     unittest.main()
