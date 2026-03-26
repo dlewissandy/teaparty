@@ -234,7 +234,8 @@ class TestFormatConflictContext(unittest.TestCase):
         classification = classify_conflict(c1, c2, current_interaction=20)
 
         result = format_conflict_context([classification])
-        self.assertIn(classification.cause, result)
+        # cause may be rendered with spaces instead of underscores
+        self.assertIn(classification.cause.replace('_', ' '), result)
         self.assertIn(classification.action, result)
 
     def test_multiple_conflicts_all_rendered(self):
@@ -251,9 +252,9 @@ class TestFormatConflictContext(unittest.TestCase):
         cls2 = classify_conflict(c1, c3, current_interaction=20)
 
         result = format_conflict_context([cls1, cls2])
-        # Both classifications should be present
-        self.assertIn(cls1.cause, result)
-        self.assertIn(cls2.cause, result)
+        # Both classifications should be present (cause rendered with spaces)
+        self.assertIn(cls1.cause.replace('_', ' '), result)
+        self.assertIn(cls2.cause.replace('_', ' '), result)
 
 
 # ── Stage 1 integration: read-only on chunk list ────────────────────────────
