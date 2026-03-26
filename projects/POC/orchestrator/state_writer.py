@@ -7,7 +7,7 @@ Note: .cfa-state.json is written by engine._transition() via cfa_state.save_stat
 not by this writer (to preserve the full CfaState schema).
 
 Files written:
-  .running          — created on SESSION_STARTED, removed on SESSION_COMPLETED
+  .heartbeat        — created on SESSION_STARTED, finalized on SESSION_COMPLETED (issue #149)
   session.log       — appended on state transitions, LOG events, and input events
   .stream-file      — pointer to current active stream file
 """
@@ -74,14 +74,17 @@ class StateWriter:
             self._log('STATE', f"Failure: {event.data.get('reason', '')[:200]}")
 
     def _write_running(self) -> None:
-        path = os.path.join(self.infra_dir, '.running')
-        with open(path, 'w') as f:
-            f.write(str(os.getpid()))
+        from projects.POC.orchestrator.heartbeat import create_heartbeat
+        create_heartbeat(
+            os.path.join(self.infra_dir, '.heartbeat'),
+            role='session',
+        )
 
     def _remove_running(self) -> None:
-        path = os.path.join(self.infra_dir, '.running')
+        from projects.POC.orchestrator.heartbeat import finalize_heartbeat
+        hb_path = os.path.join(self.infra_dir, '.heartbeat')
         try:
-            os.unlink(path)
+            finalize_heartbeat(hb_path, 'completed')
         except FileNotFoundError:
             pass
 

@@ -121,9 +121,12 @@ async def create_dispatch_worktree(
     dispatch_infra = os.path.join(infra_dir, team, dispatch_id)
     os.makedirs(dispatch_infra, exist_ok=True)
 
-    # Write .running sentinel
-    with open(os.path.join(dispatch_infra, '.running'), 'w') as f:
-        f.write(str(os.getpid()))
+    # Write .heartbeat (replaces .running sentinel — issue #149)
+    from projects.POC.orchestrator.heartbeat import create_heartbeat
+    create_heartbeat(
+        os.path.join(dispatch_infra, '.heartbeat'),
+        role=team,
+    )
 
     # Register in manifest
     _register_worktree(repo_root, {
@@ -281,9 +284,14 @@ def find_orphaned_worktrees(repo_root: str) -> list[dict]:
 
     A worktree is considered orphaned if:
     - Its path no longer exists on disk, OR
-    - It has no .running sentinel, OR
-    - Its .running sentinel contains a PID that is no longer alive.
+    - Its heartbeat is stale (non-terminal, old mtime, dead PID), OR
+    - It has no heartbeat and no .running sentinel
+
+    Checks the infra_dir for .heartbeat (issue #149), falling back to
+    .running in the worktree path for backward compatibility.
     """
+    from projects.POC.orchestrator.heartbeat import is_heartbeat_stale, read_heartbeat
+
     manifest_path = os.path.join(repo_root, 'worktrees.json')
     try:
         with open(manifest_path) as f:
@@ -298,16 +306,28 @@ def find_orphaned_worktrees(repo_root: str) -> list[dict]:
             orphans.append(entry)
             continue
 
+        # Check .heartbeat in infra_dir (issue #149)
+        infra_dir = entry.get('infra_dir', '')
+        if infra_dir:
+            hb_path = os.path.join(infra_dir, '.heartbeat')
+            if os.path.exists(hb_path):
+                data = read_heartbeat(hb_path)
+                if data.get('status') in ('completed', 'withdrawn'):
+                    continue  # Terminal — not orphaned
+                if is_heartbeat_stale(hb_path):
+                    orphans.append(entry)
+                continue  # Fresh heartbeat — not orphaned
+
+        # Fallback: check .running in worktree path (backward compat)
         running_path = os.path.join(path, '.running')
         if not os.path.exists(running_path):
             orphans.append(entry)
             continue
 
-        # Check if the PID in .running is still alive
         try:
             with open(running_path) as f:
                 pid = int(f.read().strip())
-            os.kill(pid, 0)  # signal 0 = check existence
+            os.kill(pid, 0)
         except (ValueError, ProcessLookupError, PermissionError, OSError):
             orphans.append(entry)
 
