@@ -4,9 +4,8 @@ Four evaluation metrics computed from proxy_memory.db chunks:
 1. Action match rate — posterior_prediction vs outcome for escalated gates
 2. Prior calibration — prior_prediction vs posterior_prediction agreement
 3. Surprise calibration — when surprise detected, did the human respond?
-4. Go/no-go assessment — sample coverage and threshold checks
-
-Plus a reporting function that aggregates everything.
+4. Retrieval relevance — inspectable retrieval sets with activation scores
+Plus go/no-go assessment and reporting.
 """
 from __future__ import annotations
 
@@ -57,12 +56,18 @@ def _make_chunk(
     return MemoryChunk(**defaults)
 
 
-def _seed_db(tmpdir: str, chunks: list[MemoryChunk]) -> str:
+def _seed_db(tmpdir: str, chunks: list[MemoryChunk], counter: int = 0) -> str:
     """Create and seed a proxy memory DB. Returns the db_path."""
     db_path = os.path.join(tmpdir, 'proxy_memory.db')
     conn = open_proxy_db(db_path)
     for chunk in chunks:
         store_chunk(conn, chunk)
+    if counter:
+        conn.execute(
+            "UPDATE proxy_state SET value=? WHERE key='interaction_counter'",
+            (counter,),
+        )
+        conn.commit()
     conn.close()
     return db_path
 
@@ -254,12 +259,87 @@ class TestSurpriseCalibration(unittest.TestCase):
             self.assertAlmostEqual(result.rate, 0.0)
 
     def test_no_surprise_chunks_excluded(self):
+        """Chunks with matching predictions and small confidence shift are not surprises."""
         from projects.POC.orchestrator.proxy_metrics import surprise_calibration
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = _seed_db(tmpdir, [
-                _make_chunk('c1', prediction_delta='', salient_percepts=[],
+                _make_chunk('c1', prior_prediction='approve',
+                            posterior_prediction='approve',
+                            prior_confidence=0.8, posterior_confidence=0.85,
+                            prediction_delta='', salient_percepts=[],
                             human_response='OK'),
+            ])
+            conn = open_proxy_db(db_path)
+            result = surprise_calibration(conn)
+            conn.close()
+
+            self.assertEqual(result.surprises, 0)
+
+    def test_surprise_from_action_change(self):
+        """Action changed (prior != posterior) triggers surprise even without delta text."""
+        from projects.POC.orchestrator.proxy_metrics import surprise_calibration
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', prior_prediction='approve',
+                            posterior_prediction='correct',
+                            prior_confidence=0.8, posterior_confidence=0.8,
+                            prediction_delta='', salient_percepts=[],
+                            human_response='Good catch'),
+            ])
+            conn = open_proxy_db(db_path)
+            result = surprise_calibration(conn)
+            conn.close()
+
+            self.assertEqual(result.surprises, 1)
+            self.assertEqual(result.confirmed, 1)
+
+    def test_surprise_from_confidence_shift(self):
+        """Confidence shift > 0.3 triggers surprise even when action unchanged."""
+        from projects.POC.orchestrator.proxy_metrics import surprise_calibration
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', prior_prediction='approve',
+                            posterior_prediction='approve',
+                            prior_confidence=0.9, posterior_confidence=0.5,
+                            prediction_delta='', salient_percepts=[],
+                            human_response=''),
+            ])
+            conn = open_proxy_db(db_path)
+            result = surprise_calibration(conn)
+            conn.close()
+
+            self.assertEqual(result.surprises, 1)
+            self.assertEqual(result.confirmed, 0)
+
+    def test_no_surprise_from_small_confidence_shift(self):
+        """Confidence shift <= 0.3 with matching actions is NOT a surprise."""
+        from projects.POC.orchestrator.proxy_metrics import surprise_calibration
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', prior_prediction='approve',
+                            posterior_prediction='approve',
+                            prior_confidence=0.8, posterior_confidence=0.6,
+                            prediction_delta='', salient_percepts=[],
+                            human_response='OK'),
+            ])
+            conn = open_proxy_db(db_path)
+            result = surprise_calibration(conn)
+            conn.close()
+
+            self.assertEqual(result.surprises, 0)
+
+    def test_excludes_pre_two_pass_chunks(self):
+        """Chunks without both predictions are excluded from surprise calibration."""
+        from projects.POC.orchestrator.proxy_metrics import surprise_calibration
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', prior_prediction='', posterior_prediction='approve',
+                            prediction_delta='something', human_response='OK'),
             ])
             conn = open_proxy_db(db_path)
             result = surprise_calibration(conn)
@@ -272,16 +352,21 @@ class TestSurpriseCalibration(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             db_path = _seed_db(tmpdir, [
-                # Surprise + confirmed
+                # Surprise via delta text + confirmed
                 _make_chunk('c1', prediction_delta='action changed',
                             salient_percepts=['missing tests'],
                             human_response='Agreed, add tests'),
-                # Surprise + not confirmed
-                _make_chunk('c2', prediction_delta='confidence shifted',
-                            salient_percepts=['odd naming'],
+                # Surprise via action change + not confirmed
+                _make_chunk('c2', prior_prediction='approve',
+                            posterior_prediction='correct',
+                            prediction_delta='',
+                            salient_percepts=[],
                             human_response=''),
-                # No surprise — excluded
-                _make_chunk('c3', prediction_delta='', salient_percepts=[]),
+                # No surprise — same action, small shift, no delta
+                _make_chunk('c3', prior_prediction='approve',
+                            posterior_prediction='approve',
+                            prior_confidence=0.8, posterior_confidence=0.85,
+                            prediction_delta='', salient_percepts=[]),
             ])
             conn = open_proxy_db(db_path)
             result = surprise_calibration(conn)
@@ -290,6 +375,107 @@ class TestSurpriseCalibration(unittest.TestCase):
             self.assertEqual(result.surprises, 2)
             self.assertEqual(result.confirmed, 1)
             self.assertAlmostEqual(result.rate, 0.5)
+
+
+# ── Retrieval Relevance ──────────────────────────────────────────────────────
+
+class TestRetrievalRelevance(unittest.TestCase):
+    """Inspectable retrieval sets with activation scores for human review."""
+
+    def test_returns_chunks_above_threshold(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', state='PLAN_ASSERT', task_type='security',
+                            traces=[4, 5]),  # recent, high activation
+                _make_chunk('c2', state='PLAN_ASSERT', task_type='security',
+                            traces=[1]),     # old, may be below threshold
+            ], counter=6)
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn, state='PLAN_ASSERT',
+                                         task_type='security')
+            conn.close()
+
+            self.assertGreaterEqual(len(result.retrievals), 1)
+            self.assertEqual(result.total_candidates, 2)
+
+    def test_includes_activation_scores(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', state='PLAN_ASSERT', task_type='security',
+                            traces=[5]),
+            ], counter=6)
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn, state='PLAN_ASSERT',
+                                         task_type='security')
+            conn.close()
+
+            self.assertEqual(len(result.retrievals), 1)
+            ri = result.retrievals[0]
+            self.assertEqual(ri.chunk_id, 'c1')
+            self.assertEqual(ri.state, 'PLAN_ASSERT')
+            self.assertEqual(ri.outcome, 'approve')
+            self.assertIsInstance(ri.activation, float)
+
+    def test_content_summary_truncated(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            long_content = 'x' * 500
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', traces=[5], content=long_content),
+            ], counter=6)
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn)
+            conn.close()
+
+            self.assertLessEqual(len(result.retrievals[0].content_summary), 200)
+
+    def test_sorted_by_activation_descending(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', traces=[2]),       # older
+                _make_chunk('c2', traces=[5, 6]),    # recent, more traces
+            ], counter=7)
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn)
+            conn.close()
+
+            if len(result.retrievals) >= 2:
+                self.assertGreaterEqual(
+                    result.retrievals[0].activation,
+                    result.retrievals[1].activation,
+                )
+
+    def test_empty_db(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [])
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn)
+            conn.close()
+
+            self.assertEqual(result.retrievals, [])
+            self.assertEqual(result.total_candidates, 0)
+
+    def test_reads_counter_from_db(self):
+        from projects.POC.orchestrator.proxy_metrics import retrieval_relevance
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [
+                _make_chunk('c1', traces=[5]),
+            ], counter=10)
+            conn = open_proxy_db(db_path)
+            result = retrieval_relevance(conn)
+            conn.close()
+
+            self.assertEqual(result.current_interaction, 10)
 
 
 # ── Go/No-Go Assessment ─────────────────────────────────────────────────────
@@ -507,6 +693,7 @@ class TestEvaluationReport(unittest.TestCase):
             self.assertIn('action_match', report)
             self.assertIn('prior_calibration', report)
             self.assertIn('surprise_calibration', report)
+            self.assertIn('retrieval_relevance', report)
             self.assertIn('go_no_go', report)
 
     def test_report_as_text(self):
@@ -525,6 +712,7 @@ class TestEvaluationReport(unittest.TestCase):
             self.assertIn('Action Match Rate', text)
             self.assertIn('Prior Calibration', text)
             self.assertIn('Surprise Calibration', text)
+            self.assertIn('Retrieval Relevance', text)
             self.assertIn('Go/No-Go', text)
 
 
