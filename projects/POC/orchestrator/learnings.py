@@ -404,15 +404,18 @@ def _promote_corrective(
 def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
     """Evaluate session-scope learnings for promotion to project scope.
 
-    Walks .sessions/*/tasks/ under project_dir, finds learnings that recur
-    across 3+ distinct sessions (via semantic similarity), excludes proxy
-    learnings, and writes qualifying entries to project/tasks/ with
-    promotion metadata.
+    Walks .sessions/*/tasks/ and .sessions/*/institutional.md under
+    project_dir, finds learnings that recur across 3+ distinct sessions
+    (via semantic similarity), excludes proxy learnings, and either:
+    - promotes new entries to project/tasks/ with promotion metadata, or
+    - reinforces existing project entries that match recurring patterns.
     """
     from pathlib import Path
     from datetime import date as _date
     from projects.POC.orchestrator.promotion import find_recurring_learnings
-    from projects.POC.scripts.memory_entry import serialize_entry
+    from projects.POC.scripts.memory_entry import (
+        serialize_entry, parse_memory_file, serialize_memory_file,
+    )
 
     # Build similarity function: use embeddings if available, else exact match
     embed_fn = _make_embed_fn()
@@ -430,23 +433,45 @@ def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
     else:
         similarity_fn = None  # use default exact match
 
-    recurring = find_recurring_learnings(
+    result = find_recurring_learnings(
         project_dir,
         min_recurrences=3,
         similarity_fn=similarity_fn,
     )
 
-    if not recurring:
-        return
+    from filelock import FileLock
+    today = _date.today().isoformat()
+
+    # Reinforce existing project entries that match recurring session patterns
+    for reinforce_path in result.to_reinforce:
+        lock = FileLock(reinforce_path + '.lock', timeout=10)
+        with lock:
+            try:
+                text = Path(reinforce_path).read_text(errors='replace')
+            except OSError:
+                continue
+            entries = parse_memory_file(text)
+            if not entries:
+                continue
+            for entry in entries:
+                entry.reinforcement_count += 1
+                entry.last_reinforced = today
+            try:
+                Path(reinforce_path).write_text(serialize_memory_file(entries))
+            except OSError:
+                pass
+
+    if result.to_reinforce:
+        _log.info('Reinforced %d existing project entries.', len(result.to_reinforce))
 
     # Write promoted entries to project/tasks/
+    if not result.to_promote:
+        return
+
     tasks_dir = os.path.join(project_dir, 'tasks')
     os.makedirs(tasks_dir, exist_ok=True)
 
-    today = _date.today().isoformat()
-    from filelock import FileLock
-
-    for entry in recurring:
+    for entry in result.to_promote:
         entry.promoted_from = 'session'
         entry.promoted_at = today
         fname = f'promoted-{entry.id}.md'
@@ -455,7 +480,7 @@ def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
         with lock:
             Path(fpath).write_text(serialize_entry(entry))
 
-    _log.info('Promoted %d session learnings to project scope.', len(recurring))
+    _log.info('Promoted %d session learnings to project scope.', len(result.to_promote))
 
 
 # ── Reinforcement tracking ────────────────────────────────────────────────────
