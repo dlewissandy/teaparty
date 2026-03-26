@@ -2,7 +2,7 @@
 
 The proxy agent does not just predict what the human will decide. It predicts what the human will **attend to** before deciding. This document describes how the proxy's sensorium works. What does it sense, how does it determine salience, and how does it learn to focus on the percepts that matter.
 
-For the memory model underlying this, see [act-r.md](act-r.md). For the chunk structure and retrieval, see [act-r-proxy-mapping.md](act-r-proxy-mapping.md). For the overall motivation, see [act-r-proxy-memory.md](act-r-proxy-memory.md). For autodiscovery, see [../reference/autodiscovery.md](../reference/autodiscovery.md).
+For the memory model underlying this, see [act-r.md](act-r.md). For the chunk structure and retrieval, see [proxy-chunks-and-retrieval.md](proxy-chunks-and-retrieval.md). For the overall motivation, see [proxy-memory-motivation.md](proxy-memory-motivation.md). For autodiscovery, see [../reference/autodiscovery.md](../reference/autodiscovery.md).
 
 ---
 
@@ -156,7 +156,7 @@ Independent embeddings allow retrieval to match on each dimension separately. A 
 - Situation plus artifact: "What happens at PLAN_ASSERT when the plan has gaps?" (lower fan, stronger signal)
 - Salience: "When has the proxy been surprised by missing safety mechanisms?" (specific, cross-cutting)
 
-The cosine similarity across dimensions is summed and divided by the total number of dimensions (5), not just populated ones. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md). This means chunks matching across more dimensions score higher than chunks matching narrowly on fewer dimensions. It rewards breadth of matching.
+The cosine similarity across dimensions is summed and divided by the total number of dimensions (5), not just populated ones. See [proxy-chunks-and-retrieval.md](proxy-chunks-and-retrieval.md). This means chunks matching across more dimensions score higher than chunks matching narrowly on fewer dimensions. It rewards breadth of matching.
 
 ---
 
@@ -174,7 +174,18 @@ Because learned attention is built from surprising interactions (a minority of g
 
 The next time the proxy reaches PLAN_ASSERT, its **Pass 1 prior** already reflects this learned attention. "I should look for safety mechanisms and intent coverage." The prior becomes more specific over time because the proxy has learned what to expect. When the prior is specific enough, the posterior rarely diverges. And the proxy has earned the right to act autonomously.
 
-The criteria for granting and revoking autonomy (how low the surprise rate must be, over how many interactions, and what triggers re-escalation) are not specified here. These are the highest-stakes design decisions in the system and require operational specification before Phase 3 implementation. The Phase 1 metrics provide the evaluation framework; the autonomy thresholds must be derived from that data.
+### Per-Context Prediction Accuracy
+
+The mechanism for granting and revoking autonomy is per-context prediction accuracy tracking. A `proxy_accuracy` table in `proxy_memory.db` maintains running counts of prior-correct and posterior-correct predictions by (state, task_type) pair, updated atomically alongside chunk creation in `record_interaction()`.
+
+This directly informs the autonomy threshold:
+- Contexts where the posterior is consistently accurate (e.g., >= 85% over >= 10 interactions) are candidates for autonomous proxy action
+- Contexts where the prior is accurate indicate the proxy doesn't need artifact inspection to predict the human's response
+- Contexts where both are poor require escalation
+
+Prediction accuracy is distinct from EMA. EMA tracks approval rates (how often the human approves — a signal about upstream agent quality). Prediction accuracy tracks how often the proxy correctly predicted what the human would do (a signal about proxy quality). Prediction accuracy is what should gate autonomy; EMA remains a system health monitor.
+
+The accuracy record is surfaced in the proxy's prompt ("your prediction accuracy for this context: prior 43%, posterior 86% over 7 interactions"), giving the LLM calibration data for its own confidence estimate rather than relying on uncalibrated self-assessment.
 
 This is fundamentally different from the auto-approval that the root document criticizes. EMA-based auto-approval skips inspection entirely. It never reads the artifact, never asks questions, just checks a scalar and waves things through. Two-pass auto-approval completes the full inspection: the proxy runs both passes, examines the artifact, confirms that its model of the human's attention patterns predicts approval, and the posterior agrees. The dialog happened inside the proxy's reasoning. The proxy earned its autonomy by demonstrating consistent inspection with accurate predictions, not by demonstrating "understanding."
 
@@ -218,7 +229,7 @@ A proxy that auto-approves because its prior says "this human always approves do
 ## Relationship to Other Documents
 
 - **[act-r.md](act-r.md)** — the base-level activation equation that governs how memory chunks decay and are retrieved
-- **[act-r-proxy-mapping.md](act-r-proxy-mapping.md)** — the chunk structure and retrieval mechanism that this document extends with salience embeddings
-- **[act-r-proxy-memory.md](act-r-proxy-memory.md)** — the overall motivation for replacing EMA/Laplace with activation-based memory
+- **[proxy-chunks-and-retrieval.md](proxy-chunks-and-retrieval.md)** — the chunk structure and retrieval mechanism that this document extends with salience embeddings
+- **[proxy-memory-motivation.md](proxy-memory-motivation.md)** — the overall motivation for replacing EMA/Laplace with activation-based memory
 - **[autodiscovery.md](../reference/autodiscovery.md)** — the discovery mode where the proxy reviews the codebase between sessions, using the same memory and attention model
 - **[human-proxies.md](../conceptual-design/human-proxies.md)** — the conceptual design for the proxy agent, which this document extends with a concrete attention mechanism

@@ -1,6 +1,6 @@
 # ACT-R Proxy Mapping: Chunks, Traces, and Retrieval
 
-This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r.md](act-r.md). For the motivation and migration plan, see [act-r-proxy-memory.md](act-r-proxy-memory.md). For two-pass prediction and learned attention, see [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md).
+This document maps ACT-R's declarative memory concepts to concrete proxy agent structures. For the theory and equations, see [act-r.md](act-r.md). For the motivation and migration plan, see [proxy-memory-motivation.md](proxy-memory-motivation.md). For two-pass prediction and learned attention, see [proxy-prediction-and-attention.md](proxy-prediction-and-attention.md).
 
 ---
 
@@ -17,7 +17,7 @@ Each chunk represents a **memory of an interaction** between the proxy and the h
     "outcome": "correct",            # approve, correct, dismiss, promote, discuss
     "lens": "",                      # for discovery mode: which lens produced this
 
-    # Two-pass prediction results (see act-r-proxy-sensorium.md)
+    # Two-pass prediction results (see proxy-prediction-and-attention.md)
     "prior_prediction": "approve",   # Pass 1: prediction without artifact
     "prior_confidence": 0.8,
     "posterior_prediction": "correct",  # Pass 2: prediction with artifact
@@ -46,7 +46,7 @@ The chunk has three layers.
 
 **Structural fields** (type, state, task_type, outcome, lens) are categorical. They are queried by exact match via SQL. They preserve the relational structure of the interaction: who did what at which gate with what result. Embeddings cannot capture this ordering reliably.
 
-**Two-pass prediction fields** capture the prior (before seeing the artifact), the posterior (after), and the delta between them. The delta is the salience signal. It identifies what in the artifact changed the proxy's mind. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) for the full design.
+**Two-pass prediction fields** capture the prior (before seeing the artifact), the posterior (after), and the delta between them. The delta is the salience signal. It identifies what in the artifact changed the proxy's mind. See [proxy-prediction-and-attention.md](proxy-prediction-and-attention.md) for the full design.
 
 **Independent embeddings** represent each percept dimension as a separate vector. At retrieval time, matching across multiple dimensions produces specific, selective associations. A chunk that scores high on situation AND artifact AND salience is a strong association. A chunk that scores high on only one dimension is a weak one.
 
@@ -71,13 +71,13 @@ A trace is added to a chunk (incrementing the global interaction counter) when:
 1. **The chunk is created.** The proxy observes a gate outcome, a dialog exchange, or a discovery response. This is the first trace.
 2. **The chunk is retrieved.** When the proxy retrieves this chunk while making a decision, the retrieval itself reinforces the memory. Memories that are useful stay active; memories that are never retrieved decay.
 
-These two rules match standard ACT-R. Chunks are reinforced only when specifically retrieved for a task and actively referenced by a production rule, not merely when present in working memory. See ACT-R Tutorial Unit 4. Loading chunks into the prompt prefix for context is analogous to having chunks in declarative memory above threshold; it does not constitute retrieval-and-use.
+These two rules match our adaptation of ACT-R's reinforcement model. See [act-r.md](act-r.md) §Reinforcement Model. Loading chunks into the prompt prefix does not constitute retrieval-and-use.
 
 ---
 
 ## How Does an Interaction Become a Chunk?
 
-Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs. The prior and posterior actions differ, or the confidence delta exceeds the surprise threshold. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
+Every gate interaction produces a chunk. Chunks always include structural fields, prediction fields, and outcome. The salience fields (`prediction_delta`, `salient_percepts`, `embedding_salience`) are populated only when surprise occurs. The prior and posterior actions differ, or the confidence delta exceeds the surprise threshold. See [proxy-prediction-and-attention.md](proxy-prediction-and-attention.md). Non-surprise chunks have empty salience fields but are still stored and contribute to the memory through their other dimensions.
 
 ### Gate Mode (During Sessions)
 
@@ -114,15 +114,11 @@ Each conversational exchange in a discussion creates its own chunk:
 
 ## Retrieval: Structural Filtering + Semantic Ranking
 
-In ACT-R, context sensitivity is handled by **spreading activation**. A graph-based mechanism routes activation from the current focus to associated chunks. ACT-R uses this because it operates on symbolic representations with typed associations between chunks.
-
-We replace spreading activation with **vector embeddings**. Each chunk's content is embedded via the same infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity. This substitution provides context-sensitive retrieval without requiring a pre-built associative graph, which is an advantage for a system where associations are learned from unstructured text. However, it is a different mechanism with different properties. Embeddings capture semantic overlap in text, not structural associations between concepts.
-
-This combination of activation-based decay with embedding similarity has direct precedent in the research literature. Honda, Fujita, Zempo, & Fukushima (HAI '25) combine ACT-R base-level activation with cosine similarity for LLM agent memory retrieval. Meghdadi, Duff, & Demberg (Frontiers in Language Sciences, 2026) demonstrate that language model embedding cosine similarity is a valid substitute for hand-coded association strengths within the ACT-R framework. Their work is in psycholinguistic modeling (associative priming in the Lexical Decision Task), but the methodological pattern of using LM embeddings where ACT-R uses symbolic associations transfers to our context. Park, J.S., et al.'s (2023) generative agents use a structurally similar weighted combination of recency, importance, and relevance. This establishes the pattern of hybrid retrieval for agent memory.
+We replace ACT-R's symbolic spreading activation with **vector embeddings** for context sensitivity (see [act-r.md](act-r.md) §Context Sensitivity via Embeddings for the rationale). Each chunk's content is embedded via the same infrastructure used by the learning system (`memory_indexer.py`). Semantic similarity between the current context and stored memories is computed directly via cosine similarity.
 
 Retrieval operates in two stages.
 
-**Stage 1: Activation filtering.** Compute raw base-level activation B for each chunk. Discard chunks with B below tau (-0.5). This is the ACT-R retrieval threshold. It filters for memory accessibility. Chunks below threshold are effectively forgotten. This keeps tau's semantics aligned with ACT-R: it gates on activation, not on a mixed score.
+**Stage 1: Activation filtering.** Compute raw base-level activation B for each chunk (see [research/act-r.md](../research/act-r.md) §Base-Level Activation). Discard chunks with B below tau (-0.5). See [act-r.md](act-r.md) §Parameter Choices for why tau differs from the ACT-R default.
 
 **Stage 2: Composite scoring and ranking.** For survivors of the activation filter, compute a composite score for ranking:
 
@@ -191,6 +187,43 @@ EMA remains as a system health monitor. It tracks approval rates per (state, tas
 
 ---
 
+## Contradiction Detection
+
+As the proxy accumulates episodic memories across sessions, retrieved memory sets may contain conflicting evidence — one chunk says the human prefers aggressive parallelization, another says they insist on sequential verification. Without explicit detection, the LLM receives contradictory evidence and silently resolves it (or doesn't), with no visibility into what happened. Contradictory retrieval is one of the three signals that should trigger escalation (alongside no retrieval hits and novel concerns in agent output), per the conceptual design.
+
+The detection mechanism operates at two points in the lifecycle.
+
+**Retrieval-time flagging.** After `retrieve_chunks()` returns the top-k set for a gate decision, a brief LLM call scans the result set for conflicting pairs and classifies each conflict by cause:
+
+- **Preference drift** (recency gap, same domain) — prefer the newer memory; schedule the older for demotion at next compaction
+- **Context sensitivity** (different domains) — preserve both with scope annotations; both are valid in their respective contexts
+- **Genuine tension** (recent, same domain, high confidence both) — escalate to the human; this cannot be resolved from memory alone
+- **Retrieval noise** (low semantic similarity despite co-retrieval) — discard the weaker match
+
+When conflicts are found, the classification is injected into the proxy's prompt alongside the memories, making the conflict visible to the proxy's reasoning rather than leaving it implicit. Most gates will have no conflicts — the classification call is skipped entirely when retrieved memories agree.
+
+When the cause is ambiguous, the default is context sensitivity (preserve both) rather than preference drift (discard the older). Falsely discarding valid context-specific knowledge is harder to recover from than preserving a possibly-outdated entry.
+
+**Write-time consolidation.** During the post-session pipeline, a compaction pass on `proxy.md` (the always-loaded preferential store) clusters recent observations with existing entries by semantic similarity, presents conflicting pairs to an LLM, and applies a four-way decision taxonomy: ADD (no conflict), UPDATE (complement existing), DELETE (new supersedes old), SKIP (already represented). Contradicting evidence reduces a memory's weight more than supporting evidence increases it, consistent with the proxy's existing 3x correction asymmetry from regret theory.
+
+For the research basis, see `docs/research/contradiction-detection-memory.md`.
+
+---
+
+## Salience Separation (Design Target)
+
+The current design includes salience (the prediction delta — what changed between prior and posterior) as a fifth embedding dimension in the composite score, averaged alongside situation, artifact, stimulus, and response. This conflates two questions: "what happened in similar situations?" and "what has surprised me in similar situations?"
+
+The proposed refinement separates these into independent retrieval paths.
+
+**Experience retrieval** uses four dimensions (situation, artifact, stimulus, response) and answers "what happened before in similar contexts?" Chunks without salience are no longer penalized by the breadth-rewarding divisor — the denominator becomes 4 instead of 5. Since most interactions produce no surprise, this eliminates a structural penalty on the majority of chunks.
+
+**Attention retrieval** uses salience embeddings only and answers "when has the proxy been surprised in ways relevant to this situation?" Only chunks with populated salience fields participate. The result set is smaller but highly specific — these are the memories that build the learned attention model.
+
+The two result sets are injected into the proxy's prompt as separate sections ("your relevant experience" and "what has surprised you"), priming the LLM to reason about expectation and vigilance as distinct concerns. This separation also produces a cleaner ablation for Phase 1: experience retrieval can be evaluated independently of the attention model.
+
+---
+
 ## Memory Maintenance
 
 The traces list grows as chunks are retrieved and reinforced across sessions. Without maintenance, long-lived chunks could accumulate thousands of traces. The design needs a compaction strategy.
@@ -203,259 +236,9 @@ The traces list grows as chunks are retrieved and reinforced across sessions. Wi
 
 ---
 
-## Implementation Sketch
+## Implementation
 
-### Data Structure
-
-```python
-@dataclass
-class MemoryChunk:
-    id: str                          # unique identifier
-    type: str                        # gate_outcome, dialog_turn, discovery_response
-    state: str                       # CfA state or DISCOVERY_{lens}
-    task_type: str                   # project slug or empty
-    outcome: str                     # approve, correct, dismiss, promote, discuss
-    lens: str                        # discovery lens (empty for gate mode)
-    prior_prediction: str            # Pass 1 prediction (without artifact)
-    prior_confidence: float          # Pass 1 confidence
-    posterior_prediction: str        # Pass 2 prediction (with artifact)
-    posterior_confidence: float      # Pass 2 confidence
-    prediction_delta: str            # what changed between passes (salience)
-    salient_percepts: list[str]      # artifact features that caused the shift
-    human_response: str              # what the human actually did
-    delta: str                       # proxy error vs human response
-    content: str                     # full text of the interaction
-    traces: list[int]                # list of interaction sequence numbers
-    embedding_model: str             # which model produced the vectors
-    embedding_situation: list[float] | None
-    embedding_artifact: list[float] | None
-    embedding_stimulus: list[float] | None
-    embedding_response: list[float] | None
-    embedding_salience: list[float] | None
-```
-
-### Storage
-
-```sql
-CREATE TABLE proxy_chunks (
-    id TEXT PRIMARY KEY,
-    type TEXT NOT NULL,
-    state TEXT NOT NULL,
-    task_type TEXT DEFAULT '',
-    outcome TEXT NOT NULL,
-    lens TEXT DEFAULT '',
-    prior_prediction TEXT DEFAULT '',
-    prior_confidence REAL DEFAULT 0,
-    posterior_prediction TEXT DEFAULT '',
-    posterior_confidence REAL DEFAULT 0,
-    prediction_delta TEXT DEFAULT '',
-    salient_percepts TEXT DEFAULT '[]', -- JSON array of strings
-    human_response TEXT DEFAULT '',
-    delta TEXT DEFAULT '',
-    content TEXT NOT NULL,
-    traces TEXT NOT NULL,              -- JSON array of interaction sequence numbers
-    embedding_model TEXT DEFAULT '',   -- which model produced the vectors (determined internally)
-    embedding_situation TEXT,          -- JSON array of floats
-    embedding_artifact TEXT,
-    embedding_stimulus TEXT,
-    embedding_response TEXT,
-    embedding_salience TEXT
-);
-
--- Global interaction counter (monotonically increasing)
-CREATE TABLE proxy_state (
-    key TEXT PRIMARY KEY,
-    value INTEGER NOT NULL
-);
-INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
-```
-
-The embedding_model column records which model produced the vectors, enabling re-embedding migration when the model changes.
-
-### Core Functions
-
-```python
-TOTAL_EMBEDDING_DIMENSIONS = 5  # situation, artifact, stimulus, response, salience
-
-
-def base_level_activation(
-    traces: list[int], current_interaction: int, d: float = 0.5,
-) -> float:
-    """Compute B = ln(sum t_i^(-d)) for a chunk's trace history."""
-    total = 0.0
-    for trace in traces:
-        age = max(current_interaction - trace, 1)
-        total += age ** (-d)
-    if total <= 0:
-        return -float('inf')
-    return math.log(total)
-
-
-def normalize_activation(b: float, b_min: float, b_max: float) -> float:
-    """Normalize base-level activation to [0, 1] via min-max scaling."""
-    if b_max == b_min:
-        return 0.5
-    return max(0.0, min(1.0, (b - b_min) / (b_max - b_min)))
-
-
-def composite_score(
-    chunk: MemoryChunk,
-    context_embeddings: dict[str, list[float]],
-    current_interaction: int,
-    b_min: float,
-    b_max: float,
-    activation_weight: float = 0.5,
-    semantic_weight: float = 0.5,
-    d: float = 0.5,
-    s: float = 0.25,
-) -> float:
-    """Composite ranking score: normalized ACT-R activation +
-    multi-dimensional semantic similarity + noise.
-
-    context_embeddings: dict mapping dimension names to embedding vectors.
-    The semantic score sums cosine similarities across matched dimensions
-    and divides by TOTAL_EMBEDDING_DIMENSIONS (5), not the number of
-    populated dimensions. This rewards breadth: chunks matching across
-    more dimensions score higher than chunks matching narrowly on fewer.
-    """
-    b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = normalize_activation(b, b_min, b_max)
-
-    # Multi-dimensional semantic similarity (divide by total dimensions)
-    dim_map = {
-        'situation': chunk.embedding_situation,
-        'artifact': chunk.embedding_artifact,
-        'stimulus': chunk.embedding_stimulus,
-        'response': chunk.embedding_response,
-        'salience': chunk.embedding_salience,
-    }
-    sim_sum = 0.0
-    for dim, context_vec in context_embeddings.items():
-        chunk_vec = dim_map.get(dim)
-        if chunk_vec and context_vec:
-            sim_sum += cosine_similarity(chunk_vec, context_vec)
-    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
-
-    noise = logistic_noise(s)
-    # Note: in standard ACT-R, noise is added to activation alone, not to a
-    # composite score. Adding noise to the composite is a simplification. It
-    # perturbs the combined ranking rather than just the accessibility signal.
-    # The practical effect is small at s = 0.25, but the departure from ACT-R
-    # semantics should be noted.
-    return activation_weight * b_norm + semantic_weight * sem + noise
-
-
-def retrieve(
-    state: str = '',
-    task_type: str = '',
-    context_embeddings: dict[str, list[float]] | None = None,
-    current_interaction: int = 0,
-    tau: float = -0.5,
-    top_k: int = 10,
-) -> list[MemoryChunk]:
-    """Retrieve top-k chunks above activation threshold.
-
-    1. Structural filter on state, task_type
-    2. Activation filter: discard chunks with raw B below tau
-    3. Compute activation range for normalization over survivors
-    4. Composite scoring and ranking
-    """
-    candidates = query_chunks(state=state, task_type=task_type)
-    context_embeddings = context_embeddings or {}
-
-    # Stage 1: filter by raw activation (tau on B, not on composite)
-    survivors = []
-    for c in candidates:
-        b = base_level_activation(c.traces, current_interaction)
-        if b > tau:
-            survivors.append((b, c))
-
-    if not survivors:
-        return []
-
-    # Compute activation range for normalization over survivors
-    activations = [b for b, _ in survivors]
-    b_min = min(activations)
-    b_max = max(activations)
-
-    # Stage 2: composite scoring for ranking
-    scored = []
-    for _, chunk in survivors:
-        score = composite_score(
-            chunk, context_embeddings, current_interaction,
-            b_min, b_max,
-        )
-        scored.append((score, chunk))
-    scored.sort(key=lambda x: -x[0])
-    return [chunk for _, chunk in scored[:top_k]]
-
-
-def record_interaction(
-    chunk_id: str | None,
-    interaction_type: str,
-    state: str,
-    task_type: str,
-    outcome: str,
-    content: str,
-    embedding_model: str,
-    delta: str = '',
-    lens: str = '',
-    prior_prediction: str = '',
-    prior_confidence: float = 0.0,
-    posterior_prediction: str = '',
-    posterior_confidence: float = 0.0,
-    prediction_delta: str = '',
-    salient_percepts: list[str] | None = None,
-    human_response: str = '',
-    artifact_text: str = '',
-    stimulus_text: str = '',
-) -> MemoryChunk:
-    """Record an interaction as a memory chunk.
-    If chunk_id matches existing chunk, adds a trace (reinforcement).
-    Otherwise creates a new chunk with independent per-dimension embeddings.
-    Increments global interaction counter.
-    """
-    current = increment_interaction_counter()
-    if chunk_id and chunk_exists(chunk_id):
-        add_trace(chunk_id, current)
-        return get_chunk(chunk_id)
-    chunk = MemoryChunk(
-        id=generate_id(),
-        type=interaction_type,
-        state=state,
-        task_type=task_type,
-        outcome=outcome,
-        lens=lens,
-        prior_prediction=prior_prediction,
-        prior_confidence=prior_confidence,
-        posterior_prediction=posterior_prediction,
-        posterior_confidence=posterior_confidence,
-        prediction_delta=prediction_delta,
-        salient_percepts=salient_percepts or [],
-        human_response=human_response,
-        delta=delta,
-        content=content,
-        traces=[current],
-        embedding_model=embedding_model,
-        embedding_situation=embed(f'{state} {task_type}'),
-        embedding_artifact=embed(artifact_text) if artifact_text else None,
-        embedding_stimulus=embed(stimulus_text) if stimulus_text else None,
-        embedding_response=embed(human_response) if human_response else None,
-        embedding_salience=embed(prediction_delta) if prediction_delta else None,
-    )
-    store_chunk(chunk)
-    return chunk
-```
-
-### Integration Points
-
-1. **`consult_proxy()` in `proxy_agent.py`** — add ACT-R memory retrieval. Load relevant chunks into the proxy agent prompt so it can generate the dialog the human would produce. EMA continues to update as a monitoring signal.
-
-2. **`record_outcome()` in `scripts/approval_gate.py`** — add chunk creation alongside the existing EMA update. Both systems record the outcome; they serve different purposes.
-
-3. **`_calibrate_confidence()` in `proxy_agent.py`** — replace scalar confidence computation with: the retrieval set IS the confidence signal. The LLM reads the memories and calibrates itself.
-
-4. **Discovery mode** in the Code Collaborator — same `retrieve()` function with discovery-specific state keys.
+The design above is implemented in `projects/POC/orchestrator/proxy_memory.py` (chunk storage, activation, retrieval, scoring) and `projects/POC/orchestrator/proxy_agent.py` (two-pass prediction, surprise extraction, confidence calibration). Gate outcomes are recorded as chunks in `projects/POC/orchestrator/actors.py`.
 
 ---
 

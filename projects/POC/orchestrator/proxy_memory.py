@@ -6,8 +6,8 @@ then composite scoring (normalized activation + multi-dimensional cosine
 similarity + logistic noise).
 
 Theory: docs/detailed-design/act-r.md
-Chunk schema: docs/detailed-design/act-r-proxy-mapping.md
-Two-pass prediction: docs/detailed-design/act-r-proxy-sensorium.md
+Chunk schema: docs/detailed-design/proxy-chunks-and-retrieval.md
+Two-pass prediction: docs/detailed-design/proxy-prediction-and-attention.md
 """
 from __future__ import annotations
 

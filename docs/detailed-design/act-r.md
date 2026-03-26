@@ -3,9 +3,9 @@
 How TeaParty's proxy memory system adapts ACT-R declarative memory for agent gate decisions. This document covers only where we depart from vanilla ACT-R. For the theory, equations, and standard parameter values, see [research/act-r.md](../research/act-r.md).
 
 Related:
-- [act-r-proxy-memory.md](act-r-proxy-memory.md) — motivation and migration plan
-- [act-r-proxy-mapping.md](act-r-proxy-mapping.md) — chunks, traces, retrieval implementation
-- [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) — two-pass prediction and learned attention
+- [proxy-memory-motivation.md](proxy-memory-motivation.md) — motivation and migration plan
+- [proxy-chunks-and-retrieval.md](proxy-chunks-and-retrieval.md) — chunks, traces, retrieval implementation
+- [proxy-prediction-and-attention.md](proxy-prediction-and-attention.md) — two-pass prediction and learned attention
 - [../conceptual-design/human-proxies.md](../conceptual-design/human-proxies.md) — conceptual design
 
 ---
@@ -38,22 +38,20 @@ We depart from ACT-R defaults for noise and retrieval threshold.
 
 ## Context Sensitivity via Embeddings
 
-ACT-R uses **symbolic spreading activation** for context sensitivity: activation spreads from the current goal through associative links between chunks. The spread depends on fan (how many chunks share an association) and source activation.
+ACT-R uses symbolic spreading activation for context sensitivity (see [research/act-r.md](../research/act-r.md)). We replace this with **vector embeddings and cosine similarity**. Each chunk has up to 5 independent embedding dimensions (situation, artifact, stimulus, response, salience). At retrieval, cosine similarity between query embeddings and chunk embeddings provides the context-sensitivity signal.
 
-We replace this with **vector embeddings and cosine similarity**. Each chunk has up to 5 independent embedding dimensions (situation, artifact, stimulus, response, salience). At retrieval, cosine similarity between query embeddings and chunk embeddings provides the context-sensitivity signal.
-
-This is a fundamental departure. ACT-R's spreading activation is symbolic, discrete, and structure-aware. Cosine similarity over embeddings is continuous, learned, and structure-blind. The trade-off: we lose the ability to reason about structural relationships between chunks, but we gain the ability to match on semantic meaning without manually defining associative links.
+This is a fundamental departure. We lose the ability to reason about structural relationships between chunks, but gain the ability to match on semantic meaning without manually defining associative links.
 
 ---
 
 ## Two-Stage Retrieval
 
-ACT-R retrieves the single chunk with highest activation above threshold. We retrieve a **ranked set** using a two-stage process:
+ACT-R retrieves the single chunk with highest activation above threshold (see [research/act-r.md](../research/act-r.md) §Retrieval). We retrieve a **ranked set** using a two-stage process:
 
 1. **Activation filter**: all chunks with B > tau survive (standard ACT-R)
 2. **Composite ranking**: survivors are scored by `activation_weight * normalized_B + semantic_weight * cosine_sim + noise` and the top-k are returned
 
-The composite score mixes ACT-R activation with semantic similarity. This is not ACT-R — it is a hybrid that uses ACT-R's activation as one signal among two. The design doc for this is [act-r-proxy-mapping.md](act-r-proxy-mapping.md).
+The composite score mixes ACT-R activation with semantic similarity. This is not ACT-R — it is a hybrid that uses ACT-R's activation as one signal among two. The design doc for this is [proxy-chunks-and-retrieval.md](proxy-chunks-and-retrieval.md).
 
 Normalization is min-max over the candidate set. This makes the effective weight of activation relative to the current query, not absolute. See issue #192 for known limitations.
 
@@ -61,7 +59,7 @@ Normalization is min-max over the candidate set. This makes the effective weight
 
 ## Reinforcement Model
 
-In ACT-R, a chunk is reinforced (gets a new trace) every time it participates in a production rule firing. In our system, reinforcement happens at two points:
+In vanilla ACT-R, a chunk is reinforced every time it participates in a production rule firing (see [research/act-r.md](../research/act-r.md) §Base-Level Activation). In our system, reinforcement happens at two points:
 
 1. **On chunk creation** — the initial trace
 2. **On explicit reinforcement** — after the proxy has consumed retrieved memories and produced a response, the caller explicitly reinforces the chunks that were used via `reinforce_retrieved()`
@@ -72,10 +70,10 @@ Retrieval itself does not add traces (see issue #191). This departs from some AC
 
 ## What We Don't Use
 
-Several ACT-R mechanisms are not implemented:
+Several ACT-R mechanisms are not implemented (see [research/act-r.md](../research/act-r.md) for descriptions of each):
 
 - **Spreading activation** — replaced by embedding similarity (see above)
-- **Partial matching** — ACT-R can retrieve chunks that partially match a query, with a penalty. We use cosine similarity instead, which provides a continuous match score.
-- **Production compilation** — ACT-R's procedural learning mechanism (combining two production rules into one). Not applicable to our system.
-- **Utility learning** — ACT-R learns which production rules to prefer via reward. Not applicable; we have a separate confidence calibration mechanism.
-- **Soft-threshold retrieval probability** — the logistic P(retrieve) function from ACT-R eq. 4.4. We use a hard threshold (B > tau) for stage 1 filtering. The soft threshold could replace this; it's documented in [research/act-r.md](../research/act-r.md) for future consideration.
+- **Partial matching** — replaced by cosine similarity, which provides a continuous match score
+- **Production compilation** — not applicable to our system
+- **Utility learning** — not applicable; we have a separate confidence calibration mechanism
+- **Soft-threshold retrieval probability** — we use a hard threshold (B > tau) for stage 1 filtering. The soft threshold could replace this for future consideration.

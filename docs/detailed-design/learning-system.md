@@ -28,6 +28,10 @@ This is not undifferentiated prose. The metadata enables prominence scoring, tem
 
 **Hybrid retrieval with optional embeddings.** `memory_indexer.py` implements two-phase retrieval: BM25 via FTS5 as the primary signal, with optional vector embeddings (OpenAI or Gemini) for re-ranking. When embeddings are available, scores blend at 70% vector / 30% BM25. When unavailable, BM25 alone provides retrieval. This follows the OpenClaw pattern described in the conceptual design — no hard dependency on embedding providers, graceful degradation to keyword search.
 
+**Type-aware retrieval routing.** Adapted from AdaMem (Yan et al., 2026), retrieval queries are dispatched to type-specific stores rather than searched against a single undifferentiated index. The routing is caller-driven: `engine.py` requests task learnings with a dedicated token budget, `proxy_agent.py` requests proxy-task patterns with a separate budget, and institutional and proxy-preferential learnings are loaded unconditionally at matching scope. This replaces the single `retrieve()` call with per-type retrieval paths — each with its own budget, scoring strategy, and loading behavior. See [#197](https://github.com/dlewissandy/teaparty/issues/197).
+
+**Persona distillation to Claude Code memory.** Stable user preferences discovered by the proxy are distilled from ACT-R episodic chunks and written as Claude Code memory files (`~/.claude/projects/<project>/memory/`). These files are automatically loaded into every Claude Code session — including proxy `claude -p` invocations — providing always-loaded preference access with no custom infrastructure. The human can see, edit, and correct these files, creating a transparent feedback loop. Distillation runs post-session alongside learning extraction. See [#197](https://github.com/dlewissandy/teaparty/issues/197).
+
 **Scoped hierarchy with promotion.** Learnings are stored at the most specific scope where they apply. Promotion moves validated learnings upward through the hierarchy (dispatch → team → session → project → global), with increasingly aggressive filtering at each level. This prevents scope pollution: a correction that applied to one specific task doesn't automatically become global policy.
 
 ---
@@ -92,21 +96,81 @@ scope_multiplier: team=1.5, project=1.2, global=1.0
 
 ## What Does Not Yet Exist
 
-**Full learning type differentiation.** The conceptual design defines three retrieval categories: institutional (always loaded), task-based (fuzzy-retrieved), and proxy (five subtypes). The infrastructure exists (typed entries, separate `institutional.md` and `tasks/` directories) but the retrieval path does not yet differentiate — all available memories are injected without type-aware budget allocation. **Severity:** This is a 40% problem. Without type-aware filtering, agents see all memories at once (inefficient but not broken). Proper budgeting would prevent over-loading with too much institutional memory.
+**Full learning type differentiation.** The conceptual design defines three retrieval categories: institutional (always loaded), task-based (fuzzy-retrieved), and proxy (five subtypes). The infrastructure exists (typed entries, separate `institutional.md` and `tasks/` directories). The retrieval approach is now specified: caller-driven type routing adapted from AdaMem (Yan et al., 2026), where `retrieve()` accepts a `learning_type` parameter and per-type token budgets. Implementation pending — see [#197](https://github.com/dlewissandy/teaparty/issues/197). **Severity:** 40% problem until implemented.
 
-**Scoped retrieval with type-aware budget allocation.** The conceptual design describes hierarchical retrieval where team-level chunks score higher than global chunks at equal similarity, AND where institutional memories (always) are budgeted separately from task-learned memories (fuzzy-retrieved). Scope multipliers are integrated; type-aware budget allocation is not. **Severity:** This is a 20% problem. Agents receive mixed signals without proper scoping, losing some fidelity but not breaking functionality.
+**Scoped retrieval with type-aware budget allocation.** Scope multipliers are integrated (team=1.5x, project=1.2x, global=1.0x). Type-aware budget allocation is specified: each learning type (institutional, task, proxy) gets a dedicated token budget, and retrieval queries are dispatched to the appropriate type store. The approach uses caller-driven routing rather than query classification — the caller (engine.py, proxy_agent.py) already knows what type of memory it needs. Implementation pending — see [#197](https://github.com/dlewissandy/teaparty/issues/197). **Severity:** 20% problem until implemented.
 
 **In-flight and prospective extraction.** The conceptual design defines four learning moments: prospective (before execution), in-flight (at milestones), corrective (at mismatch), and retrospective (after completion). Only retrospective (post-session) is wired into the orchestrator lifecycle. In-flight extraction would require pausing at milestones to reflect; prospective extraction would require reflection before execution. **Severity:** This is a 60% problem for full vision realization but 0% for current extraction — these are design targets for future work.
 
-**Procedural learning — skill lookup and crystallization distinction.** Skill lookup is operational and implemented: `skill_lookup.py` matches tasks against stored skills via threshold-based retrieval, and `engine.py` seeds PLAN.md from matching skills at planning phase entry. However, skill crystallization (automatically generalizing repeated plans into reusable skills) is a design target, not implemented. The skill library in the POC is manually seeded from domain experts or high-quality plans; it does not grow automatically. **Severity:** This is a 50% problem. Skill lookup is operational, but it operates on a manually-managed library. Crystallization would make the library grow automatically from agents' own work.
+**Proxy learning integration.** The approval gate stores interaction chunks in `proxy_memory.db` (ACT-R episodic memory) and EMA history in `.proxy-confidence-*.json`. These are not yet integrated with the broader learning system. The specified approach: post-session persona distillation extracts stable preferences from ACT-R chunks and writes them as Claude Code memory files (`~/.claude/projects/<project>/memory/`), where they are automatically loaded into all sessions including proxy invocations. This provides bidirectional feedback: the proxy's discoveries inform all agents, and human corrections to the memory files feed back into the proxy's model. **Severity:** 80% problem until implemented.
 
-**Proxy learning integration.** The approval gate stores differentials and question patterns locally (in `.proxy-confidence-*.json`). These are not integrated with the broader learning system — the proxy's memory and the learning system's memory are separate stores. This is architecturally critical: the proxy's misalignment signals should inform how agents are prompted, and agent learnings should inform proxy confidence. Currently, there is no bidirectional feedback. **Severity:** This is an 80% problem. Without integration, the proxy doesn't feed into agent behavior, and agents don't feed into proxy accuracy.
+---
 
-**Resolved issues:**
-- ~~[#115](https://github.com/dlewissandy/teaparty/issues/115): Learning extraction silently fails~~ — resolved
-- ~~[#73–#80](https://github.com/dlewissandy/teaparty/issues/73): GAP A5.* — missing scopes in the learning pipeline~~ — all resolved
-- ~~[#84](https://github.com/dlewissandy/teaparty/issues/84): memory_indexer.py needs retrieve() function~~ — resolved: `retrieve()` importable
-- ~~[#85](https://github.com/dlewissandy/teaparty/issues/85): summarize_session.py needs promote() function~~ — resolved
-- ~~[#86](https://github.com/dlewissandy/teaparty/issues/86): compact_memory.py not wired in~~ — resolved: `_try_compact()` in promotion pipeline
-- ~~[#91](https://github.com/dlewissandy/teaparty/issues/91): track_reinforcement.py not wired in~~ — resolved: `reinforce_entries()` called from `extract_learnings()`
-- ~~[#101](https://github.com/dlewissandy/teaparty/issues/101): Enable procedural learning (plans → skills)~~ — resolved: skill lookup and plan seeding implemented
+## Procedural Learning: System I / System II
+
+The planning phase operates as a dual-process system. System I (fast path) checks whether a stored skill matches the current task. If it matches, the skill template becomes the plan directly — the planning agent never runs. System II (slow path) invokes the planning agent to produce a plan from scratch. The human or proxy reviews the result at PLAN_ASSERT regardless of which path produced it.
+
+This is how collective procedural knowledge accumulates: agents solve problems (System II), successful solutions crystallize into reusable skills, and future similar tasks get the benefit of prior work without repeating the planning effort (System I). The mechanism has three stages.
+
+### Stage 1: Skill lookup (implemented)
+
+`skill_lookup.py` matches the current task description against stored skills in the `skills/` directory using threshold-based retrieval. When a match exceeds the threshold, `engine.py` seeds PLAN.md with the skill template at planning phase entry. The planning agent is bypassed.
+
+### Stage 2: Skill crystallization (not yet wired)
+
+`crystallize_skills()` exists in `procedural_learning.py` but is never called from the runtime. After successful sessions, approved plans are archived as skill candidates in `skill-candidates/`. When three or more candidates for the same category of work accumulate, crystallization generalizes them into a parameterized skill template — extracting the common structure and marking variable elements. The generalization is performed by an LLM call that reads the candidate plans and produces a skill with fixed structure and variable parameters.
+
+The pipeline is: archive candidates (works) → crystallize into skills (**dead code**) → look up skills for future tasks (works but has nothing to find). Wiring crystallization into the post-session pipeline (`extract_learnings()`) closes the loop.
+
+### Stage 3: Skill refinement
+
+Once a skill is in use, it should improve from experience. Three categories of signal feed back into the skill after each session that used it.
+
+**Gate feedback.** Every time a skill-as-plan passes through PLAN_ASSERT or WORK_ASSERT, the gate outcome is a signal about the skill's quality. The gate infrastructure already records approve/correct/reject counts, text differentials on corrections, and EMA approval rates. But approval with comments is also signal — the human or proxy may approve the plan while noting concerns, missing considerations, or areas that could be stronger. These comments reveal where the skill fell short of expectations even when the output was acceptable. A correction ("add a rollback step") is explicit ground truth. A comment ("this doesn't address the migration rollback case") is softer but equally valuable for refinement.
+
+**Backtracks.** Not all backtracks mean the same thing. The CfA state machine distinguishes backtrack targets, and each tells you something different about what failed:
+
+- **Execution → Planning** (e.g., WORK_ASSERT → revise-plan): execution uncovered an unanticipated corner case in the plan. The plan's structure was wrong for the actual work — a missing step, an incorrect assumption about dependencies, a gap the skill template should have covered. This is direct refinement signal for the skill.
+- **Execution → Intent** or **Planning → Intent**: the intent was underspecified or misspecified. The skill may be fine — the problem was upstream. This is not a signal about the skill's quality; it's a signal about intent capture.
+- **Task-level retries** within execution: a subtask failed and was retried. This may be skill-relevant (the skill's decomposition was wrong) or environmental (a flaky tool, a transient error). The distinction matters for refinement.
+
+The key insight: execution-to-planning backtracks are the strongest skill refinement signal. The corrected plan produced by System II fallback reveals exactly what the skill got wrong and what the fix looks like. Planning-to-intent backtracks are not skill signal — they indicate intent problems.
+
+**Execution friction.** A session that succeeds at the gates but encountered operational problems during execution — tool timeouts, permission denials, bash calls that were blocked, retries on flaky operations, missing file references — has valuable signal about what the skill's instructions failed to anticipate. These friction events are already visible in the agent's conversation stream. The skill should be refined to prevent recurrence: adding explicit file references so agents don't search blindly, providing example commands so agents don't guess at syntax, specifying permission requirements upfront, including fallback instructions for known failure modes.
+
+Skill refinement invokes Claude Code's built-in skill creation capability, which understands the skill format natively. The refinement agent receives the existing skill, the human's comments and corrections from the gate, and the full execution trace from the session. The trace shows what actually happened — where the agent struggled, what it retried, what workarounds it found, what the backtrack revealed. The agent reads this material and considers the full range of improvements:
+
+- **Rewording** — clarifying ambiguous instructions that led to misinterpretation, tightening language where agents went off track, restructuring steps that proved fragile
+- **Extracting references** — pulling out file paths, API endpoints, configuration locations, and other concrete pointers that agents had to discover by searching, so future invocations find them immediately
+- **Creating examples** — adding worked examples of expected inputs, outputs, or intermediate artifacts where agents guessed at format or structure
+- **Scripting tools** — writing shell scripts, helper commands, or tool configurations that automate steps where agents repeatedly encountered friction (permission setup, environment configuration, file scaffolding) This is not a bespoke LLM reflect pass; it uses the same mechanism a human would use to improve a skill after observing it in action.
+
+```
+skill learning lifecycle:
+    session starts
+    task matches skill via System I lookup
+    skill template becomes PLAN.md
+    execution proceeds under that plan
+
+    during execution:
+        record friction events: timeouts, permission denials, tool failures, retries
+
+    at PLAN_ASSERT or WORK_ASSERT:
+        gate records outcome (approve / correct / reject)
+        capture correction text, approval comments, or rejection reason
+
+    on backtrack:
+        if execution → planning: skill refinement signal (corner case in plan)
+            archive corrected plan as evidence of what the skill got wrong
+        if planning → intent or execution → intent: not skill signal (intent problem)
+            do not attribute to skill
+
+    post-session:
+        collect signals: gate feedback + execution→planning backtracks + friction events
+        if any signals recorded for the skill:
+            invoke Claude Code skill refinement with existing skill + signals
+            refined skill replaces original in skills/
+        crystallize any pending candidates into new skills
+```
+
+Skills with persistently low approval rates or high correction counts are surfaced for review rather than silently continuing to produce plans that need fixing.

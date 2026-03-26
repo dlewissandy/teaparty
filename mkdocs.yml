@@ -58,11 +58,13 @@ nav:
     - Agent Runtime: detailed-design/agent-runtime.md
     - CfA State Machine: detailed-design/cfa-state-machine.md
     - Approval Gate: detailed-design/approval-gate.md
-    - Learning System: detailed-design/learning-system.md
-    - ACT-R Adaptations: detailed-design/act-r.md
-    - ACT-R Proxy Memory: detailed-design/act-r-proxy-memory.md
-    - ACT-R Proxy Mapping: detailed-design/act-r-proxy-mapping.md
-    - ACT-R Proxy Sensorium: detailed-design/act-r-proxy-sensorium.md
+    - Memory and Learning:
+      - Overview: detailed-design/memory-and-learning.md
+      - Learning System: detailed-design/learning-system.md
+      - ACT-R Adaptations: detailed-design/act-r.md
+      - Proxy Memory Motivation: detailed-design/proxy-memory-motivation.md
+      - Proxy Chunks and Retrieval: detailed-design/proxy-chunks-and-retrieval.md
+      - Proxy Prediction and Attention: detailed-design/proxy-prediction-and-attention.md
     - Folder Structure: reference/folder-structure.md
   - Evaluation:
     - Overview: experimental-results/index.md
