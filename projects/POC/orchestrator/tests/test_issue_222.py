@@ -274,8 +274,8 @@ class TestEmbeddingAblation(unittest.TestCase):
             result = run_embedding_ablation(conn)
             conn.close()
 
-            # Should have breakdown entries
-            self.assertGreater(len(result.per_context), 0)
+            # 2 states x 2 task types = 4 context groups
+            self.assertEqual(len(result.per_context), 4)
 
             # Each entry should have state and task_type
             for ctx in result.per_context:
