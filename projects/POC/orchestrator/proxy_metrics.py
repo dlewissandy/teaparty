@@ -18,9 +18,14 @@ from dataclasses import dataclass, field
 
 from projects.POC.orchestrator.proxy_memory import (
     DECAY,
+    NOISE_SCALE,
+    RETRIEVAL_THRESHOLD,
     MemoryChunk,
     base_level_activation,
+    get_interaction_counter,
     query_chunks,
+    retrieve_chunks,
+    retrieve_most_recent_n,
 )
 
 
@@ -346,3 +351,218 @@ def generate_report(conn: sqlite3.Connection) -> dict:
         'go_no_go': gng,
         'text': text,
     }
+
+
+# ── Ablation: ACT-R decay vs. simple recency (#223) ────────────────────────
+
+ABLATION_THRESHOLD = 0.95
+
+
+@dataclass
+class AblationEpoch:
+    epoch: str
+    overlap: float
+    actr_match_rate: float
+    recency_match_rate: float
+
+
+@dataclass
+class AblationResult:
+    actr_ids: list[str]
+    recency_ids: list[str]
+    overlap: float
+    actr_match_rate: float
+    recency_match_rate: float
+    recency_sufficient: bool
+    epoch_breakdown: list[dict]
+
+
+def _chunk_action_match(chunks: list[MemoryChunk]) -> float:
+    """Fraction of chunks where posterior_prediction == outcome (eligible only)."""
+    eligible = [c for c in chunks
+                if c.human_response and c.posterior_prediction]
+    if not eligible:
+        return 0.0
+    matched = sum(1 for c in eligible if c.posterior_prediction == c.outcome)
+    return matched / len(eligible)
+
+
+def _set_overlap(a: list[str], b: list[str]) -> float:
+    """Jaccard overlap between two ID lists."""
+    if not a and not b:
+        return 1.0
+    sa, sb = set(a), set(b)
+    union = sa | sb
+    if not union:
+        return 1.0
+    return len(sa & sb) / len(union)
+
+
+def ablation_actr_vs_recency(
+    conn: sqlite3.Connection,
+    *,
+    state: str = '',
+    task_type: str = '',
+    tau: float = RETRIEVAL_THRESHOLD,
+    d: float = DECAY,
+    s: float = 0.0,
+    epoch_boundary: int | None = None,
+) -> AblationResult:
+    """Compare ACT-R activation retrieval vs. most-recent-N on the same data.
+
+    Config A: activation filter (B > tau) then composite scoring with
+    activation_weight=1.0 / semantic_weight=0.0 (pure activation, no embeddings).
+    Config B: most-recent-N where N = len(Config A survivors).
+    """
+    current = get_interaction_counter(conn)
+
+    # Config A: ACT-R retrieval (activation only, no semantic scoring)
+    actr_chunks = retrieve_chunks(
+        conn,
+        state=state,
+        task_type=task_type,
+        context_embeddings={},
+        current_interaction=current,
+        tau=tau,
+        top_k=9999,
+        d=d,
+        s=s,
+    )
+    n = len(actr_chunks)
+
+    # Config B: most-recent-N with same count
+    recency_chunks = retrieve_most_recent_n(
+        conn, n=n, state=state, task_type=task_type,
+    )
+
+    actr_ids = [c.id for c in actr_chunks]
+    recency_ids = [c.id for c in recency_chunks]
+
+    overlap = _set_overlap(actr_ids, recency_ids)
+    actr_mr = _chunk_action_match(actr_chunks)
+    recency_mr = _chunk_action_match(recency_chunks)
+    recency_sufficient = (
+        recency_mr >= ABLATION_THRESHOLD * actr_mr if actr_mr > 0
+        else True
+    )
+
+    # Epoch breakdown
+    all_chunks = query_chunks(conn, state=state, task_type=task_type)
+    epoch_breakdown = _compute_epoch_breakdown(
+        all_chunks, current, tau, d, s, state, task_type, conn,
+        epoch_boundary,
+    )
+
+    return AblationResult(
+        actr_ids=actr_ids,
+        recency_ids=recency_ids,
+        overlap=overlap,
+        actr_match_rate=actr_mr,
+        recency_match_rate=recency_mr,
+        recency_sufficient=recency_sufficient,
+        epoch_breakdown=epoch_breakdown,
+    )
+
+
+def _compute_epoch_breakdown(
+    chunks: list[MemoryChunk],
+    current: int,
+    tau: float,
+    d: float,
+    s: float,
+    state: str,
+    task_type: str,
+    conn: sqlite3.Connection,
+    epoch_boundary: int | None,
+) -> list[dict]:
+    """Split chunks into early/late epochs and compare configs per epoch."""
+    if not chunks:
+        return []
+
+    # Determine boundary: use provided or median of min(traces) (creation time)
+    creation_times = [min(c.traces) for c in chunks if c.traces]
+    if not creation_times:
+        return []
+
+    if epoch_boundary is None:
+        creation_times_sorted = sorted(creation_times)
+        mid = len(creation_times_sorted) // 2
+        epoch_boundary = creation_times_sorted[mid]
+
+    early = [c for c in chunks if c.traces and min(c.traces) < epoch_boundary]
+    late = [c for c in chunks if c.traces and min(c.traces) >= epoch_boundary]
+
+    result = []
+    for label, group in [('early', early), ('late', late)]:
+        if not group:
+            continue
+
+        # ACT-R: filter by activation threshold
+        actr_survivors = []
+        for c in group:
+            b = base_level_activation(c.traces, current, d)
+            if b > tau:
+                actr_survivors.append(c)
+
+        n_epoch = len(actr_survivors)
+        # Recency: same N from this epoch's chunks
+        recency_group = sorted(
+            group, key=lambda c: max(c.traces) if c.traces else 0, reverse=True,
+        )[:n_epoch]
+
+        actr_ids_e = [c.id for c in actr_survivors]
+        recency_ids_e = [c.id for c in recency_group]
+
+        result.append({
+            'epoch': label,
+            'overlap': _set_overlap(actr_ids_e, recency_ids_e),
+            'actr_match_rate': _chunk_action_match(actr_survivors),
+            'recency_match_rate': _chunk_action_match(recency_group),
+            'actr_count': n_epoch,
+            'recency_count': len(recency_group),
+        })
+
+    return result
+
+
+# ── Reinforcement distribution (#223) ──────────────────────────────────────
+
+@dataclass
+class ReinforcementDistResult:
+    total_chunks: int
+    single_trace_count: int
+    multi_trace_count: int
+    single_trace_fraction: float
+    mean_traces: float
+    max_traces: int
+    ablation_tautological: bool
+
+
+def reinforcement_distribution(conn: sqlite3.Connection) -> ReinforcementDistResult:
+    """Report trace count statistics across all chunks.
+
+    When all chunks have exactly one trace, ACT-R activation reduces to a
+    function of creation time, making the decay-vs-recency ablation tautological.
+    """
+    chunks = query_chunks(conn)
+    if not chunks:
+        return ReinforcementDistResult(
+            total_chunks=0, single_trace_count=0, multi_trace_count=0,
+            single_trace_fraction=0.0, mean_traces=0.0, max_traces=0,
+            ablation_tautological=True,
+        )
+
+    trace_counts = [len(c.traces) for c in chunks]
+    single = sum(1 for tc in trace_counts if tc <= 1)
+    multi = len(trace_counts) - single
+    total_traces = sum(trace_counts)
+
+    return ReinforcementDistResult(
+        total_chunks=len(chunks),
+        single_trace_count=single,
+        multi_trace_count=multi,
+        single_trace_fraction=single / len(chunks),
+        mean_traces=total_traces / len(chunks),
+        max_traces=max(trace_counts),
+        ablation_tautological=(multi == 0),
+    )
