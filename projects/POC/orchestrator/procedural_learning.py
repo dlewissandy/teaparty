@@ -403,6 +403,265 @@ def _parse_candidate_frontmatter(content: str) -> tuple[dict[str, str], str]:
     return meta, body
 
 
+# ── Friction event detection (Issue #229) ─────────────────────────────────────
+
+# Patterns that indicate operational friction in agent output
+_PERMISSION_DENIED_PATTERNS = (
+    'permission denied',
+    'Permission denied',
+    'blocked',
+    'not permitted',
+    'access denied',
+)
+
+_FILE_NOT_FOUND_PATTERNS = (
+    'No such file or directory',
+    'not found',
+    'FileNotFoundError',
+    'does not exist',
+)
+
+_FALLBACK_RETRY_PATTERNS = (
+    'try a different approach',
+    'let me try',
+    'alternative approach',
+    'try another',
+    'instead, ',
+    'falling back',
+)
+
+
+def detect_friction_events(stream_path: str) -> list[dict]:
+    """Scan a stream JSONL file for operational friction patterns.
+
+    Detects three categories of friction:
+    - permission_denied: tool calls or commands that were blocked
+    - file_not_found: searches for files that don't exist
+    - fallback_retry: errors followed by the agent trying a different approach
+
+    Returns a list of dicts with 'category' and 'detail' keys.
+    """
+    import json as _json
+
+    if not os.path.isfile(stream_path):
+        return []
+
+    events: list[dict] = []
+    lines: list[dict] = []
+
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    lines.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    continue
+    except OSError:
+        return []
+
+    prev_was_error = False
+    prev_error_detail = ''
+
+    for entry in lines:
+        text = ''
+        entry_type = entry.get('type', '')
+
+        # Extract text content from the entry
+        if entry_type == 'result':
+            text = str(entry.get('result', ''))
+        elif entry_type == 'assistant':
+            msg = entry.get('message', {})
+            content = msg.get('content', [])
+            if isinstance(content, list):
+                text = ' '.join(
+                    c.get('text', '') for c in content
+                    if isinstance(c, dict) and c.get('type') == 'text'
+                )
+
+        if not text:
+            prev_was_error = False
+            continue
+
+        # Check for permission denied
+        if any(pat in text for pat in _PERMISSION_DENIED_PATTERNS):
+            events.append({
+                'category': 'permission_denied',
+                'detail': text[:200],
+            })
+            prev_was_error = True
+            prev_error_detail = text[:200]
+            continue
+
+        # Check for file not found
+        if any(pat in text for pat in _FILE_NOT_FOUND_PATTERNS):
+            events.append({
+                'category': 'file_not_found',
+                'detail': text[:200],
+            })
+            prev_was_error = True
+            prev_error_detail = text[:200]
+            continue
+
+        # Check for fallback retry (error on previous line, retry language on this line)
+        if prev_was_error and any(pat in text.lower() for pat in _FALLBACK_RETRY_PATTERNS):
+            events.append({
+                'category': 'fallback_retry',
+                'detail': f'After error: {prev_error_detail[:100]} → {text[:100]}',
+            })
+            prev_was_error = False
+            continue
+
+        # Check if this line itself is an error (for next-line fallback detection)
+        if entry_type == 'result' and ('error' in text.lower() or 'Error' in text):
+            prev_was_error = True
+            prev_error_detail = text[:200]
+        else:
+            prev_was_error = False
+
+    return events
+
+
+# ── Friction-aware skill refinement (Issue #229) ──────────────────────────────
+
+# Threshold: flag skill for review when average friction per session exceeds this
+_FRICTION_PER_SESSION_THRESHOLD = 3.0
+
+
+def refine_skill_with_friction(
+    *,
+    skill_path: str,
+    friction_events: list[dict],
+) -> bool:
+    """Refine a skill template based on friction events from execution.
+
+    Reads the current skill, sends it plus friction event descriptions to an
+    LLM, and writes the updated skill back.  Returns True if the skill was
+    updated.
+
+    Same pattern as reflect_on_skill — guards against empty input, LLM
+    failure, and invalid output.
+    """
+    if not friction_events:
+        return False
+
+    if not os.path.isfile(skill_path):
+        return False
+
+    try:
+        original = Path(skill_path).read_text(errors='replace')
+    except OSError:
+        return False
+
+    updated = _apply_friction_to_skill(original, friction_events)
+
+    if not updated or not updated.strip():
+        return False
+
+    # Validate the updated skill has frontmatter
+    meta, body = _parse_candidate_frontmatter(updated)
+    if not meta.get('name') or not body.strip():
+        _log.warning('Friction refinement produced invalid skill — preserving original')
+        return False
+
+    try:
+        Path(skill_path).write_text(updated)
+        _log.info('Refined skill with %d friction events: %s',
+                  len(friction_events), skill_path)
+        return True
+    except OSError as exc:
+        _log.warning('Failed to write friction-refined skill: %s', exc)
+        return False
+
+
+def _apply_friction_to_skill(
+    skill_content: str,
+    friction_events: list[dict],
+) -> str:
+    """Call an LLM to apply friction event learnings to a skill template.
+
+    Isolated for easy mocking in tests (same pattern as _apply_corrections_to_skill).
+    """
+    friction_text = '\n'.join(
+        f'- [{e.get("category", "?")}] {e.get("detail", "")}'
+        for e in friction_events
+        if e.get('detail')
+    )
+
+    prompt = (
+        'You are updating a reusable skill template based on operational friction '
+        'observed during execution. These friction events indicate where the skill\'s '
+        'instructions were incomplete — the agent had to figure things out the hard way.\n\n'
+        'Improve the template to prevent recurrence:\n'
+        '- Add explicit file paths so agents don\'t search blindly\n'
+        '- Provide example commands so agents don\'t guess syntax\n'
+        '- Specify permission requirements upfront\n'
+        '- Add notes about common pitfalls\n\n'
+        'IMPORTANT: Preserve the YAML frontmatter (name, description, category). '
+        'Only modify the workflow body. Return the complete updated skill file.\n\n'
+        '## Current Skill Template\n\n'
+        f'{skill_content}\n\n'
+        '## Friction Events to Address\n\n'
+        f'{friction_text}\n'
+    )
+
+    try:
+        result = subprocess.run(
+            ['claude', '--print', '-p', prompt],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        _log.warning('LLM call for friction refinement failed: %s', exc)
+
+    return ''
+
+
+def update_skill_friction_stats(
+    *,
+    skill_path: str,
+    friction_events: list[dict],
+) -> None:
+    """Update a skill's frontmatter with friction event counts.
+
+    Tracks: friction_events_total (cumulative).
+    Sets needs_review=true when average friction per session exceeds threshold.
+    Accumulates across calls — reads prior stats from existing frontmatter.
+    """
+    if not friction_events or not os.path.isfile(skill_path):
+        return
+
+    try:
+        content = Path(skill_path).read_text(errors='replace')
+    except OSError:
+        return
+
+    meta, body = _parse_candidate_frontmatter(content)
+
+    # Accumulate from prior stats
+    prior_friction = int(meta.get('friction_events_total', '0'))
+    total_friction = prior_friction + len(friction_events)
+    total_uses = int(meta.get('uses', '1'))  # at least 1 (this session)
+
+    meta['friction_events_total'] = str(total_friction)
+
+    # Flag for review if average friction per session is too high
+    avg_friction = total_friction / max(total_uses, 1)
+    if avg_friction >= _FRICTION_PER_SESSION_THRESHOLD:
+        meta['needs_review'] = 'true'
+
+    updated = _rebuild_skill_file(meta, body)
+    try:
+        Path(skill_path).write_text(updated)
+    except OSError:
+        pass
+
+
 def _mark_candidate_processed(path: str) -> None:
     """Update a candidate file's status from pending to processed."""
     try:

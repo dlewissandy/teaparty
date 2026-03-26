@@ -157,12 +157,29 @@ async def extract_learnings(
         project_dir=project_dir,
     )
 
+    # ── Friction event detection and sidecar (Issue #229) ──────────────────
+
+    await _run_scope(
+        'friction-detect', _detect_and_write_friction,
+        infra_dir=infra_dir,
+    )
+
     # ── Skill reflection: apply gate corrections to skill template (#146) ───
 
     sidecar_path = os.path.join(infra_dir, '.active-skill.json')
     if os.path.isfile(sidecar_path):
         await _run_scope(
             'skill-reflect', _reflect_on_skill_outcomes,
+            infra_dir=infra_dir,
+            project_dir=project_dir,
+        )
+
+    # ── Friction-aware skill refinement (Issue #229) ────────────────────────
+
+    friction_path = os.path.join(infra_dir, '.friction-events.json')
+    if os.path.isfile(sidecar_path) and os.path.isfile(friction_path):
+        await _run_scope(
+            'skill-friction-refine', _refine_skill_from_friction,
             infra_dir=infra_dir,
             project_dir=project_dir,
         )
@@ -711,6 +728,79 @@ def _make_embed_fn():
         return _embed
     except Exception:
         return None
+
+
+# ── Friction event detection and sidecar (Issue #229) ─────────────────────────
+
+def _detect_and_write_friction(*, infra_dir: str) -> None:
+    """Detect friction events from the execution stream and write sidecar.
+
+    Scans .exec-stream.jsonl for operational friction patterns and writes
+    the results to .friction-events.json in the infra dir.
+    """
+    import json
+
+    stream_path = os.path.join(infra_dir, '.exec-stream.jsonl')
+    if not os.path.isfile(stream_path):
+        return
+
+    from projects.POC.orchestrator.procedural_learning import detect_friction_events
+    events = detect_friction_events(stream_path)
+
+    if not events:
+        return
+
+    sidecar_path = os.path.join(infra_dir, '.friction-events.json')
+    try:
+        with open(sidecar_path, 'w') as f:
+            json.dump(events, f)
+        _log.info('Wrote %d friction events to %s', len(events), sidecar_path)
+    except OSError as exc:
+        _log.warning('Failed to write friction events sidecar: %s', exc)
+
+
+# ── Friction-aware skill refinement (Issue #229) ──────────────────────────────
+
+def _refine_skill_from_friction(*, infra_dir: str, project_dir: str) -> None:
+    """Refine a skill using friction events from the current session.
+
+    Reads .active-skill.json and .friction-events.json, then calls
+    refine_skill_with_friction to update the skill template and
+    update_skill_friction_stats to track metrics.
+    """
+    import json
+
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
+    try:
+        with open(sidecar_path) as f:
+            skill_info = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    skill_path = skill_info.get('path', '')
+    if not skill_path or not os.path.isfile(skill_path):
+        return
+
+    friction_path = os.path.join(infra_dir, '.friction-events.json')
+    try:
+        with open(friction_path) as f:
+            friction_events = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    if not friction_events:
+        return
+
+    from projects.POC.orchestrator.procedural_learning import (
+        refine_skill_with_friction,
+        update_skill_friction_stats,
+    )
+
+    # Update friction stats (always, even if refinement is skipped)
+    update_skill_friction_stats(skill_path=skill_path, friction_events=friction_events)
+
+    # Attempt refinement
+    refine_skill_with_friction(skill_path=skill_path, friction_events=friction_events)
 
 
 CLUSTER_SIMILARITY_THRESHOLD = 0.85
