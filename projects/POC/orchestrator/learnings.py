@@ -470,13 +470,91 @@ def _crystallize_skills(*, project_dir: str) -> None:
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
 
-def _compact_proxy_patterns(*, project_dir: str, log_path: str) -> None:
+CLUSTER_SIMILARITY_THRESHOLD = 0.85
+
+
+def _cluster_deltas_semantic(
+    deltas: list[str],
+    embed_fn,
+) -> list[tuple[str, int]]:
+    """Cluster deltas by embedding similarity, return (representative, count) pairs.
+
+    Uses single-linkage clustering: a delta joins an existing cluster if its
+    cosine similarity to any member exceeds CLUSTER_SIMILARITY_THRESHOLD.
+    The longest delta in each cluster is chosen as the representative.
+    """
+    from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
+    # Embed all deltas; pair each with its vector
+    embedded: list[tuple[str, list[float] | None]] = []
+    for d in deltas:
+        vec = embed_fn(d.strip())
+        embedded.append((d.strip(), vec))
+
+    # clusters: list of (members, vectors)
+    clusters: list[tuple[list[str], list[list[float] | None]]] = []
+
+    for text, vec in embedded:
+        if vec is None:
+            # Can't compare — treat as its own cluster
+            clusters.append(([text], [vec]))
+            continue
+
+        merged = False
+        for members, vecs in clusters:
+            for existing_vec in vecs:
+                if existing_vec is None:
+                    continue
+                if cosine_similarity(vec, existing_vec) >= CLUSTER_SIMILARITY_THRESHOLD:
+                    members.append(text)
+                    vecs.append(vec)
+                    merged = True
+                    break
+            if merged:
+                break
+
+        if not merged:
+            clusters.append(([text], [vec]))
+
+    # For each cluster: longest member as representative, len as frequency
+    results = []
+    for members, _ in clusters:
+        representative = max(members, key=len)
+        results.append((representative, len(members)))
+    return results
+
+
+def _cluster_deltas_exact(deltas: list[str]) -> list[tuple[str, int]]:
+    """Cluster deltas by case-insensitive exact match, return (representative, count) pairs."""
+    groups: dict[str, list[str]] = {}
+    order: list[str] = []
+    for d in deltas:
+        key = d.strip().lower()
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(d.strip())
+
+    results = []
+    for key in order:
+        members = groups[key]
+        representative = max(members, key=len)
+        results.append((representative, len(members)))
+    return results
+
+
+def _compact_proxy_patterns(
+    *,
+    project_dir: str,
+    log_path: str,
+    embed_fn=None,
+) -> None:
     """Extract recurring proxy correction patterns from the interaction log.
 
-    Groups interactions by state, identifies recurring deltas (corrections
-    the human makes repeatedly), and writes distilled patterns to
-    proxy-patterns.md.  This is the compaction step that converts raw
-    interaction history into actionable proxy behavioral knowledge.
+    Groups interactions by state, clusters semantically equivalent deltas
+    (using embedding similarity when embed_fn is provided, falling back to
+    case-insensitive exact match otherwise), tracks frequency, and writes
+    distilled patterns to proxy-patterns.md.
     """
     from pathlib import Path
     import json
@@ -519,14 +597,12 @@ def _compact_proxy_patterns(*, project_dir: str, log_path: str) -> None:
 
     for state, deltas in sorted(corrections_by_state.items()):
         lines.append(f'## {state}\n\n')
-        # Deduplicate similar deltas (simple exact match for now)
-        seen = []
-        for d in deltas:
-            d_lower = d.strip().lower()
-            if d_lower not in [s.lower() for s in seen]:
-                seen.append(d.strip())
-        for d in seen:
-            lines.append(f'- {d}\n')
+        if embed_fn is not None:
+            clusters = _cluster_deltas_semantic(deltas, embed_fn)
+        else:
+            clusters = _cluster_deltas_exact(deltas)
+        for representative, count in clusters:
+            lines.append(f'- {representative} (×{count})\n')
         lines.append('\n')
 
     patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
