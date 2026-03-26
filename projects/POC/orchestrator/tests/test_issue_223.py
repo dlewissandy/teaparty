@@ -200,15 +200,19 @@ class TestAblationActrVsRecency(unittest.TestCase):
             self.assertEqual(len(result.recency_ids), len(result.actr_ids))
 
     def test_reinforcement_causes_ranking_divergence(self):
-        """When reinforcement patterns exist, ACT-R and recency should differ."""
+        """When reinforcement patterns exist, ACT-R and recency should differ.
+
+        At counter=20:
+          Chunk A: traces=[5,8,12,16], B=ln(15^-0.5+12^-0.5+8^-0.5+4^-0.5)=0.337
+          Chunk B: traces=[18],        B=ln(2^-0.5)=-0.346
+          Chunk C: traces=[19],        B=ln(1^-0.5)=0.0
+        All above tau=-0.5, so all 3 are retrieved by both configs.
+        ACT-R ranks by activation: A, C, B
+        Recency ranks by latest trace: C(19), B(18), A(16)
+        """
         from projects.POC.orchestrator.proxy_metrics import ablation_actr_vs_recency
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Chunk A: created at 5, reinforced at 8, 12, 16 — high activation
-            # Chunk B: created at 18 — more recent but single trace
-            # Chunk C: created at 19 — most recent, single trace
-            # Recency order: C, B, A
-            # ACT-R order: A (high activation from 4 traces), C, B
             db_path = _seed_db(tmpdir, [
                 _make_chunk('A', traces=[5, 8, 12, 16], human_response='OK'),
                 _make_chunk('B', traces=[18], human_response='OK'),
@@ -218,17 +222,17 @@ class TestAblationActrVsRecency(unittest.TestCase):
             result = ablation_actr_vs_recency(conn, s=0.0)
             conn.close()
 
-            # Both should retrieve all 3 chunks (all above threshold)
-            # but the ORDER should differ — ACT-R should rank A higher
-            # while recency ranks C first
-            if result.overlap < 1.0 or result.actr_ids != result.recency_ids:
-                pass  # Expected: different ordering or different sets
-            # The key test: if all 3 are retrieved, rank order differs
-            if len(result.actr_ids) == 3 and len(result.recency_ids) == 3:
-                self.assertNotEqual(
-                    result.actr_ids, result.recency_ids,
-                    'Reinforcement patterns should cause different rankings',
-                )
+            # All 3 chunks above threshold — both configs retrieve all 3
+            self.assertEqual(len(result.actr_ids), 3)
+            self.assertEqual(len(result.recency_ids), 3)
+            # Same set (overlap=1.0) but different order
+            self.assertAlmostEqual(result.overlap, 1.0)
+            # ACT-R should rank heavily-reinforced chunk A first
+            self.assertEqual(result.actr_ids[0], 'A',
+                             'ACT-R should rank reinforced chunk first')
+            # Recency should rank most-recent chunk C first
+            self.assertEqual(result.recency_ids[0], 'C',
+                             'Recency should rank most recent chunk first')
 
     def test_identical_when_single_trace_chunks(self):
         """With only single-trace chunks, both configs retrieve same set."""
