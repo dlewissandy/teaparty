@@ -7,16 +7,15 @@ an agent escalation, or a clarifying question — it goes through the same path:
   2. Two-pass prediction:
      Pass 1 (prior): predict without seeing the artifact
      Pass 2 (posterior): predict after reading the artifact
-  3. Confidence calibration blends the agent's self-assessment with
-     statistical history (Laplace/EMA) via geometric mean
+  3. The agent's self-assessed confidence is the decision signal.
+     ACT-R memory depth determines cold-start gating.
+     EMA is tracked separately as a system health monitor.
   4. If confident → agent's text IS the answer
   5. If not confident → same question goes to the human
   6. Both predicted text and actual text feed into learning (memory chunks)
 
 The proxy agent always runs.  Statistics never gate whether the agent is
-consulted — they calibrate confidence after the agent has spoken.  The
-calibration is bidirectional: history can both reduce overconfidence and
-lift underconfidence toward the empirical approval rate.
+consulted — they are tracked for monitoring only.
 
 The proxy agent has file-read tools, receives ACT-R memory chunks and
 learned behavioral patterns, and can engage in multi-turn dialog with
@@ -87,13 +86,8 @@ async def consult_proxy(
         return ProxyResult(text='', confidence=0.0, from_agent=False)
 
     from projects.POC.scripts.approval_gate import (
-        COLD_START_THRESHOLD,
-        load_model,
         resolve_team_model_path,
         retrieve_similar_interactions,
-        compute_confidence_components,
-        _entry_key,
-        _make_entry,
     )
     from projects.POC.orchestrator.actors import MIN_EXECUTION_SECONDS
 
@@ -162,7 +156,7 @@ async def consult_proxy(
     if not two_pass.text:
         return ProxyResult(text='', confidence=0.0, from_agent=True)
 
-    # Statistical calibration: safety net ceiling on confidence.
+    # Cold-start guard: cap confidence if ACT-R memory is shallow.
     confidence = _calibrate_confidence(
         two_pass.confidence, state, project_slug, proxy_model_path, team,
     )
@@ -187,69 +181,49 @@ def _calibrate_confidence(
     proxy_model_path: str,
     team: str,
 ) -> float:
-    """Adjust agent confidence using statistical history.
+    """Apply cold-start gating based on ACT-R memory depth.
 
-    Blends the agent's self-assessed confidence with the statistical
-    confidence (Laplace/EMA) using an equal-weight geometric mean.
-    This allows history to both reduce overconfident agents and lift
-    underconfident agents toward the empirical approval rate.
+    The agent's self-assessed confidence (from two-pass prediction) is the
+    decision signal.  EMA is tracked separately as a system health monitor
+    and does not influence the returned confidence.
 
-    - Cold start (< COLD_START_THRESHOLD samples): cap at 0.5 so the caller
-      knows there's no track record yet.
-    - With history: geometric mean of agent confidence and statistical
-      confidence.  If the agent says 0.6 but history says 0.95, calibrated
-      confidence rises toward ~0.75.  If the agent says 0.95 but history
-      says 0.6, it drops toward ~0.75.
+    Cold-start guard: if the ACT-R memory store has fewer than
+    MEMORY_DEPTH_THRESHOLD distinct (state, task_type) pairs, cap
+    confidence at 0.5 so the caller knows the proxy lacks experience
+    breadth.  A proxy with diverse memories across multiple states and
+    task types has demonstrated understanding; one with shallow or
+    missing memory has not.
     """
-    from projects.POC.scripts.approval_gate import (
-        COLD_START_THRESHOLD,
-        ConfidenceEntry,
-        compute_confidence_components,
-        load_model,
-        resolve_team_model_path,
-        _entry_key,
-        _make_entry,
-    )
+    depth = _get_memory_depth(proxy_model_path, team)
+    if depth < MEMORY_DEPTH_THRESHOLD:
+        return min(agent_confidence, 0.5)
+    return agent_confidence
 
+
+# Minimum number of distinct (state, task_type) pairs in the ACT-R memory
+# store before the proxy is trusted to use its own confidence assessment.
+MEMORY_DEPTH_THRESHOLD = 3
+
+
+def _get_memory_depth(proxy_model_path: str, team: str) -> int:
+    """Query the ACT-R memory store for experience diversity."""
     try:
-        model_path = resolve_team_model_path(proxy_model_path, team)
-        model = load_model(model_path)
+        from projects.POC.orchestrator.proxy_memory import (
+            memory_depth,
+            open_proxy_db,
+            resolve_memory_db_path,
+        )
+        db_path = resolve_memory_db_path(proxy_model_path, team)
+        if not os.path.isfile(db_path):
+            return 0
+        conn = open_proxy_db(db_path)
+        try:
+            return memory_depth(conn)
+        finally:
+            conn.close()
     except Exception:
-        # No model at all — cap at cold-start level.
-        return min(agent_confidence, 0.5)
-
-    key = _entry_key(state, project_slug)
-    raw = model.entries.get(key)
-
-    if raw is None:
-        entry = _make_entry(state, project_slug)
-    elif isinstance(raw, dict):
-        # Backward compat
-        for field, default in [
-            ('differentials', []), ('ema_approval_rate', 0.5),
-            ('artifact_lengths', []), ('question_patterns', []),
-            ('prediction_correct_count', 0), ('prediction_total_count', 0),
-        ]:
-            if field not in raw:
-                raw[field] = default
-        entry = ConfidenceEntry(**raw)
-    else:
-        entry = raw
-
-    # Cold start — not enough history to trust the agent's self-assessment.
-    if entry.total_count < COLD_START_THRESHOLD:
-        return min(agent_confidence, 0.5)
-
-    # Enough history — blend agent and statistical confidence via geometric mean.
-    # Floor agent_confidence at 0.05 to prevent zero-collapse when the LLM
-    # output doesn't contain a CONFIDENCE marker (parse returns 0.0).
-    # This is a heuristic, not a principled calibration — the geometric mean
-    # was chosen for its conservative blending properties, not derived from
-    # a formal cost model.
-    laplace, ema = compute_confidence_components(entry)
-    stats_confidence = min(laplace, ema)
-    floored_agent = max(agent_confidence, 0.05)
-    return (floored_agent * stats_confidence) ** 0.5
+        _log.debug('Failed to query memory depth', exc_info=True)
+        return 0
 
 
 def _retrieve_actr_memories(
