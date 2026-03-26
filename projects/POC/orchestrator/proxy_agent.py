@@ -435,22 +435,24 @@ def _retrieve_actr_memories(
                     if cls.cause == 'context_sensitivity' and a.content and b.content:
                         try:
                             llm_cause = _classify_conflict_llm(a, b)
-                            if llm_cause != 'context_sensitivity':
-                                from projects.POC.orchestrator.proxy_memory import ConflictClassification
-                                _ACTIONS = {
-                                    'preference_drift': f'Prefer newer memory; schedule older for demotion.',
-                                    'genuine_tension': 'Escalate to human — unresolved tension in preferences.',
-                                    'retrieval_noise': 'Discard the weaker match.',
-                                }
-                                classifications[i] = ConflictClassification(
-                                    chunk_a_id=a.id, chunk_b_id=b.id,
-                                    cause=llm_cause,
-                                    action=_ACTIONS.get(llm_cause, cls.action),
-                                )
                         except Exception:
                             _log.warning('LLM conflict classification failed for pair %s/%s',
                                          a.id[:8], b.id[:8], exc_info=True)
+                            llm_cause = None
+                        if llm_cause is None:
                             llm_fallback_count += 1
+                        elif llm_cause != 'context_sensitivity':
+                            from projects.POC.orchestrator.proxy_memory import ConflictClassification
+                            _ACTIONS = {
+                                'preference_drift': f'Prefer newer memory; schedule older for demotion.',
+                                'genuine_tension': 'Escalate to human — unresolved tension in preferences.',
+                                'retrieval_noise': 'Discard the weaker match.',
+                            }
+                            classifications[i] = ConflictClassification(
+                                chunk_a_id=a.id, chunk_b_id=b.id,
+                                cause=llm_cause,
+                                action=_ACTIONS.get(llm_cause, cls.action),
+                            )
 
                 conflict_ctx = format_conflict_context(
                     classifications, llm_fallback_count=llm_fallback_count,
@@ -917,11 +919,12 @@ def _classify_conflict_llm(
     chunk_a: 'MemoryChunk',
     chunk_b: 'MemoryChunk',
     session_worktree: str = '',
-) -> str:
+) -> str | None:
     """Classify a conflicting pair via claude -p.
 
     Returns one of: preference_drift, context_sensitivity, genuine_tension,
-    retrieval_noise. Falls back to context_sensitivity on any failure.
+    retrieval_noise.  Returns None on failure so the caller can track
+    degradation (#238).
     """
     prompt = _CONFLICT_CLASSIFY_PROMPT.format(
         chunk_a_id=chunk_a.id[:8], state_a=chunk_a.state,
@@ -940,15 +943,15 @@ def _classify_conflict_llm(
         )
     except FileNotFoundError:
         _log.warning('LLM conflict classification failed: claude CLI not found')
-        return 'context_sensitivity'
+        return None
     except subprocess.TimeoutExpired:
         _log.warning('LLM conflict classification failed: timed out after 30s')
-        return 'context_sensitivity'
+        return None
 
     if result.returncode != 0 or not result.stdout.strip():
         _log.warning('LLM conflict classification failed: returncode=%s, output=%s',
                       result.returncode, bool(result.stdout.strip()))
-        return 'context_sensitivity'
+        return None
 
     output = result.stdout.strip()
     valid_causes = {'preference_drift', 'context_sensitivity', 'genuine_tension', 'retrieval_noise'}

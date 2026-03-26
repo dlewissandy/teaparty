@@ -87,7 +87,7 @@ class TestLlmClassifierWarningLog(unittest.TestCase):
                     _make_chunk(chunk_id='b', content='chunk b'),
                 )
 
-        self.assertEqual(result, 'context_sensitivity')
+        self.assertIsNone(result)
         self.assertTrue(any('LLM conflict classification' in msg for msg in cm.output))
 
     def test_classify_conflict_llm_logs_warning_on_nonzero_exit(self):
@@ -106,7 +106,7 @@ class TestLlmClassifierWarningLog(unittest.TestCase):
                     _make_chunk(chunk_id='b', content='chunk b'),
                 )
 
-        self.assertEqual(result, 'context_sensitivity')
+        self.assertIsNone(result)
         self.assertTrue(any('LLM conflict classification' in msg for msg in cm.output))
 
 
