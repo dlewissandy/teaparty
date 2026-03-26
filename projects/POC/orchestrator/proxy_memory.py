@@ -484,6 +484,21 @@ def record_interaction(
     emb_response = _embed(human_response) if human_response else None
     emb_salience = _embed(prediction_delta) if prediction_delta else None
 
+    # Blended embedding: concatenate all available text fields (issue #222)
+    blended_parts = []
+    if state:
+        blended_parts.append(state)
+    if task_type:
+        blended_parts.append(task_type)
+    if content:
+        blended_parts.append(content)
+    if human_response:
+        blended_parts.append(human_response)
+    if prediction_delta:
+        blended_parts.append(prediction_delta)
+    blended_str = ' '.join(blended_parts)
+    emb_blended = _embed(blended_str) if blended_str else None
+
     conn.execute('BEGIN IMMEDIATE')
     try:
         current = _increment_counter_no_commit(conn)
@@ -518,6 +533,7 @@ def record_interaction(
             embedding_stimulus=emb_stimulus,
             embedding_response=emb_response,
             embedding_salience=emb_salience,
+            embedding_blended=emb_blended,
         )
         _store_chunk_no_commit(conn, chunk)
         _update_accuracy_no_commit(

@@ -351,5 +351,130 @@ class TestBlendedEmbeddingStorage(unittest.TestCase):
             self.assertIsNone(loaded.embedding_blended)
 
 
+# ── Populate blended embeddings ─────────────────────────────────────────────
+
+class TestPopulateBlendedEmbeddings(unittest.TestCase):
+    """populate_blended_embeddings() backfills chunks that lack blended vectors."""
+
+    def test_populates_missing_blended_embeddings(self):
+        from unittest.mock import patch
+        from projects.POC.orchestrator.proxy_ablation import populate_blended_embeddings
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Chunks without blended embeddings
+            chunks = [
+                _make_chunk(chunk_id='p1', embedding_blended=None),
+                _make_chunk(chunk_id='p2', embedding_blended=None),
+            ]
+            db_path = _seed_db(tmpdir, chunks)
+            conn = open_proxy_db(db_path)
+
+            mock_embed = lambda text, conn=None, provider=None, model=None: [0.1, 0.2, 0.3]
+            with patch('projects.POC.scripts.memory_indexer.detect_provider', return_value=('test', 'test')), \
+                 patch('projects.POC.scripts.memory_indexer.try_embed', side_effect=mock_embed):
+                updated = populate_blended_embeddings(conn)
+
+            self.assertEqual(updated, 2)
+
+            from projects.POC.orchestrator.proxy_memory import get_chunk
+            loaded = get_chunk(conn, 'p1')
+            self.assertIsNotNone(loaded.embedding_blended)
+            self.assertEqual(loaded.embedding_blended, [0.1, 0.2, 0.3])
+            conn.close()
+
+    def test_skips_chunks_that_already_have_blended(self):
+        from unittest.mock import patch
+        from projects.POC.orchestrator.proxy_ablation import populate_blended_embeddings
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            chunks = [
+                _make_chunk(chunk_id='p3', embedding_blended=[0.5, 0.5]),
+            ]
+            db_path = _seed_db(tmpdir, chunks)
+            conn = open_proxy_db(db_path)
+
+            # Should not be called since all chunks already have blended
+            updated = populate_blended_embeddings(conn)
+
+            self.assertEqual(updated, 0)
+            conn.close()
+
+
+# ── Report generation ───────────────────────────────────────────────────────
+
+class TestAblationReport(unittest.TestCase):
+    """generate_ablation_report() produces readable text output."""
+
+    def test_report_contains_key_sections(self):
+        from projects.POC.orchestrator.proxy_ablation import (
+            AblationContextResult,
+            EmbeddingAblationResult,
+            generate_ablation_report,
+        )
+
+        result = EmbeddingAblationResult(
+            overall_retrieval_overlap=0.85,
+            per_context=[
+                AblationContextResult(
+                    state='PLAN_ASSERT', task_type='security',
+                    n_interactions=5, mean_overlap=0.90,
+                ),
+                AblationContextResult(
+                    state='WORK_ASSERT', task_type='docs',
+                    n_interactions=3, mean_overlap=0.80,
+                ),
+            ],
+            threshold_met=False,
+            recommendation='KEEP_MULTI_DIM',
+        )
+        text = generate_ablation_report(result)
+
+        self.assertIn('Multi-Dimensional vs Single Blended', text)
+        self.assertIn('85.0%', text)
+        self.assertIn('KEEP_MULTI_DIM', text)
+        self.assertIn('PLAN_ASSERT', text)
+        self.assertIn('WORK_ASSERT', text)
+
+
+# ── record_interaction computes blended embedding ───────────────────────────
+
+class TestRecordInteractionBlended(unittest.TestCase):
+    """record_interaction() automatically computes embedding_blended."""
+
+    def test_new_chunk_gets_blended_embedding(self):
+        from unittest.mock import patch
+        from projects.POC.orchestrator.proxy_memory import record_interaction, get_chunk
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, 'test.db')
+            conn = open_proxy_db(db_path)
+
+            call_count = [0]
+
+            def mock_embed(text, conn=None, provider=None, model=None):
+                call_count[0] += 1
+                return [float(call_count[0])] * 3
+
+            with patch('projects.POC.scripts.memory_indexer.detect_provider', return_value=('test', 'test')), \
+                 patch('projects.POC.scripts.memory_indexer.try_embed', side_effect=mock_embed):
+                chunk = record_interaction(
+                    conn,
+                    interaction_type='gate_outcome',
+                    state='PLAN_ASSERT',
+                    task_type='security',
+                    outcome='approve',
+                    content='Test interaction content',
+                    human_response='Looks good',
+                    situation_text='PLAN_ASSERT security',
+                )
+
+            loaded = get_chunk(conn, chunk.id)
+            conn.close()
+
+            # The blended embedding should be non-None
+            self.assertIsNotNone(loaded.embedding_blended)
+            self.assertEqual(len(loaded.embedding_blended), 3)
+
+
 if __name__ == '__main__':
     unittest.main()
