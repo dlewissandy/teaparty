@@ -52,10 +52,12 @@ def _calibrate_with_mocks(
     laplace: float = 0.8,
     ema: float = 0.8,
     total_count: int = 10,
+    memory_depth: int = 10,
 ) -> float:
-    """Call _calibrate_confidence with mocked approval_gate internals.
+    """Call _calibrate_confidence with mocked internals.
 
-    This does NOT mock the memory DB — it tests the current code as-is.
+    Mocks both the approval_gate functions (for tests that verify EMA is not
+    used) and the memory depth query (for cold-start tests).
     """
     mock_entry = _make_mock_entry(total_count=total_count, ema=ema)
     mock_model = MagicMock()
@@ -70,7 +72,9 @@ def _calibrate_with_mocks(
          patch('projects.POC.scripts.approval_gate._make_entry',
                return_value=mock_entry), \
          patch('projects.POC.scripts.approval_gate.compute_confidence_components',
-               return_value=(laplace, ema)):
+               return_value=(laplace, ema)), \
+         patch('projects.POC.orchestrator.proxy_agent._get_memory_depth',
+               return_value=memory_depth):
         return _calibrate_confidence(
             agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '',
         )
@@ -113,19 +117,32 @@ class TestColdStartUsesMemoryDepth(unittest.TestCase):
     to determine cold-start status.
     """
 
+    def test_shallow_memory_caps_confidence(self):
+        """Memory depth below threshold caps confidence at 0.5."""
+        result = _calibrate_with_mocks(0.95, memory_depth=1)
+        self.assertLessEqual(result, 0.5)
+
+    def test_zero_memory_caps_confidence(self):
+        """No memory at all caps confidence at 0.5."""
+        result = _calibrate_with_mocks(0.95, memory_depth=0)
+        self.assertLessEqual(result, 0.5)
+
     def test_high_ema_count_does_not_bypass_cold_start(self):
-        """Even with 100+ EMA observations, confidence should be based on
-        agent assessment, not on EMA sample count alone.
+        """Even with 100+ EMA observations, shallow memory still caps.
 
         The old cold-start guard checked entry.total_count < COLD_START_THRESHOLD.
-        With total_count=100, it would skip the guard and blend via geometric mean.
-        The new code should not use total_count for the cold-start decision.
+        The new code uses memory_depth instead.
         """
-        # With high EMA count but low EMA value: old code would blend,
-        # new code should just return agent confidence.
-        result = _calibrate_with_mocks(0.9, ema=0.4, laplace=0.4, total_count=100)
-        self.assertAlmostEqual(result, 0.9, places=2,
-                               msg='EMA count should not gate confidence')
+        result = _calibrate_with_mocks(
+            0.9, ema=0.4, laplace=0.4, total_count=100, memory_depth=1,
+        )
+        self.assertLessEqual(result, 0.5,
+                             msg='High EMA count should not bypass memory-based cold start')
+
+    def test_deep_memory_passes_through(self):
+        """Memory depth at threshold allows agent confidence through."""
+        result = _calibrate_with_mocks(0.9, memory_depth=5)
+        self.assertAlmostEqual(result, 0.9, places=2)
 
 
 class TestAgentConfidencePassthrough(unittest.TestCase):
