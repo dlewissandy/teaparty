@@ -65,7 +65,7 @@ projects/<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md  # dispatch
 **Prominence scoring.** Retrieval ranks entries by:
 ```
 prominence = importance × recency_decay × (1 + reinforcement_count)
-recency_decay = exp(-ln(2)/30 × age_days)
+recency_decay = max(0.1, exp(-ln(2)/90 × age_days))
 scope_multiplier: team=1.5, project=1.2, global=1.0
 ```
 
