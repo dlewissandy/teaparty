@@ -759,6 +759,13 @@ def record_interaction(
     emb_response = _embed(human_response) if human_response else None
     emb_salience = _embed(prediction_delta) if prediction_delta else None
 
+    # Blended embedding: single embedding from concatenated text (issue #222)
+    blended_str = blended_text_from_fields(
+        state=state, task_type=task_type, content=content,
+        human_response=human_response, prediction_delta=prediction_delta,
+    )
+    emb_blended = _embed(blended_str) if blended_str else None
+
     conn.execute('BEGIN IMMEDIATE')
     try:
         current = _increment_counter_no_commit(conn)
@@ -793,6 +800,7 @@ def record_interaction(
             embedding_stimulus=emb_stimulus,
             embedding_response=emb_response,
             embedding_salience=emb_salience,
+            embedding_blended=emb_blended,
         )
         _store_chunk_no_commit(conn, chunk)
         _update_accuracy_no_commit(
@@ -872,6 +880,36 @@ def get_accuracy(
         'posterior_total': row[3],
         'last_updated': row[4],
     }
+
+
+def blended_text_from_fields(
+    state: str = '',
+    task_type: str = '',
+    content: str = '',
+    human_response: str = '',
+    prediction_delta: str = '',
+) -> str:
+    """Concatenate available text fields into a single string for blended embedding.
+
+    This is the single source of truth for which fields contribute to the
+    blended embedding. Used by record_interaction() and proxy_ablation.blended_text().
+
+    Note: artifact_text and stimulus_text are not stored in the chunk — only
+    their per-dimension embeddings survive. The content field is the closest
+    available proxy.
+    """
+    parts = []
+    if state:
+        parts.append(state)
+    if task_type:
+        parts.append(task_type)
+    if content:
+        parts.append(content)
+    if human_response:
+        parts.append(human_response)
+    if prediction_delta:
+        parts.append(prediction_delta)
+    return ' '.join(parts)
 
 
 def _default_embed(conn: sqlite3.Connection):

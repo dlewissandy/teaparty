@@ -19,6 +19,8 @@ Sensorium: docs/detailed-design/act-r-proxy-sensorium.md
 """
 from __future__ import annotations
 
+import json
+import logging
 import sqlite3
 from dataclasses import dataclass, field
 
@@ -31,12 +33,16 @@ from projects.POC.orchestrator.proxy_memory import (
     TOTAL_EMBEDDING_DIMENSIONS,
     MemoryChunk,
     base_level_activation,
+    blended_text_from_fields,
     composite_score,
     cosine_similarity,
     normalize_activation,
     query_chunks,
     get_interaction_counter,
+    _embed_to_json,
 )
+
+_log = logging.getLogger('orchestrator.proxy_ablation')
 
 ABLATION_THRESHOLD = 0.95
 
@@ -46,26 +52,16 @@ ABLATION_THRESHOLD = 0.95
 def blended_text(chunk: MemoryChunk) -> str:
     """Concatenate available chunk fields into a single string for embedding.
 
-    Uses all stored text fields that correspond to the 5 independent embedding
-    dimensions: situation (state + task_type), content (proxy for artifact),
-    stimulus (content also covers this), response (human_response), and
-    salience (prediction_delta).
-
-    Note: artifact_text and stimulus_text are not stored in the chunk — only
-    their embeddings survive. The content field is the closest available proxy.
+    Delegates to blended_text_from_fields() which is the single source of
+    truth for which fields contribute to the blended embedding.
     """
-    parts = []
-    if chunk.state:
-        parts.append(chunk.state)
-    if chunk.task_type:
-        parts.append(chunk.task_type)
-    if chunk.content:
-        parts.append(chunk.content)
-    if chunk.human_response:
-        parts.append(chunk.human_response)
-    if chunk.prediction_delta:
-        parts.append(chunk.prediction_delta)
-    return ' '.join(parts)
+    return blended_text_from_fields(
+        state=chunk.state,
+        task_type=chunk.task_type,
+        content=chunk.content,
+        human_response=chunk.human_response,
+        prediction_delta=chunk.prediction_delta,
+    )
 
 
 # ── Single-embedding composite score ────────────────────────────────────────
@@ -317,3 +313,77 @@ def run_embedding_ablation(
         threshold_met=threshold_met,
         recommendation=recommendation,
     )
+
+
+# ── Populate blended embeddings ─────────────────────────────────────────────
+
+def populate_blended_embeddings(conn: sqlite3.Connection) -> int:
+    """Compute and store blended embeddings for chunks that lack them.
+
+    Uses the same embedding infrastructure as record_interaction().
+    Returns the number of chunks updated.
+    """
+    from projects.POC.orchestrator.proxy_memory import _default_embed
+
+    all_chunks = query_chunks(conn)
+    missing = [c for c in all_chunks if c.embedding_blended is None]
+    if not missing:
+        return 0
+
+    embed_fn = _default_embed(conn)
+    updated = 0
+    for chunk in missing:
+        text = blended_text(chunk)
+        if not text.strip():
+            continue
+        vec = embed_fn(text)
+        if vec is None:
+            continue
+        conn.execute(
+            'UPDATE proxy_chunks SET embedding_blended=? WHERE id=?',
+            (_embed_to_json(vec), chunk.id),
+        )
+        updated += 1
+
+    conn.commit()
+    _log.info('Populated blended embeddings for %d/%d chunks', updated, len(missing))
+    return updated
+
+
+# ── Report generation ───────────────────────────────────────────────────────
+
+def generate_ablation_report(result: EmbeddingAblationResult) -> str:
+    """Generate a human-readable text report from ablation results."""
+    lines = [
+        '# Embedding Ablation: Multi-Dimensional vs Single Blended',
+        '',
+        '## Configuration',
+        'A (current): 5 independent embeddings, cosine avg / 5',
+        'B (ablation): 1 blended embedding, single cosine similarity',
+        f'Threshold: {ABLATION_THRESHOLD:.0%} retrieval overlap',
+        '',
+        '## Overall Result',
+        f'Retrieval overlap: {result.overall_retrieval_overlap:.1%}',
+        f'Threshold met: {result.threshold_met}',
+        f'Recommendation: **{result.recommendation}**',
+    ]
+
+    if result.per_context:
+        lines.extend(['', '## Per-Context Breakdown'])
+        for ctx in result.per_context:
+            lines.append(
+                f'  {ctx.state} x {ctx.task_type}: '
+                f'{ctx.mean_overlap:.1%} overlap '
+                f'({ctx.n_interactions} interactions, '
+                f'{len(ctx.divergent_chunks)} divergent)'
+            )
+
+    lines.extend([
+        '',
+        '## Notes',
+        '- Retrieval overlap is a proxy for action match rate (LLM cannot be re-run offline)',
+        '- Noise disabled (s=0) for deterministic comparison',
+        '- Blended text uses content field as proxy for artifact_text/stimulus_text',
+    ])
+
+    return '\n'.join(lines)

@@ -459,8 +459,8 @@ class TestRecordInteraction(unittest.TestCase):
             prediction_delta='Missing rollback changed prediction',
             embed_fn=track_embed,
         )
-        # Should embed: situation, artifact, stimulus, response, salience
-        self.assertEqual(len(calls), 5)
+        # Should embed: situation, artifact, stimulus, response, salience, blended
+        self.assertEqual(len(calls), 6)
 
 
 class TestSerializeChunks(unittest.TestCase):
