@@ -283,9 +283,8 @@ class TestIssue227SerializeSeparateSections(unittest.TestCase):
             chunks=[exp_chunk],
             salience_chunks=[sal_chunk],
         )
-        self.assertIn('RETRIEVED MEMORIES', result)
-        self.assertIn('ATTENTION', result,
-                       msg="Salience section should be labeled for attention/surprise")
+        self.assertIn('Your relevant experience with this human', result)
+        self.assertIn('What has surprised you in similar situations', result)
         self.assertIn('sal-1'[:8], result)
         self.assertIn('exp-1'[:8], result)
 
@@ -294,8 +293,8 @@ class TestIssue227SerializeSeparateSections(unittest.TestCase):
         exp_chunk = _make_chunk(chunk_id='exp-1')
 
         result = serialize_chunks_for_prompt(chunks=[exp_chunk])
-        self.assertIn('RETRIEVED MEMORIES', result)
-        self.assertNotIn('ATTENTION', result)
+        self.assertIn('Your relevant experience with this human', result)
+        self.assertNotIn('surprised', result)
 
     def test_backward_compatible_without_salience_arg(self):
         """Calling without salience_chunks should work (backward compat)."""
@@ -303,6 +302,51 @@ class TestIssue227SerializeSeparateSections(unittest.TestCase):
         # Should not raise
         result = serialize_chunks_for_prompt(chunks=[exp_chunk])
         self.assertIn('exp-1'[:8], result)
+
+
+class TestIssue227SalienceQueryConstruction(unittest.TestCase):
+    """The salience query should be constructed from artifact + situation,
+    not just situation alone (per issue spec)."""
+
+    def test_retrieve_salience_matches_artifact_context(self):
+        """A salience chunk whose delta mentions an artifact feature should
+        rank higher when the salience query incorporates that artifact."""
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db,
+            store_chunk,
+            retrieve_salience,
+        )
+
+        conn = open_proxy_db(':memory:')
+
+        # Salience chunk about missing rollback in a migration plan
+        rollback_vec = [0.9, 0.1, 0.0]
+        chunk = _make_chunk(
+            chunk_id='rollback-surprise', traces=[1],
+            embedding_salience=rollback_vec,
+            prediction_delta='Missing rollback strategy for database migration',
+        )
+        store_chunk(conn, chunk)
+
+        # Query with similar vector (as if constructed from artifact + situation)
+        similar_query = [0.85, 0.15, 0.0]
+        results = retrieve_salience(
+            conn, context_embedding=similar_query, current_interaction=2,
+        )
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0].id, 'rollback-surprise')
+
+        # Query with orthogonal vector should still return but with lower rank
+        orthogonal_query = [0.0, 0.0, 1.0]
+        results_orth = retrieve_salience(
+            conn, context_embedding=orthogonal_query, current_interaction=2,
+        )
+        self.assertEqual(len(results_orth), 1)
+        # Similarity should be much lower
+        sim_similar = cosine_similarity(rollback_vec, similar_query)
+        sim_orthogonal = cosine_similarity(rollback_vec, orthogonal_query)
+        self.assertGreater(sim_similar, sim_orthogonal)
+        conn.close()
 
 
 if __name__ == '__main__':

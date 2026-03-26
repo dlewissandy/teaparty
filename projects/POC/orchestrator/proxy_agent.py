@@ -132,6 +132,7 @@ async def consult_proxy(
             state=state,
             task_type=project_slug,
             question=question,
+            artifact_path=artifact_path,
         )
     except Exception:
         _log.debug('Failed to load learning context', exc_info=True)
@@ -281,8 +282,15 @@ def _retrieve_actr_memories(
     state: str,
     task_type: str,
     question: str,
+    artifact_path: str = '',
 ) -> _ActrRetrievalResult:
     """Retrieve ACT-R memory chunks for the current gate context.
+
+    Performs two queries (#227):
+    - Experience retrieval: 4-dimension composite scoring (situation, artifact,
+      stimulus, response).
+    - Salience retrieval: independent query over chunks with non-null salience
+      embeddings, using a context vector constructed from artifact + situation.
 
     Returns chunk IDs alongside the serialized text so the caller can
     reinforce after the proxy agent has consumed the memories.
@@ -327,8 +335,19 @@ def _retrieve_actr_memories(
             )
 
             # Query 2: Salience retrieval (independent attention path, #227)
+            # Context vector constructed from artifact + situation per issue spec
             salience_chunks: list = []
-            salience_query = sit_vec or stim_vec
+            artifact_text = ''
+            if artifact_path and os.path.isfile(artifact_path):
+                try:
+                    with open(artifact_path) as f:
+                        artifact_text = f.read()[:2000]  # cap to avoid huge embeddings
+                except OSError:
+                    pass
+            salience_context = f'{state} {task_type}'
+            if artifact_text:
+                salience_context = f'{artifact_text}\n\n{salience_context}'
+            salience_query = try_embed(salience_context, conn=conn, provider=provider, model=model)
             if salience_query:
                 salience_chunks = retrieve_salience(
                     conn,
