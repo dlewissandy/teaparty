@@ -504,10 +504,13 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
 
     skill_name = skill_info.get('name', '')
     skill_path = skill_info.get('path', '')
+    session_id = skill_info.get('session_id', '')
     if not skill_name or not skill_path or not os.path.isfile(skill_path):
         return
 
     # Read gate outcomes from the interaction log, scoped to this skill
+    # AND this session.  Without session filtering, corrections from prior
+    # sessions would be re-applied and stats would double-count.
     log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
     if not os.path.isfile(log_path):
         return
@@ -525,6 +528,8 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
                 except json.JSONDecodeError:
                     continue
                 if entry.get('skill_name') != skill_name:
+                    continue
+                if session_id and entry.get('session_id') != session_id:
                     continue
                 outcome = entry.get('outcome', '')
                 if outcome:

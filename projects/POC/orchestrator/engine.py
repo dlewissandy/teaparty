@@ -437,6 +437,7 @@ class Orchestrator:
                     'name': match.name,
                     'path': match.path,
                     'score': str(match.score),
+                    'session_id': self.session_id,
                 }, f)
         except OSError:
             _log.warning('Failed to write .active-skill.json sidecar')

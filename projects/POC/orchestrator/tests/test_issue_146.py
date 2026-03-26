@@ -228,6 +228,8 @@ class TestEngineSkillPersistence(unittest.TestCase):
             data = json.load(f)
         self.assertEqual(data['name'], 'research-paper')
         self.assertIn('path', data)
+        self.assertEqual(data['session_id'], 'test-session',
+                         'Sidecar must include session_id for JSONL filtering')
 
 
 # ── Tests: reflect pass applies corrections to skill template ────────────────
@@ -496,6 +498,122 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
 
         self.assertEqual(len(reflect_called), 0,
                          '_reflect_on_skill_outcomes should not be called without .active-skill.json')
+
+
+# ── Tests: session-scoped filtering in reflect pass ──────────────────────────
+
+class TestSessionScopedFiltering(unittest.TestCase):
+    """The reflect pass must only process gate outcomes from the current session,
+    not historical outcomes from prior sessions using the same skill."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.tmpdir = self._td.name
+        self.project_dir = os.path.join(self.tmpdir, 'project')
+        self.infra_dir = os.path.join(self.tmpdir, 'infra')
+        self.skills_dir = os.path.join(self.project_dir, 'skills')
+        for d in (self.project_dir, self.infra_dir, self.skills_dir):
+            os.makedirs(d)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def test_reflect_only_processes_current_session_outcomes(self):
+        """_reflect_on_skill_outcomes filters JSONL entries by session_id."""
+        from projects.POC.orchestrator.learnings import _reflect_on_skill_outcomes
+
+        skill_path = _make_skill(self.skills_dir)
+
+        # Write sidecar with session_id
+        sidecar = {
+            'name': 'research-paper',
+            'path': skill_path,
+            'session_id': 'session-2',
+        }
+        Path(os.path.join(self.infra_dir, '.active-skill.json')).write_text(
+            json.dumps(sidecar)
+        )
+
+        # JSONL log has entries from TWO sessions
+        _make_interaction_log(
+            os.path.join(self.project_dir, '.proxy-interactions.jsonl'),
+            [
+                # Session 1 (prior) — should be IGNORED
+                {'session_id': 'session-1', 'skill_name': 'research-paper',
+                 'state': 'PLAN_ASSERT', 'outcome': 'correct',
+                 'delta': 'Old correction from prior session'},
+                {'session_id': 'session-1', 'skill_name': 'research-paper',
+                 'state': 'PLAN_ASSERT', 'outcome': 'approve', 'delta': ''},
+                # Session 2 (current) — should be PROCESSED
+                {'session_id': 'session-2', 'skill_name': 'research-paper',
+                 'state': 'PLAN_ASSERT', 'outcome': 'correct',
+                 'delta': 'Add error handling'},
+            ],
+        )
+
+        corrections_seen = []
+
+        def _mock_apply(skill_content, corrections):
+            corrections_seen.extend(corrections)
+            return ''  # return empty to avoid writing
+
+        with patch(
+            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            side_effect=_mock_apply,
+        ):
+            _reflect_on_skill_outcomes(
+                infra_dir=self.infra_dir,
+                project_dir=self.project_dir,
+            )
+
+        # Only session-2's correction should have been passed to reflect
+        self.assertEqual(len(corrections_seen), 1,
+                         f'Expected 1 correction from session-2, got {len(corrections_seen)}')
+        self.assertIn('error handling', corrections_seen[0]['delta'])
+        self.assertNotIn('Old correction', str(corrections_seen))
+
+    def test_stats_only_count_current_session(self):
+        """update_skill_stats via _reflect_on_skill_outcomes only counts current session outcomes."""
+        from projects.POC.orchestrator.learnings import _reflect_on_skill_outcomes
+
+        # Pre-seed skill with stats from 2 prior uses (both approved)
+        skill_path = _make_skill(self.skills_dir, approval_rate='1.0', uses='2')
+
+        sidecar = {
+            'name': 'research-paper',
+            'path': skill_path,
+            'session_id': 'session-3',
+        }
+        Path(os.path.join(self.infra_dir, '.active-skill.json')).write_text(
+            json.dumps(sidecar)
+        )
+
+        # JSONL has outcomes from session-1 (old) and session-3 (current)
+        _make_interaction_log(
+            os.path.join(self.project_dir, '.proxy-interactions.jsonl'),
+            [
+                {'session_id': 'session-1', 'skill_name': 'research-paper',
+                 'state': 'PLAN_ASSERT', 'outcome': 'approve', 'delta': ''},
+                {'session_id': 'session-3', 'skill_name': 'research-paper',
+                 'state': 'PLAN_ASSERT', 'outcome': 'correct',
+                 'delta': 'Add rollback'},
+            ],
+        )
+
+        with patch(
+            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            return_value='',
+        ):
+            _reflect_on_skill_outcomes(
+                infra_dir=self.infra_dir,
+                project_dir=self.project_dir,
+            )
+
+        meta, _ = _read_frontmatter(skill_path)
+        # Prior: 2 uses, 2 approvals. Current session: 1 use (correct).
+        # Total: 3 uses, 2 approvals = 0.67 rate
+        self.assertEqual(meta.get('uses'), '3',
+                         'Should count only current session outcomes, not re-count historical')
 
 
 if __name__ == '__main__':
