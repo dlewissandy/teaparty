@@ -223,6 +223,160 @@ def _generalize_candidates(candidates_text: str) -> str:
     return ''
 
 
+# ── Skill reflection — gate outcomes as reward signal (Issue #146) ───────────
+
+# Approval rate below this threshold triggers needs_review flag
+_NEEDS_REVIEW_THRESHOLD = 0.5
+
+
+def reflect_on_skill(
+    *,
+    skill_path: str,
+    corrections: list[dict],
+) -> bool:
+    """Apply gate correction deltas to a skill template.
+
+    Reads the current skill, sends it plus the correction deltas to an LLM,
+    and writes the updated skill back.  Returns True if the skill was updated.
+
+    If corrections is empty or the LLM returns empty, returns False and
+    preserves the original skill file.
+    """
+    if not corrections:
+        return False
+
+    if not os.path.isfile(skill_path):
+        return False
+
+    try:
+        original = Path(skill_path).read_text(errors='replace')
+    except OSError:
+        return False
+
+    updated = _apply_corrections_to_skill(original, corrections)
+
+    if not updated or not updated.strip():
+        return False
+
+    # Validate the updated skill has frontmatter
+    meta, body = _parse_candidate_frontmatter(updated)
+    if not meta.get('name') or not body.strip():
+        _log.warning('Reflect pass produced invalid skill — preserving original')
+        return False
+
+    try:
+        Path(skill_path).write_text(updated)
+        _log.info('Reflected %d corrections into skill: %s',
+                  len(corrections), skill_path)
+        return True
+    except OSError as exc:
+        _log.warning('Failed to write reflected skill: %s', exc)
+        return False
+
+
+def update_skill_stats(
+    *,
+    skill_path: str,
+    outcomes: list[str],
+) -> None:
+    """Update a skill's frontmatter with approval stats from gate outcomes.
+
+    Tracks: uses (total), approval_rate, corrections count.
+    Sets needs_review=true when approval_rate drops below threshold.
+    Accumulates across calls — reads prior stats from existing frontmatter.
+    """
+    if not outcomes or not os.path.isfile(skill_path):
+        return
+
+    try:
+        content = Path(skill_path).read_text(errors='replace')
+    except OSError:
+        return
+
+    meta, body = _parse_candidate_frontmatter(content)
+
+    # Accumulate from prior stats
+    prior_uses = int(meta.get('uses', '0'))
+    prior_approvals = round(float(meta.get('approval_rate', '1.0')) * prior_uses)
+    prior_corrections = int(meta.get('corrections', '0'))
+
+    new_approvals = sum(1 for o in outcomes if o == 'approve')
+    new_corrections = sum(1 for o in outcomes if o == 'correct')
+
+    total_uses = prior_uses + len(outcomes)
+    total_approvals = prior_approvals + new_approvals
+    total_corrections = prior_corrections + new_corrections
+    approval_rate = total_approvals / total_uses if total_uses > 0 else 1.0
+
+    # Update frontmatter
+    meta['uses'] = str(total_uses)
+    meta['approval_rate'] = f'{approval_rate:.2f}'
+    meta['corrections'] = str(total_corrections)
+
+    if approval_rate < _NEEDS_REVIEW_THRESHOLD:
+        meta['needs_review'] = 'true'
+    elif 'needs_review' in meta:
+        del meta['needs_review']
+
+    # Rebuild file
+    updated = _rebuild_skill_file(meta, body)
+    try:
+        Path(skill_path).write_text(updated)
+    except OSError:
+        pass
+
+
+def _apply_corrections_to_skill(
+    skill_content: str,
+    corrections: list[dict],
+) -> str:
+    """Call an LLM to apply correction deltas to a skill template.
+
+    Isolated for easy mocking in tests (same pattern as _generalize_candidates).
+    """
+    corrections_text = '\n'.join(
+        f'- [{c.get("state", "?")}] {c.get("delta", "")}'
+        for c in corrections
+        if c.get('delta')
+    )
+
+    prompt = (
+        'You are updating a reusable skill template based on human corrections '
+        'from approval gates. Apply the corrections to improve the template.\n\n'
+        'IMPORTANT: Preserve the YAML frontmatter (name, description, category). '
+        'Only modify the workflow body to incorporate the corrections. '
+        'Return the complete updated skill file including frontmatter.\n\n'
+        '## Current Skill Template\n\n'
+        f'{skill_content}\n\n'
+        '## Corrections to Apply\n\n'
+        f'{corrections_text}\n'
+    )
+
+    try:
+        result = subprocess.run(
+            ['claude', '--print', '-p', prompt],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
+        _log.warning('LLM call for skill reflection failed: %s', exc)
+
+    return ''
+
+
+def _rebuild_skill_file(meta: dict[str, str], body: str) -> str:
+    """Rebuild a skill file from parsed frontmatter and body."""
+    fm_lines = ['---']
+    for key, value in meta.items():
+        fm_lines.append(f'{key}: {value}')
+    fm_lines.append('---')
+    fm_lines.append('')
+    return '\n'.join(fm_lines) + body + '\n'
+
+
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
 def _parse_candidate_frontmatter(content: str) -> tuple[dict[str, str], str]:

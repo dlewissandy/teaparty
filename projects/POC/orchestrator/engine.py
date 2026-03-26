@@ -427,6 +427,23 @@ class Orchestrator:
             'template': match.template,
         }
 
+        # Persist active skill to disk so extract_learnings can find it
+        # post-session (Issue #146 — gate outcomes as skill reward signal).
+        import json as _json
+        sidecar_path = os.path.join(self.infra_dir, '.active-skill.json')
+        try:
+            with open(sidecar_path, 'w') as f:
+                _json.dump({
+                    'name': match.name,
+                    'path': match.path,
+                    'score': str(match.score),
+                }, f)
+        except OSError:
+            _log.warning('Failed to write .active-skill.json sidecar')
+
+        # Propagate active skill to approval gate for log tagging (Issue #146)
+        self._approval_gate._active_skill = self._active_skill
+
         # Advance CfA: DRAFT → assert → PLAN_ASSERT
         # This bypasses the planning agent entirely — the skill is the plan,
         # presented directly to the human for approval.
@@ -976,6 +993,7 @@ class Orchestrator:
 
         # Clear active skill — the correction has been recorded
         self._active_skill = None
+        self._approval_gate._active_skill = None
 
     def _get_observation_count(self, phase_name: str = '') -> int:
         """Get the proxy model's observation count for the current phase's approval state.
