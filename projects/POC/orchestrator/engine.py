@@ -151,6 +151,12 @@ class Orchestrator:
         # Pre-populated on session resume from PhaseSpec + worktree.
         self._last_actor_data: dict[str, Any] = last_actor_data or {}
 
+        # Track which skill was used for the current plan (Issue #142).
+        # Set by _try_skill_lookup() on match; cleared when System 2
+        # fallback produces a new plan.  Used by _mark_false_positives()
+        # to archive corrected plans as skill correction candidates.
+        self._active_skill: dict[str, str] | None = None
+
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
         # Recovery scan: merge/re-dispatch orphaned children before starting
@@ -400,6 +406,13 @@ class Orchestrator:
         plan_path = os.path.join(self.infra_dir, 'PLAN.md')
         with open(plan_path, 'w') as f:
             f.write(match.template)
+
+        # Track which skill was used (Issue #142 — skill self-correction)
+        self._active_skill = {
+            'name': match.name,
+            'path': match.path,
+            'score': str(match.score),
+        }
 
         # Advance CfA: DRAFT → assert → PLAN_ASSERT
         # This bypasses the planning agent entirely — the skill is the plan,
@@ -881,7 +894,11 @@ class Orchestrator:
         return 'retry'
 
     def _mark_false_positives(self, reason: str) -> None:
-        """Mark prior auto-approvals as false positives on backtrack (#11)."""
+        """Mark prior auto-approvals as false positives on backtrack (#11).
+
+        If the plan was seeded by a skill (System 1 fast path), also archive
+        the corrected PLAN.md as a skill correction candidate (Issue #142).
+        """
         try:
             from projects.POC.scripts.approval_gate import mark_false_positive_approvals
             log_path = os.path.join(
@@ -900,6 +917,39 @@ class Orchestrator:
                 )
         except Exception:
             pass
+
+        # Skill self-correction (Issue #142): if a skill was used as the plan
+        # and the session backtracked, archive the corrected plan as a
+        # correction candidate so the next crystallization can refine the skill.
+        if self._active_skill:
+            self._archive_skill_correction(reason)
+
+    def _archive_skill_correction(self, reason: str) -> None:
+        """Archive the corrected PLAN.md as a skill correction candidate."""
+        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+        if not os.path.isfile(plan_path):
+            return
+
+        skill_name = self._active_skill['name']
+        try:
+            from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
+            archived = archive_skill_candidate(
+                infra_dir=self.infra_dir,
+                project_dir=self.project_workdir,
+                task=self.task,
+                session_id=f'{self.session_id}-correction',
+                corrects_skill=skill_name,
+            )
+            if archived:
+                _log.info(
+                    'Archived corrected plan as skill correction candidate '
+                    'for skill %s (reason: %s)', skill_name, reason,
+                )
+        except Exception as exc:
+            _log.warning('Failed to archive skill correction: %s', exc)
+
+        # Clear active skill — the correction has been recorded
+        self._active_skill = None
 
     def _get_observation_count(self, phase_name: str = '') -> int:
         """Get the proxy model's observation count for the current phase's approval state.

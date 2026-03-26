@@ -143,6 +143,13 @@ async def extract_learnings(
         session_id=os.path.basename(infra_dir),
     )
 
+    # ── Procedural learning: crystallize accumulated candidates into skills ──
+
+    await _run_scope(
+        'skill-crystallize', _crystallize_skills,
+        project_dir=project_dir,
+    )
+
     # ── Proxy pattern compaction (#11) ────────────────────────────────────────
 
     await _run_scope(
@@ -451,6 +458,14 @@ def _archive_skill_candidate(
         task=task,
         session_id=session_id,
     )
+
+
+# ── Procedural learning: skill crystallization ────────────────────────────────
+
+def _crystallize_skills(*, project_dir: str) -> None:
+    """Attempt to crystallize accumulated skill candidates into reusable skills."""
+    from projects.POC.orchestrator.procedural_learning import crystallize_skills
+    crystallize_skills(project_dir=project_dir)
 
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
