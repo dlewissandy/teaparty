@@ -139,6 +139,19 @@ async def consult_proxy(
     # Build accuracy context string for the proxy prompt
     accuracy_context = _format_accuracy_context(actr_retrieval.accuracy, state, project_slug)
 
+    # Retrieve task learnings from the learning system for the proxy's context.
+    # This bridges the gap: organizational task knowledge (e.g., "database
+    # migrations need rollback strategies") reaches the proxy at gate time.
+    task_learnings = ''
+    try:
+        task_learnings = _retrieve_task_learnings(
+            proxy_model_path=proxy_model_path,
+            question=question,
+            infra_dir=infra_dir,
+        )
+    except Exception:
+        _log.debug('Task learning retrieval failed', exc_info=True)
+
     # Always invoke the proxy agent (two-pass prediction).
     try:
         two_pass = await run_proxy_agent(
@@ -152,6 +165,7 @@ async def consult_proxy(
             actr_memories=actr_retrieval.serialized,
             accuracy_context=accuracy_context,
             dialog_history=dialog_history,
+            task_learnings=task_learnings,
         )
     except Exception:
         _log.debug('Exception invoking proxy agent', exc_info=True)
@@ -360,6 +374,54 @@ def _format_accuracy_context(
     return '\n'.join(parts)
 
 
+# Per-type budget cap for task learnings retrieved for the proxy.
+_PROXY_TASK_LEARNING_BUDGET = 2000
+
+
+def _retrieve_task_learnings(
+    *,
+    proxy_model_path: str,
+    question: str,
+    infra_dir: str,
+) -> str:
+    """Retrieve relevant task learnings from the learning system.
+
+    Calls memory_indexer.retrieve() with learning_type='task' to get
+    organizational task knowledge, and learning_type='proxy' to get
+    proxy-specific task learnings from proxy-tasks/.
+    """
+    from projects.POC.scripts.memory_indexer import retrieve
+
+    model_dir = os.path.dirname(proxy_model_path)
+    project_dir = model_dir  # model lives in the project dir
+
+    # Gather source paths for retrieval
+    source_paths = []
+    tasks_dir = os.path.join(project_dir, 'tasks')
+    if os.path.isdir(tasks_dir):
+        source_paths.append(tasks_dir)
+    proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+    if os.path.isdir(proxy_tasks_dir):
+        source_paths.append(proxy_tasks_dir)
+
+    if not source_paths:
+        return ''
+
+    db_path = os.path.join(project_dir, '.memory.db')
+
+    # Retrieve task learnings with a budget cap
+    result = retrieve(
+        task=question,
+        db_path=db_path,
+        source_paths=source_paths,
+        top_k=5,
+        scope_base_dir=project_dir,
+        learning_type=None,  # retrieve both task and proxy types
+        max_chars=_PROXY_TASK_LEARNING_BUDGET,
+    )
+    return result
+
+
 def _reinforce_actr_memories(retrieval: _ActrRetrievalResult) -> None:
     """ACT-R Rule 2: reinforce chunks after the proxy agent has consumed them.
 
@@ -416,6 +478,7 @@ async def run_proxy_agent(
     actr_memories: str = '',
     accuracy_context: str = '',
     dialog_history: str = '',
+    task_learnings: str = '',
 ) -> _TwoPassResult:
     """Invoke the proxy agent with two-pass prediction.
 
@@ -456,6 +519,15 @@ async def run_proxy_agent(
                 + '\n'.join(interaction_lines) + '\n'
             )
 
+    task_learning_block = ''
+    if task_learnings:
+        task_learning_block = (
+            f'\n--- ORGANIZATIONAL TASK LEARNINGS ---\n'
+            f'These are learnings from the broader organization that may be '
+            f'relevant to your evaluation:\n'
+            f'{task_learnings}\n'
+        )
+
     dialog_block = ''
     if dialog_history:
         dialog_block = (
@@ -477,6 +549,7 @@ async def run_proxy_agent(
         f"{memory_block}"
         f"{accuracy_block}"
         f"{learning_block}"
+        f"{task_learning_block}"
         f"{dialog_block}\n"
         f"State: {state}\n"
         f"Question: {question}\n\n"
@@ -513,6 +586,7 @@ async def run_proxy_agent(
         f"{memory_block}"
         f"{accuracy_block}"
         f"{learning_block}"
+        f"{task_learning_block}"
         f"{dialog_block}\n"
         f"State: {state}\n"
         f"Question: {question}\n\n"

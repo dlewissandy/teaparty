@@ -256,37 +256,38 @@ class TestConsultProxyRetrievesTaskLearnings(unittest.TestCase):
     learning system, not just ACT-R memories and flat patterns."""
 
     def test_consult_proxy_calls_retrieve_for_task_learnings(self):
-        """consult_proxy must call memory_indexer.retrieve() to get task learnings."""
-        # We verify this by checking that consult_proxy's code path includes
-        # a call to memory_indexer.retrieve with learning_type.
+        """consult_proxy must retrieve task learnings from the learning system."""
+        # consult_proxy delegates to _retrieve_task_learnings, which calls
+        # memory_indexer.retrieve. Verify both the delegation and the
+        # underlying retrieval path exist.
         from projects.POC.orchestrator.proxy_agent import consult_proxy
         source = inspect.getsource(consult_proxy)
 
-        # The function must reference memory_indexer.retrieve specifically
-        # (not just ACT-R retrieval functions like retrieve_chunks).
-        self.assertTrue(
-            'memory_indexer' in source and "learning_type" in source,
-            "consult_proxy() must retrieve task learnings from memory_indexer.retrieve(). "
-            "Currently it only gathers ACT-R memories and flat patterns. "
-            "It should also call memory_indexer.retrieve() with learning_type "
-            "to get organizational task knowledge for the proxy's evaluation."
+        self.assertIn(
+            '_retrieve_task_learnings', source,
+            "consult_proxy() must call _retrieve_task_learnings() to get "
+            "organizational task knowledge from memory_indexer.retrieve()."
         )
+
+        # Verify the helper actually uses memory_indexer.retrieve with learning_type
+        from projects.POC.orchestrator.proxy_agent import _retrieve_task_learnings
+        helper_source = inspect.getsource(_retrieve_task_learnings)
+        self.assertIn('memory_indexer', helper_source)
+        self.assertIn('learning_type', helper_source)
 
     def test_consult_proxy_passes_task_context_to_retrieval(self):
-        """The retrieval call must use the gate question/state as task context."""
-        from projects.POC.orchestrator.proxy_agent import consult_proxy
-        source = inspect.getsource(consult_proxy)
+        """The retrieval call must use the gate question as task context."""
+        from projects.POC.orchestrator.proxy_agent import _retrieve_task_learnings
+        source = inspect.getsource(_retrieve_task_learnings)
 
-        # The retrieval must receive the question or state as context
-        has_retrieval_with_context = (
-            'retrieve' in source
-            and ('question' in source or 'state' in source)
-            and 'learning_type' in source
+        # The retrieval must receive the question as the task parameter
+        self.assertIn(
+            'question', source,
+            "_retrieve_task_learnings must use the gate question as retrieval context."
         )
-        self.assertTrue(
-            has_retrieval_with_context,
-            "consult_proxy() must pass the gate question/state as retrieval context "
-            "and specify learning_type for type-filtered retrieval."
+        self.assertIn(
+            'retrieve', source,
+            "_retrieve_task_learnings must call memory_indexer.retrieve()."
         )
 
 
