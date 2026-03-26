@@ -197,9 +197,19 @@ gh api repos/:owner/:repo/milestones/$0 -X PATCH -f state=closed
 gh api repos/:owner/:repo/milestones/$0 -X DELETE
 ```
 
-## Phase 7: Update Project Board
+## Phase 7: Archive Issues on Project Board
 
-For each issue that was moved to unassigned in Phase 1, update its project board status back to **Backlog** if it was previously In Progress.
+**Archive all closed milestone issues** on the project board. For each closed issue, find its project item ID and archive it:
+
+```bash
+# For each closed issue number, find the item ID across paginated results
+gh api graphql -f query='{ user(login: "dlewissandy") { projectV2(number: 2) { items(first: 100) { nodes { id content { ... on Issue { number } } } pageInfo { hasNextPage endCursor } } } } }'
+
+# Archive each item
+gh api graphql -f query="mutation { archiveProjectV2Item(input: { projectId: \"PVT_kwHOAH4OHc4BR81E\" itemId: \"<ITEM_ID>\" }) { item { id } } }"
+```
+
+Paginate if there are more than 100 items. For issues moved to unassigned in Phase 1, update their status to **Backlog** instead of archiving.
 
 ## Completion
 
