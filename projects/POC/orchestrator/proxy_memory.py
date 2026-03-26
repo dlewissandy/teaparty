@@ -92,7 +92,8 @@ CREATE TABLE IF NOT EXISTS proxy_chunks (
     embedding_stimulus TEXT,
     embedding_response TEXT,
     embedding_salience TEXT,
-    embedding_blended TEXT
+    embedding_blended TEXT,
+    deleted_at INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS proxy_state (
@@ -133,6 +134,12 @@ def open_proxy_db(db_path: str) -> sqlite3.Connection:
     # Migration: add embedding_blended column for existing DBs (issue #222)
     try:
         conn.execute('ALTER TABLE proxy_chunks ADD COLUMN embedding_blended TEXT')
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    # Migration: add deleted_at column for soft-delete (issue #236)
+    try:
+        conn.execute('ALTER TABLE proxy_chunks ADD COLUMN deleted_at INTEGER DEFAULT NULL')
         conn.commit()
     except sqlite3.OperationalError:
         pass  # column already exists
@@ -211,7 +218,7 @@ def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
 
 def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
     row = conn.execute(
-        'SELECT * FROM proxy_chunks WHERE id=?', (chunk_id,),
+        'SELECT * FROM proxy_chunks WHERE id=? AND deleted_at IS NULL', (chunk_id,),
     ).fetchone()
     if not row:
         return None
@@ -219,11 +226,20 @@ def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
 
 
 def _add_trace_no_commit(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
-    """Add a trace to a chunk without committing (for use in transactions)."""
+    """Add a trace to a chunk without committing (for use in transactions).
+
+    Works on both active and soft-deleted chunks so that concurrent sessions
+    can still reinforce chunks that another session's consolidation has
+    marked for deletion (issue #236).
+    """
     row = conn.execute(
         'SELECT traces FROM proxy_chunks WHERE id=?', (chunk_id,),
     ).fetchone()
     if not row:
+        _log.warning(
+            'add_trace: chunk %s not found — may have been purged by '
+            'concurrent consolidation', chunk_id,
+        )
         return
     traces = json.loads(row[0])
     traces.append(interaction)
@@ -238,10 +254,44 @@ def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None
     conn.commit()
 
 
+def soft_delete_chunk(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
+    """Mark a chunk as soft-deleted instead of removing it from the DB.
+
+    Soft-deleted chunks are excluded from retrieval queries but remain in the
+    table so concurrent sessions can still reinforce them via add_trace().
+    Use purge_deleted_chunks() to remove them after a safe window (issue #236).
+    """
+    conn.execute(
+        'UPDATE proxy_chunks SET deleted_at = ? WHERE id = ?',
+        (interaction, chunk_id),
+    )
+    conn.commit()
+
+
+def purge_deleted_chunks(
+    conn: sqlite3.Connection,
+    current_interaction: int,
+    safe_window: int = 50,
+) -> int:
+    """Hard-delete chunks that were soft-deleted before the safe window.
+
+    Only removes chunks where deleted_at <= (current_interaction - safe_window),
+    meaning enough interactions have passed that no concurrent session could
+    still hold references to them.  Returns the number of purged rows.
+    """
+    cutoff = current_interaction - safe_window
+    cursor = conn.execute(
+        'DELETE FROM proxy_chunks WHERE deleted_at IS NOT NULL AND deleted_at <= ?',
+        (cutoff,),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def query_chunks(
     conn: sqlite3.Connection, *, state: str = '', task_type: str = '',
 ) -> list[MemoryChunk]:
-    clauses = []
+    clauses = ['deleted_at IS NULL']
     params: list[str] = []
     if state:
         clauses.append('state = ?')
@@ -249,7 +299,7 @@ def query_chunks(
     if task_type:
         clauses.append('task_type = ?')
         params.append(task_type)
-    where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
+    where = ' WHERE ' + ' AND '.join(clauses)
     rows = conn.execute(f'SELECT * FROM proxy_chunks{where}', params).fetchall()
     return [_row_to_chunk(r) for r in rows]
 
@@ -519,7 +569,7 @@ def retrieve_salience(
     provided context embedding.  Activation filtering still applies.
     """
     rows = conn.execute(
-        'SELECT * FROM proxy_chunks WHERE embedding_salience IS NOT NULL',
+        'SELECT * FROM proxy_chunks WHERE embedding_salience IS NOT NULL AND deleted_at IS NULL',
     ).fetchall()
     candidates = [_row_to_chunk(r) for r in rows]
 
@@ -1434,6 +1484,6 @@ def memory_depth(conn: sqlite3.Connection) -> int:
     all from the same context.  Returns 0 for an empty store.
     """
     row = conn.execute(
-        'SELECT COUNT(DISTINCT state || \':\' || task_type) FROM proxy_chunks'
+        'SELECT COUNT(DISTINCT state || \':\' || task_type) FROM proxy_chunks WHERE deleted_at IS NULL'
     ).fetchone()
     return row[0] if row else 0

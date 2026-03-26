@@ -783,6 +783,8 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
         open_proxy_db,
         consolidate_proxy_entries,
         get_interaction_counter,
+        soft_delete_chunk,
+        purge_deleted_chunks,
     )
     import glob as glob_mod
 
@@ -796,9 +798,19 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
             continue
         try:
             current = get_interaction_counter(conn)
+
+            # Purge chunks that were soft-deleted long enough ago (issue #236)
+            purged = purge_deleted_chunks(conn, current_interaction=current)
+            if purged:
+                _log.info(
+                    'Proxy consolidation: purged %d old soft-deleted chunks from %s',
+                    purged, db_path,
+                )
+
             rows = conn.execute(
                 'SELECT id, type, state, task_type, outcome, traces, '
-                'posterior_confidence FROM proxy_chunks'
+                'posterior_confidence FROM proxy_chunks '
+                'WHERE deleted_at IS NULL'
             ).fetchall()
             if len(rows) < 2:
                 continue
@@ -822,10 +834,9 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
 
             if deleted_ids:
                 for chunk_id in deleted_ids:
-                    conn.execute('DELETE FROM proxy_chunks WHERE id = ?', (chunk_id,))
-                conn.commit()
+                    soft_delete_chunk(conn, chunk_id, interaction=current)
                 _log.info(
-                    'Proxy consolidation: deleted %d superseded chunks from %s',
+                    'Proxy consolidation: soft-deleted %d superseded chunks from %s',
                     len(deleted_ids), db_path,
                 )
         except Exception:
