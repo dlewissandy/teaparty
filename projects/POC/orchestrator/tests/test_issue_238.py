@@ -109,6 +109,25 @@ class TestLlmClassifierWarningLog(unittest.TestCase):
         self.assertIsNone(result)
         self.assertTrue(any('LLM conflict classification' in msg for msg in cm.output))
 
+    def test_classify_conflict_llm_returns_none_on_unparseable_output(self):
+        """When LLM responds but output has no valid CAUSE line, returns None."""
+        from unittest.mock import MagicMock
+        from projects.POC.orchestrator.proxy_agent import _classify_conflict_llm
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = 'I think these chunks are related but I cannot decide.'
+        with patch('projects.POC.orchestrator.proxy_agent.subprocess.run',
+                   return_value=mock_result):
+            with self.assertLogs('orchestrator.proxy_agent', level='WARNING') as cm:
+                result = _classify_conflict_llm(
+                    _make_chunk(chunk_id='a', content='chunk a'),
+                    _make_chunk(chunk_id='b', content='chunk b'),
+                )
+
+        self.assertIsNone(result)
+        self.assertTrue(any('no valid CAUSE line' in msg for msg in cm.output))
+
 
 class TestDegradationNoteInConflictContext(unittest.TestCase):
     """format_conflict_context must include a degradation note when fallbacks occurred."""

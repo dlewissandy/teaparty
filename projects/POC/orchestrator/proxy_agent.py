@@ -961,7 +961,8 @@ def _classify_conflict_llm(
             cause = line.split(':', 1)[1].strip().lower()
             if cause in valid_causes:
                 return cause
-    return 'context_sensitivity'
+    _log.warning('LLM conflict classification failed: no valid CAUSE line in output')
+    return None
 
 
 def _classify_conflict_llm_for_entries(
