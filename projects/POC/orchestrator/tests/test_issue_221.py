@@ -446,9 +446,16 @@ class TestGoNoGo(unittest.TestCase):
                 for tt in task_types:
                     for rep in range(5):
                         i += 1
-                        # ~65% match rate: match 2 of 3 task types, miss 1/3
+                        # Target ~65%: mismatch migration fully (20) + docs rep 0 (4)
+                        # 60 total, 20+4=24 mismatch, 36 match → 60%
+                        # Need 39 match: also mismatch only migration rep<5 → all 20
+                        # plus docs rep==0 → 4 more = 24 mismatch, 36/60 = 60%
+                        # Adjust: mismatch migration reps 0-3 (16) + docs rep 0 (4) = 20
+                        # 40 match / 60 = 66.7%
                         if tt == 'migration' and rep < 4:
-                            outcome = 'correct'  # mismatch
+                            outcome = 'correct'  # 16 mismatch
+                        elif tt == 'docs' and rep == 0:
+                            outcome = 'correct'  # 4 mismatch
                         else:
                             outcome = 'approve'  # match
                         chunks.append(_make_chunk(
