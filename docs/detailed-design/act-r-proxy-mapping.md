@@ -340,7 +340,7 @@ def composite_score(
     # Note: in standard ACT-R, noise is added to activation alone, not to a
     # composite score. Adding noise to the composite is a simplification. It
     # perturbs the combined ranking rather than just the accessibility signal.
-    # The practical effect is small at s = 0.25, but the departure from ACT-R
+    # The practical effect is small at s = 0.08, but the departure from ACT-R
     # semantics should be noted.
     return activation_weight * b_norm + semantic_weight * sem + noise
 

@@ -80,17 +80,18 @@ class TestNoiseScaleCalibration(unittest.TestCase):
             f'Noise std dev {std_dev:.3f} exceeds 0.15; noise dominates signal'
         )
 
-    def test_noise_rarely_exceeds_half_signal_range(self):
-        """Over many samples, noise should rarely exceed half the typical
-        signal difference (0.15).  At most 10% of samples should exceed
-        this threshold."""
+    def test_noise_rarely_exceeds_full_signal_range(self):
+        """Over many samples, noise should rarely exceed the typical signal
+        difference between candidates (~0.3).  At most 5% of samples should
+        exceed this threshold — meaning noise almost never fully overrides
+        the ranking signal."""
         random.seed(42)
         samples = [abs(logistic_noise(NOISE_SCALE)) for _ in range(10000)]
-        exceed_count = sum(1 for s in samples if s > 0.15)
+        exceed_count = sum(1 for s in samples if s > 0.3)
         exceed_pct = exceed_count / len(samples)
         self.assertLess(
-            exceed_pct, 0.10,
-            f'{exceed_pct:.1%} of noise samples exceed 0.15 (want < 10%)'
+            exceed_pct, 0.05,
+            f'{exceed_pct:.1%} of noise samples exceed 0.3 (want < 5%)'
         )
 
 

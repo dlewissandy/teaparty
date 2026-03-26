@@ -25,7 +25,7 @@ _log = logging.getLogger('orchestrator.proxy_memory')
 
 # ACT-R parameters (from act-r.md §Standard Parameter Values)
 DECAY = 0.5
-NOISE_SCALE = 0.25
+NOISE_SCALE = 0.08
 RETRIEVAL_THRESHOLD = -0.5
 ACTIVATION_WEIGHT = 0.5
 SEMANTIC_WEIGHT = 0.5
@@ -585,9 +585,19 @@ class AblationCheckpoint:
 
 
 @dataclass
+class NoiseSensitivityResult:
+    """Match-rate statistics for one noise scale across multiple trials."""
+    noise_scale: float
+    mean: float               # mean match rate across trials
+    std: float                # std dev of match rates across trials
+    trial_rates: list[float]  # per-trial match rates
+
+
+@dataclass
 class AblationResult:
     """Full ablation results across configs and checkpoints."""
     checkpoints: dict[int, dict[str, AblationCheckpoint]]
+    noise_sensitivity: dict[float, dict[str, float]] = field(default_factory=dict)
 
     def summary(self) -> str:
         """Human-readable summary comparing configs at each checkpoint."""
@@ -604,6 +614,18 @@ class AblationResult:
                         f'| {r.survivors_avg:.1f} |'
                     )
             lines.append('')
+
+        if self.noise_sensitivity:
+            lines.append('### Noise Scale Sensitivity')
+            lines.append('| Noise Scale | Mean Match Rate | Std Dev |')
+            lines.append('|------------|----------------|---------|')
+            for s_val in sorted(self.noise_sensitivity):
+                entry = self.noise_sensitivity[s_val]
+                lines.append(
+                    f'| {s_val} | {entry["mean"]:.3f} | {entry["std"]:.3f} |'
+                )
+            lines.append('')
+
         return '\n'.join(lines)
 
 
@@ -614,6 +636,8 @@ def run_scoring_ablation(
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
     d: float = DECAY,
+    noise_scales: list[float] | None = None,
+    trials_per_noise: int = 20,
 ) -> AblationResult:
     """Run the composite vs. activation-only vs. similarity-only ablation.
 
@@ -625,6 +649,10 @@ def run_scoring_ablation(
 
     Evaluates at the specified checkpoints (interaction counts). If None,
     evaluates at all chunks. Noise is disabled (s=0.0) for determinism.
+
+    If noise_scales is provided, runs a noise-scale sensitivity analysis
+    using the composite config across multiple trials per noise level.
+    Results are stored in AblationResult.noise_sensitivity.
 
     Returns an AblationResult with per-config, per-checkpoint metrics.
     """
@@ -713,7 +741,71 @@ def run_scoring_ablation(
 
         result_checkpoints[cp] = config_results
 
-    return AblationResult(checkpoints=result_checkpoints)
+    # Noise-scale sensitivity analysis
+    noise_sensitivity: dict[float, dict[str, float]] = {}
+    if noise_scales is not None and all_chunks:
+        eval_chunks = all_chunks[:checkpoints[-1]] if checkpoints else all_chunks
+        composite_weights = ABLATION_CONFIGS['composite']
+
+        for s_val in noise_scales:
+            trial_rates: list[float] = []
+            for _ in range(trials_per_noise):
+                matches = 0
+                total = 0
+                for i, held_out in enumerate(eval_chunks):
+                    if i == 0:
+                        continue
+                    prior_chunks = eval_chunks[:i]
+                    held_out_interaction = (
+                        min(held_out.traces) if held_out.traces else i
+                    )
+                    context_embeddings: dict[str, list[float]] = {}
+                    if held_out.embedding_situation:
+                        context_embeddings['situation'] = held_out.embedding_situation
+                    if held_out.embedding_artifact:
+                        context_embeddings['artifact'] = held_out.embedding_artifact
+                    if held_out.embedding_stimulus:
+                        context_embeddings['stimulus'] = held_out.embedding_stimulus
+                    if held_out.embedding_response:
+                        context_embeddings['response'] = held_out.embedding_response
+
+                    retrieved = _retrieve_from_chunks(
+                        prior_chunks,
+                        context_embeddings=context_embeddings,
+                        current_interaction=held_out_interaction,
+                        tau=tau, top_k=top_k, d=d,
+                        s=s_val,
+                        **composite_weights,
+                    )
+                    if not retrieved:
+                        continue
+                    outcome_counts: dict[str, int] = {}
+                    for rc in retrieved:
+                        outcome_counts[rc.outcome] = (
+                            outcome_counts.get(rc.outcome, 0) + 1
+                        )
+                    majority_outcome = max(
+                        outcome_counts, key=outcome_counts.get,  # type: ignore[arg-type]
+                    )
+                    total += 1
+                    if majority_outcome == held_out.outcome:
+                        matches += 1
+                trial_rates.append(matches / total if total > 0 else 0.0)
+
+            mean_rate = sum(trial_rates) / len(trial_rates) if trial_rates else 0.0
+            variance = (
+                sum((r - mean_rate) ** 2 for r in trial_rates) / len(trial_rates)
+                if trial_rates else 0.0
+            )
+            noise_sensitivity[s_val] = {
+                'mean': mean_rate,
+                'std': variance ** 0.5,
+            }
+
+    return AblationResult(
+        checkpoints=result_checkpoints,
+        noise_sensitivity=noise_sensitivity,
+    )
 
 
 def _retrieve_from_chunks(
@@ -724,6 +816,7 @@ def _retrieve_from_chunks(
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
     d: float = DECAY,
+    s: float = 0.0,
     activation_weight: float = ACTIVATION_WEIGHT,
     semantic_weight: float = SEMANTIC_WEIGHT,
 ) -> list[MemoryChunk]:
@@ -755,7 +848,7 @@ def _retrieve_from_chunks(
             b_min, b_max,
             activation_weight=activation_weight,
             semantic_weight=semantic_weight,
-            d=d, s=0.0,
+            d=d, s=s,
         )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
