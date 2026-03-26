@@ -138,48 +138,125 @@ def crystallize_skills(
             'content': content,
         })
 
-    if len(pending) < min_candidates:
-        return 0
+    # Cluster candidates by similarity before generalizing (Issue #234).
+    clusters = _cluster_candidates(pending)
 
-    # For MVP, treat all pending candidates as one group.
-    # Future: cluster by category/similarity before generalizing.
-    candidates_text = '\n\n---\n\n'.join(
-        f'### Candidate: {c["meta"].get("task", "unknown")}\n\n{c["body"]}'
-        for c in pending
-    )
-
-    try:
-        skill_content = _generalize_candidates(candidates_text)
-    except Exception as exc:
-        _log.warning('Skill crystallization failed: %s', exc)
-        return 0
-
-    if not skill_content or not skill_content.strip():
-        return 0
-
-    # Extract skill name from the generated content
-    meta, _ = _parse_candidate_frontmatter(skill_content)
-    skill_name = meta.get('name', f'skill-{datetime.now().strftime("%Y%m%d-%H%M%S")}')
-
-    # Write the skill
+    skills_produced = 0
     skills_dir = os.path.join(project_dir, 'skills')
-    os.makedirs(skills_dir, exist_ok=True)
 
-    # Sanitize filename
-    safe_name = re.sub(r'[^a-z0-9-]', '-', skill_name.lower()).strip('-')
-    skill_path = os.path.join(skills_dir, f'{safe_name}.md')
-    try:
-        Path(skill_path).write_text(skill_content)
-        _log.info('Crystallized skill: %s', skill_path)
-    except OSError as exc:
-        _log.warning('Failed to write skill: %s', exc)
-        return 0
+    for cluster in clusters:
+        if len(cluster) < min_candidates:
+            continue
 
-    # Mark source candidates as processed
-    for c in pending:
-        _mark_candidate_processed(c['path'])
+        candidates_text = '\n\n---\n\n'.join(
+            f'### Candidate: {c["meta"].get("task", "unknown")}\n\n{c["body"]}'
+            for c in cluster
+        )
 
-    return 1
+        try:
+            skill_content = _generalize_candidates(candidates_text)
+        except Exception as exc:
+            _log.warning('Skill crystallization failed for cluster: %s', exc)
+            continue
+
+        if not skill_content or not skill_content.strip():
+            continue
+
+        # Extract skill name from the generated content
+        meta, _ = _parse_candidate_frontmatter(skill_content)
+        skill_name = meta.get('name', f'skill-{datetime.now().strftime("%Y%m%d-%H%M%S")}')
+
+        # Write the skill
+        os.makedirs(skills_dir, exist_ok=True)
+
+        # Sanitize filename
+        safe_name = re.sub(r'[^a-z0-9-]', '-', skill_name.lower()).strip('-')
+        skill_path = os.path.join(skills_dir, f'{safe_name}.md')
+        try:
+            Path(skill_path).write_text(skill_content)
+            _log.info('Crystallized skill: %s', skill_path)
+        except OSError as exc:
+            _log.warning('Failed to write skill: %s', exc)
+            continue
+
+        # Mark source candidates in this cluster as processed
+        for c in cluster:
+            _mark_candidate_processed(c['path'])
+
+        skills_produced += 1
+
+    return skills_produced
+
+
+def _cluster_candidates(
+    candidates: list[dict],
+    similarity_threshold: float = 0.2,
+) -> list[list[dict]]:
+    """Group candidates into coherent clusters for independent generalization.
+
+    Clustering strategy:
+    1. If candidates have a 'category' field, group by category first.
+    2. Within each category (or for uncategorized candidates), split further
+       if task descriptions are too dissimilar (Jaccard below threshold).
+
+    Returns a list of clusters, where each cluster is a list of candidate dicts.
+    """
+    # Step 1: group by category
+    by_category: dict[str, list[dict]] = {}
+    for c in candidates:
+        cat = c['meta'].get('category', '').strip().lower()
+        by_category.setdefault(cat, []).append(c)
+
+    clusters: list[list[dict]] = []
+
+    for cat, group in by_category.items():
+        if cat:
+            # Candidates with an explicit category form a cluster
+            clusters.append(group)
+        else:
+            # No category — cluster by task description similarity
+            clusters.extend(
+                _cluster_by_task_similarity(group, similarity_threshold)
+            )
+
+    return clusters
+
+
+def _cluster_by_task_similarity(
+    candidates: list[dict],
+    threshold: float,
+) -> list[list[dict]]:
+    """Cluster uncategorized candidates by task description similarity.
+
+    Uses single-linkage clustering: a candidate joins an existing cluster
+    if its task tokens have Jaccard similarity >= threshold with any member.
+    """
+    tokenized = [
+        (c, set(re.findall(r'[a-z][a-z0-9]+', c['meta'].get('task', '').lower())))
+        for c in candidates
+    ]
+
+    clusters: list[list[tuple[dict, set[str]]]] = []
+
+    for candidate, tokens in tokenized:
+        merged = False
+        for cluster in clusters:
+            for _, cluster_tokens in cluster:
+                union = tokens | cluster_tokens
+                if not union:
+                    continue
+                jaccard = len(tokens & cluster_tokens) / len(union)
+                if jaccard >= threshold:
+                    cluster.append((candidate, tokens))
+                    merged = True
+                    break
+            if merged:
+                break
+
+        if not merged:
+            clusters.append([(candidate, tokens)])
+
+    return [[c for c, _ in cluster] for cluster in clusters]
 
 
 def _generalize_candidates(candidates_text: str) -> str:
