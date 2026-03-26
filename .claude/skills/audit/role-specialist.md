@@ -14,8 +14,16 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 - Use Grep to find algorithm implementations, scoring functions, state machines, prompt construction, output parsing
+
+#### Scoping by TOPIC
+
+When TOPIC is **"all"**: read the 10 largest or most-connected modules. Do not read every file.
+
+When TOPIC is **focused**: Grep to find files directly related to the topic — these are your primary scope. For dependencies of those files:
+- Follow imports **one hop only** — do not transitively chase the full dependency graph
+- At the one-hop boundary, Grep for the specific function or class being called and read only that definition, not the entire file
+- If a dependency file is over 300 lines, use Grep to locate the relevant function/class and read only that region (offset + limit)
 
 ### Secondary: Design Documents and Referenced Papers
 
@@ -25,6 +33,14 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 - `docs/conceptual-design/cfa-state-machine.md` — CfA protocol specification
 - `docs/conceptual-design/learning-system.md` — learning and memory design
 - Referenced academic papers (where available locally)
+
+## Work Pattern
+
+1. **Write the output file skeleton immediately** — header, scope section, empty `## Findings` heading. Do this before reading any code.
+2. **Investigate one module or area at a time.** After each area, if you found anything, Read your output file and Write it back with the new finding(s) appended.
+3. **Write `## What's Well-Founded` and `## Bottom Line` at the end** — update the file one final time.
+
+This ensures partial results survive if you hit context limits.
 
 ## What You Look For
 

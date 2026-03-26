@@ -39,12 +39,23 @@ Select the top 5 findings (or fewer if not enough survive filtering). These are 
 
 Convergent findings (flagged by 2+ reviewers) get a +1 bonus to their composite score. Independent agreement is strong signal.
 
+## Issue Quality
+
+The proposed issue body must read like a **problem statement**, not a code review comment. The reader should understand what's wrong and why it matters without reading the source code.
+
+- **Problem first.** Lead with the system behavior that's broken or missing, not a file:line reference. Code locations belong in the commit that fixes it, not in the issue.
+- **Reference the design.** Every issue MUST cite the relevant design doc in `docs/detailed-design/`, `docs/conceptual-design/`, or `docs/proposals/`. If no design doc exists for this area, say so.
+- **Link related tickets.** If the finding relates to, depends on, or contradicts an existing open/closed issue, reference it.
+- **What and why, not how.** Describe the desired behavior. Do not prescribe the implementation.
+- **Design contradictions are design issues.** If the code disagrees with the docs and it's unclear which is right, frame it as a design decision, not a bug.
+
 ## What You Don't Do
 
 - Don't re-evaluate the technical merits of findings. Trust the reviewers.
 - Don't add new findings.
 - Don't dismiss findings on your own — only skip findings listed in `audit-dismissed.md`.
 - Don't create GH issues. You produce the shortlist; the orchestrator files them.
+- Don't start issue bodies with `file.py:123` — that's a code review comment.
 
 ## Output
 
@@ -66,8 +77,26 @@ Write to `audit/triage.md`:
 **Convergent:** yes — architect + specialist
 **Proposed issue title:** [concise GH issue title]
 **Proposed issue body:**
-[2-3 sentence description suitable for a GH issue body. Include file:line references. Reference the audit finding ID.]
-**Proposed labels:** audit, severity-critical, [category]
+
+[Audit finding {ID}]
+
+## Problem
+
+{What is broken or missing, framed in terms of the system's intent — not code mechanics. Why does this matter? What goes wrong for the user, the agent, or the research results? Reference the design document that describes the intended behavior.}
+
+## What needs to change
+
+{Describe the desired behavior — the "what", not the "how". If the finding reveals a design ambiguity or contradiction, say so and frame this as a design decision.}
+
+## References
+
+- [{design doc name}]({path}) — {which section and why}
+- #{related issue} — {relationship: blocks, depends on, complements}
+
+---
+*Found by `/audit` — reviewers: {which reviewers flagged this}*
+
+**Proposed labels:** audit, [bug|documentation|enhancement]
 
 ### 2. A-007: [short title]
 ...

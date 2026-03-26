@@ -19,10 +19,27 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 - `docs/conceptual-design/cfa-state-machine.md` — CfA protocol specification
 - `projects/POC/cfa-state-machine.json` — machine-readable state machine definition
 
+#### Scoping by TOPIC
+
+When TOPIC is **"all"**: focus on the 10 most specification-heavy modules. Do not read every file.
+
+When TOPIC is **focused**: Grep to find files directly related to the topic — these are your primary scope. For dependencies of those files:
+- Follow imports **one hop only** — do not transitively chase the full dependency graph
+- At the one-hop boundary, Grep for the specific function or class being called and read only that definition, not the entire file
+- If a dependency file is over 300 lines, use Grep to locate the relevant function/class and read only that region (offset + limit)
+
 ### Secondary: Context
 
 - `audit/context/issues-open.json` — known open issues (don't re-report these)
 - Referenced academic papers (where available locally under `docs/` or `intake/`)
+
+## Work Pattern
+
+1. **Write the output file skeleton immediately** — header, scope section, empty `## Discrepancies` heading. Do this before reading any code.
+2. **Check one claim or area at a time.** After each area, if you found discrepancies, Read your output file and Write it back with the new finding(s) appended.
+3. **Write `## Verified Consistent`, `## Unverifiable`, and `## Bottom Line` at the end** — update the file one final time.
+
+This ensures partial results survive if you hit context limits.
 
 ## What You Check
 
