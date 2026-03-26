@@ -438,42 +438,194 @@ ABLATION_CONFIGS = {
 }
 
 
+@dataclass
+class AblationCheckpoint:
+    """Results for one configuration at one checkpoint."""
+    config: str
+    checkpoint: int           # interaction count at evaluation
+    matches: int              # retrieved outcomes matching held-out outcome
+    total: int                # total held-out chunks evaluated
+    match_rate: float         # matches / total (0.0 if total == 0)
+    survivors_avg: float      # average chunks surviving activation filter
+
+
+@dataclass
+class AblationResult:
+    """Full ablation results across configs and checkpoints."""
+    checkpoints: dict[int, dict[str, AblationCheckpoint]]
+
+    def summary(self) -> str:
+        """Human-readable summary comparing configs at each checkpoint."""
+        lines = ['## Scoring Ablation Results', '']
+        for cp in sorted(self.checkpoints):
+            lines.append(f'### After {cp} interactions')
+            lines.append('| Config | Match Rate | Matches/Total | Avg Survivors |')
+            lines.append('|--------|-----------|---------------|---------------|')
+            for name in ('composite', 'activation_only', 'similarity_only'):
+                r = self.checkpoints[cp].get(name)
+                if r:
+                    lines.append(
+                        f'| {name} | {r.match_rate:.3f} | {r.matches}/{r.total} '
+                        f'| {r.survivors_avg:.1f} |'
+                    )
+            lines.append('')
+        return '\n'.join(lines)
+
+
 def run_scoring_ablation(
     conn: sqlite3.Connection,
     *,
-    state: str = '',
-    task_type: str = '',
+    checkpoints: list[int] | None = None,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 10,
+    d: float = DECAY,
+) -> AblationResult:
+    """Run the composite vs. activation-only vs. similarity-only ablation.
+
+    Performs leave-one-out evaluation: for each chunk in chronological order,
+    holds it out, retrieves from all prior chunks under each weight config,
+    and checks whether the majority outcome among retrieved chunks matches
+    the held-out chunk's actual outcome. This is a retrieval relevance
+    proxy for action match rate (the true metric requires re-running the LLM).
+
+    Evaluates at the specified checkpoints (interaction counts). If None,
+    evaluates at all chunks. Noise is disabled (s=0.0) for determinism.
+
+    Returns an AblationResult with per-config, per-checkpoint metrics.
+    """
+    all_chunks = query_chunks(conn)
+    if not all_chunks:
+        return AblationResult(checkpoints={})
+
+    # Sort chronologically by first trace
+    all_chunks.sort(key=lambda c: min(c.traces) if c.traces else 0)
+
+    if checkpoints is None:
+        checkpoints = [len(all_chunks)]
+
+    result_checkpoints: dict[int, dict[str, AblationCheckpoint]] = {}
+
+    for cp in checkpoints:
+        eval_chunks = all_chunks[:cp]
+        if len(eval_chunks) < 2:
+            continue
+
+        config_results: dict[str, AblationCheckpoint] = {}
+        for config_name, weights in ABLATION_CONFIGS.items():
+            matches = 0
+            total = 0
+            survivor_counts: list[int] = []
+
+            for i, held_out in enumerate(eval_chunks):
+                if i == 0:
+                    continue  # need at least one prior chunk
+
+                prior_chunks = eval_chunks[:i]
+                held_out_interaction = min(held_out.traces) if held_out.traces else i
+
+                # Build context embeddings from the held-out chunk's own embeddings
+                context_embeddings: dict[str, list[float]] = {}
+                if held_out.embedding_situation:
+                    context_embeddings['situation'] = held_out.embedding_situation
+                if held_out.embedding_artifact:
+                    context_embeddings['artifact'] = held_out.embedding_artifact
+                if held_out.embedding_stimulus:
+                    context_embeddings['stimulus'] = held_out.embedding_stimulus
+                if held_out.embedding_response:
+                    context_embeddings['response'] = held_out.embedding_response
+                if held_out.embedding_salience:
+                    context_embeddings['salience'] = held_out.embedding_salience
+
+                # Run retrieval on prior chunks only
+                retrieved = _retrieve_from_chunks(
+                    prior_chunks,
+                    context_embeddings=context_embeddings,
+                    current_interaction=held_out_interaction,
+                    tau=tau,
+                    top_k=top_k,
+                    d=d,
+                    **weights,
+                )
+
+                survivor_counts.append(len(retrieved))
+
+                if not retrieved:
+                    continue
+
+                # Majority outcome among retrieved chunks
+                outcome_counts: dict[str, int] = {}
+                for rc in retrieved:
+                    outcome_counts[rc.outcome] = outcome_counts.get(rc.outcome, 0) + 1
+                majority_outcome = max(outcome_counts, key=outcome_counts.get)  # type: ignore[arg-type]
+
+                total += 1
+                if majority_outcome == held_out.outcome:
+                    matches += 1
+
+            match_rate = matches / total if total > 0 else 0.0
+            survivors_avg = (
+                sum(survivor_counts) / len(survivor_counts)
+                if survivor_counts else 0.0
+            )
+
+            config_results[config_name] = AblationCheckpoint(
+                config=config_name,
+                checkpoint=cp,
+                matches=matches,
+                total=total,
+                match_rate=match_rate,
+                survivors_avg=survivors_avg,
+            )
+
+        result_checkpoints[cp] = config_results
+
+    return AblationResult(checkpoints=result_checkpoints)
+
+
+def _retrieve_from_chunks(
+    chunks: list[MemoryChunk],
+    *,
     context_embeddings: dict[str, list[float]] | None = None,
     current_interaction: int = 0,
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
     d: float = DECAY,
-) -> dict[str, list[MemoryChunk]]:
-    """Run retrieval under three weight configurations on the same data.
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
+) -> list[MemoryChunk]:
+    """Retrieve from an in-memory list of chunks (no DB query).
 
-    Returns a dict mapping config name to the ranked list of retrieved chunks.
-    Noise is disabled (s=0.0) for deterministic comparison.
-
-    Configs:
-      composite:        activation_weight=0.5, semantic_weight=0.5
-      activation_only:  activation_weight=1.0, semantic_weight=0.0
-      similarity_only:  activation_weight=0.0, semantic_weight=1.0
+    Same two-stage logic as retrieve_chunks but operates on a provided
+    list rather than querying the database. Used by the ablation harness
+    to evaluate retrieval on a subset of chunks (leave-one-out).
     """
-    results: dict[str, list[MemoryChunk]] = {}
-    for name, weights in ABLATION_CONFIGS.items():
-        results[name] = retrieve_chunks(
-            conn,
-            state=state,
-            task_type=task_type,
-            context_embeddings=context_embeddings,
-            current_interaction=current_interaction,
-            tau=tau,
-            top_k=top_k,
-            d=d,
-            s=0.0,
-            **weights,
+    context_embeddings = context_embeddings or {}
+
+    survivors: list[tuple[float, MemoryChunk]] = []
+    for c in chunks:
+        b = base_level_activation(c.traces, current_interaction, d)
+        if b > tau:
+            survivors.append((b, c))
+
+    if not survivors:
+        return []
+
+    activations = [b for b, _ in survivors]
+    b_min = min(activations)
+    b_max = max(activations)
+
+    scored = []
+    for _, chunk in survivors:
+        score = composite_score(
+            chunk, context_embeddings, current_interaction,
+            b_min, b_max,
+            activation_weight=activation_weight,
+            semantic_weight=semantic_weight,
+            d=d, s=0.0,
         )
-    return results
+        scored.append((score, chunk))
+    scored.sort(key=lambda x: -x[0])
+    return [chunk for _, chunk in scored[:top_k]]
 
 
 # ── Recording ────────────────────────────────────────────────────────────────

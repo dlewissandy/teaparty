@@ -193,137 +193,158 @@ class TestRetrieveChunksWeightParams(unittest.TestCase):
 
 
 class TestAblationHarness(unittest.TestCase):
-    """The ablation harness runs all three configurations on the same data."""
+    """The ablation harness performs leave-one-out evaluation and reports
+    action match rate at specified checkpoints."""
 
-    def test_harness_returns_three_configs(self):
-        """run_scoring_ablation() returns results for all three configurations."""
+    def _make_history(self, n: int = 10):
+        """Create a chronological sequence of chunks with divergent signals.
+
+        Odd-indexed chunks: outcome='approve', embeddings point toward [1,0,0]
+        Even-indexed chunks: outcome='correct', embeddings point toward [0,1,0]
+
+        This creates a scenario where embedding similarity can predict outcome
+        (similar embeddings → same outcome) while activation alone cannot
+        (most recent chunk may have either outcome).
+        """
+        chunks = []
+        for i in range(n):
+            outcome = 'approve' if i % 2 == 1 else 'correct'
+            emb = [1.0, 0.0, 0.0] if i % 2 == 1 else [0.0, 1.0, 0.0]
+            chunks.append(_make_chunk(
+                chunk_id=f'c{i}',
+                traces=[i + 1],
+                outcome=outcome,
+                embedding_situation=emb,
+            ))
+        return chunks
+
+    def test_returns_three_configs_with_match_rates(self):
+        """run_scoring_ablation() returns AblationResult with all three configs
+        and numeric match rates."""
         from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
 
-        chunks = [
-            _make_chunk(chunk_id=f'c{i}', traces=[i * 2 + 1], outcome='approve',
-                        embedding_situation=[float(i % 2), float((i + 1) % 2), 0.0])
-            for i in range(5)
-        ]
+        chunks = self._make_history(6)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            conn, _ = _make_db(tmpdir, chunks, counter=20)
-
-            results = run_scoring_ablation(
-                conn,
-                state='PLAN_ASSERT',
-                task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=20,
-            )
+            conn, _ = _make_db(tmpdir, chunks, counter=10)
+            result = run_scoring_ablation(conn, checkpoints=[6])
             conn.close()
 
-        self.assertIn('composite', results)
-        self.assertIn('activation_only', results)
-        self.assertIn('similarity_only', results)
+        self.assertIn(6, result.checkpoints)
+        cp = result.checkpoints[6]
+        self.assertIn('composite', cp)
+        self.assertIn('activation_only', cp)
+        self.assertIn('similarity_only', cp)
 
-    def test_harness_configs_produce_different_rankings(self):
-        """Different weight configs should (generally) produce different rankings
-        when activation and similarity signals diverge."""
+        for config_name in ('composite', 'activation_only', 'similarity_only'):
+            r = cp[config_name]
+            self.assertEqual(r.config, config_name)
+            self.assertEqual(r.checkpoint, 6)
+            self.assertGreaterEqual(r.match_rate, 0.0)
+            self.assertLessEqual(r.match_rate, 1.0)
+            self.assertGreater(r.total, 0, f'{config_name} should evaluate at least one chunk')
+
+    def test_multiple_checkpoints(self):
+        """Ablation evaluates at multiple interaction counts."""
         from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
 
-        # Chunk with high activation, low similarity
-        high_act = _make_chunk(
-            chunk_id='high-act', traces=[15, 17, 19],
-            embedding_situation=[0.0, 0.0, 1.0],
-        )
-        # Chunk with lower activation, high similarity
-        high_sim = _make_chunk(
-            chunk_id='high-sim', traces=[19],
-            embedding_situation=[1.0, 0.0, 0.0],
-        )
+        chunks = self._make_history(10)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            conn, _ = _make_db(tmpdir, [high_act, high_sim])
-
-            results = run_scoring_ablation(
-                conn,
-                state='PLAN_ASSERT',
-                task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=20,
-            )
+            conn, _ = _make_db(tmpdir, chunks, counter=15)
+            result = run_scoring_ablation(conn, checkpoints=[4, 7, 10])
             conn.close()
 
-        act_order = [c.id for c in results['activation_only']]
-        sim_order = [c.id for c in results['similarity_only']]
+        self.assertIn(4, result.checkpoints)
+        self.assertIn(7, result.checkpoints)
+        self.assertIn(10, result.checkpoints)
 
-        self.assertEqual(act_order[0], 'high-act',
-                         'Activation-only should rank high-act first')
-        self.assertEqual(sim_order[0], 'high-sim',
-                         'Similarity-only should rank high-sim first')
-        self.assertNotEqual(act_order, sim_order,
-                            'Activation-only and similarity-only should differ')
+        # More data should mean more evaluations
+        self.assertGreater(
+            result.checkpoints[10]['composite'].total,
+            result.checkpoints[4]['composite'].total,
+            'More chunks should yield more evaluations',
+        )
 
-    def test_harness_deterministic_with_no_noise(self):
-        """Results should be identical across runs when noise is disabled."""
+    def test_deterministic_results(self):
+        """Ablation produces identical results across runs (noise disabled)."""
         from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
 
-        chunks = [
-            _make_chunk(chunk_id=f'c{i}', traces=[i + 1],
-                        embedding_situation=[float(i) / 5, 1.0 - float(i) / 5, 0.0])
-            for i in range(5)
-        ]
+        chunks = self._make_history(8)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            conn, _ = _make_db(tmpdir, chunks, counter=20)
-
-            r1 = run_scoring_ablation(
-                conn, state='PLAN_ASSERT', task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=20,
-            )
-            r2 = run_scoring_ablation(
-                conn, state='PLAN_ASSERT', task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=20,
-            )
+            conn, _ = _make_db(tmpdir, chunks, counter=12)
+            r1 = run_scoring_ablation(conn, checkpoints=[8])
+            r2 = run_scoring_ablation(conn, checkpoints=[8])
             conn.close()
 
         for config in ('composite', 'activation_only', 'similarity_only'):
-            ids_1 = [c.id for c in r1[config]]
-            ids_2 = [c.id for c in r2[config]]
-            self.assertEqual(ids_1, ids_2,
-                             f'{config} rankings should be deterministic with s=0.0')
+            self.assertEqual(
+                r1.checkpoints[8][config].match_rate,
+                r2.checkpoints[8][config].match_rate,
+                f'{config} match rate should be deterministic',
+            )
 
-    def test_harness_at_multiple_checkpoints(self):
-        """run_scoring_ablation() supports checkpoint parameter to evaluate
-        at a specific interaction count (for multi-checkpoint comparison)."""
+    def test_similarity_only_leverages_embedding_signal(self):
+        """When outcomes correlate with embedding similarity, similarity-only
+        should achieve a non-zero match rate."""
         from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
 
-        # Chunk visible at interaction 10 (trace=5, activation at N=10 is fine)
-        early = _make_chunk(chunk_id='early', traces=[5],
-                            embedding_situation=[1.0, 0.0, 0.0])
-        # Chunk only created at interaction 18 — not visible at checkpoint 10
-        # if we filter by creation time, but visible at checkpoint 20
-        late = _make_chunk(chunk_id='late', traces=[18],
-                           embedding_situation=[1.0, 0.0, 0.0])
+        chunks = self._make_history(10)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            conn, _ = _make_db(tmpdir, [early, late], counter=20)
-
-            # At checkpoint 10, the 'late' chunk's trace (18) is in the future
-            # relative to current_interaction=10, so age = max(10-18, 1) = 1
-            # Both chunks pass activation filter, but activation values differ
-            results_10 = run_scoring_ablation(
-                conn, state='PLAN_ASSERT', task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=10,
-            )
-            results_20 = run_scoring_ablation(
-                conn, state='PLAN_ASSERT', task_type='security',
-                context_embeddings={'situation': [1.0, 0.0, 0.0]},
-                current_interaction=20,
-            )
+            conn, _ = _make_db(tmpdir, chunks, counter=15)
+            result = run_scoring_ablation(conn, checkpoints=[10])
             conn.close()
 
-        # Both checkpoints should return results (the harness works at any N)
-        self.assertGreater(len(results_10['composite']), 0)
-        self.assertGreater(len(results_20['composite']), 0)
+        sim = result.checkpoints[10]['similarity_only']
+        self.assertGreater(sim.match_rate, 0.0,
+                           'Similarity-only should leverage embedding signal')
+
+    def test_summary_output(self):
+        """summary() produces human-readable Markdown table."""
+        from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
+
+        chunks = self._make_history(6)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn, _ = _make_db(tmpdir, chunks, counter=10)
+            result = run_scoring_ablation(conn, checkpoints=[6])
+            conn.close()
+
+        summary = result.summary()
+        self.assertIn('Scoring Ablation Results', summary)
+        self.assertIn('composite', summary)
+        self.assertIn('activation_only', summary)
+        self.assertIn('similarity_only', summary)
+        self.assertIn('Match Rate', summary)
+
+    def test_empty_db_returns_empty_result(self):
+        """Ablation on empty DB returns empty checkpoints."""
+        from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn, _ = _make_db(tmpdir, [], counter=0)
+            result = run_scoring_ablation(conn, checkpoints=[10])
+            conn.close()
+
+        self.assertEqual(result.checkpoints, {})
+
+    def test_survivors_avg_reported(self):
+        """Each checkpoint reports average survivor count from activation filter."""
+        from projects.POC.orchestrator.proxy_memory import run_scoring_ablation
+
+        chunks = self._make_history(6)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            conn, _ = _make_db(tmpdir, chunks, counter=10)
+            result = run_scoring_ablation(conn, checkpoints=[6])
+            conn.close()
+
+        for config in ('composite', 'activation_only', 'similarity_only'):
+            r = result.checkpoints[6][config]
+            self.assertGreaterEqual(r.survivors_avg, 0.0,
+                                    f'{config} should report survivor count')
 
 
 if __name__ == '__main__':
