@@ -268,6 +268,14 @@ class Orchestrator:
                 await self._try_skill_lookup()
 
                 result = await self._run_phase('planning')
+
+                # Skill self-correction (Issue #142): after planning
+                # completes, check if the plan was corrected from the
+                # original skill template.  Handles both human correction
+                # at PLAN_ASSERT and System 2 fallback after backtrack.
+                if not result.terminal and not result.infrastructure_failure:
+                    self._check_skill_correction()
+
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.backtrack_to == 'intent':
@@ -407,11 +415,16 @@ class Orchestrator:
         with open(plan_path, 'w') as f:
             f.write(match.template)
 
-        # Track which skill was used (Issue #142 — skill self-correction)
+        # Track which skill was used (Issue #142 — skill self-correction).
+        # Store the original template so we can detect corrections later:
+        # after planning completes, if PLAN.md differs from the template,
+        # the plan was corrected (by human at PLAN_ASSERT or by System 2
+        # after backtrack) and should be archived as a correction candidate.
         self._active_skill = {
             'name': match.name,
             'path': match.path,
             'score': str(match.score),
+            'template': match.template,
         }
 
         # Advance CfA: DRAFT → assert → PLAN_ASSERT
@@ -894,11 +907,7 @@ class Orchestrator:
         return 'retry'
 
     def _mark_false_positives(self, reason: str) -> None:
-        """Mark prior auto-approvals as false positives on backtrack (#11).
-
-        If the plan was seeded by a skill (System 1 fast path), also archive
-        the corrected PLAN.md as a skill correction candidate (Issue #142).
-        """
+        """Mark prior auto-approvals as false positives on backtrack (#11)."""
         try:
             from projects.POC.scripts.approval_gate import mark_false_positive_approvals
             log_path = os.path.join(
@@ -918,16 +927,33 @@ class Orchestrator:
         except Exception:
             pass
 
-        # Skill self-correction (Issue #142): if a skill was used as the plan
-        # and the session backtracked, archive the corrected plan as a
-        # correction candidate so the next crystallization can refine the skill.
-        if self._active_skill:
-            self._archive_skill_correction(reason)
+    def _check_skill_correction(self) -> None:
+        """Check if planning corrected a skill-based plan and archive the correction.
 
-    def _archive_skill_correction(self, reason: str) -> None:
-        """Archive the corrected PLAN.md as a skill correction candidate."""
+        Called after _run_phase('planning') completes normally.  Compares
+        the current PLAN.md to the original skill template.  If they differ,
+        the plan was corrected — either by the human at PLAN_ASSERT or by
+        the planning agent (System 2 fallback after backtrack) — and the
+        corrected plan is archived as a skill correction candidate.
+
+        Issue #142: skill self-correction on backtrack.
+        """
+        if not self._active_skill:
+            return
+
         plan_path = os.path.join(self.infra_dir, 'PLAN.md')
         if not os.path.isfile(plan_path):
+            return
+
+        try:
+            with open(plan_path) as f:
+                current_plan = f.read()
+        except OSError:
+            return
+
+        original_template = self._active_skill.get('template', '')
+        if current_plan.strip() == original_template.strip():
+            # Plan unchanged — skill was approved as-is, no correction needed
             return
 
         skill_name = self._active_skill['name']
@@ -943,7 +969,7 @@ class Orchestrator:
             if archived:
                 _log.info(
                     'Archived corrected plan as skill correction candidate '
-                    'for skill %s (reason: %s)', skill_name, reason,
+                    'for skill %s', skill_name,
                 )
         except Exception as exc:
             _log.warning('Failed to archive skill correction: %s', exc)
