@@ -215,6 +215,75 @@ class TestEngineTracksActiveSkill(unittest.TestCase):
         self.assertIsNotNone(orch._active_skill,
                              '_active_skill is None after successful lookup')
         self.assertEqual(orch._active_skill['name'], 'research-paper')
+        # Must also store the original template for correction detection
+        self.assertIn('template', orch._active_skill)
+        self.assertIn('Survey literature', orch._active_skill['template'])
+
+    def test_check_skill_correction_archives_when_plan_changed(self):
+        """_check_skill_correction archives the corrected plan when PLAN.md differs from template."""
+        orch = self._make_engine()
+        self._make_skill()
+
+        Path(os.path.join(self.infra_dir, 'INTENT.md')).write_text(
+            'Research and write a paper surveying distributed consensus algorithms'
+        )
+
+        # Skill lookup succeeds — sets _active_skill with template
+        _run(orch._try_skill_lookup())
+        self.assertIsNotNone(orch._active_skill)
+
+        # Simulate System 2 producing a corrected plan (overwrites PLAN.md)
+        corrected_plan = (
+            '## Corrected Decomposition\n\n'
+            '1. Define research question first\n'
+            '2. Survey literature on {topic}\n'
+            '3. Construct argument\n'
+            '4. Draft sections\n'
+            '5. Peer review\n'
+            '6. Edit for coherence\n'
+        )
+        Path(os.path.join(self.infra_dir, 'PLAN.md')).write_text(corrected_plan)
+
+        # Now _check_skill_correction should detect the difference and archive
+        orch._check_skill_correction()
+
+        # Verify correction candidate was archived
+        candidates_dir = os.path.join(self.project_dir, 'skill-candidates')
+        self.assertTrue(os.path.isdir(candidates_dir))
+        candidates = [f for f in os.listdir(candidates_dir) if f.endswith('.md')]
+        self.assertEqual(len(candidates), 1)
+
+        content = Path(os.path.join(candidates_dir, candidates[0])).read_text()
+        self.assertIn('corrects_skill: research-paper', content)
+        self.assertIn('Define research question first', content)
+
+        # _active_skill should be cleared after archiving
+        self.assertIsNone(orch._active_skill)
+
+    def test_check_skill_correction_noop_when_plan_unchanged(self):
+        """_check_skill_correction does nothing when PLAN.md matches the original template."""
+        orch = self._make_engine()
+        self._make_skill()
+
+        Path(os.path.join(self.infra_dir, 'INTENT.md')).write_text(
+            'Research and write a paper surveying distributed consensus algorithms'
+        )
+
+        # Skill lookup succeeds
+        _run(orch._try_skill_lookup())
+        self.assertIsNotNone(orch._active_skill)
+
+        # PLAN.md is still the original template (not corrected)
+        orch._check_skill_correction()
+
+        # No correction candidate should exist
+        candidates_dir = os.path.join(self.project_dir, 'skill-candidates')
+        if os.path.isdir(candidates_dir):
+            candidates = [f for f in os.listdir(candidates_dir) if f.endswith('.md')]
+            self.assertEqual(len(candidates), 0)
+
+        # _active_skill should still be set (no correction happened)
+        self.assertIsNotNone(orch._active_skill)
 
     def test_active_skill_is_none_when_no_match(self):
         """_active_skill remains None when no skill matches."""
