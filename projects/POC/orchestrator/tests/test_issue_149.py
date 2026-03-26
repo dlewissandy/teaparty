@@ -814,12 +814,16 @@ class TestDispatchResumePath(unittest.TestCase):
         infra = os.path.join(self.tmpdir, 'dispatch-infra')
         os.makedirs(infra)
         with open(os.path.join(infra, '.retry-count'), 'w') as f:
-            f.write('9')  # At the limit
+            json.dump({'total': 9, 'phase': 'execution', 'phase_count': 3}, f)
 
-        # Create minimal CfA state
+        # Create CfA state with required fields
         cfa_path = os.path.join(infra, '.cfa-state.json')
         with open(cfa_path, 'w') as f:
-            json.dump({'state': 'TASK', 'phase': 'execution'}, f)
+            json.dump({
+                'state': 'TASK', 'phase': 'execution', 'actor': 'agent',
+                'history': [], 'backtrack_count': 0,
+                'parent_id': '', 'team_id': '', 'task_id': '', 'depth': 0,
+            }, f)
 
         result = _run(dispatch(
             team='coding', task='test',

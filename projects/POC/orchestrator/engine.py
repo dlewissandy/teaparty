@@ -101,6 +101,7 @@ class Orchestrator:
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
+        parent_heartbeat: str = '',
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -123,6 +124,7 @@ class Orchestrator:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self.team_override = team_override
+        self._parent_heartbeat = parent_heartbeat
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -527,6 +529,10 @@ class Orchestrator:
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
             mcp_config=self._mcp_config,
+            # Heartbeat liveness (issue #149)
+            heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
+            parent_heartbeat=self._parent_heartbeat,
+            children_file=os.path.join(self.infra_dir, '.children'),
         )
 
         if state in self.config.human_actor_states:
@@ -961,8 +967,16 @@ class Orchestrator:
         if not os.path.exists(children_path):
             return
 
-        from projects.POC.orchestrator.heartbeat import scan_children, compact_children
+        from projects.POC.orchestrator.heartbeat import (
+            scan_children, compact_children, create_heartbeat, read_heartbeat,
+        )
         from projects.POC.orchestrator.merge import squash_merge
+
+        # Write a fresh heartbeat for ourselves so adopted children see a live
+        # parent instead of triggering their shutdown sequence (gap 5/12).
+        my_hb = os.path.join(self.infra_dir, '.heartbeat')
+        if not os.path.exists(my_hb):
+            create_heartbeat(my_hb, role='session')
 
         scan = scan_children(children_path)
 
@@ -971,7 +985,6 @@ class Orchestrator:
             hb_path = child.get('heartbeat', '')
             if not hb_path:
                 continue
-            # Derive worktree path from the infra dir's manifest entry
             child_infra = os.path.dirname(hb_path)
             cfa_path = os.path.join(child_infra, '.cfa-state.json')
             if not os.path.exists(cfa_path):
@@ -981,34 +994,66 @@ class Orchestrator:
             if cfa_data.state != 'COMPLETED_WORK':
                 continue
 
-            # Find the worktree for this dispatch from the manifest
-            # The worktree info was stored by create_dispatch_worktree
+            # Find the worktree path from the manifest
+            worktree_path = self._find_dispatch_worktree(child_infra)
+            if not worktree_path or not os.path.isdir(worktree_path):
+                _log.warning('Recovery: no worktree found for %s', child_infra)
+                continue
+
             _log.info('Recovery: merging completed child %s', child.get('team', ''))
+            try:
+                from projects.POC.scripts.generate_commit_message import build_fallback
+                message = build_fallback(child.get('team', ''), self.task)
+                await squash_merge(
+                    source=worktree_path,
+                    target=self.session_worktree,
+                    message=message,
+                )
+                await self.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'recovery_merge',
+                        'team': child.get('team', ''),
+                        'heartbeat': hb_path,
+                        'status': 'merged',
+                    },
+                    session_id=self.session_id,
+                ))
+            except Exception as exc:
+                _log.warning('Recovery: merge failed for %s: %s', child.get('team', ''), exc)
+
+        # Re-dispatch dead non-terminal children
+        for child in scan['dead']:
+            hb_path = child.get('heartbeat', '')
+            child_infra = os.path.dirname(hb_path) if hb_path else ''
+            worktree_path = self._find_dispatch_worktree(child_infra) if child_infra else ''
+            team = child.get('team', '')
+
+            _log.warning('Recovery: re-dispatching dead child %s', team)
             await self.event_bus.publish(Event(
                 type=EventType.LOG,
                 data={
-                    'category': 'recovery_merge',
-                    'team': child.get('team', ''),
+                    'category': 'recovery_redispatch',
+                    'team': team,
                     'heartbeat': hb_path,
                 },
                 session_id=self.session_id,
             ))
 
-        # Log dead children for visibility
-        for child in scan['dead']:
-            _log.warning(
-                'Recovery: dead child %s (heartbeat: %s) — needs re-dispatch',
-                child.get('team', ''), child.get('heartbeat', ''),
-            )
-            await self.event_bus.publish(Event(
-                type=EventType.LOG,
-                data={
-                    'category': 'recovery_dead_child',
-                    'team': child.get('team', ''),
-                    'heartbeat': child.get('heartbeat', ''),
-                },
-                session_id=self.session_id,
-            ))
+            if worktree_path and child_infra:
+                try:
+                    from projects.POC.orchestrator.dispatch_cli import dispatch
+                    await dispatch(
+                        team=team,
+                        task=self.task,
+                        session_worktree=self.session_worktree,
+                        infra_dir=self.infra_dir,
+                        project_slug=self.project_slug,
+                        resume_worktree=worktree_path,
+                        resume_infra=child_infra,
+                    )
+                except Exception as exc:
+                    _log.warning('Recovery: re-dispatch failed for %s: %s', team, exc)
 
         # Log live children
         for child in scan['live']:
@@ -1016,3 +1061,33 @@ class Orchestrator:
 
         # Compact .children to remove terminal entries
         compact_children(children_path)
+
+    def _find_dispatch_worktree(self, child_infra: str) -> str:
+        """Find the worktree path for a dispatch given its infra dir.
+
+        Searches worktrees.json manifest for a matching session_id.
+        """
+        import json
+        dispatch_id = os.path.basename(child_infra)
+
+        # Try to find repo root
+        try:
+            from projects.POC.orchestrator.worktree import _run_git_output
+            import asyncio
+            git_common = asyncio.get_event_loop().run_until_complete(
+                _run_git_output(self.session_worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            ).strip()
+            repo_root = os.path.dirname(git_common)
+        except Exception:
+            return ''
+
+        manifest_path = os.path.join(repo_root, 'worktrees.json')
+        try:
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+            for entry in manifest.get('worktrees', []):
+                if entry.get('session_id') == dispatch_id:
+                    return entry.get('path', '')
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        return ''
