@@ -575,7 +575,31 @@ def _archive_skill_candidate(
     task: str,
     session_id: str,
 ) -> None:
-    """Archive the session's PLAN.md as a skill candidate for procedural learning."""
+    """Archive the session's PLAN.md as a skill candidate for procedural learning.
+
+    If the session used a warm-start skill (.active-skill.json exists),
+    reads the skill file's category and passes it through so the candidate
+    inherits the seeding skill's category (Issue #239).
+    """
+    import json as _json
+
+    # Read category from the active skill's file if available (Issue #239)
+    category = ''
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json') if infra_dir else ''
+    if sidecar_path and os.path.isfile(sidecar_path):
+        try:
+            with open(sidecar_path) as f:
+                skill_info = _json.load(f)
+            skill_path = skill_info.get('path', '')
+            if skill_path and os.path.isfile(skill_path):
+                from pathlib import Path as _Path
+                from projects.POC.orchestrator.procedural_learning import _parse_candidate_frontmatter
+                skill_content = _Path(skill_path).read_text(errors='replace')
+                meta, _ = _parse_candidate_frontmatter(skill_content)
+                category = meta.get('category', '')
+        except (OSError, _json.JSONDecodeError, ValueError):
+            pass
+
     from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
     archive_skill_candidate(
         infra_dir=infra_dir,
@@ -583,6 +607,7 @@ def _archive_skill_candidate(
         project_dir=project_dir,
         task=task,
         session_id=session_id,
+        category=category,
     )
 
 
