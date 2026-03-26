@@ -240,6 +240,7 @@ def _retrieve_actr_memories(
             open_proxy_db,
             resolve_memory_db_path,
             retrieve_chunks,
+            reinforce_retrieved,
             serialize_chunks_for_prompt,
             get_interaction_counter,
         )
@@ -270,6 +271,11 @@ def _retrieve_actr_memories(
                 context_embeddings=context_embeddings,
                 current_interaction=current,
             )
+            # ACT-R Rule 2: reinforce chunks that were retrieved for this task.
+            # The retrieval itself is the signal — correctness feedback flows
+            # through the chunk's outcome field, not through trace frequency.
+            if chunks:
+                reinforce_retrieved(conn, chunks, current)
             return serialize_chunks_for_prompt(chunks)
         finally:
             conn.close()
