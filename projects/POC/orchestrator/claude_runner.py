@@ -238,10 +238,10 @@ class ClaudeRunner:
         assert proc and proc.stdout
 
         last_output_time = time.time()
-        has_running_agents = False  # Track whether background agents are in flight
+        running_agent_count = 0  # Track background agents in flight
 
         async def read_stdout():
-            nonlocal last_output_time, has_running_agents
+            nonlocal last_output_time, running_agent_count
             first_output = True
             with open(self.stream_file, 'a') as f:
                 async for line in proc.stdout:
@@ -267,12 +267,9 @@ class ClaudeRunner:
                         # lead is expected — it's waiting, not stalled.
                         subtype = event_data.get('subtype', '')
                         if subtype == 'task_started':
-                            has_running_agents = True
+                            running_agent_count += 1
                         elif subtype == 'task_notification':
-                            # A task completed — check if any are still running.
-                            # Conservative: clear only when we see a completion.
-                            # The flag stays True if other agents are still going.
-                            pass
+                            running_agent_count = max(0, running_agent_count - 1)
 
                         # Publish to event bus
                         if self.event_bus:
@@ -316,7 +313,7 @@ class ClaudeRunner:
                 # waits for task_notification events.  Silence from the lead
                 # is expected, not a stall.  Issue #149.
                 effective_timeout = self.stall_timeout
-                if has_running_agents:
+                if running_agent_count > 0:
                     effective_timeout = max(self.stall_timeout, 7200)
                 if age >= effective_timeout:
                     self._lifecycle('stall')
