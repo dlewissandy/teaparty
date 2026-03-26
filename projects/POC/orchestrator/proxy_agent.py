@@ -111,7 +111,7 @@ async def consult_proxy(
     # Gather learning context (patterns, similar interactions) for the agent.
     learned_patterns = ''
     similar: list = []
-    actr_memories = ''
+    actr_retrieval = _EMPTY_RETRIEVAL
     try:
         model_path = resolve_team_model_path(proxy_model_path, team)
         project_dir = os.path.dirname(model_path)
@@ -132,7 +132,7 @@ async def consult_proxy(
         )
 
         # Tier 3: ACT-R memory retrieval
-        actr_memories = _retrieve_actr_memories(
+        actr_retrieval = _retrieve_actr_memories(
             proxy_model_path=proxy_model_path,
             team=team,
             state=state,
@@ -152,7 +152,7 @@ async def consult_proxy(
             infra_dir=infra_dir,
             learned_patterns=learned_patterns,
             similar_interactions=similar,
-            actr_memories=actr_memories,
+            actr_memories=actr_retrieval.serialized,
             dialog_history=dialog_history,
         )
     except Exception:
@@ -161,6 +161,11 @@ async def consult_proxy(
 
     if not two_pass.text:
         return ProxyResult(text='', confidence=0.0, from_agent=True)
+
+    # ACT-R Rule 2: reinforce retrieved chunks now that the agent has
+    # consumed them and produced a response. The retrieval itself is the
+    # signal — correctness feedback flows through the chunk's outcome field.
+    _reinforce_actr_memories(actr_retrieval)
 
     # Statistical calibration: safety net ceiling on confidence.
     confidence = _calibrate_confidence(
@@ -252,6 +257,18 @@ def _calibrate_confidence(
     return (floored_agent * stats_confidence) ** 0.5
 
 
+@dataclass
+class _ActrRetrievalResult:
+    """Result of ACT-R memory retrieval, carrying data needed for reinforcement."""
+    serialized: str                  # chunk text for the proxy prompt
+    chunk_ids: list[str]             # IDs of retrieved chunks (for post-consumption reinforcement)
+    db_path: str                     # path to the memory DB
+    interaction_counter: int         # counter at retrieval time
+
+
+_EMPTY_RETRIEVAL = _ActrRetrievalResult(serialized='', chunk_ids=[], db_path='', interaction_counter=0)
+
+
 def _retrieve_actr_memories(
     *,
     proxy_model_path: str,
@@ -259,14 +276,17 @@ def _retrieve_actr_memories(
     state: str,
     task_type: str,
     question: str,
-) -> str:
-    """Retrieve ACT-R memory chunks for the current gate context."""
+) -> _ActrRetrievalResult:
+    """Retrieve ACT-R memory chunks for the current gate context.
+
+    Returns chunk IDs alongside the serialized text so the caller can
+    reinforce after the proxy agent has consumed the memories.
+    """
     try:
         from projects.POC.orchestrator.proxy_memory import (
             open_proxy_db,
             resolve_memory_db_path,
             retrieve_chunks,
-            reinforce_retrieved,
             serialize_chunks_for_prompt,
             get_interaction_counter,
         )
@@ -274,13 +294,13 @@ def _retrieve_actr_memories(
 
         db_path = resolve_memory_db_path(proxy_model_path, team)
         if not os.path.isfile(db_path):
-            return ''
+            return _EMPTY_RETRIEVAL
 
         conn = open_proxy_db(db_path)
         try:
             current = get_interaction_counter(conn)
             if current == 0:
-                return ''
+                return _EMPTY_RETRIEVAL
 
             # Build context embeddings for retrieval
             provider, model = detect_provider()
@@ -297,17 +317,47 @@ def _retrieve_actr_memories(
                 context_embeddings=context_embeddings,
                 current_interaction=current,
             )
-            # ACT-R Rule 2: reinforce chunks that were retrieved for this task.
-            # The retrieval itself is the signal — correctness feedback flows
-            # through the chunk's outcome field, not through trace frequency.
-            if chunks:
-                reinforce_retrieved(conn, chunks, current)
-            return serialize_chunks_for_prompt(chunks)
+            return _ActrRetrievalResult(
+                serialized=serialize_chunks_for_prompt(chunks),
+                chunk_ids=[c.id for c in chunks],
+                db_path=db_path,
+                interaction_counter=current,
+            )
         finally:
             conn.close()
     except Exception:
         _log.debug('ACT-R memory retrieval failed', exc_info=True)
-        return ''
+        return _EMPTY_RETRIEVAL
+
+
+def _reinforce_actr_memories(retrieval: _ActrRetrievalResult) -> None:
+    """ACT-R Rule 2: reinforce chunks after the proxy agent has consumed them.
+
+    Opens a fresh DB connection, adds a trace to each retrieved chunk at the
+    interaction counter value from retrieval time, then closes the connection.
+    The interaction counter is NOT incremented — that is reserved for
+    record_interaction() (Rule 1: chunk creation).
+    """
+    if not retrieval.chunk_ids or not retrieval.db_path:
+        return
+    try:
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db,
+            reinforce_retrieved,
+            get_chunk,
+            MemoryChunk,
+        )
+        conn = open_proxy_db(retrieval.db_path)
+        try:
+            # Reconstruct minimal chunk objects with just the IDs
+            chunks = [MemoryChunk(
+                id=cid, type='', state='', task_type='', outcome='', content='',
+            ) for cid in retrieval.chunk_ids]
+            reinforce_retrieved(conn, chunks, retrieval.interaction_counter)
+        finally:
+            conn.close()
+    except Exception:
+        _log.debug('ACT-R reinforcement failed', exc_info=True)
 
 
 @dataclass
