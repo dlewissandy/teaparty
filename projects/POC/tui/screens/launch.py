@@ -145,8 +145,8 @@ class LaunchScreen(Screen):
                 await session.run()
             except BaseException:
                 # Write crash diagnostics so the failure is never silent.
-                # Don't remove .running — leave it for orphan detection so the
-                # user gets the recovery UI rather than a silently dead session.
+                # Don't finalize .heartbeat — leave it for orphan detection so
+                # the user gets the recovery UI rather than a silently dead session.
                 _handle_session_crash(infra_dir)
                 raise
 

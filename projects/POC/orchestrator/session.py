@@ -939,17 +939,20 @@ def _ensure_project_repo(project_dir: str) -> str:
 
 
 def _cleanup_stale_dispatch_sentinels(infra_dir: str) -> int:
-    """Remove .running sentinels from all dispatch infra dirs under infra_dir.
+    """Finalize stale dispatch heartbeats under infra_dir (issue #149).
 
-    On resume, every dispatch from the previous process is dead.  Their
-    .running files are stale — the PIDs are gone and Claude's in-memory
-    task handles are lost.  Removing these files lets the TUI show the
-    dispatches as complete rather than misleadingly active.
+    On resume, dispatches from the previous process are dead.  Their
+    heartbeats (or .running files) are stale.  Finalize heartbeats as
+    'withdrawn' so the TUI shows them as complete.  For legacy .running
+    files, delete them.
 
-    Returns the number of sentinels removed.
+    Returns the number of sentinels cleaned up.
     """
+    from projects.POC.orchestrator.heartbeat import (
+        read_heartbeat, finalize_heartbeat, is_heartbeat_stale,
+    )
     teams = ('art', 'writing', 'editorial', 'research', 'coding')
-    removed = 0
+    cleaned = 0
     for team in teams:
         team_dir = os.path.join(infra_dir, team)
         if not os.path.isdir(team_dir):
@@ -959,17 +962,34 @@ def _cleanup_stale_dispatch_sentinels(infra_dir: str) -> int:
                 dispatch_dir = os.path.join(team_dir, entry)
                 if not os.path.isdir(dispatch_dir):
                     continue
+
+                # Check .heartbeat first (issue #149)
+                hb_path = os.path.join(dispatch_dir, '.heartbeat')
+                if os.path.exists(hb_path):
+                    data = read_heartbeat(hb_path)
+                    if data.get('status') in ('completed', 'withdrawn'):
+                        continue  # Already terminal
+                    if is_heartbeat_stale(hb_path):
+                        try:
+                            finalize_heartbeat(hb_path, 'withdrawn')
+                            cleaned += 1
+                            _log.info('Finalized stale dispatch heartbeat: %s', hb_path)
+                        except OSError:
+                            pass
+                    continue
+
+                # Legacy .running fallback
                 running_path = os.path.join(dispatch_dir, '.running')
                 if os.path.exists(running_path):
                     try:
                         os.unlink(running_path)
-                        removed += 1
+                        cleaned += 1
                         _log.info('Removed stale dispatch sentinel: %s', running_path)
                     except OSError:
                         pass
         except OSError:
             continue
-    return removed
+    return cleaned
 
 
 def _find_repo_root_from(start_dir: str) -> str:

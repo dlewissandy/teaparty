@@ -56,6 +56,14 @@ def _withdraw_session(infra_dir: str, phase: str) -> None:
     with open(cfa_path, 'w') as f:
         json.dump(cfa, f, indent=2)
 
+    # Finalize heartbeat as withdrawn, then clean up IPC files (issue #149)
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import finalize_heartbeat
+            finalize_heartbeat(hb_path, 'withdrawn')
+        except Exception:
+            pass
     for name in ('.running', '.input-response.fifo', '.input-request.json'):
         try:
             os.unlink(os.path.join(infra_dir, name))

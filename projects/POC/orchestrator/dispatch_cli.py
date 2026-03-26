@@ -88,6 +88,8 @@ async def dispatch(
     session_worktree: str = '',
     infra_dir: str = '',
     project_slug: str = '',
+    resume_worktree: str = '',
+    resume_infra: str = '',
 ) -> dict:
     """Run a dispatch and return a status dict.
 
@@ -101,6 +103,9 @@ async def dispatch(
         infra_dir: Parent session infra directory.  Falls back to
             the POC_SESSION_DIR env var.
         project_slug: Project identifier.  Falls back to POC_PROJECT env var.
+        resume_worktree: Existing worktree to resume (issue #149).  Skips
+            worktree creation and loads CfA state from existing .cfa-state.json.
+        resume_infra: Existing infra dir for resumed dispatch (issue #149).
     """
     poc_root = find_poc_root()
     config = PhaseConfig(poc_root)
@@ -113,39 +118,84 @@ async def dispatch(
     if not project_slug:
         project_slug = os.environ.get('POC_PROJECT', 'default')
 
-    if not infra_dir:
+    if not infra_dir and not resume_infra:
         return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}
 
-    # Load parent CfA state for child linkage
-    parent_state_path = (
-        cfa_parent_state
-        or os.environ.get('POC_CFA_STATE', '')
-        or os.path.join(infra_dir, '.cfa-state.json')
-    )
-    if not os.path.exists(parent_state_path):
-        return {'status': 'failed', 'reason': f'parent CfA state not found: {parent_state_path}'}
-    parent_cfa = load_state(parent_state_path)
-
-    # Create dispatch worktree
-    try:
-        dispatch_info = await create_dispatch_worktree(
-            team=team,
-            task=task,
-            session_worktree=session_worktree,
-            infra_dir=infra_dir,
+    # Load parent CfA state for child linkage (skip on resume — we use existing child state)
+    parent_cfa = None
+    if not resume_worktree:
+        parent_state_path = (
+            cfa_parent_state
+            or os.environ.get('POC_CFA_STATE', '')
+            or os.path.join(infra_dir, '.cfa-state.json')
         )
-    except Exception as e:
-        return {'status': 'failed', 'reason': f'worktree creation failed: {e}'}
+        if not os.path.exists(parent_state_path):
+            return {'status': 'failed', 'reason': f'parent CfA state not found: {parent_state_path}'}
+        parent_cfa = load_state(parent_state_path)
 
-    worktree_path = dispatch_info['worktree_path']
-    dispatch_infra = dispatch_info['infra_dir']
+    # Resume path (issue #149): reuse existing worktree and CfA state
+    if resume_worktree and resume_infra:
+        worktree_path = resume_worktree
+        dispatch_infra = resume_infra
 
-    # Initialize CfA state for the child — use make_child_state for correct parent linkage
-    cfa = make_child_state(
-        parent_cfa, team,
-        task_id=f'dispatch-{team}-{dispatch_info["dispatch_id"]}',
-    )
-    save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
+        # Increment retry count
+        retry_count_path = os.path.join(dispatch_infra, '.retry-count')
+        retry_count = 0
+        try:
+            with open(retry_count_path) as f:
+                retry_count = int(f.read().strip())
+        except (FileNotFoundError, ValueError):
+            pass
+        retry_count += 1
+        with open(retry_count_path, 'w') as f:
+            f.write(str(retry_count))
+
+        # Budget: 9 total attempts per child (issue #149)
+        if retry_count > 9:
+            return {'status': 'failed', 'reason': f'retry budget exhausted ({retry_count} attempts)'}
+
+        # Load existing CfA state
+        cfa = load_state(os.path.join(dispatch_infra, '.cfa-state.json'))
+
+        # Re-create heartbeat for the resumed dispatch
+        from projects.POC.orchestrator.heartbeat import create_heartbeat
+        create_heartbeat(
+            os.path.join(dispatch_infra, '.heartbeat'),
+            role=team,
+        )
+    else:
+        # Create dispatch worktree
+        try:
+            dispatch_info = await create_dispatch_worktree(
+                team=team,
+                task=task,
+                session_worktree=session_worktree,
+                infra_dir=infra_dir,
+            )
+        except Exception as e:
+            return {'status': 'failed', 'reason': f'worktree creation failed: {e}'}
+
+        worktree_path = dispatch_info['worktree_path']
+        dispatch_infra = dispatch_info['infra_dir']
+
+        # Register child in parent's .children registry (issue #149).
+        # Optimistic registration: the watchdog can find this child's heartbeat
+        # on disk even if the dispatch is still mid-flight.
+        from projects.POC.orchestrator.heartbeat import register_child
+        children_path = os.path.join(infra_dir, '.children')
+        child_heartbeat_path = os.path.join(dispatch_infra, '.heartbeat')
+        register_child(
+            children_path,
+            heartbeat=child_heartbeat_path,
+            team=team,
+        )
+
+        # Initialize CfA state for the child — use make_child_state for correct parent linkage
+        cfa = make_child_state(
+            parent_cfa, team,
+            task_id=f'dispatch-{team}-{dispatch_info["dispatch_id"]}',
+        )
+        save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
 
     # Run child orchestrator with event collection for experiment visibility.
     # Events are written to events.jsonl in the dispatch infra_dir so the

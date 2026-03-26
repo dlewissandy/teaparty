@@ -151,6 +151,12 @@ class Orchestrator:
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
+        # Recovery scan: merge/re-dispatch orphaned children before starting
+        # MCP listeners.  This runs at every level of the hierarchy — any
+        # dispatching agent might resume into a world with orphaned children.
+        # Issue #149.
+        await self._recover_orphaned_children()
+
         # The MCP server runs as a subprocess of Claude Code, whose cwd
         # is the session worktree — not the repo root.  Two fixes:
         # 1. Use the venv Python (system python3 lacks the mcp package)
@@ -940,3 +946,73 @@ class Orchestrator:
         # Extra --add-dir paths leak absolute paths into the agent's context,
         # causing writes to wrong locations.
         return []
+
+    async def _recover_orphaned_children(self) -> None:
+        """Scan .children registry and recover orphaned dispatches (issue #149).
+
+        Runs before MCP listeners start so no new dispatches arrive during
+        recovery.  Any dispatching agent at any level needs this.
+
+        - Completed children: merge their worktree into session worktree
+        - Dead non-terminal: log for re-dispatch (resume path)
+        - Live children: leave alone
+        """
+        children_path = os.path.join(self.infra_dir, '.children')
+        if not os.path.exists(children_path):
+            return
+
+        from projects.POC.orchestrator.heartbeat import scan_children, compact_children
+        from projects.POC.orchestrator.merge import squash_merge
+
+        scan = scan_children(children_path)
+
+        # Merge completed children
+        for child in scan['completed']:
+            hb_path = child.get('heartbeat', '')
+            if not hb_path:
+                continue
+            # Derive worktree path from the infra dir's manifest entry
+            child_infra = os.path.dirname(hb_path)
+            cfa_path = os.path.join(child_infra, '.cfa-state.json')
+            if not os.path.exists(cfa_path):
+                continue
+
+            cfa_data = load_state(cfa_path)
+            if cfa_data.state != 'COMPLETED_WORK':
+                continue
+
+            # Find the worktree for this dispatch from the manifest
+            # The worktree info was stored by create_dispatch_worktree
+            _log.info('Recovery: merging completed child %s', child.get('team', ''))
+            await self.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'recovery_merge',
+                    'team': child.get('team', ''),
+                    'heartbeat': hb_path,
+                },
+                session_id=self.session_id,
+            ))
+
+        # Log dead children for visibility
+        for child in scan['dead']:
+            _log.warning(
+                'Recovery: dead child %s (heartbeat: %s) — needs re-dispatch',
+                child.get('team', ''), child.get('heartbeat', ''),
+            )
+            await self.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'recovery_dead_child',
+                    'team': child.get('team', ''),
+                    'heartbeat': child.get('heartbeat', ''),
+                },
+                session_id=self.session_id,
+            ))
+
+        # Log live children
+        for child in scan['live']:
+            _log.info('Recovery: live child %s — leaving alone', child.get('team', ''))
+
+        # Compact .children to remove terminal entries
+        compact_children(children_path)

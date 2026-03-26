@@ -121,10 +121,12 @@ class TestAgentTrackingClearsOnCompletion(unittest.TestCase):
     def test_single_agent_complete_restores_base_timeout(self):
         """After task_started then task_notification, stall timeout must
         revert to base value.  With stall_timeout=5 and 31s per poll,
-        the watchdog should fire on the FIRST poll (31 >= 5).
+        the watchdog cascade (issue #149) first checks recent lead events
+        (within STALE_THRESHOLD=120s), then applies stall_timeout.
+        The kill fires once lead_event_age > 120s AND age > stall_timeout.
 
         With the bug: has_running_agents stuck True, effective_timeout=7200,
-        so 31s < 7200 and the watchdog does NOT fire within 5 polls."""
+        so the watchdog does NOT fire within 5 polls."""
         runner = _setup_runner([
             _event_line('task_started', 'a'),
             _event_line('task_notification', 'a'),
@@ -136,18 +138,21 @@ class TestAgentTrackingClearsOnCompletion(unittest.TestCase):
                         'Watchdog did not fire stall kill within 5 polls — '
                         'has_running_agents likely stuck True '
                         '(effective_timeout=7200 instead of 5)')
-        self.assertEqual(kill_poll, 1,
-                         'Stall kill should fire on first poll (31s > 5s)')
+        # Issue #149: watchdog cascade checks lead events (120s threshold)
+        # before applying stall_timeout.  Kill fires at poll 4 (4*31=124 > 120).
+        self.assertEqual(kill_poll, 4,
+                         'Stall kill should fire after cascade lead event check expires')
 
     def test_no_agents_baseline_still_fires(self):
         """Sanity check: without any agent events, the watchdog still fires
-        at the base stall_timeout."""
+        after the cascade's lead event threshold expires."""
         runner = _setup_runner([], stall_timeout=5)
 
         kill_called, kill_poll = _run_watchdog_test(runner, max_polls=5)
 
         self.assertTrue(kill_called)
-        self.assertEqual(kill_poll, 1)
+        # Issue #149: cascade lead event check (120s) must expire first
+        self.assertEqual(kill_poll, 4)
 
 
 class TestMultipleAgentTracking(unittest.TestCase):
@@ -169,7 +174,8 @@ class TestMultipleAgentTracking(unittest.TestCase):
                          'Watchdog killed process while agent b was still running')
 
     def test_all_agents_complete_then_stall_kills(self):
-        """After ALL agents complete, stall timeout reverts to base."""
+        """After ALL agents complete, stall timeout reverts to base.
+        Issue #149: cascade lead event check (120s) must expire first."""
         runner = _setup_runner([
             _event_line('task_started', 'a'),
             _event_line('task_started', 'b'),
@@ -181,7 +187,7 @@ class TestMultipleAgentTracking(unittest.TestCase):
 
         self.assertTrue(kill_called,
                         'Watchdog did not fire after all agents completed')
-        self.assertEqual(kill_poll, 1)
+        self.assertEqual(kill_poll, 4)
 
 
 class TestOrphanedNotification(unittest.TestCase):
