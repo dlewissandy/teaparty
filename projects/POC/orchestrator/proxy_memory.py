@@ -1172,10 +1172,14 @@ def classify_conflict(
 
 def format_conflict_context(
     classifications: list[ConflictClassification],
+    *,
+    llm_fallback_count: int = 0,
 ) -> str:
     """Render conflict classifications as prompt text for the proxy agent.
 
     Returns empty string when no conflicts exist (zero overhead fast path).
+    When llm_fallback_count > 0, appends a note that some classifications
+    used heuristic-only mode due to LLM failures (#238).
     """
     if not classifications:
         return ''
@@ -1185,6 +1189,13 @@ def format_conflict_context(
         lines.append(f'**Conflict {i}:** {cls.cause.replace("_", " ")}')
         lines.append(f'  Chunks: {cls.chunk_a_id[:8]} vs {cls.chunk_b_id[:8]}')
         lines.append(f'  Recommended action: {cls.action}')
+        lines.append('')
+
+    if llm_fallback_count > 0:
+        lines.append(
+            f'**Note:** {llm_fallback_count} conflict(s) classified by heuristic only '
+            f'(LLM classifier unavailable).'
+        )
         lines.append('')
 
     return '\n'.join(lines)

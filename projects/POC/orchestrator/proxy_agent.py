@@ -303,6 +303,7 @@ class _ActrRetrievalResult:
     accuracy: dict | None = None     # per-context accuracy record (if available)
     conflict_context: str = ''       # formatted conflict classifications for prompt injection (#228)
     has_genuine_tension: bool = False  # True if any conflict is genuine_tension (#228)
+    llm_classifier_fallback_count: int = 0  # number of pairs that fell back to heuristic (#238)
 
 
 _EMPTY_RETRIEVAL = _ActrRetrievalResult(serialized='', chunk_ids=[], db_path='', interaction_counter=0)
@@ -418,6 +419,7 @@ def _retrieve_actr_memories(
             # Read-only on chunk list — annotates, never modifies.
             conflict_ctx = ''
             genuine_tension = False
+            llm_fallback_count = 0
             all_chunks = chunks + salience_chunks
             pairs = find_conflicting_pairs(all_chunks)
             if pairs:
@@ -446,9 +448,13 @@ def _retrieve_actr_memories(
                                     action=_ACTIONS.get(llm_cause, cls.action),
                                 )
                         except Exception:
-                            _log.debug('LLM conflict classification failed', exc_info=True)
+                            _log.warning('LLM conflict classification failed for pair %s/%s',
+                                         a.id[:8], b.id[:8], exc_info=True)
+                            llm_fallback_count += 1
 
-                conflict_ctx = format_conflict_context(classifications)
+                conflict_ctx = format_conflict_context(
+                    classifications, llm_fallback_count=llm_fallback_count,
+                )
                 genuine_tension = _has_genuine_tension(classifications)
 
             return _ActrRetrievalResult(
@@ -462,6 +468,7 @@ def _retrieve_actr_memories(
                 accuracy=accuracy,
                 conflict_context=conflict_ctx,
                 has_genuine_tension=genuine_tension,
+                llm_classifier_fallback_count=llm_fallback_count,
             )
         finally:
             conn.close()
@@ -931,10 +938,16 @@ def _classify_conflict_llm(
             input=prompt, capture_output=True, text=True, timeout=30,
             cwd=session_worktree or None,
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        _log.warning('LLM conflict classification failed: claude CLI not found')
+        return 'context_sensitivity'
+    except subprocess.TimeoutExpired:
+        _log.warning('LLM conflict classification failed: timed out after 30s')
         return 'context_sensitivity'
 
     if result.returncode != 0 or not result.stdout.strip():
+        _log.warning('LLM conflict classification failed: returncode=%s, output=%s',
+                      result.returncode, bool(result.stdout.strip()))
         return 'context_sensitivity'
 
     output = result.stdout.strip()
