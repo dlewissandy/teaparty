@@ -36,6 +36,7 @@ def archive_skill_candidate(
     task: str,
     session_id: str,
     corrects_skill: str = '',
+    category: str = '',
 ) -> bool:
     """Archive a successful session's PLAN.md as a skill candidate.
 
@@ -46,6 +47,10 @@ def archive_skill_candidate(
 
     Reads PLAN.md from infra_dir (Issue #147).  Falls back to
     session_worktree for backward compatibility.
+
+    If category is provided, it is written to frontmatter so
+    _cluster_candidates() can group by category instead of falling back
+    to Jaccard similarity (Issue #239).
 
     If corrects_skill is provided, the candidate is tagged as a correction
     of the named skill (Issue #142 — skill self-correction on backtrack).
@@ -71,6 +76,7 @@ def archive_skill_candidate(
     timestamp = datetime.now().isoformat(timespec='seconds')
 
     # Build candidate with frontmatter
+    category_line = f'category: {category}\n' if category else ''
     corrects_line = f'corrects_skill: {corrects_skill}\n' if corrects_skill else ''
     candidate = (
         f'---\n'
@@ -78,6 +84,7 @@ def archive_skill_candidate(
         f'session_id: {session_id}\n'
         f'timestamp: {timestamp}\n'
         f'status: pending\n'
+        f'{category_line}'
         f'{corrects_line}'
         f'---\n\n'
         f'{plan_content}'
@@ -200,9 +207,9 @@ def _cluster_candidates(
        similarity (Jaccard on tokens, single-linkage).
 
     Category is a first-class concept in the skill schema (produced by
-    crystallization, used by skill_lookup scoring).  archive_skill_candidate()
-    does not yet write category to candidate frontmatter, so the similarity
-    fallback handles all current production candidates.
+    crystallization, used by skill_lookup scoring).  Warm-start candidates
+    carry forward the seeding skill's category (Issue #239); cold-start
+    candidates lack category and use the similarity fallback.
 
     Returns a list of clusters, where each cluster is a list of candidate dicts.
     """

@@ -959,6 +959,8 @@ class Orchestrator:
         if not self._active_skill:
             return
 
+        from pathlib import Path
+
         plan_path = os.path.join(self.infra_dir, 'PLAN.md')
         if not os.path.isfile(plan_path):
             return
@@ -975,6 +977,19 @@ class Orchestrator:
             return
 
         skill_name = self._active_skill['name']
+        skill_path = self._active_skill.get('path', '')
+
+        # Read category from the skill file (Issue #239)
+        skill_category = ''
+        if skill_path and os.path.isfile(skill_path):
+            try:
+                from projects.POC.orchestrator.procedural_learning import _parse_candidate_frontmatter
+                _skill_content = Path(skill_path).read_text(errors='replace')
+                _skill_meta, _ = _parse_candidate_frontmatter(_skill_content)
+                skill_category = _skill_meta.get('category', '')
+            except OSError:
+                pass
+
         try:
             from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
             archived = archive_skill_candidate(
@@ -983,6 +998,7 @@ class Orchestrator:
                 task=self.task,
                 session_id=f'{self.session_id}-correction',
                 corrects_skill=skill_name,
+                category=skill_category,
             )
             if archived:
                 _log.info(
