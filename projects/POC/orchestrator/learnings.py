@@ -727,13 +727,21 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
                 serialize_memory_file,
             )
             from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+            from projects.POC.orchestrator.proxy_agent import (
+                _classify_conflict_llm_for_entries,
+            )
 
             lock = FileLock(proxy_md_path + '.lock', timeout=30)
             with lock:
                 text = Path(proxy_md_path).read_text(errors='replace')
                 entries = parse_memory_file(text)
                 if len(entries) >= 2:
-                    consolidated, decisions = consolidate_proxy_file(entries)
+                    # Use LLM classifier for proxy.md consolidation.
+                    # Falls back to ADD (preserve both) on any failure.
+                    consolidated, decisions = consolidate_proxy_file(
+                        entries,
+                        classifier=_classify_conflict_llm_for_entries,
+                    )
                     if len(consolidated) < len(entries):
                         output = serialize_memory_file(consolidated)
                         # Atomic write

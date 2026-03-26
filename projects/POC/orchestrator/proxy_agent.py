@@ -412,17 +412,42 @@ def _retrieve_actr_memories(
             accuracy = get_accuracy(conn, state=state, task_type=task_type)
             all_chunk_ids = [c.id for c in chunks] + [c.id for c in salience_chunks]
 
-            # Issue #228: Retrieval-time conflict detection.
+            # Issue #228: Two-tier retrieval-time conflict detection.
+            # Tier 1: heuristic pre-filter (cheap, no LLM call).
+            # Tier 2: LLM classification on flagged pairs only.
             # Read-only on chunk list — annotates, never modifies.
             conflict_ctx = ''
             genuine_tension = False
             all_chunks = chunks + salience_chunks
             pairs = find_conflicting_pairs(all_chunks)
             if pairs:
+                # Tier 1 heuristic classification
                 classifications = [
                     classify_conflict(a, b, current_interaction=current)
                     for a, b in pairs
                 ]
+                # Tier 2: LLM reclassification for ambiguous cases.
+                # Only invoke LLM when heuristic returns context_sensitivity
+                # (the ambiguous default) and chunks have content to analyze.
+                for i, (cls, (a, b)) in enumerate(zip(classifications, pairs)):
+                    if cls.cause == 'context_sensitivity' and a.content and b.content:
+                        try:
+                            llm_cause = _classify_conflict_llm(a, b)
+                            if llm_cause != 'context_sensitivity':
+                                from projects.POC.orchestrator.proxy_memory import ConflictClassification
+                                _ACTIONS = {
+                                    'preference_drift': f'Prefer newer memory; schedule older for demotion.',
+                                    'genuine_tension': 'Escalate to human — unresolved tension in preferences.',
+                                    'retrieval_noise': 'Discard the weaker match.',
+                                }
+                                classifications[i] = ConflictClassification(
+                                    chunk_a_id=a.id, chunk_b_id=b.id,
+                                    cause=llm_cause,
+                                    action=_ACTIONS.get(llm_cause, cls.action),
+                                )
+                        except Exception:
+                            _log.debug('LLM conflict classification failed', exc_info=True)
+
                 conflict_ctx = format_conflict_context(classifications)
                 genuine_tension = _has_genuine_tension(classifications)
 
@@ -853,6 +878,134 @@ async def _extract_surprise(
             description = stripped
 
     return (description, percepts)
+
+
+# ── LLM-based conflict classification (issue #228) ──────────────────────────
+
+_CONFLICT_CLASSIFY_PROMPT = """\
+Two retrieved memories from the same decision context appear to conflict.
+
+Memory A ({chunk_a_id}):
+  State: {state_a}  Task: {task_a}  Outcome: {outcome_a}
+  Content: {content_a}
+
+Memory B ({chunk_b_id}):
+  State: {state_b}  Task: {task_b}  Outcome: {outcome_b}
+  Content: {content_b}
+
+Classify this conflict. Reply with EXACTLY one line in this format:
+CAUSE: <preference_drift|context_sensitivity|genuine_tension|retrieval_noise>
+
+Rules:
+- preference_drift: the human changed their mind; the newer memory supersedes the older.
+- context_sensitivity: both are correct in different contexts (domain, stakes, urgency).
+- genuine_tension: recent, same domain, unresolved — the human has not resolved this tension.
+- retrieval_noise: these are not actually about the same thing; apparent conflict is an artifact.
+
+When uncertain, default to context_sensitivity (preserve both).
+"""
+
+
+def _classify_conflict_llm(
+    chunk_a: 'MemoryChunk',
+    chunk_b: 'MemoryChunk',
+    session_worktree: str = '',
+) -> str:
+    """Classify a conflicting pair via claude -p.
+
+    Returns one of: preference_drift, context_sensitivity, genuine_tension,
+    retrieval_noise. Falls back to context_sensitivity on any failure.
+    """
+    prompt = _CONFLICT_CLASSIFY_PROMPT.format(
+        chunk_a_id=chunk_a.id[:8], state_a=chunk_a.state,
+        task_a=chunk_a.task_type, outcome_a=chunk_a.outcome,
+        content_a=chunk_a.content[:500],
+        chunk_b_id=chunk_b.id[:8], state_b=chunk_b.state,
+        task_b=chunk_b.task_type, outcome_b=chunk_b.outcome,
+        content_b=chunk_b.content[:500],
+    )
+    try:
+        result = subprocess.run(
+            ['claude', '-p', '--output-format', 'text',
+             '--permission-mode', 'bypassPermissions'],
+            input=prompt, capture_output=True, text=True, timeout=30,
+            cwd=session_worktree or None,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 'context_sensitivity'
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return 'context_sensitivity'
+
+    output = result.stdout.strip()
+    valid_causes = {'preference_drift', 'context_sensitivity', 'genuine_tension', 'retrieval_noise'}
+    for line in output.split('\n'):
+        line = line.strip()
+        if line.upper().startswith('CAUSE:'):
+            cause = line.split(':', 1)[1].strip().lower()
+            if cause in valid_causes:
+                return cause
+    return 'context_sensitivity'
+
+
+def _classify_conflict_llm_for_entries(
+    entry_a: 'MemoryEntry',
+    entry_b: 'MemoryEntry',
+    session_worktree: str = '',
+) -> str:
+    """Classify a conflicting MemoryEntry pair via claude -p.
+
+    Used by consolidate_proxy_file() as the classifier parameter for
+    proxy.md consolidation (Stage 2).
+
+    Returns one of: ADD, UPDATE, DELETE, SKIP.
+    """
+    prompt = f"""\
+Two entries in the proxy's preference store appear to be about the same topic.
+
+Entry A (created {entry_a.created_at}):
+{entry_a.content[:500]}
+
+Entry B (created {entry_b.created_at}):
+{entry_b.content[:500]}
+
+Classify the relationship. Reply with EXACTLY one line in this format:
+DECISION: <ADD|UPDATE|DELETE|SKIP>
+
+Rules:
+- ADD: these entries do not conflict; both should be kept.
+- UPDATE: entry B complements entry A; merge them.
+- DELETE: entry B supersedes entry A; remove entry A.
+- SKIP: entry B is already represented by entry A; discard entry B.
+
+When uncertain, reply ADD (preserve both).
+"""
+    try:
+        result = subprocess.run(
+            ['claude', '-p', '--output-format', 'text',
+             '--permission-mode', 'bypassPermissions'],
+            input=prompt, capture_output=True, text=True, timeout=30,
+            cwd=session_worktree or None,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return 'ADD'
+
+    if result.returncode != 0 or not result.stdout.strip():
+        return 'ADD'
+
+    from projects.POC.orchestrator.proxy_memory import (
+        CONSOLIDATION_ADD, CONSOLIDATION_UPDATE,
+        CONSOLIDATION_DELETE, CONSOLIDATION_SKIP,
+    )
+    valid = {CONSOLIDATION_ADD, CONSOLIDATION_UPDATE, CONSOLIDATION_DELETE, CONSOLIDATION_SKIP}
+    output = result.stdout.strip()
+    for line in output.split('\n'):
+        line = line.strip()
+        if line.upper().startswith('DECISION:'):
+            decision = line.split(':', 1)[1].strip().upper()
+            if decision in valid:
+                return decision
+    return CONSOLIDATION_ADD
 
 
 def parse_proxy_agent_output(output: str) -> tuple[str, float]:
