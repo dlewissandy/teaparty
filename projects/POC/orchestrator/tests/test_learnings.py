@@ -1193,10 +1193,10 @@ class TestRecurrenceDetection(unittest.TestCase):
         s1 = self._make_session_dir('session-20260301-100000')
         self._make_session_learning(s1, 'Always run lint before committing code.')
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
         )
-        self.assertEqual(len(recurring), 0)
+        self.assertEqual(len(result.to_promote), 0)
 
     def test_learning_at_threshold_is_promoted(self):
         """A learning seen in 3 distinct sessions qualifies for promotion."""
@@ -1206,11 +1206,11 @@ class TestRecurrenceDetection(unittest.TestCase):
             s = self._make_session_dir(f'session-2026030{i+1}-100000')
             self._make_session_learning(s, 'Always run lint before committing code.')
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
         )
-        self.assertEqual(len(recurring), 1)
-        self.assertIn('lint', recurring[0].content)
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('lint', result.to_promote[0].content)
 
     def test_recurrence_uses_similarity_not_exact_match(self):
         """Semantically similar learnings across sessions count as recurrences."""
@@ -1229,10 +1229,10 @@ class TestRecurrenceDetection(unittest.TestCase):
         def _always_similar(a: str, b: str) -> float:
             return 0.95  # above any reasonable threshold
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_always_similar,
         )
-        self.assertEqual(len(recurring), 1)
+        self.assertEqual(len(result.to_promote), 1)
 
     def test_distinct_learnings_not_conflated(self):
         """Learnings on different topics don't count toward each other's recurrence."""
@@ -1245,12 +1245,12 @@ class TestRecurrenceDetection(unittest.TestCase):
             if i < 2:
                 self._make_session_learning(s, 'Backup the database before migration.')
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
         )
         # Only the lint learning qualifies (3 recurrences); database has only 2
-        self.assertEqual(len(recurring), 1)
-        self.assertIn('lint', recurring[0].content)
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('lint', result.to_promote[0].content)
 
     def test_already_promoted_learnings_not_re_promoted(self):
         """Learnings that already exist at project scope are not duplicated."""
@@ -1270,10 +1270,54 @@ class TestRecurrenceDetection(unittest.TestCase):
         Path(os.path.join(tasks_dir, f'{entry.id}.md')).write_text(
             serialize_entry(entry))
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
         )
-        self.assertEqual(len(recurring), 0)
+        self.assertEqual(len(result.to_promote), 0)
+
+    def test_matching_project_entries_are_reinforced(self):
+        """When session learnings match existing project entries, reinforce the project entry."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        # Create 3 sessions with same learning
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            self._make_session_learning(s, 'Always run lint before committing code.')
+
+        # Write matching entry at project scope
+        tasks_dir = os.path.join(self.project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+        entry = make_entry('Always run lint before committing code.',
+                           type='procedural', domain='task')
+        entry_path = os.path.join(tasks_dir, f'{entry.id}.md')
+        Path(entry_path).write_text(serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        # Nothing to promote (already exists), but should reinforce
+        self.assertEqual(len(result.to_promote), 0)
+        self.assertEqual(len(result.to_reinforce), 1)
+        self.assertIn(entry_path, result.to_reinforce)
+
+    def test_institutional_learnings_scanned_for_recurrence(self):
+        """Session institutional.md entries are also scanned for recurrence."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            entry = make_entry('Always review PRs before merging.',
+                               type='directive', domain='team')
+            inst_path = os.path.join(s, 'institutional.md')
+            Path(inst_path).write_text(serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('review PRs', result.to_promote[0].content)
 
 
 # ── Promotion chain: proxy exclusion (issue #217) ────────────────────────────
@@ -1332,10 +1376,10 @@ class TestProxyExclusion(unittest.TestCase):
             Path(os.path.join(proxy_tasks, f'{entry.id}.md')).write_text(
                 serialize_entry(entry))
 
-        recurring = find_recurring_learnings(
+        result = find_recurring_learnings(
             self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
         )
-        self.assertEqual(len(recurring), 0)
+        self.assertEqual(len(result.to_promote), 0)
 
 
 # ── Promotion chain: project→global filtering (issue #217) ───────────────────

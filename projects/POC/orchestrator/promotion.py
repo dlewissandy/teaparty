@@ -5,7 +5,8 @@ Implements the three promotion gates described in issue #217:
 1. Session → Project: learnings that recur across N distinct sessions
    (configurable, default N=3) are promoted to project scope. Recurrence
    is detected via a pluggable similarity function (embedding-based or
-   exact-match fallback).
+   exact-match fallback). Session learnings that match existing project
+   entries reinforce those entries instead of re-promoting.
 
 2. Project → Global: learnings that are project-agnostic (not tied to a
    specific codebase or domain) are promoted to global scope. This requires
@@ -19,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
-from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Callable
 
@@ -30,6 +31,13 @@ SimilarityFn = Callable[[str, str], float]
 
 # Similarity threshold for considering two learnings as "the same"
 RECURRENCE_SIMILARITY_THRESHOLD = 0.8
+
+
+@dataclass
+class PromotionResult:
+    """Result of find_recurring_learnings: entries to promote and paths to reinforce."""
+    to_promote: list = field(default_factory=list)
+    to_reinforce: list = field(default_factory=list)  # list of file paths
 
 
 def is_proxy_learning(path: str) -> bool:
@@ -51,15 +59,16 @@ def find_recurring_learnings(
     *,
     min_recurrences: int = 3,
     similarity_fn: SimilarityFn | None = None,
-) -> list:
+) -> PromotionResult:
     """Find session-scope learnings that recur across N distinct sessions.
 
-    Walks .sessions/*/tasks/*.md under project_dir, groups learnings by
-    semantic similarity, and returns entries that appear in at least
-    min_recurrences distinct sessions.
-
-    Entries already present at project scope (project_dir/tasks/) are
-    excluded to prevent re-promotion.
+    Walks .sessions/*/tasks/*.md and .sessions/*/institutional.md under
+    project_dir, groups learnings by semantic similarity, and returns a
+    PromotionResult with:
+    - to_promote: entries that recur in min_recurrences+ sessions and have
+      no matching project-scope counterpart
+    - to_reinforce: file paths of existing project entries that match
+      recurring session learnings (should have reinforcement_count bumped)
 
     Args:
         project_dir: Path to the project directory.
@@ -68,7 +77,7 @@ def find_recurring_learnings(
             case-insensitive exact match.
 
     Returns:
-        List of MemoryEntry objects that qualify for promotion.
+        PromotionResult with to_promote and to_reinforce lists.
     """
     from projects.POC.scripts.memory_entry import parse_memory_file
 
@@ -80,35 +89,35 @@ def find_recurring_learnings(
     session_entries: list[tuple[str, object]] = []
     sessions_dir = os.path.join(project_dir, '.sessions')
     if not os.path.isdir(sessions_dir):
-        return []
+        return PromotionResult()
 
     for session_name in sorted(os.listdir(sessions_dir)):
         session_path = os.path.join(sessions_dir, session_name)
         if not os.path.isdir(session_path):
             continue
+
+        # Scan tasks/ directory
         tasks_dir = os.path.join(session_path, 'tasks')
-        if not os.path.isdir(tasks_dir):
-            continue
-        for fname in sorted(os.listdir(tasks_dir)):
-            if not fname.endswith('.md'):
-                continue
-            fpath = os.path.join(tasks_dir, fname)
-            if is_proxy_learning(fpath):
-                continue
-            try:
-                text = open(fpath, errors='replace').read()
-            except OSError:
-                continue
-            entries = parse_memory_file(text)
-            for entry in entries:
-                if entry.content.strip():
-                    session_entries.append((session_name, entry))
+        if os.path.isdir(tasks_dir):
+            for fname in sorted(os.listdir(tasks_dir)):
+                if not fname.endswith('.md'):
+                    continue
+                fpath = os.path.join(tasks_dir, fname)
+                if is_proxy_learning(fpath):
+                    continue
+                _collect_entries_from_file(fpath, session_name, session_entries)
+
+        # Scan institutional.md
+        inst_path = os.path.join(session_path, 'institutional.md')
+        if os.path.isfile(inst_path) and not is_proxy_learning(inst_path):
+            _collect_entries_from_file(inst_path, session_name, session_entries)
 
     if not session_entries:
-        return []
+        return PromotionResult()
 
-    # Collect existing project-scope learnings to avoid re-promotion
-    project_contents: list[str] = []
+    # Collect existing project-scope learnings with their file paths
+    # for both dedup (skip re-promotion) and reinforcement
+    project_entries: list[tuple[str, str]] = []  # (content, file_path)
     project_tasks_dir = os.path.join(project_dir, 'tasks')
     if os.path.isdir(project_tasks_dir):
         for fname in sorted(os.listdir(project_tasks_dir)):
@@ -122,19 +131,20 @@ def find_recurring_learnings(
             entries = parse_memory_file(text)
             for entry in entries:
                 if entry.content.strip():
-                    project_contents.append(entry.content.strip())
+                    project_entries.append((entry.content.strip(), fpath))
 
-    # Also check proxy paths at session level
-    for session_name in sorted(os.listdir(sessions_dir)):
-        session_path = os.path.join(sessions_dir, session_name)
-        proxy_tasks = os.path.join(session_path, 'proxy-tasks')
-        if os.path.isdir(proxy_tasks):
-            for fname in sorted(os.listdir(proxy_tasks)):
-                if not fname.endswith('.md'):
-                    continue
-                fpath = os.path.join(proxy_tasks, fname)
-                # These are proxy — we just skip them in the session_entries
-                # collection above. No need to add them here.
+    # Also check project institutional.md
+    proj_inst = os.path.join(project_dir, 'institutional.md')
+    if os.path.isfile(proj_inst):
+        try:
+            text = open(proj_inst, errors='replace').read()
+        except OSError:
+            text = ''
+        if text:
+            entries = parse_memory_file(text)
+            for entry in entries:
+                if entry.content.strip():
+                    project_entries.append((entry.content.strip(), proj_inst))
 
     # Cluster session learnings by similarity
     # clusters: list of (representative_entry, set of session_names)
@@ -142,33 +152,39 @@ def find_recurring_learnings(
 
     for session_name, entry in session_entries:
         merged = False
-        for rep_entry, sessions in clusters:
+        for idx, (rep_entry, sessions) in enumerate(clusters):
             sim = similarity_fn(entry.content.strip(), rep_entry.content.strip())
             if sim >= RECURRENCE_SIMILARITY_THRESHOLD:
                 sessions.add(session_name)
                 # Keep the longest content as representative
                 if len(entry.content) > len(rep_entry.content):
-                    clusters[clusters.index((rep_entry, sessions))] = (entry, sessions)
+                    clusters[idx] = (entry, sessions)
                 merged = True
                 break
         if not merged:
             clusters.append((entry, {session_name}))
 
     # Filter: require min_recurrences distinct sessions
-    recurring = []
+    result = PromotionResult()
     for rep_entry, sessions in clusters:
         if len(sessions) < min_recurrences:
             continue
-        # Check if already at project scope
-        already_promoted = any(
-            similarity_fn(rep_entry.content.strip(), pc) >= RECURRENCE_SIMILARITY_THRESHOLD
-            for pc in project_contents
-        )
-        if already_promoted:
-            continue
-        recurring.append(rep_entry)
 
-    return recurring
+        # Check if already at project scope
+        matching_path = None
+        for pc_content, pc_path in project_entries:
+            if similarity_fn(rep_entry.content.strip(), pc_content) >= RECURRENCE_SIMILARITY_THRESHOLD:
+                matching_path = pc_path
+                break
+
+        if matching_path is not None:
+            # Already at project scope — reinforce instead of promoting
+            if matching_path not in result.to_reinforce:
+                result.to_reinforce.append(matching_path)
+        else:
+            result.to_promote.append(rep_entry)
+
+    return result
 
 
 def filter_project_agnostic(
@@ -205,6 +221,24 @@ def filter_project_agnostic(
             )
             # Conservative: don't promote on failure
     return result
+
+
+def _collect_entries_from_file(
+    fpath: str,
+    session_name: str,
+    session_entries: list[tuple[str, object]],
+) -> None:
+    """Read entries from a file and append to session_entries."""
+    from projects.POC.scripts.memory_entry import parse_memory_file
+
+    try:
+        text = open(fpath, errors='replace').read()
+    except OSError:
+        return
+    entries = parse_memory_file(text)
+    for entry in entries:
+        if entry.content.strip():
+            session_entries.append((session_name, entry))
 
 
 def _default_similarity(a: str, b: str) -> float:
