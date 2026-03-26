@@ -64,7 +64,11 @@ def _make_worktree_entry(name, path, status='active', session_id='test-session')
 
 def _make_fake_git_output(repo_root):
     """Create an async side_effect for mocked _run_git_output."""
+    git_dir = os.path.join(repo_root, '.git')
+
     async def fake_output(cwd, *args):
+        if '--git-common-dir' in args:
+            return git_dir
         if '--show-toplevel' in args:
             return repo_root
         if '--abbrev-ref' in args:
