@@ -147,6 +147,7 @@ Note that because normalization is computed over the candidate set, the effectiv
 |-----------|---------------|------|--------|
 | Activation weight | 0.5 | Weight of normalized base-level activation in composite | Design parameter; calibrate empirically |
 | Semantic weight | 0.5 | Weight of cosine similarity in composite | Design parameter; calibrate empirically |
+| Noise scale (s) | 0.08 | Logistic noise scale; std dev ≈ πs/√3 ≈ 0.145 | Calibrated so noise perturbs ranking without dominating signal (#235) |
 
 ---
 
@@ -308,7 +309,7 @@ def composite_score(
     activation_weight: float = 0.5,
     semantic_weight: float = 0.5,
     d: float = 0.5,
-    s: float = 0.25,
+    s: float = 0.08,
 ) -> float:
     """Composite ranking score: normalized ACT-R activation +
     multi-dimensional semantic similarity + noise.
