@@ -418,23 +418,24 @@ class TestStatisticalCalibration(unittest.TestCase):
 
         self.assertLessEqual(result.confidence, 0.5)
 
-    def test_warm_model_high_approval_preserves_confidence(self):
-        """Warm model with high approval rate preserves agent confidence."""
+    def test_deep_memory_passes_agent_confidence_through(self):
+        """With deep ACT-R memory, agent confidence passes through unchanged."""
         model = _make_warm_model_json()  # 10/10 approvals
         model_path = self._make_model_file(model)
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.85))
 
-        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,
             ))
 
-        # Stats confidence is high (10/10 approvals), so agent's 0.85 should survive
-        self.assertGreater(result.confidence, 0.8)
+        # Agent confidence passes through — EMA does not blend
+        self.assertAlmostEqual(result.confidence, 0.85, places=2)
 
-    def test_warm_model_low_approval_reduces_confidence(self):
-        """Warm model with low approval rate reduces agent confidence."""
+    def test_ema_does_not_reduce_agent_confidence(self):
+        """Low EMA does not drag down agent confidence (EMA is monitor only)."""
         model = _make_warm_model_json()
         entry = model['entries']['INTENT_ASSERT|default']
         entry['approve_count'] = 2
@@ -445,31 +446,31 @@ class TestStatisticalCalibration(unittest.TestCase):
         model_path = self._make_model_file(model)
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.9))
 
-        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,
             ))
 
-        # Stats show mostly corrections → confidence should be well below agent's 0.9
-        self.assertLess(result.confidence, 0.5)
+        # EMA is 0.2 but should not affect confidence — agent said 0.9
+        self.assertAlmostEqual(result.confidence, 0.9, places=2)
 
-    def test_calibration_is_bidirectional(self):
-        """Calibration blends agent and stats via geometric mean — can lift underconfidence."""
-        model = _make_warm_model_json()  # 10/10 approvals → high stats confidence
+    def test_ema_does_not_lift_agent_confidence(self):
+        """High EMA does not lift low agent confidence (EMA is monitor only)."""
+        model = _make_warm_model_json()  # 10/10 approvals → high EMA
         model_path = self._make_model_file(model)
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Looks okay I guess.', confidence=0.3))
 
-        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent):
+        with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,
             ))
 
-        # Agent said 0.3, stats are high → geometric mean lifts above 0.3
-        self.assertGreater(result.confidence, 0.3)
-        # But shouldn't be as high as the stats alone
-        self.assertLess(result.confidence, 0.9)
+        # Agent said 0.3 — that's the final answer, EMA doesn't lift it
+        self.assertAlmostEqual(result.confidence, 0.3, places=2)
 
 
 # ── parse_proxy_agent_output ────────────────────────────────────────────────
