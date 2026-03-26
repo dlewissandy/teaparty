@@ -148,17 +148,27 @@ Uses the same `consult_proxy()` path as ApprovalGate.
 
 ## Confidence and Cold-Start Gating
 
-The proxy agent's self-assessed confidence (from two-pass prediction) is the decision signal. The system calibrates this based on ACT-R memory depth:
+The proxy agent's self-assessed confidence (from two-pass prediction) is the decision signal. `_calibrate_confidence()` applies six gates in order:
 
-**Cold-start guard:** `_calibrate_confidence()` checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD` (3), confidence is capped at 0.5 regardless of the agent's self-assessment. A proxy with diverse memories across multiple states and task types has demonstrated understanding; one with shallow or missing memory has not.
+**Cold-start guard:** Checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD` (3), confidence is capped at 0.5 regardless of the agent's self-assessment. A proxy with diverse memories across multiple states and task types has demonstrated understanding; one with shallow or missing memory has not.
+
+**Genuine tension guard (#228):** If retrieved memories contain a genuine unresolved tension (`has_genuine_tension` from conflict classification), confidence is capped at 0.5 to force escalation. The proxy cannot resolve a genuine tension without human input.
+
+**Staleness guard (#237):** If `proxy_accuracy.last_updated` for the current (state, task_type) is older than `STALENESS_DAYS` (7), confidence is capped at 0.5. Preferences drift; the model must not converge to an outdated snapshot.
+
+**Exploration rate (#237):** With probability `EXPLORATION_RATE` (0.15), confidence is capped at 0.5 regardless of all other signals. This prevents convergence to "always auto-approve" and ensures the model continues to see human decisions for ongoing calibration.
+
+**Accuracy-based autonomy (#226):** If per-context posterior accuracy is available (>= `ACCURACY_MIN_INTERACTIONS` (10) interactions), the proxy's track record gates the decision. If posterior accuracy is below `ACCURACY_AUTONOMY_THRESHOLD` (0.85), confidence is capped. Above threshold, the agent's self-assessed confidence passes through.
+
+**Passthrough:** If none of the above gates fire, the agent's self-assessed confidence is returned unchanged.
 
 **EMA tracking:** EMA is tracked separately as a system health monitor via `_proxy_record()` in `actors.py`. It does not influence the confidence returned by `consult_proxy()` — it is observational only. EMA uses alpha=0.3 with asymmetric regret (REGRET_WEIGHT=3: corrections count 3x as much as approvals).
 
 **Threshold:** The caller (`ApprovalGate._ask_human_through_proxy`) compares the calibrated confidence against `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8). Above threshold → agent's text is the answer. Below threshold at never-escalate states → agent's text is still the answer. Below threshold otherwise → escalate to human.
 
-### Legacy Statistical Pre-Filters
+### CLI Monitoring Tool
 
-`should_escalate()` in `scripts/approval_gate.py` implements a 10-step statistical pre-filter pipeline (cold start, staleness, content checks, exploration rate, etc.). This function is not called by the orchestrator — the proxy agent always runs. `should_escalate()` is available as a CLI tool (`--decide`) and may be reintegrated as a monitoring or audit signal in the future, but it does not gate proxy invocation.
+`should_escalate()` in `scripts/approval_gate.py` is available as a CLI tool (`--decide`) for monitoring and audit. It is not called by the orchestrator.
 
 ---
 

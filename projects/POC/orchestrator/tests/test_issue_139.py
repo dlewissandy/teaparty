@@ -425,7 +425,8 @@ class TestStatisticalCalibration(unittest.TestCase):
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.85))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
-             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10), \
+             patch('random.random', return_value=0.99):
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,
