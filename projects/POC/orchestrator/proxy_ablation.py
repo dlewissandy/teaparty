@@ -37,6 +37,7 @@ from projects.POC.orchestrator.proxy_memory import (
     composite_score,
     cosine_similarity,
     normalize_activation,
+    single_composite_score,
     query_chunks,
     get_interaction_counter,
     _embed_to_json,
@@ -62,40 +63,6 @@ def blended_text(chunk: MemoryChunk) -> str:
         human_response=chunk.human_response,
         prediction_delta=chunk.prediction_delta,
     )
-
-
-# ── Single-embedding composite score ────────────────────────────────────────
-
-def single_composite_score(
-    chunk: MemoryChunk,
-    context_blended: list[float],
-    current_interaction: int,
-    b_min: float,
-    b_max: float,
-    activation_weight: float = ACTIVATION_WEIGHT,
-    semantic_weight: float = SEMANTIC_WEIGHT,
-    d: float = DECAY,
-    s: float = NOISE_SCALE,
-) -> float:
-    """Composite score using a single blended embedding instead of 5.
-
-    Same structure as composite_score() but replaces the multi-dimensional
-    cosine average with a single cosine similarity on blended embeddings.
-    """
-    from projects.POC.orchestrator.proxy_memory import logistic_noise
-
-    b = base_level_activation(chunk.traces, current_interaction, d)
-    b_norm = normalize_activation(b, b_min, b_max)
-
-    sem = 0.0
-    if chunk.embedding_blended and context_blended:
-        try:
-            sem = cosine_similarity(chunk.embedding_blended, context_blended)
-        except ValueError:
-            pass
-
-    noise = logistic_noise(s)
-    return activation_weight * b_norm + semantic_weight * sem + noise
 
 
 # ── Retrieval under each configuration ──────────────────────────────────────

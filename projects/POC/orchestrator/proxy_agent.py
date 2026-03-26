@@ -297,14 +297,16 @@ def _retrieve_actr_memories(
     task_type: str,
     question: str,
     artifact_path: str = '',
+    scoring: str = 'multi_dim',
 ) -> _ActrRetrievalResult:
     """Retrieve ACT-R memory chunks for the current gate context.
 
-    Performs two queries (#227):
-    - Experience retrieval: 4-dimension composite scoring (situation, artifact,
-      stimulus, response).
-    - Salience retrieval: independent query over chunks with non-null salience
-      embeddings, using a context vector constructed from artifact + situation.
+    scoring='multi_dim' (default): Two queries (#227):
+      - Experience retrieval: 4-dimension composite scoring
+      - Salience retrieval: independent attention path
+    scoring='single': Single blended embedding query (issue #222 ablation
+      Config B). Salience retrieval is skipped — the blended embedding
+      already incorporates salience information.
 
     Returns chunk IDs alongside the serialized text so the caller can
     reinforce after the proxy agent has consumed the memories.
@@ -318,6 +320,7 @@ def _retrieve_actr_memories(
             serialize_chunks_for_prompt,
             get_interaction_counter,
             get_accuracy,
+            blended_text_from_fields,
         )
         from projects.POC.scripts.memory_indexer import try_embed, detect_provider
 
@@ -331,43 +334,57 @@ def _retrieve_actr_memories(
             if current == 0:
                 return _EMPTY_RETRIEVAL
 
-            # Build context embeddings for experience retrieval
             provider, model = detect_provider()
-            context_embeddings: dict[str, list[float]] = {}
-            sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
-            if sit_vec:
-                context_embeddings['situation'] = sit_vec
-            stim_vec = try_embed(question, conn=conn, provider=provider, model=model)
-            if stim_vec:
-                context_embeddings['stimulus'] = stim_vec
-
-            # Query 1: Experience retrieval (4 dimensions, no salience)
-            chunks = retrieve_chunks(
-                conn, state=state, task_type=task_type,
-                context_embeddings=context_embeddings,
-                current_interaction=current,
-            )
-
-            # Query 2: Salience retrieval (independent attention path, #227)
-            # Context vector constructed from artifact + situation per issue spec
             salience_chunks: list = []
-            artifact_text = ''
-            if artifact_path and os.path.isfile(artifact_path):
-                try:
-                    with open(artifact_path) as f:
-                        artifact_text = f.read()[:2000]  # cap to avoid huge embeddings
-                except OSError:
-                    pass
-            salience_context = f'{state} {task_type}'
-            if artifact_text:
-                salience_context = f'{artifact_text}\n\n{salience_context}'
-            salience_query = try_embed(salience_context, conn=conn, provider=provider, model=model)
-            if salience_query:
-                salience_chunks = retrieve_salience(
-                    conn,
-                    context_embedding=salience_query,
+
+            if scoring == 'single':
+                # Config B: single blended context embedding (issue #222)
+                blended_str = blended_text_from_fields(
+                    state=state, task_type=task_type,
+                )
+                if question:
+                    blended_str = f'{blended_str} {question}' if blended_str else question
+                context_blended = try_embed(blended_str, conn=conn, provider=provider, model=model)
+                chunks = retrieve_chunks(
+                    conn, state=state, task_type=task_type,
+                    context_blended=context_blended,
+                    scoring='single',
                     current_interaction=current,
                 )
+            else:
+                # Config A: per-dimension experience retrieval (#227)
+                context_embeddings: dict[str, list[float]] = {}
+                sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
+                if sit_vec:
+                    context_embeddings['situation'] = sit_vec
+                stim_vec = try_embed(question, conn=conn, provider=provider, model=model)
+                if stim_vec:
+                    context_embeddings['stimulus'] = stim_vec
+
+                chunks = retrieve_chunks(
+                    conn, state=state, task_type=task_type,
+                    context_embeddings=context_embeddings,
+                    current_interaction=current,
+                )
+
+                # Salience retrieval (independent attention path, #227)
+                artifact_text = ''
+                if artifact_path and os.path.isfile(artifact_path):
+                    try:
+                        with open(artifact_path) as f:
+                            artifact_text = f.read()[:2000]
+                    except OSError:
+                        pass
+                salience_context = f'{state} {task_type}'
+                if artifact_text:
+                    salience_context = f'{artifact_text}\n\n{salience_context}'
+                salience_query = try_embed(salience_context, conn=conn, provider=provider, model=model)
+                if salience_query:
+                    salience_chunks = retrieve_salience(
+                        conn,
+                        context_embedding=salience_query,
+                        current_interaction=current,
+                    )
 
             accuracy = get_accuracy(conn, state=state, task_type=task_type)
             all_chunk_ids = [c.id for c in chunks] + [c.id for c in salience_chunks]
