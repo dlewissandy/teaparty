@@ -95,6 +95,17 @@ CREATE TABLE IF NOT EXISTS proxy_state (
 );
 INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
 
+CREATE TABLE IF NOT EXISTS proxy_accuracy (
+    state TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    prior_correct INTEGER DEFAULT 0,
+    prior_total INTEGER DEFAULT 0,
+    posterior_correct INTEGER DEFAULT 0,
+    posterior_total INTEGER DEFAULT 0,
+    last_updated TEXT,
+    PRIMARY KEY (state, task_type)
+);
+
 CREATE TABLE IF NOT EXISTS embedding_cache (
     hash TEXT NOT NULL,
     provider TEXT NOT NULL,
@@ -498,11 +509,83 @@ def record_interaction(
             embedding_salience=emb_salience,
         )
         _store_chunk_no_commit(conn, chunk)
+        _update_accuracy_no_commit(
+            conn, state, task_type, outcome,
+            prior_prediction, posterior_prediction,
+        )
         conn.commit()
         return chunk
     except Exception:
         conn.rollback()
         raise
+
+
+def _update_accuracy_no_commit(
+    conn: sqlite3.Connection,
+    state: str,
+    task_type: str,
+    outcome: str,
+    prior_prediction: str,
+    posterior_prediction: str,
+) -> None:
+    """Update per-context accuracy counts inside an existing transaction.
+
+    Only counts predictions that are non-empty — empty predictions
+    (cold start, agent failure) are excluded from totals.
+    """
+    has_prior = bool(prior_prediction)
+    has_posterior = bool(posterior_prediction)
+    if not has_prior and not has_posterior:
+        return
+
+    prior_correct_inc = int(has_prior and prior_prediction == outcome)
+    prior_total_inc = int(has_prior)
+    posterior_correct_inc = int(has_posterior and posterior_prediction == outcome)
+    posterior_total_inc = int(has_posterior)
+
+    conn.execute(
+        """INSERT INTO proxy_accuracy (state, task_type,
+               prior_correct, prior_total, posterior_correct, posterior_total,
+               last_updated)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(state, task_type) DO UPDATE SET
+               prior_correct = prior_correct + excluded.prior_correct,
+               prior_total = prior_total + excluded.prior_total,
+               posterior_correct = posterior_correct + excluded.posterior_correct,
+               posterior_total = posterior_total + excluded.posterior_total,
+               last_updated = excluded.last_updated""",
+        (state, task_type,
+         prior_correct_inc, prior_total_inc,
+         posterior_correct_inc, posterior_total_inc),
+    )
+
+
+def get_accuracy(
+    conn: sqlite3.Connection,
+    *,
+    state: str,
+    task_type: str,
+) -> dict[str, Any] | None:
+    """Query prediction accuracy for a specific (state, task_type) context.
+
+    Returns a dict with prior_correct, prior_total, posterior_correct,
+    posterior_total, last_updated — or None if no data exists.
+    """
+    row = conn.execute(
+        """SELECT prior_correct, prior_total, posterior_correct, posterior_total,
+                  last_updated
+           FROM proxy_accuracy WHERE state = ? AND task_type = ?""",
+        (state, task_type),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        'prior_correct': row[0],
+        'prior_total': row[1],
+        'posterior_correct': row[2],
+        'posterior_total': row[3],
+        'last_updated': row[4],
+    }
 
 
 def _default_embed(conn: sqlite3.Connection):

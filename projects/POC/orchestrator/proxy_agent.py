@@ -136,6 +136,9 @@ async def consult_proxy(
     except Exception:
         _log.debug('Failed to load learning context', exc_info=True)
 
+    # Build accuracy context string for the proxy prompt
+    accuracy_context = _format_accuracy_context(actr_retrieval.accuracy, state, project_slug)
+
     # Always invoke the proxy agent (two-pass prediction).
     try:
         two_pass = await run_proxy_agent(
@@ -147,6 +150,7 @@ async def consult_proxy(
             learned_patterns=learned_patterns,
             similar_interactions=similar,
             actr_memories=actr_retrieval.serialized,
+            accuracy_context=accuracy_context,
             dialog_history=dialog_history,
         )
     except Exception:
@@ -238,6 +242,7 @@ class _ActrRetrievalResult:
     chunk_ids: list[str]             # IDs of retrieved chunks (for post-consumption reinforcement)
     db_path: str                     # path to the memory DB
     interaction_counter: int         # counter at retrieval time
+    accuracy: dict | None = None     # per-context accuracy record (if available)
 
 
 _EMPTY_RETRIEVAL = _ActrRetrievalResult(serialized='', chunk_ids=[], db_path='', interaction_counter=0)
@@ -263,6 +268,7 @@ def _retrieve_actr_memories(
             retrieve_chunks,
             serialize_chunks_for_prompt,
             get_interaction_counter,
+            get_accuracy,
         )
         from projects.POC.scripts.memory_indexer import try_embed, detect_provider
 
@@ -291,17 +297,41 @@ def _retrieve_actr_memories(
                 context_embeddings=context_embeddings,
                 current_interaction=current,
             )
+            accuracy = get_accuracy(conn, state=state, task_type=task_type)
             return _ActrRetrievalResult(
                 serialized=serialize_chunks_for_prompt(chunks),
                 chunk_ids=[c.id for c in chunks],
                 db_path=db_path,
                 interaction_counter=current,
+                accuracy=accuracy,
             )
         finally:
             conn.close()
     except Exception:
         _log.debug('ACT-R memory retrieval failed', exc_info=True)
         return _EMPTY_RETRIEVAL
+
+
+def _format_accuracy_context(
+    accuracy: dict | None, state: str, task_type: str,
+) -> str:
+    """Format prediction accuracy data for the proxy prompt."""
+    if not accuracy:
+        return ''
+    parts = [f'--- PREDICTION ACCURACY for {state} × {task_type} ---']
+    pt = accuracy.get('prior_total', 0)
+    if pt > 0:
+        pc = accuracy.get('prior_correct', 0)
+        pct = pc / pt * 100
+        parts.append(f'Prior accuracy: {pc}/{pt} ({pct:.0f}%)')
+    post_t = accuracy.get('posterior_total', 0)
+    if post_t > 0:
+        post_c = accuracy.get('posterior_correct', 0)
+        post_pct = post_c / post_t * 100
+        parts.append(f'Posterior accuracy: {post_c}/{post_t} ({post_pct:.0f}%)')
+    if not pt and not post_t:
+        return ''
+    return '\n'.join(parts)
 
 
 def _reinforce_actr_memories(retrieval: _ActrRetrievalResult) -> None:
@@ -358,6 +388,7 @@ async def run_proxy_agent(
     learned_patterns: str = '',
     similar_interactions: list | None = None,
     actr_memories: str = '',
+    accuracy_context: str = '',
     dialog_history: str = '',
 ) -> _TwoPassResult:
     """Invoke the proxy agent with two-pass prediction.
@@ -371,6 +402,10 @@ async def run_proxy_agent(
     memory_block = ''
     if actr_memories:
         memory_block = f'\n{actr_memories}\n'
+
+    accuracy_block = ''
+    if accuracy_context:
+        accuracy_block = f'\n{accuracy_context}\n'
 
     learning_block = ''
     if learned_patterns:
@@ -414,6 +449,7 @@ async def run_proxy_agent(
         f"You are a human proxy agent. You predict what the human would say "
         f"at a CfA approval gate. You have NOT seen the artifact yet.\n\n"
         f"{memory_block}"
+        f"{accuracy_block}"
         f"{learning_block}"
         f"{dialog_block}\n"
         f"State: {state}\n"
@@ -444,6 +480,7 @@ async def run_proxy_agent(
         f"You are a human proxy agent. You predict what the human would say "
         f"at a CfA approval gate. You have now seen the artifact.\n\n"
         f"{memory_block}"
+        f"{accuracy_block}"
         f"{learning_block}"
         f"{dialog_block}\n"
         f"State: {state}\n"

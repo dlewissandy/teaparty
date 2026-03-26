@@ -308,6 +308,11 @@ class TestAccuracyInConsultProxy(unittest.TestCase):
 
             mock_retrieve.return_value = MagicMock(
                 serialized='', chunk_ids=[], db_path=db_path, interaction_counter=10,
+                accuracy={
+                    'prior_correct': 9, 'prior_total': 10,
+                    'posterior_correct': 10, 'posterior_total': 10,
+                    'last_updated': '2026-03-26',
+                },
             )
 
             result = asyncio.run(consult_proxy(
