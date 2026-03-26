@@ -561,10 +561,10 @@ class DrilldownScreen(Screen):
             except BaseException as exc:
                 _rlog.exception('Resume failed for %s', infra_dir)
                 # Write crash diagnostics so the failure is never silent.
-                # Don't remove .running — leave it for orphan detection so the
-                # user gets the recovery UI.  The PID in .running is ours (the
-                # TUI), and has_in_process() will return False since this task
-                # is done, correctly flagging it as orphaned.
+                # Don't finalize .heartbeat — leave it for orphan detection so
+                # the user gets the recovery UI.  The PID in .heartbeat is ours
+                # (the TUI), and has_in_process() will return False since this
+                # task is done, correctly flagging it as orphaned.
                 _handle_session_crash(infra_dir)
                 try:
                     log = self.query_one('#activity-log', RichLog)

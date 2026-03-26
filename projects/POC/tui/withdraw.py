@@ -63,21 +63,38 @@ async def withdraw_session(
 
 def _kill_session_processes(session: SessionState) -> None:
     """Kill the session's main process and all dispatch processes."""
-    # Kill session PID
-    pid = _read_pid(os.path.join(session.infra_dir, '.running'))
+    # Kill session PID (issue #149: read from .heartbeat, fallback .running)
+    pid = _read_pid_from_infra(session.infra_dir)
     if pid is not None:
         _kill_pid(pid)
 
     # Kill dispatch PIDs
     for dispatch in session.dispatches:
         if dispatch.infra_dir:
-            dpid = _read_pid(os.path.join(dispatch.infra_dir, '.running'))
+            dpid = _read_pid_from_infra(dispatch.infra_dir)
             if dpid is not None:
                 _kill_pid(dpid)
 
 
-def _read_pid(running_path: str) -> int | None:
-    """Read a PID from a .running sentinel file."""
+def _read_pid_from_infra(infra_dir: str) -> int | None:
+    """Read a PID from .heartbeat or .running sentinel in an infra dir.
+
+    Issue #149: prefers .heartbeat (structured JSON), falls back to .running
+    (flat PID file) for backward compatibility.
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import read_heartbeat
+            data = read_heartbeat(hb_path)
+            pid = data.get('pid')
+            if pid:
+                return int(pid)
+        except Exception:
+            pass
+
+    # Fallback to .running
+    running_path = os.path.join(infra_dir, '.running')
     try:
         with open(running_path) as f:
             return int(f.read().strip())
@@ -88,7 +105,7 @@ def _read_pid(running_path: str) -> int | None:
 def _kill_pid(pid: int) -> None:
     """Kill a process and its children via process group, then direct signal.
 
-    Guards against self-kill: when a session runs in-process, .running
+    Guards against self-kill: when a session runs in-process, .heartbeat
     contains the TUI's own PID.  Killing our own process group would
     crash the TUI (issue #159).
     """
@@ -140,7 +157,17 @@ def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
 
 
 def _cleanup_sentinels(infra_dir: str) -> None:
-    """Remove sentinel files without touching the worktree."""
+    """Finalize heartbeat and remove sentinel files (issue #149)."""
+    # Finalize heartbeat as withdrawn
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import finalize_heartbeat
+            finalize_heartbeat(hb_path, 'withdrawn')
+        except Exception:
+            pass
+
+    # Remove legacy .running and IPC files
     for name in ('.running', '.input-response.fifo', '.input-request.json'):
         try:
             os.unlink(os.path.join(infra_dir, name))

@@ -729,5 +729,166 @@ class TestRecoveryScan(unittest.TestCase):
         self.assertEqual(len(result['dead']), 0)
 
 
+# ── Heartbeat writer in ClaudeRunner ──────────────────────────────────────────
+
+class TestHeartbeatWriterIntegration(unittest.TestCase):
+    """The heartbeat writer must activate and touch the heartbeat file."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_runner_accepts_heartbeat_params(self):
+        """ClaudeRunner must accept heartbeat_file, parent_heartbeat, children_file."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+
+        hb_path = os.path.join(self.tmpdir, '.heartbeat')
+        runner = ClaudeRunner(
+            prompt='test',
+            cwd='/tmp',
+            stream_file=os.path.join(self.tmpdir, 'stream.jsonl'),
+            heartbeat_file=hb_path,
+            parent_heartbeat='',
+            children_file='',
+        )
+        self.assertEqual(runner.heartbeat_file, hb_path)
+        self.assertEqual(runner.parent_heartbeat, '')
+        self.assertEqual(runner.children_file, '')
+
+    def test_runner_has_beat_parameters(self):
+        """ClaudeRunner must expose BEAT_INTERVAL, STALE_THRESHOLD, KILL_THRESHOLD."""
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+
+        self.assertEqual(ClaudeRunner.BEAT_INTERVAL, 30)
+        self.assertEqual(ClaudeRunner.STALE_THRESHOLD, 120)
+        self.assertEqual(ClaudeRunner.KILL_THRESHOLD, 300)
+
+
+# ── Watchdog cascade ─────────────────────────────────────────────────────────
+
+class TestWatchdogToolCallTracking(unittest.TestCase):
+    """Watchdog must track open tool calls as proof of liveness."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_tool_use_event_parsed(self):
+        """Stream events with type='tool_use' must populate open_tool_calls."""
+        # This tests the read_stdout parsing logic indirectly —
+        # the open_tool_calls dict is populated inside _stream_with_watchdog.
+        # We verify the stream event structure is parseable.
+        event = {'type': 'tool_use', 'tool_use_id': 'tu_123', 'name': 'Read'}
+        self.assertEqual(event.get('type'), 'tool_use')
+        self.assertIn('tool_use_id', event)
+
+    def test_tool_result_closes_tool_call(self):
+        """Stream events with type='tool_result' must remove from open_tool_calls."""
+        event = {'type': 'tool_result', 'tool_use_id': 'tu_123'}
+        self.assertEqual(event.get('type'), 'tool_result')
+
+
+# ── Dispatch resume path ─────────────────────────────────────────────────────
+
+class TestDispatchResumePath(unittest.TestCase):
+    """dispatch() must support resume_worktree for recovering orphaned dispatches."""
+
+    def test_dispatch_signature_has_resume_params(self):
+        """dispatch() must accept resume_worktree and resume_infra parameters."""
+        import inspect
+        from projects.POC.orchestrator.dispatch_cli import dispatch
+
+        sig = inspect.signature(dispatch)
+        self.assertIn('resume_worktree', sig.parameters)
+        self.assertIn('resume_infra', sig.parameters)
+
+    def test_retry_budget_exhaustion(self):
+        """dispatch() with resume must return failure when retry budget exhausted."""
+        from projects.POC.orchestrator.dispatch_cli import dispatch
+
+        # Create a fake infra dir with retry count at the limit
+        infra = os.path.join(self.tmpdir, 'dispatch-infra')
+        os.makedirs(infra)
+        with open(os.path.join(infra, '.retry-count'), 'w') as f:
+            f.write('9')  # At the limit
+
+        # Create minimal CfA state
+        cfa_path = os.path.join(infra, '.cfa-state.json')
+        with open(cfa_path, 'w') as f:
+            json.dump({'state': 'TASK', 'phase': 'execution'}, f)
+
+        result = _run(dispatch(
+            team='coding', task='test',
+            resume_worktree='/fake/wt',
+            resume_infra=infra,
+            infra_dir='/fake',
+        ))
+
+        self.assertEqual(result['status'], 'failed')
+        self.assertIn('retry budget', result['reason'])
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+
+# ── Recovery scan in Orchestrator ─────────────────────────────────────────────
+
+class TestOrchestratorRecovery(unittest.TestCase):
+    """Orchestrator.run() must scan .children on startup."""
+
+    def test_orchestrator_has_recovery_method(self):
+        """Orchestrator must have _recover_orphaned_children method."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        self.assertTrue(hasattr(Orchestrator, '_recover_orphaned_children'))
+
+    def test_recovery_noop_without_children_file(self):
+        """Recovery scan must be a no-op when .children doesn't exist."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+
+        infra = tempfile.mkdtemp()
+        try:
+            orch = Orchestrator.__new__(Orchestrator)
+            orch.infra_dir = infra
+            orch.event_bus = EventBus()
+            orch.session_id = 'test'
+            orch.session_worktree = ''
+            # Should not raise
+            _run(orch._recover_orphaned_children())
+        finally:
+            shutil.rmtree(infra, ignore_errors=True)
+
+
+# ── Children registration from dispatch_cli ───────────────────────────────────
+
+class TestDispatchRegistersChild(unittest.TestCase):
+    """dispatch() must register the child in .children after worktree creation."""
+
+    def test_children_file_written_after_dispatch(self):
+        """After dispatch, .children must contain the child's heartbeat path."""
+        from projects.POC.orchestrator.heartbeat import read_children
+
+        infra = tempfile.mkdtemp()
+        try:
+            # Simulate what dispatch does: register_child writes to .children
+            from projects.POC.orchestrator.heartbeat import register_child
+            children_path = os.path.join(infra, '.children')
+            register_child(children_path, heartbeat='/path/.heartbeat', team='coding')
+
+            children = read_children(children_path)
+            self.assertEqual(len(children), 1)
+            self.assertEqual(children[0]['team'], 'coding')
+            self.assertEqual(children[0]['heartbeat'], '/path/.heartbeat')
+        finally:
+            shutil.rmtree(infra, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()

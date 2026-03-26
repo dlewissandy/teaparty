@@ -1,6 +1,7 @@
-"""Reads project dirs, session state files, and .running sentinels.
+"""Reads project dirs, session state files, and .heartbeat/.running sentinels.
 
 Produces a unified snapshot of all projects/sessions/dispatches for the TUI.
+Issue #149: migrated from .running to .heartbeat with backward compat fallback.
 """
 import json
 import os
@@ -77,6 +78,48 @@ def _running_pid_is_dead(path: str) -> bool:
         return False  # process exists, we just can't signal it
     except (ValueError, OSError):
         return True   # can't read or parse PID file
+
+
+def _is_heartbeat_alive(infra_dir: str) -> bool:
+    """Return True if the .heartbeat in infra_dir indicates a live process.
+
+    Issue #149: Checks .heartbeat first, falls back to .running.
+    A terminal heartbeat (completed/withdrawn) returns False (not alive, but
+    not orphaned either — it finished cleanly).
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import read_heartbeat, is_heartbeat_stale
+            data = read_heartbeat(hb_path)
+            status = data.get('status', '')
+            if status in ('completed', 'withdrawn'):
+                return False  # Terminal — not alive, not orphaned
+            return not is_heartbeat_stale(hb_path)
+        except Exception:
+            return False
+
+    # Fallback to .running
+    running_path = os.path.join(infra_dir, '.running')
+    if os.path.exists(running_path):
+        return not _running_file_is_stale(running_path) and not _running_pid_is_dead(running_path)
+    return False
+
+
+def _is_heartbeat_terminal(infra_dir: str) -> bool:
+    """Return True if the .heartbeat shows a terminal status (completed/withdrawn).
+
+    Issue #149: A terminal heartbeat means the dispatch finished cleanly.
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import read_heartbeat
+            data = read_heartbeat(hb_path)
+            return data.get('status', '') in ('completed', 'withdrawn')
+        except Exception:
+            pass
+    return False
 
 
 # States where the human needs to act
@@ -288,19 +331,9 @@ class StateReader:
                     if not os.path.isdir(dispatch_dir) or not dispatch_ts[0].isdigit():
                         continue
 
-                    # GC stale .running sentinels — the owning process
-                    # is dead so remove the file to keep disk clean.
-                    running_path = os.path.join(dispatch_dir, '.running')
-                    dispatch_alive = False
-                    if os.path.exists(running_path):
-                        if (_running_file_is_stale(running_path)
-                                or _running_pid_is_dead(running_path)):
-                            try:
-                                os.unlink(running_path)
-                            except OSError:
-                                pass
-                        else:
-                            dispatch_alive = True
+                    # Check dispatch liveness via heartbeat (issue #149),
+                    # falling back to .running for backward compatibility.
+                    dispatch_alive = _is_heartbeat_alive(dispatch_dir)
 
                     entry = dispatch_by_sid.get(dispatch_ts)
                     if entry:
@@ -349,36 +382,42 @@ class StateReader:
             needs_input = True
 
         # Orphan detection: no live process is driving this non-terminal session.
-        running_path = os.path.join(infra_dir, '.running')
+        # Issue #149: check .heartbeat first, fall back to .running.
         is_orphaned = False
         if cfa_state not in ('COMPLETED_WORK', 'WITHDRAWN', ''):
-            if os.path.exists(running_path):
-                # .running exists: check timestamp vs boot, then PID liveness
-                is_orphaned = _running_file_is_stale(running_path)
-                if not is_orphaned:
-                    is_orphaned = _running_pid_is_dead(running_path)
-                if not is_orphaned:
-                    # PID is alive.  If it matches *our own PID* (in-process
-                    # session running inside this TUI), verify the async task
-                    # is still alive via the in_process_checker.
-                    if self._in_process_checker is not None:
+            if _is_heartbeat_terminal(infra_dir):
+                # Terminal heartbeat — not orphaned, just finished
+                is_orphaned = False
+            elif _is_heartbeat_alive(infra_dir):
+                # Live heartbeat or .running — check in-process and FIFO
+                is_orphaned = False
+                if self._in_process_checker is not None:
+                    # Read PID from heartbeat or .running
+                    running_pid = -1
+                    hb_path = os.path.join(infra_dir, '.heartbeat')
+                    running_path = os.path.join(infra_dir, '.running')
+                    if os.path.exists(hb_path):
+                        try:
+                            from projects.POC.orchestrator.heartbeat import read_heartbeat
+                            running_pid = read_heartbeat(hb_path).get('pid', -1)
+                        except Exception:
+                            pass
+                    elif os.path.exists(running_path):
                         try:
                             with open(running_path) as _f:
                                 running_pid = int(_f.read().strip())
                         except (ValueError, OSError):
-                            running_pid = -1
-                        if running_pid == os.getpid():
-                            # Same process — check if coroutine is actually running
-                            if not self._in_process_checker(session_id):
-                                is_orphaned = True
+                            pass
+                    if running_pid == os.getpid():
+                        if not self._in_process_checker(session_id):
+                            is_orphaned = True
                 if not is_orphaned:
                     fifo_path = os.path.join(infra_dir, '.input-response.fifo')
                     if cfa_state in HUMAN_ACTOR_STATES and os.path.exists(fifo_path):
                         from projects.POC.tui.ipc import check_fifo_has_reader
                         is_orphaned = not check_fifo_has_reader(infra_dir)
             else:
-                # No .running but CfA is non-terminal: stalled session
-                # (process died without cleanup, or sentinel was removed)
+                # No live heartbeat or .running — orphaned
                 is_orphaned = True
 
         # Stream age
@@ -447,12 +486,8 @@ class StateReader:
         stream_age = -1
 
         if infra_dir:
-            running_path = os.path.join(infra_dir, '.running')
-            is_running = (
-                os.path.exists(running_path)
-                and not _running_file_is_stale(running_path)
-                and not _running_pid_is_dead(running_path)
-            )
+            # Issue #149: use heartbeat for liveness, fallback to .running
+            is_running = _is_heartbeat_alive(infra_dir)
             cfa = self._read_cfa(os.path.join(infra_dir, '.cfa-state.json'))
             cfa_state = cfa.get('state', '')
             cfa_phase = cfa.get('phase', '')

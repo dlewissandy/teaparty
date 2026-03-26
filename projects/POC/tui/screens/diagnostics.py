@@ -150,9 +150,14 @@ def _check_single_worktree(name: str, path: str, status: str,
     if status == 'active' and stream_age > 3600:
         issues.append(f'stream stale ({_human_age(stream_age)})')
     if status == 'failed':
-        # Check for .running sentinel that shouldn't be there
-        if path and os.path.exists(os.path.join(path, '.running')):
-            issues.append('.running stale')
+        # Check for stale sentinel that shouldn't be there (issue #149)
+        if path:
+            has_stale = (
+                os.path.exists(os.path.join(path, '.heartbeat'))
+                or os.path.exists(os.path.join(path, '.running'))
+            )
+            if has_stale:
+                issues.append('sentinel stale')
 
     return {
         'name': name[:40],
@@ -244,14 +249,16 @@ class DiagnosticsScreen(Screen):
         self.app.pop_screen()
 
     def action_clean_stale(self) -> None:
-        """Remove stale .running sentinel files."""
+        """Remove stale sentinel files (.heartbeat and .running)."""
         health = _check_worktree_health(self.app.state_reader)
         cleaned = 0
         for h in health:
-            if '.running stale' in ' '.join(h.get('issues', [])):
-                running_path = os.path.join(h['path'], '.running')
-                try:
-                    os.unlink(running_path)
+            if 'sentinel stale' in ' '.join(h.get('issues', [])):
+                path = h['path']
+                for name in ('.heartbeat', '.running'):
+                    sentinel = os.path.join(path, name)
+                    try:
+                        os.unlink(sentinel)
                     cleaned += 1
                 except OSError:
                     pass
