@@ -1061,6 +1061,179 @@ def resolve_memory_db_path(proxy_model_path: str, team: str = '') -> str:
     return os.path.join(project_dir, '.proxy-memory.db')
 
 
+# ── Contradiction detection (issue #228) ────────────────────────────────────
+
+
+@dataclass
+class ConflictClassification:
+    """Result of classifying a conflicting memory pair."""
+    chunk_a_id: str
+    chunk_b_id: str
+    cause: str      # preference_drift, context_sensitivity, genuine_tension, retrieval_noise
+    action: str     # human-readable recommended action
+    newer_id: str = ''  # which chunk is newer (for preference_drift)
+
+
+# Recency gap threshold: if the newest trace of one chunk is this many
+# interactions older than the other, classify as preference_drift.
+_RECENCY_GAP_THRESHOLD = 8
+
+# Confidence threshold for genuine_tension: both chunks must have
+# posterior_confidence above this to qualify.
+_TENSION_CONFIDENCE_THRESHOLD = 0.75
+
+# Maximum age (in interactions) for a chunk to be considered "recent".
+_RECENT_WINDOW = 10
+
+
+def find_conflicting_pairs(
+    chunks: list[MemoryChunk],
+) -> list[tuple[MemoryChunk, MemoryChunk]]:
+    """Identify candidate conflicting pairs from retrieved chunks.
+
+    A pair is a candidate conflict when both chunks share the same
+    (state, task_type) but have different outcomes.  This is a cheap
+    heuristic pre-filter — no LLM call required.
+
+    The chunk list is NOT modified (read-only).
+    """
+    pairs: list[tuple[MemoryChunk, MemoryChunk]] = []
+    for i in range(len(chunks)):
+        for j in range(i + 1, len(chunks)):
+            a, b = chunks[i], chunks[j]
+            if a.state == b.state and a.task_type == b.task_type and a.outcome != b.outcome:
+                pairs.append((a, b))
+    return pairs
+
+
+def classify_conflict(
+    chunk_a: MemoryChunk,
+    chunk_b: MemoryChunk,
+    current_interaction: int = 0,
+) -> ConflictClassification:
+    """Classify a conflicting pair by cause.
+
+    Uses heuristic signals from chunk metadata — no LLM call.
+
+    Classification rules (applied in order):
+    1. Retrieval noise: if chunks have no traces (shouldn't happen), noise.
+    2. Preference drift: large recency gap + same context domain.
+    3. Genuine tension: both recent + both high confidence.
+    4. Default: context_sensitivity (preserve both — safest default).
+    """
+    a_newest = max(chunk_a.traces) if chunk_a.traces else 0
+    b_newest = max(chunk_b.traces) if chunk_b.traces else 0
+    recency_gap = abs(a_newest - b_newest)
+
+    # Determine which is newer
+    if a_newest >= b_newest:
+        newer, older = chunk_a, chunk_b
+        newer_newest, older_newest = a_newest, b_newest
+    else:
+        newer, older = chunk_b, chunk_a
+        newer_newest, older_newest = b_newest, a_newest
+
+    # Rule 1: retrieval noise — no traces at all
+    if not chunk_a.traces or not chunk_b.traces:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='retrieval_noise',
+            action='Discard the weaker match; insufficient trace data.',
+        )
+
+    # Rule 2: preference drift — large recency gap
+    if recency_gap >= _RECENCY_GAP_THRESHOLD:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='preference_drift',
+            action=f'Prefer newer memory ({newer.id}); schedule older for demotion.',
+            newer_id=newer.id,
+        )
+
+    # Rule 3: genuine tension — both recent, both high confidence
+    a_recent = (current_interaction - a_newest) <= _RECENT_WINDOW
+    b_recent = (current_interaction - b_newest) <= _RECENT_WINDOW
+    a_confident = chunk_a.posterior_confidence >= _TENSION_CONFIDENCE_THRESHOLD
+    b_confident = chunk_b.posterior_confidence >= _TENSION_CONFIDENCE_THRESHOLD
+    if a_recent and b_recent and a_confident and b_confident:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='genuine_tension',
+            action='Escalate to human — unresolved tension in preferences.',
+        )
+
+    # Default: context_sensitivity — preserve both with scope annotations
+    return ConflictClassification(
+        chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+        cause='context_sensitivity',
+        action='Preserve both memories with scope annotations; use both in reasoning.',
+    )
+
+
+def format_conflict_context(
+    classifications: list[ConflictClassification],
+) -> str:
+    """Render conflict classifications as prompt text for the proxy agent.
+
+    Returns empty string when no conflicts exist (zero overhead fast path).
+    """
+    if not classifications:
+        return ''
+
+    lines = ['## Memory Conflicts Detected', '']
+    for i, cls in enumerate(classifications, 1):
+        lines.append(f'**Conflict {i}:** {cls.cause.replace("_", " ")}')
+        lines.append(f'  Chunks: {cls.chunk_a_id[:8]} vs {cls.chunk_b_id[:8]}')
+        lines.append(f'  Recommended action: {cls.action}')
+        lines.append('')
+
+    return '\n'.join(lines)
+
+
+def has_genuine_tension(
+    classifications: list[ConflictClassification],
+) -> bool:
+    """Return True if any classification is genuine_tension.
+
+    Used by _calibrate_confidence() to cap confidence and force escalation.
+    """
+    return any(c.cause == 'genuine_tension' for c in classifications)
+
+
+def consolidate_proxy_entries(
+    chunks: list[MemoryChunk],
+    current_interaction: int = 0,
+) -> list[MemoryChunk]:
+    """Apply ADD/UPDATE/DELETE/SKIP taxonomy to proxy entries.
+
+    Post-session consolidation pass — separate from compact_entries().
+
+    For each conflicting pair:
+    - preference_drift → DELETE older (keep newer only)
+    - context_sensitivity → keep both (ADD semantics)
+    - genuine_tension → keep both (will be escalated at retrieval time)
+    - retrieval_noise → keep both (let activation decay handle it)
+
+    Non-conflicting entries are returned unchanged.
+    """
+    pairs = find_conflicting_pairs(chunks)
+    if not pairs:
+        return list(chunks)
+
+    # Collect IDs to delete
+    delete_ids: set[str] = set()
+    for a, b in pairs:
+        cls = classify_conflict(a, b, current_interaction=current_interaction)
+        if cls.cause == 'preference_drift':
+            # Delete the older chunk
+            a_newest = max(a.traces) if a.traces else 0
+            b_newest = max(b.traces) if b.traces else 0
+            older_id = a.id if a_newest < b_newest else b.id
+            delete_ids.add(older_id)
+
+    return [c for c in chunks if c.id not in delete_ids]
+
+
 def memory_depth(conn: sqlite3.Connection) -> int:
     """Count distinct (state, task_type) pairs in the memory store.
 

@@ -191,6 +191,13 @@ async def extract_learnings(
         project_dir=project_dir,
     )
 
+    # ── Proxy contradiction consolidation (#228) ──────────────────────────────
+
+    await _run_scope(
+        'proxy-consolidation', _consolidate_proxy_memory,
+        project_dir=project_dir,
+    )
+
     # ── Proxy pattern compaction (#11) ────────────────────────────────────────
 
     await _run_scope(
@@ -665,6 +672,78 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
     # Update skill stats with all outcomes
     if outcomes:
         update_skill_stats(skill_path=skill_path, outcomes=outcomes)
+
+
+# ── Proxy contradiction consolidation (#228) ─────────────────────────────────
+
+def _consolidate_proxy_memory(*, project_dir: str) -> None:
+    """Run contradiction consolidation on the proxy's ACT-R memory store.
+
+    Loads all chunks from the proxy memory DB, runs consolidate_proxy_entries()
+    to identify and resolve preference_drift conflicts (DELETE the older),
+    and deletes superseded chunks from the DB.
+
+    This is separate from compact_entries() — it operates on MemoryChunks
+    in the ACT-R store, not MemoryEntries in markdown files.
+    """
+    from projects.POC.orchestrator.proxy_memory import (
+        open_proxy_db,
+        consolidate_proxy_entries,
+        get_interaction_counter,
+    )
+    import glob as glob_mod
+    import sqlite3
+
+    # Find all proxy memory DBs in the project dir
+    db_pattern = os.path.join(project_dir, '.proxy-memory*.db')
+    db_paths = glob_mod.glob(db_pattern)
+    if not db_paths:
+        return
+
+    for db_path in db_paths:
+        try:
+            conn = open_proxy_db(db_path)
+        except Exception:
+            continue
+        try:
+            current = get_interaction_counter(conn)
+            # Load all chunks
+            rows = conn.execute(
+                'SELECT id, type, state, task_type, outcome, traces, '
+                'posterior_confidence FROM proxy_chunks'
+            ).fetchall()
+            if len(rows) < 2:
+                continue
+
+            from projects.POC.orchestrator.proxy_memory import MemoryChunk
+            import json as _json
+
+            chunks = []
+            for row in rows:
+                chunks.append(MemoryChunk(
+                    id=row[0], type=row[1], state=row[2],
+                    task_type=row[3], outcome=row[4],
+                    traces=_json.loads(row[5]) if row[5] else [],
+                    posterior_confidence=row[6] or 0.0,
+                    content='',
+                ))
+
+            consolidated = consolidate_proxy_entries(chunks, current_interaction=current)
+            consolidated_ids = {c.id for c in consolidated}
+            deleted_ids = {c.id for c in chunks} - consolidated_ids
+
+            if deleted_ids:
+                for chunk_id in deleted_ids:
+                    conn.execute('DELETE FROM proxy_chunks WHERE id = ?', (chunk_id,))
+                conn.commit()
+                _log.info(
+                    'Proxy consolidation: deleted %d superseded chunks from %s',
+                    len(deleted_ids), db_path,
+                )
+        except Exception:
+            _log.debug('Proxy consolidation failed for %s', db_path, exc_info=True)
+        finally:
+            conn.close()
 
 
 # ── Proxy correction entry compaction (#198) ─────────────────────────────────

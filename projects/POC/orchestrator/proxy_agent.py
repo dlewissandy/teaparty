@@ -154,6 +154,11 @@ async def consult_proxy(
         _log.debug('Task learning retrieval failed', exc_info=True)
 
     # Always invoke the proxy agent (two-pass prediction).
+    # Issue #228: append conflict context to ACT-R memories so the proxy
+    # can reason about detected contradictions in its retrieved evidence.
+    actr_text = actr_retrieval.serialized
+    if actr_retrieval.conflict_context:
+        actr_text = f'{actr_text}\n\n{actr_retrieval.conflict_context}' if actr_text else actr_retrieval.conflict_context
     try:
         two_pass = await run_proxy_agent(
             question=question,
@@ -163,7 +168,7 @@ async def consult_proxy(
             infra_dir=infra_dir,
             learned_patterns=learned_patterns,
             similar_interactions=similar,
-            actr_memories=actr_retrieval.serialized,
+            actr_memories=actr_text,
             accuracy_context=accuracy_context,
             dialog_history=dialog_history,
             task_learnings=task_learnings,
@@ -180,10 +185,12 @@ async def consult_proxy(
     # signal — correctness feedback flows through the chunk's outcome field.
     _reinforce_actr_memories(actr_retrieval)
 
-    # Calibrate confidence using memory depth and prediction accuracy.
+    # Calibrate confidence using memory depth, prediction accuracy,
+    # and contradiction signal (#228).
     confidence = _calibrate_confidence(
         two_pass.confidence, state, project_slug, proxy_model_path, team,
         accuracy=actr_retrieval.accuracy,
+        genuine_tension=actr_retrieval.has_genuine_tension,
     )
 
     return ProxyResult(
@@ -206,29 +213,39 @@ def _calibrate_confidence(
     proxy_model_path: str,
     team: str,
     accuracy: dict | None = None,
+    genuine_tension: bool = False,
 ) -> float:
-    """Calibrate confidence using memory depth and prediction accuracy.
+    """Calibrate confidence using memory depth, prediction accuracy,
+    and contradiction signal.
 
-    Three gates, applied in order:
+    Four gates, applied in order:
 
     1. Cold-start guard: if the ACT-R memory store has fewer than
        MEMORY_DEPTH_THRESHOLD distinct (state, task_type) pairs, cap
        confidence at 0.5.
 
-    2. Accuracy-based autonomy: if per-context posterior accuracy is
+    2. Genuine tension (#228): if retrieved memories contain a genuine
+       unresolved tension (recent, same domain, high confidence both),
+       cap confidence at 0.5 to force escalation. The proxy cannot
+       resolve this without human input.
+
+    3. Accuracy-based autonomy: if per-context posterior accuracy is
        available and meets the threshold (>= ACCURACY_AUTONOMY_THRESHOLD
        over >= ACCURACY_MIN_INTERACTIONS), the proxy has earned autonomy
        in this context — trust the agent's self-assessed confidence.
        If accuracy is below the threshold with sufficient data, cap
        confidence to force escalation.
 
-    3. Otherwise, return the agent's self-assessed confidence unchanged.
+    4. Otherwise, return the agent's self-assessed confidence unchanged.
 
     EMA is tracked separately as a system health monitor and does not
     influence the returned confidence.
     """
     depth = _get_memory_depth(proxy_model_path, team)
     if depth < MEMORY_DEPTH_THRESHOLD:
+        return min(agent_confidence, 0.5)
+
+    if genuine_tension:
         return min(agent_confidence, 0.5)
 
     if accuracy:
@@ -284,6 +301,8 @@ class _ActrRetrievalResult:
     db_path: str                     # path to the memory DB
     interaction_counter: int         # counter at retrieval time
     accuracy: dict | None = None     # per-context accuracy record (if available)
+    conflict_context: str = ''       # formatted conflict classifications for prompt injection (#228)
+    has_genuine_tension: bool = False  # True if any conflict is genuine_tension (#228)
 
 
 _EMPTY_RETRIEVAL = _ActrRetrievalResult(serialized='', chunk_ids=[], db_path='', interaction_counter=0)
@@ -321,6 +340,10 @@ def _retrieve_actr_memories(
             get_interaction_counter,
             get_accuracy,
             blended_text_from_fields,
+            find_conflicting_pairs,
+            classify_conflict,
+            format_conflict_context,
+            has_genuine_tension as _has_genuine_tension,
         )
         from projects.POC.scripts.memory_indexer import try_embed, detect_provider
 
@@ -388,6 +411,21 @@ def _retrieve_actr_memories(
 
             accuracy = get_accuracy(conn, state=state, task_type=task_type)
             all_chunk_ids = [c.id for c in chunks] + [c.id for c in salience_chunks]
+
+            # Issue #228: Retrieval-time conflict detection.
+            # Read-only on chunk list — annotates, never modifies.
+            conflict_ctx = ''
+            genuine_tension = False
+            all_chunks = chunks + salience_chunks
+            pairs = find_conflicting_pairs(all_chunks)
+            if pairs:
+                classifications = [
+                    classify_conflict(a, b, current_interaction=current)
+                    for a, b in pairs
+                ]
+                conflict_ctx = format_conflict_context(classifications)
+                genuine_tension = _has_genuine_tension(classifications)
+
             return _ActrRetrievalResult(
                 serialized=serialize_chunks_for_prompt(
                     chunks,
@@ -397,6 +435,8 @@ def _retrieve_actr_memories(
                 db_path=db_path,
                 interaction_counter=current,
                 accuracy=accuracy,
+                conflict_context=conflict_ctx,
+                has_genuine_tension=genuine_tension,
             )
         finally:
             conn.close()
