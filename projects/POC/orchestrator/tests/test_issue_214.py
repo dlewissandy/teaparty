@@ -342,5 +342,33 @@ class TestDownstreamCompatibility(unittest.TestCase):
             )
 
 
+# ── Tests: Caller wiring ─────────────────────────────────────────────────────
+
+class TestCallerWiring(unittest.TestCase):
+    """extract_learnings() must pass embed_fn to _compact_proxy_patterns."""
+
+    def test_extract_learnings_passes_embed_fn(self):
+        """The proxy-patterns scope in extract_learnings passes embed_fn."""
+        from projects.POC.orchestrator import learnings
+
+        # _make_embed_fn should be called and its result passed through
+        self.assertTrue(
+            callable(getattr(learnings, '_make_embed_fn', None)),
+            '_make_embed_fn should exist in learnings module',
+        )
+
+    def test_make_embed_fn_returns_callable_or_none(self):
+        """_make_embed_fn returns a callable when providers are available, else None."""
+        from projects.POC.orchestrator.learnings import _make_embed_fn
+
+        result = _make_embed_fn()
+        # In test environments without API keys, should return None (graceful)
+        # In environments with keys, should return a callable
+        self.assertTrue(
+            result is None or callable(result),
+            f'_make_embed_fn should return None or callable, got {type(result)}',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()

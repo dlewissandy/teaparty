@@ -156,6 +156,7 @@ async def extract_learnings(
         'proxy-patterns', _compact_proxy_patterns,
         project_dir=project_dir,
         log_path=os.path.join(project_dir, '.proxy-interactions.jsonl'),
+        embed_fn=_make_embed_fn(),
     )
 
     # ── Summary diagnostic ────────────────────────────────────────────────────
@@ -469,6 +470,22 @@ def _crystallize_skills(*, project_dir: str) -> None:
 
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
+
+
+def _make_embed_fn():
+    """Build an embedding function from memory_indexer, or return None if unavailable."""
+    try:
+        from projects.POC.scripts.memory_indexer import try_embed, detect_provider
+        provider, model = detect_provider()
+        if provider == 'none':
+            return None
+
+        def _embed(text: str) -> list[float] | None:
+            return try_embed(text, provider=provider, model=model)
+        return _embed
+    except Exception:
+        return None
+
 
 CLUSTER_SIMILARITY_THRESHOLD = 0.85
 
