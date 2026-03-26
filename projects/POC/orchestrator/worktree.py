@@ -3,9 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
 from datetime import datetime, timezone
+
+log = logging.getLogger(__name__)
 
 
 async def create_session_worktree(
@@ -174,22 +177,54 @@ async def artifact_version(worktree: str, path: str) -> int:
 
 
 async def cleanup_worktree(worktree_path: str) -> None:
-    """Remove a worktree, its branch, and its manifest entry."""
+    """Remove a worktree, its branch, and its manifest entry.
+
+    Each step is independent so that failure in one does not prevent the
+    others from executing.  Failures are logged as warnings rather than
+    silently swallowed.
+    """
     if not os.path.isdir(worktree_path):
         return
+
+    # Resolve the true repo root via --git-common-dir (not --show-toplevel,
+    # which returns the worktree root when called from inside a worktree).
     try:
-        repo_root = (await _run_git_output(
-            worktree_path, 'rev-parse', '--show-toplevel'
+        git_common = (await _run_git_output(
+            worktree_path, 'rev-parse', '--path-format=absolute', '--git-common-dir'
         )).strip()
+        repo_root = os.path.dirname(git_common)
+    except Exception:
+        log.warning("cleanup_worktree: failed to resolve repo root for %s", worktree_path)
+        return
+
+    # Read the branch name before removing the worktree (afterwards the
+    # worktree directory is gone and we can't query it).
+    branch = ''
+    try:
         branch = (await _run_git_output(
             worktree_path, 'rev-parse', '--abbrev-ref', 'HEAD'
         )).strip()
+    except Exception:
+        log.warning("cleanup_worktree: failed to read branch for %s", worktree_path)
+
+    # Step 1: remove the worktree directory
+    try:
         await _run_git(repo_root, 'worktree', 'remove', '--force', worktree_path)
-        if branch and branch != 'HEAD' and branch != 'main':
+    except Exception:
+        log.warning("cleanup_worktree: failed to remove worktree %s", worktree_path)
+
+    # Step 2: delete the branch
+    if branch and branch != 'HEAD' and branch != 'main':
+        try:
             await _run_git(repo_root, 'branch', '-D', branch)
+        except Exception:
+            log.warning("cleanup_worktree: failed to delete branch %s", branch)
+
+    # Step 3: remove from manifest
+    try:
         _unregister_worktree(repo_root, worktree_path)
     except Exception:
-        pass
+        log.warning("cleanup_worktree: failed to unregister %s from manifest", worktree_path)
 
 
 def _slugify(text: str) -> str:
