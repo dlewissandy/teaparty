@@ -129,6 +129,8 @@ TeaParty adapts this architecture in three ways:
 1. **Learning type differentiation** replaces OpenClaw's undifferentiated memory files — institutional learnings are always loaded, task-based learnings are fuzzy-retrieved, and the two never compete for the same budget.
 2. **Hierarchical scope with promotion** replaces OpenClaw's flat per-agent model — a team-level chunk should score higher than a global chunk at equal similarity, because it was generated closer to the current context.
 3. **Four learning moments** replace OpenClaw's single write-on-compaction trigger — learnings are captured at the points where signal is strongest, not just when the context window is about to overflow.
+4. **Caller-driven type routing** adapted from AdaMem (Yan et al., 2026) replaces single-path retrieval with type-dispatched retrieval. Rather than classifying queries by lexical cues (AdaMem's approach for dialogue agents), routing is caller-driven: the retrieval caller already knows what type of memory it needs. `engine.py` requests task learnings with a token budget, `proxy_agent.py` requests proxy-task patterns with a separate budget, and institutional and proxy-preferential learnings are loaded unconditionally. Each type gets its own retrieval strategy and budget — they never compete for the same ranking.
+5. **Persona distillation to Claude Code memory** bridges the proxy's episodic memory and the broader system. Stable user preferences discovered through ACT-R interactions are distilled post-session and written as Claude Code memory files (`~/.claude/projects/<project>/memory/`). These are automatically loaded into every Claude Code session — including proxy invocations — providing always-loaded preference access using existing infrastructure. The human can see and correct these files, creating a transparent feedback loop where wrong inferences are immediately correctable.
 
 The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extracted by Zilliz as a standalone library, providing chunking, embedding, indexing, and hybrid score fusion. See `projects/agentic-memory/` for the detailed research on OpenClaw's architecture and how it was adapted. The retrieval layer provides an importable `retrieve()` function in `memory_indexer.py` with hybrid BM25 search, optional scope weighting, and top-k result selection.
 
@@ -144,7 +146,7 @@ The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extract
 
 ## Open Questions
 
-**Retrieval budget.** How to inject fuzzy-retrieved task learnings into agent context without exceeding token budgets or diluting signal. OpenClaw's approach (top-N chunks by hybrid score) is the starting point, but scope weighting (team-level chunks scoring higher than global) needs empirical tuning.
+**Retrieval budget.** Type-aware routing (adapted from AdaMem) provides the structural answer: each learning type gets a dedicated token budget, and types never compete for the same allocation. The specific budget values need empirical tuning — how many tokens of task learning vs. institutional knowledge produce the best agent performance. The mechanism is specified ([#197](https://github.com/dlewissandy/teaparty/issues/197)); the parameters are not.
 
 **Confidence and decay.** The design calls for FadeMem-style temporal decay — learnings that are reinforced persist, learnings that are contradicted or unused fade. The right decay rate is unknown: too aggressive and hard-won learnings disappear, too conservative and the store fills with stale observations.
 
