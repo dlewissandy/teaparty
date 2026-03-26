@@ -516,6 +516,20 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
     return ''
 
 
+# ── CfA state → learning phase mapping ───────────────────────────────────────
+
+_CFA_STATE_TO_PHASE: dict[str, str] = {
+    'INTENT_ASSERT': 'specification',
+    'INTENT_ESCALATE': 'specification',
+    'PLAN_ASSERT': 'planning',
+    'PLANNING_ESCALATE': 'planning',
+    'TASK_ASSERT': 'implementation',
+    'TASK_ESCALATE': 'implementation',
+    'WORK_ASSERT': 'implementation',
+    'WORK_ESCALATE': 'implementation',
+}
+
+
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
 
@@ -823,6 +837,57 @@ class ApprovalGate:
                 conn.close()
         except Exception:
             _actor_log.debug('ACT-R memory recording failed', exc_info=True)
+
+        # Emit structured learning entry to proxy-tasks/ on corrections.
+        # This integrates proxy corrections with the broader learning system:
+        # entries are YAML-frontmattered markdown indexed by memory_indexer.py,
+        # retrievable by agents via retrieve(learning_type='proxy').
+        if outcome in ('correct', 'reject') and feedback:
+            try:
+                self._emit_proxy_learning_entry(
+                    state=state,
+                    project_slug=project_slug,
+                    outcome=outcome,
+                    feedback=feedback,
+                    conversation=conversation,
+                )
+            except Exception:
+                _actor_log.debug('Proxy learning entry emission failed', exc_info=True)
+
+    def _emit_proxy_learning_entry(
+        self, state: str, project_slug: str, outcome: str,
+        feedback: str, conversation: str,
+    ) -> None:
+        """Write a structured learning entry to proxy-tasks/ for a correction.
+
+        The entry uses the same YAML frontmatter format as other learning
+        entries (memory_entry.py), so it can be indexed by memory_indexer.py
+        and retrieved via retrieve(learning_type='proxy').
+        """
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        phase = _CFA_STATE_TO_PHASE.get(state, 'unknown')
+        entry = make_entry(
+            content=(
+                f"## Proxy Correction at {state}\n"
+                f"**State:** {state}\n"
+                f"**Project:** {project_slug}\n"
+                f"**Correction:** {feedback}\n"
+            ),
+            type='corrective',
+            domain='task',
+            importance=0.8,
+            phase=phase,
+        )
+
+        project_dir = os.path.dirname(self.proxy_model_path)
+        proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+        os.makedirs(proxy_tasks_dir, exist_ok=True)
+
+        filename = f'correction-{entry.id}.md'
+        filepath = os.path.join(proxy_tasks_dir, filename)
+        with open(filepath, 'w') as f:
+            f.write(serialize_entry(entry))
 
     def _log_interaction(
         self, ctx: ActorContext, project_slug: str,
