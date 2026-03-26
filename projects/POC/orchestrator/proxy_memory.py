@@ -576,16 +576,3 @@ def resolve_memory_db_path(proxy_model_path: str, team: str = '') -> str:
     if team:
         return os.path.join(project_dir, f'.proxy-memory-{team}.db')
     return os.path.join(project_dir, '.proxy-memory.db')
-
-
-def memory_depth(conn: sqlite3.Connection) -> int:
-    """Count distinct (state, task_type) pairs in the memory store.
-
-    Used as the cold-start guard: a proxy with chunks spanning multiple
-    states and task types has broader experience than one with many chunks
-    all from the same context.  Returns 0 for an empty store.
-    """
-    row = conn.execute(
-        'SELECT COUNT(DISTINCT state || \':\' || task_type) FROM proxy_chunks'
-    ).fetchone()
-    return row[0] if row else 0

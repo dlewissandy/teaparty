@@ -499,35 +499,43 @@ class TestSerializeChunks(unittest.TestCase):
 
 
 class TestCalibrateConfidence(unittest.TestCase):
-    """Issue #220: calibration uses agent confidence directly, not geometric mean.
+    """A-004: calibration should be bidirectional (geometric mean)."""
 
-    EMA is a system health monitor only.  The cold-start guard is based
-    on ACT-R memory depth, not EMA sample count.
-    """
-
-    def _calibrate(self, agent_conf, memory_depth=10):
-        """Call _calibrate_confidence with mocked memory depth."""
+    def _calibrate(self, agent_conf, laplace, ema, total_count=10):
+        """Call _calibrate_confidence with mocked model."""
         from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
 
-        with patch('projects.POC.orchestrator.proxy_agent._get_memory_depth',
-                   return_value=memory_depth):
-            return _calibrate_confidence(
-                agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '',
-            )
+        mock_entry = MagicMock()
+        mock_entry.total_count = total_count
 
-    def test_agent_confidence_passes_through(self):
-        """Agent confidence is the decision signal when memory is deep."""
-        result = self._calibrate(0.85)
-        self.assertAlmostEqual(result, 0.85, places=2)
+        mock_model = MagicMock()
+        mock_model.entries = {'PLAN_ASSERT::test': mock_entry}
 
-    def test_low_confidence_passes_through(self):
-        """Low agent confidence is not lifted by historical data."""
-        result = self._calibrate(0.3)
-        self.assertAlmostEqual(result, 0.3, places=2)
+        with patch('projects.POC.scripts.approval_gate.resolve_team_model_path', return_value='/tmp/test.json'), \
+             patch('projects.POC.scripts.approval_gate.load_model', return_value=mock_model), \
+             patch('projects.POC.scripts.approval_gate._entry_key', return_value='PLAN_ASSERT::test'), \
+             patch('projects.POC.scripts.approval_gate.compute_confidence_components', return_value=(laplace, ema)):
+            return _calibrate_confidence(agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '')
+
+    def test_lifts_underconfident_agent(self):
+        """Agent says 0.6, history says 0.95 → calibrated > 0.6."""
+        result = self._calibrate(0.6, 0.95, 0.95)
+        self.assertGreater(result, 0.6)
+
+    def test_reduces_overconfident_agent(self):
+        """Agent says 0.95, history says 0.6 → calibrated < 0.95."""
+        result = self._calibrate(0.95, 0.6, 0.6)
+        self.assertLess(result, 0.95)
+
+    def test_geometric_mean(self):
+        """Calibrated = sqrt(agent * stats)."""
+        result = self._calibrate(0.64, 0.81, 0.81)
+        expected = (0.64 * 0.81) ** 0.5  # ~0.72
+        self.assertAlmostEqual(result, expected, places=3)
 
     def test_cold_start_caps_at_half(self):
-        """Shallow memory caps confidence at 0.5."""
-        result = self._calibrate(0.9, memory_depth=1)
+        """Cold start caps confidence at 0.5."""
+        result = self._calibrate(0.9, 0.9, 0.9, total_count=2)
         self.assertLessEqual(result, 0.5)
 
 
