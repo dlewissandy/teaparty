@@ -331,5 +331,58 @@ class TestSessionDoesNotFuzzyRetrieveInstitutional(unittest.TestCase):
         )
 
 
+# ── 6. Session callers use budget constants ──────────────────────────────────
+
+class TestSessionUsesBudgetConstants(unittest.TestCase):
+    """session.py callers must pass max_chars for budget allocation."""
+
+    def test_retrieve_memory_passes_max_chars(self):
+        """_retrieve_memory() must pass max_chars to retrieve()."""
+        from projects.POC.orchestrator.session import Session
+        source = inspect.getsource(Session._retrieve_memory)
+        self.assertIn(
+            'max_chars=', source,
+            "_retrieve_memory() must pass max_chars to retrieve() for budget allocation."
+        )
+
+    def test_budget_constants_defined(self):
+        """Budget constants must be defined in session.py."""
+        from projects.POC.orchestrator.session import (
+            TASK_LEARNING_BUDGET_CHARS,
+            PROXY_LEARNING_BUDGET_CHARS,
+        )
+        self.assertGreater(TASK_LEARNING_BUDGET_CHARS, 0,
+                           "TASK_LEARNING_BUDGET_CHARS must be > 0.")
+        self.assertGreater(PROXY_LEARNING_BUDGET_CHARS, 0,
+                           "PROXY_LEARNING_BUDGET_CHARS must be > 0.")
+
+
+# ── 7. Session callers retrieve proxy-tasks/ when present ────────────────────
+
+class TestSessionRetrievesProxyTasks(unittest.TestCase):
+    """session.py must fuzzy-retrieve from proxy-tasks/ with learning_type='proxy'."""
+
+    def test_retrieve_memory_handles_proxy_tasks(self):
+        """_retrieve_memory() must include proxy-tasks/ retrieval path."""
+        from projects.POC.orchestrator.session import Session
+        source = inspect.getsource(Session._retrieve_memory)
+        self.assertIn(
+            'proxy-tasks', source,
+            "_retrieve_memory() must include a retrieval path for proxy-tasks/. "
+            "proxy.md is always-loaded; proxy-tasks/ must be fuzzy-retrieved."
+        )
+
+    def test_retrieve_memory_static_handles_proxy_tasks(self):
+        """_retrieve_memory_static() must include proxy-tasks/ retrieval path."""
+        from projects.POC.orchestrator.session import Session
+        if not hasattr(Session, '_retrieve_memory_static'):
+            return
+        source = inspect.getsource(Session._retrieve_memory_static)
+        self.assertIn(
+            'proxy-tasks', source,
+            "_retrieve_memory_static() must include a retrieval path for proxy-tasks/."
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
