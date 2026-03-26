@@ -635,15 +635,6 @@ class AblationCheckpoint:
 
 
 @dataclass
-class NoiseSensitivityResult:
-    """Match-rate statistics for one noise scale across multiple trials."""
-    noise_scale: float
-    mean: float               # mean match rate across trials
-    std: float                # std dev of match rates across trials
-    trial_rates: list[float]  # per-trial match rates
-
-
-@dataclass
 class AblationResult:
     """Full ablation results across configs and checkpoints."""
     checkpoints: dict[int, dict[str, AblationCheckpoint]]

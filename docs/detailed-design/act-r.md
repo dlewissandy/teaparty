@@ -29,7 +29,7 @@ We depart from ACT-R defaults for noise and retrieval threshold.
 | Parameter | ACT-R Default | Our Value | Rationale |
 |-----------|---------------|-----------|-----------|
 | Decay (d) | 0.5 | **0.5** | No departure. Empirically validated. |
-| Noise (s) | NIL (disabled) | **0.25** | Low enough for mostly-deterministic retrieval, high enough for occasional exploration. Needs empirical calibration. |
+| Noise (s) | NIL (disabled) | **0.08** | Calibrated so noise std dev (~0.145) stays below typical signal differences (~0.3). Perturbs ranking without dominating it. Validated via noise-scale sensitivity analysis in the ablation harness. |
 | Retrieval threshold (tau) | 0 | **-0.5** | Admits chunks with slightly negative activation. Desirable in a low-interaction system (50-200 lifetime interactions) where useful chunks may hover near zero. Needs empirical calibration. |
 
 **Caveat on d = 0.5.** Anderson & Schooler's corpora are high-volume streams (thousands of observations). Proxy gate interactions are sparse — perhaps 50-200 total lifetime interactions. The power-law form is the right functional shape, and d = 0.5 produces moderate decay. But whether 0.5 is optimal for this interaction regime is an open empirical question.
