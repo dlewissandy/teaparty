@@ -392,12 +392,14 @@ class Session:
                 pass
 
         # Fuzzy memory retrieval via importable retrieve()
+        # Note: institutional.md is NOT included here — it is already loaded
+        # unconditionally as a raw file read above. Only task-based learnings
+        # (tasks/) are fuzzy-retrieved with budget allocation.
         db_path = os.path.join(project_dir, '.memory.db')
         if os.path.exists(db_path):
             try:
                 from projects.POC.scripts.memory_indexer import retrieve
                 source_paths = [
-                    os.path.join(project_dir, 'institutional.md'),
                     os.path.join(project_dir, 'tasks'),
                 ]
                 # Save retrieved entry IDs for reinforcement tracking at session end
@@ -412,6 +414,7 @@ class Session:
                     top_k=10,
                     scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
+                    learning_type='task',
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
@@ -708,12 +711,12 @@ class Session:
                     pass
 
         # Fuzzy memory retrieval via importable retrieve()
+        # Note: institutional.md is NOT included — already loaded as raw file above.
         db_path = os.path.join(project_dir, '.memory.db')
         if os.path.exists(db_path):
             try:
                 from projects.POC.scripts.memory_indexer import retrieve
                 source_paths = [
-                    os.path.join(project_dir, 'institutional.md'),
                     os.path.join(project_dir, 'tasks'),
                 ]
                 ids_path = os.path.join(infra_dir, '.retrieved-ids.txt') if infra_dir else ''
@@ -725,6 +728,7 @@ class Session:
                     top_k=10,
                     scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
+                    learning_type='task',
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')

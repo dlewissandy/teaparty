@@ -146,7 +146,7 @@ The fuzzy retrieval layer will use memsearch, the OpenClaw memory module extract
 
 ## Open Questions
 
-**Retrieval budget.** Type-aware routing (adapted from AdaMem) provides the structural answer: each learning type gets a dedicated token budget, and types never compete for the same allocation. The specific budget values need empirical tuning — how many tokens of task learning vs. institutional knowledge produce the best agent performance. The mechanism is specified ([#197](https://github.com/dlewissandy/teaparty/issues/197)); the parameters are not.
+**Retrieval budget.** Type-aware routing is implemented: `retrieve()` accepts `learning_type` for type filtering and `max_chars` for per-type budget caps. Institutional learnings are loaded unconditionally (not through retrieve()), task-based learnings are fuzzy-retrieved with a dedicated budget. The mechanism is implemented ([#197](https://github.com/dlewissandy/teaparty/issues/197)); the specific budget values still need empirical tuning.
 
 **Confidence and decay.** The design calls for FadeMem-style temporal decay — learnings that are reinforced persist, learnings that are contradicted or unused fade. The right decay rate is unknown: too aggressive and hard-won learnings disappear, too conservative and the store fills with stale observations.
 
