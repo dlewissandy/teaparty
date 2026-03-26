@@ -125,6 +125,13 @@ async def extract_learnings(
         infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
 
+    # ── Promotion evaluation (issue #217) ──────────────────────────────────────
+
+    await _run_scope(
+        'promotion-evaluation', _evaluate_promotions,
+        infra_dir=infra_dir, project_dir=project_dir,
+    )
+
     # ── Reinforcement tracking ─────────────────────────────────────────────────
 
     await _run_scope(
@@ -390,6 +397,65 @@ def _promote_corrective(
         project_dir=project_dir,
         output_dir='',
     )
+
+
+# ── Promotion evaluation (issue #217) ─────────────────────────────────────────
+
+def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
+    """Evaluate session-scope learnings for promotion to project scope.
+
+    Walks .sessions/*/tasks/ under project_dir, finds learnings that recur
+    across 3+ distinct sessions (via semantic similarity), excludes proxy
+    learnings, and writes qualifying entries to project/tasks/ with
+    promotion metadata.
+    """
+    from pathlib import Path
+    from datetime import date as _date
+    from projects.POC.orchestrator.promotion import find_recurring_learnings
+    from projects.POC.scripts.memory_entry import serialize_entry
+
+    # Build similarity function: use embeddings if available, else exact match
+    embed_fn = _make_embed_fn()
+    if embed_fn is not None:
+        from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
+        def _sim(a: str, b: str) -> float:
+            va = embed_fn(a)
+            vb = embed_fn(b)
+            if va is None or vb is None:
+                return 1.0 if a.strip().lower() == b.strip().lower() else 0.0
+            return cosine_similarity(va, vb)
+
+        similarity_fn = _sim
+    else:
+        similarity_fn = None  # use default exact match
+
+    recurring = find_recurring_learnings(
+        project_dir,
+        min_recurrences=3,
+        similarity_fn=similarity_fn,
+    )
+
+    if not recurring:
+        return
+
+    # Write promoted entries to project/tasks/
+    tasks_dir = os.path.join(project_dir, 'tasks')
+    os.makedirs(tasks_dir, exist_ok=True)
+
+    today = _date.today().isoformat()
+    from filelock import FileLock
+
+    for entry in recurring:
+        entry.promoted_from = 'session'
+        entry.promoted_at = today
+        fname = f'promoted-{entry.id}.md'
+        fpath = os.path.join(tasks_dir, fname)
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            Path(fpath).write_text(serialize_entry(entry))
+
+    _log.info('Promoted %d session learnings to project scope.', len(recurring))
 
 
 # ── Reinforcement tracking ────────────────────────────────────────────────────
