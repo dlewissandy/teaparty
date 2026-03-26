@@ -214,11 +214,12 @@ def _calibrate_confidence(
     team: str,
     accuracy: dict | None = None,
     genuine_tension: bool = False,
+    _random: float | None = None,
 ) -> float:
     """Calibrate confidence using memory depth, prediction accuracy,
-    and contradiction signal.
+    contradiction signal, staleness, and exploration.
 
-    Four gates, applied in order:
+    Six gates, applied in order:
 
     1. Cold-start guard: if the ACT-R memory store has fewer than
        MEMORY_DEPTH_THRESHOLD distinct (state, task_type) pairs, cap
@@ -229,23 +230,64 @@ def _calibrate_confidence(
        cap confidence at 0.5 to force escalation. The proxy cannot
        resolve this without human input.
 
-    3. Accuracy-based autonomy: if per-context posterior accuracy is
+    3. Staleness guard (#237): if the proxy hasn't received human
+       feedback for this (state, task_type) in > STALENESS_DAYS days,
+       cap confidence at 0.5. Preferences drift; the model must not
+       converge to an outdated snapshot.
+
+    4. Exploration rate (#237): even when confidence is high, cap at
+       0.5 with probability EXPLORATION_RATE. This prevents convergence
+       to "always auto-approve" and ensures the model continues to see
+       human decisions for ongoing calibration.
+
+    5. Accuracy-based autonomy: if per-context posterior accuracy is
        available and meets the threshold (>= ACCURACY_AUTONOMY_THRESHOLD
        over >= ACCURACY_MIN_INTERACTIONS), the proxy has earned autonomy
        in this context — trust the agent's self-assessed confidence.
        If accuracy is below the threshold with sufficient data, cap
        confidence to force escalation.
 
-    4. Otherwise, return the agent's self-assessed confidence unchanged.
+    6. Otherwise, return the agent's self-assessed confidence unchanged.
 
     EMA is tracked separately as a system health monitor and does not
     influence the returned confidence.
     """
+    import random
+    from datetime import date
+
     depth = _get_memory_depth(proxy_model_path, team)
     if depth < MEMORY_DEPTH_THRESHOLD:
         return min(agent_confidence, 0.5)
 
     if genuine_tension:
+        return min(agent_confidence, 0.5)
+
+    # Staleness guard: force escalation if no human feedback recently.
+    if accuracy:
+        last_updated = accuracy.get('last_updated')
+        if last_updated:
+            try:
+                last = date.fromisoformat(last_updated)
+                days_stale = (date.today() - last).days
+                if days_stale > STALENESS_DAYS:
+                    _log.info(
+                        'Staleness guard: %s|%s last updated %s (%d days ago, '
+                        'threshold %d). Capping confidence.',
+                        state, project_slug, last_updated,
+                        days_stale, STALENESS_DAYS,
+                    )
+                    return min(agent_confidence, 0.5)
+            except (ValueError, TypeError):
+                pass
+
+    # Exploration rate: randomly force escalation to maintain calibration.
+    roll = _random if _random is not None else random.random()
+    if roll < EXPLORATION_RATE:
+        _log.info(
+            'Exploration rate: randomly capping confidence for %s|%s '
+            '(roll=%.3f < %.2f).',
+            state, project_slug, roll, EXPLORATION_RATE,
+        )
         return min(agent_confidence, 0.5)
 
     if accuracy:
@@ -270,6 +312,14 @@ ACCURACY_AUTONOMY_THRESHOLD = 0.85
 # Minimum number of interactions before accuracy-based gating applies.
 # Below this, accuracy data is too sparse to be meaningful.
 ACCURACY_MIN_INTERACTIONS = 10
+
+# Exploration rate: even when confidence is high, force escalation this
+# fraction of the time to ensure the model continues to see human decisions.
+EXPLORATION_RATE = 0.15
+
+# Staleness guard: if the proxy hasn't received human feedback for a
+# (state, task_type) pair in more than this many days, force escalation.
+STALENESS_DAYS = 7
 
 
 def _get_memory_depth(proxy_model_path: str, team: str) -> int:

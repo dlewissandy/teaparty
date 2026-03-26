@@ -334,11 +334,14 @@ class TestAccuracyGatesAutonomy(unittest.TestCase):
     """Prediction accuracy should gate proxy autonomy via _calibrate_confidence."""
 
     def _calibrate(self, agent_confidence, accuracy=None, depth=5):
+        from datetime import date
         from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
+        if accuracy is not None and 'last_updated' not in accuracy:
+            accuracy['last_updated'] = date.today().isoformat()
         with patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=depth):
             return _calibrate_confidence(
                 agent_confidence, 'PLAN_ASSERT', 'security', '', '',
-                accuracy=accuracy,
+                accuracy=accuracy, _random=0.99,
             )
 
     def test_high_accuracy_trusts_agent_confidence(self):

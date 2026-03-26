@@ -30,17 +30,21 @@ The proxy makes this choice through two complementary models. The **confidence m
 
 The confidence model determines how much the proxy understands about the human's preferences for a given type of decision. It tracks state-task pairs (e.g., `INTENT_ASSERT|POC`, `PLAN_ASSERT|POC`) and learns from two sources: **gate outcomes** (did the human approve or correct the artifact?) and **prediction accuracy** (during intake dialog and two-pass prediction, did the proxy correctly anticipate the human's answers?). Per-context prediction accuracy is tracked per (state, task_type) pair, recording prior and posterior match rates separately ([#226](https://github.com/dlewissandy/teaparty/issues/226)). Prediction accuracy is the richer signal — a gate outcome tells the proxy "this was acceptable," but a prediction delta tells it *where and why* its model of the human is wrong.
 
-Four mechanisms govern the model's behavior:
+Six mechanisms govern the model's behavior:
 
 **Two-pass prediction.** The proxy generates two predictions for each decision: a *prior* (based only on accumulated memories and learned patterns, without seeing the artifact) and a *posterior* (after reading the artifact and its own prior prediction). When the action or confidence shifts substantially between passes, the proxy extracts what in the artifact caused the shift — salient percepts that feed back into learning. The proxy's self-assessed confidence from this process is the primary decision signal.
 
-**Cold-start calibration via ACT-R memory depth.** The proxy maintains structured memories as ACT-R chunks — situation, stimulus, and outcome data retrieved via activation-based decay and multi-dimensional similarity scoring. When the proxy's memory depth (distinct state/task-type pairs with stored chunks) is shallow, its confidence is capped regardless of self-assessment. A proxy with diverse memories across multiple states and task types has demonstrated understanding; one with shallow or missing memory has not. This replaces observation-count thresholds with a richer measure of experience breadth.
+**Cold-start calibration via ACT-R memory depth.** The proxy maintains structured memories as ACT-R chunks — situation, stimulus, and outcome data retrieved via activation-based decay and multi-dimensional similarity scoring. When the proxy's memory depth (distinct state/task-type pairs with stored chunks) is shallow, its confidence is capped regardless of self-assessment. A proxy with diverse memories across multiple states and task types has demonstrated understanding; one with shallow or missing memory has not.
 
 **Genuine tension guard.** When retrieved memories contain a genuine unresolved tension — recent, same domain, high confidence on both sides of a contradiction — the proxy's confidence is capped to force escalation. The proxy cannot resolve a genuine tension in the human's preferences without human input; auto-approving through one would risk acting against the human's actual intent.
 
+**Staleness guard.** If the proxy hasn't received human feedback for a state-task pair in 7+ days, it forces escalation regardless of confidence. Preferences drift; the model must not converge to an outdated snapshot of the human's thinking.
+
+**Exploration rate.** Even when confidence is high, the proxy escalates 15% of the time. This prevents convergence to "always auto-approve" and ensures the model continues to see human decisions for ongoing calibration.
+
 **Accuracy-based autonomy.** The caller compares the proxy's calibrated confidence against a threshold. Above threshold, the proxy's text is the answer. Below threshold, the decision escalates to the human — unless the state is marked never-escalate (task-level gates), in which case the proxy's best guess is used rather than interrupting the human during execution.
 
-EMA tracking and asymmetric regret (corrections weighted more heavily than approvals) are maintained as system health monitors but do not influence the confidence decision. See [approval-gate.md](../detailed-design/approval-gate.md) for implementation details, including the full `consult_proxy()` invocation path, never-escalate tradeoffs, and legacy statistical pre-filters.
+See [approval-gate.md](../detailed-design/approval-gate.md) for implementation details, including the full `consult_proxy()` invocation path and never-escalate tradeoffs.
 
 ## Beyond Gate Decisions
 
@@ -98,7 +102,7 @@ The progression from cold to warm follows a predictable arc, visible in both the
 2. **Calibrating** (growing memory diversity) — partial dialog. The proxy has accumulated memories across several state-task pairs and predicts some answers correctly, asking only about genuinely uncertain ones. At gates, confidence is volatile — a single correction can shift the model substantially. The proxy begins to demonstrate understanding but cannot yet be trusted to act alone.
 3. **Warm start** (deep, diverse memory with stable predictions) — near-silent dialog. The proxy predicts most answers correctly, surfacing them as assumptions ("Based on our past work, I'm assuming X — correct me if wrong"). At gates, the proxy auto-approves reliably. The intake dialog has compressed from a full conversation to a brief confirmation.
 
-The proxy never fully stops learning. Every escalation — whether triggered by low confidence, contradictory memories, or novel concerns — produces a differential that refines the model. The prediction-comparison loop ensures ongoing calibration even in domains where the proxy is highly autonomous.
+The proxy never fully stops asking. The exploration rate ensures ongoing calibration signal even in warm-start domains — occasionally escalating a decision it could have handled, to verify its model hasn't drifted. The staleness guard provides a hard backstop: if the proxy hasn't seen human feedback for a state-task pair in 7+ days, it forces escalation regardless of confidence.
 
 ## Relationship to the Learning System
 

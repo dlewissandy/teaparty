@@ -77,6 +77,7 @@ def _calibrate_with_mocks(
                return_value=memory_depth):
         return _calibrate_confidence(
             agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '',
+            _random=0.99,
         )
 
 
