@@ -641,11 +641,11 @@ def apply_prominence_weights(
     # Normalize scores to [0, 1] — required because BM25 returns negative ranks
     raw_scores = [r[2] for r in results]
     min_s, max_s = min(raw_scores), max(raw_scores)
-    score_range = max_s - min_s if max_s != min_s else 1.0
+    tied = (max_s == min_s)
 
     out = []
     for source, content, score in results:
-        normalized = (score - min_s) / score_range  # 0 = worst, 1 = best
+        normalized = 1.0 if tied else (score - min_s) / (max_s - min_s)
 
         # Look up stored metadata for this chunk
         row = conn.execute(
@@ -692,8 +692,8 @@ def mmr_rerank(
     scores = [r[2] for r in results]
     max_s = max(scores) if scores else 1.0
     min_s = min(scores) if scores else 0.0
-    rng = max_s - min_s if max_s != min_s else 1.0
-    normalized = [(r[2] - min_s) / rng for r in results]
+    tied = (max_s == min_s)
+    normalized = [1.0 if tied else (r[2] - min_s) / (max_s - min_s) for r in results]
 
     tokens = [tokenize(r[1]) for r in results]
     selected = []
