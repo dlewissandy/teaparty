@@ -165,9 +165,10 @@ async def consult_proxy(
     # signal — correctness feedback flows through the chunk's outcome field.
     _reinforce_actr_memories(actr_retrieval)
 
-    # Cold-start guard: cap confidence if ACT-R memory is shallow.
+    # Calibrate confidence using memory depth and prediction accuracy.
     confidence = _calibrate_confidence(
         two_pass.confidence, state, project_slug, proxy_model_path, team,
+        accuracy=actr_retrieval.accuracy,
     )
 
     return ProxyResult(
@@ -189,29 +190,54 @@ def _calibrate_confidence(
     project_slug: str,
     proxy_model_path: str,
     team: str,
+    accuracy: dict | None = None,
 ) -> float:
-    """Apply cold-start gating based on ACT-R memory depth.
+    """Calibrate confidence using memory depth and prediction accuracy.
 
-    The agent's self-assessed confidence (from two-pass prediction) is the
-    decision signal.  EMA is tracked separately as a system health monitor
-    and does not influence the returned confidence.
+    Three gates, applied in order:
 
-    Cold-start guard: if the ACT-R memory store has fewer than
-    MEMORY_DEPTH_THRESHOLD distinct (state, task_type) pairs, cap
-    confidence at 0.5 so the caller knows the proxy lacks experience
-    breadth.  A proxy with diverse memories across multiple states and
-    task types has demonstrated understanding; one with shallow or
-    missing memory has not.
+    1. Cold-start guard: if the ACT-R memory store has fewer than
+       MEMORY_DEPTH_THRESHOLD distinct (state, task_type) pairs, cap
+       confidence at 0.5.
+
+    2. Accuracy-based autonomy: if per-context posterior accuracy is
+       available and meets the threshold (>= ACCURACY_AUTONOMY_THRESHOLD
+       over >= ACCURACY_MIN_INTERACTIONS), the proxy has earned autonomy
+       in this context — trust the agent's self-assessed confidence.
+       If accuracy is below the threshold with sufficient data, cap
+       confidence to force escalation.
+
+    3. Otherwise, return the agent's self-assessed confidence unchanged.
+
+    EMA is tracked separately as a system health monitor and does not
+    influence the returned confidence.
     """
     depth = _get_memory_depth(proxy_model_path, team)
     if depth < MEMORY_DEPTH_THRESHOLD:
         return min(agent_confidence, 0.5)
+
+    if accuracy:
+        posterior_total = accuracy.get('posterior_total', 0)
+        if posterior_total >= ACCURACY_MIN_INTERACTIONS:
+            posterior_correct = accuracy.get('posterior_correct', 0)
+            posterior_rate = posterior_correct / posterior_total
+            if posterior_rate < ACCURACY_AUTONOMY_THRESHOLD:
+                return min(agent_confidence, 0.5)
+
     return agent_confidence
 
 
 # Minimum number of distinct (state, task_type) pairs in the ACT-R memory
 # store before the proxy is trusted to use its own confidence assessment.
 MEMORY_DEPTH_THRESHOLD = 3
+
+# Posterior accuracy threshold for earned autonomy: the proxy must correctly
+# predict the human's action at least this fraction of the time.
+ACCURACY_AUTONOMY_THRESHOLD = 0.85
+
+# Minimum number of interactions before accuracy-based gating applies.
+# Below this, accuracy data is too sparse to be meaningful.
+ACCURACY_MIN_INTERACTIONS = 10
 
 
 def _get_memory_depth(proxy_model_path: str, team: str) -> int:

@@ -330,5 +330,66 @@ class TestAccuracyInConsultProxy(unittest.TestCase):
         )
 
 
+class TestAccuracyGatesAutonomy(unittest.TestCase):
+    """Prediction accuracy should gate proxy autonomy via _calibrate_confidence."""
+
+    def _calibrate(self, agent_confidence, accuracy=None, depth=5):
+        from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
+        with patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=depth):
+            return _calibrate_confidence(
+                agent_confidence, 'PLAN_ASSERT', 'security', '', '',
+                accuracy=accuracy,
+            )
+
+    def test_high_accuracy_trusts_agent_confidence(self):
+        """Posterior accuracy >= 85% over >= 10 interactions → trust agent."""
+        acc = {'posterior_correct': 9, 'posterior_total': 10,
+               'prior_correct': 5, 'prior_total': 10}
+        result = self._calibrate(0.9, accuracy=acc)
+        self.assertEqual(result, 0.9)
+
+    def test_low_accuracy_caps_confidence(self):
+        """Posterior accuracy < 85% over >= 10 interactions → cap at 0.5."""
+        acc = {'posterior_correct': 6, 'posterior_total': 10,
+               'prior_correct': 3, 'prior_total': 10}
+        result = self._calibrate(0.9, accuracy=acc)
+        self.assertEqual(result, 0.5)
+
+    def test_insufficient_interactions_no_cap(self):
+        """Fewer than 10 interactions → accuracy gating does not apply."""
+        acc = {'posterior_correct': 3, 'posterior_total': 5,
+               'prior_correct': 1, 'prior_total': 5}
+        result = self._calibrate(0.9, accuracy=acc)
+        self.assertEqual(result, 0.9)
+
+    def test_no_accuracy_data_no_cap(self):
+        """No accuracy record → no accuracy-based cap."""
+        result = self._calibrate(0.9, accuracy=None)
+        self.assertEqual(result, 0.9)
+
+    def test_cold_start_overrides_accuracy(self):
+        """Cold-start guard (low memory depth) takes precedence over accuracy."""
+        acc = {'posterior_correct': 10, 'posterior_total': 10,
+               'prior_correct': 10, 'prior_total': 10}
+        result = self._calibrate(0.9, accuracy=acc, depth=1)
+        self.assertEqual(result, 0.5)
+
+    def test_exactly_at_threshold(self):
+        """Posterior accuracy exactly at 85% → trusted (not capped)."""
+        # 17/20 = 0.85 exactly
+        acc = {'posterior_correct': 17, 'posterior_total': 20,
+               'prior_correct': 10, 'prior_total': 20}
+        result = self._calibrate(0.9, accuracy=acc)
+        self.assertEqual(result, 0.9)
+
+    def test_just_below_threshold(self):
+        """Posterior accuracy just below 85% → capped."""
+        # 8/10 = 0.80
+        acc = {'posterior_correct': 8, 'posterior_total': 10,
+               'prior_correct': 5, 'prior_total': 10}
+        result = self._calibrate(0.9, accuracy=acc)
+        self.assertEqual(result, 0.5)
+
+
 if __name__ == '__main__':
     unittest.main()
