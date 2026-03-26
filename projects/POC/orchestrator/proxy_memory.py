@@ -374,6 +374,38 @@ def composite_score(
     return activation_weight * b_norm + semantic_weight * sem + noise
 
 
+def single_composite_score(
+    chunk: MemoryChunk,
+    context_blended: list[float],
+    current_interaction: int,
+    b_min: float,
+    b_max: float,
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
+    d: float = DECAY,
+    s: float = NOISE_SCALE,
+) -> float:
+    """Composite score using a single blended embedding instead of 5.
+
+    Same structure as composite_score() but replaces the multi-dimensional
+    cosine average with a single cosine similarity on blended embeddings.
+    This is the Configuration B scoring function for the embedding ablation
+    (issue #222).
+    """
+    b = base_level_activation(chunk.traces, current_interaction, d)
+    b_norm = normalize_activation(b, b_min, b_max)
+
+    sem = 0.0
+    if chunk.embedding_blended and context_blended:
+        try:
+            sem = cosine_similarity(chunk.embedding_blended, context_blended)
+        except ValueError:
+            _log.debug('Skipping blended: vector length mismatch')
+
+    noise = logistic_noise(s)
+    return activation_weight * b_norm + semantic_weight * sem + noise
+
+
 # ── Retrieval ────────────────────────────────────────────────────────────────
 
 def retrieve_chunks(
@@ -382,13 +414,25 @@ def retrieve_chunks(
     state: str = '',
     task_type: str = '',
     context_embeddings: dict[str, list[float]] | None = None,
+    context_blended: list[float] | None = None,
+    scoring: str = 'multi_dim',
     current_interaction: int = 0,
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
     d: float = DECAY,
     s: float = NOISE_SCALE,
 ) -> list[MemoryChunk]:
-    """Two-stage retrieval: activation filter, then composite ranking."""
+    """Two-stage retrieval: activation filter, then composite ranking.
+
+    scoring='multi_dim' (default): uses 5 independent embeddings via composite_score().
+        Requires context_embeddings dict mapping dimension names to vectors.
+    scoring='single': uses 1 blended embedding via single_composite_score().
+        Requires context_blended vector. This is Configuration B for the
+        embedding ablation (issue #222).
+    """
+    if scoring not in ('multi_dim', 'single'):
+        raise ValueError(f"scoring must be 'multi_dim' or 'single', got {scoring!r}")
+
     candidates = query_chunks(conn, state=state, task_type=task_type)
     context_embeddings = context_embeddings or {}
 
@@ -410,10 +454,16 @@ def retrieve_chunks(
     # Stage 2: composite scoring
     scored = []
     for _, chunk in survivors:
-        score = composite_score(
-            chunk, context_embeddings, current_interaction,
-            b_min, b_max, d=d, s=s,
-        )
+        if scoring == 'single':
+            score = single_composite_score(
+                chunk, context_blended or [], current_interaction,
+                b_min, b_max, d=d, s=s,
+            )
+        else:
+            score = composite_score(
+                chunk, context_embeddings, current_interaction,
+                b_min, b_max, d=d, s=s,
+            )
         scored.append((score, chunk))
     scored.sort(key=lambda x: -x[0])
     return [chunk for _, chunk in scored[:top_k]]

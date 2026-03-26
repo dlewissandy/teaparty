@@ -476,5 +476,97 @@ class TestRecordInteractionBlended(unittest.TestCase):
             self.assertEqual(len(loaded.embedding_blended), 3)
 
 
+# ── retrieve_chunks with scoring mode ───────────────────────────────────────
+
+class TestRetrieveChunksScoringMode(unittest.TestCase):
+    """retrieve_chunks() supports scoring='multi_dim' and scoring='single'."""
+
+    def test_single_scoring_uses_blended_embedding(self):
+        from projects.POC.orchestrator.proxy_memory import retrieve_chunks
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vec_a = [1.0, 0.0, 0.0]
+            vec_b = [0.0, 1.0, 0.0]
+            chunks = [
+                _make_chunk(chunk_id='s1', traces=[9],
+                            embedding_blended=vec_a),
+                _make_chunk(chunk_id='s2', traces=[9],
+                            embedding_blended=vec_b),
+            ]
+            db_path = _seed_db(tmpdir, chunks, counter=10)
+            conn = open_proxy_db(db_path)
+
+            # Query with context_blended matching vec_a
+            results = retrieve_chunks(
+                conn, scoring='single',
+                context_blended=vec_a,
+                current_interaction=10,
+                s=0.0,  # no noise
+            )
+            conn.close()
+
+            self.assertGreater(len(results), 0)
+            # s1 should rank first (identical embedding)
+            self.assertEqual(results[0].id, 's1')
+
+    def test_multi_dim_is_default(self):
+        from projects.POC.orchestrator.proxy_memory import retrieve_chunks
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            chunks = [
+                _make_chunk(chunk_id='m1', traces=[9],
+                            embedding_situation=[1.0, 0.0]),
+            ]
+            db_path = _seed_db(tmpdir, chunks, counter=10)
+            conn = open_proxy_db(db_path)
+
+            # Default scoring should work with context_embeddings
+            results = retrieve_chunks(
+                conn,
+                context_embeddings={'situation': [1.0, 0.0]},
+                current_interaction=10,
+            )
+            conn.close()
+
+            self.assertEqual(len(results), 1)
+
+    def test_invalid_scoring_raises(self):
+        from projects.POC.orchestrator.proxy_memory import retrieve_chunks
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = _seed_db(tmpdir, [], counter=10)
+            conn = open_proxy_db(db_path)
+
+            with self.assertRaises(ValueError):
+                retrieve_chunks(conn, scoring='invalid', current_interaction=10)
+            conn.close()
+
+    def test_single_scoring_without_blended_falls_back_to_activation(self):
+        """When chunks have no blended embedding, single scoring still works
+        (pure activation ranking, sem=0)."""
+        from projects.POC.orchestrator.proxy_memory import retrieve_chunks
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            chunks = [
+                _make_chunk(chunk_id='n1', traces=[9], embedding_blended=None),
+                _make_chunk(chunk_id='n2', traces=[8, 9], embedding_blended=None),
+            ]
+            db_path = _seed_db(tmpdir, chunks, counter=10)
+            conn = open_proxy_db(db_path)
+
+            results = retrieve_chunks(
+                conn, scoring='single',
+                context_blended=[1.0, 0.0],
+                current_interaction=10,
+                s=0.0,
+            )
+            conn.close()
+
+            # Should still return results (ranked by activation only)
+            self.assertEqual(len(results), 2)
+            # n2 has more traces, so higher activation
+            self.assertEqual(results[0].id, 'n2')
+
+
 if __name__ == '__main__':
     unittest.main()

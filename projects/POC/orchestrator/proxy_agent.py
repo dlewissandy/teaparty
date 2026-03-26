@@ -281,11 +281,15 @@ def _retrieve_actr_memories(
     state: str,
     task_type: str,
     question: str,
+    scoring: str = 'multi_dim',
 ) -> _ActrRetrievalResult:
     """Retrieve ACT-R memory chunks for the current gate context.
 
     Returns chunk IDs alongside the serialized text so the caller can
     reinforce after the proxy agent has consumed the memories.
+
+    scoring='multi_dim' (default): 5 independent embeddings per dimension.
+    scoring='single': 1 blended embedding (issue #222 ablation Config B).
     """
     try:
         from projects.POC.orchestrator.proxy_memory import (
@@ -295,6 +299,7 @@ def _retrieve_actr_memories(
             serialize_chunks_for_prompt,
             get_interaction_counter,
             get_accuracy,
+            blended_text_from_fields,
         )
         from projects.POC.scripts.memory_indexer import try_embed, detect_provider
 
@@ -308,21 +313,38 @@ def _retrieve_actr_memories(
             if current == 0:
                 return _EMPTY_RETRIEVAL
 
-            # Build context embeddings for retrieval
             provider, model = detect_provider()
-            context_embeddings: dict[str, list[float]] = {}
-            sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
-            if sit_vec:
-                context_embeddings['situation'] = sit_vec
-            stim_vec = try_embed(question, conn=conn, provider=provider, model=model)
-            if stim_vec:
-                context_embeddings['stimulus'] = stim_vec
 
-            chunks = retrieve_chunks(
-                conn, state=state, task_type=task_type,
-                context_embeddings=context_embeddings,
-                current_interaction=current,
-            )
+            if scoring == 'single':
+                # Config B: single blended context embedding
+                blended_str = blended_text_from_fields(
+                    state=state, task_type=task_type,
+                )
+                # Include the question in the blended context
+                if question:
+                    blended_str = f'{blended_str} {question}' if blended_str else question
+                context_blended = try_embed(blended_str, conn=conn, provider=provider, model=model)
+                chunks = retrieve_chunks(
+                    conn, state=state, task_type=task_type,
+                    context_blended=context_blended,
+                    scoring='single',
+                    current_interaction=current,
+                )
+            else:
+                # Config A: per-dimension context embeddings
+                context_embeddings: dict[str, list[float]] = {}
+                sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
+                if sit_vec:
+                    context_embeddings['situation'] = sit_vec
+                stim_vec = try_embed(question, conn=conn, provider=provider, model=model)
+                if stim_vec:
+                    context_embeddings['stimulus'] = stim_vec
+                chunks = retrieve_chunks(
+                    conn, state=state, task_type=task_type,
+                    context_embeddings=context_embeddings,
+                    current_interaction=current,
+                )
+
             accuracy = get_accuracy(conn, state=state, task_type=task_type)
             return _ActrRetrievalResult(
                 serialized=serialize_chunks_for_prompt(chunks),
