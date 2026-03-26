@@ -428,6 +428,17 @@ class ClaudeRunner:
                                     os.kill(pid, signal.SIGTERM)
                                 except (ProcessLookupError, PermissionError):
                                     pass
+                                if self.event_bus:
+                                    await self.event_bus.publish(Event(
+                                        type=EventType.LOG,
+                                        data={
+                                            'category': 'watchdog_kill_child',
+                                            'heartbeat': hb,
+                                            'pid': pid,
+                                            'stale_seconds': int(hb_age),
+                                        },
+                                        session_id=self.session_id,
+                                    ))
 
                 # Now check if the lead itself is stalled
                 age = now - last_output_time
@@ -435,6 +446,16 @@ class ClaudeRunner:
                 if running_agent_count > 0:
                     effective_timeout = max(self.stall_timeout, 7200)
                 if age >= effective_timeout:
+                    if self.event_bus:
+                        await self.event_bus.publish(Event(
+                            type=EventType.LOG,
+                            data={
+                                'category': 'watchdog_stall',
+                                'age_seconds': int(age),
+                                'effective_timeout': effective_timeout,
+                            },
+                            session_id=self.session_id,
+                        ))
                     self._lifecycle('stall')
                     _kill_process_tree(proc.pid)
                     raise _StallTimeout()
@@ -460,7 +481,11 @@ class ClaudeRunner:
                 if not os.path.exists(self.parent_heartbeat):
                     continue
 
-                if is_heartbeat_stale(self.parent_heartbeat, self.STALE_THRESHOLD):
+                # Two signals: heartbeat stale, or parent PID changed to 1 (launchd/init)
+                parent_dead = is_heartbeat_stale(self.parent_heartbeat, self.STALE_THRESHOLD)
+                if not parent_dead and os.getppid() == 1:
+                    parent_dead = True  # macOS/Linux: reparented to init
+                if parent_dead:
                     shutdown_flag = True
 
                     # Grace period: wait for subprocess to exit naturally

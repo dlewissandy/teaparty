@@ -82,7 +82,7 @@ def is_heartbeat_stale(path: str, threshold: int = 120) -> bool:
 
     A heartbeat is stale when:
       - mtime is older than threshold seconds, AND
-      - the PID in the file is no longer alive
+      - the PID is dead OR a different process reused the PID (create_time mismatch)
 
     Terminal heartbeats (completed/withdrawn) are never stale.
     Missing files are not stale (they never existed).
@@ -102,7 +102,7 @@ def is_heartbeat_stale(path: str, threshold: int = 120) -> bool:
     if not pid:
         return True
 
-    return not _is_pid_alive(pid)
+    return _is_pid_dead_or_reused(pid, data.get('started', 0))
 
 
 # ── Children registry ─────────────────────────────────────────────────────────
@@ -197,8 +197,36 @@ def _process_create_time(pid: int) -> float:
         return time.time()
 
 
+def _is_pid_dead_or_reused(pid: int, started: float) -> bool:
+    """Return True if the PID is dead or was reused by a different process.
+
+    Compares psutil.Process(pid).create_time() against the recorded started
+    time to defeat PID wraparound.  If psutil is unavailable, falls back
+    to os.kill(pid, 0).
+    """
+    try:
+        import psutil
+        proc = psutil.Process(pid)
+        # PID exists — check if it's the same process via create_time.
+        # Allow 2s tolerance for Linux's ~1s create_time resolution.
+        if started and abs(proc.create_time() - started) > 2.0:
+            return True  # Different process reused this PID
+        return False  # Same process, still alive
+    except Exception:
+        pass
+
+    # Fallback: simple PID liveness check
+    try:
+        os.kill(pid, 0)
+        return False  # alive (can't verify create_time)
+    except (ProcessLookupError, OSError):
+        return True  # dead
+    except PermissionError:
+        return False  # alive but we can't signal it
+
+
 def _is_pid_alive(pid: int) -> bool:
-    """Check if a PID is alive."""
+    """Check if a PID is alive (simple check, no create_time verification)."""
     try:
         os.kill(pid, 0)
         return True

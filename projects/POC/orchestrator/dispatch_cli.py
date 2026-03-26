@@ -90,6 +90,7 @@ async def dispatch(
     project_slug: str = '',
     resume_worktree: str = '',
     resume_infra: str = '',
+    liaison_task_id: str = '',
 ) -> dict:
     """Run a dispatch and return a status dict.
 
@@ -138,21 +139,38 @@ async def dispatch(
         worktree_path = resume_worktree
         dispatch_infra = resume_infra
 
-        # Increment retry count
-        retry_count_path = os.path.join(dispatch_infra, '.retry-count')
-        retry_count = 0
+        # Retry budget (issue #149): 3 per phase, 9 total per child.
+        # Per-phase count resets when CfA state advances to a new phase.
+        retry_path = os.path.join(dispatch_infra, '.retry-count')
+        retry_data = {'total': 0, 'phase': '', 'phase_count': 0}
         try:
-            with open(retry_count_path) as f:
-                retry_count = int(f.read().strip())
-        except (FileNotFoundError, ValueError):
+            with open(retry_path) as f:
+                retry_data = json.loads(f.read())
+                if isinstance(retry_data, int):  # Legacy flat count
+                    retry_data = {'total': retry_data, 'phase': '', 'phase_count': 0}
+        except (FileNotFoundError, ValueError, json.JSONDecodeError):
             pass
-        retry_count += 1
-        with open(retry_count_path, 'w') as f:
-            f.write(str(retry_count))
 
-        # Budget: 9 total attempts per child (issue #149)
-        if retry_count > 9:
-            return {'status': 'failed', 'reason': f'retry budget exhausted ({retry_count} attempts)'}
+        # Load CfA to check phase advancement
+        cfa_for_budget = load_state(os.path.join(dispatch_infra, '.cfa-state.json'))
+        current_phase = getattr(cfa_for_budget, 'phase', '') if hasattr(cfa_for_budget, 'phase') else ''
+
+        retry_data['total'] += 1
+        if current_phase and current_phase != retry_data.get('phase', ''):
+            # Phase advanced — reset per-phase counter
+            retry_data['phase'] = current_phase
+            retry_data['phase_count'] = 1
+        else:
+            retry_data['phase_count'] = retry_data.get('phase_count', 0) + 1
+
+        with open(retry_path, 'w') as f:
+            json.dump(retry_data, f)
+
+        # Budget checks: 3 per phase, 9 total
+        if retry_data['total'] > 9:
+            return {'status': 'failed', 'reason': f'total retry budget exhausted ({retry_data["total"]} attempts)'}
+        if retry_data['phase_count'] > 3:
+            return {'status': 'failed', 'reason': f'phase retry budget exhausted ({retry_data["phase_count"]} attempts in {current_phase})'}
 
         # Load existing CfA state
         cfa = load_state(os.path.join(dispatch_infra, '.cfa-state.json'))
@@ -188,6 +206,7 @@ async def dispatch(
             children_path,
             heartbeat=child_heartbeat_path,
             team=team,
+            task_id=liaison_task_id or None,
         )
 
         # Initialize CfA state for the child — use make_child_state for correct parent linkage
@@ -209,6 +228,22 @@ async def dispatch(
     async def _unreachable_input(request):
         raise RuntimeError('never_escalate=True but input_provider was called')
 
+    # Derive dispatch_id for session_id and stream file naming.
+    # On fresh dispatch, comes from dispatch_info.  On resume, derive from infra dir name.
+    if resume_worktree and resume_infra:
+        dispatch_id = os.path.basename(dispatch_infra)
+        # Extract prior Claude session ID from stream files for --resume continuity
+        resume_session_id = _extract_session_id_from_streams(dispatch_infra)
+    else:
+        dispatch_id = dispatch_info['dispatch_id']
+        resume_session_id = ''
+
+    # Build phase_session_ids for --resume support
+    phase_session_ids = {}
+    if resume_session_id:
+        # The prior session was running execution phase
+        phase_session_ids = {'execution': resume_session_id, 'planning': resume_session_id}
+
     orchestrator = Orchestrator(
         cfa_state=cfa,
         phase_config=config,
@@ -218,15 +253,18 @@ async def dispatch(
         project_workdir=worktree_path,
         session_worktree=worktree_path,
         proxy_model_path=os.path.join(
-            os.path.dirname(infra_dir), f'.proxy-confidence-{team}.json'
+            os.path.dirname(infra_dir) if infra_dir else dispatch_infra,
+            f'.proxy-confidence-{team}.json',
         ),
         project_slug=project_slug,
         poc_root=poc_root,
         task=task,
-        session_id=dispatch_info['dispatch_id'],
+        session_id=dispatch_id,
         skip_intent=True,
         never_escalate=True,
         team_override=team,
+        phase_session_ids=phase_session_ids if phase_session_ids else None,
+        parent_heartbeat=os.path.join(infra_dir, '.heartbeat') if infra_dir else '',
     )
 
     retries = 0
@@ -344,6 +382,33 @@ async def dispatch(
     if merge_failed:
         result_dict['reason'] = f'merge failed: {merge_error}'
     return result_dict
+
+
+def _extract_session_id_from_streams(infra_dir: str) -> str:
+    """Extract the Claude session ID from stream JSONL files in infra_dir.
+
+    Scans for system/init events which contain the session_id field.
+    Returns the first found, or empty string.
+    """
+    import glob
+    for stream_path in glob.glob(os.path.join(infra_dir, '*.jsonl')):
+        try:
+            with open(stream_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        event = json.loads(line)
+                        if (event.get('type') == 'system'
+                                and event.get('subtype') == 'init'
+                                and event.get('session_id')):
+                            return event['session_id']
+                    except json.JSONDecodeError:
+                        continue
+        except OSError:
+            continue
+    return ''
 
 
 async def main() -> int:

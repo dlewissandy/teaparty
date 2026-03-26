@@ -75,6 +75,10 @@ class ActorContext:
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
     mcp_config: dict[str, Any] | None = None
     data: dict[str, Any] = field(default_factory=dict)
+    # Heartbeat liveness (issue #149)
+    heartbeat_file: str = ''
+    parent_heartbeat: str = ''
+    children_file: str = ''
 
 
 # ── Work summary generation ──────────────────────────────────────────────────
@@ -221,6 +225,9 @@ class AgentRunner:
             stall_timeout=self.stall_timeout,
             session_id=ctx.session_id,
             mcp_config=ctx.mcp_config,
+            heartbeat_file=ctx.heartbeat_file,
+            parent_heartbeat=ctx.parent_heartbeat,
+            children_file=ctx.children_file,
         )
 
         result = await runner.run()
