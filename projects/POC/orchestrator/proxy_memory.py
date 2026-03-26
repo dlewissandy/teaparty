@@ -944,14 +944,16 @@ def serialize_chunks_for_prompt(
     # Experience section
     if chunks:
         parts.append(_serialize_section(
-            chunks, '--- RETRIEVED MEMORIES ---', token_budget,
+            chunks,
+            '## Your relevant experience with this human',
+            token_budget,
         ))
 
     # Salience section (independent attention retrieval, issue #227)
     if salience_chunks:
         parts.append(_serialize_section(
             salience_chunks,
-            '--- WHAT HAS SURPRISED YOU (LEARNED ATTENTION) ---',
+            '## What has surprised you in similar situations',
             salience_token_budget,
         ))
 
