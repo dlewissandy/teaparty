@@ -145,8 +145,9 @@ class TestCosineSimilarity(unittest.TestCase):
 
 class TestCompositeScore(unittest.TestCase):
 
-    def test_perfect_match_equal_regardless_of_populated_dims(self):
-        """A perfect match on N/N populated dims scores the same as M/M."""
+    def test_broad_match_outscores_narrow_match(self):
+        """A perfect match on 5/5 dims outscores a perfect match on 2/5,
+        because composite_score divides by TOTAL_EMBEDDING_DIMENSIONS."""
         vec_a = [1.0, 0.0, 0.0]
 
         chunk_broad = _make_chunk(
@@ -179,9 +180,10 @@ class TestCompositeScore(unittest.TestCase):
         score_narrow = composite_score(
             chunk_narrow, ctx, 10, 0.0, 1.0, s=0.0,
         )
-        # Both are perfect matches on their populated dimensions —
-        # semantic component should be equal (1.0).
-        self.assertAlmostEqual(score_broad, score_narrow, places=5)
+        # Broad match covers all 5 dims → sem = 5/5 = 1.0
+        # Narrow match covers 2 dims → sem = 2/5 = 0.4
+        # Breadth is rewarded per design spec.
+        self.assertGreater(score_broad, score_narrow)
 
 
 class TestChunkCRUD(unittest.TestCase):

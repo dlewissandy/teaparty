@@ -102,10 +102,12 @@ class TestIssue191RetrieveDoesNotMutate(unittest.TestCase):
 
 
 class TestIssue192EmbeddingDimensions(unittest.TestCase):
-    """#192: composite_score should not penalize sparse embeddings."""
+    """#212 supersedes #192: composite_score divides by TOTAL_EMBEDDING_DIMENSIONS
+    to reward breadth of matching across all dimensions."""
 
-    def test_sparse_embeddings_not_penalized(self):
-        """Denominator should count populated dimensions, not total (5)."""
+    def test_full_match_outscores_sparse(self):
+        """A perfect match on all 5 dims should outscore a match on 1 dim,
+        because the denominator is TOTAL_EMBEDDING_DIMENSIONS (not matched)."""
         vec = [1.0, 0.0, 0.0]
 
         # Chunk with only situation embedding
@@ -113,7 +115,6 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             traces=[1],
             embedding_situation=vec,
         )
-        # Query with only situation
         context = {'situation': vec}
 
         score_sparse = composite_score(
@@ -140,13 +141,10 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             b_min=0.0, b_max=0.0, s=0.0,
         )
 
-        # A perfect match on 1/1 populated dimensions should score the same
-        # semantic component as a perfect match on 5/5 populated dimensions.
-        # With the old code (divide by 5 always), sparse gets 0.2 and full gets 1.0.
-        # The semantic components should be equal (both perfect matches).
-        # We check that the sparse score is NOT drastically lower than full.
-        self.assertGreater(score_sparse, score_full * 0.8,
-                           "Sparse embedding penalized vs full — denominator bug")
+        # Dividing by TOTAL_EMBEDDING_DIMENSIONS: sparse = 1/5 = 0.2, full = 5/5 = 1.0.
+        # Full should outscore sparse — breadth is rewarded per design spec.
+        self.assertGreater(score_full, score_sparse,
+                           "Full-breadth match should outscore sparse match")
 
 
 class TestIssue193ConfidenceCalibrationFloor(unittest.TestCase):

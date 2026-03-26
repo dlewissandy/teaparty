@@ -339,16 +339,14 @@ def composite_score(
         'salience': chunk.embedding_salience,
     }
     sim_sum = 0.0
-    matched_dims = 0
     for dim, context_vec in context_embeddings.items():
         chunk_vec = dim_map.get(dim)
         if chunk_vec and context_vec:
             try:
                 sim_sum += cosine_similarity(chunk_vec, context_vec)
-                matched_dims += 1
             except ValueError:
                 _log.debug('Skipping dim %s: vector length mismatch', dim)
-    sem = sim_sum / matched_dims if matched_dims > 0 else 0.0
+    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
 
     noise = logistic_noise(s)
     return activation_weight * b_norm + semantic_weight * sem + noise
