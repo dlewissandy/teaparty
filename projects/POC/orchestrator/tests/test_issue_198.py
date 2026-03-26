@@ -208,8 +208,8 @@ class TestProxyCorrectionEmitsLearningEntry(unittest.TestCase):
                 "Only corrections carry actionable learning signal."
             )
 
-    def test_correction_entry_includes_cfa_state_in_content(self):
-        """The learning entry content must include the CfA state for retrieval context."""
+    def test_correction_entry_includes_cfa_state_and_feedback(self):
+        """The learning entry content must include the CfA state and feedback."""
         gate = _make_approval_gate(self.tmpdir)
         project_dir = os.path.join(self.tmpdir, 'project')
 
@@ -246,6 +246,87 @@ class TestProxyCorrectionEmitsLearningEntry(unittest.TestCase):
         self.assertIn(
             'rollback', content.lower(),
             "Entry content must include the correction feedback text."
+        )
+
+    def test_correction_entry_includes_proxy_prediction(self):
+        """The entry must include the proxy's prior prediction (the delta signal)."""
+        from projects.POC.orchestrator.proxy_agent import ProxyResult
+        gate = _make_approval_gate(self.tmpdir)
+        project_dir = os.path.join(self.tmpdir, 'project')
+
+        # Simulate a proxy result with prediction data
+        gate._last_proxy_result = ProxyResult(
+            text='This plan looks good.',
+            confidence=0.9,
+            from_agent=True,
+            prior_action='approve',
+            prior_confidence=0.85,
+            posterior_action='approve',
+            posterior_confidence=0.9,
+            prediction_delta='Plan lacks rollback strategy',
+            salient_percepts=['no rollback plan', 'database migration'],
+        )
+
+        with patch('projects.POC.orchestrator.actors.load_model', return_value={}), \
+             patch('projects.POC.orchestrator.actors.save_model'), \
+             patch('projects.POC.orchestrator.actors.record_outcome', return_value={}), \
+             patch('projects.POC.orchestrator.actors.resolve_team_model_path',
+                   return_value=gate.proxy_model_path), \
+             patch('projects.POC.orchestrator.actors._extract_question_patterns',
+                   return_value=[]):
+            gate._proxy_record(
+                state='PLAN_ASSERT',
+                project_slug='test',
+                outcome='correct',
+                feedback='Add a rollback strategy',
+                conversation='HUMAN: Where is the rollback plan?',
+                team='',
+            )
+
+        proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+        md_files = [f for f in os.listdir(proxy_tasks_dir) if f.endswith('.md')]
+        content = Path(os.path.join(proxy_tasks_dir, md_files[0])).read_text()
+
+        self.assertIn(
+            'prior prediction', content.lower(),
+            "Entry must include the proxy's prior prediction — the delta between "
+            "prediction and reality is the highest-value learning signal."
+        )
+        self.assertIn(
+            'approve', content.lower(),
+            "Entry must include the predicted action (approve)."
+        )
+
+    def test_correction_entry_includes_artifact_type(self):
+        """The entry must include the artifact type under review."""
+        gate = _make_approval_gate(self.tmpdir)
+        project_dir = os.path.join(self.tmpdir, 'project')
+
+        with patch('projects.POC.orchestrator.actors.load_model', return_value={}), \
+             patch('projects.POC.orchestrator.actors.save_model'), \
+             patch('projects.POC.orchestrator.actors.record_outcome', return_value={}), \
+             patch('projects.POC.orchestrator.actors.resolve_team_model_path',
+                   return_value=gate.proxy_model_path), \
+             patch('projects.POC.orchestrator.actors._extract_question_patterns',
+                   return_value=[]):
+            gate._proxy_record(
+                state='PLAN_ASSERT',
+                project_slug='test',
+                outcome='correct',
+                feedback='Missing tests section',
+                artifact_path='/tmp/session/PLAN.md',
+                conversation='',
+                team='',
+            )
+
+        proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+        md_files = [f for f in os.listdir(proxy_tasks_dir) if f.endswith('.md')]
+        content = Path(os.path.join(proxy_tasks_dir, md_files[0])).read_text()
+
+        self.assertIn(
+            'PLAN.md', content,
+            "Entry must include the artifact type (PLAN.md) so retrieval can "
+            "match corrections to the relevant artifact context."
         )
 
 
@@ -402,6 +483,74 @@ class TestLearningContextInProxyPrompt(unittest.TestCase):
             "run_proxy_agent() must accept a 'task_learnings' parameter so "
             "retrieved task learnings can be injected into the proxy prompt."
         )
+
+
+# ── 6. Proxy correction compaction in learnings.py ──────────────────────────
+
+class TestProxyCorrectionCompaction(unittest.TestCase):
+    """The extraction pipeline must compact accumulated proxy correction entries."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_compact_proxy_correction_entries_exists(self):
+        """learnings.py must include a proxy correction compaction step."""
+        from projects.POC.orchestrator.learnings import _compact_proxy_correction_entries
+        self.assertTrue(callable(_compact_proxy_correction_entries))
+
+    def test_compact_removes_duplicate_entries(self):
+        """Compaction must deduplicate correction entries with the same ID."""
+        from projects.POC.orchestrator.learnings import _compact_proxy_correction_entries
+
+        proxy_tasks_dir = os.path.join(self.tmpdir, 'proxy-tasks')
+        os.makedirs(proxy_tasks_dir)
+
+        # Write two correction files with the SAME ID (simulates duplicate)
+        entry_text = (
+            "---\n"
+            "id: duplicate-id-001\n"
+            "type: corrective\n"
+            "domain: task\n"
+            "importance: 0.8\n"
+            "phase: planning\n"
+            "status: active\n"
+            "reinforcement_count: 0\n"
+            "last_reinforced: '2026-03-26'\n"
+            "created_at: '2026-03-26'\n"
+            "---\n"
+            "## Proxy Correction at PLAN_ASSERT\n"
+            "**Correction:** Missing rollback strategy\n"
+        )
+        Path(os.path.join(proxy_tasks_dir, 'correction-aaa.md')).write_text(entry_text)
+        Path(os.path.join(proxy_tasks_dir, 'correction-bbb.md')).write_text(entry_text)
+
+        _compact_proxy_correction_entries(project_dir=self.tmpdir)
+
+        remaining = [f for f in os.listdir(proxy_tasks_dir) if f.startswith('correction-')]
+        self.assertEqual(
+            len(remaining), 1,
+            "Compaction must remove duplicate correction entries (same ID)."
+        )
+
+    def test_compact_skips_when_few_entries(self):
+        """Compaction should not run when there are fewer than 2 correction files."""
+        from projects.POC.orchestrator.learnings import _compact_proxy_correction_entries
+
+        proxy_tasks_dir = os.path.join(self.tmpdir, 'proxy-tasks')
+        os.makedirs(proxy_tasks_dir)
+        Path(os.path.join(proxy_tasks_dir, 'correction-solo.md')).write_text(
+            "---\nid: solo\ntype: corrective\ndomain: task\nimportance: 0.8\n"
+            "phase: planning\nstatus: active\nreinforcement_count: 0\n"
+            "last_reinforced: '2026-03-26'\ncreated_at: '2026-03-26'\n---\nSolo entry\n"
+        )
+
+        _compact_proxy_correction_entries(project_dir=self.tmpdir)
+
+        remaining = [f for f in os.listdir(proxy_tasks_dir) if f.startswith('correction-')]
+        self.assertEqual(len(remaining), 1, "Single file should not be compacted away.")
 
 
 if __name__ == '__main__':
