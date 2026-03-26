@@ -408,6 +408,25 @@ def retrieve_chunks(
     return [chunk for _, chunk in scored[:top_k]]
 
 
+def retrieve_most_recent_n(
+    conn: sqlite3.Connection,
+    n: int = 10,
+    *,
+    state: str = '',
+    task_type: str = '',
+) -> list[MemoryChunk]:
+    """Most-recent-N retrieval: return N chunks ordered by latest trace.
+
+    No activation computation, no embeddings, no threshold — pure recency.
+    This is Configuration B for the ACT-R decay vs. recency ablation (#223).
+    """
+    candidates = query_chunks(conn, state=state, task_type=task_type)
+    if not candidates:
+        return []
+    candidates.sort(key=lambda c: max(c.traces) if c.traces else 0, reverse=True)
+    return candidates[:n]
+
+
 def reinforce_retrieved(
     conn: sqlite3.Connection,
     chunks: list[MemoryChunk],
