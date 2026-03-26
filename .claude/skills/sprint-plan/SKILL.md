@@ -44,7 +44,7 @@ Report what was assigned and why.
 
 Read `gap-analysis.md` in this skill directory for the analysis procedure.
 
-Compare the design docs against the current code and the assigned tickets. Identify capabilities described in the design that are not covered by any existing ticket.
+**Read the actual code**, not just docs and tickets. For each capability area, use Grep/Glob/Read to understand what's implemented, what's partial, and what infrastructure exists or is missing. Trace integration points across modules. Then compare against the design to find gaps.
 
 For each gap, file a new ticket. Read `.claude/skills/audit/issue-template.md` for the template. File with: `gh issue create --title "<title>" --body "<body>" --milestone "<title>"`
 
