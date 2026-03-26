@@ -225,24 +225,30 @@ def _generalize_candidates(candidates_text: str) -> str:
 
 # ── Skill reflection — gate outcomes as reward signal (Issue #146) ───────────
 
-# Approval rate below this threshold triggers needs_review flag
-_NEEDS_REVIEW_THRESHOLD = 0.5
+# Approval rate below this threshold triggers needs_review flag.
+# Issue #229: 70% over recent uses, matching the issue specification.
+_NEEDS_REVIEW_THRESHOLD = 0.7
 
 
 def reflect_on_skill(
     *,
     skill_path: str,
-    corrections: list[dict],
+    corrections: list[dict] | None = None,
+    friction_events: list[dict] | None = None,
 ) -> bool:
-    """Apply gate correction deltas to a skill template.
+    """Refine a skill template using all available signals.
 
-    Reads the current skill, sends it plus the correction deltas to an LLM,
-    and writes the updated skill back.  Returns True if the skill was updated.
+    Accepts gate correction deltas AND/OR friction events from execution.
+    Sends all signals to a single LLM call so the refinement is coherent.
+    Returns True if the skill was updated.
 
-    If corrections is empty or the LLM returns empty, returns False and
-    preserves the original skill file.
+    Issue #229: Unified refinement replaces the separate reflect pass (#146)
+    and friction refinement into a single mechanism.
     """
-    if not corrections:
+    corrections = corrections or []
+    friction_events = friction_events or []
+
+    if not corrections and not friction_events:
         return False
 
     if not os.path.isfile(skill_path):
@@ -253,7 +259,7 @@ def reflect_on_skill(
     except OSError:
         return False
 
-    updated = _apply_corrections_to_skill(original, corrections)
+    updated = _apply_signals_to_skill(original, corrections, friction_events)
 
     if not updated or not updated.strip():
         return False
@@ -266,8 +272,8 @@ def reflect_on_skill(
 
     try:
         Path(skill_path).write_text(updated)
-        _log.info('Reflected %d corrections into skill: %s',
-                  len(corrections), skill_path)
+        _log.info('Reflected %d corrections + %d friction events into skill: %s',
+                  len(corrections), len(friction_events), skill_path)
         return True
     except OSError as exc:
         _log.warning('Failed to write reflected skill: %s', exc)
@@ -277,15 +283,35 @@ def reflect_on_skill(
 def update_skill_stats(
     *,
     skill_path: str,
-    outcomes: list[str],
+    outcomes: list[str] | None = None,
+    friction_events: list[dict] | None = None,
+    correction_deltas: list[str] | None = None,
+    was_refined: bool = False,
 ) -> None:
-    """Update a skill's frontmatter with approval stats from gate outcomes.
+    """Update a skill's frontmatter with quality metrics from a session.
 
-    Tracks: uses (total), approval_rate, corrections count.
-    Sets needs_review=true when approval_rate drops below threshold.
-    Accumulates across calls — reads prior stats from existing frontmatter.
+    Tracks (Issue #229 — per-skill quality monitoring):
+    - uses: total session count
+    - approval_rate: fraction of gate outcomes that were approvals
+    - corrections: total correction count
+    - correction_themes: recurring correction deltas (count >= 3)
+    - friction_events_total: cumulative friction event count
+    - friction_by_category: per-category friction counts (JSON)
+    - sessions_since_refinement: sessions since last LLM refinement (resets on refine)
+
+    Sets needs_review=true when:
+    - approval_rate drops below 70% (issue spec)
+    - average friction per session exceeds threshold
+    - correction themes repeat 3+ times (refinement isn't working)
     """
-    if not outcomes or not os.path.isfile(skill_path):
+    outcomes = outcomes or []
+    friction_events = friction_events or []
+    correction_deltas = correction_deltas or []
+
+    if not outcomes and not friction_events and not was_refined:
+        return
+
+    if not os.path.isfile(skill_path):
         return
 
     try:
@@ -295,7 +321,8 @@ def update_skill_stats(
 
     meta, body = _parse_candidate_frontmatter(content)
 
-    # Accumulate from prior stats
+    # ── Gate outcome stats ────────────────────────────────────────────────
+
     prior_uses = int(meta.get('uses', '0'))
     prior_approvals = round(float(meta.get('approval_rate', '1.0')) * prior_uses)
     prior_corrections = int(meta.get('corrections', '0'))
@@ -308,12 +335,72 @@ def update_skill_stats(
     total_corrections = prior_corrections + new_corrections
     approval_rate = total_approvals / total_uses if total_uses > 0 else 1.0
 
-    # Update frontmatter
     meta['uses'] = str(total_uses)
     meta['approval_rate'] = f'{approval_rate:.2f}'
     meta['corrections'] = str(total_corrections)
 
-    if approval_rate < _NEEDS_REVIEW_THRESHOLD:
+    # ── Friction stats (Issue #229) ───────────────────────────────────────
+
+    prior_friction = int(meta.get('friction_events_total', '0'))
+    total_friction = prior_friction + len(friction_events)
+    meta['friction_events_total'] = str(total_friction)
+
+    # Per-category friction breakdown
+    import json as _json
+    try:
+        prior_by_cat = _json.loads(meta.get('friction_by_category', '{}'))
+    except (_json.JSONDecodeError, TypeError):
+        prior_by_cat = {}
+
+    for event in friction_events:
+        cat = event.get('category', 'unknown')
+        prior_by_cat[cat] = prior_by_cat.get(cat, 0) + 1
+
+    if prior_by_cat:
+        meta['friction_by_category'] = _json.dumps(prior_by_cat)
+
+    # ── Correction theme tracking (Issue #229) ────────────────────────────
+
+    try:
+        prior_themes = _json.loads(meta.get('correction_themes', '{}'))
+    except (_json.JSONDecodeError, TypeError):
+        prior_themes = {}
+
+    for delta in correction_deltas:
+        # Normalize theme key: lowercase, first 80 chars
+        theme_key = delta.strip().lower()[:80]
+        if theme_key:
+            prior_themes[theme_key] = prior_themes.get(theme_key, 0) + 1
+
+    if prior_themes:
+        meta['correction_themes'] = _json.dumps(prior_themes)
+
+    # ── Sessions since refinement (Issue #229) ────────────────────────────
+
+    if was_refined:
+        meta['sessions_since_refinement'] = '0'
+    else:
+        prior_since = int(meta.get('sessions_since_refinement', '0'))
+        meta['sessions_since_refinement'] = str(prior_since + 1)
+
+    # ── Flag for review (Issue #229 — quality monitoring thresholds) ──────
+
+    needs_review = False
+
+    # Approval rate below 70%
+    if total_uses > 0 and approval_rate < _NEEDS_REVIEW_THRESHOLD:
+        needs_review = True
+
+    # Average friction per session too high
+    avg_friction = total_friction / max(total_uses, 1)
+    if avg_friction >= _FRICTION_PER_SESSION_THRESHOLD:
+        needs_review = True
+
+    # Correction themes repeating 3+ times (refinement isn't working)
+    if any(count >= 3 for count in prior_themes.values()):
+        needs_review = True
+
+    if needs_review:
         meta['needs_review'] = 'true'
     elif 'needs_review' in meta:
         del meta['needs_review']
@@ -330,26 +417,76 @@ def _apply_corrections_to_skill(
     skill_content: str,
     corrections: list[dict],
 ) -> str:
-    """Call an LLM to apply correction deltas to a skill template.
+    """Legacy wrapper — delegates to _apply_signals_to_skill.
 
-    Isolated for easy mocking in tests (same pattern as _generalize_candidates).
+    Preserved for backward compatibility with existing tests (#146).
     """
-    corrections_text = '\n'.join(
-        f'- [{c.get("state", "?")}] {c.get("delta", "")}'
-        for c in corrections
-        if c.get('delta')
-    )
+    return _apply_signals_to_skill(skill_content, corrections, [])
+
+
+def _apply_signals_to_skill(
+    skill_content: str,
+    corrections: list[dict],
+    friction_events: list[dict],
+) -> str:
+    """Call an LLM to apply gate corrections AND friction signals to a skill.
+
+    Issue #229: Unified refinement — a single LLM call receives both types
+    of signal so the refinement is coherent.  Replaces the separate
+    _apply_corrections_to_skill (gate only) and _apply_friction_to_skill
+    (friction only) with one pass.
+
+    Isolated for easy mocking in tests.
+    """
+    sections = []
+
+    if corrections:
+        corrections_text = '\n'.join(
+            f'- [{c.get("state", "?")}] {c.get("delta", "")}'
+            for c in corrections
+            if c.get('delta')
+        )
+        sections.append(
+            '## Gate Corrections\n'
+            'Human corrections from approval gates:\n\n'
+            f'{corrections_text}'
+        )
+
+    if friction_events:
+        friction_text = '\n'.join(
+            f'- [{e.get("category", "?")}] {e.get("detail", "")}'
+            for e in friction_events
+            if e.get('detail')
+        )
+        sections.append(
+            '## Execution Friction\n'
+            'Operational friction observed during execution:\n\n'
+            f'{friction_text}'
+        )
+
+    if not sections:
+        return ''
+
+    signals_block = '\n\n'.join(sections)
 
     prompt = (
-        'You are updating a reusable skill template based on human corrections '
-        'from approval gates. Apply the corrections to improve the template.\n\n'
+        'You are updating a reusable skill template based on feedback from execution.\n\n'
+        'Two types of signal may be present:\n'
+        '- **Gate corrections**: Human corrections at approval gates — the plan was wrong.\n'
+        '- **Execution friction**: Operational friction during execution — the plan was right '
+        'but the instructions were incomplete (agent searched blindly for files, guessed at '
+        'syntax, hit permission errors the skill could have warned about).\n\n'
+        'Improve the template to incorporate corrections and prevent friction recurrence:\n'
+        '- Apply gate corrections directly (the human said what to change)\n'
+        '- Add explicit file paths so agents don\'t search blindly\n'
+        '- Provide example commands so agents don\'t guess syntax\n'
+        '- Specify permission requirements upfront\n'
+        '- Add notes about common pitfalls\n\n'
         'IMPORTANT: Preserve the YAML frontmatter (name, description, category). '
-        'Only modify the workflow body to incorporate the corrections. '
-        'Return the complete updated skill file including frontmatter.\n\n'
+        'Only modify the workflow body. Return the complete updated skill file.\n\n'
         '## Current Skill Template\n\n'
         f'{skill_content}\n\n'
-        '## Corrections to Apply\n\n'
-        f'{corrections_text}\n'
+        f'{signals_block}\n'
     )
 
     try:
@@ -362,7 +499,7 @@ def _apply_corrections_to_skill(
         if result.returncode == 0 and result.stdout.strip():
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-        _log.warning('LLM call for skill reflection failed: %s', exc)
+        _log.warning('LLM call for skill refinement failed: %s', exc)
 
     return ''
 
@@ -535,91 +672,13 @@ def refine_skill_with_friction(
     skill_path: str,
     friction_events: list[dict],
 ) -> bool:
-    """Refine a skill template based on friction events from execution.
+    """Refine a skill template based on friction events.
 
-    Reads the current skill, sends it plus friction event descriptions to an
-    LLM, and writes the updated skill back.  Returns True if the skill was
-    updated.
-
-    Same pattern as reflect_on_skill — guards against empty input, LLM
-    failure, and invalid output.
+    Delegates to reflect_on_skill (the unified refinement mechanism).
+    Kept as a named entry point so callers don't need to know about
+    the unification.
     """
-    if not friction_events:
-        return False
-
-    if not os.path.isfile(skill_path):
-        return False
-
-    try:
-        original = Path(skill_path).read_text(errors='replace')
-    except OSError:
-        return False
-
-    updated = _apply_friction_to_skill(original, friction_events)
-
-    if not updated or not updated.strip():
-        return False
-
-    # Validate the updated skill has frontmatter
-    meta, body = _parse_candidate_frontmatter(updated)
-    if not meta.get('name') or not body.strip():
-        _log.warning('Friction refinement produced invalid skill — preserving original')
-        return False
-
-    try:
-        Path(skill_path).write_text(updated)
-        _log.info('Refined skill with %d friction events: %s',
-                  len(friction_events), skill_path)
-        return True
-    except OSError as exc:
-        _log.warning('Failed to write friction-refined skill: %s', exc)
-        return False
-
-
-def _apply_friction_to_skill(
-    skill_content: str,
-    friction_events: list[dict],
-) -> str:
-    """Call an LLM to apply friction event learnings to a skill template.
-
-    Isolated for easy mocking in tests (same pattern as _apply_corrections_to_skill).
-    """
-    friction_text = '\n'.join(
-        f'- [{e.get("category", "?")}] {e.get("detail", "")}'
-        for e in friction_events
-        if e.get('detail')
-    )
-
-    prompt = (
-        'You are updating a reusable skill template based on operational friction '
-        'observed during execution. These friction events indicate where the skill\'s '
-        'instructions were incomplete — the agent had to figure things out the hard way.\n\n'
-        'Improve the template to prevent recurrence:\n'
-        '- Add explicit file paths so agents don\'t search blindly\n'
-        '- Provide example commands so agents don\'t guess syntax\n'
-        '- Specify permission requirements upfront\n'
-        '- Add notes about common pitfalls\n\n'
-        'IMPORTANT: Preserve the YAML frontmatter (name, description, category). '
-        'Only modify the workflow body. Return the complete updated skill file.\n\n'
-        '## Current Skill Template\n\n'
-        f'{skill_content}\n\n'
-        '## Friction Events to Address\n\n'
-        f'{friction_text}\n'
-    )
-
-    try:
-        result = subprocess.run(
-            ['claude', '--print', '-p', prompt],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as exc:
-        _log.warning('LLM call for friction refinement failed: %s', exc)
-
-    return ''
+    return reflect_on_skill(skill_path=skill_path, friction_events=friction_events)
 
 
 def update_skill_friction_stats(
@@ -629,37 +688,10 @@ def update_skill_friction_stats(
 ) -> None:
     """Update a skill's frontmatter with friction event counts.
 
-    Tracks: friction_events_total (cumulative).
-    Sets needs_review=true when average friction per session exceeds threshold.
-    Accumulates across calls — reads prior stats from existing frontmatter.
+    Delegates to update_skill_stats (the unified stats function).
+    Kept as a named entry point for backward compatibility.
     """
-    if not friction_events or not os.path.isfile(skill_path):
-        return
-
-    try:
-        content = Path(skill_path).read_text(errors='replace')
-    except OSError:
-        return
-
-    meta, body = _parse_candidate_frontmatter(content)
-
-    # Accumulate from prior stats
-    prior_friction = int(meta.get('friction_events_total', '0'))
-    total_friction = prior_friction + len(friction_events)
-    total_uses = int(meta.get('uses', '1'))  # at least 1 (this session)
-
-    meta['friction_events_total'] = str(total_friction)
-
-    # Flag for review if average friction per session is too high
-    avg_friction = total_friction / max(total_uses, 1)
-    if avg_friction >= _FRICTION_PER_SESSION_THRESHOLD:
-        meta['needs_review'] = 'true'
-
-    updated = _rebuild_skill_file(meta, body)
-    try:
-        Path(skill_path).write_text(updated)
-    except OSError:
-        pass
+    update_skill_stats(skill_path=skill_path, friction_events=friction_events)
 
 
 def _mark_candidate_processed(path: str) -> None:
