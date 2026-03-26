@@ -164,22 +164,15 @@ async def extract_learnings(
         infra_dir=infra_dir,
     )
 
-    # ── Skill reflection: apply gate corrections to skill template (#146) ───
+    # ── Unified skill refinement: gate corrections + friction (Issue #229) ──
+    # Replaces the separate skill-reflect (#146) and skill-friction-refine
+    # steps with a single unified refinement that sends all signals
+    # (corrections AND friction) to one LLM call.
 
     sidecar_path = os.path.join(infra_dir, '.active-skill.json')
     if os.path.isfile(sidecar_path):
         await _run_scope(
-            'skill-reflect', _reflect_on_skill_outcomes,
-            infra_dir=infra_dir,
-            project_dir=project_dir,
-        )
-
-    # ── Friction-aware skill refinement (Issue #229) ────────────────────────
-
-    friction_path = os.path.join(infra_dir, '.friction-events.json')
-    if os.path.isfile(sidecar_path) and os.path.isfile(friction_path):
-        await _run_scope(
-            'skill-friction-refine', _refine_skill_from_friction,
+            'skill-refine', _refine_skill_unified,
             infra_dir=infra_dir,
             project_dir=project_dir,
         )
@@ -601,15 +594,22 @@ def _crystallize_skills(*, project_dir: str) -> None:
     crystallize_skills(project_dir=project_dir)
 
 
-# ── Skill reflection: gate outcomes as reward signal (#146) ──────────────────
+# ── Unified skill refinement: gate corrections + friction (Issue #229) ────────
 
 def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
-    """Apply gate correction deltas to the skill that produced the plan.
+    """Legacy entry point — delegates to _refine_skill_unified."""
+    _refine_skill_unified(infra_dir=infra_dir, project_dir=project_dir)
 
-    Reads .active-skill.json (written by engine on skill match) and
-    .proxy-interactions.jsonl to find gate outcomes scoped to that skill.
-    Calls reflect_on_skill() to apply corrections and update_skill_stats()
-    to track approval rates.
+
+def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
+    """Unified skill refinement: gate corrections + friction events.
+
+    Issue #229: Replaces the separate skill-reflect (#146) and
+    skill-friction-refine steps.  Reads all available signals (gate
+    outcomes from .proxy-interactions.jsonl AND friction events from
+    .friction-events.json) and sends them to a single reflect_on_skill
+    call.  Updates skill stats with all metrics (approval rate, friction
+    counts, correction themes, sessions_since_refinement).
     """
     import json
     from projects.POC.orchestrator.procedural_learning import (
@@ -630,48 +630,68 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
     if not skill_name or not skill_path or not os.path.isfile(skill_path):
         return
 
-    # Read gate outcomes from the interaction log, scoped to this skill
-    # AND this session.  Without session filtering, corrections from prior
-    # sessions would be re-applied and stats would double-count.
-    log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
-    if not os.path.isfile(log_path):
-        return
-
+    # ── Collect gate outcomes ─────────────────────────────────────────────
     corrections = []
     outcomes = []
-    try:
-        with open(log_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if entry.get('skill_name') != skill_name:
-                    continue
-                if session_id and entry.get('session_id') != session_id:
-                    continue
-                outcome = entry.get('outcome', '')
-                if outcome:
-                    outcomes.append(outcome)
-                if outcome == 'correct' and entry.get('delta'):
-                    corrections.append({
-                        'state': entry.get('state', ''),
-                        'outcome': outcome,
-                        'delta': entry['delta'],
-                    })
-    except OSError:
-        return
+    correction_deltas = []
 
-    # Apply corrections to skill template (if any)
-    if corrections:
-        reflect_on_skill(skill_path=skill_path, corrections=corrections)
+    log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
+    if os.path.isfile(log_path):
+        try:
+            with open(log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get('skill_name') != skill_name:
+                        continue
+                    if session_id and entry.get('session_id') != session_id:
+                        continue
+                    outcome = entry.get('outcome', '')
+                    if outcome:
+                        outcomes.append(outcome)
+                    if outcome == 'correct' and entry.get('delta'):
+                        corrections.append({
+                            'state': entry.get('state', ''),
+                            'outcome': outcome,
+                            'delta': entry['delta'],
+                        })
+                        correction_deltas.append(entry['delta'])
+        except OSError:
+            pass
 
-    # Update skill stats with all outcomes
-    if outcomes:
-        update_skill_stats(skill_path=skill_path, outcomes=outcomes)
+    # ── Collect friction events ───────────────────────────────────────────
+    friction_events = []
+    friction_path = os.path.join(infra_dir, '.friction-events.json')
+    if os.path.isfile(friction_path):
+        try:
+            with open(friction_path) as f:
+                friction_events = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # ── Unified refinement: single LLM call with all signals ─────────────
+    was_refined = False
+    if corrections or friction_events:
+        was_refined = reflect_on_skill(
+            skill_path=skill_path,
+            corrections=corrections,
+            friction_events=friction_events,
+        )
+
+    # ── Update all quality metrics ────────────────────────────────────────
+    if outcomes or friction_events or was_refined:
+        update_skill_stats(
+            skill_path=skill_path,
+            outcomes=outcomes,
+            friction_events=friction_events,
+            correction_deltas=correction_deltas,
+            was_refined=was_refined,
+        )
 
 
 # ── Proxy contradiction consolidation (#228) ─────────────────────────────────
@@ -861,50 +881,6 @@ def _detect_and_write_friction(*, infra_dir: str) -> None:
         _log.info('Wrote %d friction events to %s', len(events), sidecar_path)
     except OSError as exc:
         _log.warning('Failed to write friction events sidecar: %s', exc)
-
-
-# ── Friction-aware skill refinement (Issue #229) ──────────────────────────────
-
-def _refine_skill_from_friction(*, infra_dir: str, project_dir: str) -> None:
-    """Refine a skill using friction events from the current session.
-
-    Reads .active-skill.json and .friction-events.json, then calls
-    refine_skill_with_friction to update the skill template and
-    update_skill_friction_stats to track metrics.
-    """
-    import json
-
-    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
-    try:
-        with open(sidecar_path) as f:
-            skill_info = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return
-
-    skill_path = skill_info.get('path', '')
-    if not skill_path or not os.path.isfile(skill_path):
-        return
-
-    friction_path = os.path.join(infra_dir, '.friction-events.json')
-    try:
-        with open(friction_path) as f:
-            friction_events = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return
-
-    if not friction_events:
-        return
-
-    from projects.POC.orchestrator.procedural_learning import (
-        refine_skill_with_friction,
-        update_skill_friction_stats,
-    )
-
-    # Update friction stats (always, even if refinement is skipped)
-    update_skill_friction_stats(skill_path=skill_path, friction_events=friction_events)
-
-    # Attempt refinement
-    refine_skill_with_friction(skill_path=skill_path, friction_events=friction_events)
 
 
 CLUSTER_SIMILARITY_THRESHOLD = 0.85

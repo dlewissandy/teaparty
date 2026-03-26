@@ -280,7 +280,7 @@ class TestReflectPassAppliesCorrections(unittest.TestCase):
         )
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             return_value=updated_skill,
         ) as mock_apply:
             result = reflect_on_skill(
@@ -332,7 +332,7 @@ class TestReflectPassAppliesCorrections(unittest.TestCase):
         ]
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             return_value='',  # LLM returned empty
         ):
             result = reflect_on_skill(
@@ -422,7 +422,7 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
         self._td.cleanup()
 
     def test_extract_learnings_calls_reflect_when_skill_was_used(self):
-        """extract_learnings calls the skill-reflect scope when .active-skill.json exists."""
+        """extract_learnings calls the skill-refine scope when .active-skill.json exists."""
         from projects.POC.orchestrator.learnings import extract_learnings
 
         # Write the sidecar that indicates a skill was used
@@ -431,10 +431,10 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
             json.dumps(sidecar)
         )
 
-        reflect_called = []
+        refine_called = []
 
-        def _track_reflect(**kwargs):
-            reflect_called.append(kwargs)
+        def _track_refine(**kwargs):
+            refine_called.append(kwargs)
 
         with patch('projects.POC.orchestrator.learnings._run_summarize'), \
              patch('projects.POC.orchestrator.learnings._promote_team'), \
@@ -447,10 +447,12 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
              patch('projects.POC.orchestrator.learnings._reinforce_retrieved'), \
              patch('projects.POC.orchestrator.learnings._archive_skill_candidate'), \
              patch('projects.POC.orchestrator.learnings._crystallize_skills'), \
+             patch('projects.POC.orchestrator.learnings._detect_and_write_friction'), \
+             patch('projects.POC.orchestrator.learnings._compact_proxy_correction_entries'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_patterns'), \
              patch(
-                 'projects.POC.orchestrator.learnings._reflect_on_skill_outcomes',
-                 side_effect=_track_reflect,
+                 'projects.POC.orchestrator.learnings._refine_skill_unified',
+                 side_effect=_track_refine,
              ):
             _run(extract_learnings(
                 infra_dir=self.infra_dir,
@@ -460,17 +462,17 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
                 poc_root='/tmp/poc',
             ))
 
-        self.assertGreater(len(reflect_called), 0,
-                           '_reflect_on_skill_outcomes was never called')
+        self.assertGreater(len(refine_called), 0,
+                           '_refine_skill_unified was never called')
 
     def test_extract_learnings_skips_reflect_when_no_skill(self):
-        """extract_learnings does NOT call skill-reflect when no .active-skill.json."""
+        """extract_learnings does NOT call skill-refine when no .active-skill.json."""
         from projects.POC.orchestrator.learnings import extract_learnings
 
-        reflect_called = []
+        refine_called = []
 
-        def _track_reflect(**kwargs):
-            reflect_called.append(kwargs)
+        def _track_refine(**kwargs):
+            refine_called.append(kwargs)
 
         with patch('projects.POC.orchestrator.learnings._run_summarize'), \
              patch('projects.POC.orchestrator.learnings._promote_team'), \
@@ -483,10 +485,12 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
              patch('projects.POC.orchestrator.learnings._reinforce_retrieved'), \
              patch('projects.POC.orchestrator.learnings._archive_skill_candidate'), \
              patch('projects.POC.orchestrator.learnings._crystallize_skills'), \
+             patch('projects.POC.orchestrator.learnings._detect_and_write_friction'), \
+             patch('projects.POC.orchestrator.learnings._compact_proxy_correction_entries'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_patterns'), \
              patch(
-                 'projects.POC.orchestrator.learnings._reflect_on_skill_outcomes',
-                 side_effect=_track_reflect,
+                 'projects.POC.orchestrator.learnings._refine_skill_unified',
+                 side_effect=_track_refine,
              ):
             _run(extract_learnings(
                 infra_dir=self.infra_dir,
@@ -496,8 +500,8 @@ class TestReflectWiredIntoLearnings(unittest.TestCase):
                 poc_root='/tmp/poc',
             ))
 
-        self.assertEqual(len(reflect_called), 0,
-                         '_reflect_on_skill_outcomes should not be called without .active-skill.json')
+        self.assertEqual(len(refine_called), 0,
+                         '_refine_skill_unified should not be called without .active-skill.json')
 
 
 # ── Tests: session-scoped filtering in reflect pass ──────────────────────────
@@ -553,12 +557,12 @@ class TestSessionScopedFiltering(unittest.TestCase):
 
         corrections_seen = []
 
-        def _mock_apply(skill_content, corrections):
+        def _mock_apply(skill_content, corrections, friction_events):
             corrections_seen.extend(corrections)
             return ''  # return empty to avoid writing
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             side_effect=_mock_apply,
         ):
             _reflect_on_skill_outcomes(
@@ -601,7 +605,7 @@ class TestSessionScopedFiltering(unittest.TestCase):
         )
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_corrections_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             return_value='',
         ):
             _reflect_on_skill_outcomes(

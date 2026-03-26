@@ -284,7 +284,7 @@ class TestFrictionAwareSkillRefinement(unittest.TestCase):
         )
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_friction_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             return_value=updated_skill,
         ) as mock_apply:
             result = refine_skill_with_friction(
@@ -326,7 +326,7 @@ class TestFrictionAwareSkillRefinement(unittest.TestCase):
         ]
 
         with patch(
-            'projects.POC.orchestrator.procedural_learning._apply_friction_to_skill',
+            'projects.POC.orchestrator.procedural_learning._apply_signals_to_skill',
             return_value='',
         ):
             result = refine_skill_with_friction(
@@ -357,9 +357,8 @@ class TestFrictionRefinementWiring(unittest.TestCase):
     def tearDown(self):
         self._td.cleanup()
 
-    def test_friction_refinement_called_when_skill_and_friction_exist(self):
-        """extract_learnings calls friction refinement when both .active-skill.json
-        and .friction-events.json exist."""
+    def test_unified_refinement_called_when_skill_exists(self):
+        """extract_learnings calls unified skill refinement when .active-skill.json exists."""
         from projects.POC.orchestrator.learnings import extract_learnings
 
         # Write active skill sidecar
@@ -367,11 +366,10 @@ class TestFrictionRefinementWiring(unittest.TestCase):
         sidecar = {'name': 'research-paper', 'path': skill_path, 'session_id': 'test-session'}
         Path(os.path.join(self.infra_dir, '.active-skill.json')).write_text(json.dumps(sidecar))
 
-        # Write friction events sidecar
+        # Write friction events sidecar (unified refinement reads both)
         friction = [{'category': 'permission_denied', 'detail': 'blocked'}]
         Path(os.path.join(self.infra_dir, '.friction-events.json')).write_text(json.dumps(friction))
 
-        # Write the interaction log (needed for skill-reflect)
         Path(os.path.join(self.project_dir, '.proxy-interactions.jsonl')).write_text('')
 
         refine_called = []
@@ -390,11 +388,11 @@ class TestFrictionRefinementWiring(unittest.TestCase):
              patch('projects.POC.orchestrator.learnings._reinforce_retrieved'), \
              patch('projects.POC.orchestrator.learnings._archive_skill_candidate'), \
              patch('projects.POC.orchestrator.learnings._crystallize_skills'), \
-             patch('projects.POC.orchestrator.learnings._reflect_on_skill_outcomes'), \
+             patch('projects.POC.orchestrator.learnings._detect_and_write_friction'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_correction_entries'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_patterns'), \
              patch(
-                 'projects.POC.orchestrator.learnings._refine_skill_from_friction',
+                 'projects.POC.orchestrator.learnings._refine_skill_unified',
                  side_effect=_track_refine,
              ):
             _run(extract_learnings(
@@ -406,17 +404,11 @@ class TestFrictionRefinementWiring(unittest.TestCase):
             ))
 
         self.assertGreater(len(refine_called), 0,
-                           '_refine_skill_from_friction should be called when skill + friction exist')
+                           'Unified refinement should be called when .active-skill.json exists')
 
-    def test_friction_refinement_skipped_when_no_friction(self):
-        """extract_learnings does NOT call friction refinement when no .friction-events.json."""
+    def test_unified_refinement_skipped_when_no_skill(self):
+        """extract_learnings does NOT call unified refinement when no .active-skill.json."""
         from projects.POC.orchestrator.learnings import extract_learnings
-
-        # Write active skill sidecar only (no friction)
-        skill_path = _make_skill(self.skills_dir)
-        sidecar = {'name': 'research-paper', 'path': skill_path, 'session_id': 'test-session'}
-        Path(os.path.join(self.infra_dir, '.active-skill.json')).write_text(json.dumps(sidecar))
-        Path(os.path.join(self.project_dir, '.proxy-interactions.jsonl')).write_text('')
 
         refine_called = []
 
@@ -434,11 +426,11 @@ class TestFrictionRefinementWiring(unittest.TestCase):
              patch('projects.POC.orchestrator.learnings._reinforce_retrieved'), \
              patch('projects.POC.orchestrator.learnings._archive_skill_candidate'), \
              patch('projects.POC.orchestrator.learnings._crystallize_skills'), \
-             patch('projects.POC.orchestrator.learnings._reflect_on_skill_outcomes'), \
+             patch('projects.POC.orchestrator.learnings._detect_and_write_friction'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_correction_entries'), \
              patch('projects.POC.orchestrator.learnings._compact_proxy_patterns'), \
              patch(
-                 'projects.POC.orchestrator.learnings._refine_skill_from_friction',
+                 'projects.POC.orchestrator.learnings._refine_skill_unified',
                  side_effect=_track_refine,
              ):
             _run(extract_learnings(
@@ -450,7 +442,7 @@ class TestFrictionRefinementWiring(unittest.TestCase):
             ))
 
         self.assertEqual(len(refine_called), 0,
-                         'Friction refinement should not be called without friction events')
+                         'Unified refinement should not be called without .active-skill.json')
 
 
 # ── Tests: per-skill quality metrics aggregation ──────────────────────────────
@@ -518,6 +510,92 @@ class TestSkillQualityMetrics(unittest.TestCase):
         meta, _ = self._read_frontmatter(skill_path)
         self.assertEqual(meta.get('needs_review'), 'true',
                          'Skill with high friction should be flagged needs_review')
+
+    def test_per_category_friction_breakdown(self):
+        """update_skill_stats tracks friction counts per category."""
+        from projects.POC.orchestrator.procedural_learning import update_skill_stats
+
+        skill_path = _make_skill(self.skills_dir)
+
+        friction_events = [
+            {'category': 'permission_denied', 'detail': 'blocked'},
+            {'category': 'file_not_found', 'detail': 'missing'},
+            {'category': 'permission_denied', 'detail': 'blocked again'},
+        ]
+
+        update_skill_stats(skill_path=skill_path, friction_events=friction_events)
+
+        meta, _ = self._read_frontmatter(skill_path)
+        import json
+        by_cat = json.loads(meta.get('friction_by_category', '{}'))
+        self.assertEqual(by_cat.get('permission_denied'), 2)
+        self.assertEqual(by_cat.get('file_not_found'), 1)
+
+    def test_sessions_since_refinement_increments(self):
+        """sessions_since_refinement increments on each call without refinement."""
+        from projects.POC.orchestrator.procedural_learning import update_skill_stats
+
+        skill_path = _make_skill(self.skills_dir)
+
+        # First session — no refinement
+        update_skill_stats(skill_path=skill_path, outcomes=['approve'])
+        meta, _ = self._read_frontmatter(skill_path)
+        self.assertEqual(meta.get('sessions_since_refinement'), '1')
+
+        # Second session — still no refinement
+        update_skill_stats(skill_path=skill_path, outcomes=['approve'])
+        meta, _ = self._read_frontmatter(skill_path)
+        self.assertEqual(meta.get('sessions_since_refinement'), '2')
+
+    def test_sessions_since_refinement_resets_on_refine(self):
+        """sessions_since_refinement resets to 0 when was_refined=True."""
+        from projects.POC.orchestrator.procedural_learning import update_skill_stats
+
+        skill_path = _make_skill(self.skills_dir)
+
+        # Two sessions without refinement
+        update_skill_stats(skill_path=skill_path, outcomes=['approve'])
+        update_skill_stats(skill_path=skill_path, outcomes=['approve'])
+
+        # Refinement happened
+        update_skill_stats(skill_path=skill_path, outcomes=['approve'], was_refined=True)
+        meta, _ = self._read_frontmatter(skill_path)
+        self.assertEqual(meta.get('sessions_since_refinement'), '0')
+
+    def test_correction_themes_tracked(self):
+        """Correction deltas are tracked as themes with frequency counts."""
+        from projects.POC.orchestrator.procedural_learning import update_skill_stats
+
+        skill_path = _make_skill(self.skills_dir)
+
+        update_skill_stats(
+            skill_path=skill_path,
+            outcomes=['correct', 'correct'],
+            correction_deltas=['Add error handling', 'Add error handling'],
+        )
+
+        meta, _ = self._read_frontmatter(skill_path)
+        import json
+        themes = json.loads(meta.get('correction_themes', '{}'))
+        self.assertEqual(themes.get('add error handling'), 2)
+
+    def test_repeating_correction_theme_flags_needs_review(self):
+        """When a correction theme repeats 3+ times, skill is flagged for review."""
+        from projects.POC.orchestrator.procedural_learning import update_skill_stats
+
+        skill_path = _make_skill(self.skills_dir)
+
+        # Same correction applied 3 times across sessions
+        for _ in range(3):
+            update_skill_stats(
+                skill_path=skill_path,
+                outcomes=['correct'],
+                correction_deltas=['Add rollback step'],
+            )
+
+        meta, _ = self._read_frontmatter(skill_path)
+        self.assertEqual(meta.get('needs_review'), 'true',
+                         'Correction theme repeating 3+ times should flag needs_review')
 
     def _read_frontmatter(self, path):
         from projects.POC.orchestrator.procedural_learning import _parse_candidate_frontmatter
