@@ -319,9 +319,14 @@ async def _run_git(cwd: str, *args: str) -> None:
         'git', *args,
         cwd=cwd,
         stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.PIPE,
     )
-    await proc.wait()
+    _, stderr = await proc.communicate()
+    if proc.returncode:
+        raise RuntimeError(
+            f"git {' '.join(args)} failed (rc={proc.returncode}): "
+            f"{stderr.decode().strip()}"
+        )
 
 
 async def _run_git_output(cwd: str, *args: str) -> str:
