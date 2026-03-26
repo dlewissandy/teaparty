@@ -57,6 +57,8 @@ class MemoryEntry:
     content: str               # the learning text (after frontmatter)
     session_id: str = ""       # originating session ID (e.g. 'session-20260309-064427')
     session_task: str = ""     # originating task description (truncated)
+    promoted_from: str = ""    # scope this entry was promoted from (e.g. 'session')
+    promoted_at: str = ""      # ISO date when promoted (e.g. '2026-03-26')
 
 
 # ── Factory ────────────────────────────────────────────────────────────────────
@@ -188,6 +190,10 @@ def serialize_entry(entry: MemoryEntry) -> str:
         # Escape single quotes in task description
         safe_task = entry.session_task.replace("'", "''")
         lines.append(f"session_task: '{safe_task}'")
+    if entry.promoted_from:
+        lines.append(f"promoted_from: {entry.promoted_from}")
+    if entry.promoted_at:
+        lines.append(f"promoted_at: '{entry.promoted_at}'")
     lines.extend(['---', entry.content])
     return '\n'.join(lines)
 
@@ -240,6 +246,8 @@ def parse_entry(text: str) -> MemoryEntry:
         last_reinforced=str(metadata.get('last_reinforced', today)),
         created_at=str(metadata.get('created_at', today)),
         content=content,
+        promoted_from=str(metadata.get('promoted_from', '')),
+        promoted_at=str(metadata.get('promoted_at', '')),
     )
 
 
