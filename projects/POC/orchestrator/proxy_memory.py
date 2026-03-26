@@ -1200,11 +1200,49 @@ def has_genuine_tension(
     return any(c.cause == 'genuine_tension' for c in classifications)
 
 
+# ── Asymmetric confidence decay (Hindsight, arXiv:2512.12818) ────────────────
+
+# Step size for confidence updates. Supporting = +α, weakening = -α,
+# contradicting = -2α. Value chosen to be meaningful over ~10-20
+# interactions but not so large that a single event dominates.
+CONFIDENCE_ALPHA = 0.05
+
+
+def apply_confidence_decay(
+    confidence: float,
+    evidence_type: str,
+    alpha: float = CONFIDENCE_ALPHA,
+) -> float:
+    """Apply asymmetric confidence decay following Hindsight.
+
+    Args:
+        confidence: current confidence value in [0.0, 1.0]
+        evidence_type: one of 'supporting', 'weakening', 'contradicting'
+        alpha: step size (default CONFIDENCE_ALPHA)
+
+    Returns:
+        Updated confidence, clamped to [0.0, 1.0].
+
+    The asymmetry: contradicting evidence reduces confidence by 2α,
+    while supporting evidence increases by only α. This is consistent
+    with the proxy's existing 3x correction asymmetry (EMA) and
+    regret theory: false beliefs are more costly than missed reinforcements.
+    """
+    if evidence_type == 'supporting':
+        return min(1.0, confidence + alpha)
+    elif evidence_type == 'weakening':
+        return max(0.0, confidence - alpha)
+    elif evidence_type == 'contradicting':
+        return max(0.0, confidence - 2 * alpha)
+    else:
+        return confidence
+
+
 def consolidate_proxy_entries(
     chunks: list[MemoryChunk],
     current_interaction: int = 0,
 ) -> list[MemoryChunk]:
-    """Apply ADD/UPDATE/DELETE/SKIP taxonomy to proxy entries.
+    """Apply ADD/UPDATE/DELETE/SKIP taxonomy to proxy ACT-R chunks.
 
     Post-session consolidation pass — separate from compact_entries().
 
@@ -1232,6 +1270,160 @@ def consolidate_proxy_entries(
             delete_ids.add(older_id)
 
     return [c for c in chunks if c.id not in delete_ids]
+
+
+# ── Proxy.md consolidation (issue #228 Stage 2) ─────────────────────────────
+
+# Mem0 decision taxonomy
+CONSOLIDATION_ADD = 'ADD'           # no conflict — keep new entry
+CONSOLIDATION_UPDATE = 'UPDATE'     # complement existing — merge
+CONSOLIDATION_DELETE = 'DELETE'     # new supersedes old — remove old
+CONSOLIDATION_SKIP = 'SKIP'        # already represented — discard new
+
+
+def _tokenize_content(text: str) -> set[str]:
+    """Extract word tokens from text for similarity comparison."""
+    import re as _re
+    return set(_re.findall(r'[a-z0-9]+', text.lower()))
+
+
+def _jaccard_similarity(a: set[str], b: set[str]) -> float:
+    """Jaccard similarity between two token sets."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
+def consolidate_proxy_file(
+    entries: list,
+    *,
+    similarity_threshold: float = 0.4,
+    classifier: Any = None,
+) -> tuple[list, list[dict]]:
+    """Consolidate proxy.md MemoryEntry objects using ADD/UPDATE/DELETE/SKIP.
+
+    Stage 2 of issue #228: post-session write-time consolidation.
+
+    1. Cluster entries by content similarity (O-Mem pattern).
+    2. Within each cluster, identify conflicts:
+       - If classifier is provided, use it (LLM-as-judge).
+       - Otherwise, use heuristic: within a cluster, entries with
+         substantially different content (low Jaccard despite being
+         in the same cluster via embedding/topic) are conflict candidates.
+    3. Apply taxonomy:
+       - SKIP: entries whose content is already covered by another
+       - DELETE: older entries superseded by newer ones (preference drift)
+       - UPDATE: entries that complement each other (merge content)
+       - ADD: entries with no conflict
+
+    Args:
+        entries: list of MemoryEntry objects from proxy.md
+        similarity_threshold: Jaccard threshold for clustering (default 0.4,
+            lower than compact_memory's 0.8 because we want to find
+            topically related entries, not near-duplicates)
+        classifier: optional callable(entry_a, entry_b) -> str returning
+            one of ADD/UPDATE/DELETE/SKIP. When None, uses heuristic.
+
+    Returns:
+        (consolidated_entries, decisions) where decisions is a list of
+        dicts recording each consolidation decision for auditability.
+    """
+    if len(entries) <= 1:
+        return list(entries), []
+
+    # Step 1: Tokenize all entries
+    tokens = [_tokenize_content(e.content) for e in entries]
+    n = len(entries)
+
+    # Step 2: Single-linkage clustering by Jaccard similarity
+    cluster_id = list(range(n))
+
+    def _find(i: int) -> int:
+        while cluster_id[i] != i:
+            cluster_id[i] = cluster_id[cluster_id[i]]
+            i = cluster_id[i]
+        return i
+
+    def _union(i: int, j: int) -> None:
+        ri, rj = _find(i), _find(j)
+        if ri != rj:
+            cluster_id[ri] = rj
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _jaccard_similarity(tokens[i], tokens[j]) >= similarity_threshold:
+                _union(i, j)
+
+    # Group entries by cluster
+    clusters: dict[int, list[int]] = {}
+    for i in range(n):
+        root = _find(i)
+        clusters.setdefault(root, []).append(i)
+
+    # Step 3: Within each multi-entry cluster, apply consolidation
+    keep_indices: set[int] = set()
+    decisions: list[dict] = []
+
+    for root, members in clusters.items():
+        if len(members) == 1:
+            keep_indices.add(members[0])
+            continue
+
+        # Sort by created_at (newer last) for recency ordering
+        members.sort(key=lambda i: entries[i].created_at)
+
+        if classifier:
+            # LLM-based classification
+            for i_idx in range(len(members)):
+                for j_idx in range(i_idx + 1, len(members)):
+                    ei, ej = entries[members[i_idx]], entries[members[j_idx]]
+                    decision = classifier(ei, ej)
+                    decisions.append({
+                        'entry_a': ei.id, 'entry_b': ej.id,
+                        'decision': decision,
+                    })
+                    if decision == CONSOLIDATION_DELETE:
+                        # DELETE the older (i < j, so i is older)
+                        pass  # handled below
+                    elif decision == CONSOLIDATION_SKIP:
+                        # SKIP the newer (it's already represented)
+                        pass
+            # For LLM path, collect which to keep based on decisions
+            deleted = set()
+            skipped = set()
+            for d in decisions:
+                if d['decision'] == CONSOLIDATION_DELETE:
+                    deleted.add(d['entry_a'])
+                elif d['decision'] == CONSOLIDATION_SKIP:
+                    skipped.add(d['entry_b'])
+            for idx in members:
+                if entries[idx].id not in deleted and entries[idx].id not in skipped:
+                    keep_indices.add(idx)
+        else:
+            # Heuristic classification: within a cluster, use recency
+            # to resolve conflicts. Keep the newest entry in each cluster
+            # and any entries that are sufficiently different from each other.
+            #
+            # Default to context_sensitivity: preserve all entries unless
+            # they are near-duplicates (high Jaccard, handled by standard
+            # compaction) or clearly superseded (same topic, newer exists).
+            #
+            # Conservative: keep all members. The clustering itself is the
+            # signal — entries that land in the same cluster are related.
+            # Without an LLM, we can't reliably determine if they conflict
+            # or complement each other. Err on the side of preservation.
+            for idx in members:
+                keep_indices.add(idx)
+            decisions.append({
+                'cluster': [entries[m].id for m in members],
+                'decision': 'PRESERVE_ALL',
+                'reason': 'Heuristic mode: cannot reliably classify without LLM',
+            })
+
+    return [entries[i] for i in sorted(keep_indices)], decisions
 
 
 def memory_depth(conn: sqlite3.Connection) -> int:

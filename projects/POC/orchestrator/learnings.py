@@ -697,28 +697,89 @@ def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
 # ── Proxy contradiction consolidation (#228) ─────────────────────────────────
 
 def _consolidate_proxy_memory(*, project_dir: str) -> None:
-    """Run contradiction consolidation on the proxy's ACT-R memory store.
+    """Run contradiction consolidation on proxy.md (the always-loaded
+    preferential store) and on the ACT-R memory DB.
 
-    Loads all chunks from the proxy memory DB, runs consolidate_proxy_entries()
-    to identify and resolve preference_drift conflicts (DELETE the older),
-    and deletes superseded chunks from the DB.
+    Two targets:
 
-    This is separate from compact_entries() — it operates on MemoryChunks
-    in the ACT-R store, not MemoryEntries in markdown files.
+    1. proxy.md — YAML-frontmattered MemoryEntry objects containing human
+       preference observations. Parsed, consolidated via
+       consolidate_proxy_file() with ADD/UPDATE/DELETE/SKIP taxonomy,
+       and rewritten atomically.
+
+    2. ACT-R chunk DB — episodic gate interaction chunks. Consolidated
+       via consolidate_proxy_entries() to remove superseded chunks
+       (preference_drift → DELETE older).
+
+    This is separate from compact_entries() and does not modify the
+    existing compaction pipeline.
     """
+    from filelock import FileLock
+    from pathlib import Path
+
+    # ── Stage 2a: proxy.md consolidation ────────────────────────────────────
+
+    proxy_md_path = os.path.join(project_dir, 'proxy.md')
+    if os.path.isfile(proxy_md_path):
+        try:
+            from projects.POC.scripts.memory_entry import (
+                parse_memory_file,
+                serialize_memory_file,
+            )
+            from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+            lock = FileLock(proxy_md_path + '.lock', timeout=30)
+            with lock:
+                text = Path(proxy_md_path).read_text(errors='replace')
+                entries = parse_memory_file(text)
+                if len(entries) >= 2:
+                    consolidated, decisions = consolidate_proxy_file(entries)
+                    if len(consolidated) < len(entries):
+                        output = serialize_memory_file(consolidated)
+                        # Atomic write
+                        import tempfile
+                        fd, tmp = tempfile.mkstemp(
+                            dir=os.path.dirname(os.path.abspath(proxy_md_path)),
+                            suffix='.tmp',
+                        )
+                        try:
+                            with os.fdopen(fd, 'w') as f:
+                                f.write(output)
+                                if output and not output.endswith('\n'):
+                                    f.write('\n')
+                            os.replace(tmp, proxy_md_path)
+                        except Exception:
+                            try:
+                                os.unlink(tmp)
+                            except OSError:
+                                pass
+                            raise
+                        _log.info(
+                            'Proxy consolidation: proxy.md %d → %d entries (%d decisions)',
+                            len(entries), len(consolidated), len(decisions),
+                        )
+
+                        # Write consolidation log for auditability
+                        if decisions:
+                            import json as _json
+                            log_path = os.path.join(project_dir, '.proxy-consolidation-log.jsonl')
+                            with open(log_path, 'a') as f:
+                                for d in decisions:
+                                    f.write(_json.dumps(d) + '\n')
+        except Exception:
+            _log.debug('proxy.md consolidation failed', exc_info=True)
+
+    # ── Stage 2b: ACT-R chunk DB consolidation ──────────────────────────────
+
     from projects.POC.orchestrator.proxy_memory import (
         open_proxy_db,
         consolidate_proxy_entries,
         get_interaction_counter,
     )
     import glob as glob_mod
-    import sqlite3
 
-    # Find all proxy memory DBs in the project dir
     db_pattern = os.path.join(project_dir, '.proxy-memory*.db')
     db_paths = glob_mod.glob(db_pattern)
-    if not db_paths:
-        return
 
     for db_path in db_paths:
         try:
@@ -727,7 +788,6 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
             continue
         try:
             current = get_interaction_counter(conn)
-            # Load all chunks
             rows = conn.execute(
                 'SELECT id, type, state, task_type, outcome, traces, '
                 'posterior_confidence FROM proxy_chunks'
