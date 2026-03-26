@@ -398,11 +398,40 @@ def _set_overlap(a: list[str], b: list[str]) -> float:
     return len(sa & sb) / len(union)
 
 
+def _rerank_by_composite(
+    chunks: list[MemoryChunk],
+    context_embeddings: dict[str, list[float]],
+    current_interaction: int,
+    activation_weight: float,
+    semantic_weight: float,
+    d: float,
+    s: float,
+) -> list[MemoryChunk]:
+    """Re-rank chunks by composite score with given weights."""
+    from projects.POC.orchestrator.proxy_memory import (
+        base_level_activation as _bla,
+        composite_score as _cs,
+    )
+    if not chunks:
+        return []
+    activations = [_bla(c.traces, current_interaction, d) for c in chunks]
+    b_min, b_max = min(activations), max(activations)
+    scored = [
+        (_cs(c, context_embeddings, current_interaction, b_min, b_max,
+             activation_weight=activation_weight,
+             semantic_weight=semantic_weight, d=d, s=s), c)
+        for c in chunks
+    ]
+    scored.sort(key=lambda x: -x[0])
+    return [c for _, c in scored]
+
+
 def ablation_actr_vs_recency(
     conn: sqlite3.Connection,
     *,
     state: str = '',
     task_type: str = '',
+    context_embeddings: dict[str, list[float]] | None = None,
     tau: float = RETRIEVAL_THRESHOLD,
     d: float = DECAY,
     s: float = 0.0,
@@ -410,18 +439,26 @@ def ablation_actr_vs_recency(
 ) -> AblationResult:
     """Compare ACT-R activation retrieval vs. most-recent-N on the same data.
 
-    Config A: activation filter (B > tau) then composite scoring with
-    activation_weight=1.0 / semantic_weight=0.0 (pure activation, no embeddings).
-    Config B: most-recent-N where N = len(Config A survivors).
+    Config A (current): activation filter (B > tau) then composite scoring
+    with normalized activation as a component.
+    Config B (ablation): most-recent-N candidate selection, then composite
+    scoring with activation_weight=0 (semantic similarity + noise only).
+
+    When context_embeddings is empty (offline evaluation), semantic similarity
+    is 0 for both configs — Config A reduces to activation-only ranking,
+    Config B to recency-only ranking. When embeddings are provided (online
+    evaluation), Config B uses semantic similarity to re-rank the recency
+    candidates.
     """
+    context_embeddings = context_embeddings or {}
     current = get_interaction_counter(conn)
 
-    # Config A: ACT-R retrieval (activation only, no semantic scoring)
+    # Config A: ACT-R two-stage retrieval (activation filter + composite)
     actr_chunks = retrieve_chunks(
         conn,
         state=state,
         task_type=task_type,
-        context_embeddings={},
+        context_embeddings=context_embeddings,
         current_interaction=current,
         tau=tau,
         top_k=9999,
@@ -430,9 +467,13 @@ def ablation_actr_vs_recency(
     )
     n = len(actr_chunks)
 
-    # Config B: most-recent-N with same count
-    recency_chunks = retrieve_most_recent_n(
+    # Config B: most-recent-N selection, then composite with activation_weight=0
+    recency_candidates = retrieve_most_recent_n(
         conn, n=n, state=state, task_type=task_type,
+    )
+    recency_chunks = _rerank_by_composite(
+        recency_candidates, context_embeddings, current,
+        activation_weight=0.0, semantic_weight=1.0, d=d, s=s,
     )
 
     actr_ids = [c.id for c in actr_chunks]
@@ -449,7 +490,7 @@ def ablation_actr_vs_recency(
     # Epoch breakdown
     all_chunks = query_chunks(conn, state=state, task_type=task_type)
     epoch_breakdown = _compute_epoch_breakdown(
-        all_chunks, current, tau, d, s, state, task_type, conn,
+        all_chunks, current, context_embeddings, tau, d, s,
         epoch_boundary,
     )
 
@@ -467,12 +508,10 @@ def ablation_actr_vs_recency(
 def _compute_epoch_breakdown(
     chunks: list[MemoryChunk],
     current: int,
+    context_embeddings: dict[str, list[float]],
     tau: float,
     d: float,
     s: float,
-    state: str,
-    task_type: str,
-    conn: sqlite3.Connection,
     epoch_boundary: int | None,
 ) -> list[dict]:
     """Split chunks into early/late epochs and compare configs per epoch."""
@@ -497,7 +536,7 @@ def _compute_epoch_breakdown(
         if not group:
             continue
 
-        # ACT-R: filter by activation threshold
+        # Config A: filter by activation threshold, rank by composite
         actr_survivors = []
         for c in group:
             b = base_level_activation(c.traces, current, d)
@@ -505,10 +544,15 @@ def _compute_epoch_breakdown(
                 actr_survivors.append(c)
 
         n_epoch = len(actr_survivors)
-        # Recency: same N from this epoch's chunks
-        recency_group = sorted(
+
+        # Config B: recency selection, re-rank with activation_weight=0
+        recency_candidates = sorted(
             group, key=lambda c: max(c.traces) if c.traces else 0, reverse=True,
         )[:n_epoch]
+        recency_group = _rerank_by_composite(
+            recency_candidates, context_embeddings, current,
+            activation_weight=0.0, semantic_weight=1.0, d=d, s=s,
+        )
 
         actr_ids_e = [c.id for c in actr_survivors]
         recency_ids_e = [c.id for c in recency_group]
