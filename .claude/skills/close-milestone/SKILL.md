@@ -25,17 +25,40 @@ MILESTONE=$(gh api repos/:owner/:repo/milestones/$0 --jq '{number, title, state,
 Verify:
 1. Milestone exists and is **open**
 2. `develop` is ahead of `main` (`git rev-list --count main..develop`)
-3. No merge conflicts: `git merge-tree $(git merge-base main develop) main develop` has no conflicts
+3. **develop is clean.** `git checkout develop && git status` — if there are uncommitted changes, commit them with a descriptive multiline message using the `Issue #NNN:` template (or a general `Milestone <title>:` prefix if not issue-specific).
+4. **Tests pass.** `uv run pytest projects/POC/orchestrator/tests/ --tb=short -q` — if ANY tests fail: create a GitHub issue for each failure (`gh issue create --title "Test failure: <test_name>" --body "<traceback and context>" --milestone "<title>"`), report the failures, and **HALT. Do not proceed.** A milestone cannot close with failing tests.
+5. No merge conflicts: `git merge-tree $(git merge-base main develop) main develop` has no conflicts
 
 If any check fails, report clearly and stop.
 
-## Phase 1: Handle Open Issues
+## Phase 1: Resolve Worktrees and Open Issues
+
+**First, check for outstanding worktrees** with unmerged work for this milestone's issues:
+
+```bash
+git worktree list
+gh issue list --milestone "<title>" --state all --json number,title,state
+```
+
+For each worktree that corresponds to a milestone issue (e.g. `teaparty-issue-NNN` or branch `fix/issue-NNN`):
+1. **Check for uncommitted changes** in the worktree: `git -C <worktree-path> status`
+2. If there are uncommitted changes, **commit them** using the template: `Issue #NNN: <description>`
+3. If the branch is not merged to develop, **merge it**:
+   ```bash
+   git checkout develop
+   git merge --no-ff fix/issue-NNN -m "Merge fix/issue-NNN: <description>"
+   ```
+4. If the issue has no closing comment describing the work, **post one** via `gh issue view NNN` to check, then `gh issue comment NNN -b "<summary>"` if needed.
+5. If the issue is still open, **close it**: `gh issue close NNN`
+6. **Remove the worktree**: `git worktree remove <worktree-path>`
+
+**Then handle remaining open issues** (not associated with worktrees):
 
 ```bash
 gh issue list --milestone "<title>" --state open --json number,title
 ```
 
-If there are open issues:
+If there are open issues with no worktree:
 1. **List them** with number and title
 2. **Move each to unassigned milestone:**
    ```bash
@@ -43,7 +66,7 @@ If there are open issues:
    ```
 3. **Report** what was moved
 
-If `--dry-run`, print what would be moved but don't do it.
+If `--dry-run`, print what would be done but don't do it.
 
 ## Phase 2: Build Commit Message
 
@@ -153,6 +176,14 @@ Then:
 ```bash
 git push origin main --follow-tags
 ```
+
+After push, check CI status:
+
+```bash
+gh run list --branch main --limit 1 --json status,conclusion,name
+```
+
+If CI fails: create an issue (`gh issue create --title "CI failure on milestone close: <run name>" --body "<failure details>" --milestone "<title>"`), report the failure, and **HALT. Do not proceed to close the milestone.** The push landed but the milestone stays open until CI is green.
 
 ## Phase 6: Close and Archive Milestone
 
