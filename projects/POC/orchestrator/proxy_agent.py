@@ -292,6 +292,7 @@ def _retrieve_actr_memories(
             open_proxy_db,
             resolve_memory_db_path,
             retrieve_chunks,
+            retrieve_salience,
             serialize_chunks_for_prompt,
             get_interaction_counter,
             get_accuracy,
@@ -308,7 +309,7 @@ def _retrieve_actr_memories(
             if current == 0:
                 return _EMPTY_RETRIEVAL
 
-            # Build context embeddings for retrieval
+            # Build context embeddings for experience retrieval
             provider, model = detect_provider()
             context_embeddings: dict[str, list[float]] = {}
             sit_vec = try_embed(f'{state} {task_type}', conn=conn, provider=provider, model=model)
@@ -318,15 +319,31 @@ def _retrieve_actr_memories(
             if stim_vec:
                 context_embeddings['stimulus'] = stim_vec
 
+            # Query 1: Experience retrieval (4 dimensions, no salience)
             chunks = retrieve_chunks(
                 conn, state=state, task_type=task_type,
                 context_embeddings=context_embeddings,
                 current_interaction=current,
             )
+
+            # Query 2: Salience retrieval (independent attention path, #227)
+            salience_chunks: list = []
+            salience_query = sit_vec or stim_vec
+            if salience_query:
+                salience_chunks = retrieve_salience(
+                    conn,
+                    context_embedding=salience_query,
+                    current_interaction=current,
+                )
+
             accuracy = get_accuracy(conn, state=state, task_type=task_type)
+            all_chunk_ids = [c.id for c in chunks] + [c.id for c in salience_chunks]
             return _ActrRetrievalResult(
-                serialized=serialize_chunks_for_prompt(chunks),
-                chunk_ids=[c.id for c in chunks],
+                serialized=serialize_chunks_for_prompt(
+                    chunks,
+                    salience_chunks=salience_chunks or None,
+                ),
+                chunk_ids=all_chunk_ids,
                 db_path=db_path,
                 interaction_counter=current,
                 accuracy=accuracy,

@@ -102,12 +102,14 @@ class TestIssue191RetrieveDoesNotMutate(unittest.TestCase):
 
 
 class TestIssue192EmbeddingDimensions(unittest.TestCase):
-    """#212 supersedes #192: composite_score divides by TOTAL_EMBEDDING_DIMENSIONS
-    to reward breadth of matching across all dimensions."""
+    """#212 supersedes #192: composite_score divides by EXPERIENCE_EMBEDDING_DIMENSIONS
+    to reward breadth of matching across experience dimensions.
+    (Updated by #227: salience excluded from composite scoring.)"""
 
     def test_full_match_outscores_sparse(self):
-        """A perfect match on all 5 dims should outscore a match on 1 dim,
-        because the denominator is TOTAL_EMBEDDING_DIMENSIONS (not matched)."""
+        """A perfect match on all 4 experience dims should outscore a match
+        on 1 dim, because the denominator is EXPERIENCE_EMBEDDING_DIMENSIONS
+        (not matched). Updated by #227: salience is retrieved independently."""
         vec = [1.0, 0.0, 0.0]
 
         # Chunk with only situation embedding
@@ -122,7 +124,7 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             b_min=0.0, b_max=0.0, s=0.0,
         )
 
-        # Chunk with all 5 dimensions populated identically
+        # Chunk with all 4 experience dimensions populated identically
         chunk_full = _make_chunk(
             id='full',
             traces=[1],
@@ -130,18 +132,17 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             embedding_artifact=vec,
             embedding_stimulus=vec,
             embedding_response=vec,
-            embedding_salience=vec,
         )
         context_full = {
-            'situation': vec, 'artifact': vec, 'stimulus': vec,
-            'response': vec, 'salience': vec,
+            'situation': vec, 'artifact': vec,
+            'stimulus': vec, 'response': vec,
         }
         score_full = composite_score(
             chunk_full, context_full, current_interaction=2,
             b_min=0.0, b_max=0.0, s=0.0,
         )
 
-        # Dividing by TOTAL_EMBEDDING_DIMENSIONS: sparse = 1/5 = 0.2, full = 5/5 = 1.0.
+        # Dividing by EXPERIENCE_EMBEDDING_DIMENSIONS: sparse = 1/4 = 0.25, full = 4/4 = 1.0.
         # Full should outscore sparse — breadth is rewarded per design spec.
         self.assertGreater(score_full, score_sparse,
                            "Full-breadth match should outscore sparse match")
