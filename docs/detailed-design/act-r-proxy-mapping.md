@@ -60,7 +60,7 @@ The chunk has three layers.
 
 This replaces the single content embedding with a multi-dimensional representation that separates what the proxy sensed from what happened. It enables retrieval by any dimension or intersection of dimensions.
 
-**Note on multi-dimensional retrieval.** Using 5 independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores. Those are different signal types, not faceted semantic embeddings. Phase 1 should include an explicit ablation comparing multi-dimensional retrieval against a single blended embedding to determine whether the added complexity and 5x embedding cost earn their keep.
+**Note on multi-dimensional retrieval.** Using independent embeddings per chunk and aggregating cosine similarities at retrieval time is a novel design choice without published validation. The closest precedent is Park, J.S., et al.'s (2023) generative agents, which combine separate recency, importance, and relevance scores. Those are different signal types, not faceted semantic embeddings. Phase 1 should include an explicit ablation comparing 4-dimensional experience retrieval against a single blended embedding to determine whether the added complexity and embedding cost earn their keep. Salience retrieval should be evaluated separately: does providing attention-model context improve posterior accuracy? This is a cleaner ablation because it isolates the experience question from the attention question (#227).
 
 ---
 
@@ -133,11 +133,11 @@ composite = activation_weight * normalize(B)  +  semantic_weight * cosine_avg  +
 Where:
 - `B` is the base-level activation (recency and frequency via ACT-R)
 - `normalize(B)` maps B to [0, 1] via min-max scaling over the candidate set, so that activation and similarity contribute on comparable scales
-- `cosine_avg` is the average cosine similarity across all 5 embedding dimensions (see below)
+- `cosine_avg` is the average cosine similarity across the 4 experience embedding dimensions (situation, artifact, stimulus, response — salience is retrieved independently, see below)
 - `noise` is logistic noise (see [act-r.md](act-r.md))
 - `activation_weight` and `semantic_weight` control the balance (starting point: 0.5 / 0.5)
 
-**Cosine averaging.** The semantic score is computed by summing cosine similarities across all matched dimensions and dividing by the total number of dimensions (5), not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 5 gets `(sim1 + sim2 + 0 + 0 + 0) / 5`, while a chunk with moderate similarity across all 5 gets `(sim1 + sim2 + sim3 + sim4 + sim5) / 5`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal.
+**Cosine averaging.** The semantic score is computed by summing cosine similarities across the 4 experience dimensions (situation, artifact, stimulus, response) and dividing by 4, not just the number of populated ones. This means a chunk with high similarity on 2 populated dimensions out of 4 gets `(sim1 + sim2 + 0 + 0) / 4`, while a chunk with moderate similarity across all 4 gets `(sim1 + sim2 + sim3 + sim4) / 4`. This rewards breadth of matching: chunks that match across more dimensions score higher than chunks that match narrowly on fewer dimensions, all else being equal. Salience is excluded from composite scoring and retrieved independently via `retrieve_salience()` (#227).
 
 **Why normalization is needed.** B is unbounded (can range from negative values to ~3+ for heavily-accessed chunks), while cosine similarity is bounded [-1, 1]. Without normalization, heavily-accessed chunks would dominate retrieval regardless of semantic relevance. Min-max normalization over the candidate set ensures both signals contribute proportionally. This follows the approach of Park, J.S., et al. (2023), who normalize all retrieval components to [0, 1] before combining. The normalization range should be refined during Phase 1 when real activation distributions are observed.
 
@@ -275,7 +275,8 @@ The embedding_model column records which model produced the vectors, enabling re
 ### Core Functions
 
 ```python
-TOTAL_EMBEDDING_DIMENSIONS = 5  # situation, artifact, stimulus, response, salience
+EXPERIENCE_EMBEDDING_DIMENSIONS = 4  # situation, artifact, stimulus, response
+# Salience is retrieved independently via retrieve_salience() (#227)
 
 
 def base_level_activation(
@@ -313,28 +314,27 @@ def composite_score(
     multi-dimensional semantic similarity + noise.
 
     context_embeddings: dict mapping dimension names to embedding vectors.
-    The semantic score sums cosine similarities across matched dimensions
-    and divides by TOTAL_EMBEDDING_DIMENSIONS (5), not the number of
-    populated dimensions. This rewards breadth: chunks matching across
-    more dimensions score higher than chunks matching narrowly on fewer.
+    The semantic score sums cosine similarities across the 4 experience
+    dimensions and divides by EXPERIENCE_EMBEDDING_DIMENSIONS (4), not
+    the number of populated dimensions. Salience is excluded from
+    composite scoring and retrieved independently (#227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = normalize_activation(b, b_min, b_max)
 
-    # Multi-dimensional semantic similarity (divide by total dimensions)
+    # Experience dimensions only — salience retrieved independently (#227)
     dim_map = {
         'situation': chunk.embedding_situation,
         'artifact': chunk.embedding_artifact,
         'stimulus': chunk.embedding_stimulus,
         'response': chunk.embedding_response,
-        'salience': chunk.embedding_salience,
     }
     sim_sum = 0.0
     for dim, context_vec in context_embeddings.items():
         chunk_vec = dim_map.get(dim)
         if chunk_vec and context_vec:
             sim_sum += cosine_similarity(chunk_vec, context_vec)
-    sem = sim_sum / TOTAL_EMBEDDING_DIMENSIONS
+    sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
 
     noise = logistic_noise(s)
     # Note: in standard ACT-R, noise is added to activation alone, not to a

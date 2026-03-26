@@ -150,13 +150,18 @@ Each percept dimension gets its own embedding, not one blended vector.
 | **Response** | What the human did | The correction text, the approval, the dismissal |
 | **Salience** | What changed between prior and posterior | The prediction delta — the surprise |
 
-Independent embeddings allow retrieval to match on each dimension separately. A new interaction can match on:
+The first four dimensions (situation, artifact, stimulus, response) are the **experience dimensions** — they participate in composite scoring during experience retrieval. Salience is retrieved independently via a dedicated `retrieve_salience()` function that queries only chunks with non-null salience embeddings (#227). This separation means:
+
+- Experience retrieval answers "what happened in similar situations?" using 4 dimensions
+- Salience retrieval answers "when has the proxy been surprised in ways relevant to this situation?" using a context vector constructed from the artifact + situation
+
+A new interaction can match on:
 
 - Situation alone: "What happens at PLAN_ASSERT?" (high fan, weak signal)
 - Situation plus artifact: "What happens at PLAN_ASSERT when the plan has gaps?" (lower fan, stronger signal)
-- Salience: "When has the proxy been surprised by missing safety mechanisms?" (specific, cross-cutting)
+- Salience (independent query): "When has the proxy been surprised by missing safety mechanisms?" (specific, cross-cutting)
 
-The cosine similarity across dimensions is summed and divided by the total number of dimensions (5), not just populated ones. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md). This means chunks matching across more dimensions score higher than chunks matching narrowly on fewer dimensions. It rewards breadth of matching.
+For experience retrieval, cosine similarity across the 4 experience dimensions is summed and divided by 4, not just populated ones. See [act-r-proxy-mapping.md](act-r-proxy-mapping.md). This rewards breadth of matching: chunks matching across more experience dimensions score higher than chunks matching narrowly on fewer.
 
 ---
 
