@@ -65,9 +65,16 @@ projects/<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md  # dispatch
 **Prominence scoring.** Retrieval ranks entries by:
 ```
 prominence = importance × recency_decay × (1 + reinforcement_count)
-recency_decay = max(0.1, exp(-ln(2)/90 × age_days))
+recency_decay = max(DECAY_FLOOR, exp(-ln(2)/HALF_LIFE_DAYS × age_days))
+
+HALF_LIFE_DAYS = 90        # generous half-life; 90-day-old entry decays to 50%
+DECAY_FLOOR    = 0.1       # recency_decay never falls below 10%
 scope_multiplier: team=1.5, project=1.2, global=1.0
 ```
+
+The decay floor is applied to the `recency_decay` factor, not to the final prominence value. This means time alone cannot make an entry invisible (decay bottoms out at 10%), but importance and reinforcement still differentiate entries at the floor. An ancient high-importance entry (0.9 × 0.1 = 0.09) still ranks above an ancient low-importance entry (0.2 × 0.1 = 0.02). A prominence-level floor would instead clamp both to the same value, losing that ordering.
+
+Retired entries are exempt — they return prominence 0.0 regardless of the floor. Institutional learnings are loaded unconditionally and are not ranked by prominence.
 
 **Scope multipliers integrated.** Scope multipliers ARE integrated into retrieval. `memory_indexer.py` defines `SCOPE_MULTIPLIERS` (line 747), `apply_scope_multipliers()` (line 769), and calls it during retrieval (line 852, 983). Team-level memories surface higher than global memories at equal similarity, providing appropriate prioritization.
 
@@ -75,7 +82,7 @@ scope_multiplier: team=1.5, project=1.2, global=1.0
 
 1. **Query construction.** Claude Haiku extracts 5–8 key search terms from the raw task description, filtering common words and focusing on domain concepts. Falls back to the first 500 characters of the task on error.
 2. **Two-phase scoring.** BM25 via FTS5 provides the primary retrieval signal. When vector embeddings are available (OpenAI `text-embedding-3-small` or Gemini `embedding-001`), scores are blended: `0.7 × vector_score + 0.3 × BM25`. Falls back to BM25-only when embeddings are unavailable.
-3. **Post-processing.** Results are weighted by prominence (`importance × recency_decay × (1 + reinforcement_count)`), multiplied by scope level (team=1.5×, project=1.2×, global=1.0×), then reranked for diversity using MMR with Jaccard-based similarity to avoid returning near-duplicate entries.
+3. **Post-processing.** Results are weighted by prominence (`importance × max(DECAY_FLOOR, recency_decay) × (1 + reinforcement_count)`), multiplied by scope level (team=1.5×, project=1.2×, global=1.0×), then reranked for diversity using MMR with Jaccard-based similarity to avoid returning near-duplicate entries.
 
 **Memory context injection.** Retrieved learnings are injected into agent prompts at session start, giving agents access to accumulated knowledge from previous work.
 
