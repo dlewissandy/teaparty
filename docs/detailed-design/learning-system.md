@@ -30,6 +30,13 @@ This is not undifferentiated prose. The metadata enables prominence scoring, tem
 
 **Scoped hierarchy with promotion.** Learnings are stored at the most specific scope where they apply. Promotion moves validated learnings upward through the hierarchy (dispatch → team → session → project → global), with increasingly aggressive filtering at each level. This prevents scope pollution: a correction that applied to one specific task doesn't automatically become global policy.
 
+**Promotion evaluation chain ([#217](https://github.com/dlewissandy/teaparty/issues/217)).** `promotion.py` implements three promotion gates evaluated at session close (after rollup scopes, before reinforcement tracking):
+- **Session → Project:** `find_recurring_learnings()` walks `.sessions/*/tasks/` across all sessions, clusters by similarity (pluggable: embedding-based or exact-match fallback), and promotes entries recurring in 3+ distinct sessions. Already-promoted entries are detected via similarity against `project/tasks/` and skipped.
+- **Proxy exclusion:** `is_proxy_learning()` filters proxy-sourced paths (`proxy.md`, `proxy-tasks/`) before clustering. Proxy learnings never promote.
+- **Project → Global:** `filter_project_agnostic()` evaluates entries via a pluggable judge function (LLM judgment). Conservative default: nothing promotes on judge failure. Infrastructure-ready but not yet triggered automatically.
+
+`MemoryEntry` carries optional `promoted_from` and `promoted_at` fields (empty-string defaults) for promotion provenance tracking.
+
 ---
 
 ## What Exists
@@ -110,6 +117,7 @@ Retired entries are exempt — they return prominence 0.0 regardless of the floo
 **Proxy learning integration.** ~~The approval gate stores differentials and question patterns locally (in `.proxy-confidence-*.json`). These are not integrated with the broader learning system.~~ **Resolved by [#198](https://github.com/dlewissandy/teaparty/issues/198).** Proxy corrections now emit YAML-frontmattered markdown entries to `proxy-tasks/`, indexed by `memory_indexer.py`. The proxy retrieves both task learnings (`tasks/`) and proxy learnings (`proxy-tasks/`) via `memory_indexer.retrieve()` at gate time. Bidirectional feedback is wired: proxy corrections reach agents (via task retrieval), and agent learnings reach the proxy (via proxy retrieval).
 
 **Resolved issues:**
+- ~~[#217](https://github.com/dlewissandy/teaparty/issues/217): Learning promotion chain~~ — resolved: recurrence detection, proxy exclusion, project-agnostic filtering
 - ~~[#115](https://github.com/dlewissandy/teaparty/issues/115): Learning extraction silently fails~~ — resolved
 - ~~[#73–#80](https://github.com/dlewissandy/teaparty/issues/73): GAP A5.* — missing scopes in the learning pipeline~~ — all resolved
 - ~~[#84](https://github.com/dlewissandy/teaparty/issues/84): memory_indexer.py needs retrieve() function~~ — resolved: `retrieve()` importable
