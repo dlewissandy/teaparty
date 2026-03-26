@@ -313,21 +313,21 @@ class TestConsolidationUsesSoftDelete(unittest.TestCase):
 
 
 class TestCountDistinctFiltersSoftDeleted(unittest.TestCase):
-    """count_distinct_contexts excludes soft-deleted chunks."""
+    """memory_depth excludes soft-deleted chunks."""
 
     def test_count_excludes_soft_deleted(self):
-        from projects.POC.orchestrator.proxy_memory import count_distinct_contexts
+        from projects.POC.orchestrator.proxy_memory import memory_depth
 
         conn = _make_db()
         _insert_chunk(conn, 'c1', state='S1', task_type='t1')
         _insert_chunk(conn, 'c2', state='S2', task_type='t2')
 
         # Before soft-delete
-        self.assertEqual(count_distinct_contexts(conn), 2)
+        self.assertEqual(memory_depth(conn), 2)
 
         # Soft-delete one
         conn.execute('UPDATE proxy_chunks SET deleted_at = 10 WHERE id = ?', ('c2',))
         conn.commit()
 
-        self.assertEqual(count_distinct_contexts(conn), 1)
+        self.assertEqual(memory_depth(conn), 1)
         conn.close()
