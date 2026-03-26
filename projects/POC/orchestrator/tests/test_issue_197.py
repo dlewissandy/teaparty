@@ -306,15 +306,25 @@ class TestSessionDoesNotFuzzyRetrieveInstitutional(unittest.TestCase):
         """_retrieve_memory() must not include institutional.md in source_paths."""
         from projects.POC.orchestrator.session import Session
         source = inspect.getsource(Session._retrieve_memory)
-        # The source_paths list should not contain 'institutional.md'
-        # It should only contain fuzzy-retrieved sources like 'tasks'
-        lines = [l.strip() for l in source.splitlines()
-                 if 'source_paths' in l or 'institutional.md' in l]
-        # Check that institutional.md is not passed as a source to retrieve()
-        # It should only appear in the raw file read section
-        retrieve_section = source.split('retrieve(')[1] if 'retrieve(' in source else ''
+        # Find lines that build the source_paths list — these are the lines
+        # between 'source_paths = [' and the closing ']'
+        in_source_paths = False
+        source_paths_lines = []
+        for line in source.splitlines():
+            stripped = line.strip()
+            if 'source_paths' in stripped and '=' in stripped and '[' in stripped:
+                in_source_paths = True
+                source_paths_lines.append(stripped)
+                if ']' in stripped:
+                    in_source_paths = False
+                continue
+            if in_source_paths:
+                source_paths_lines.append(stripped)
+                if ']' in stripped:
+                    in_source_paths = False
+        source_paths_block = '\n'.join(source_paths_lines)
         self.assertNotIn(
-            'institutional.md', retrieve_section,
+            'institutional.md', source_paths_block,
             "_retrieve_memory() passes institutional.md to retrieve() source_paths. "
             "institutional.md is already loaded as a raw file read — it should not "
             "also be fuzzy-retrieved. Remove it from retrieve() source_paths."
