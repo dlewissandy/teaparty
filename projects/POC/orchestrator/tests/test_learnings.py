@@ -1155,5 +1155,429 @@ class TestRunSummarize(unittest.TestCase):
             self.assertTrue(any('test explosion' in msg for msg in cm.output))
 
 
+# ── Promotion chain: recurrence detection (issue #217) ───────────────────────
+
+class TestRecurrenceDetection(unittest.TestCase):
+    """Session→project promotion requires N recurrences via similarity."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.project_dir = os.path.join(self.tmpdir, 'project')
+        os.makedirs(self.project_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_session_dir(self, session_name: str) -> str:
+        """Create a session directory with a tasks/ subdirectory."""
+        session_dir = os.path.join(
+            self.project_dir, '.sessions', session_name,
+        )
+        os.makedirs(os.path.join(session_dir, 'tasks'), exist_ok=True)
+        return session_dir
+
+    def _make_session_learning(self, session_dir: str, content: str) -> str:
+        """Write a learning entry to a session's tasks/ directory."""
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+        entry = make_entry(content, type='procedural', domain='task')
+        fname = f'{entry.id}.md'
+        fpath = os.path.join(session_dir, 'tasks', fname)
+        Path(fpath).write_text(serialize_entry(entry))
+        return fpath
+
+    def test_learning_below_threshold_not_promoted(self):
+        """A learning seen in only 1 session is not promoted to project scope."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+
+        s1 = self._make_session_dir('session-20260301-100000')
+        self._make_session_learning(s1, 'Always run lint before committing code.')
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 0)
+
+    def test_learning_at_threshold_is_promoted(self):
+        """A learning seen in 3 distinct sessions qualifies for promotion."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            self._make_session_learning(s, 'Always run lint before committing code.')
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('lint', result.to_promote[0].content)
+
+    def test_recurrence_uses_similarity_not_exact_match(self):
+        """Semantically similar learnings across sessions count as recurrences."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+
+        variations = [
+            'Always run lint before committing code.',
+            'Run the linter before every commit to catch issues early.',
+            'Lint your code before commits to avoid CI failures.',
+        ]
+        for i, text in enumerate(variations):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            self._make_session_learning(s, text)
+
+        # With a similarity function that considers these as matching
+        def _always_similar(a: str, b: str) -> float:
+            return 0.95  # above any reasonable threshold
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_always_similar,
+        )
+        self.assertEqual(len(result.to_promote), 1)
+
+    def test_distinct_learnings_not_conflated(self):
+        """Learnings on different topics don't count toward each other's recurrence."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            # Only "lint" appears in all 3, "database" only in 2
+            self._make_session_learning(s, 'Always run lint before committing code.')
+            if i < 2:
+                self._make_session_learning(s, 'Backup the database before migration.')
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        # Only the lint learning qualifies (3 recurrences); database has only 2
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('lint', result.to_promote[0].content)
+
+    def test_already_promoted_learnings_not_re_promoted(self):
+        """Learnings that already exist at project scope are not duplicated."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        # Create 3 sessions with same learning
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            self._make_session_learning(s, 'Always run lint before committing code.')
+
+        # Also write it at project scope already
+        tasks_dir = os.path.join(self.project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+        entry = make_entry('Always run lint before committing code.',
+                           type='procedural', domain='task')
+        Path(os.path.join(tasks_dir, f'{entry.id}.md')).write_text(
+            serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 0)
+
+    def test_matching_project_entries_are_reinforced(self):
+        """When session learnings match existing project entries, reinforce the project entry."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        # Create 3 sessions with same learning
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            self._make_session_learning(s, 'Always run lint before committing code.')
+
+        # Write matching entry at project scope
+        tasks_dir = os.path.join(self.project_dir, 'tasks')
+        os.makedirs(tasks_dir, exist_ok=True)
+        entry = make_entry('Always run lint before committing code.',
+                           type='procedural', domain='task')
+        entry_path = os.path.join(tasks_dir, f'{entry.id}.md')
+        Path(entry_path).write_text(serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        # Nothing to promote (already exists), but should reinforce
+        self.assertEqual(len(result.to_promote), 0)
+        self.assertEqual(len(result.to_reinforce), 1)
+        self.assertIn(entry_path, result.to_reinforce)
+
+    def test_institutional_learnings_scanned_for_recurrence(self):
+        """Session institutional.md entries are also scanned for recurrence."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        for i in range(3):
+            s = self._make_session_dir(f'session-2026030{i+1}-100000')
+            entry = make_entry('Always review PRs before merging.',
+                               type='directive', domain='team')
+            inst_path = os.path.join(s, 'institutional.md')
+            Path(inst_path).write_text(serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 1)
+        self.assertIn('review PRs', result.to_promote[0].content)
+
+
+# ── Promotion chain: proxy exclusion (issue #217) ────────────────────────────
+
+class TestProxyExclusion(unittest.TestCase):
+    """Proxy learnings must not be promoted through the chain."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.project_dir = os.path.join(self.tmpdir, 'project')
+        os.makedirs(self.project_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_session_dir(self, session_name: str) -> str:
+        session_dir = os.path.join(
+            self.project_dir, '.sessions', session_name,
+        )
+        os.makedirs(session_dir, exist_ok=True)
+        return session_dir
+
+    def test_proxy_md_excluded_from_promotion(self):
+        """Learnings from proxy.md are excluded from session→project promotion."""
+        from projects.POC.orchestrator.promotion import is_proxy_learning
+
+        self.assertTrue(is_proxy_learning('/some/path/proxy.md'))
+        self.assertTrue(is_proxy_learning('/project/proxy.md'))
+
+    def test_proxy_tasks_excluded_from_promotion(self):
+        """Learnings from proxy-tasks/ are excluded from promotion."""
+        from projects.POC.orchestrator.promotion import is_proxy_learning
+
+        self.assertTrue(is_proxy_learning('/project/proxy-tasks/correction-abc.md'))
+        self.assertTrue(is_proxy_learning('/project/proxy-tasks/pattern-xyz.md'))
+
+    def test_non_proxy_not_excluded(self):
+        """Regular task and institutional learnings are not excluded."""
+        from projects.POC.orchestrator.promotion import is_proxy_learning
+
+        self.assertFalse(is_proxy_learning('/project/tasks/20260301.md'))
+        self.assertFalse(is_proxy_learning('/project/institutional.md'))
+
+    def test_recurring_proxy_learnings_not_promoted(self):
+        """Even if proxy learnings recur across sessions, they don't promote."""
+        from projects.POC.orchestrator.promotion import find_recurring_learnings
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        for i in range(3):
+            session_dir = self._make_session_dir(f'session-2026030{i+1}-100000')
+            proxy_tasks = os.path.join(session_dir, 'proxy-tasks')
+            os.makedirs(proxy_tasks, exist_ok=True)
+            entry = make_entry('User prefers verbose explanations.',
+                               type='declarative', domain='task')
+            Path(os.path.join(proxy_tasks, f'{entry.id}.md')).write_text(
+                serialize_entry(entry))
+
+        result = find_recurring_learnings(
+            self.project_dir, min_recurrences=3, similarity_fn=_exact_match,
+        )
+        self.assertEqual(len(result.to_promote), 0)
+
+
+# ── Promotion chain: project→global filtering (issue #217) ───────────────────
+
+class TestProjectAgnosticFiltering(unittest.TestCase):
+    """Project→global promotion requires project-agnostic LLM judgment."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.project_dir = os.path.join(self.tmpdir, 'project')
+        os.makedirs(os.path.join(self.project_dir, 'tasks'), exist_ok=True)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_project_learning(self, content: str) -> str:
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+        entry = make_entry(content, type='procedural', domain='task')
+        fpath = os.path.join(self.project_dir, 'tasks', f'{entry.id}.md')
+        Path(fpath).write_text(serialize_entry(entry))
+        return fpath
+
+    def test_project_specific_learning_not_promoted_to_global(self):
+        """A learning tied to a specific codebase does not promote to global."""
+        from projects.POC.orchestrator.promotion import filter_project_agnostic
+
+        learnings_with_judgment = [
+            ('Use SQLAlchemy for the TeaParty database layer.', False),
+        ]
+
+        def mock_judge(content: str) -> bool:
+            for text, result in learnings_with_judgment:
+                if text == content:
+                    return result
+            return False
+
+        self._make_project_learning(learnings_with_judgment[0][0])
+        from projects.POC.scripts.memory_entry import make_entry
+        entry = make_entry(learnings_with_judgment[0][0])
+
+        result = filter_project_agnostic([entry], judge_fn=mock_judge)
+        self.assertEqual(len(result), 0)
+
+    def test_project_agnostic_learning_promoted_to_global(self):
+        """A generalizable learning passes the filter for global promotion."""
+        from projects.POC.orchestrator.promotion import filter_project_agnostic
+
+        def mock_judge(content: str) -> bool:
+            return True  # judge says it's generalizable
+
+        from projects.POC.scripts.memory_entry import make_entry
+        entry = make_entry('Always run tests before merging to main.')
+
+        result = filter_project_agnostic([entry], judge_fn=mock_judge)
+        self.assertEqual(len(result), 1)
+
+    def test_llm_failure_defaults_to_not_promoting(self):
+        """If the LLM judge fails, the learning is NOT promoted (conservative)."""
+        from projects.POC.orchestrator.promotion import filter_project_agnostic
+
+        def failing_judge(content: str) -> bool:
+            raise RuntimeError('LLM call failed')
+
+        from projects.POC.scripts.memory_entry import make_entry
+        entry = make_entry('Always run tests before merging.')
+
+        result = filter_project_agnostic([entry], judge_fn=failing_judge)
+        self.assertEqual(len(result), 0)
+
+
+# ── Promotion chain: MemoryEntry metadata (issue #217) ───────────────────────
+
+class TestPromotionMetadata(unittest.TestCase):
+    """MemoryEntry gains optional promoted_from and promoted_at fields."""
+
+    def test_entry_has_promoted_from_field(self):
+        """MemoryEntry has a promoted_from field defaulting to empty string."""
+        from projects.POC.scripts.memory_entry import MemoryEntry
+        entry = MemoryEntry(
+            id='test-id', type='procedural', domain='task',
+            importance=0.5, phase='unknown', status='active',
+            reinforcement_count=0, last_reinforced='2026-03-01',
+            created_at='2026-03-01', content='test',
+        )
+        self.assertEqual(entry.promoted_from, '')
+
+    def test_entry_has_promoted_at_field(self):
+        """MemoryEntry has a promoted_at field defaulting to empty string."""
+        from projects.POC.scripts.memory_entry import MemoryEntry
+        entry = MemoryEntry(
+            id='test-id', type='procedural', domain='task',
+            importance=0.5, phase='unknown', status='active',
+            reinforcement_count=0, last_reinforced='2026-03-01',
+            created_at='2026-03-01', content='test',
+        )
+        self.assertEqual(entry.promoted_at, '')
+
+    def test_serialize_includes_promotion_metadata(self):
+        """Serialization includes promoted_from and promoted_at when non-empty."""
+        from projects.POC.scripts.memory_entry import MemoryEntry, serialize_entry
+        entry = MemoryEntry(
+            id='test-id', type='procedural', domain='task',
+            importance=0.5, phase='unknown', status='active',
+            reinforcement_count=0, last_reinforced='2026-03-01',
+            created_at='2026-03-01', content='test content',
+            promoted_from='session', promoted_at='2026-03-26',
+        )
+        text = serialize_entry(entry)
+        self.assertIn('promoted_from: session', text)
+        self.assertIn("promoted_at: '2026-03-26'", text)
+
+    def test_parse_entry_with_promotion_metadata(self):
+        """Entries with promotion metadata round-trip through parse/serialize."""
+        from projects.POC.scripts.memory_entry import parse_entry
+
+        text = """---
+id: abc-123
+type: procedural
+domain: task
+importance: 0.7
+phase: unknown
+status: active
+reinforcement_count: 2
+last_reinforced: '2026-03-20'
+created_at: '2026-03-01'
+promoted_from: session
+promoted_at: '2026-03-26'
+---
+Always run lint before committing."""
+        entry = parse_entry(text)
+        self.assertEqual(entry.promoted_from, 'session')
+        self.assertEqual(entry.promoted_at, '2026-03-26')
+
+    def test_parse_entry_without_promotion_metadata_defaults(self):
+        """Existing entries without promotion fields parse with empty defaults."""
+        from projects.POC.scripts.memory_entry import parse_entry
+
+        text = """---
+id: abc-123
+type: procedural
+domain: task
+importance: 0.7
+phase: unknown
+status: active
+reinforcement_count: 2
+last_reinforced: '2026-03-20'
+created_at: '2026-03-01'
+---
+A learning without promotion metadata."""
+        entry = parse_entry(text)
+        self.assertEqual(entry.promoted_from, '')
+        self.assertEqual(entry.promoted_at, '')
+
+
+# ── Promotion chain: integration with extract_learnings (issue #217) ─────────
+
+class TestPromotionIntegration(unittest.TestCase):
+    """extract_learnings() triggers promotion evaluation after rollup scopes."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.infra_dir = os.path.join(self.tmpdir, 'infra')
+        self.project_dir = os.path.join(self.tmpdir, 'project')
+        self.poc_root = self.tmpdir
+        os.makedirs(self.infra_dir)
+        os.makedirs(self.project_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_extract_learnings_runs_promotion_evaluation(self):
+        """extract_learnings includes a promotion-evaluation scope."""
+        scopes_run = []
+
+        async def tracking_run_scope(scope_name, fn, *args, **kwargs):
+            scopes_run.append(scope_name)
+
+        with patch('projects.POC.orchestrator.learnings._run_summarize'), \
+             patch('projects.POC.orchestrator.learnings._call_promote'):
+            with patch('projects.POC.orchestrator.learnings._evaluate_promotions') as mock_eval:
+                _run(extract_learnings(
+                    infra_dir=self.infra_dir,
+                    project_dir=self.project_dir,
+                    session_worktree=self.tmpdir,
+                    task='Test task',
+                    poc_root=self.poc_root,
+                ))
+                mock_eval.assert_called_once()
+
+
+# ── Similarity helper for tests ──────────────────────────────────────────────
+
+def _exact_match(a: str, b: str) -> float:
+    """Exact case-insensitive match returns 1.0, else 0.0."""
+    return 1.0 if a.strip().lower() == b.strip().lower() else 0.0
+
+
 if __name__ == '__main__':
     unittest.main()

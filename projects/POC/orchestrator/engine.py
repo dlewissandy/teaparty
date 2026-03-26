@@ -151,6 +151,12 @@ class Orchestrator:
         # Pre-populated on session resume from PhaseSpec + worktree.
         self._last_actor_data: dict[str, Any] = last_actor_data or {}
 
+        # Track which skill was used for the current plan (Issue #142).
+        # Set by _try_skill_lookup() on match; cleared when System 2
+        # fallback produces a new plan.  Used by _mark_false_positives()
+        # to archive corrected plans as skill correction candidates.
+        self._active_skill: dict[str, str] | None = None
+
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
         # Recovery scan: merge/re-dispatch orphaned children before starting
@@ -262,6 +268,14 @@ class Orchestrator:
                 await self._try_skill_lookup()
 
                 result = await self._run_phase('planning')
+
+                # Skill self-correction (Issue #142): after planning
+                # completes, check if the plan was corrected from the
+                # original skill template.  Handles both human correction
+                # at PLAN_ASSERT and System 2 fallback after backtrack.
+                if not result.terminal and not result.infrastructure_failure:
+                    self._check_skill_correction()
+
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.backtrack_to == 'intent':
@@ -400,6 +414,36 @@ class Orchestrator:
         plan_path = os.path.join(self.infra_dir, 'PLAN.md')
         with open(plan_path, 'w') as f:
             f.write(match.template)
+
+        # Track which skill was used (Issue #142 — skill self-correction).
+        # Store the original template so we can detect corrections later:
+        # after planning completes, if PLAN.md differs from the template,
+        # the plan was corrected (by human at PLAN_ASSERT or by System 2
+        # after backtrack) and should be archived as a correction candidate.
+        self._active_skill = {
+            'name': match.name,
+            'path': match.path,
+            'score': str(match.score),
+            'template': match.template,
+        }
+
+        # Persist active skill to disk so extract_learnings can find it
+        # post-session (Issue #146 — gate outcomes as skill reward signal).
+        import json as _json
+        sidecar_path = os.path.join(self.infra_dir, '.active-skill.json')
+        try:
+            with open(sidecar_path, 'w') as f:
+                _json.dump({
+                    'name': match.name,
+                    'path': match.path,
+                    'score': str(match.score),
+                    'session_id': self.session_id,
+                }, f)
+        except OSError:
+            _log.warning('Failed to write .active-skill.json sidecar')
+
+        # Propagate active skill to approval gate for log tagging (Issue #146)
+        self._approval_gate._active_skill = self._active_skill
 
         # Advance CfA: DRAFT → assert → PLAN_ASSERT
         # This bypasses the planning agent entirely — the skill is the plan,
@@ -900,6 +944,73 @@ class Orchestrator:
                 )
         except Exception:
             pass
+
+    def _check_skill_correction(self) -> None:
+        """Check if planning corrected a skill-based plan and archive the correction.
+
+        Called after _run_phase('planning') completes normally.  Compares
+        the current PLAN.md to the original skill template.  If they differ,
+        the plan was corrected — either by the human at PLAN_ASSERT or by
+        the planning agent (System 2 fallback after backtrack) — and the
+        corrected plan is archived as a skill correction candidate.
+
+        Issue #142: skill self-correction on backtrack.
+        """
+        if not self._active_skill:
+            return
+
+        from pathlib import Path
+
+        plan_path = os.path.join(self.infra_dir, 'PLAN.md')
+        if not os.path.isfile(plan_path):
+            return
+
+        try:
+            with open(plan_path) as f:
+                current_plan = f.read()
+        except OSError:
+            return
+
+        original_template = self._active_skill.get('template', '')
+        if current_plan.strip() == original_template.strip():
+            # Plan unchanged — skill was approved as-is, no correction needed
+            return
+
+        skill_name = self._active_skill['name']
+        skill_path = self._active_skill.get('path', '')
+
+        # Read category from the skill file (Issue #239)
+        skill_category = ''
+        if skill_path and os.path.isfile(skill_path):
+            try:
+                from projects.POC.orchestrator.procedural_learning import _parse_candidate_frontmatter
+                _skill_content = Path(skill_path).read_text(errors='replace')
+                _skill_meta, _ = _parse_candidate_frontmatter(_skill_content)
+                skill_category = _skill_meta.get('category', '')
+            except OSError:
+                pass
+
+        try:
+            from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
+            archived = archive_skill_candidate(
+                infra_dir=self.infra_dir,
+                project_dir=self.project_workdir,
+                task=self.task,
+                session_id=f'{self.session_id}-correction',
+                corrects_skill=skill_name,
+                category=skill_category,
+            )
+            if archived:
+                _log.info(
+                    'Archived corrected plan as skill correction candidate '
+                    'for skill %s', skill_name,
+                )
+        except Exception as exc:
+            _log.warning('Failed to archive skill correction: %s', exc)
+
+        # Clear active skill — the correction has been recorded
+        self._active_skill = None
+        self._approval_gate._active_skill = None
 
     def _get_observation_count(self, phase_name: str = '') -> int:
         """Get the proxy model's observation count for the current phase's approval state.

@@ -126,6 +126,40 @@ Supplementary to [cognitive-architecture.md](../proposals/cognitive-architecture
 
 ---
 
+### AdaMem: Adaptive User-Centric Memory for Long-Horizon Dialogue Agents (Yan, Ni, Zheng et al., 2026)
+- **Venue:** arXiv:2603.16496, March 2026
+- **URL:** https://arxiv.org/abs/2603.16496
+- **Authors:** Shannan Yan, Jingchen Ni, Leqi Zheng, Jiajun Zhang, Peixi Wu, Dacheng Yin, Jing Lyu, Chun Yuan, Fengyun Rao (Tsinghua University and WeChat Vision, Tencent Inc.)
+- **Key findings:**
+  - Proposes a four-type memory taxonomy, each with a type-specific retrieval strategy:
+    1. **Working memory (M^w)** — bounded FIFO buffer (capacity 20 messages) for recent conversational context and short-term discourse state; always included without a retrieval step.
+    2. **Episodic memory (M^e)** — long-term structured records (events, facts, attributes, topic-centric summaries); retrieved via semantic embedding over typed keys (attribute keys, fact keys, topic keys). The consolidation stage merges fine-grained episode keys into reusable higher-level summaries by embedding them, building a sparse nearest-neighbor graph, and using an LLM merge prompt to rewrite each connected component into a topic-centric or aspect-centric summary.
+    3. **Persona memory (M^p)** — compact user profiles (stable preferences, traits) distilled from episodic evidence; retrieved only when the route planner detects attribute cues.
+    4. **Graph memory (G)** — heterogeneous graph connecting messages, topics, facts, attributes, and event/persona snapshots; retrieved via relation-aware graph expansion from seed nodes, triggered only when the route planner detects temporal or relational cues.
+  - Baseline retrieval aggregates candidates across episodic types: `R_base(q) = TopK(R_attr(q) ∪ R_fact(q) ∪ R_topic(q))`.
+  - **Retrieval routing mechanism** — a deterministic route planner `π(q)` classifies the incoming question into one of four cue types and routes accordingly:
+    - Temporal cues ("when", "date", "year", "before") → trigger graph expansion from the nearest time-anchored node.
+    - Relation cues ("why", "because", "how", "relationship") → trigger multi-hop graph traversal.
+    - Attribute cues ("prefer", "like", "trait") → route to persona summaries only.
+    - Single-hop cues ("who", "what", "where") → remain on semantic retrieval over episodic memory.
+    - When the planner's confidence falls below 0.75, an optional LLM refiner adjusts graph traversal parameters conservatively. Owner-aware filtering is applied for unambiguous participant references before retrieval runs.
+  - **Evidence for type-specific retrieval advantage** (ablation, Table 3 on LoCoMo):
+    - Full AdaMem: F1 44.65, BLEU-1 37.92.
+    - Remove graph memory: F1 42.63 (−2.02 points, 4.5% relative degradation).
+    - Remove fusion (the module combining baseline, graph, recency, and fact signals): F1 42.77 (−1.88 points).
+    - The graph memory advantage is concentrated in temporal F1: +23.4% over LangMem (55.90 vs. 42.57), demonstrating that semantic retrieval alone cannot recover time-ordered evidence.
+  - Full benchmark results: AdaMem outperforms LangMem, Zep, and A-Mem on LoCoMo (overall F1 44.65 vs. LangMem 41.76) and PERSONAMEM (average 63.25 vs. A-Mem 59.75).
+  - Three failure modes addressed: (1) over-reliance on semantic similarity that misses temporally or causally critical evidence; (2) fragmented storage of related experiences as isolated vectors; (3) static memory granularity that cannot adapt to question type.
+- **Implications for TeaParty:**
+  - The four-type taxonomy (working / episodic / persona / graph) is more fine-grained than TeaParty's current memory design and offers a concrete partitioning model for the agent memory architecture.
+  - The deterministic route planner is directly applicable: TeaParty agents should not run a single universal retrieval over all stored memories but instead classify the incoming query and route to the appropriate memory type. The four cue categories (temporal, relational, attribute, single-hop) can be implemented as a lightweight keyword classifier without an LLM call.
+  - The owner-aware filtering step matches TeaParty's workgroup access control requirement — only memories tied to the current conversation participant should be candidates unless an explicit relation traversal is requested.
+  - The graph memory design provides a research-backed template for TeaParty's inter-agent knowledge sharing: facts, personas, and episode snapshots as typed nodes with typed edges enables multi-hop reasoning across agent-memory boundaries.
+  - The quantified cost of omitting graph retrieval (4.5% F1 drop, disproportionately in temporal questions) supports prioritizing graph-augmented retrieval in TeaParty's memory roadmap for sessions where temporal ordering matters (e.g., tracing a decision through multiple phases).
+  - Note: this is a preprint (arXiv March 2026); not yet peer-reviewed. The ablation evidence is from a single benchmark (LoCoMo). Treat findings as strong-signal but not yet replicated.
+
+---
+
 ## Theme 3: Multi-Agent Learning and Collective Cognition
 
 ### Emergent Collective Memory in Decentralized Multi-Agent AI Systems (Khushiyant, 2024)

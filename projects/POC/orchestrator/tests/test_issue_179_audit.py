@@ -102,10 +102,14 @@ class TestIssue191RetrieveDoesNotMutate(unittest.TestCase):
 
 
 class TestIssue192EmbeddingDimensions(unittest.TestCase):
-    """#192: composite_score should not penalize sparse embeddings."""
+    """#212 supersedes #192: composite_score divides by EXPERIENCE_EMBEDDING_DIMENSIONS
+    to reward breadth of matching across experience dimensions.
+    (Updated by #227: salience excluded from composite scoring.)"""
 
-    def test_sparse_embeddings_not_penalized(self):
-        """Denominator should count populated dimensions, not total (5)."""
+    def test_full_match_outscores_sparse(self):
+        """A perfect match on all 4 experience dims should outscore a match
+        on 1 dim, because the denominator is EXPERIENCE_EMBEDDING_DIMENSIONS
+        (not matched). Updated by #227: salience is retrieved independently."""
         vec = [1.0, 0.0, 0.0]
 
         # Chunk with only situation embedding
@@ -113,7 +117,6 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             traces=[1],
             embedding_situation=vec,
         )
-        # Query with only situation
         context = {'situation': vec}
 
         score_sparse = composite_score(
@@ -121,7 +124,7 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             b_min=0.0, b_max=0.0, s=0.0,
         )
 
-        # Chunk with all 5 dimensions populated identically
+        # Chunk with all 4 experience dimensions populated identically
         chunk_full = _make_chunk(
             id='full',
             traces=[1],
@@ -129,24 +132,20 @@ class TestIssue192EmbeddingDimensions(unittest.TestCase):
             embedding_artifact=vec,
             embedding_stimulus=vec,
             embedding_response=vec,
-            embedding_salience=vec,
         )
         context_full = {
-            'situation': vec, 'artifact': vec, 'stimulus': vec,
-            'response': vec, 'salience': vec,
+            'situation': vec, 'artifact': vec,
+            'stimulus': vec, 'response': vec,
         }
         score_full = composite_score(
             chunk_full, context_full, current_interaction=2,
             b_min=0.0, b_max=0.0, s=0.0,
         )
 
-        # A perfect match on 1/1 populated dimensions should score the same
-        # semantic component as a perfect match on 5/5 populated dimensions.
-        # With the old code (divide by 5 always), sparse gets 0.2 and full gets 1.0.
-        # The semantic components should be equal (both perfect matches).
-        # We check that the sparse score is NOT drastically lower than full.
-        self.assertGreater(score_sparse, score_full * 0.8,
-                           "Sparse embedding penalized vs full — denominator bug")
+        # Dividing by EXPERIENCE_EMBEDDING_DIMENSIONS: sparse = 1/4 = 0.25, full = 4/4 = 1.0.
+        # Full should outscore sparse — breadth is rewarded per design spec.
+        self.assertGreater(score_full, score_sparse,
+                           "Full-breadth match should outscore sparse match")
 
 
 class TestIssue193ConfidenceCalibrationFloor(unittest.TestCase):

@@ -516,6 +516,20 @@ def _find_artifact(worktree: str, artifact_name: str) -> str:
     return ''
 
 
+# ── CfA state → learning phase mapping ───────────────────────────────────────
+
+_CFA_STATE_TO_PHASE: dict[str, str] = {
+    'INTENT_ASSERT': 'specification',
+    'INTENT_ESCALATE': 'specification',
+    'PLAN_ASSERT': 'planning',
+    'PLANNING_ESCALATE': 'planning',
+    'TASK_ASSERT': 'implementation',
+    'TASK_ESCALATE': 'implementation',
+    'WORK_ASSERT': 'implementation',
+    'WORK_ESCALATE': 'implementation',
+}
+
+
 # ── ApprovalGate ─────────────────────────────────────────────────────────────
 
 
@@ -567,6 +581,9 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self._last_proxy_result = None  # Most recent ProxyResult for memory recording
+        # Set by engine when a skill-based plan is active (Issue #146).
+        # Used by _log_interaction to tag gate outcomes with the skill name.
+        self._active_skill: dict[str, str] | None = None
 
     async def run(self, ctx: ActorContext) -> ActorResult:
         """Run the approval gate for the current state.
@@ -821,49 +838,86 @@ class ApprovalGate:
         except Exception:
             _actor_log.debug('ACT-R memory recording failed', exc_info=True)
 
-        # ACT-R memory chunk recording
-        pr = self._last_proxy_result
-        try:
-            from projects.POC.orchestrator.proxy_memory import (
-                open_proxy_db,
-                resolve_memory_db_path,
-                record_interaction,
-            )
-            db_path = resolve_memory_db_path(self.proxy_model_path, team)
-            conn = open_proxy_db(db_path)
+        # Emit structured learning entry to proxy-tasks/ on corrections.
+        # This integrates proxy corrections with the broader learning system:
+        # entries are YAML-frontmattered markdown indexed by memory_indexer.py,
+        # retrievable by agents via retrieve(learning_type='proxy').
+        if outcome in ('correct', 'reject') and feedback:
             try:
-                # Read artifact summary for embedding (truncated)
-                artifact_text = ''
-                if artifact_path and os.path.isfile(artifact_path):
-                    try:
-                        with open(artifact_path) as f:
-                            artifact_text = f.read(4000)
-                    except OSError:
-                        pass
-
-                record_interaction(
-                    conn,
-                    interaction_type='gate_outcome',
+                self._emit_proxy_learning_entry(
                     state=state,
-                    task_type=project_slug,
+                    project_slug=project_slug,
                     outcome=outcome,
-                    content=conversation or feedback or '',
-                    delta=feedback if outcome == 'correct' else '',
-                    human_response=feedback or predicted_response or '',
-                    prior_prediction=pr.prior_action if pr else '',
-                    prior_confidence=pr.prior_confidence if pr else 0.0,
-                    posterior_prediction=pr.posterior_action if pr else '',
-                    posterior_confidence=pr.posterior_confidence if pr else 0.0,
-                    prediction_delta=pr.prediction_delta if pr else '',
-                    salient_percepts=pr.salient_percepts if pr else [],
-                    situation_text=f'{state} {project_slug}',
-                    artifact_text=artifact_text,
-                    stimulus_text=conversation[:500] if conversation else '',
+                    feedback=feedback,
+                    conversation=conversation,
+                    artifact_path=artifact_path,
                 )
-            finally:
-                conn.close()
-        except Exception:
-            _actor_log.debug('ACT-R memory recording failed', exc_info=True)
+            except Exception:
+                _actor_log.debug('Proxy learning entry emission failed', exc_info=True)
+
+    def _emit_proxy_learning_entry(
+        self, state: str, project_slug: str, outcome: str,
+        feedback: str, conversation: str, artifact_path: str = '',
+    ) -> None:
+        """Write a structured learning entry to proxy-tasks/ for a correction.
+
+        The entry uses the same YAML frontmatter format as other learning
+        entries (memory_entry.py), so it can be indexed by memory_indexer.py
+        and retrieved via retrieve(learning_type='proxy').
+
+        The entry carries the full correction signal: what CfA state, what
+        artifact type, what the proxy predicted, what the human actually said,
+        and the delta between them.  This is the highest-value learning signal
+        in the system — it reveals where the proxy's model diverges from reality.
+        """
+        from projects.POC.scripts.memory_entry import make_entry, serialize_entry
+
+        phase = _CFA_STATE_TO_PHASE.get(state, 'unknown')
+
+        # Extract the artifact type from the path (e.g., PLAN.md, INTENT.md)
+        artifact_type = os.path.basename(artifact_path) if artifact_path else 'unknown'
+
+        # Include the proxy's prior prediction if available — the delta
+        # between prediction and reality is the highest-value learning signal.
+        pr = self._last_proxy_result
+        prediction_block = ''
+        if pr:
+            prediction_block = (
+                f"**Proxy prior prediction:** {pr.prior_action} "
+                f"(confidence: {pr.prior_confidence:.2f})\n"
+                f"**Proxy posterior prediction:** {pr.posterior_action} "
+                f"(confidence: {pr.posterior_confidence:.2f})\n"
+            )
+            if pr.prediction_delta:
+                prediction_block += f"**Prediction delta:** {pr.prediction_delta}\n"
+            if pr.salient_percepts:
+                prediction_block += (
+                    f"**Salient percepts:** {', '.join(pr.salient_percepts)}\n"
+                )
+
+        entry = make_entry(
+            content=(
+                f"## Proxy Correction at {state}\n"
+                f"**State:** {state}\n"
+                f"**Project:** {project_slug}\n"
+                f"**Artifact type:** {artifact_type}\n"
+                f"**Correction:** {feedback}\n"
+                f"{prediction_block}"
+            ),
+            type='corrective',
+            domain='task',
+            importance=0.8,
+            phase=phase,
+        )
+
+        project_dir = os.path.dirname(self.proxy_model_path)
+        proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+        os.makedirs(proxy_tasks_dir, exist_ok=True)
+
+        filename = f'correction-{entry.id}.md'
+        filepath = os.path.join(proxy_tasks_dir, filename)
+        with open(filepath, 'w') as f:
+            f.write(serialize_entry(entry))
 
     def _log_interaction(
         self, ctx: ActorContext, project_slug: str,
@@ -891,6 +945,9 @@ class ApprovalGate:
             'delta': delta,
             'exploration': exploration,
         }
+        # Tag with skill name when a skill-based plan is active (Issue #146)
+        if self._active_skill:
+            entry['skill_name'] = self._active_skill['name']
         try:
             with open(log_path, 'a') as f:
                 f.write(json.dumps(entry) + '\n')

@@ -38,6 +38,13 @@ from projects.POC.orchestrator.worktree import (
 
 _log = logging.getLogger('orchestrator')
 
+# ── Per-type retrieval budget allocation (characters) ─────────────────────────
+# Institutional learnings are loaded in full (uncapped, like CLAUDE.md).
+# Task-based and proxy-task learnings are fuzzy-retrieved with these budgets.
+# Values are character counts (≈ tokens × 4). Tune empirically.
+TASK_LEARNING_BUDGET_CHARS = 8000     # ~2000 tokens of task learnings
+PROXY_LEARNING_BUDGET_CHARS = 4000    # ~1000 tokens of proxy task patterns
+
 
 @dataclass
 class SessionResult:
@@ -392,29 +399,47 @@ class Session:
                 pass
 
         # Fuzzy memory retrieval via importable retrieve()
+        # institutional.md and proxy.md are already loaded unconditionally above.
+        # Only task-based and proxy-task learnings are fuzzy-retrieved here,
+        # each with its own type and budget allocation.
         db_path = os.path.join(project_dir, '.memory.db')
         if os.path.exists(db_path):
             try:
                 from projects.POC.scripts.memory_indexer import retrieve
-                source_paths = [
-                    os.path.join(project_dir, 'institutional.md'),
-                    os.path.join(project_dir, 'tasks'),
-                ]
-                # Save retrieved entry IDs for reinforcement tracking at session end
                 ids_path = ''
                 if hasattr(self, 'session_info') and self.session_info.get('infra_dir'):
                     ids_path = os.path.join(self.session_info['infra_dir'], '.retrieved-ids.txt')
                 scope_dir = project_dir if self.learning_retrieval_mode == 'scoped' else ''
+
+                # Task-based learnings — fuzzy-retrieved with budget
+                task_sources = [os.path.join(project_dir, 'tasks')]
                 mem_content = retrieve(
                     task=self.task,
                     db_path=db_path,
-                    source_paths=source_paths,
+                    source_paths=task_sources,
                     top_k=10,
                     scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
+                    learning_type='task',
+                    max_chars=TASK_LEARNING_BUDGET_CHARS,
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
+
+                # Proxy task-based learnings — fuzzy-retrieved with separate budget
+                proxy_task_dir = os.path.join(project_dir, 'proxy-tasks')
+                if os.path.isdir(proxy_task_dir):
+                    proxy_content = retrieve(
+                        task=self.task,
+                        db_path=db_path,
+                        source_paths=[proxy_task_dir],
+                        top_k=5,
+                        scope_base_dir=scope_dir,
+                        learning_type='proxy',
+                        max_chars=PROXY_LEARNING_BUDGET_CHARS,
+                    )
+                    if proxy_content and proxy_content.strip():
+                        parts.append(f'--- Proxy Task Patterns ---\n{proxy_content}\n--- end ---')
             except Exception as exc:
                 print(f'[session] memory retrieval failed: {exc}', file=sys.stderr)
 
@@ -708,26 +733,44 @@ class Session:
                     pass
 
         # Fuzzy memory retrieval via importable retrieve()
+        # institutional.md and proxy.md already loaded unconditionally above.
+        # Task-based and proxy-task learnings are fuzzy-retrieved with type budgets.
         db_path = os.path.join(project_dir, '.memory.db')
         if os.path.exists(db_path):
             try:
                 from projects.POC.scripts.memory_indexer import retrieve
-                source_paths = [
-                    os.path.join(project_dir, 'institutional.md'),
-                    os.path.join(project_dir, 'tasks'),
-                ]
                 ids_path = os.path.join(infra_dir, '.retrieved-ids.txt') if infra_dir else ''
                 scope_dir = project_dir if learning_retrieval_mode == 'scoped' else ''
+
+                # Task-based learnings — fuzzy-retrieved with budget
+                task_sources = [os.path.join(project_dir, 'tasks')]
                 mem_content = retrieve(
                     task=task,
                     db_path=db_path,
-                    source_paths=source_paths,
+                    source_paths=task_sources,
                     top_k=10,
                     scope_base_dir=scope_dir,
                     ids_output_path=ids_path,
+                    learning_type='task',
+                    max_chars=TASK_LEARNING_BUDGET_CHARS,
                 )
                 if mem_content and mem_content.strip():
                     parts.append(f'--- Retrieved Memory ---\n{mem_content}\n--- end ---')
+
+                # Proxy task-based learnings — fuzzy-retrieved with separate budget
+                proxy_task_dir = os.path.join(project_dir, 'proxy-tasks')
+                if os.path.isdir(proxy_task_dir):
+                    proxy_content = retrieve(
+                        task=task,
+                        db_path=db_path,
+                        source_paths=[proxy_task_dir],
+                        top_k=5,
+                        scope_base_dir=scope_dir,
+                        learning_type='proxy',
+                        max_chars=PROXY_LEARNING_BUDGET_CHARS,
+                    )
+                    if proxy_content and proxy_content.strip():
+                        parts.append(f'--- Proxy Task Patterns ---\n{proxy_content}\n--- end ---')
             except Exception as exc:
                 print(f'[session] memory retrieval failed: {exc}', file=sys.stderr)
 

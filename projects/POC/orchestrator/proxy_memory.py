@@ -6,8 +6,8 @@ then composite scoring (normalized activation + multi-dimensional cosine
 similarity + logistic noise).
 
 Theory: docs/detailed-design/act-r.md
-Chunk schema: docs/detailed-design/proxy-chunks-and-retrieval.md
-Two-pass prediction: docs/detailed-design/proxy-prediction-and-attention.md
+Chunk schema: docs/detailed-design/act-r-proxy-mapping.md
+Two-pass prediction: docs/detailed-design/act-r-proxy-sensorium.md
 """
 from __future__ import annotations
 
@@ -25,13 +25,17 @@ _log = logging.getLogger('orchestrator.proxy_memory')
 
 # ACT-R parameters (from act-r.md §Standard Parameter Values)
 DECAY = 0.5
-NOISE_SCALE = 0.25
+NOISE_SCALE = 0.08
 RETRIEVAL_THRESHOLD = -0.5
 ACTIVATION_WEIGHT = 0.5
 SEMANTIC_WEIGHT = 0.5
-TOTAL_EMBEDDING_DIMENSIONS = 5
+TOTAL_EMBEDDING_DIMENSIONS = 5  # All dimensions including salience (storage)
 
-# Embedding dimension names
+# Experience dimensions — used for composite scoring (issue #227)
+EXPERIENCE_EMBEDDING_DIMENSIONS = 4
+EXPERIENCE_DIMS = ('situation', 'artifact', 'stimulus', 'response')
+
+# All embedding dimension names (including salience — used for storage)
 EMBEDDING_DIMS = ('situation', 'artifact', 'stimulus', 'response', 'salience')
 
 
@@ -59,6 +63,7 @@ class MemoryChunk:
     embedding_stimulus: list[float] | None = None
     embedding_response: list[float] | None = None
     embedding_salience: list[float] | None = None
+    embedding_blended: list[float] | None = None
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
@@ -86,7 +91,9 @@ CREATE TABLE IF NOT EXISTS proxy_chunks (
     embedding_artifact TEXT,
     embedding_stimulus TEXT,
     embedding_response TEXT,
-    embedding_salience TEXT
+    embedding_salience TEXT,
+    embedding_blended TEXT,
+    deleted_at INTEGER DEFAULT NULL
 );
 
 CREATE TABLE IF NOT EXISTS proxy_state (
@@ -94,6 +101,17 @@ CREATE TABLE IF NOT EXISTS proxy_state (
     value INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO proxy_state (key, value) VALUES ('interaction_counter', 0);
+
+CREATE TABLE IF NOT EXISTS proxy_accuracy (
+    state TEXT NOT NULL,
+    task_type TEXT NOT NULL,
+    prior_correct INTEGER DEFAULT 0,
+    prior_total INTEGER DEFAULT 0,
+    posterior_correct INTEGER DEFAULT 0,
+    posterior_total INTEGER DEFAULT 0,
+    last_updated TEXT,
+    PRIMARY KEY (state, task_type)
+);
 
 CREATE TABLE IF NOT EXISTS embedding_cache (
     hash TEXT NOT NULL,
@@ -113,6 +131,18 @@ def open_proxy_db(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.executescript(_SCHEMA)
+    # Migration: add embedding_blended column for existing DBs (issue #222)
+    try:
+        conn.execute('ALTER TABLE proxy_chunks ADD COLUMN embedding_blended TEXT')
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
+    # Migration: add deleted_at column for soft-delete (issue #236)
+    try:
+        conn.execute('ALTER TABLE proxy_chunks ADD COLUMN deleted_at INTEGER DEFAULT NULL')
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     return conn
 
 
@@ -160,8 +190,9 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             human_response, delta, content, traces,
             embedding_model,
             embedding_situation, embedding_artifact,
-            embedding_stimulus, embedding_response, embedding_salience)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            embedding_stimulus, embedding_response, embedding_salience,
+            embedding_blended)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             chunk.id, chunk.type, chunk.state, chunk.task_type,
             chunk.outcome, chunk.lens,
@@ -175,6 +206,7 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             _embed_to_json(chunk.embedding_stimulus),
             _embed_to_json(chunk.embedding_response),
             _embed_to_json(chunk.embedding_salience),
+            _embed_to_json(chunk.embedding_blended),
         ),
     )
 
@@ -186,7 +218,7 @@ def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
 
 def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
     row = conn.execute(
-        'SELECT * FROM proxy_chunks WHERE id=?', (chunk_id,),
+        'SELECT * FROM proxy_chunks WHERE id=? AND deleted_at IS NULL', (chunk_id,),
     ).fetchone()
     if not row:
         return None
@@ -194,11 +226,20 @@ def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
 
 
 def _add_trace_no_commit(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
-    """Add a trace to a chunk without committing (for use in transactions)."""
+    """Add a trace to a chunk without committing (for use in transactions).
+
+    Works on both active and soft-deleted chunks so that concurrent sessions
+    can still reinforce chunks that another session's consolidation has
+    marked for deletion (issue #236).
+    """
     row = conn.execute(
         'SELECT traces FROM proxy_chunks WHERE id=?', (chunk_id,),
     ).fetchone()
     if not row:
+        _log.warning(
+            'add_trace: chunk %s not found — may have been purged by '
+            'concurrent consolidation', chunk_id,
+        )
         return
     traces = json.loads(row[0])
     traces.append(interaction)
@@ -213,10 +254,44 @@ def add_trace(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None
     conn.commit()
 
 
+def soft_delete_chunk(conn: sqlite3.Connection, chunk_id: str, interaction: int) -> None:
+    """Mark a chunk as soft-deleted instead of removing it from the DB.
+
+    Soft-deleted chunks are excluded from retrieval queries but remain in the
+    table so concurrent sessions can still reinforce them via add_trace().
+    Use purge_deleted_chunks() to remove them after a safe window (issue #236).
+    """
+    conn.execute(
+        'UPDATE proxy_chunks SET deleted_at = ? WHERE id = ?',
+        (interaction, chunk_id),
+    )
+    conn.commit()
+
+
+def purge_deleted_chunks(
+    conn: sqlite3.Connection,
+    current_interaction: int,
+    safe_window: int = 50,
+) -> int:
+    """Hard-delete chunks that were soft-deleted before the safe window.
+
+    Only removes chunks where deleted_at <= (current_interaction - safe_window),
+    meaning enough interactions have passed that no concurrent session could
+    still hold references to them.  Returns the number of purged rows.
+    """
+    cutoff = current_interaction - safe_window
+    cursor = conn.execute(
+        'DELETE FROM proxy_chunks WHERE deleted_at IS NOT NULL AND deleted_at <= ?',
+        (cutoff,),
+    )
+    conn.commit()
+    return cursor.rowcount
+
+
 def query_chunks(
     conn: sqlite3.Connection, *, state: str = '', task_type: str = '',
 ) -> list[MemoryChunk]:
-    clauses = []
+    clauses = ['deleted_at IS NULL']
     params: list[str] = []
     if state:
         clauses.append('state = ?')
@@ -224,7 +299,7 @@ def query_chunks(
     if task_type:
         clauses.append('task_type = ?')
         params.append(task_type)
-    where = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
+    where = ' WHERE ' + ' AND '.join(clauses)
     rows = conn.execute(f'SELECT * FROM proxy_chunks{where}', params).fetchall()
     return [_row_to_chunk(r) for r in rows]
 
@@ -248,6 +323,7 @@ def _row_to_chunk(row: sqlite3.Row) -> MemoryChunk:
         embedding_stimulus=_json_to_embed(row['embedding_stimulus']),
         embedding_response=_json_to_embed(row['embedding_response']),
         embedding_salience=_json_to_embed(row['embedding_salience']),
+        embedding_blended=_json_to_embed(row['embedding_blended']),
     )
 
 
@@ -325,30 +401,62 @@ def composite_score(
     """Composite ranking score: normalized ACT-R activation +
     multi-dimensional semantic similarity + noise.
 
-    Cosine similarities are summed across matched dimensions and divided
-    by TOTAL_EMBEDDING_DIMENSIONS (5), rewarding breadth of matching.
+    Cosine similarities are summed across the 4 experience dimensions
+    (situation, artifact, stimulus, response) and divided by
+    EXPERIENCE_EMBEDDING_DIMENSIONS (4).  Salience is excluded from
+    composite scoring and retrieved independently (issue #227).
     """
     b = base_level_activation(chunk.traces, current_interaction, d)
     b_norm = normalize_activation(b, b_min, b_max)
 
+    # Experience dimensions only — salience is retrieved separately (#227)
     dim_map = {
         'situation': chunk.embedding_situation,
         'artifact': chunk.embedding_artifact,
         'stimulus': chunk.embedding_stimulus,
         'response': chunk.embedding_response,
-        'salience': chunk.embedding_salience,
     }
     sim_sum = 0.0
-    matched_dims = 0
     for dim, context_vec in context_embeddings.items():
         chunk_vec = dim_map.get(dim)
         if chunk_vec and context_vec:
             try:
                 sim_sum += cosine_similarity(chunk_vec, context_vec)
-                matched_dims += 1
             except ValueError:
                 _log.debug('Skipping dim %s: vector length mismatch', dim)
-    sem = sim_sum / matched_dims if matched_dims > 0 else 0.0
+    sem = sim_sum / EXPERIENCE_EMBEDDING_DIMENSIONS
+
+    noise = logistic_noise(s)
+    return activation_weight * b_norm + semantic_weight * sem + noise
+
+
+def single_composite_score(
+    chunk: MemoryChunk,
+    context_blended: list[float],
+    current_interaction: int,
+    b_min: float,
+    b_max: float,
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
+    d: float = DECAY,
+    s: float = NOISE_SCALE,
+) -> float:
+    """Composite score using a single blended embedding instead of 5.
+
+    Same structure as composite_score() but replaces the multi-dimensional
+    cosine average with a single cosine similarity on blended embeddings.
+    This is the Configuration B scoring function for the embedding ablation
+    (issue #222).
+    """
+    b = base_level_activation(chunk.traces, current_interaction, d)
+    b_norm = normalize_activation(b, b_min, b_max)
+
+    sem = 0.0
+    if chunk.embedding_blended and context_blended:
+        try:
+            sem = cosine_similarity(chunk.embedding_blended, context_blended)
+        except ValueError:
+            _log.debug('Skipping blended: vector length mismatch')
 
     noise = logistic_noise(s)
     return activation_weight * b_norm + semantic_weight * sem + noise
@@ -362,13 +470,27 @@ def retrieve_chunks(
     state: str = '',
     task_type: str = '',
     context_embeddings: dict[str, list[float]] | None = None,
+    context_blended: list[float] | None = None,
+    scoring: str = 'multi_dim',
     current_interaction: int = 0,
     tau: float = RETRIEVAL_THRESHOLD,
     top_k: int = 10,
     d: float = DECAY,
     s: float = NOISE_SCALE,
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
 ) -> list[MemoryChunk]:
-    """Two-stage retrieval: activation filter, then composite ranking."""
+    """Two-stage retrieval: activation filter, then composite ranking.
+
+    scoring='multi_dim' (default): uses 5 independent embeddings via composite_score().
+        Requires context_embeddings dict mapping dimension names to vectors.
+    scoring='single': uses 1 blended embedding via single_composite_score().
+        Requires context_blended vector. This is Configuration B for the
+        embedding ablation (issue #222).
+    """
+    if scoring not in ('multi_dim', 'single'):
+        raise ValueError(f"scoring must be 'multi_dim' or 'single', got {scoring!r}")
+
     candidates = query_chunks(conn, state=state, task_type=task_type)
     context_embeddings = context_embeddings or {}
 
@@ -390,11 +512,88 @@ def retrieve_chunks(
     # Stage 2: composite scoring
     scored = []
     for _, chunk in survivors:
-        score = composite_score(
-            chunk, context_embeddings, current_interaction,
-            b_min, b_max, d=d, s=s,
-        )
+        if scoring == 'single':
+            score = single_composite_score(
+                chunk, context_blended or [], current_interaction,
+                b_min, b_max,
+                activation_weight=activation_weight,
+                semantic_weight=semantic_weight,
+                d=d, s=s,
+            )
+        else:
+            score = composite_score(
+                chunk, context_embeddings, current_interaction,
+                b_min, b_max,
+                activation_weight=activation_weight,
+                semantic_weight=semantic_weight,
+                d=d, s=s,
+            )
         scored.append((score, chunk))
+    scored.sort(key=lambda x: -x[0])
+    return [chunk for _, chunk in scored[:top_k]]
+
+
+def retrieve_most_recent_n(
+    conn: sqlite3.Connection,
+    n: int = 10,
+    *,
+    state: str = '',
+    task_type: str = '',
+) -> list[MemoryChunk]:
+    """Most-recent-N retrieval: return N chunks ordered by latest trace.
+
+    No activation computation, no embeddings, no threshold — pure recency.
+    This is Configuration B for the ACT-R decay vs. recency ablation (#223).
+    """
+    candidates = query_chunks(conn, state=state, task_type=task_type)
+    if not candidates:
+        return []
+    candidates.sort(key=lambda c: max(c.traces) if c.traces else 0, reverse=True)
+    return candidates[:n]
+
+
+def retrieve_salience(
+    conn: sqlite3.Connection,
+    *,
+    context_embedding: list[float],
+    current_interaction: int = 0,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 5,
+    d: float = DECAY,
+) -> list[MemoryChunk]:
+    """Retrieve chunks by salience embedding similarity.
+
+    Independent retrieval path for the learned attention model (issue #227).
+    Returns only chunks with non-null salience embeddings, ranked by
+    cosine similarity between the chunk's salience embedding and the
+    provided context embedding.  Activation filtering still applies.
+    """
+    rows = conn.execute(
+        'SELECT * FROM proxy_chunks WHERE embedding_salience IS NOT NULL AND deleted_at IS NULL',
+    ).fetchall()
+    candidates = [_row_to_chunk(r) for r in rows]
+
+    # Stage 1: filter by raw activation
+    survivors: list[tuple[float, MemoryChunk]] = []
+    for c in candidates:
+        if not c.embedding_salience:
+            continue
+        b = base_level_activation(c.traces, current_interaction, d)
+        if b > tau:
+            survivors.append((b, c))
+
+    if not survivors:
+        return []
+
+    # Stage 2: rank by cosine similarity to the salience query
+    scored: list[tuple[float, MemoryChunk]] = []
+    for _, chunk in survivors:
+        try:
+            sim = cosine_similarity(chunk.embedding_salience, context_embedding)  # type: ignore[arg-type]
+        except ValueError:
+            continue
+        scored.append((sim, chunk))
+
     scored.sort(key=lambda x: -x[0])
     return [chunk for _, chunk in scored[:top_k]]
 
@@ -404,14 +603,297 @@ def reinforce_retrieved(
     chunks: list[MemoryChunk],
     current_interaction: int,
 ) -> None:
-    """ACT-R Rule 2: reinforce chunks that were actually used.
+    """ACT-R Rule 2: reinforce chunks that were retrieved for a task.
 
-    Call this after the proxy has consumed the retrieved memories,
-    not during retrieval itself. Only reinforce chunks the proxy
-    actually referenced in its response.
+    Called after retrieve_chunks() returns, before the DB connection
+    closes. The retrieval itself is the reinforcement signal —
+    correctness feedback flows through the chunk's outcome field,
+    not through trace frequency.
     """
     for chunk in chunks:
         add_trace(conn, chunk.id, current_interaction)
+
+
+# ── Ablation ──────────────────────────────────────────────────────────────────
+
+ABLATION_CONFIGS = {
+    'composite': {'activation_weight': 0.5, 'semantic_weight': 0.5},
+    'activation_only': {'activation_weight': 1.0, 'semantic_weight': 0.0},
+    'similarity_only': {'activation_weight': 0.0, 'semantic_weight': 1.0},
+}
+
+
+@dataclass
+class AblationCheckpoint:
+    """Results for one configuration at one checkpoint."""
+    config: str
+    checkpoint: int           # interaction count at evaluation
+    matches: int              # retrieved outcomes matching held-out outcome
+    total: int                # total held-out chunks evaluated
+    match_rate: float         # matches / total (0.0 if total == 0)
+    survivors_avg: float      # average chunks surviving activation filter
+
+
+@dataclass
+class AblationResult:
+    """Full ablation results across configs and checkpoints."""
+    checkpoints: dict[int, dict[str, AblationCheckpoint]]
+    noise_sensitivity: dict[float, dict[str, float]] = field(default_factory=dict)
+
+    def summary(self) -> str:
+        """Human-readable summary comparing configs at each checkpoint."""
+        lines = ['## Scoring Ablation Results', '']
+        for cp in sorted(self.checkpoints):
+            lines.append(f'### After {cp} interactions')
+            lines.append('| Config | Match Rate | Matches/Total | Avg Survivors |')
+            lines.append('|--------|-----------|---------------|---------------|')
+            for name in ('composite', 'activation_only', 'similarity_only'):
+                r = self.checkpoints[cp].get(name)
+                if r:
+                    lines.append(
+                        f'| {name} | {r.match_rate:.3f} | {r.matches}/{r.total} '
+                        f'| {r.survivors_avg:.1f} |'
+                    )
+            lines.append('')
+
+        if self.noise_sensitivity:
+            lines.append('### Noise Scale Sensitivity')
+            lines.append('| Noise Scale | Mean Match Rate | Std Dev |')
+            lines.append('|------------|----------------|---------|')
+            for s_val in sorted(self.noise_sensitivity):
+                entry = self.noise_sensitivity[s_val]
+                lines.append(
+                    f'| {s_val} | {entry["mean"]:.3f} | {entry["std"]:.3f} |'
+                )
+            lines.append('')
+
+        return '\n'.join(lines)
+
+
+def run_scoring_ablation(
+    conn: sqlite3.Connection,
+    *,
+    checkpoints: list[int] | None = None,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 10,
+    d: float = DECAY,
+    noise_scales: list[float] | None = None,
+    trials_per_noise: int = 20,
+) -> AblationResult:
+    """Run the composite vs. activation-only vs. similarity-only ablation.
+
+    Performs leave-one-out evaluation: for each chunk in chronological order,
+    holds it out, retrieves from all prior chunks under each weight config,
+    and checks whether the majority outcome among retrieved chunks matches
+    the held-out chunk's actual outcome. This is a retrieval relevance
+    proxy for action match rate (the true metric requires re-running the LLM).
+
+    Evaluates at the specified checkpoints (interaction counts). If None,
+    evaluates at all chunks. Noise is disabled (s=0.0) for determinism.
+
+    If noise_scales is provided, runs a noise-scale sensitivity analysis
+    using the composite config across multiple trials per noise level.
+    Results are stored in AblationResult.noise_sensitivity.
+
+    Returns an AblationResult with per-config, per-checkpoint metrics.
+    """
+    all_chunks = query_chunks(conn)
+    if not all_chunks:
+        return AblationResult(checkpoints={})
+
+    # Sort chronologically by first trace
+    all_chunks.sort(key=lambda c: min(c.traces) if c.traces else 0)
+
+    if checkpoints is None:
+        checkpoints = [len(all_chunks)]
+
+    result_checkpoints: dict[int, dict[str, AblationCheckpoint]] = {}
+
+    for cp in checkpoints:
+        eval_chunks = all_chunks[:cp]
+        if len(eval_chunks) < 2:
+            continue
+
+        config_results: dict[str, AblationCheckpoint] = {}
+        for config_name, weights in ABLATION_CONFIGS.items():
+            matches = 0
+            total = 0
+            survivor_counts: list[int] = []
+
+            for i, held_out in enumerate(eval_chunks):
+                if i == 0:
+                    continue  # need at least one prior chunk
+
+                prior_chunks = eval_chunks[:i]
+                held_out_interaction = min(held_out.traces) if held_out.traces else i
+
+                # Build context embeddings from the held-out chunk's experience
+                # dimensions only — salience is retrieved independently (#227)
+                context_embeddings: dict[str, list[float]] = {}
+                if held_out.embedding_situation:
+                    context_embeddings['situation'] = held_out.embedding_situation
+                if held_out.embedding_artifact:
+                    context_embeddings['artifact'] = held_out.embedding_artifact
+                if held_out.embedding_stimulus:
+                    context_embeddings['stimulus'] = held_out.embedding_stimulus
+                if held_out.embedding_response:
+                    context_embeddings['response'] = held_out.embedding_response
+
+                # Run retrieval on prior chunks only
+                retrieved = _retrieve_from_chunks(
+                    prior_chunks,
+                    context_embeddings=context_embeddings,
+                    current_interaction=held_out_interaction,
+                    tau=tau,
+                    top_k=top_k,
+                    d=d,
+                    **weights,
+                )
+
+                survivor_counts.append(len(retrieved))
+
+                if not retrieved:
+                    continue
+
+                # Majority outcome among retrieved chunks
+                outcome_counts: dict[str, int] = {}
+                for rc in retrieved:
+                    outcome_counts[rc.outcome] = outcome_counts.get(rc.outcome, 0) + 1
+                majority_outcome = max(outcome_counts, key=outcome_counts.get)  # type: ignore[arg-type]
+
+                total += 1
+                if majority_outcome == held_out.outcome:
+                    matches += 1
+
+            match_rate = matches / total if total > 0 else 0.0
+            survivors_avg = (
+                sum(survivor_counts) / len(survivor_counts)
+                if survivor_counts else 0.0
+            )
+
+            config_results[config_name] = AblationCheckpoint(
+                config=config_name,
+                checkpoint=cp,
+                matches=matches,
+                total=total,
+                match_rate=match_rate,
+                survivors_avg=survivors_avg,
+            )
+
+        result_checkpoints[cp] = config_results
+
+    # Noise-scale sensitivity analysis
+    noise_sensitivity: dict[float, dict[str, float]] = {}
+    if noise_scales is not None and all_chunks:
+        eval_chunks = all_chunks[:checkpoints[-1]] if checkpoints else all_chunks
+        composite_weights = ABLATION_CONFIGS['composite']
+
+        for s_val in noise_scales:
+            trial_rates: list[float] = []
+            for _ in range(trials_per_noise):
+                matches = 0
+                total = 0
+                for i, held_out in enumerate(eval_chunks):
+                    if i == 0:
+                        continue
+                    prior_chunks = eval_chunks[:i]
+                    held_out_interaction = (
+                        min(held_out.traces) if held_out.traces else i
+                    )
+                    context_embeddings: dict[str, list[float]] = {}
+                    if held_out.embedding_situation:
+                        context_embeddings['situation'] = held_out.embedding_situation
+                    if held_out.embedding_artifact:
+                        context_embeddings['artifact'] = held_out.embedding_artifact
+                    if held_out.embedding_stimulus:
+                        context_embeddings['stimulus'] = held_out.embedding_stimulus
+                    if held_out.embedding_response:
+                        context_embeddings['response'] = held_out.embedding_response
+
+                    retrieved = _retrieve_from_chunks(
+                        prior_chunks,
+                        context_embeddings=context_embeddings,
+                        current_interaction=held_out_interaction,
+                        tau=tau, top_k=top_k, d=d,
+                        s=s_val,
+                        **composite_weights,
+                    )
+                    if not retrieved:
+                        continue
+                    outcome_counts: dict[str, int] = {}
+                    for rc in retrieved:
+                        outcome_counts[rc.outcome] = (
+                            outcome_counts.get(rc.outcome, 0) + 1
+                        )
+                    majority_outcome = max(
+                        outcome_counts, key=outcome_counts.get,  # type: ignore[arg-type]
+                    )
+                    total += 1
+                    if majority_outcome == held_out.outcome:
+                        matches += 1
+                trial_rates.append(matches / total if total > 0 else 0.0)
+
+            mean_rate = sum(trial_rates) / len(trial_rates) if trial_rates else 0.0
+            variance = (
+                sum((r - mean_rate) ** 2 for r in trial_rates) / len(trial_rates)
+                if trial_rates else 0.0
+            )
+            noise_sensitivity[s_val] = {
+                'mean': mean_rate,
+                'std': variance ** 0.5,
+            }
+
+    return AblationResult(
+        checkpoints=result_checkpoints,
+        noise_sensitivity=noise_sensitivity,
+    )
+
+
+def _retrieve_from_chunks(
+    chunks: list[MemoryChunk],
+    *,
+    context_embeddings: dict[str, list[float]] | None = None,
+    current_interaction: int = 0,
+    tau: float = RETRIEVAL_THRESHOLD,
+    top_k: int = 10,
+    d: float = DECAY,
+    s: float = 0.0,
+    activation_weight: float = ACTIVATION_WEIGHT,
+    semantic_weight: float = SEMANTIC_WEIGHT,
+) -> list[MemoryChunk]:
+    """Retrieve from an in-memory list of chunks (no DB query).
+
+    Same two-stage logic as retrieve_chunks but operates on a provided
+    list rather than querying the database. Used by the ablation harness
+    to evaluate retrieval on a subset of chunks (leave-one-out).
+    """
+    context_embeddings = context_embeddings or {}
+
+    survivors: list[tuple[float, MemoryChunk]] = []
+    for c in chunks:
+        b = base_level_activation(c.traces, current_interaction, d)
+        if b > tau:
+            survivors.append((b, c))
+
+    if not survivors:
+        return []
+
+    activations = [b for b, _ in survivors]
+    b_min = min(activations)
+    b_max = max(activations)
+
+    scored = []
+    for _, chunk in survivors:
+        score = composite_score(
+            chunk, context_embeddings, current_interaction,
+            b_min, b_max,
+            activation_weight=activation_weight,
+            semantic_weight=semantic_weight,
+            d=d, s=s,
+        )
+        scored.append((score, chunk))
+    scored.sort(key=lambda x: -x[0])
+    return [chunk for _, chunk in scored[:top_k]]
 
 
 # ── Recording ────────────────────────────────────────────────────────────────
@@ -463,6 +945,13 @@ def record_interaction(
     emb_response = _embed(human_response) if human_response else None
     emb_salience = _embed(prediction_delta) if prediction_delta else None
 
+    # Blended embedding: single embedding from concatenated text (issue #222)
+    blended_str = blended_text_from_fields(
+        state=state, task_type=task_type, content=content,
+        human_response=human_response, prediction_delta=prediction_delta,
+    )
+    emb_blended = _embed(blended_str) if blended_str else None
+
     conn.execute('BEGIN IMMEDIATE')
     try:
         current = _increment_counter_no_commit(conn)
@@ -497,13 +986,116 @@ def record_interaction(
             embedding_stimulus=emb_stimulus,
             embedding_response=emb_response,
             embedding_salience=emb_salience,
+            embedding_blended=emb_blended,
         )
         _store_chunk_no_commit(conn, chunk)
+        _update_accuracy_no_commit(
+            conn, state, task_type, outcome,
+            prior_prediction, posterior_prediction,
+        )
         conn.commit()
         return chunk
     except Exception:
         conn.rollback()
         raise
+
+
+def _update_accuracy_no_commit(
+    conn: sqlite3.Connection,
+    state: str,
+    task_type: str,
+    outcome: str,
+    prior_prediction: str,
+    posterior_prediction: str,
+) -> None:
+    """Update per-context accuracy counts inside an existing transaction.
+
+    Only counts predictions that are non-empty — empty predictions
+    (cold start, agent failure) are excluded from totals.
+    """
+    has_prior = bool(prior_prediction)
+    has_posterior = bool(posterior_prediction)
+    if not has_prior and not has_posterior:
+        return
+
+    prior_correct_inc = int(has_prior and prior_prediction == outcome)
+    prior_total_inc = int(has_prior)
+    posterior_correct_inc = int(has_posterior and posterior_prediction == outcome)
+    posterior_total_inc = int(has_posterior)
+
+    conn.execute(
+        """INSERT INTO proxy_accuracy (state, task_type,
+               prior_correct, prior_total, posterior_correct, posterior_total,
+               last_updated)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(state, task_type) DO UPDATE SET
+               prior_correct = prior_correct + excluded.prior_correct,
+               prior_total = prior_total + excluded.prior_total,
+               posterior_correct = posterior_correct + excluded.posterior_correct,
+               posterior_total = posterior_total + excluded.posterior_total,
+               last_updated = excluded.last_updated""",
+        (state, task_type,
+         prior_correct_inc, prior_total_inc,
+         posterior_correct_inc, posterior_total_inc),
+    )
+
+
+def get_accuracy(
+    conn: sqlite3.Connection,
+    *,
+    state: str,
+    task_type: str,
+) -> dict[str, Any] | None:
+    """Query prediction accuracy for a specific (state, task_type) context.
+
+    Returns a dict with prior_correct, prior_total, posterior_correct,
+    posterior_total, last_updated — or None if no data exists.
+    """
+    row = conn.execute(
+        """SELECT prior_correct, prior_total, posterior_correct, posterior_total,
+                  last_updated
+           FROM proxy_accuracy WHERE state = ? AND task_type = ?""",
+        (state, task_type),
+    ).fetchone()
+    if not row:
+        return None
+    return {
+        'prior_correct': row[0],
+        'prior_total': row[1],
+        'posterior_correct': row[2],
+        'posterior_total': row[3],
+        'last_updated': row[4],
+    }
+
+
+def blended_text_from_fields(
+    state: str = '',
+    task_type: str = '',
+    content: str = '',
+    human_response: str = '',
+    prediction_delta: str = '',
+) -> str:
+    """Concatenate available text fields into a single string for blended embedding.
+
+    This is the single source of truth for which fields contribute to the
+    blended embedding. Used by record_interaction() and proxy_ablation.blended_text().
+
+    Note: artifact_text and stimulus_text are not stored in the chunk — only
+    their per-dimension embeddings survive. The content field is the closest
+    available proxy.
+    """
+    parts = []
+    if state:
+        parts.append(state)
+    if task_type:
+        parts.append(task_type)
+    if content:
+        parts.append(content)
+    if human_response:
+        parts.append(human_response)
+    if prediction_delta:
+        parts.append(prediction_delta)
+    return ' '.join(parts)
 
 
 def _default_embed(conn: sqlite3.Connection):
@@ -523,18 +1115,43 @@ def _default_embed(conn: sqlite3.Connection):
 # ── Serialization ────────────────────────────────────────────────────────────
 
 def serialize_chunks_for_prompt(
-    chunks: list[MemoryChunk], token_budget: int = 5000,
+    chunks: list[MemoryChunk],
+    token_budget: int = 5000,
+    salience_chunks: list[MemoryChunk] | None = None,
+    salience_token_budget: int = 2000,
 ) -> str:
     """Serialize retrieved chunks to Markdown for the proxy's LLM prompt.
 
-    Approximate token budget: ~4 chars per token. Chunks are serialized in
-    order (highest-scoring first) until the budget is exhausted.
+    Experience chunks and salience chunks are rendered as separate sections
+    (issue #227).  Approximate token budget: ~4 chars per token.
     """
-    if not chunks:
-        return ''
+    parts: list[str] = []
 
+    # Experience section
+    if chunks:
+        parts.append(_serialize_section(
+            chunks,
+            '## Your relevant experience with this human',
+            token_budget,
+        ))
+
+    # Salience section (independent attention retrieval, issue #227)
+    if salience_chunks:
+        parts.append(_serialize_section(
+            salience_chunks,
+            '## What has surprised you in similar situations',
+            salience_token_budget,
+        ))
+
+    return '\n\n'.join(parts)
+
+
+def _serialize_section(
+    chunks: list[MemoryChunk], heading: str, token_budget: int,
+) -> str:
+    """Serialize a list of chunks under a heading within a token budget."""
     char_budget = token_budget * 4
-    parts = ['--- RETRIEVED MEMORIES ---']
+    parts = [heading]
     used = len(parts[0])
 
     for chunk in chunks:
@@ -576,3 +1193,392 @@ def resolve_memory_db_path(proxy_model_path: str, team: str = '') -> str:
     if team:
         return os.path.join(project_dir, f'.proxy-memory-{team}.db')
     return os.path.join(project_dir, '.proxy-memory.db')
+
+
+# ── Contradiction detection (issue #228) ────────────────────────────────────
+
+
+@dataclass
+class ConflictClassification:
+    """Result of classifying a conflicting memory pair."""
+    chunk_a_id: str
+    chunk_b_id: str
+    cause: str      # preference_drift, context_sensitivity, genuine_tension, retrieval_noise
+    action: str     # human-readable recommended action
+    newer_id: str = ''  # which chunk is newer (for preference_drift)
+
+
+# Recency gap threshold: if the newest trace of one chunk is this many
+# interactions older than the other, classify as preference_drift.
+_RECENCY_GAP_THRESHOLD = 8
+
+# Confidence threshold for genuine_tension: both chunks must have
+# posterior_confidence above this to qualify.
+_TENSION_CONFIDENCE_THRESHOLD = 0.75
+
+# Maximum age (in interactions) for a chunk to be considered "recent".
+_RECENT_WINDOW = 10
+
+
+def find_conflicting_pairs(
+    chunks: list[MemoryChunk],
+) -> list[tuple[MemoryChunk, MemoryChunk]]:
+    """Identify candidate conflicting pairs from retrieved chunks.
+
+    A pair is a candidate conflict when both chunks share the same
+    (state, task_type) but have different outcomes.  This is a cheap
+    heuristic pre-filter — no LLM call required.
+
+    The chunk list is NOT modified (read-only).
+    """
+    pairs: list[tuple[MemoryChunk, MemoryChunk]] = []
+    for i in range(len(chunks)):
+        for j in range(i + 1, len(chunks)):
+            a, b = chunks[i], chunks[j]
+            if a.state == b.state and a.task_type == b.task_type and a.outcome != b.outcome:
+                pairs.append((a, b))
+    return pairs
+
+
+def classify_conflict(
+    chunk_a: MemoryChunk,
+    chunk_b: MemoryChunk,
+    current_interaction: int = 0,
+) -> ConflictClassification:
+    """Classify a conflicting pair by cause.
+
+    Uses heuristic signals from chunk metadata — no LLM call.
+
+    Classification rules (applied in order):
+    1. Retrieval noise: if chunks have no traces (shouldn't happen), noise.
+    2. Preference drift: large recency gap + same context domain.
+    3. Genuine tension: both recent + both high confidence.
+    4. Default: context_sensitivity (preserve both — safest default).
+    """
+    a_newest = max(chunk_a.traces) if chunk_a.traces else 0
+    b_newest = max(chunk_b.traces) if chunk_b.traces else 0
+    recency_gap = abs(a_newest - b_newest)
+
+    # Determine which is newer
+    if a_newest >= b_newest:
+        newer, older = chunk_a, chunk_b
+        newer_newest, older_newest = a_newest, b_newest
+    else:
+        newer, older = chunk_b, chunk_a
+        newer_newest, older_newest = b_newest, a_newest
+
+    # Rule 1: retrieval noise — no traces at all
+    if not chunk_a.traces or not chunk_b.traces:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='retrieval_noise',
+            action='Discard the weaker match; insufficient trace data.',
+        )
+
+    # Rule 2: preference drift — large recency gap
+    if recency_gap >= _RECENCY_GAP_THRESHOLD:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='preference_drift',
+            action=f'Prefer newer memory ({newer.id}); schedule older for demotion.',
+            newer_id=newer.id,
+        )
+
+    # Rule 3: genuine tension — both recent, both high confidence
+    a_recent = (current_interaction - a_newest) <= _RECENT_WINDOW
+    b_recent = (current_interaction - b_newest) <= _RECENT_WINDOW
+    a_confident = chunk_a.posterior_confidence >= _TENSION_CONFIDENCE_THRESHOLD
+    b_confident = chunk_b.posterior_confidence >= _TENSION_CONFIDENCE_THRESHOLD
+    if a_recent and b_recent and a_confident and b_confident:
+        return ConflictClassification(
+            chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+            cause='genuine_tension',
+            action='Escalate to human — unresolved tension in preferences.',
+        )
+
+    # Default: context_sensitivity — preserve both with scope annotations
+    return ConflictClassification(
+        chunk_a_id=chunk_a.id, chunk_b_id=chunk_b.id,
+        cause='context_sensitivity',
+        action='Preserve both memories with scope annotations; use both in reasoning.',
+    )
+
+
+def format_conflict_context(
+    classifications: list[ConflictClassification],
+    *,
+    llm_fallback_count: int = 0,
+) -> str:
+    """Render conflict classifications as prompt text for the proxy agent.
+
+    Returns empty string when no conflicts exist (zero overhead fast path).
+    When llm_fallback_count > 0, appends a note that some classifications
+    used heuristic-only mode due to LLM failures (#238).
+    """
+    if not classifications:
+        return ''
+
+    lines = ['## Memory Conflicts Detected', '']
+    for i, cls in enumerate(classifications, 1):
+        lines.append(f'**Conflict {i}:** {cls.cause.replace("_", " ")}')
+        lines.append(f'  Chunks: {cls.chunk_a_id[:8]} vs {cls.chunk_b_id[:8]}')
+        lines.append(f'  Recommended action: {cls.action}')
+        lines.append('')
+
+    if llm_fallback_count > 0:
+        lines.append(
+            f'**Note:** {llm_fallback_count} conflict(s) classified by heuristic only '
+            f'(LLM classifier unavailable).'
+        )
+        lines.append('')
+
+    return '\n'.join(lines)
+
+
+def has_genuine_tension(
+    classifications: list[ConflictClassification],
+) -> bool:
+    """Return True if any classification is genuine_tension.
+
+    Used by _calibrate_confidence() to cap confidence and force escalation.
+    """
+    return any(c.cause == 'genuine_tension' for c in classifications)
+
+
+# ── Asymmetric confidence decay (Hindsight, arXiv:2512.12818) ────────────────
+
+# Step size for confidence updates. Supporting = +α, weakening = -α,
+# contradicting = -2α. Value chosen to be meaningful over ~10-20
+# interactions but not so large that a single event dominates.
+CONFIDENCE_ALPHA = 0.05
+
+
+def apply_confidence_decay(
+    confidence: float,
+    evidence_type: str,
+    alpha: float = CONFIDENCE_ALPHA,
+) -> float:
+    """Apply asymmetric confidence decay following Hindsight.
+
+    Args:
+        confidence: current confidence value in [0.0, 1.0]
+        evidence_type: one of 'supporting', 'weakening', 'contradicting'
+        alpha: step size (default CONFIDENCE_ALPHA)
+
+    Returns:
+        Updated confidence, clamped to [0.0, 1.0].
+
+    The asymmetry: contradicting evidence reduces confidence by 2α,
+    while supporting evidence increases by only α. This is consistent
+    with the proxy's existing 3x correction asymmetry (EMA) and
+    regret theory: false beliefs are more costly than missed reinforcements.
+    """
+    if evidence_type == 'supporting':
+        return min(1.0, confidence + alpha)
+    elif evidence_type == 'weakening':
+        return max(0.0, confidence - alpha)
+    elif evidence_type == 'contradicting':
+        return max(0.0, confidence - 2 * alpha)
+    else:
+        return confidence
+
+
+def consolidate_proxy_entries(
+    chunks: list[MemoryChunk],
+    current_interaction: int = 0,
+) -> list[MemoryChunk]:
+    """Apply ADD/UPDATE/DELETE/SKIP taxonomy to proxy ACT-R chunks.
+
+    Post-session consolidation pass — separate from compact_entries().
+
+    For each conflicting pair:
+    - preference_drift → DELETE older (keep newer only)
+    - context_sensitivity → keep both (ADD semantics)
+    - genuine_tension → keep both (will be escalated at retrieval time)
+    - retrieval_noise → keep both (let activation decay handle it)
+
+    Non-conflicting entries are returned unchanged.
+    """
+    pairs = find_conflicting_pairs(chunks)
+    if not pairs:
+        return list(chunks)
+
+    # Collect IDs to delete
+    delete_ids: set[str] = set()
+    for a, b in pairs:
+        cls = classify_conflict(a, b, current_interaction=current_interaction)
+        if cls.cause == 'preference_drift':
+            # Delete the older chunk
+            a_newest = max(a.traces) if a.traces else 0
+            b_newest = max(b.traces) if b.traces else 0
+            older_id = a.id if a_newest < b_newest else b.id
+            delete_ids.add(older_id)
+
+    return [c for c in chunks if c.id not in delete_ids]
+
+
+# ── Proxy.md consolidation (issue #228 Stage 2) ─────────────────────────────
+
+# Mem0 decision taxonomy
+CONSOLIDATION_ADD = 'ADD'           # no conflict — keep new entry
+CONSOLIDATION_UPDATE = 'UPDATE'     # complement existing — merge
+CONSOLIDATION_DELETE = 'DELETE'     # new supersedes old — remove old
+CONSOLIDATION_SKIP = 'SKIP'        # already represented — discard new
+
+
+def _tokenize_content(text: str) -> set[str]:
+    """Extract word tokens from text for similarity comparison."""
+    import re as _re
+    return set(_re.findall(r'[a-z0-9]+', text.lower()))
+
+
+def _jaccard_similarity(a: set[str], b: set[str]) -> float:
+    """Jaccard similarity between two token sets."""
+    if not a and not b:
+        return 1.0
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
+def consolidate_proxy_file(
+    entries: list,
+    *,
+    similarity_threshold: float = 0.4,
+    classifier: Any = None,
+) -> tuple[list, list[dict]]:
+    """Consolidate proxy.md MemoryEntry objects using ADD/UPDATE/DELETE/SKIP.
+
+    Stage 2 of issue #228: post-session write-time consolidation.
+
+    1. Cluster entries by content similarity (O-Mem pattern).
+    2. Within each cluster, identify conflicts:
+       - If classifier is provided, use it (LLM-as-judge).
+       - Otherwise, use heuristic: within a cluster, entries with
+         substantially different content (low Jaccard despite being
+         in the same cluster via embedding/topic) are conflict candidates.
+    3. Apply taxonomy:
+       - SKIP: entries whose content is already covered by another
+       - DELETE: older entries superseded by newer ones (preference drift)
+       - UPDATE: entries that complement each other (merge content)
+       - ADD: entries with no conflict
+
+    Args:
+        entries: list of MemoryEntry objects from proxy.md
+        similarity_threshold: Jaccard threshold for clustering (default 0.4,
+            lower than compact_memory's 0.8 because we want to find
+            topically related entries, not near-duplicates)
+        classifier: optional callable(entry_a, entry_b) -> str returning
+            one of ADD/UPDATE/DELETE/SKIP. When None, uses heuristic.
+
+    Returns:
+        (consolidated_entries, decisions) where decisions is a list of
+        dicts recording each consolidation decision for auditability.
+    """
+    if len(entries) <= 1:
+        return list(entries), []
+
+    # Step 1: Tokenize all entries
+    tokens = [_tokenize_content(e.content) for e in entries]
+    n = len(entries)
+
+    # Step 2: Single-linkage clustering by Jaccard similarity
+    cluster_id = list(range(n))
+
+    def _find(i: int) -> int:
+        while cluster_id[i] != i:
+            cluster_id[i] = cluster_id[cluster_id[i]]
+            i = cluster_id[i]
+        return i
+
+    def _union(i: int, j: int) -> None:
+        ri, rj = _find(i), _find(j)
+        if ri != rj:
+            cluster_id[ri] = rj
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _jaccard_similarity(tokens[i], tokens[j]) >= similarity_threshold:
+                _union(i, j)
+
+    # Group entries by cluster
+    clusters: dict[int, list[int]] = {}
+    for i in range(n):
+        root = _find(i)
+        clusters.setdefault(root, []).append(i)
+
+    # Step 3: Within each multi-entry cluster, apply consolidation
+    keep_indices: set[int] = set()
+    decisions: list[dict] = []
+
+    for root, members in clusters.items():
+        if len(members) == 1:
+            keep_indices.add(members[0])
+            continue
+
+        # Sort by created_at (newer last) for recency ordering
+        members.sort(key=lambda i: entries[i].created_at)
+
+        if classifier:
+            # LLM-based classification
+            for i_idx in range(len(members)):
+                for j_idx in range(i_idx + 1, len(members)):
+                    ei, ej = entries[members[i_idx]], entries[members[j_idx]]
+                    decision = classifier(ei, ej)
+                    decisions.append({
+                        'entry_a': ei.id, 'entry_b': ej.id,
+                        'decision': decision,
+                    })
+                    if decision == CONSOLIDATION_DELETE:
+                        # DELETE the older (i < j, so i is older)
+                        pass  # handled below
+                    elif decision == CONSOLIDATION_SKIP:
+                        # SKIP the newer (it's already represented)
+                        pass
+            # For LLM path, collect which to keep based on decisions
+            deleted = set()
+            skipped = set()
+            for d in decisions:
+                if d['decision'] == CONSOLIDATION_DELETE:
+                    deleted.add(d['entry_a'])
+                elif d['decision'] == CONSOLIDATION_SKIP:
+                    skipped.add(d['entry_b'])
+            for idx in members:
+                if entries[idx].id not in deleted and entries[idx].id not in skipped:
+                    keep_indices.add(idx)
+        else:
+            # Heuristic classification: within a cluster, use recency
+            # to resolve conflicts. Keep the newest entry in each cluster
+            # and any entries that are sufficiently different from each other.
+            #
+            # Default to context_sensitivity: preserve all entries unless
+            # they are near-duplicates (high Jaccard, handled by standard
+            # compaction) or clearly superseded (same topic, newer exists).
+            #
+            # Conservative: keep all members. The clustering itself is the
+            # signal — entries that land in the same cluster are related.
+            # Without an LLM, we can't reliably determine if they conflict
+            # or complement each other. Err on the side of preservation.
+            for idx in members:
+                keep_indices.add(idx)
+            decisions.append({
+                'cluster': [entries[m].id for m in members],
+                'decision': 'PRESERVE_ALL',
+                'reason': 'Heuristic mode: cannot reliably classify without LLM',
+            })
+
+    return [entries[i] for i in sorted(keep_indices)], decisions
+
+
+def memory_depth(conn: sqlite3.Connection) -> int:
+    """Count distinct (state, task_type) pairs in the memory store.
+
+    Used as the cold-start guard: a proxy with chunks spanning multiple
+    states and task types has broader experience than one with many chunks
+    all from the same context.  Returns 0 for an empty store.
+    """
+    row = conn.execute(
+        'SELECT COUNT(DISTINCT state || \':\' || task_type) FROM proxy_chunks WHERE deleted_at IS NULL'
+    ).fetchone()
+    return row[0] if row else 0

@@ -31,7 +31,7 @@ from projects.POC.orchestrator.proxy_memory import (
     serialize_chunks_for_prompt,
     DECAY,
     RETRIEVAL_THRESHOLD,
-    TOTAL_EMBEDDING_DIMENSIONS,
+    EXPERIENCE_EMBEDDING_DIMENSIONS,
 )
 
 
@@ -145,8 +145,10 @@ class TestCosineSimilarity(unittest.TestCase):
 
 class TestCompositeScore(unittest.TestCase):
 
-    def test_perfect_match_equal_regardless_of_populated_dims(self):
-        """A perfect match on N/N populated dims scores the same as M/M."""
+    def test_broad_match_outscores_narrow_match(self):
+        """A perfect match on 4/4 experience dims outscores a perfect match
+        on 2/4, because composite_score divides by EXPERIENCE_EMBEDDING_DIMENSIONS.
+        (Updated by #227: salience excluded from composite scoring.)"""
         vec_a = [1.0, 0.0, 0.0]
 
         chunk_broad = _make_chunk(
@@ -155,7 +157,6 @@ class TestCompositeScore(unittest.TestCase):
             embedding_artifact=vec_a,
             embedding_stimulus=vec_a,
             embedding_response=vec_a,
-            embedding_salience=vec_a,
         )
         chunk_narrow = _make_chunk(
             chunk_id='narrow', traces=[9],
@@ -163,7 +164,6 @@ class TestCompositeScore(unittest.TestCase):
             embedding_artifact=vec_a,
             embedding_stimulus=None,
             embedding_response=None,
-            embedding_salience=None,
         )
 
         ctx = {
@@ -171,7 +171,6 @@ class TestCompositeScore(unittest.TestCase):
             'artifact': vec_a,
             'stimulus': vec_a,
             'response': vec_a,
-            'salience': vec_a,
         }
         score_broad = composite_score(
             chunk_broad, ctx, 10, 0.0, 1.0, s=0.0,
@@ -179,9 +178,10 @@ class TestCompositeScore(unittest.TestCase):
         score_narrow = composite_score(
             chunk_narrow, ctx, 10, 0.0, 1.0, s=0.0,
         )
-        # Both are perfect matches on their populated dimensions —
-        # semantic component should be equal (1.0).
-        self.assertAlmostEqual(score_broad, score_narrow, places=5)
+        # Broad match covers all 4 experience dims → sem = 4/4 = 1.0
+        # Narrow match covers 2 dims → sem = 2/4 = 0.5
+        # Breadth is rewarded per design spec.
+        self.assertGreater(score_broad, score_narrow)
 
 
 class TestChunkCRUD(unittest.TestCase):
@@ -459,8 +459,8 @@ class TestRecordInteraction(unittest.TestCase):
             prediction_delta='Missing rollback changed prediction',
             embed_fn=track_embed,
         )
-        # Should embed: situation, artifact, stimulus, response, salience
-        self.assertEqual(len(calls), 5)
+        # Should embed: situation, artifact, stimulus, response, salience, blended
+        self.assertEqual(len(calls), 6)
 
 
 class TestSerializeChunks(unittest.TestCase):
@@ -499,43 +499,35 @@ class TestSerializeChunks(unittest.TestCase):
 
 
 class TestCalibrateConfidence(unittest.TestCase):
-    """A-004: calibration should be bidirectional (geometric mean)."""
+    """Issue #220: calibration uses agent confidence directly, not geometric mean.
 
-    def _calibrate(self, agent_conf, laplace, ema, total_count=10):
-        """Call _calibrate_confidence with mocked model."""
+    EMA is a system health monitor only.  The cold-start guard is based
+    on ACT-R memory depth, not EMA sample count.
+    """
+
+    def _calibrate(self, agent_conf, memory_depth=10):
+        """Call _calibrate_confidence with mocked memory depth."""
         from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
 
-        mock_entry = MagicMock()
-        mock_entry.total_count = total_count
+        with patch('projects.POC.orchestrator.proxy_agent._get_memory_depth',
+                   return_value=memory_depth):
+            return _calibrate_confidence(
+                agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '',
+            )
 
-        mock_model = MagicMock()
-        mock_model.entries = {'PLAN_ASSERT::test': mock_entry}
+    def test_agent_confidence_passes_through(self):
+        """Agent confidence is the decision signal when memory is deep."""
+        result = self._calibrate(0.85)
+        self.assertAlmostEqual(result, 0.85, places=2)
 
-        with patch('projects.POC.scripts.approval_gate.resolve_team_model_path', return_value='/tmp/test.json'), \
-             patch('projects.POC.scripts.approval_gate.load_model', return_value=mock_model), \
-             patch('projects.POC.scripts.approval_gate._entry_key', return_value='PLAN_ASSERT::test'), \
-             patch('projects.POC.scripts.approval_gate.compute_confidence_components', return_value=(laplace, ema)):
-            return _calibrate_confidence(agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '')
-
-    def test_lifts_underconfident_agent(self):
-        """Agent says 0.6, history says 0.95 → calibrated > 0.6."""
-        result = self._calibrate(0.6, 0.95, 0.95)
-        self.assertGreater(result, 0.6)
-
-    def test_reduces_overconfident_agent(self):
-        """Agent says 0.95, history says 0.6 → calibrated < 0.95."""
-        result = self._calibrate(0.95, 0.6, 0.6)
-        self.assertLess(result, 0.95)
-
-    def test_geometric_mean(self):
-        """Calibrated = sqrt(agent * stats)."""
-        result = self._calibrate(0.64, 0.81, 0.81)
-        expected = (0.64 * 0.81) ** 0.5  # ~0.72
-        self.assertAlmostEqual(result, expected, places=3)
+    def test_low_confidence_passes_through(self):
+        """Low agent confidence is not lifted by historical data."""
+        result = self._calibrate(0.3)
+        self.assertAlmostEqual(result, 0.3, places=2)
 
     def test_cold_start_caps_at_half(self):
-        """Cold start caps confidence at 0.5."""
-        result = self._calibrate(0.9, 0.9, 0.9, total_count=2)
+        """Shallow memory caps confidence at 0.5."""
+        result = self._calibrate(0.9, memory_depth=1)
         self.assertLessEqual(result, 0.5)
 
 

@@ -71,6 +71,11 @@ def lookup_skill(
             _log.debug('Skipping malformed skill file: %s', path)
             continue
 
+        # Skip degraded skills flagged for review (Issue #229)
+        if meta.get('needs_review', '').lower() == 'true':
+            _log.debug('Skipping degraded skill: %s (needs_review=true)', filename)
+            continue
+
         name = meta.get('name', filename[:-3])
         description = meta.get('description', '')
         category = meta.get('category', '')

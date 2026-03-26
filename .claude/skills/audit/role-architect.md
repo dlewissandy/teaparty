@@ -33,6 +33,14 @@ When TOPIC is **focused**: Grep to find files directly related to the topic — 
 - `audit/context/issues-open.json` — known open issues (don't re-report these)
 - `docs/detailed-design/` — the specifications this code should implement
 
+## Work Pattern
+
+1. **Write the output file skeleton immediately** — header, scope section, empty `## Findings` heading. Do this before reading any code.
+2. **Investigate one module or area at a time.** After each area, if you found anything, Read your output file and Write it back with the new finding(s) appended.
+3. **Write `## What's Sound` and `## Bottom Line` at the end** — update the file one final time.
+
+This ensures partial results survive if you hit context limits.
+
 ## What You Look For
 
 ### Structural Defects

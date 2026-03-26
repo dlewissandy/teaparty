@@ -25,7 +25,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 ## Tag Reference
 
-`#memory` `#episodic` `#semantic` `#procedural` `#working-memory` `#forgetting`
+`#memory` `#episodic` `#semantic` `#procedural` `#working-memory` `#forgetting` `#persona` `#routing`
 `#multi-agent` `#collective` `#coordination` `#stigmergy` `#knowledge-sharing`
 `#metacognition` `#uncertainty` `#self-monitoring` `#self-evolving`
 `#production` `#security` `#failure-modes` `#evaluation`
@@ -36,6 +36,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 `#adjustable-autonomy` `#concept-drift` `#implicit-feedback` `#bandit` `#proxy-agent`
 `#active-learning` `#preference-learning` `#calibration` `#prediction` `#cold-start` `#bayesian`
 `#process-liveness` `#heartbeat` `#process-registry` `#crash-resilient` `#multiprocess` `#filesystem`
+`#contradiction` `#belief-revision` `#memory-consistency` `#nli` `#preference-conflict`
 
 ---
 
@@ -84,6 +85,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Rethinking Memory Mechanisms in the Second Half (Survey) | 2026 | `#memory` `#forgetting` `#episodic` | 218 papers; three-dimension taxonomy (substrate, cognitive mechanism, subject); "second half" challenge is real-world utility, not benchmark scores. | SUPPLEMENT §Theme 2 |
 | Episodic Memory is the Missing Piece for Long-Term LLM Agents | 2025 | `#episodic` | Most systems underweight episodic vs. semantic/procedural memory; agents recalling specific past experiences outperform those relying on general knowledge. | COGARCH §3.1 |
 | ACT-R-Inspired Memory for LLM Agents | 2024-2025 | `#memory` `#episodic` | Human-like remembering and forgetting via ACT-R activation function in agent context. | COGARCH §11 |
+| AdaMem: Adaptive User-Centric Memory for Long-Horizon Dialogue Agents | Yan, Ni, Zheng et al., 2026 | `#memory` `#episodic` `#retrieval` `#working-memory` `#teaparty-direct` | Four-type memory taxonomy (working/episodic/persona/graph) with deterministic cue-based routing; type-specific retrieval outperforms universal retrieval by 4.5% F1, with 23.4% gain on temporal questions. | SUPPLEMENT §Theme 2 |
 
 ---
 
@@ -266,6 +268,23 @@ Foundational work on speech act theory and its application to coordination proto
 | ReAct: Synergizing Reasoning and Acting in Language Models | Yao et al., ICLR 2023 | `#agent-reasoning` `#llm` | Interleaved reasoning traces and actions improve single-agent task performance; plan-execute loop with local recovery; no intent alignment or cross-phase backtrack. | `docs/background/conversation-patterns.md` |
 | Plan-and-Solve Prompting | Wang et al., ACL 2023 | `#agent-reasoning` `#llm` | Separates plan generation from execution to reduce missing-step errors; treats human request as complete specification; no approval gate mechanism. | `docs/background/conversation-patterns.md` |
 | AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation | Wu et al., 2023 | `#multi-agent` `#llm` `#coordination` | Flexible multi-agent conversation framework (LLMs, humans, tools); conversation structure is content-driven, not protocol-enforced; no commitment tracking. | `docs/background/conversation-patterns.md` |
+
+---
+
+## Contradiction Detection in Agent Memory
+
+Research on detecting, classifying, and resolving conflicting information in persistent agent memory — covering LLM-as-judge mechanisms, NLI-based approaches, recency-based resolution, and confidence-decay under contradiction. Motivated by the proxy agent's "contradictory retrieval" signal: when retrieved memories point in conflicting directions, the proxy must recognize the conflict, classify its cause, and decide whether to act, merge, or escalate. See `docs/research/contradiction-detection-memory.md` for the full taxonomy, system comparisons, and design recommendations.
+
+| Title | Authors, Year | Tags | One-line Summary | Source |
+|-------|--------------|------|-----------------|--------|
+| Mem0: Scalable Long-Term Memory for AI Agents | Chhikara et al., 2025 | `#memory` `#contradiction` `#preference-conflict` `#production` `#proxy-agent` | LLM-as-judge at write time: ADD/UPDATE/DELETE/SKIP; "latest truth wins" on contradiction; 26% accuracy boost on LOCOMO. | `contradiction-detection-memory.md` §Mem0 |
+| Hindsight: Building Agent Memory that Retains, Recalls, and Reflects | 2025 | `#memory` `#contradiction` `#belief-revision` `#episodic` `#proxy-agent` | Structured fact/experience/opinion networks; asymmetric confidence decay on contradiction (`-2α` vs `+α` for support); repeated contradictions remove beliefs. | `contradiction-detection-memory.md` §Hindsight |
+| EgoMem: Lifelong Memory Agent | 2025 | `#memory` `#contradiction` `#persona` `#proxy-agent` | Memory Update Agent (external LLM) detects conflicts and updates user profiles; 87%+ fact-consistency in personalized dialogs. | `contradiction-detection-memory.md` §EgoMem |
+| O-Mem: Omni Memory for Self-Evolving Agents | 2025 | `#memory` `#contradiction` `#persona` `#proxy-agent` | LLM-augmented clustering + within-cluster consolidation; ADD/IGNORE/UPDATE for new attributes; prevents redundant accumulation without full cross-product comparison. | `contradiction-detection-memory.md` §O-Mem |
+| Memoria: Scalable Agentic Memory for Personalized AI | 2025 | `#memory` `#contradiction` `#preference-conflict` | Knowledge graph with exponential decay; recency-based implicit conflict resolution; contrast to write-time approaches. | `contradiction-detection-memory.md` §Memoria |
+| MemBench: Comprehensive Evaluation of Agent Memory | Tan et al., ACL Findings 2025 | `#memory` `#evaluation` `#contradiction` `#memory-consistency` | Tests knowledge updating, preference following, contradiction resolution; finds most systems weak on update/revision vs. retrieval. | `contradiction-detection-memory.md` §MemBench |
+| Memory Management and Contextual Consistency | Xu, 2025 | `#memory` `#contradiction` `#memory-consistency` | Active contradiction detection during accumulation outperforms passive; unmanaged growth causes systematic degradation. | `contradiction-detection-memory.md` §Xu2025 |
+| Dialogue Natural Language Inference (DNLI) | Welleck et al., ACL 2019 | `#nli` `#contradiction` `#episodic` | NLI applied to chatbot persona consistency; foundation of using NLI to detect when new observations contradict established persona statements. | `contradiction-detection-memory.md` §DNLI |
 
 ---
 

@@ -125,6 +125,13 @@ async def extract_learnings(
         infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
 
+    # ── Promotion evaluation (issue #217) ──────────────────────────────────────
+
+    await _run_scope(
+        'promotion-evaluation', _evaluate_promotions,
+        infra_dir=infra_dir, project_dir=project_dir,
+    )
+
     # ── Reinforcement tracking ─────────────────────────────────────────────────
 
     await _run_scope(
@@ -143,12 +150,54 @@ async def extract_learnings(
         session_id=os.path.basename(infra_dir),
     )
 
+    # ── Procedural learning: crystallize accumulated candidates into skills ──
+
+    await _run_scope(
+        'skill-crystallize', _crystallize_skills,
+        project_dir=project_dir,
+    )
+
+    # ── Friction event detection and sidecar (Issue #229) ──────────────────
+
+    await _run_scope(
+        'friction-detect', _detect_and_write_friction,
+        infra_dir=infra_dir,
+    )
+
+    # ── Unified skill refinement: gate corrections + friction (Issue #229) ──
+    # Replaces the separate skill-reflect (#146) and skill-friction-refine
+    # steps with a single unified refinement that sends all signals
+    # (corrections AND friction) to one LLM call.
+
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
+    if os.path.isfile(sidecar_path):
+        await _run_scope(
+            'skill-refine', _refine_skill_unified,
+            infra_dir=infra_dir,
+            project_dir=project_dir,
+        )
+
+    # ── Proxy correction entry compaction (#198) ────────────────────────────
+
+    await _run_scope(
+        'proxy-correction-compact', _compact_proxy_correction_entries,
+        project_dir=project_dir,
+    )
+
+    # ── Proxy contradiction consolidation (#228) ──────────────────────────────
+
+    await _run_scope(
+        'proxy-consolidation', _consolidate_proxy_memory,
+        project_dir=project_dir,
+    )
+
     # ── Proxy pattern compaction (#11) ────────────────────────────────────────
 
     await _run_scope(
         'proxy-patterns', _compact_proxy_patterns,
         project_dir=project_dir,
         log_path=os.path.join(project_dir, '.proxy-interactions.jsonl'),
+        embed_fn=_make_embed_fn(),
     )
 
     # ── Summary diagnostic ────────────────────────────────────────────────────
@@ -367,6 +416,90 @@ def _promote_corrective(
     )
 
 
+# ── Promotion evaluation (issue #217) ─────────────────────────────────────────
+
+def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
+    """Evaluate session-scope learnings for promotion to project scope.
+
+    Walks .sessions/*/tasks/ and .sessions/*/institutional.md under
+    project_dir, finds learnings that recur across 3+ distinct sessions
+    (via semantic similarity), excludes proxy learnings, and either:
+    - promotes new entries to project/tasks/ with promotion metadata, or
+    - reinforces existing project entries that match recurring patterns.
+    """
+    from pathlib import Path
+    from datetime import date as _date
+    from projects.POC.orchestrator.promotion import find_recurring_learnings
+    from projects.POC.scripts.memory_entry import (
+        serialize_entry, parse_memory_file, serialize_memory_file,
+    )
+
+    # Build similarity function: use embeddings if available, else exact match
+    embed_fn = _make_embed_fn()
+    if embed_fn is not None:
+        from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
+        def _sim(a: str, b: str) -> float:
+            va = embed_fn(a)
+            vb = embed_fn(b)
+            if va is None or vb is None:
+                return 1.0 if a.strip().lower() == b.strip().lower() else 0.0
+            return cosine_similarity(va, vb)
+
+        similarity_fn = _sim
+    else:
+        similarity_fn = None  # use default exact match
+
+    result = find_recurring_learnings(
+        project_dir,
+        min_recurrences=3,
+        similarity_fn=similarity_fn,
+    )
+
+    from filelock import FileLock
+    today = _date.today().isoformat()
+
+    # Reinforce existing project entries that match recurring session patterns
+    for reinforce_path in result.to_reinforce:
+        lock = FileLock(reinforce_path + '.lock', timeout=10)
+        with lock:
+            try:
+                text = Path(reinforce_path).read_text(errors='replace')
+            except OSError:
+                continue
+            entries = parse_memory_file(text)
+            if not entries:
+                continue
+            for entry in entries:
+                entry.reinforcement_count += 1
+                entry.last_reinforced = today
+            try:
+                Path(reinforce_path).write_text(serialize_memory_file(entries))
+            except OSError:
+                pass
+
+    if result.to_reinforce:
+        _log.info('Reinforced %d existing project entries.', len(result.to_reinforce))
+
+    # Write promoted entries to project/tasks/
+    if not result.to_promote:
+        return
+
+    tasks_dir = os.path.join(project_dir, 'tasks')
+    os.makedirs(tasks_dir, exist_ok=True)
+
+    for entry in result.to_promote:
+        entry.promoted_from = 'session'
+        entry.promoted_at = today
+        fname = f'promoted-{entry.id}.md'
+        fpath = os.path.join(tasks_dir, fname)
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            Path(fpath).write_text(serialize_entry(entry))
+
+    _log.info('Promoted %d session learnings to project scope.', len(result.to_promote))
+
+
 # ── Reinforcement tracking ────────────────────────────────────────────────────
 
 def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
@@ -442,7 +575,31 @@ def _archive_skill_candidate(
     task: str,
     session_id: str,
 ) -> None:
-    """Archive the session's PLAN.md as a skill candidate for procedural learning."""
+    """Archive the session's PLAN.md as a skill candidate for procedural learning.
+
+    If the session used a warm-start skill (.active-skill.json exists),
+    reads the skill file's category and passes it through so the candidate
+    inherits the seeding skill's category (Issue #239).
+    """
+    import json as _json
+
+    # Read category from the active skill's file if available (Issue #239)
+    category = ''
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json') if infra_dir else ''
+    if sidecar_path and os.path.isfile(sidecar_path):
+        try:
+            with open(sidecar_path) as f:
+                skill_info = _json.load(f)
+            skill_path = skill_info.get('path', '')
+            if skill_path and os.path.isfile(skill_path):
+                from pathlib import Path as _Path
+                from projects.POC.orchestrator.procedural_learning import _parse_candidate_frontmatter
+                skill_content = _Path(skill_path).read_text(errors='replace')
+                meta, _ = _parse_candidate_frontmatter(skill_content)
+                category = meta.get('category', '')
+        except (OSError, _json.JSONDecodeError, ValueError):
+            pass
+
     from projects.POC.orchestrator.procedural_learning import archive_skill_candidate
     archive_skill_candidate(
         infra_dir=infra_dir,
@@ -450,18 +607,471 @@ def _archive_skill_candidate(
         project_dir=project_dir,
         task=task,
         session_id=session_id,
+        category=category,
     )
+
+
+# ── Procedural learning: skill crystallization ────────────────────────────────
+
+def _crystallize_skills(*, project_dir: str) -> None:
+    """Attempt to crystallize accumulated skill candidates into reusable skills."""
+    from projects.POC.orchestrator.procedural_learning import crystallize_skills
+    crystallize_skills(project_dir=project_dir)
+
+
+# ── Unified skill refinement: gate corrections + friction (Issue #229) ────────
+
+def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
+    """Legacy entry point — delegates to _refine_skill_unified."""
+    _refine_skill_unified(infra_dir=infra_dir, project_dir=project_dir)
+
+
+def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
+    """Unified skill refinement: gate corrections + friction events.
+
+    Issue #229: Replaces the separate skill-reflect (#146) and
+    skill-friction-refine steps.  Reads all available signals (gate
+    outcomes from .proxy-interactions.jsonl AND friction events from
+    .friction-events.json) and sends them to a single reflect_on_skill
+    call.  Updates skill stats with all metrics (approval rate, friction
+    counts, correction themes, sessions_since_refinement).
+    """
+    import json
+    from projects.POC.orchestrator.procedural_learning import (
+        reflect_on_skill,
+        update_skill_stats,
+    )
+
+    sidecar_path = os.path.join(infra_dir, '.active-skill.json')
+    try:
+        with open(sidecar_path) as f:
+            skill_info = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+
+    skill_name = skill_info.get('name', '')
+    skill_path = skill_info.get('path', '')
+    session_id = skill_info.get('session_id', '')
+    if not skill_name or not skill_path or not os.path.isfile(skill_path):
+        return
+
+    # ── Collect gate outcomes ─────────────────────────────────────────────
+    corrections = []
+    outcomes = []
+    correction_deltas = []
+
+    log_path = os.path.join(project_dir, '.proxy-interactions.jsonl')
+    if os.path.isfile(log_path):
+        try:
+            with open(log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if entry.get('skill_name') != skill_name:
+                        continue
+                    if session_id and entry.get('session_id') != session_id:
+                        continue
+                    outcome = entry.get('outcome', '')
+                    if outcome:
+                        outcomes.append(outcome)
+                    if outcome == 'correct' and entry.get('delta'):
+                        corrections.append({
+                            'state': entry.get('state', ''),
+                            'outcome': outcome,
+                            'delta': entry['delta'],
+                        })
+                        correction_deltas.append(entry['delta'])
+        except OSError:
+            pass
+
+    # ── Collect friction events ───────────────────────────────────────────
+    friction_events = []
+    friction_path = os.path.join(infra_dir, '.friction-events.json')
+    if os.path.isfile(friction_path):
+        try:
+            with open(friction_path) as f:
+                friction_events = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    # ── Unified refinement: single LLM call with all signals ─────────────
+    was_refined = False
+    if corrections or friction_events:
+        was_refined = reflect_on_skill(
+            skill_path=skill_path,
+            corrections=corrections,
+            friction_events=friction_events,
+        )
+
+    # ── Update all quality metrics ────────────────────────────────────────
+    if outcomes or friction_events or was_refined:
+        update_skill_stats(
+            skill_path=skill_path,
+            outcomes=outcomes,
+            friction_events=friction_events,
+            correction_deltas=correction_deltas,
+            was_refined=was_refined,
+        )
+
+
+# ── Proxy contradiction consolidation (#228) ─────────────────────────────────
+
+def _consolidate_proxy_memory(*, project_dir: str) -> None:
+    """Run contradiction consolidation on proxy.md (the always-loaded
+    preferential store) and on the ACT-R memory DB.
+
+    Two targets:
+
+    1. proxy.md — YAML-frontmattered MemoryEntry objects containing human
+       preference observations. Parsed, consolidated via
+       consolidate_proxy_file() with ADD/UPDATE/DELETE/SKIP taxonomy,
+       and rewritten atomically.
+
+    2. ACT-R chunk DB — episodic gate interaction chunks. Consolidated
+       via consolidate_proxy_entries() to remove superseded chunks
+       (preference_drift → DELETE older).
+
+    This is separate from compact_entries() and does not modify the
+    existing compaction pipeline.
+    """
+    from filelock import FileLock
+    from pathlib import Path
+
+    # ── Stage 2a: proxy.md consolidation ────────────────────────────────────
+
+    proxy_md_path = os.path.join(project_dir, 'proxy.md')
+    if os.path.isfile(proxy_md_path):
+        try:
+            from projects.POC.scripts.memory_entry import (
+                parse_memory_file,
+                serialize_memory_file,
+            )
+            from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+            from projects.POC.orchestrator.proxy_agent import (
+                _classify_conflict_llm_for_entries,
+            )
+
+            lock = FileLock(proxy_md_path + '.lock', timeout=30)
+            with lock:
+                text = Path(proxy_md_path).read_text(errors='replace')
+                entries = parse_memory_file(text)
+                if len(entries) >= 2:
+                    # Use LLM classifier for proxy.md consolidation.
+                    # Falls back to ADD (preserve both) on any failure.
+                    consolidated, decisions = consolidate_proxy_file(
+                        entries,
+                        classifier=_classify_conflict_llm_for_entries,
+                    )
+                    if len(consolidated) < len(entries):
+                        output = serialize_memory_file(consolidated)
+                        # Atomic write
+                        import tempfile
+                        fd, tmp = tempfile.mkstemp(
+                            dir=os.path.dirname(os.path.abspath(proxy_md_path)),
+                            suffix='.tmp',
+                        )
+                        try:
+                            with os.fdopen(fd, 'w') as f:
+                                f.write(output)
+                                if output and not output.endswith('\n'):
+                                    f.write('\n')
+                            os.replace(tmp, proxy_md_path)
+                        except Exception:
+                            try:
+                                os.unlink(tmp)
+                            except OSError:
+                                pass
+                            raise
+                        _log.info(
+                            'Proxy consolidation: proxy.md %d → %d entries (%d decisions)',
+                            len(entries), len(consolidated), len(decisions),
+                        )
+
+                        # Write consolidation log for auditability
+                        if decisions:
+                            import json as _json
+                            log_path = os.path.join(project_dir, '.proxy-consolidation-log.jsonl')
+                            with open(log_path, 'a') as f:
+                                for d in decisions:
+                                    f.write(_json.dumps(d) + '\n')
+        except Exception:
+            _log.debug('proxy.md consolidation failed', exc_info=True)
+
+    # ── Stage 2b: ACT-R chunk DB consolidation ──────────────────────────────
+
+    from projects.POC.orchestrator.proxy_memory import (
+        open_proxy_db,
+        consolidate_proxy_entries,
+        get_interaction_counter,
+        soft_delete_chunk,
+        purge_deleted_chunks,
+    )
+    import glob as glob_mod
+
+    db_pattern = os.path.join(project_dir, '.proxy-memory*.db')
+    db_paths = glob_mod.glob(db_pattern)
+
+    for db_path in db_paths:
+        try:
+            conn = open_proxy_db(db_path)
+        except Exception:
+            continue
+        try:
+            current = get_interaction_counter(conn)
+
+            # Purge chunks that were soft-deleted long enough ago (issue #236)
+            purged = purge_deleted_chunks(conn, current_interaction=current)
+            if purged:
+                _log.info(
+                    'Proxy consolidation: purged %d old soft-deleted chunks from %s',
+                    purged, db_path,
+                )
+
+            rows = conn.execute(
+                'SELECT id, type, state, task_type, outcome, traces, '
+                'posterior_confidence FROM proxy_chunks '
+                'WHERE deleted_at IS NULL'
+            ).fetchall()
+            if len(rows) < 2:
+                continue
+
+            from projects.POC.orchestrator.proxy_memory import MemoryChunk
+            import json as _json
+
+            chunks = []
+            for row in rows:
+                chunks.append(MemoryChunk(
+                    id=row[0], type=row[1], state=row[2],
+                    task_type=row[3], outcome=row[4],
+                    traces=_json.loads(row[5]) if row[5] else [],
+                    posterior_confidence=row[6] or 0.0,
+                    content='',
+                ))
+
+            consolidated = consolidate_proxy_entries(chunks, current_interaction=current)
+            consolidated_ids = {c.id for c in consolidated}
+            deleted_ids = {c.id for c in chunks} - consolidated_ids
+
+            if deleted_ids:
+                for chunk_id in deleted_ids:
+                    soft_delete_chunk(conn, chunk_id, interaction=current)
+                _log.info(
+                    'Proxy consolidation: soft-deleted %d superseded chunks from %s',
+                    len(deleted_ids), db_path,
+                )
+        except Exception:
+            _log.debug('Proxy consolidation failed for %s', db_path, exc_info=True)
+        finally:
+            conn.close()
+
+
+# ── Proxy correction entry compaction (#198) ─────────────────────────────────
+
+def _compact_proxy_correction_entries(*, project_dir: str) -> None:
+    """Compact proxy correction entries in proxy-tasks/.
+
+    Proxy corrections are emitted inline during approval gates (_proxy_record
+    in actors.py) as individual YAML-frontmattered markdown files. Over time,
+    these accumulate.  This step applies the standard compaction pipeline
+    (dedup by ID, merge similar entries, drop retired) to keep the directory
+    manageable and retrieval quality high.
+    """
+    proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+    if not os.path.isdir(proxy_tasks_dir):
+        return
+
+    from pathlib import Path
+    from filelock import FileLock
+
+    # Only compact correction entries (not other proxy-tasks files)
+    correction_files = sorted(
+        f for f in os.listdir(proxy_tasks_dir)
+        if f.startswith('correction-') and f.endswith('.md')
+    )
+    if len(correction_files) < 2:
+        return  # nothing to compact
+
+    from projects.POC.scripts.memory_entry import parse_memory_file, serialize_memory_file
+    from projects.POC.scripts.compact_memory import compact_entries
+
+    # Read all correction entries
+    all_entries = []
+    for fname in correction_files:
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            try:
+                text = Path(fpath).read_text(errors='replace')
+            except OSError:
+                continue
+            entries = parse_memory_file(text)
+            all_entries.extend(entries)
+
+    if not all_entries:
+        return
+
+    # Compact
+    compacted = compact_entries(all_entries)
+    if len(compacted) >= len(all_entries):
+        return  # nothing was removed
+
+    # Remove old correction files (and their lock files) and write compacted entries
+    for fname in correction_files:
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        try:
+            os.remove(fpath)
+        except OSError:
+            pass
+        lock_path = fpath + '.lock'
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass
+
+    for entry in compacted:
+        fname = f'correction-{entry.id}.md'
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        from projects.POC.scripts.memory_entry import serialize_entry
+        Path(fpath).write_text(serialize_entry(entry))
 
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
 
-def _compact_proxy_patterns(*, project_dir: str, log_path: str) -> None:
+
+def _make_embed_fn():
+    """Build an embedding function from memory_indexer, or return None if unavailable."""
+    try:
+        from projects.POC.scripts.memory_indexer import try_embed, detect_provider
+        provider, model = detect_provider()
+        if provider == 'none':
+            return None
+
+        def _embed(text: str) -> list[float] | None:
+            return try_embed(text, provider=provider, model=model)
+        return _embed
+    except Exception:
+        return None
+
+
+# ── Friction event detection and sidecar (Issue #229) ─────────────────────────
+
+def _detect_and_write_friction(*, infra_dir: str) -> None:
+    """Detect friction events from the execution stream and write sidecar.
+
+    Scans .exec-stream.jsonl for operational friction patterns and writes
+    the results to .friction-events.json in the infra dir.
+    """
+    import json
+
+    stream_path = os.path.join(infra_dir, '.exec-stream.jsonl')
+    if not os.path.isfile(stream_path):
+        return
+
+    from projects.POC.orchestrator.procedural_learning import detect_friction_events
+    events = detect_friction_events(stream_path)
+
+    if not events:
+        return
+
+    sidecar_path = os.path.join(infra_dir, '.friction-events.json')
+    try:
+        with open(sidecar_path, 'w') as f:
+            json.dump(events, f)
+        _log.info('Wrote %d friction events to %s', len(events), sidecar_path)
+    except OSError as exc:
+        _log.warning('Failed to write friction events sidecar: %s', exc)
+
+
+CLUSTER_SIMILARITY_THRESHOLD = 0.85
+
+
+def _cluster_deltas_semantic(
+    deltas: list[str],
+    embed_fn,
+) -> list[tuple[str, int]]:
+    """Cluster deltas by embedding similarity, return (representative, count) pairs.
+
+    Uses single-linkage clustering: a delta joins an existing cluster if its
+    cosine similarity to any member exceeds CLUSTER_SIMILARITY_THRESHOLD.
+    The longest delta in each cluster is chosen as the representative.
+    """
+    from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
+    # Embed all deltas; pair each with its vector
+    embedded: list[tuple[str, list[float] | None]] = []
+    for d in deltas:
+        vec = embed_fn(d.strip())
+        embedded.append((d.strip(), vec))
+
+    # clusters: list of (members, vectors)
+    clusters: list[tuple[list[str], list[list[float] | None]]] = []
+
+    for text, vec in embedded:
+        if vec is None:
+            # Can't compare — treat as its own cluster
+            clusters.append(([text], [vec]))
+            continue
+
+        merged = False
+        for members, vecs in clusters:
+            for existing_vec in vecs:
+                if existing_vec is None:
+                    continue
+                if cosine_similarity(vec, existing_vec) >= CLUSTER_SIMILARITY_THRESHOLD:
+                    members.append(text)
+                    vecs.append(vec)
+                    merged = True
+                    break
+            if merged:
+                break
+
+        if not merged:
+            clusters.append(([text], [vec]))
+
+    # For each cluster: longest member as representative, len as frequency
+    results = []
+    for members, _ in clusters:
+        representative = max(members, key=len)
+        results.append((representative, len(members)))
+    return results
+
+
+def _cluster_deltas_exact(deltas: list[str]) -> list[tuple[str, int]]:
+    """Cluster deltas by case-insensitive exact match, return (representative, count) pairs."""
+    groups: dict[str, list[str]] = {}
+    order: list[str] = []
+    for d in deltas:
+        key = d.strip().lower()
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(d.strip())
+
+    results = []
+    for key in order:
+        members = groups[key]
+        representative = max(members, key=len)
+        results.append((representative, len(members)))
+    return results
+
+
+def _compact_proxy_patterns(
+    *,
+    project_dir: str,
+    log_path: str,
+    embed_fn=None,
+) -> None:
     """Extract recurring proxy correction patterns from the interaction log.
 
-    Groups interactions by state, identifies recurring deltas (corrections
-    the human makes repeatedly), and writes distilled patterns to
-    proxy-patterns.md.  This is the compaction step that converts raw
-    interaction history into actionable proxy behavioral knowledge.
+    Groups interactions by state, clusters semantically equivalent deltas
+    (using embedding similarity when embed_fn is provided, falling back to
+    case-insensitive exact match otherwise), tracks frequency, and writes
+    distilled patterns to proxy-patterns.md.
     """
     from pathlib import Path
     import json
@@ -504,14 +1114,12 @@ def _compact_proxy_patterns(*, project_dir: str, log_path: str) -> None:
 
     for state, deltas in sorted(corrections_by_state.items()):
         lines.append(f'## {state}\n\n')
-        # Deduplicate similar deltas (simple exact match for now)
-        seen = []
-        for d in deltas:
-            d_lower = d.strip().lower()
-            if d_lower not in [s.lower() for s in seen]:
-                seen.append(d.strip())
-        for d in seen:
-            lines.append(f'- {d}\n')
+        if embed_fn is not None:
+            clusters = _cluster_deltas_semantic(deltas, embed_fn)
+        else:
+            clusters = _cluster_deltas_exact(deltas)
+        for representative, count in clusters:
+            lines.append(f'- {representative} (×{count})\n')
         lines.append('\n')
 
     patterns_path = os.path.join(project_dir, 'proxy-patterns.md')
