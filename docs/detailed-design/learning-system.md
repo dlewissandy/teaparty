@@ -118,9 +118,10 @@ Retired entries are exempt — they return prominence 0.0 regardless of the floo
 
 **In-flight and prospective extraction.** The conceptual design defines four learning moments: prospective (before execution), in-flight (at milestones), corrective (at mismatch), and retrospective (after completion). Only retrospective (post-session) is wired into the orchestrator lifecycle. In-flight extraction would require pausing at milestones to reflect; prospective extraction would require reflection before execution. These are design targets for future work.
 
-**Skill crystallization.** Skill lookup is operational: `skill_lookup.py` matches tasks against stored skills via threshold-based retrieval, and `engine.py` seeds PLAN.md from matching skills at planning phase entry. However, skill crystallization (automatically generalizing repeated plans into reusable skills) is a design target. The skill library is manually seeded; it does not grow automatically from agents' own work.
+**Skill crystallization.** Resolved by [#234](https://github.com/dlewissandy/teaparty/issues/234). The full procedural learning pipeline is operational: `archive_skill_candidate()` saves successful session plans as candidates, `crystallize_skills()` clusters candidates by category and task similarity before generalization (each coherent cluster is generalized independently via a separate LLM call), and `skill_lookup.py` matches tasks against the resulting skills at planning time. Quality monitoring ([#229](https://github.com/dlewissandy/teaparty/issues/229)) tracks approval rates, friction events, and correction themes per skill, flagging degraded skills with `needs_review=true` to suppress them from lookup.
 
 **Resolved issues:**
+- ~~[#234](https://github.com/dlewissandy/teaparty/issues/234): Skill crystallization clustering~~ — resolved: candidates clustered by category/similarity before generalization; design doc corrected
 - ~~[#217](https://github.com/dlewissandy/teaparty/issues/217): Learning promotion chain~~ — resolved: recurrence detection, proxy exclusion, project-agnostic filtering
 - ~~[#115](https://github.com/dlewissandy/teaparty/issues/115): Learning extraction silently fails~~ — resolved
 - ~~[#73–#80](https://github.com/dlewissandy/teaparty/issues/73): GAP A5.* — missing scopes in the learning pipeline~~ — all resolved
