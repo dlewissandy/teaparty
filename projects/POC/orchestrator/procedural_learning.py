@@ -195,13 +195,17 @@ def _cluster_candidates(
     """Group candidates into coherent clusters for independent generalization.
 
     Clustering strategy:
-    1. If candidates have a 'category' field, group by category first.
-    2. Within each category (or for uncategorized candidates), split further
-       if task descriptions are too dissimilar (Jaccard below threshold).
+    1. Candidates with a 'category' field are grouped by category.
+    2. Candidates without category are clustered by task description
+       similarity (Jaccard on tokens, single-linkage).
+
+    Category is a first-class concept in the skill schema (produced by
+    crystallization, used by skill_lookup scoring).  archive_skill_candidate()
+    does not yet write category to candidate frontmatter, so the similarity
+    fallback handles all current production candidates.
 
     Returns a list of clusters, where each cluster is a list of candidate dicts.
     """
-    # Step 1: group by category
     by_category: dict[str, list[dict]] = {}
     for c in candidates:
         cat = c['meta'].get('category', '').strip().lower()
@@ -211,10 +215,8 @@ def _cluster_candidates(
 
     for cat, group in by_category.items():
         if cat:
-            # Candidates with an explicit category form a cluster
             clusters.append(group)
         else:
-            # No category — cluster by task description similarity
             clusters.extend(
                 _cluster_by_task_similarity(group, similarity_threshold)
             )
@@ -226,7 +228,7 @@ def _cluster_by_task_similarity(
     candidates: list[dict],
     threshold: float,
 ) -> list[list[dict]]:
-    """Cluster uncategorized candidates by task description similarity.
+    """Cluster candidates by task description similarity.
 
     Uses single-linkage clustering: a candidate joins an existing cluster
     if its task tokens have Jaccard similarity >= threshold with any member.
