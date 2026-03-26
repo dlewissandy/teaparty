@@ -529,7 +529,8 @@ def retrieve_hybrid(
 
 # ── Temporal decay ────────────────────────────────────────────────────────────
 
-HALF_LIFE_DAYS = 30.0
+HALF_LIFE_DAYS = 90.0
+DECAY_FLOOR = 0.1
 
 
 def infer_date_from_path(source_path: str):
@@ -571,16 +572,15 @@ def compute_prominence(metadata: dict, source_path: str = '', today=None) -> flo
     Prominence = importance × recency_decay × (1 + reinforcement_count)
 
     importance          : float in [0,1]; default 0.5 for legacy/plain entries
-    recency_decay       : exp(-ln(2)/30 × age_days)
+    recency_decay       : max(DECAY_FLOOR, exp(-ln(2)/HALF_LIFE_DAYS × age_days))
                           age derived from last_reinforced (frontmatter)
                           → source path date → 30-day default
     reinforcement_count : int; default 0
 
     Retired entries return 0.0.
+    The decay floor ensures old-but-important entries remain discoverable.
 
     Entries with no date anywhere default to 30-day age — NO evergreen exemption.
-    This fixes the bug where project MEMORY.md files (no date in path) were
-    treated as evergreen and never decayed.
     """
     if today is None:
         today = date_type.today()
@@ -614,7 +614,7 @@ def compute_prominence(metadata: dict, source_path: str = '', today=None) -> flo
         age_days = 30
 
     lambda_d = math.log(2) / HALF_LIFE_DAYS
-    recency_decay = math.exp(-lambda_d * age_days)
+    recency_decay = max(DECAY_FLOOR, math.exp(-lambda_d * age_days))
 
     return importance * recency_decay * (1 + reinforcement_count)
 
