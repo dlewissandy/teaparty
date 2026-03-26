@@ -24,9 +24,9 @@ The dimensions that matter for retrieval are: which memories activate above the 
 
 The current system conflates these roles. EMA drives the approve/escalate decision. The new design separates them: ACT-R memory drives the proxy's behavior (what questions to ask, what to attend to, what the human would say). EMA observes the outcomes and reports on system health.
 
-## What Changes in the Current Model
+## What Changed from the Original Model
 
-The current model uses EMA as a decision gate: confidence above threshold yields auto-approval, below yields escalation. This fails for several reasons.
+The original model used EMA as a decision gate: confidence above threshold yielded auto-approval, below yielded escalation. This failed for several reasons.
 
 It skips inspection. A high EMA means the proxy auto-approves without reading the artifact. The human would have read it, probed the details, challenged assumptions, verified completeness, even when ultimately approving. Quality requires artifact inspection. EMA skips inspection entirely. Two-pass prediction ensures inspection through explicit prior-posterior comparison.
 
@@ -36,9 +36,9 @@ It cannot distinguish habitual from episodic patterns. A human's stable preferen
 
 It has no connection to discovery mode. The proxy's between-session reviews produce richer interactions than a scalar can represent. See [autodiscovery.md](../reference/autodiscovery.md) for details.
 
-ACT-R activation memory solves these problems. EMA stays, reframed as monitoring.
+ACT-R activation memory solves these problems. EMA stays, reframed as monitoring. This transition is complete — EMA is decoupled from confidence scoring ([#220](https://github.com/dlewissandy/teaparty/issues/220)) and ACT-R memory drives retrieval and prediction.
 
-Note: the new design does permit autonomous proxy action (without escalation to the human) when the proxy has demonstrably inspected the artifact via two-pass prediction and its predictions consistently match the human's patterns. This is earned through consistent inspection, not inferred from a scalar. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) for how this differs from EMA-based auto-approval.
+Note: the design does permit autonomous proxy action (without escalation to the human) when the proxy has demonstrably inspected the artifact via two-pass prediction and its predictions consistently match the human's patterns. This is earned through consistent inspection, not inferred from a scalar. See [act-r-proxy-sensorium.md](act-r-proxy-sensorium.md) for how this differs from EMA-based auto-approval.
 
 ---
 
@@ -56,15 +56,15 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 
 ---
 
-## What Changes, What Stays
+## What Changed, What Stayed
 
-**Changes:**
-- EMA role: from decision gate (approve/escalate) to system health monitor (are upstream agents improving?)
+**Changed (all operational):**
+- EMA role: from decision gate (approve/escalate) to system health monitor (are upstream agents improving?) ([#220](https://github.com/dlewissandy/teaparty/issues/220))
 - Memory: from scalar per state-task pair to chunk-based activation memory (`proxy_memory.db`)
 - Decision process: from threshold check to simulated dialog (proxy asks the questions the human would ask, then decides)
 - `consult_proxy()`: from confidence lookup to retrieval plus LLM reasoning over past interactions
 
-**Stays:**
+**Stayed:**
 - `.proxy-confidence.json` — still tracks EMA per state-task pair, now as a monitoring signal
 - The proxy agent prompt structure (receives context, generates prediction)
 - The proxy agent's tools (file read, dialog)
@@ -78,47 +78,53 @@ Replace the scalar confidence model with **activation-weighted embedding retriev
 
 The transition can be incremental.
 
-### Phase 0: Specification Checklist
+### Phase 0: Specification Checklist — Complete
 
-Before Phase 1 implementation begins, the following design decisions must be made:
+Phase 0 design decisions have been resolved:
 
-1. **Embedding model choice** — which service and model? (e.g., OpenAI text-embedding-3-small, Anthropic, local). Affects cost, dimensionality, and API contracts.
-2. **Chunk serialization format** — how are chunks converted to text for the proxy's LLM prompt? What fields are included? What is the token budget per chunk?
-3. **Prompt templates** — provide draft templates or specify constraints for Pass 1, Pass 2, and surprise extraction prompts. These must support the output parsing requirements.
-4. **Output parsing and error handling** — ACTION and CONFIDENCE are parsed from the final lines of LLM output via regex (`ACTION:\s*(\w+)`, `CONFIDENCE:\s*([\d.]+)`). Parse failures default to confidence 0.0 (always escalate to human).
-5. **Confidence extraction method** — specify the exact format for confidence in prompts (e.g., "0-10 scale", probability, categorical). Define validation and fallback behavior.
-6. **Concurrency control for interaction counter** — specify transaction semantics and isolation levels for multi-process access to `proxy_memory.db`.
+1. **Embedding model:** OpenAI `text-embedding-3-small` (primary), Gemini `embedding-001` (fallback). Configured in `memory_indexer.py`.
+2. **Chunk serialization:** `blended_text_from_fields()` in `proxy_memory.py` concatenates state, task_type, content, human_response, and prediction_delta into a single string for blended embedding.
+3. **Prompt templates:** Two-pass prediction prompts implemented in `proxy_agent.py` — prior (without artifact), posterior (with artifact + prior).
+4. **Output parsing:** ACTION and CONFIDENCE parsed from final lines of LLM output via regex. Parse failures default to confidence 0.0.
+5. **Confidence:** 0.0–1.0 probability scale. Post-hoc calibration via `_calibrate_confidence()` caps at 0.5 when ACT-R memory depth is below threshold.
+6. **Concurrency:** SQLite with WAL mode for multi-process access to `proxy_memory.db`.
 
-These decisions determine implementation feasibility. They need explicit answers (even if the answer is "defer to Phase 1 with documented constraints") before coding begins.
+### Phase 1: Integration — Complete
 
-### Phase 1: Integration
+ACT-R memory system and two-pass prediction are operational on the develop branch. EMA is decoupled from the decision gate ([#220](https://github.com/dlewissandy/teaparty/issues/220)) and serves as a system health monitor only.
 
-Build the ACT-R memory system and two-pass prediction on the develop branch, replacing the EMA decision gate directly. The proxy's retrieved memories drive the full dialog (questions, follow-ups, reasoning) before reaching a decision. EMA continues as a system health monitor.
-
-**Evaluation metrics:**
+**Evaluation metrics** — implemented in `evaluate_proxy.py` and `proxy_metrics.py` ([#221](https://github.com/dlewissandy/teaparty/issues/221)):
 - Action match rate: did the proxy's posterior action match the human's actual decision?
-- Prior calibration: how often did the prior match the posterior? (measures how well the proxy predicts before seeing the artifact)
+- Prior calibration: how often did the prior match the posterior?
 - Surprise calibration: when surprise was detected, did the human's response confirm that the salient percepts were relevant?
 - Retrieval relevance: human spot-checks of retrieved memory sets for qualitative assessment
 
 **Go/no-go criteria for Phase 2 transition:**
-- Minimum sample: 50 gate interactions spanning at least 3 task types and 4 CfA states before any evaluation is meaningful. At a tempo of 5-10 gates per session with 2-3 sessions per week, this is approximately 3-5 weeks.
-- Action match rate: >= 70% agreement between proxy posterior action and human actual decision. Below 60% indicates the memory model is not learning useful patterns and the approach needs rethinking. Between 60-70% warrants investigation but does not block Phase 2.
-- Multi-dimensional embedding ablation: if single-embedding retrieval achieves >= 95% of multi-dimensional retrieval's match rate, the 5x embedding cost is not justified. Simplify to single embedding.
+- Minimum sample: 50 gate interactions spanning at least 3 task types and 4 CfA states before any evaluation is meaningful.
+- Action match rate: >= 70% agreement between proxy posterior action and human actual decision.
+- Multi-dimensional embedding ablation: if single-embedding retrieval achieves >= 95% of multi-dimensional retrieval's match rate, simplify to single embedding.
 - ACT-R decay vs. simple recency ablation: if most-recent-N retrieval achieves >= 95% of ACT-R decay's match rate, the activation machinery is not earning its complexity.
-- If metrics are ambiguous after 50 interactions, extend to 100 before deciding. If still ambiguous at 100, default to the simpler configuration (single embedding, simple recency) unless qualitative spot-checks show clear retrieval quality advantages for the complex configuration.
 
-**Ablations to run during Phase 1:**
-- Multi-dimensional embeddings (5 vectors) vs. single blended embedding
-- ACT-R decay vs. simple recency (most-recent-N)
-- Two-pass prediction vs. single-pass (posterior only)
-- Composite score vs. activation-only and similarity-only retrieval
+**Ablations — implemented** in `proxy_ablation.py`:
+- Multi-dimensional embeddings (5 vectors) vs. single blended embedding ([#222](https://github.com/dlewissandy/teaparty/issues/222)) — scoring is swappable via `retrieve_chunks()` mode parameter
+- ACT-R decay vs. simple recency (most-recent-N) ([#223](https://github.com/dlewissandy/teaparty/issues/223))
+- Composite score vs. activation-only and similarity-only retrieval ([#225](https://github.com/dlewissandy/teaparty/issues/225)) — leave-one-out ablation with action match rate metric
+- Two-pass prediction vs. single-pass (posterior only) — built into the two-pass architecture
+
+Additional Phase 1 capabilities implemented:
+- Salience index separated from chunk embeddings ([#227](https://github.com/dlewissandy/teaparty/issues/227))
+- Contradiction detection and LLM-as-judge classification ([#228](https://github.com/dlewissandy/teaparty/issues/228))
+- Per-context prediction accuracy tracking ([#226](https://github.com/dlewissandy/teaparty/issues/226))
+- Asymmetric confidence decay following Hindsight (arXiv:2512.12818) ([#228](https://github.com/dlewissandy/teaparty/issues/228))
+- Post-session proxy memory consolidation with Mem0-style ADD/UPDATE/DELETE/SKIP taxonomy ([#228](https://github.com/dlewissandy/teaparty/issues/228))
+
+**Status:** Phase 1 is feature-complete. Go/no-go evaluation requires accumulating sufficient gate interactions from real sessions.
 
 ### Phase 2: Learned Attention
 
 ACT-R memory, two-pass prediction, and EMA monitoring are unified. The proxy conducts the dialog the human would have conducted. The accumulated prior-posterior deltas build a learned attention model. EMA surfaces trends in system performance.
 
-Phase 1 can start immediately once Phase 0 decisions are made. It requires only the chunk storage and retrieval functions.
+Phase 2 requires Phase 1 go/no-go evaluation data from real sessions.
 
 ---
 

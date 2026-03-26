@@ -44,7 +44,7 @@ The approval gate's capabilities stack across three tiers:
 
 **Tier 2 (Operational now):** Retrieval-backed patterns from `.proxy-interactions.jsonl` (legacy similar interactions) and `proxy-patterns.md` (flat behavioral patterns). These are loaded as context for the proxy agent's two-pass prediction. ACT-R memory chunks (Tier 3) supplement these with structured retrieval.
 
-**Tier 3 (Operational now):** ACT-R memory retrieval feeds task-specific memories into proxy context. Memory chunks carry situation, stimulus, and outcome data, retrieved via two-stage ranking: activation filter (power-law decay) then composite scoring (normalized activation + multi-dimensional cosine similarity). Retrieved chunks are reinforced after the proxy agent consumes them (ACT-R Rule 2). Behavioral rituals, gap-detection questioning, and text derivative learning remain design targets.
+**Tier 3 (Operational now):** ACT-R memory retrieval feeds task-specific memories into proxy context. Memory chunks carry situation, stimulus, and outcome data, retrieved via two-stage ranking: activation filter (power-law decay) then composite scoring (normalized activation + multi-dimensional cosine similarity). Retrieved chunks are reinforced after the proxy agent consumes them (ACT-R Rule 2). Contradiction detection identifies conflicting memory pairs (same state/task_type, different outcome) and classifies them via a two-tier pipeline: heuristic triage (`classify_conflict()` in `proxy_memory.py`) then LLM-as-judge reclassification for ambiguous cases (`_classify_conflict_llm()` in `proxy_agent.py`). Conflict context is injected into the proxy prompt so the agent can reason about contradictions. Per-context prediction accuracy is tracked per (state, task_type) pair in `proxy_accuracy` table (`proxy_memory.py`), recording prior and posterior match rates. Behavioral rituals, gap-detection questioning, and text derivative learning remain design targets.
 
 All three tiers are wired into `consult_proxy()`. The proxy architecture was designed to decouple tiers, but all three now contribute to every proxy invocation.
 
@@ -194,6 +194,18 @@ Concern vocabulary: error_handling, rollback, security, idempotency, testing, do
 | Cold-start gating via ACT-R memory depth | Done | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
 | EMA decoupled from confidence scoring | Done | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
 | Post-consumption reinforcement of retrieved chunks | Done | [#219](https://github.com/dlewissandy/teaparty/issues/219) |
+| Contradiction detection and resolution in proxy memory | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
+| LLM-as-judge conflict classification (two-tier: heuristic then LLM) | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
+| Asymmetric confidence decay (Hindsight, arXiv:2512.12818) | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
+| Post-session proxy memory consolidation | Done | [#228](https://github.com/dlewissandy/teaparty/issues/228) |
+| Per-context prediction accuracy tracking per (state, task_type) | Done | [#226](https://github.com/dlewissandy/teaparty/issues/226) |
+| Proxy-learning integration (bidirectional feedback) | Done | [#198](https://github.com/dlewissandy/teaparty/issues/198) |
+| Salience index separated from chunk embeddings | Done | [#227](https://github.com/dlewissandy/teaparty/issues/227) |
+| Embedding wired into proxy pattern compaction | Done | [#214](https://github.com/dlewissandy/teaparty/issues/214) |
+| ACT-R Phase 1 ablation harness (evaluation metrics) | Done | [#221](https://github.com/dlewissandy/teaparty/issues/221) |
+| Ablation: multi-dim vs single blended embedding | Done | [#222](https://github.com/dlewissandy/teaparty/issues/222) |
+| Ablation: activation decay vs simple recency | Done | [#223](https://github.com/dlewissandy/teaparty/issues/223) |
+| Ablation: composite scoring vs activation-only and similarity-only | Done | [#225](https://github.com/dlewissandy/teaparty/issues/225) |
 | Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
 | Text derivative learning (proxy self-assessment) | Design target | |
 | Proxy accuracy measurement on real escalations | Design target | |
