@@ -48,7 +48,6 @@ def _handle_session_crash(infra_dir: str) -> None:
 _STATE_LABELS: dict[str, str] = {
     'INTENT_ESCALATE': 'Agent has questions about intent',
     'PLANNING_ESCALATE': 'Agent has questions about the plan',
-    'TASK_REVIEW_ESCALATE': 'Agent has questions about the task',
     'TASK_ESCALATE': 'Agent has questions about the task',
     'INTENT_ASSERT': 'Review intent',
     'PLAN_ASSERT': 'Review plan',
