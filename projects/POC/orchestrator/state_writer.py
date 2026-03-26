@@ -7,7 +7,7 @@ Note: .cfa-state.json is written by engine._transition() via cfa_state.save_stat
 not by this writer (to preserve the full CfaState schema).
 
 Files written:
-  .running          — created on SESSION_STARTED, removed on SESSION_COMPLETED
+  .heartbeat        — created on SESSION_STARTED, finalized on SESSION_COMPLETED (issue #149)
   session.log       — appended on state transitions, LOG events, and input events
   .stream-file      — pointer to current active stream file
 """
@@ -40,6 +40,8 @@ class StateWriter:
             # CfaState before publishing this event — don't overwrite it here
             # with the (incomplete) event data.
             self._log('STATE', f"{event.data.get('previous_state','')} → {event.data.get('state','')} [{event.data.get('action','')}]")
+            # Clear overload sentinel — the phase is advancing again
+            self._clear_overload_sentinel()
         elif event.type == EventType.SESSION_STARTED:
             self._write_running()
             self._log('SESSION', f"Started -- {event.data.get('task', '')}")
@@ -61,18 +63,28 @@ class StateWriter:
             self._log('STATE', f"Input requested: {event.data.get('state', '')}")
         elif event.type == EventType.INPUT_RECEIVED:
             self._log('HUMAN', event.data.get('response', '')[:200])
+        elif event.type == EventType.API_OVERLOADED:
+            retry = event.data.get('retry_count', '?')
+            max_r = event.data.get('max_retries', '?')
+            cooldown = event.data.get('cooldown_seconds', '?')
+            phase = event.data.get('phase', '')
+            self._log('OVERLOAD', f"API overloaded (529) — retry {retry}/{max_r} for {phase}, cooling down {cooldown}s")
+            self._write_overload_sentinel(event.data)
         elif event.type == EventType.FAILURE:
             self._log('STATE', f"Failure: {event.data.get('reason', '')[:200]}")
 
     def _write_running(self) -> None:
-        path = os.path.join(self.infra_dir, '.running')
-        with open(path, 'w') as f:
-            f.write(str(os.getpid()))
+        from projects.POC.orchestrator.heartbeat import create_heartbeat
+        create_heartbeat(
+            os.path.join(self.infra_dir, '.heartbeat'),
+            role='session',
+        )
 
     def _remove_running(self) -> None:
-        path = os.path.join(self.infra_dir, '.running')
+        from projects.POC.orchestrator.heartbeat import finalize_heartbeat
+        hb_path = os.path.join(self.infra_dir, '.heartbeat')
         try:
-            os.unlink(path)
+            finalize_heartbeat(hb_path, 'completed')
         except FileNotFoundError:
             pass
 
@@ -81,6 +93,24 @@ class StateWriter:
             path = os.path.join(self.infra_dir, '.stream-file')
             with open(path, 'w') as f:
                 f.write(stream_file)
+
+    def _clear_overload_sentinel(self) -> None:
+        """Remove .api-overloaded sentinel when the session advances."""
+        path = os.path.join(self.infra_dir, '.api-overloaded')
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+    def _write_overload_sentinel(self, data: dict) -> None:
+        """Write .api-overloaded sentinel for TUI status display."""
+        import json
+        path = os.path.join(self.infra_dir, '.api-overloaded')
+        try:
+            with open(path, 'w') as f:
+                json.dump(data, f)
+        except OSError:
+            pass
 
     def _log(self, category: str, message: str) -> None:
         timestamp = datetime.now().strftime('%H:%M:%S')

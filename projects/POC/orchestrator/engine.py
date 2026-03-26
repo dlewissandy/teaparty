@@ -6,6 +6,7 @@ backtracks, infrastructure failures, and review dialog loops.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from dataclasses import dataclass, field
@@ -37,7 +38,7 @@ from projects.POC.orchestrator.actors import (
     InputProvider,
 )
 from projects.POC.orchestrator.escalation_listener import EscalationListener
-from projects.POC.orchestrator.worktree import artifact_version, commit_artifact
+from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
@@ -54,7 +55,7 @@ class PhaseResult:
 
 
 PLAN_ESCALATION_STATES = frozenset({'INTENT_ESCALATE', 'PLANNING_ESCALATE'})
-WORK_ESCALATION_STATES = frozenset({'TASK_REVIEW_ESCALATE'})
+WORK_ESCALATION_STATES = frozenset({'TASK_ESCALATE'})
 
 
 @dataclass
@@ -100,6 +101,7 @@ class Orchestrator:
         team_override: str = '',
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
+        parent_heartbeat: str = '',
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -122,6 +124,7 @@ class Orchestrator:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self.team_override = team_override
+        self._parent_heartbeat = parent_heartbeat
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -150,6 +153,12 @@ class Orchestrator:
 
     async def run(self) -> OrchestratorResult:
         """Drive the CfA state machine to a terminal state."""
+        # Recovery scan: merge/re-dispatch orphaned children before starting
+        # MCP listeners.  This runs at every level of the hierarchy — any
+        # dispatching agent might resume into a world with orphaned children.
+        # Issue #149.
+        await self._recover_orphaned_children()
+
         # The MCP server runs as a subprocess of Claude Code, whose cwd
         # is the session worktree — not the repo root.  Two fixes:
         # 1. Use the venv Python (system python3 lacks the mcp package)
@@ -220,6 +229,15 @@ class Orchestrator:
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.infrastructure_failure:
+                    if result.failure_reason == 'api_overloaded':
+                        overload_decision = await self._handle_overloaded('intent')
+                        if overload_decision == 'retry':
+                            continue
+                        # 'escalate' — fall through to human dialog
+                        # (unless never_escalate, in which case return failure
+                        # so the parent dispatch loop can coordinate retries)
+                        if self.never_escalate:
+                            return self._make_result(self.cfa.state)
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'withdraw':
                         self.cfa = set_state_direct(self.cfa, 'WITHDRAWN')
@@ -254,6 +272,12 @@ class Orchestrator:
                         self.skip_intent = False
                         continue
                 if result.infrastructure_failure:
+                    if result.failure_reason == 'api_overloaded':
+                        overload_decision = await self._handle_overloaded('planning')
+                        if overload_decision == 'retry':
+                            continue
+                        if self.never_escalate:
+                            return self._make_result(self.cfa.state)
                     decision = await self._failure_dialog(result.failure_reason)
                     if decision == 'backtrack':
                         self.skip_intent = False
@@ -291,6 +315,12 @@ class Orchestrator:
                     self.skip_intent = True
                     continue
             if result.infrastructure_failure:
+                if result.failure_reason == 'api_overloaded':
+                    overload_decision = await self._handle_overloaded('execution')
+                    if overload_decision == 'retry':
+                        continue
+                    if self.never_escalate:
+                        return self._make_result(self.cfa.state)
                 decision = await self._failure_dialog(result.failure_reason)
                 if decision == 'backtrack':
                     self.skip_intent = False
@@ -467,7 +497,7 @@ class Orchestrator:
             # Handle the actor result
             if actor_result.action == 'failed':
                 reason = actor_result.data.get('reason', 'unknown')
-                if reason in ('stall_timeout', 'nonzero_exit'):
+                if reason in ('stall_timeout', 'nonzero_exit', 'api_overloaded'):
                     return PhaseResult(
                         infrastructure_failure=True,
                         failure_reason=reason,
@@ -499,6 +529,10 @@ class Orchestrator:
             add_dirs=self._build_add_dirs(),
             phase_start_time=phase_start_time,
             mcp_config=self._mcp_config,
+            # Heartbeat liveness (issue #149)
+            heartbeat_file=os.path.join(self.infra_dir, '.heartbeat'),
+            parent_heartbeat=self._parent_heartbeat,
+            children_file=os.path.join(self.infra_dir, '.children'),
         )
 
         if state in self.config.human_actor_states:
@@ -590,14 +624,12 @@ class Orchestrator:
             self._detect_and_retire_stage()
 
     async def _commit_artifacts(self, old_state: str, action: str) -> None:
-        """Auto-commit artifacts to the session worktree after writes.
+        """Auto-commit deliverables to the session worktree after writes.
 
-        INTENT.md and PLAN.md are committed to the worktree branch so that
-        dispatch worktrees (which branch from this branch) inherit the
-        current artifacts.  After commit, _relocate_misplaced_artifact
-        moves them to infra_dir for the orchestrator's own reads.  The
-        git history preserves them for branching; infra_dir is the live
-        read path.  Issue #147.
+        Only execution deliverables are committed (TASK_ASSERT).  INTENT.md
+        and PLAN.md live exclusively in infra_dir — they are not committed
+        to the worktree.  Dispatch agents receive context via the task
+        string, not git branch inheritance.  Issue #148.
         """
         wt = self.session_worktree
         if not wt:
@@ -605,13 +637,7 @@ class Orchestrator:
 
         new_state = self.cfa.state
         try:
-            if new_state == 'INTENT_ASSERT':
-                v = await artifact_version(wt, 'INTENT.md')
-                await commit_artifact(wt, ['INTENT.md'], f'Intent v{v}: {action}')
-            elif new_state == 'PLAN_ASSERT':
-                v = await artifact_version(wt, 'PLAN.md')
-                await commit_artifact(wt, ['PLAN.md'], f'Plan v{v}: {action}')
-            elif new_state == 'TASK_ASSERT':
+            if new_state == 'TASK_ASSERT':
                 await commit_artifact(wt, ['.'], f'Execution: {action}')
         except Exception as exc:
             _log.warning('Artifact commit failed (non-fatal): %s', exc)
@@ -777,6 +803,50 @@ class Orchestrator:
 
         return base_task
 
+    # Maximum auto-retries for API overloaded (529) before escalating to human.
+    # Each retry adds a flat cooldown — not exponential, since the CLI already
+    # did exponential backoff internally.
+    _MAX_OVERLOAD_RETRIES = 3
+    _OVERLOAD_COOLDOWN_SECONDS = 120
+
+    async def _handle_overloaded(self, phase_name: str) -> str:
+        """Handle an API overloaded (529) failure with auto-retry.
+
+        Tracks retry count per phase.  On each retry, emits an API_OVERLOADED
+        event and waits a flat cooldown.  After exhausting retries, returns
+        'escalate' so the caller falls through to _failure_dialog.
+
+        Returns 'retry' or 'escalate'.
+        """
+        counter_key = f'_overload_retries_{phase_name}'
+        count = getattr(self, counter_key, 0) + 1
+        setattr(self, counter_key, count)
+
+        if count > self._MAX_OVERLOAD_RETRIES:
+            return 'escalate'
+
+        # Emit event for TUI observability
+        await self.event_bus.publish(Event(
+            type=EventType.API_OVERLOADED,
+            data={
+                'phase': phase_name,
+                'retry_count': count,
+                'max_retries': self._MAX_OVERLOAD_RETRIES,
+                'cooldown_seconds': self._OVERLOAD_COOLDOWN_SECONDS,
+            },
+            session_id=self.session_id,
+        ))
+
+        _log.info(
+            'API overloaded (529) — auto-retry %d/%d for %s, '
+            'cooling down %ds',
+            count, self._MAX_OVERLOAD_RETRIES, phase_name,
+            self._OVERLOAD_COOLDOWN_SECONDS,
+        )
+
+        await asyncio.sleep(self._OVERLOAD_COOLDOWN_SECONDS)
+        return 'retry'
+
     async def _failure_dialog(self, reason: str) -> str:
         """Ask human what to do after infrastructure failure.
 
@@ -800,11 +870,14 @@ class Orchestrator:
             artifact='',
             bridge_text=bridge_text,
         ))
-        r = response.strip().lower()
-        if 'backtrack' in r:
-            return 'backtrack'
-        if 'withdraw' in r:
-            return 'withdraw'
+        try:
+            from projects.POC.scripts.classify_review import classify
+            raw = classify('FAILURE', response)
+            action = raw.split('\t', 1)[0]
+        except Exception:
+            action = '__fallback__'
+        if action in ('backtrack', 'withdraw'):
+            return action
         return 'retry'
 
     def _mark_false_positives(self, reason: str) -> None:
@@ -879,3 +952,142 @@ class Orchestrator:
         # Extra --add-dir paths leak absolute paths into the agent's context,
         # causing writes to wrong locations.
         return []
+
+    async def _recover_orphaned_children(self) -> None:
+        """Scan .children registry and recover orphaned dispatches (issue #149).
+
+        Runs before MCP listeners start so no new dispatches arrive during
+        recovery.  Any dispatching agent at any level needs this.
+
+        - Completed children: merge their worktree into session worktree
+        - Dead non-terminal: log for re-dispatch (resume path)
+        - Live children: leave alone
+        """
+        children_path = os.path.join(self.infra_dir, '.children')
+        if not os.path.exists(children_path):
+            return
+
+        from projects.POC.orchestrator.heartbeat import (
+            scan_children, compact_children, create_heartbeat, read_heartbeat,
+        )
+        from projects.POC.orchestrator.merge import squash_merge
+
+        # Write a fresh heartbeat for ourselves so adopted children see a live
+        # parent instead of triggering their shutdown sequence (gap 5/12).
+        my_hb = os.path.join(self.infra_dir, '.heartbeat')
+        if not os.path.exists(my_hb):
+            create_heartbeat(my_hb, role='session')
+
+        scan = scan_children(children_path)
+
+        # Merge completed children
+        for child in scan['completed']:
+            hb_path = child.get('heartbeat', '')
+            if not hb_path:
+                continue
+            child_infra = os.path.dirname(hb_path)
+            cfa_path = os.path.join(child_infra, '.cfa-state.json')
+            if not os.path.exists(cfa_path):
+                continue
+
+            cfa_data = load_state(cfa_path)
+            if cfa_data.state != 'COMPLETED_WORK':
+                continue
+
+            # Find the worktree path from the manifest
+            worktree_path = self._find_dispatch_worktree(child_infra)
+            if not worktree_path or not os.path.isdir(worktree_path):
+                _log.warning('Recovery: no worktree found for %s', child_infra)
+                continue
+
+            _log.info('Recovery: merging completed child %s', child.get('team', ''))
+            try:
+                from projects.POC.scripts.generate_commit_message import build_fallback
+                message = build_fallback(child.get('team', ''), self.task)
+                await squash_merge(
+                    source=worktree_path,
+                    target=self.session_worktree,
+                    message=message,
+                )
+                await self.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'recovery_merge',
+                        'team': child.get('team', ''),
+                        'heartbeat': hb_path,
+                        'status': 'merged',
+                    },
+                    session_id=self.session_id,
+                ))
+            except Exception as exc:
+                _log.warning('Recovery: merge failed for %s: %s', child.get('team', ''), exc)
+
+        # Re-dispatch dead non-terminal children
+        for child in scan['dead']:
+            hb_path = child.get('heartbeat', '')
+            child_infra = os.path.dirname(hb_path) if hb_path else ''
+            worktree_path = self._find_dispatch_worktree(child_infra) if child_infra else ''
+            team = child.get('team', '')
+
+            _log.warning('Recovery: re-dispatching dead child %s', team)
+            await self.event_bus.publish(Event(
+                type=EventType.LOG,
+                data={
+                    'category': 'recovery_redispatch',
+                    'team': team,
+                    'heartbeat': hb_path,
+                },
+                session_id=self.session_id,
+            ))
+
+            if worktree_path and child_infra:
+                try:
+                    from projects.POC.orchestrator.dispatch_cli import dispatch
+                    await dispatch(
+                        team=team,
+                        task=self.task,
+                        session_worktree=self.session_worktree,
+                        infra_dir=self.infra_dir,
+                        project_slug=self.project_slug,
+                        resume_worktree=worktree_path,
+                        resume_infra=child_infra,
+                    )
+                except Exception as exc:
+                    _log.warning('Recovery: re-dispatch failed for %s: %s', team, exc)
+
+        # Log live children
+        for child in scan['live']:
+            _log.info('Recovery: live child %s — leaving alone', child.get('team', ''))
+
+        # Compact .children to remove terminal entries
+        compact_children(children_path)
+
+    def _find_dispatch_worktree(self, child_infra: str) -> str:
+        """Find the worktree path for a dispatch given its infra dir.
+
+        Searches worktrees.json manifest for a matching session_id.
+        """
+        import json
+        dispatch_id = os.path.basename(child_infra)
+
+        # Try to find repo root
+        try:
+            from projects.POC.orchestrator.worktree import _run_git_output
+            import asyncio
+            git_common = asyncio.get_event_loop().run_until_complete(
+                _run_git_output(self.session_worktree, 'rev-parse', '--path-format=absolute', '--git-common-dir')
+            ).strip()
+            repo_root = os.path.dirname(git_common)
+        except Exception:
+            return ''
+
+        manifest_path = os.path.join(repo_root, 'worktrees.json')
+        try:
+            with open(manifest_path) as f:
+                manifest = json.load(f)
+            for entry in manifest.get('worktrees', []):
+                if entry.get('session_id') == dispatch_id:
+                    return entry.get('path', '')
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+        return ''

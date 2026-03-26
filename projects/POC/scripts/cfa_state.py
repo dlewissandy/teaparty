@@ -200,41 +200,46 @@ def transition(cfa: CfaState, action: str) -> CfaState:
 
     Raises InvalidTransition if the action is not valid from cfa.state.
     Does not mutate the original CfaState.
+
+    The CfAMachine handles:
+      - Transition validation (rejects invalid actions)
+      - History tracking (after_transition hook)
+      - Backtrack counting (after_transition hook)
+      - Backtrack guards (cond='backtrack_allowed' on backtrack edges)
     """
+    from statemachine.exceptions import TransitionNotAllowed
+    from projects.POC.scripts.cfa_machine import (
+        CfAMachine, CfATransitionModel, PHASE_SETS, TRANSITION_ACTORS,
+    )
+
     current = cfa.state
-    if current not in TRANSITIONS:
-        raise InvalidTransition(f"Unknown state: {current!r}")
 
-    target_state = None
-    next_actor = None
-    for act, tgt, actor in TRANSITIONS[current]:
-        if act == action:
-            target_state = tgt
-            next_actor = actor
-            break
+    # Build the transition model so the machine's hooks can record side effects
+    model = CfATransitionModel(
+        phase_sets=PHASE_SETS,
+        last_action=action,
+        last_actor=cfa.actor,
+    )
 
-    if target_state is None:
+    # Validate and execute via the state machine
+    event_name = action.replace('-', '_')
+    try:
+        sm = CfAMachine(start_value=current, cfa_model=model)
+        sm.send(event_name)
+    except (TransitionNotAllowed, ValueError):
         valid = [a for a, _ in available_actions(current)]
         raise InvalidTransition(
             f"Action {action!r} is not valid from state {current!r}. "
             f"Valid actions: {valid}"
         )
 
-    # Record backtracking
-    backtrack_count = cfa.backtrack_count
-    if is_backtrack(current, action):
-        backtrack_count += 1
-
-    # Build history entry
-    history_entry = {
-        'state': current,
-        'action': action,
-        'actor': cfa.actor,
-        'timestamp': datetime.now(timezone.utc).isoformat(),
-    }
-
-    new_history = list(cfa.history) + [history_entry]
+    target_state = sm.current_state_value
+    next_actor = TRANSITION_ACTORS.get((current, action), 'system')
     new_phase = phase_for_state(target_state)
+
+    # History and backtrack_count come from the machine's after_transition hook
+    new_history = list(cfa.history) + model.history
+    backtrack_count = cfa.backtrack_count + model.backtrack_count
 
     return CfaState(
         phase=new_phase,
@@ -252,9 +257,10 @@ def transition(cfa: CfaState, action: str) -> CfaState:
 # ── Persistence ─────────────────────────────────────────────────────────────────
 
 def save_state(cfa: CfaState, path: str) -> None:
-    """Serialize CfaState to a JSON file at path."""
+    """Serialize CfaState to a JSON file at path (atomic write)."""
     import os
-    os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+    dir_name = os.path.dirname(path) if os.path.dirname(path) else '.'
+    os.makedirs(dir_name, exist_ok=True)
     data = {
         'phase': cfa.phase,
         'state': cfa.state,
@@ -266,8 +272,16 @@ def save_state(cfa: CfaState, path: str) -> None:
         'team_id': cfa.team_id,
         'depth': cfa.depth,
     }
-    with open(path, 'w') as f:
-        json.dump(data, f, indent=2)
+    tmp = path + '.tmp'
+    try:
+        with open(tmp, 'w') as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp, path)
+    finally:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
 
 
 def load_state(path: str) -> CfaState:

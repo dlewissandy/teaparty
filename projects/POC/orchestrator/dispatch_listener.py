@@ -30,6 +30,7 @@ import tempfile
 
 from projects.POC.orchestrator.dispatch_cli import dispatch
 from projects.POC.orchestrator.events import Event, EventBus, EventType
+from projects.POC.orchestrator.phase_config import PhaseConfig
 
 _log = logging.getLogger('orchestrator.dispatch')
 
@@ -66,6 +67,16 @@ class DispatchListener:
         self.proxy_model_path = proxy_model_path
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
+
+        # Load valid team names from config for early rejection of bad names.
+        self._valid_teams: frozenset[str] = frozenset()
+        if poc_root:
+            try:
+                config = PhaseConfig(poc_root)
+                self._valid_teams = frozenset(config.teams)
+            except Exception:
+                _log.warning('Failed to load valid teams from PhaseConfig')
+
 
     async def start(self) -> str:
         """Start listening.  Returns the socket path."""
@@ -150,6 +161,10 @@ class DispatchListener:
         2. Compact accumulated memory files
         3. Merge child events into parent event stream
         """
+        if self._valid_teams and team not in self._valid_teams:
+            _log.warning('Rejected unknown team %r (valid: %s)', team, ', '.join(sorted(self._valid_teams)))
+            return {'status': 'failed', 'reason': f'unknown team: {team}'}
+
         _log.info('Dispatching to team %r: %s', team, task[:80])
 
         await self.event_bus.publish(Event(
@@ -164,9 +179,9 @@ class DispatchListener:
 
         # Note: AskTeam calls block for the duration of the dispatch (minutes).
         # The parent Claude process produces no stdout during this time.
-        # The stall watchdog (default 1800s) must be longer than the longest
-        # expected dispatch.  If this becomes a problem, the watchdog needs
-        # to be made aware of pending MCP tool calls.
+        # The watchdog's priority cascade (issue #149) handles this:
+        # open tool calls and .children heartbeats count as liveness.
+        # dispatch() registers in .children after worktree creation.
         result = await dispatch(
             team=team,
             task=task,

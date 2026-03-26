@@ -35,6 +35,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 `#state-machine` `#async` `#orchestration` `#workflow`
 `#adjustable-autonomy` `#concept-drift` `#implicit-feedback` `#bandit` `#proxy-agent`
 `#active-learning` `#preference-learning` `#calibration` `#prediction` `#cold-start` `#bayesian`
+`#process-liveness` `#heartbeat` `#process-registry` `#crash-resilient` `#multiprocess` `#filesystem`
 
 ---
 
@@ -265,6 +266,25 @@ Foundational work on speech act theory and its application to coordination proto
 | ReAct: Synergizing Reasoning and Acting in Language Models | Yao et al., ICLR 2023 | `#agent-reasoning` `#llm` | Interleaved reasoning traces and actions improve single-agent task performance; plan-execute loop with local recovery; no intent alignment or cross-phase backtrack. | `docs/background/conversation-patterns.md` |
 | Plan-and-Solve Prompting | Wang et al., ACL 2023 | `#agent-reasoning` `#llm` | Separates plan generation from execution to reduce missing-step errors; treats human request as complete specification; no approval gate mechanism. | `docs/background/conversation-patterns.md` |
 | AutoGen: Enabling Next-Gen LLM Applications via Multi-Agent Conversation | Wu et al., 2023 | `#multi-agent` `#llm` `#coordination` | Flexible multi-agent conversation framework (LLMs, humans, tools); conversation structure is content-driven, not protocol-enforced; no commitment tracking. | `docs/background/conversation-patterns.md` |
+
+---
+
+## Process Liveness Monitoring — Python Libraries and Patterns
+
+Survey of Python libraries for heartbeat, liveness detection, and process registries that work without a central server, survive crashes, and support hierarchical parent-watches-children monitoring. Motivated by TeaParty's hierarchical team architecture (each level is an OS process). See `docs/research/process-liveness-monitoring.md` for full library assessments and the composed primitive design.
+
+| Library / Pattern | Year surveyed | Tags | One-line Summary | Source |
+|------------------|--------------|------|-----------------|--------|
+| psutil (giampaolo) | 2025 | `#process-liveness` `#multiprocess` `#teaparty-direct` | `pid_exists()` + `is_running()` (with PID-recycling guard) + `wait_procs()` — the correct liveness query layer; no heartbeat or registry built in. | `process-liveness-monitoring.md` |
+| filelock (tox-dev) | 2025 | `#process-liveness` `#filesystem` `#crash-resilient` | Platform-independent file locking (fcntl/msvcrt); lock auto-released on process death; correct tool for concurrent-safe heartbeat file writes. | `process-liveness-monitoring.md` |
+| pid | 2025 | `#process-liveness` `#filesystem` | PID file context manager with stale-detection; mutual-exclusion only — does not provide heartbeat intervals or liveness timestamps. | `process-liveness-monitoring.md` |
+| watchdog (gorakhargosh) | 2025 | `#process-liveness` `#filesystem` `#multiprocess` | Filesystem event observer (inotify / FSEvents / kqueue); a parent process CAN observe child heartbeat files via OS events; reactive alternative to polling. | `process-liveness-monitoring.md` |
+| python-prctl | 2025 | `#process-liveness` `#crash-resilient` `#multiprocess` | Linux-only `set_pdeathsig(SIGTERM)`: kernel delivers signal to child when parent dies; prevents orphaned subteam processes; macOS requires ppid-polling fallback. | `process-liveness-monitoring.md` |
+| Celery file-touch heartbeat idiom | 2025 | `#process-liveness` `#heartbeat` `#filesystem` `#crash-resilient` | Touch file at end of each work loop; parent checks mtime age; crash stops touches, staleness is the death signal; no broker required. | `process-liveness-monitoring.md` |
+| circus watchdog plugin | 2025 | `#heartbeat` `#process-registry` | UDP heartbeat with PID in payload; instructive design pattern but not extractable — requires circus daemon + ZeroMQ. | `process-liveness-monitoring.md` |
+| multiprocessing.managers / SyncManager | 2025 | `#multiprocess` | Shared Python objects across processes via proxy; manager process is a SPOF — unsuitable for crash-resilient monitoring; use Queue instead for in-family IPC. | `process-liveness-monitoring.md` |
+| pyheartbeat | 2025 | `#heartbeat` | HTTP-endpoint heartbeat only; requires external monitoring service; wrong fit for local process-to-process liveness. | `process-liveness-monitoring.md` |
+| single-beat | 2025 | `#heartbeat` `#process-registry` | Redis-backed singleton enforcement with heartbeat TTL; requires Redis broker; wrong fit for no-central-server constraint. | `process-liveness-monitoring.md` |
 
 ---
 

@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 720" width="480" height="720"
+     font-family="'Helvetica Neue', Arial, sans-serif" font-size="12">
+
+  <defs>
+    <marker id="a" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L5,3 L0,5.5z" fill="#4a5568"/>
+    </marker>
+    <marker id="ag" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L5,3 L0,5.5z" fill="#48825a"/>
+    </marker>
+    <marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L5,3 L0,5.5z" fill="#a63d40"/>
+    </marker>
+  </defs>
+
+  <!-- Start -->
+  <rect x="120" y="16" width="150" height="30" rx="15" fill="#edf2f7" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="35" text-anchor="middle" fill="#2d3748" font-size="11">Watchdog tick (30s)</text>
+
+  <line x1="195" y1="46" x2="195" y2="74" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+
+  <!-- Diamond 1 -->
+  <polygon points="195,76 290,112 195,148 100,112" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="109" text-anchor="middle" fill="#2d3748" font-size="11">Mid-tool-call?</text>
+  <text x="195" y="121" text-anchor="middle" fill="#718096" font-size="9">open tool_use, no tool_result</text>
+
+  <line x1="290" y1="112" x2="340" y2="112" stroke="#48825a" stroke-width="1.2" marker-end="url(#ag)"/>
+  <text x="310" y="105" text-anchor="middle" fill="#48825a" font-size="9">yes</text>
+  <rect x="340" y="97" width="76" height="30" rx="4" fill="#f0faf3" stroke="#48825a" stroke-width="1.2"/>
+  <text x="378" y="116" text-anchor="middle" fill="#2f6e42" font-size="11">OK</text>
+
+  <line x1="195" y1="148" x2="195" y2="172" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="203" y="163" fill="#718096" font-size="9">no</text>
+
+  <!-- Diamond 2 -->
+  <polygon points="195,174 290,210 195,246 100,210" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="207" text-anchor="middle" fill="#2d3748" font-size="11">Recent lead event?</text>
+  <text x="195" y="219" text-anchor="middle" fill="#718096" font-size="9">last event without task_id</text>
+
+  <line x1="290" y1="210" x2="340" y2="210" stroke="#48825a" stroke-width="1.2" marker-end="url(#ag)"/>
+  <text x="310" y="203" text-anchor="middle" fill="#48825a" font-size="9">yes</text>
+  <rect x="340" y="195" width="76" height="30" rx="4" fill="#f0faf3" stroke="#48825a" stroke-width="1.2"/>
+  <text x="378" y="214" text-anchor="middle" fill="#2f6e42" font-size="11">OK</text>
+
+  <line x1="195" y1="246" x2="195" y2="270" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="203" y="261" fill="#718096" font-size="9">no</text>
+
+  <!-- Diamond 3 -->
+  <polygon points="195,272 290,308 195,344 100,308" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="305" text-anchor="middle" fill="#2d3748" font-size="11">Child stream event?</text>
+  <text x="195" y="317" text-anchor="middle" fill="#718096" font-size="9">task_progress with task_id</text>
+
+  <line x1="290" y1="308" x2="340" y2="308" stroke="#48825a" stroke-width="1.2" marker-end="url(#ag)"/>
+  <text x="310" y="301" text-anchor="middle" fill="#48825a" font-size="9">yes</text>
+  <rect x="340" y="293" width="76" height="30" rx="4" fill="#f0faf3" stroke="#48825a" stroke-width="1.2"/>
+  <text x="378" y="312" text-anchor="middle" fill="#2f6e42" font-size="11">OK</text>
+
+  <line x1="195" y1="344" x2="195" y2="368" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="203" y="359" fill="#718096" font-size="9">no</text>
+
+  <!-- Diamond 4 -->
+  <polygon points="195,370 290,406 195,442 100,406" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="403" text-anchor="middle" fill="#2d3748" font-size="11">Child heartbeat fresh?</text>
+  <text x="195" y="415" text-anchor="middle" fill="#718096" font-size="9">.children mtime check</text>
+
+  <line x1="290" y1="406" x2="340" y2="406" stroke="#48825a" stroke-width="1.2" marker-end="url(#ag)"/>
+  <text x="310" y="399" text-anchor="middle" fill="#48825a" font-size="9">yes</text>
+  <rect x="340" y="391" width="76" height="30" rx="4" fill="#f0faf3" stroke="#48825a" stroke-width="1.2"/>
+  <text x="378" y="410" text-anchor="middle" fill="#2f6e42" font-size="11">OK</text>
+
+  <line x1="195" y1="442" x2="195" y2="466" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+  <text x="203" y="457" fill="#718096" font-size="9">no</text>
+
+  <!-- Action: reap -->
+  <rect x="115" y="468" width="160" height="30" rx="4" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2" stroke-dasharray="4,2"/>
+  <text x="195" y="487" text-anchor="middle" fill="#2d3748" font-size="11">Reap stale children (&gt;300s)</text>
+
+  <line x1="195" y1="498" x2="195" y2="526" stroke="#4a5568" stroke-width="1.2" marker-end="url(#a)"/>
+
+  <!-- Diamond 5 -->
+  <polygon points="195,528 290,564 195,600 100,564" fill="#f7fafc" stroke="#4a5568" stroke-width="1.2"/>
+  <text x="195" y="561" text-anchor="middle" fill="#2d3748" font-size="11">Anything alive?</text>
+
+  <line x1="290" y1="564" x2="340" y2="564" stroke="#48825a" stroke-width="1.2" marker-end="url(#ag)"/>
+  <text x="310" y="557" text-anchor="middle" fill="#48825a" font-size="9">yes</text>
+  <rect x="340" y="549" width="76" height="30" rx="4" fill="#f0faf3" stroke="#48825a" stroke-width="1.2"/>
+  <text x="378" y="568" text-anchor="middle" fill="#2f6e42" font-size="11">OK</text>
+
+  <line x1="195" y1="600" x2="195" y2="628" stroke="#a63d40" stroke-width="1.2" marker-end="url(#ar)"/>
+  <text x="203" y="617" fill="#718096" font-size="9">no</text>
+
+  <!-- Terminal: stalled -->
+  <rect x="120" y="630" width="150" height="30" rx="15" fill="#fdf2f2" stroke="#a63d40" stroke-width="1.2"/>
+  <text x="195" y="649" text-anchor="middle" fill="#a63d40" font-size="11" font-weight="600">Stalled — kill</text>
+
+</svg>

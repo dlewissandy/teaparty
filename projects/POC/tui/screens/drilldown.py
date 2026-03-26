@@ -48,7 +48,6 @@ def _handle_session_crash(infra_dir: str) -> None:
 _STATE_LABELS: dict[str, str] = {
     'INTENT_ESCALATE': 'Agent has questions about intent',
     'PLANNING_ESCALATE': 'Agent has questions about the plan',
-    'TASK_REVIEW_ESCALATE': 'Agent has questions about the task',
     'TASK_ESCALATE': 'Agent has questions about the task',
     'INTENT_ASSERT': 'Review intent',
     'PLAN_ASSERT': 'Review plan',
@@ -195,6 +194,8 @@ class DrilldownScreen(Screen):
                 attention = '  \u26a0 ORPHANED'
             elif s.needs_input:
                 attention = '  \u23f3 YOUR INPUT'
+            elif self._check_overloaded(s):
+                attention = '  \u23f1 API OVERLOADED \u2014 retrying'
             else:
                 attention = ''
             content = (
@@ -560,10 +561,10 @@ class DrilldownScreen(Screen):
             except BaseException as exc:
                 _rlog.exception('Resume failed for %s', infra_dir)
                 # Write crash diagnostics so the failure is never silent.
-                # Don't remove .running — leave it for orphan detection so the
-                # user gets the recovery UI.  The PID in .running is ours (the
-                # TUI), and has_in_process() will return False since this task
-                # is done, correctly flagging it as orphaned.
+                # Don't finalize .heartbeat — leave it for orphan detection so
+                # the user gets the recovery UI.  The PID in .heartbeat is ours
+                # (the TUI), and has_in_process() will return False since this
+                # task is done, correctly flagging it as orphaned.
                 _handle_session_crash(infra_dir)
                 try:
                     log = self.query_one('#activity-log', RichLog)
@@ -614,6 +615,12 @@ class DrilldownScreen(Screen):
 
         # Return to the dashboard (issue #159)
         self.app.pop_screen()
+
+    def _check_overloaded(self, session) -> bool:
+        """Check if the session is currently in API overload recovery."""
+        if not session.infra_dir:
+            return False
+        return os.path.exists(os.path.join(session.infra_dir, '.api-overloaded'))
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

@@ -16,8 +16,16 @@ Use **only** Glob, Read, Grep, and Write. No Bash, no WebSearch, no WebFetch.
 ### Primary: The Code
 
 - Start from `projects/POC/orchestrator/`, `projects/POC/tui/`, and `projects/POC/scripts/`
-- If TOPIC is not "all", use Grep to locate relevant modules, then read those and their dependencies
 - Use Grep to trace call chains, shared state, and error propagation
+
+#### Scoping by TOPIC
+
+When TOPIC is **"all"**: read the 10 largest or most-connected modules. Do not read every file.
+
+When TOPIC is **focused**: Grep to find files directly related to the topic — these are your primary scope. For dependencies of those files:
+- Follow imports **one hop only** — do not transitively chase the full dependency graph
+- At the one-hop boundary, Grep for the specific function or class being called and read only that definition, not the entire file
+- If a dependency file is over 300 lines, use Grep to locate the relevant function/class and read only that region (offset + limit)
 
 ### Secondary: Design Documents and Issues
 

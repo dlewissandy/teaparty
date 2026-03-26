@@ -75,6 +75,10 @@ class ActorContext:
     phase_start_time: float = 0.0  # monotonic timestamp when phase started
     mcp_config: dict[str, Any] | None = None
     data: dict[str, Any] = field(default_factory=dict)
+    # Heartbeat liveness (issue #149)
+    heartbeat_file: str = ''
+    parent_heartbeat: str = ''
+    children_file: str = ''
 
 
 # ── Work summary generation ──────────────────────────────────────────────────
@@ -221,6 +225,9 @@ class AgentRunner:
             stall_timeout=self.stall_timeout,
             session_id=ctx.session_id,
             mcp_config=ctx.mcp_config,
+            heartbeat_file=ctx.heartbeat_file,
+            parent_heartbeat=ctx.parent_heartbeat,
+            children_file=ctx.children_file,
         )
 
         result = await runner.run()
@@ -233,8 +240,9 @@ class AgentRunner:
             })
 
         if result.exit_code != 0:
+            reason = 'api_overloaded' if result.api_overloaded else 'nonzero_exit'
             return ActorResult(action='failed', data={
-                'reason': 'nonzero_exit',
+                'reason': reason,
                 'exit_code': result.exit_code,
                 'stderr_lines': result.stderr_lines,
             })
@@ -388,21 +396,21 @@ def _relocate_plan_file(target_path: str, start_time: float) -> bool:
 def _relocate_misplaced_artifact(
     target_dir: str, stream_file: str, artifact_name: str,
 ) -> bool:
-    """Copy an artifact to target_dir, refreshing if the source is newer.
+    """Move an artifact to target_dir so it exists in exactly one location.
 
     Parses the stream JSONL to find the actual path the agent used in its
     Write or Edit tool calls.  If the file was written elsewhere (e.g., the
-    agent's cwd / worktree), copies it to target_dir/<artifact_name>.
+    agent's cwd / worktree), moves it to target_dir/<artifact_name>.
 
     Always refreshes the target — after corrections at approval gates, the
     agent edits the artifact in the worktree but the infra_dir copy was
     stale.  Issue #157.
 
-    The source file is left in place — the worktree copy is needed for git
-    commits (dispatch worktree inheritance) while the infra_dir copy is the
-    orchestrator's live read path.  Issue #147.
+    The source file is removed after move — artifacts live only in
+    infra_dir.  Dispatch agents receive context via the task string,
+    not git branch inheritance.  Issue #148.
 
-    Returns True if a file was copied.
+    Returns True if a file was moved.
     """
     # Find where the agent actually wrote/edited the artifact
     actual_path = _find_artifact_path_in_stream(stream_file, artifact_name)
@@ -419,14 +427,14 @@ def _relocate_misplaced_artifact(
         return False
 
     try:
-        shutil.copy2(actual_path, expected)
+        shutil.move(actual_path, expected)
         _actor_log.info(
-            'Copied artifact to infra: %s → %s', actual_path, expected,
+            'Moved artifact to infra: %s → %s', actual_path, expected,
         )
         return True
     except OSError:
         _actor_log.warning(
-            'Failed to copy artifact: %s → %s', actual_path, expected,
+            'Failed to move artifact: %s → %s', actual_path, expected,
             exc_info=True,
         )
         return False
@@ -596,8 +604,10 @@ class ApprovalGate:
             # Label for dialog history — Issue #151
             speaker = 'PROXY' if from_proxy else 'HUMAN'
 
-            # Classify the response.
-            action, feedback = self._classify_review(
+            # Classify the response (offloaded to executor — Issue #180).
+            loop = asyncio.get_running_loop()
+            action, feedback = await loop.run_in_executor(
+                None, self._classify_review,
                 ctx.state, response_text, dialog_history,
             )
 
@@ -658,11 +668,13 @@ class ApprovalGate:
             # Dialog — generate a reply, then loop back.  The reply becomes
             # the bridge text for the next turn so the human sees the answer.
             dialog_history += f'{speaker}: {response_text}\n'
-            agent_reply = self._generate_dialog_response(
-                ctx.state, response_text, artifact_path,
-                os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
-                ctx.task, dialog_history,
-                session_worktree=ctx.session_worktree,
+            agent_reply = await loop.run_in_executor(
+                None, lambda: self._generate_dialog_response(
+                    ctx.state, response_text, artifact_path,
+                    os.path.join(ctx.infra_dir, ctx.phase_spec.stream_file),
+                    ctx.task, dialog_history,
+                    session_worktree=ctx.session_worktree,
+                ),
             )
             dialog_history += f'AGENT: {agent_reply}\n'
             next_bridge = agent_reply
@@ -763,7 +775,51 @@ class ApprovalGate:
             )
             save_model(model, model_path)
         except Exception:
-            pass
+            _actor_log.warning('EMA recording failed', exc_info=True)
+
+        # ACT-R memory chunk recording
+        pr = self._last_proxy_result
+        try:
+            from projects.POC.orchestrator.proxy_memory import (
+                open_proxy_db,
+                resolve_memory_db_path,
+                record_interaction,
+            )
+            db_path = resolve_memory_db_path(self.proxy_model_path, team)
+            conn = open_proxy_db(db_path)
+            try:
+                # Read artifact summary for embedding (truncated)
+                artifact_text = ''
+                if artifact_path and os.path.isfile(artifact_path):
+                    try:
+                        with open(artifact_path) as f:
+                            artifact_text = f.read(4000)
+                    except OSError:
+                        pass
+
+                record_interaction(
+                    conn,
+                    interaction_type='gate_outcome',
+                    state=state,
+                    task_type=project_slug,
+                    outcome=outcome,
+                    content=conversation or feedback or '',
+                    delta=feedback if outcome == 'correct' else '',
+                    human_response=feedback or predicted_response or '',
+                    prior_prediction=pr.prior_action if pr else '',
+                    prior_confidence=pr.prior_confidence if pr else 0.0,
+                    posterior_prediction=pr.posterior_action if pr else '',
+                    posterior_confidence=pr.posterior_confidence if pr else 0.0,
+                    prediction_delta=pr.prediction_delta if pr else '',
+                    salient_percepts=pr.salient_percepts if pr else [],
+                    situation_text=f'{state} {project_slug}',
+                    artifact_text=artifact_text,
+                    stimulus_text=conversation[:500] if conversation else '',
+                )
+            finally:
+                conn.close()
+        except Exception:
+            _actor_log.debug('ACT-R memory recording failed', exc_info=True)
 
         # ACT-R memory chunk recording
         pr = self._last_proxy_result
@@ -936,11 +992,9 @@ class ApprovalGate:
             artifact='',
             bridge_text=bridge_text,
         ))
-        response = response.strip().lower()
-        if 'backtrack' in response:
-            return 'backtrack'
-        if 'withdraw' in response:
-            return 'withdraw'
+        action, _feedback = self._classify_review('FAILURE', response)
+        if action in ('backtrack', 'withdraw'):
+            return action
         return 'retry'
 
 
