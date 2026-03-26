@@ -79,6 +79,15 @@ class TestHumanProxiesConfidenceModel(unittest.TestCase):
             "§Confidence Model should describe two-pass prediction",
         )
 
+    def test_describes_genuine_tension_guard(self):
+        """§Confidence Model should reference genuine tension guard."""
+        confidence_section = self._extract_section("The Confidence Model")
+        self.assertRegex(
+            confidence_section,
+            r"(?i)genuine tension",
+            "§Confidence Model should describe the genuine tension guard",
+        )
+
     def test_references_approval_gate_detail(self):
         """Doc should reference approval-gate.md for implementation details."""
         self.assertIn(
