@@ -605,7 +605,8 @@ def run_scoring_ablation(
                 prior_chunks = eval_chunks[:i]
                 held_out_interaction = min(held_out.traces) if held_out.traces else i
 
-                # Build context embeddings from the held-out chunk's own embeddings
+                # Build context embeddings from the held-out chunk's experience
+                # dimensions only — salience is retrieved independently (#227)
                 context_embeddings: dict[str, list[float]] = {}
                 if held_out.embedding_situation:
                     context_embeddings['situation'] = held_out.embedding_situation
@@ -615,8 +616,6 @@ def run_scoring_ablation(
                     context_embeddings['stimulus'] = held_out.embedding_stimulus
                 if held_out.embedding_response:
                     context_embeddings['response'] = held_out.embedding_response
-                if held_out.embedding_salience:
-                    context_embeddings['salience'] = held_out.embedding_salience
 
                 # Run retrieval on prior chunks only
                 retrieved = _retrieve_from_chunks(
