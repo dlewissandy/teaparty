@@ -2,19 +2,21 @@
 
 Every question that needs a human decision follows one path:
 
-1. **Statistical pre-filters** — cold start, staleness, content checks, exploration rate
-2. **If stats say escalate** → skip the proxy agent, go straight to the human
-3. **If stats pass** → invoke the **proxy agent** (a Claude session with file-read tools and learned patterns)
+1. **Gather context** — ACT-R memory retrieval, learned patterns, similar past interactions
+2. **Two-pass prediction** — prior (without artifact) then posterior (with artifact)
+3. **Cold-start calibration** — cap confidence if ACT-R memory depth is shallow
 4. **Proxy agent generates text + confidence** — what it predicts the human would say
 5. **If confident** → the agent's text IS the answer
 6. **If not confident** → the same question goes to the human
-7. **Both predicted text and actual text feed into learning**
+7. **Both predicted text and actual text feed into learning** (ACT-R memory chunks)
+
+The proxy agent always runs. Statistics never gate whether the agent is consulted — they are tracked for monitoring only. Confidence calibration happens post-hoc, after the agent has responded.
 
 This is implemented in `proxy_agent.py:consult_proxy()` — the single entry point for all proxy decisions. `ApprovalGate` (artifact review at ASSERT states) and `EscalationListener` (agent questions via AskQuestion MCP tool) both use it.
 
 ### Never-escalate states
 
-TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy still runs through the full path (statistical filters, agent invocation, confidence check) but if it's not confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. The human should never be interrupted for task-level review during execution — that would defeat the purpose of hierarchical delegation.
+TASK_ASSERT and TASK_ESCALATE are marked as **never-escalate**: the proxy runs through the full path (context gathering, two-pass prediction, confidence calibration) but if it's not confident, it goes with its best guess rather than bothering the human. If the proxy returned nothing, it defaults to approval. The human should never be interrupted for task-level review during execution — that would defeat the purpose of hierarchical delegation.
 
 ---
 
@@ -38,13 +40,13 @@ This explains the priority ordering:
 
 The approval gate's capabilities stack across three tiers:
 
-**Tier 1 (Operational now):** Statistical filters + agent generative prediction. Cold start → escalate. Staleness → escalate. Confidence < threshold → escalate at ASSERT states. Confidence < threshold → use best guess at never-escalate states. This works without any learning system — the proxy can function immediately.
+**Tier 1 (Operational now):** Two-pass prediction + cold-start calibration via ACT-R memory depth. The proxy agent always runs. If ACT-R memory depth is below `MEMORY_DEPTH_THRESHOLD` (3 distinct state/task-type pairs), confidence is capped at 0.5 so the caller knows the proxy lacks experience breadth. Confidence < threshold → escalate at ASSERT states; use best guess at never-escalate states.
 
-**Tier 2 (Design target, requires learning):** Retrieval-backed patterns from `.proxy-interactions.jsonl` and `proxy-patterns.md`. This requires learning extraction to build a signal history of differential corrections and question patterns. Tier 1 works standalone; Tier 2 improves accuracy.
+**Tier 2 (Operational now):** Retrieval-backed patterns from `.proxy-interactions.jsonl` (legacy similar interactions) and `proxy-patterns.md` (flat behavioral patterns). These are loaded as context for the proxy agent's two-pass prediction. ACT-R memory chunks (Tier 3) supplement these with structured retrieval.
 
-**Tier 3 (Full vision, requires full learning system):** Scoped learning system feeds task-specific corrections into proxy context. Behavioral rituals, gap-detection questioning, and text derivative learning. Full accuracy improvement loop. This requires Tiers 1 and 2 plus the main learning system's integration.
+**Tier 3 (Operational now):** ACT-R memory retrieval feeds task-specific memories into proxy context. Memory chunks carry situation, stimulus, and outcome data, retrieved via hybrid BM25 + vector search. Retrieved chunks are reinforced after the proxy agent consumes them (ACT-R Rule 2). Behavioral rituals, gap-detection questioning, and text derivative learning remain design targets.
 
-The proxy architecture decouples Tier 1 from learning's completion — Tier 1 is operational now, and Tiers 2–3 improve it as learning integration advances.
+All three tiers are wired into `consult_proxy()`. The proxy architecture was designed to decouple tiers, but all three now contribute to every proxy invocation.
 
 ---
 
@@ -53,16 +55,19 @@ The proxy architecture decouples Tier 1 from learning's completion — Tier 1 is
 `proxy_agent.py:consult_proxy()` is the single proxy invocation path:
 
 1. **Proxy disabled?** → return empty result (experiment baseline)
-2. **Elapsed-time guard**: TASK_ASSERT and WORK_ASSERT — if execution phase ran < 120 seconds, skip agent, escalate
-3. **Load proxy model** and tier 1 patterns (`proxy-patterns.md`), tier 2 interactions (`.proxy-interactions.jsonl`)
-4. **Statistical pre-filters** via `should_escalate()` — if stats say escalate, return empty result (no agent needed)
-5. **Invoke proxy agent** via `run_proxy_agent()` — a Claude CLI session with file-read tools. The agent receives:
-   - The gate question (e.g., "Do you recognize this as your idea?")
-   - The artifact path and upstream context paths (INTENT.md, PLAN.md) — passed as file-read references, not pre-injected
-   - Learned behavioral patterns from `proxy-patterns.md` (static, tier 1)
-   - Similar past interactions from `.proxy-interactions.jsonl` (dynamic, tier 2)
-   - Dialog history (for multi-turn conversations)
-6. **Agent returns** text (what the human would say) + confidence (0.0–1.0)
+2. **Elapsed-time guard**: TASK_ASSERT and WORK_ASSERT — if execution phase ran < `MIN_EXECUTION_SECONDS`, skip agent, escalate
+3. **Gather learning context**:
+   - Tier 1: read flat behavioral patterns from `proxy-patterns.md`
+   - Tier 2: retrieve similar past interactions from `.proxy-interactions.jsonl`
+   - Tier 3: ACT-R memory retrieval via `_retrieve_actr_memories()` — hybrid BM25 + vector search over structured memory chunks, scoped by state and task type
+4. **Two-pass prediction** via `run_proxy_agent()` — a Claude CLI session with file-read tools:
+   - **Pass 1 (prior)**: predict without seeing the artifact, using only memories and learned patterns
+   - **Pass 2 (posterior)**: predict after reading the artifact + prior prediction
+   - **Surprise detection**: if the action changed or confidence shifted > 0.3 between passes, extract what in the artifact caused the shift (salient percepts)
+   - The agent receives: gate question, artifact/upstream context paths (file references, not pre-injected), ACT-R memory chunks, learned patterns, similar interactions, dialog history
+5. **Reinforce ACT-R memories** — retrieved chunks get a retrieval trace after the agent has consumed them (ACT-R Rule 2: post-consumption reinforcement)
+6. **Cold-start calibration** via `_calibrate_confidence()` — if ACT-R memory depth (distinct state/task-type pairs) is below `MEMORY_DEPTH_THRESHOLD` (3), cap confidence at 0.5
+7. **Agent returns** text (what the human would say) + calibrated confidence (0.0–1.0)
 
 ### Proxy Agent Context Injection
 
@@ -111,7 +116,7 @@ else:
 **Full loop:**
 
 1. Call `_ask_human_through_proxy()` with the gate question
-2. `consult_proxy()` runs the full path (stats → agent → confidence check → maybe human)
+2. `consult_proxy()` runs the full path (context gathering → two-pass prediction → calibration → maybe human)
 3. Classify the response via `_classify_review()` (Haiku LLM call). Valid actions derived from CfA state machine per state.
 4. If `dialog` or `__fallback__` → generate contextual reply via `_generate_dialog_response()` (Haiku), append to dialog history, loop back to step 1
 5. If dialog occurred and final action is `approve` → convert to `correct` with the dialog as feedback, so the agent gets another pass with the human's context
@@ -141,40 +146,19 @@ Uses the same `consult_proxy()` path as ApprovalGate.
 
 ---
 
-## Statistical Pre-Filters
+## Confidence and Cold-Start Gating
 
-`should_escalate()` in `approval_gate.py`. Returns `ProxyDecision`. Decision rules in priority order:
+The proxy agent's self-assessed confidence (from two-pass prediction) is the decision signal. The system calibrates this based on ACT-R memory depth:
 
-1. **Cold start guard**: < 5 observations for this (state, task_type) pair → escalate
-2. **[CONFIRM:] markers**: artifact contains unresolved `[CONFIRM:...]` markers → escalate unconditionally
-3. **Content checks** (`_check_content()`):
-   - Length anomaly: artifact < 50% or > 200% of historical mean
-   - Principle violation (Phase 2a): past corrections with reasoning — artifact doesn't contain keywords from the human's stated standard
-   - Keyword match (Phase 2a fallback): correction summary keywords appear in the artifact
-   - Concern patterns (Phase 2b): concern categories raised >= 2 times, artifact doesn't contain concern vocabulary
-4. **Tier 1 pattern match**: `proxy-patterns.md` — artifact doesn't address known correction patterns (< 30% keyword coverage)
-5. **Tier 2 retrieval**: `.proxy-interactions.jsonl` — > 50% of last 5 similar interactions resulted in corrections
-6. **Confidence threshold**: confidence < threshold → escalate. ASSERT states require 0.8; generative states require 0.95
-7. **Staleness guard**: > 7 days since last human signal → escalate
-8. **Prediction drift**: prediction accuracy below 50% (min 5 predictions) → escalate
-9. **Exploration rate**: 15% random escalation even when confident
-10. **Auto-approve**: all checks passed → proxy agent runs
+**Cold-start guard:** `_calibrate_confidence()` checks the ACT-R memory store for experience diversity — the number of distinct (state, task_type) pairs. If memory depth is below `MEMORY_DEPTH_THRESHOLD` (3), confidence is capped at 0.5 regardless of the agent's self-assessment. A proxy with diverse memories across multiple states and task types has demonstrated understanding; one with shallow or missing memory has not.
 
-### Confidence Computation (Design Stage)
+**EMA tracking:** EMA is tracked separately as a system health monitor via `_proxy_record()` in `actors.py`. It does not influence the confidence returned by `consult_proxy()` — it is observational only. EMA uses alpha=0.3 with asymmetric regret (REGRET_WEIGHT=3: corrections count 3x as much as approvals).
 
-`compute_confidence()` = min(Laplace, EMA):
-- **Laplace**: `(approve_count + 1) / (total_count + 2)`
-- **EMA** (alpha=0.3): approval → +1 step; correction → -3 steps (asymmetric regret, REGRET_WEIGHT=3)
+**Threshold:** The caller (`ApprovalGate._ask_human_through_proxy`) compares the calibrated confidence against `PROXY_AGENT_CONFIDENCE_THRESHOLD` (0.8). Above threshold → agent's text is the answer. Below threshold at never-escalate states → agent's text is still the answer. Below threshold otherwise → escalate to human.
 
-**Rationale for these choices:**
+### Legacy Statistical Pre-Filters
 
-- **Laplace smoothing:** Chosen for bounded (0, 1) range and standard beta prior behavior. Prevents zero confidence from blocking all decisions.
-- **min(Laplace, EMA):** Conservative blending — report the lower estimate to be cautious about confidence.
-- **EMA alpha=0.3:** Exploratory choice; controls how quickly recent outcomes influence confidence. Not tuned to data.
-- **REGRET_WEIGHT=3:** Asymmetric cost; corrections count three times as much as approvals. Reflects the intuition that the human's corrections are more informative than approvals. Not tuned to data.
-- **Cold start behavior:** < 5 observations for a state/task pair always escalates, regardless of confidence. This prevents overfitting to early samples.
-
-**Important:** These are exploratory constants, not literature-based or data-tuned. Tuning to real accuracy data is future work. This is not production-calibrated; validation experiments will guide refinement.
+`should_escalate()` in `scripts/approval_gate.py` implements a 10-step statistical pre-filter pipeline (cold start, staleness, content checks, exploration rate, etc.). This function is not called by the orchestrator — the proxy agent always runs. `should_escalate()` is available as a CLI tool (`--decide`) and may be reintegrated as a monitoring or audit signal in the future, but it does not gate proxy invocation.
 
 ---
 
@@ -205,6 +189,11 @@ Concern vocabulary: error_handling, rollback, security, idempotency, testing, do
 | Retrieval-backed prediction (tier 1 patterns + tier 2 interactions) | Done | [#11](https://github.com/dlewissandy/teaparty/issues/11) |
 | Never-escalate for task-level gates (TASK_ASSERT, TASK_ESCALATE) | Done | [#139](https://github.com/dlewissandy/teaparty/issues/139) |
 | Unified proxy path (consult_proxy for all entry points) | Done | [#143](https://github.com/dlewissandy/teaparty/issues/143) |
+| Two-pass prediction (prior/posterior) | Done | [#179](https://github.com/dlewissandy/teaparty/issues/179) |
+| ACT-R memory retrieval in proxy flow | Done | [#179](https://github.com/dlewissandy/teaparty/issues/179) |
+| Cold-start gating via ACT-R memory depth | Done | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
+| EMA decoupled from confidence scoring | Done | [#220](https://github.com/dlewissandy/teaparty/issues/220) |
+| Post-consumption reinforcement of retrieved chunks | Done | [#219](https://github.com/dlewissandy/teaparty/issues/219) |
 | Intake dialog Phases 2–3 (prediction-comparison, rituals) | Design target | [#125](https://github.com/dlewissandy/teaparty/issues/125) |
 | Text derivative learning (proxy self-assessment) | Design target | |
 | Proxy accuracy measurement on real escalations | Design target | |
