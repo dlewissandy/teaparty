@@ -35,6 +35,7 @@ def archive_skill_candidate(
     project_dir: str,
     task: str,
     session_id: str,
+    corrects_skill: str = '',
 ) -> bool:
     """Archive a successful session's PLAN.md as a skill candidate.
 
@@ -45,6 +46,9 @@ def archive_skill_candidate(
 
     Reads PLAN.md from infra_dir (Issue #147).  Falls back to
     session_worktree for backward compatibility.
+
+    If corrects_skill is provided, the candidate is tagged as a correction
+    of the named skill (Issue #142 — skill self-correction on backtrack).
     """
     plan_path = os.path.join(infra_dir, 'PLAN.md') if infra_dir else ''
     if not plan_path or not os.path.isfile(plan_path):
@@ -67,12 +71,14 @@ def archive_skill_candidate(
     timestamp = datetime.now().isoformat(timespec='seconds')
 
     # Build candidate with frontmatter
+    corrects_line = f'corrects_skill: {corrects_skill}\n' if corrects_skill else ''
     candidate = (
         f'---\n'
         f'task: {task}\n'
         f'session_id: {session_id}\n'
         f'timestamp: {timestamp}\n'
         f'status: pending\n'
+        f'{corrects_line}'
         f'---\n\n'
         f'{plan_content}'
     )
