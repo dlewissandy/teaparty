@@ -404,11 +404,12 @@ def reinforce_retrieved(
     chunks: list[MemoryChunk],
     current_interaction: int,
 ) -> None:
-    """ACT-R Rule 2: reinforce chunks that were actually used.
+    """ACT-R Rule 2: reinforce chunks that were retrieved for a task.
 
-    Call this after the proxy has consumed the retrieved memories,
-    not during retrieval itself. Only reinforce chunks the proxy
-    actually referenced in its response.
+    Called after retrieve_chunks() returns, before the DB connection
+    closes. The retrieval itself is the reinforcement signal —
+    correctness feedback flows through the chunk's outcome field,
+    not through trace frequency.
     """
     for chunk in chunks:
         add_trace(conn, chunk.id, current_interaction)
