@@ -132,8 +132,8 @@ class TestComputeProminence(unittest.TestCase):
         self.assertGreater(p, 0.8, f"Expected prominence > 0.8, got {p}")
 
     def test_low_importance_old_scores_low(self):
-        """Low importance + 90 days ago → very low prominence."""
-        old_date = (date.today() - timedelta(days=90)).isoformat()
+        """Low importance + 180 days ago → very low prominence."""
+        old_date = (date.today() - timedelta(days=180)).isoformat()
         metadata = {
             'importance': '0.2',
             'last_reinforced': old_date,
@@ -158,9 +158,9 @@ class TestComputeProminence(unittest.TestCase):
         plain_path = '/project/MEMORY.md'  # no date in path
         metadata = {}  # no frontmatter metadata (legacy format)
         today = date.today()
-        # Should use 30-day default, not be exempt
+        # Should use 30-day default age, not be exempt
         p = compute_prominence(metadata, source_path=plain_path, today=today)
-        # A 30-day old entry with default importance 0.5 decays to 0.5 × 0.5 = 0.25
+        # A 30-day old entry with default importance 0.5 decays based on HALF_LIFE_DAYS
         expected = 0.5 * math.exp(-math.log(2) / HALF_LIFE_DAYS * 30)
         self.assertAlmostEqual(p, expected, places=4,
                                msg="Files without date in path should use 30-day default, not be exempt")
@@ -203,7 +203,7 @@ class TestComputeProminence(unittest.TestCase):
                                msg="reinforcement_count=5 should give 6× prominence of count=0")
 
     def test_default_metadata_uses_half_life_default(self):
-        """Empty metadata → importance=0.5, 30-day age → prominence = 0.5 × 0.5 = 0.25."""
+        """Empty metadata → importance=0.5, 30-day default age, decayed by HALF_LIFE_DAYS."""
         today = date.today()
         p = compute_prominence({}, today=today)
         expected = 0.5 * math.exp(-math.log(2) / HALF_LIFE_DAYS * 30)
