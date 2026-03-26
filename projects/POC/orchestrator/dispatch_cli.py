@@ -242,10 +242,12 @@ async def dispatch(
     # Clean up
     await cleanup_worktree(worktree_path)
 
-    # Remove .running sentinel
-    running_path = os.path.join(dispatch_infra, '.running')
+    # Finalize heartbeat with terminal status (issue #149)
+    from projects.POC.orchestrator.heartbeat import finalize_heartbeat
+    hb_path = os.path.join(dispatch_infra, '.heartbeat')
+    hb_status = 'completed' if (result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed) else 'withdrawn'
     try:
-        os.unlink(running_path)
+        finalize_heartbeat(hb_path, hb_status)
     except FileNotFoundError:
         pass
 
