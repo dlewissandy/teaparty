@@ -59,6 +59,7 @@ class MemoryChunk:
     embedding_stimulus: list[float] | None = None
     embedding_response: list[float] | None = None
     embedding_salience: list[float] | None = None
+    embedding_blended: list[float] | None = None
 
 
 # ── Database ─────────────────────────────────────────────────────────────────
@@ -86,7 +87,8 @@ CREATE TABLE IF NOT EXISTS proxy_chunks (
     embedding_artifact TEXT,
     embedding_stimulus TEXT,
     embedding_response TEXT,
-    embedding_salience TEXT
+    embedding_salience TEXT,
+    embedding_blended TEXT
 );
 
 CREATE TABLE IF NOT EXISTS proxy_state (
@@ -124,6 +126,12 @@ def open_proxy_db(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute('PRAGMA journal_mode=WAL')
     conn.executescript(_SCHEMA)
+    # Migration: add embedding_blended column for existing DBs (issue #222)
+    try:
+        conn.execute('ALTER TABLE proxy_chunks ADD COLUMN embedding_blended TEXT')
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # column already exists
     return conn
 
 
@@ -171,8 +179,9 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             human_response, delta, content, traces,
             embedding_model,
             embedding_situation, embedding_artifact,
-            embedding_stimulus, embedding_response, embedding_salience)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            embedding_stimulus, embedding_response, embedding_salience,
+            embedding_blended)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             chunk.id, chunk.type, chunk.state, chunk.task_type,
             chunk.outcome, chunk.lens,
@@ -186,6 +195,7 @@ def _store_chunk_no_commit(conn: sqlite3.Connection, chunk: MemoryChunk) -> None
             _embed_to_json(chunk.embedding_stimulus),
             _embed_to_json(chunk.embedding_response),
             _embed_to_json(chunk.embedding_salience),
+            _embed_to_json(chunk.embedding_blended),
         ),
     )
 
@@ -259,6 +269,7 @@ def _row_to_chunk(row: sqlite3.Row) -> MemoryChunk:
         embedding_stimulus=_json_to_embed(row['embedding_stimulus']),
         embedding_response=_json_to_embed(row['embedding_response']),
         embedding_salience=_json_to_embed(row['embedding_salience']),
+        embedding_blended=_json_to_embed(row['embedding_blended']),
     )
 
 
