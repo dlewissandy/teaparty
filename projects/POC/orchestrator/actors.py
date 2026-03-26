@@ -850,29 +850,59 @@ class ApprovalGate:
                     outcome=outcome,
                     feedback=feedback,
                     conversation=conversation,
+                    artifact_path=artifact_path,
                 )
             except Exception:
                 _actor_log.debug('Proxy learning entry emission failed', exc_info=True)
 
     def _emit_proxy_learning_entry(
         self, state: str, project_slug: str, outcome: str,
-        feedback: str, conversation: str,
+        feedback: str, conversation: str, artifact_path: str = '',
     ) -> None:
         """Write a structured learning entry to proxy-tasks/ for a correction.
 
         The entry uses the same YAML frontmatter format as other learning
         entries (memory_entry.py), so it can be indexed by memory_indexer.py
         and retrieved via retrieve(learning_type='proxy').
+
+        The entry carries the full correction signal: what CfA state, what
+        artifact type, what the proxy predicted, what the human actually said,
+        and the delta between them.  This is the highest-value learning signal
+        in the system — it reveals where the proxy's model diverges from reality.
         """
         from projects.POC.scripts.memory_entry import make_entry, serialize_entry
 
         phase = _CFA_STATE_TO_PHASE.get(state, 'unknown')
+
+        # Extract the artifact type from the path (e.g., PLAN.md, INTENT.md)
+        artifact_type = os.path.basename(artifact_path) if artifact_path else 'unknown'
+
+        # Include the proxy's prior prediction if available — the delta
+        # between prediction and reality is the highest-value learning signal.
+        pr = self._last_proxy_result
+        prediction_block = ''
+        if pr:
+            prediction_block = (
+                f"**Proxy prior prediction:** {pr.prior_action} "
+                f"(confidence: {pr.prior_confidence:.2f})\n"
+                f"**Proxy posterior prediction:** {pr.posterior_action} "
+                f"(confidence: {pr.posterior_confidence:.2f})\n"
+            )
+            if pr.prediction_delta:
+                prediction_block += f"**Prediction delta:** {pr.prediction_delta}\n"
+            if pr.salient_percepts:
+                prediction_block += (
+                    f"**Salient percepts:** {', '.join(pr.salient_percepts)}\n"
+                )
+
         entry = make_entry(
             content=(
                 f"## Proxy Correction at {state}\n"
                 f"**State:** {state}\n"
                 f"**Project:** {project_slug}\n"
+                f"**Artifact type:** {artifact_type}\n"
                 f"**Correction:** {feedback}\n"
+                f"{prediction_block}"
             ),
             type='corrective',
             domain='task',

@@ -160,6 +160,13 @@ async def extract_learnings(
             project_dir=project_dir,
         )
 
+    # ── Proxy correction entry compaction (#198) ────────────────────────────
+
+    await _run_scope(
+        'proxy-correction-compact', _compact_proxy_correction_entries,
+        project_dir=project_dir,
+    )
+
     # ── Proxy pattern compaction (#11) ────────────────────────────────────────
 
     await _run_scope(
@@ -550,6 +557,76 @@ def _reflect_on_skill_outcomes(*, infra_dir: str, project_dir: str) -> None:
     # Update skill stats with all outcomes
     if outcomes:
         update_skill_stats(skill_path=skill_path, outcomes=outcomes)
+
+
+# ── Proxy correction entry compaction (#198) ─────────────────────────────────
+
+def _compact_proxy_correction_entries(*, project_dir: str) -> None:
+    """Compact proxy correction entries in proxy-tasks/.
+
+    Proxy corrections are emitted inline during approval gates (_proxy_record
+    in actors.py) as individual YAML-frontmattered markdown files. Over time,
+    these accumulate.  This step applies the standard compaction pipeline
+    (dedup by ID, merge similar entries, drop retired) to keep the directory
+    manageable and retrieval quality high.
+    """
+    proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+    if not os.path.isdir(proxy_tasks_dir):
+        return
+
+    from pathlib import Path
+    from filelock import FileLock
+
+    # Only compact correction entries (not other proxy-tasks files)
+    correction_files = sorted(
+        f for f in os.listdir(proxy_tasks_dir)
+        if f.startswith('correction-') and f.endswith('.md')
+    )
+    if len(correction_files) < 2:
+        return  # nothing to compact
+
+    from projects.POC.scripts.memory_entry import parse_memory_file, serialize_memory_file
+    from projects.POC.scripts.compact_memory import compact_entries
+
+    # Read all correction entries
+    all_entries = []
+    for fname in correction_files:
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            try:
+                text = Path(fpath).read_text(errors='replace')
+            except OSError:
+                continue
+            entries = parse_memory_file(text)
+            all_entries.extend(entries)
+
+    if not all_entries:
+        return
+
+    # Compact
+    compacted = compact_entries(all_entries)
+    if len(compacted) >= len(all_entries):
+        return  # nothing was removed
+
+    # Remove old correction files (and their lock files) and write compacted entries
+    for fname in correction_files:
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        try:
+            os.remove(fpath)
+        except OSError:
+            pass
+        lock_path = fpath + '.lock'
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass
+
+    for entry in compacted:
+        fname = f'correction-{entry.id}.md'
+        fpath = os.path.join(proxy_tasks_dir, fname)
+        from projects.POC.scripts.memory_entry import serialize_entry
+        Path(fpath).write_text(serialize_entry(entry))
 
 
 # ── Proxy pattern compaction (#11) ────────────────────────────────────────────
