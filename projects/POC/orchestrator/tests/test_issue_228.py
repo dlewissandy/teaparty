@@ -410,5 +410,217 @@ class TestNoConflictFastPath(unittest.TestCase):
         self.assertEqual(context, '')
 
 
+# ── Stage 2: proxy.md consolidation (consolidate_proxy_file) ────────────────
+
+
+def _make_entry(
+    content: str = 'Test preference entry',
+    entry_id: str = '',
+    importance: float = 0.5,
+    created_at: str = '2026-03-01',
+) -> 'MemoryEntry':
+    """Create a MemoryEntry for testing proxy.md consolidation."""
+    from projects.POC.scripts.memory_entry import MemoryEntry
+    import uuid
+    return MemoryEntry(
+        id=entry_id or str(uuid.uuid4()),
+        type='declarative',
+        domain='team',
+        importance=importance,
+        phase='unknown',
+        status='active',
+        reinforcement_count=0,
+        last_reinforced=created_at,
+        created_at=created_at,
+        content=content,
+    )
+
+
+class TestConsolidateProxyFile(unittest.TestCase):
+    """consolidate_proxy_file() applies ADD/UPDATE/DELETE/SKIP to proxy.md entries."""
+
+    def test_function_exists_and_is_callable(self):
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+        self.assertTrue(callable(consolidate_proxy_file))
+
+    def test_single_entry_unchanged(self):
+        """Single entry returns unchanged."""
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+        entries = [_make_entry('Prefers detailed code reviews')]
+        result, decisions = consolidate_proxy_file(entries)
+        self.assertEqual(len(result), 1)
+
+    def test_unrelated_entries_all_preserved(self):
+        """Entries on different topics are all preserved."""
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+        entries = [
+            _make_entry('Prefers detailed code reviews'),
+            _make_entry('Likes morning standup meetings'),
+            _make_entry('Uses vim keybindings'),
+        ]
+        result, decisions = consolidate_proxy_file(entries)
+        self.assertEqual(len(result), 3)
+
+    def test_similar_entries_clustered(self):
+        """Entries with high content similarity are detected as a cluster."""
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+        # These share many tokens and should cluster
+        entries = [
+            _make_entry('The user prefers aggressive parallelization for build tasks',
+                        created_at='2026-03-01'),
+            _make_entry('The user prefers sequential verification for build tasks',
+                        created_at='2026-03-15'),
+        ]
+        # In heuristic mode (no classifier), both should be preserved
+        # because we can't reliably determine conflict without LLM
+        result, decisions = consolidate_proxy_file(entries)
+        self.assertEqual(len(result), 2)
+
+    def test_classifier_can_delete_superseded(self):
+        """When a classifier is provided, it can DELETE superseded entries."""
+        from projects.POC.orchestrator.proxy_memory import (
+            consolidate_proxy_file,
+            CONSOLIDATION_DELETE,
+            CONSOLIDATION_ADD,
+        )
+
+        entries = [
+            _make_entry('The user prefers aggressive parallelization for all tasks',
+                        entry_id='old-pref', created_at='2026-03-01'),
+            _make_entry('The user now prefers sequential verification for all tasks',
+                        entry_id='new-pref', created_at='2026-03-15'),
+        ]
+
+        # Mock classifier that always says DELETE (older superseded)
+        def mock_classifier(a, b):
+            return CONSOLIDATION_DELETE
+
+        result, decisions = consolidate_proxy_file(
+            entries, similarity_threshold=0.3, classifier=mock_classifier,
+        )
+        result_ids = {e.id for e in result}
+        # The older entry should be deleted
+        self.assertIn('new-pref', result_ids)
+        self.assertNotIn('old-pref', result_ids)
+
+    def test_classifier_skip_keeps_existing(self):
+        """SKIP means the new entry is already represented — discard it."""
+        from projects.POC.orchestrator.proxy_memory import (
+            consolidate_proxy_file,
+            CONSOLIDATION_SKIP,
+        )
+
+        entries = [
+            _make_entry('Prefers detailed plans with rollback strategies',
+                        entry_id='existing', created_at='2026-03-01'),
+            _make_entry('Prefers detailed plans with rollback strategies and testing',
+                        entry_id='duplicate', created_at='2026-03-15'),
+        ]
+
+        def mock_classifier(a, b):
+            return CONSOLIDATION_SKIP
+
+        result, decisions = consolidate_proxy_file(
+            entries, similarity_threshold=0.3, classifier=mock_classifier,
+        )
+        result_ids = {e.id for e in result}
+        self.assertIn('existing', result_ids)
+        self.assertNotIn('duplicate', result_ids)
+
+    def test_returns_decisions_for_auditability(self):
+        """Decisions list records what happened for each pair/cluster."""
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+        entries = [
+            _make_entry('The user prefers aggressive parallelization for build tasks'),
+            _make_entry('The user prefers sequential verification for build tasks'),
+        ]
+        result, decisions = consolidate_proxy_file(entries)
+        # Should have at least one decision record
+        self.assertIsInstance(decisions, list)
+
+    def test_heuristic_mode_preserves_all(self):
+        """Without a classifier, heuristic mode preserves all entries
+        (cannot reliably classify without LLM)."""
+        from projects.POC.orchestrator.proxy_memory import consolidate_proxy_file
+
+        entries = [
+            _make_entry('Prefers fast iteration cycles'),
+            _make_entry('Prefers careful thorough review'),
+        ]
+        result, decisions = consolidate_proxy_file(entries)
+        self.assertEqual(len(result), len(entries))
+
+
+# ── Asymmetric confidence decay (Hindsight +α/-α/-2α) ───────────────────────
+
+
+class TestAsymmetricConfidenceDecay(unittest.TestCase):
+    """Asymmetric confidence decay following Hindsight (arXiv:2512.12818).
+
+    Supporting evidence: +α
+    Weakening evidence: -α
+    Contradicting evidence: -2α
+    """
+
+    def test_function_exists(self):
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+        self.assertTrue(callable(apply_confidence_decay))
+
+    def test_supporting_evidence_increases(self):
+        """Supporting evidence increases confidence by α."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        result = apply_confidence_decay(0.5, 'supporting')
+        self.assertGreater(result, 0.5)
+
+    def test_weakening_evidence_decreases(self):
+        """Weakening evidence decreases confidence by α."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        result = apply_confidence_decay(0.5, 'weakening')
+        self.assertLess(result, 0.5)
+
+    def test_contradicting_decreases_double(self):
+        """Contradicting evidence decreases by 2α (double weakening)."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        weak = apply_confidence_decay(0.5, 'weakening')
+        contra = apply_confidence_decay(0.5, 'contradicting')
+        weak_delta = 0.5 - weak
+        contra_delta = 0.5 - contra
+        self.assertAlmostEqual(contra_delta, 2 * weak_delta, places=5)
+
+    def test_confidence_clamped_to_zero(self):
+        """Confidence never goes below 0.0."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        result = apply_confidence_decay(0.05, 'contradicting')
+        self.assertGreaterEqual(result, 0.0)
+
+    def test_confidence_clamped_to_one(self):
+        """Confidence never goes above 1.0."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        result = apply_confidence_decay(0.95, 'supporting')
+        self.assertLessEqual(result, 1.0)
+
+    def test_asymmetry_matches_3x_correction(self):
+        """The 2α contradicting decay is consistent with the proxy's
+        existing 3x correction asymmetry: false beliefs are more costly
+        than missed reinforcements."""
+        from projects.POC.orchestrator.proxy_memory import apply_confidence_decay
+
+        support_delta = apply_confidence_decay(0.5, 'supporting') - 0.5
+        contra_delta = 0.5 - apply_confidence_decay(0.5, 'contradicting')
+        # Contradicting should be 2x the support, not 3x
+        # (the 3x is the EMA asymmetry, this is the memory asymmetry)
+        ratio = contra_delta / support_delta if support_delta > 0 else 0
+        self.assertAlmostEqual(ratio, 2.0, places=1)
+
+
 if __name__ == '__main__':
     unittest.main()
