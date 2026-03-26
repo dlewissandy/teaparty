@@ -204,9 +204,12 @@ async def dispatch(
         retries += 1
 
     # Merge back into parent session worktree
+    merge_failed = False
+    merge_error = ''
     if result and result.terminal_state == 'COMPLETED_WORK':
+        # Generate commit message — failures fall back to a static message
+        # so they never prevent the merge from being attempted.
         try:
-            # Generate a rich commit message from the dispatch work
             dispatch_log = await git_output(worktree_path, 'log', '--oneline')
             changed_files = await git_output(
                 worktree_path, 'diff', '--name-only', 'HEAD',
@@ -216,19 +219,24 @@ async def dispatch(
             )
             if not message:
                 message = build_fallback(team, task)
+        except Exception:
+            message = build_fallback(team, task)
 
+        # Merge — failures must surface, never be silently swallowed.
+        try:
             await squash_merge(
                 source=worktree_path,
                 target=session_worktree,
                 message=message,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            merge_failed = True
+            merge_error = str(e)
 
-    # Write dispatch MEMORY.md for the rollup chain.
-    # promote('team') reads these as context when rolling up dispatch learnings
-    # into team-level institutional.md and tasks/ files.
-    if result and result.terminal_state == 'COMPLETED_WORK':
+    # Write dispatch MEMORY.md for the rollup chain — only if merge succeeded.
+    # A failed merge means deliverables didn't land; writing memory would give
+    # the rollup chain a phantom "completed" record with no artifacts.
+    if result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed:
         _write_dispatch_memory(dispatch_infra, team, task, result)
 
     # Clean up
@@ -241,24 +249,36 @@ async def dispatch(
     except FileNotFoundError:
         pass
 
-    # Build deliverables summary from changed files in the worktree
+    # Build deliverables summary from changed files in the worktree.
+    # Skip if merge failed — no commit landed, so diff would show stale data.
     deliverables = ''
-    try:
-        changed = await git_output(
-            session_worktree, 'diff', '--name-only', 'HEAD~1', 'HEAD',
-        )
-        if changed.strip():
-            deliverables = changed.strip()
-    except Exception:
-        pass
+    if not merge_failed:
+        try:
+            changed = await git_output(
+                session_worktree, 'diff', '--name-only', 'HEAD~1', 'HEAD',
+            )
+            if changed.strip():
+                deliverables = changed.strip()
+        except Exception:
+            pass
 
-    # Return JSON status with deliverables summary and escalation context
-    status = 'completed' if result and result.terminal_state == 'COMPLETED_WORK' else 'failed'
+    # Return JSON status with deliverables summary and escalation context.
+    # A successful orchestrator run that fails to merge is still a failure —
+    # the parent agent must know that deliverables did not land.
+    if merge_failed:
+        status = 'failed'
+    elif result and result.terminal_state == 'COMPLETED_WORK':
+        status = 'completed'
+    else:
+        status = 'failed'
     escalation_type = result.escalation_type if result else ''
-    exit_reason = 'completed' if status == 'completed' else (
-        f'{escalation_type}_escalation' if escalation_type else 'failed'
-    )
-    return {
+    if merge_failed:
+        exit_reason = 'merge_failed'
+    elif status == 'completed':
+        exit_reason = 'completed'
+    else:
+        exit_reason = f'{escalation_type}_escalation' if escalation_type else 'failed'
+    result_dict = {
         'status': status,
         'exit_reason': exit_reason,
         'team': team,
@@ -269,6 +289,9 @@ async def dispatch(
         'escalation_type': escalation_type,
         'api_overloaded': api_overloaded,
     }
+    if merge_failed:
+        result_dict['reason'] = f'merge failed: {merge_error}'
+    return result_dict
 
 
 async def main() -> int:
