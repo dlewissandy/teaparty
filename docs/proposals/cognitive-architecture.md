@@ -261,7 +261,7 @@ Multi-agent workgroups can share knowledge in several ways:
 
 For TeaParty, **stigmergy** is already the dominant pattern -- agents leave their work in shared files and conversations. The opportunity is to layer *explicit* knowledge sharing on top.
 
-**Note on broadcast learning and messaging**: Broadcast learning and shared knowledge are addressed by the messaging proposal (see [messaging.md](messaging.md)). Team leads bridge uber and subteam contexts via liaisons, enabling implicit coordination through structured message passing.
+**Note on broadcast learning and messaging**: Broadcast learning and shared knowledge are addressed by the messaging proposal (see [messaging](messaging/proposal.md)). Team leads bridge uber and subteam contexts via liaisons, enabling implicit coordination through structured message passing.
 
 ---
 
@@ -545,7 +545,29 @@ In workgroup sessions, agents can learn from observing each other and from struc
 
 **Private agent memories:** Agent-specific observations and preferences remain private unless explicitly promoted to shared scope.
 
-**Cross-agent messaging:** The messaging system (see [messaging.md](messaging.md)) enables agents to explicitly share learnings via liaisons. Team leads consolidate subteam experiences and broadcast institutional patterns upward.
+**Cross-agent messaging:** The messaging system (see [messaging](messaging/proposal.md)) enables agents to explicitly share learnings via liaisons. Team leads consolidate subteam experiences and broadcast institutional patterns upward.
+
+### 6.6 Cross-Level Learning Flows
+
+The shared memory pool enables learning to flow across hierarchy levels without explicit routing. What the human does at one level reveals information useful at other levels.
+
+**Upward: Project gates inform the office manager.** When the human corrects a plan at PLAN_ASSERT ("add a rollback strategy"), the proxy records a `gate_outcome` chunk. The next time the human asks the office manager "how's the POC project going?", the office manager retrieves that chunk and can report: "the plan was corrected to include a rollback strategy." The office manager didn't attend the gate, but shared memory gives it access to what happened.
+
+**Downward: Office manager steering informs gates.** When the human tells the office manager "focus on security across all projects", a `steering` chunk is recorded. The next time the proxy reviews a plan at PLAN_ASSERT, it retrieves that chunk and gives extra scrutiny to security aspects. The proxy didn't hear the human say it — the steering chunk surfaced through the shared pool because the structural context matched.
+
+**Lateral: Patterns in one project inform another.** When the human consistently corrects plans in the POC project for missing error handling, the proxy accumulates `gate_outcome` chunks with that pattern. If another project later produces a plan with similar gaps, the proxy retrieves those chunks and applies the learned pattern.
+
+Cross-level retrieval is an emergent property of shared memory with activation-based retrieval, not an engineered pipeline. The boundaries that prevent noise are structural filters (state, task type) and semantic filters (embedding similarity). A correction about "missing rollback strategy" should surface when another plan is missing one; a correction about "wrong database driver" should not surface when reviewing a documentation plan. Calibrating these retrieval thresholds is Phase 1 work.
+
+**Risk: invisible retrieval errors.** Cross-level retrieval errors may be invisible because LLM output looks plausible. The proxy retrieves a chunk from a different context, the LLM weaves it into a coherent-sounding response, and nobody notices the reasoning was based on an irrelevant memory. Spot-checks should specifically look for plausible-but-wrong cross-level retrievals.
+
+### 6.7 Earned Autonomy
+
+The proxy can act autonomously — without escalating to the human — when its predictions consistently match what the human would have decided. This replaces EMA-based auto-approval with content-grounded prediction accuracy.
+
+The distinction from EMA matters. EMA measured approval rates detached from artifact content. A high EMA meant the proxy auto-approved without reading the artifact, skipping exactly the inspection that makes human review valuable. The new criterion requires that the proxy has actually inspected the artifact via two-pass prediction and that its content-grounded predictions match the human's actual decisions over a recent window. The difference is not "scalar vs. non-scalar" — it is "content-blind vs. content-inspecting." The autonomy threshold measures prediction accuracy after forced inspection, not approval frequency.
+
+What "consistently match" means in concrete terms (lookback window size, match rate threshold, how to weight recency) is a Phase 1 design question.
 
 ---
 

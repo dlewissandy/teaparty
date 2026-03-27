@@ -207,10 +207,9 @@ Each session creates a git worktree. Subteam dispatches create child worktrees b
 - [Agent Dispatch](conceptual-design/agent-dispatch.md) -- Message routing and team sessions
 
 ### Proposals
-- [Office Manager](proposals/office-manager.md) -- Human-initiated conversation, cross-project coordination
-- [Human Participation](proposals/human-participation.md) -- Seats at every table
-- [Messaging](proposals/messaging.md) -- Message bus design
-- [Cognitive Architecture](proposals/cognitive-architecture.md) -- Agent learning and memory
+- [Milestone 3: Human Interaction Layer](proposals/milestone-3.md) -- Humans as team members at every level
+- [Office Manager](proposals/office-manager/proposal.md) -- Human-initiated conversation, cross-project coordination
+- [Messaging](proposals/messaging/proposal.md) -- Message bus design
 
 ### Detailed Design
 - [Detailed Design](detailed-design/index.md) -- Implementation status, gap analysis, data models
