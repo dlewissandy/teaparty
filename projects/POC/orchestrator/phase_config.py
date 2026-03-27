@@ -34,12 +34,19 @@ class TeamSpec:
 
 
 class PhaseConfig:
-    """Unified configuration derived from phase-config.json + cfa-state-machine.json."""
+    """Unified configuration derived from phase-config.json + cfa-state-machine.json.
 
-    def __init__(self, poc_root: str):
+    Optionally layered with project-scoped overrides from project_dir/project.json.
+    Resolution order: org defaults → project overrides.
+    """
+
+    def __init__(self, poc_root: str, project_dir: str | None = None):
         self.poc_root = poc_root
+        self.project_dir = project_dir
         self._phases: dict[str, PhaseSpec] = {}
         self._teams: dict[str, TeamSpec] = {}
+        self._project_config: dict[str, Any] = {}
+        self._org_agents: dict[str, dict[str, Any]] = {}
         self.stall_timeout: int = 1800
         self.max_dispatch_retries: int = 5
 
@@ -54,6 +61,7 @@ class PhaseConfig:
     def _load(self) -> None:
         self._load_phase_config()
         self._load_state_machine()
+        self._load_project_config()
 
     def _load_phase_config(self) -> None:
         path = os.path.join(os.path.dirname(__file__), 'phase-config.json')
@@ -115,6 +123,82 @@ class PhaseConfig:
         # Valid actions per state (for review classification)
         for state, edges in machine['transitions'].items():
             self.valid_actions_by_state[state] = [e['action'] for e in edges]
+
+    def _load_project_config(self) -> None:
+        """Load project-scoped team config from project_dir/project.json."""
+        if not self.project_dir:
+            return
+        path = os.path.join(self.project_dir, 'project.json')
+        if not os.path.exists(path):
+            return
+        with open(path) as f:
+            self._project_config = json.load(f)
+
+    def _load_org_agents(self, team_name: str) -> dict[str, Any]:
+        """Load the org-level agent definitions for a team."""
+        if team_name in self._org_agents:
+            return self._org_agents[team_name]
+        team_spec = self._teams.get(team_name)
+        if not team_spec:
+            return {}
+        agent_path = os.path.join(self.poc_root, team_spec.agent_file)
+        if not os.path.exists(agent_path):
+            return {}
+        with open(agent_path) as f:
+            agents = json.load(f)
+        self._org_agents[team_name] = agents
+        return agents
+
+    @property
+    def project_teams(self) -> dict[str, TeamSpec]:
+        """Teams available to the current project.
+
+        If a project config exists with a 'teams' key, returns only those
+        teams that are both listed in the project config and defined in the
+        org catalogue.  Otherwise returns all org teams.
+        """
+        project_team_names = self._project_config.get('teams')
+        if project_team_names is None:
+            return dict(self._teams)
+        return {
+            name: spec
+            for name, spec in self._teams.items()
+            if name in project_team_names
+        }
+
+    def resolve_team_agents(self, team_name: str) -> dict[str, dict[str, Any]]:
+        """Resolve agent definitions for a team with project overrides applied.
+
+        Resolution order: org defaults → project overrides.
+        - model: project value replaces org value
+        - prompt_addition: appended to org prompt with newline separator
+        - disallowedTools: project value replaces org value
+        """
+        org_agents = self._load_org_agents(team_name)
+        if not org_agents:
+            return {}
+
+        # Deep copy to avoid mutating cached org definitions
+        import copy
+        resolved = copy.deepcopy(org_agents)
+
+        # Apply project overrides if they exist
+        project_teams = self._project_config.get('teams', {})
+        team_overrides = project_teams.get(team_name, {})
+        agent_overrides = team_overrides.get('agent_overrides', {})
+
+        for agent_name, overrides in agent_overrides.items():
+            if agent_name not in resolved:
+                continue
+            agent = resolved[agent_name]
+            if 'model' in overrides:
+                agent['model'] = overrides['model']
+            if 'prompt_addition' in overrides:
+                agent['prompt'] = agent.get('prompt', '') + '\n\n' + overrides['prompt_addition']
+            if 'disallowedTools' in overrides:
+                agent['disallowedTools'] = overrides['disallowedTools']
+
+        return resolved
 
     def phase(self, name: str) -> PhaseSpec:
         return self._phases[name]
