@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "ask-question": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["-m", "projects.POC.scripts.mcp_ask_question"],
+      "env": {
+        "POC_DIR": "/path/to/poc"
+      }
+    }
+  }
+}
