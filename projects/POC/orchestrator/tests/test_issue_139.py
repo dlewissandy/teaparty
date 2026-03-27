@@ -448,7 +448,9 @@ class TestStatisticalCalibration(unittest.TestCase):
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Approved.', confidence=0.9))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
-             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10), \
+             patch('projects.POC.orchestrator.proxy_agent.random') as mock_rng:
+            mock_rng.random.return_value = 0.99  # avoid exploration rate cap
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,
@@ -464,7 +466,9 @@ class TestStatisticalCalibration(unittest.TestCase):
         mock_agent = AsyncMock(return_value=_TwoPassResult(text='Looks okay I guess.', confidence=0.3))
 
         with patch('projects.POC.orchestrator.proxy_agent.run_proxy_agent', mock_agent), \
-             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10):
+             patch('projects.POC.orchestrator.proxy_agent._get_memory_depth', return_value=10), \
+             patch('projects.POC.orchestrator.proxy_agent.random') as mock_rng:
+            mock_rng.random.return_value = 0.99  # avoid exploration rate cap
             result = _run(consult_proxy(
                 question='Do you approve?', state='INTENT_ASSERT',
                 proxy_model_path=model_path,

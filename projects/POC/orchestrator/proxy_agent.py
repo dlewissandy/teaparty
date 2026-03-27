@@ -30,6 +30,7 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
 import subprocess
 from dataclasses import dataclass, field
@@ -252,7 +253,6 @@ def _calibrate_confidence(
     EMA is tracked separately as a system health monitor and does not
     influence the returned confidence.
     """
-    import random
     from datetime import date
 
     depth = _get_memory_depth(proxy_model_path, team)
