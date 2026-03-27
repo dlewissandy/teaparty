@@ -15,6 +15,9 @@ if TYPE_CHECKING:
 
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
+# Teams whose subdirectories may contain nested dispatches.
+_DISPATCH_TEAMS = ('art', 'writing', 'editorial', 'research', 'coding')
+
 
 async def withdraw_session(
     session: SessionState,
@@ -28,10 +31,12 @@ async def withdraw_session(
 
     Order of operations (kill-then-write) prevents race conditions:
     1. Cancel in-process task (if any)
-    2. Kill all subprocess PIDs (session + dispatches)
-    3. Set CfA state to WITHDRAWN
-    4. Clean up sentinel files
-    5. Emit SESSION_COMPLETED event
+    2. Publish WITHDRAW event (formal CfA event)
+    3. Kill all subprocess PIDs (session + dispatches, recursively)
+    4. Set CfA state to WITHDRAWN (session + nested dispatches)
+    5. Clean up sentinel files
+    6. Emit learning signal (LOG event)
+    7. Emit SESSION_COMPLETED event
     """
     if session.cfa_state in _TERMINAL_STATES:
         return False
@@ -40,16 +45,47 @@ async def withdraw_session(
     if in_process_task is not None and not in_process_task.done():
         in_process_task.cancel()
 
-    # 2. Kill all running subprocesses
+    # 2. Publish WITHDRAW event (before killing, so subscribers see intent)
+    if event_bus is not None:
+        from projects.POC.orchestrator.events import Event, EventType
+        await event_bus.publish(Event(
+            type=EventType.WITHDRAW,
+            data={
+                'phase': session.cfa_phase or 'execution',
+                'state': session.cfa_state or '',
+                'task': session.task or '',
+            },
+            session_id=session.session_id,
+        ))
+
+    # 3. Kill all running subprocesses (recursive)
     _kill_session_processes(session)
 
-    # 3. Set CfA state to WITHDRAWN
-    _set_state_withdrawn(session.infra_dir, session.cfa_phase or 'execution')
+    # 4. Set CfA state to WITHDRAWN (session + nested dispatches)
+    phase = session.cfa_phase or 'execution'
+    _set_state_withdrawn(session.infra_dir, phase)
+    for dispatch in session.dispatches:
+        if dispatch.infra_dir:
+            _set_state_withdrawn_recursive(dispatch.infra_dir, phase)
 
-    # 4. Clean up sentinel files (leave worktree intact)
+    # 5. Clean up sentinel files (leave worktree intact)
     _cleanup_sentinels(session.infra_dir)
 
-    # 5. Emit SESSION_COMPLETED
+    # 6. Emit learning signal
+    if event_bus is not None:
+        from projects.POC.orchestrator.events import Event, EventType
+        await event_bus.publish(Event(
+            type=EventType.LOG,
+            data={
+                'message': (
+                    f'Withdrawal learning signal: session withdrawn during '
+                    f'{phase} phase, task: {session.task or "(unknown)"}'
+                ),
+            },
+            session_id=session.session_id,
+        ))
+
+    # 7. Emit SESSION_COMPLETED
     if event_bus is not None:
         from projects.POC.orchestrator.events import Event, EventType
         await event_bus.publish(Event(
@@ -62,18 +98,71 @@ async def withdraw_session(
 
 
 def _kill_session_processes(session: SessionState) -> None:
-    """Kill the session's main process and all dispatch processes."""
+    """Kill the session's main process and all dispatch processes (recursive)."""
     # Kill session PID (issue #149: read from .heartbeat, fallback .running)
     pid = _read_pid_from_infra(session.infra_dir)
     if pid is not None:
         _kill_pid(pid)
 
-    # Kill dispatch PIDs
+    # Kill dispatch PIDs (including nested sub-dispatches)
     for dispatch in session.dispatches:
         if dispatch.infra_dir:
             dpid = _read_pid_from_infra(dispatch.infra_dir)
             if dpid is not None:
                 _kill_pid(dpid)
+            # Recurse into nested dispatches
+            _kill_nested_dispatches(dispatch.infra_dir)
+
+
+def _kill_nested_dispatches(infra_dir: str, depth: int = 0) -> None:
+    """Recursively kill processes in nested dispatch directories.
+
+    Walks {infra_dir}/{team}/{timestamp}/ looking for .running or .heartbeat
+    files, then recurses into those dirs for further nesting.
+
+    Depth-bounded to 10 levels to guard against symlink cycles.
+    """
+    if depth > 10:
+        return
+
+    for team in _DISPATCH_TEAMS:
+        team_dir = os.path.join(infra_dir, team)
+        if not os.path.isdir(team_dir):
+            continue
+        try:
+            for entry in os.listdir(team_dir):
+                dispatch_dir = os.path.join(team_dir, entry)
+                if not os.path.isdir(dispatch_dir) or not entry[0].isdigit():
+                    continue
+                pid = _read_pid_from_infra(dispatch_dir)
+                if pid is not None:
+                    _kill_pid(pid)
+                # Recurse deeper
+                _kill_nested_dispatches(dispatch_dir, depth + 1)
+        except OSError:
+            continue
+
+
+def _set_state_withdrawn_recursive(infra_dir: str, phase: str, depth: int = 0) -> None:
+    """Set WITHDRAWN on an infra dir and recurse into nested dispatch dirs."""
+    _set_state_withdrawn(infra_dir, phase)
+    _cleanup_sentinels(infra_dir)
+
+    if depth > 10:
+        return
+
+    for team in _DISPATCH_TEAMS:
+        team_dir = os.path.join(infra_dir, team)
+        if not os.path.isdir(team_dir):
+            continue
+        try:
+            for entry in os.listdir(team_dir):
+                dispatch_dir = os.path.join(team_dir, entry)
+                if not os.path.isdir(dispatch_dir) or not entry[0].isdigit():
+                    continue
+                _set_state_withdrawn_recursive(dispatch_dir, phase, depth + 1)
+        except OSError:
+            continue
 
 
 def _read_pid_from_infra(infra_dir: str) -> int | None:
