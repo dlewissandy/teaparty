@@ -16,7 +16,6 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 - Browse by tag to find papers relevant to a specific design question.
 - Each entry links to the detail file where full citations and implications are recorded.
-- "COGARCH" entries are cataloged in `/docs/proposals/cognitive-architecture.md` (the primary cognitive architecture document).
 - "SUPPLEMENT" entries are in `docs/research/cognitive-architectures-supplement.md`.
 - [act-r.md](act-r.md) — Vanilla ACT-R declarative memory: theory, equations, parameters.
 - [soar.md](soar.md) — Soar cognitive architecture: memory systems, decision cycle, chunking, RL.
@@ -37,6 +36,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 `#active-learning` `#preference-learning` `#calibration` `#prediction` `#cold-start` `#bayesian`
 `#process-liveness` `#heartbeat` `#process-registry` `#crash-resilient` `#multiprocess` `#filesystem`
 `#contradiction` `#belief-revision` `#memory-consistency` `#nli` `#preference-conflict`
+`#compaction` `#summarization` `#activation-decay` `#consolidation` `#proactive-interference`
 
 ---
 
@@ -44,21 +44,21 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 | Title | Authors, Year | Tags | One-line Summary | Source |
 |-------|--------------|------|-----------------|--------|
-| Cognitive Architectures for Language Agents (CoALA) | Sumers et al., 2024 | `#memory` `#multi-agent` `#teaparty-direct` | The unifying taxonomy: maps classical cognitive architecture (ACT-R, SOAR) onto LLM agents across memory types, action space, and learning. | COGARCH §2.1 |
+| Cognitive Architectures for Language Agents (CoALA) | Sumers et al., 2024 | `#memory` `#multi-agent` `#teaparty-direct` | The unifying taxonomy: maps classical cognitive architecture (ACT-R, SOAR) onto LLM agents across memory types, action space, and learning. | — |
 | Soar Cognitive Architecture — Memory Systems Reference | Laird et al. (University of Michigan) | `#memory` `#working-memory` `#episodic` `#semantic` `#procedural` | Self-contained reference covering Soar's decision cycle, WMEs, production memory, smem (base-level + spreading activation), epmem (snapshot + graph-match retrieval), chunking, and Soar-RL update rule. | `soar.md` |
-| Generative Agents | Park et al., 2023 | `#memory` `#episodic` `#reflection` `#teaparty-direct` | 25 simulated agents with memory streams, three-factor retrieval (recency × relevance × importance), and periodic reflection. Reflection was the critical ingredient for emergent behavior. | COGARCH §2.2 |
-| Reflexion | Shinn et al., 2023 | `#episodic` `#self-evolving` | Verbal self-reflection stored as persistent memory enables learning without weight updates. Near-human HumanEval performance after 2-3 cycles. | COGARCH §2.3 |
-| Voyager | Wang et al., 2023 | `#procedural` `#skill-library` | Skill library of verified executable JavaScript functions in Minecraft. Procedural memory as code is more reliable than natural language. | COGARCH §2.4 |
-| CLIN | Majumder et al., 2024 | `#episodic` `#semantic` `#self-evolving` | Causal abstraction learning (when X, doing Y leads to Z) persists across episodes. Outperforms Reflexion by 23 points on ScienceWorld. | COGARCH §2.5 |
-| MemGPT / Letta | Packer et al., 2023 | `#memory` `#working-memory` `#teaparty-direct` | Agent-managed memory hierarchy (main context, archival, recall) via explicit tools. Agents decide what to remember and forget. | COGARCH §2.6 |
-| ExpeL | Zhao et al., 2024 | `#episodic` `#self-evolving` | Contrastive learning from successes vs. failures extracts cross-task insights. More transferable than Reflexion's failure-only approach. | COGARCH §2.7 |
-| AutoRefine | 2025 | `#procedural` `#self-evolving` | Dual-form experience patterns (subagents + skill patterns); automatic extraction beats manually designed systems (27.1% vs 12.1% on TravelPlanner). | COGARCH §2.8 |
-| Mem0 | Chhikara et al., 2025 | `#memory` `#production` `#teaparty-direct` | Production memory with graph variant. 26% accuracy boost, 91% lower p95 latency, 90% token savings vs. full-context. | COGARCH §2.9 |
-| FadeMem | 2025 | `#forgetting` | Biologically-inspired decay: 82.1% retention of critical facts at 55% storage. Selective forgetting improves retention quality. | COGARCH §2.10 |
-| LLM-ACTR | Wu et al., 2025 | `#memory` | ACT-R decision-making integrated into LLMs via adapter layers. | COGARCH §2.10 |
-| Brain-Inspired MAP | Nature Communications, 2025 | `#multi-agent` `#coordination` | Modular brain-inspired planning agents outperform monolithic ones. | COGARCH §2.10 |
-| DSPy | Khattab et al., 2024 | `#procedural` | Optimizing prompts as programs — automated procedural learning via compilation. | COGARCH §2.10 |
-| LaMer | 2025 | `#self-evolving` `#episodic` | Meta-RL for LLM agents: cross-episode training with in-context policy adaptation via reflection. | COGARCH §2.10 |
+| Generative Agents | Park et al., 2023 | `#memory` `#episodic` `#reflection` `#teaparty-direct` | 25 simulated agents with memory streams, three-factor retrieval (recency × relevance × importance), and periodic reflection. Reflection was the critical ingredient for emergent behavior. | — |
+| Reflexion | Shinn et al., 2023 | `#episodic` `#self-evolving` | Verbal self-reflection stored as persistent memory enables learning without weight updates. Near-human HumanEval performance after 2-3 cycles. | — |
+| Voyager | Wang et al., 2023 | `#procedural` `#skill-library` | Skill library of verified executable JavaScript functions in Minecraft. Procedural memory as code is more reliable than natural language. | — |
+| CLIN | Majumder et al., 2024 | `#episodic` `#semantic` `#self-evolving` | Causal abstraction learning (when X, doing Y leads to Z) persists across episodes. Outperforms Reflexion by 23 points on ScienceWorld. | — |
+| MemGPT / Letta | Packer et al., 2023 | `#memory` `#working-memory` `#teaparty-direct` | Agent-managed memory hierarchy (main context, archival, recall) via explicit tools. Agents decide what to remember and forget. | — |
+| ExpeL | Zhao et al., 2024 | `#episodic` `#self-evolving` | Contrastive learning from successes vs. failures extracts cross-task insights. More transferable than Reflexion's failure-only approach. | — |
+| AutoRefine | 2025 | `#procedural` `#self-evolving` | Dual-form experience patterns (subagents + skill patterns); automatic extraction beats manually designed systems (27.1% vs 12.1% on TravelPlanner). | — |
+| Mem0 | Chhikara et al., 2025 | `#memory` `#production` `#teaparty-direct` | Production memory with graph variant. 26% accuracy boost, 91% lower p95 latency, 90% token savings vs. full-context. | — |
+| FadeMem | 2025 | `#forgetting` | Biologically-inspired decay: 82.1% retention of critical facts at 55% storage. Selective forgetting improves retention quality. | — |
+| LLM-ACTR | Wu et al., 2025 | `#memory` | ACT-R decision-making integrated into LLMs via adapter layers. | — |
+| Brain-Inspired MAP | Nature Communications, 2025 | `#multi-agent` `#coordination` | Modular brain-inspired planning agents outperform monolithic ones. | — |
+| DSPy | Khattab et al., 2024 | `#procedural` | Optimizing prompts as programs — automated procedural learning via compilation. | — |
+| LaMer | 2025 | `#self-evolving` `#episodic` | Meta-RL for LLM agents: cross-episode training with in-context policy adaptation via reflection. | — |
 
 ---
 
@@ -83,9 +83,28 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | MemEngine: Unified Modular Memory Library | 2025 | `#memory` `#forgetting` | 15+ memory strategies as pluggable modules (encoding, retrieval, summarization, forgetting, meta-learning); 89-95% compression. | SUPPLEMENT §Theme 2 |
 | Memory in the Age of AI Agents (Survey) | 2024 | `#memory` `#episodic` `#semantic` | Three forms of memory (token-level, parametric, latent); functional taxonomy; emerging research frontiers. | SUPPLEMENT §Theme 2 |
 | Rethinking Memory Mechanisms in the Second Half (Survey) | 2026 | `#memory` `#forgetting` `#episodic` | 218 papers; three-dimension taxonomy (substrate, cognitive mechanism, subject); "second half" challenge is real-world utility, not benchmark scores. | SUPPLEMENT §Theme 2 |
-| Episodic Memory is the Missing Piece for Long-Term LLM Agents | 2025 | `#episodic` | Most systems underweight episodic vs. semantic/procedural memory; agents recalling specific past experiences outperform those relying on general knowledge. | COGARCH §3.1 |
-| ACT-R-Inspired Memory for LLM Agents | 2024-2025 | `#memory` `#episodic` | Human-like remembering and forgetting via ACT-R activation function in agent context. | COGARCH §11 |
+| Episodic Memory is the Missing Piece for Long-Term LLM Agents | 2025 | `#episodic` | Most systems underweight episodic vs. semantic/procedural memory; agents recalling specific past experiences outperform those relying on general knowledge. | — |
+| ACT-R-Inspired Memory for LLM Agents | 2024-2025 | `#memory` `#episodic` | Human-like remembering and forgetting via ACT-R activation function in agent context. | —11 |
 | AdaMem: Adaptive User-Centric Memory for Long-Horizon Dialogue Agents | Yan, Ni, Zheng et al., 2026 | `#memory` `#episodic` `#retrieval` `#working-memory` `#teaparty-direct` | Four-type memory taxonomy (working/episodic/persona/graph) with deterministic cue-based routing; type-specific retrieval outperforms universal retrieval by 4.5% F1, with 23.4% gain on temporal questions. | SUPPLEMENT §Theme 2 |
+
+---
+
+## Self-Compacting Memory
+
+Research on memory decay, selective forgetting, summarization hierarchies, and biological consolidation as applied to LLM agents managing their own context windows. Full synthesis in `self-compacting-memory.md`.
+
+| Title | Authors, Year | Tags | One-line Summary | Source |
+|-------|--------------|------|-----------------|--------|
+| ACT-R Base-Level Activation Decay | Anderson & Schooler, 1991; Anderson & Lebiere, 1998 | `#memory` `#forgetting` `#activation-decay` `#teaparty-direct` | Power-law decay formula B=ln(sum t_i^-d) with d=0.5; retrieval threshold tau; sub-threshold chunks are inaccessible but not deleted; models human forgetting curves. | `act-r.md`; `self-compacting-memory.md` §1 |
+| Sleep and the Price of Plasticity (SHY) | Tononi & Cirelli, 2014 | `#memory` `#forgetting` `#consolidation` | Global synaptic downscaling during sleep; engram-tagged memories are spared; signal-to-noise interpretation of forgetting; biological basis for selective retention. | `self-compacting-memory.md` §2 |
+| Remembering to Forget: Dual Role of Sleep Oscillations | Krause et al., 2019 | `#forgetting` `#consolidation` | Forgetting is not a side effect of consolidation — it is a necessary component; active suppression of irrelevant material enables signal recovery. | `self-compacting-memory.md` §2 |
+| Generative Agents: Interactive Simulacra of Human Behavior | Park et al., UIST 2023 | `#memory` `#episodic` `#summarization` `#teaparty-direct` | Three-factor retrieval (recency × importance × relevance) prevents importance-recency conflation; reflection nodes implement episodic-to-semantic consolidation. | `self-compacting-memory.md` §4.2 |
+| MemGPT: Towards LLMs as Operating Systems | Packer et al., NeurIPS 2023 | `#memory` `#working-memory` `#teaparty-direct` | Tiered memory (main context / recall / archival) with agent-controlled eviction via tool calls; foundational architecture for self-directed compaction. | `self-compacting-memory.md` §3.2 |
+| SleepGate: Sleep-Inspired Memory Consolidation for LLMs | 2026 | `#forgetting` `#proactive-interference` `#compaction` `#teaparty-direct` | Conflict-aware forgetting gate resolves proactive interference; 99.5% vs <18% retrieval accuracy; soft attention biasing over hard deletion. | `self-compacting-memory.md` §3.3 |
+| AgeMem: Agentic Memory via RL | 2026 | `#memory` `#forgetting` `#self-evolving` | Six-tool memory interface (Add/Update/Delete/Retrieve/Summary/Filter) trained via RL; 4.8-8.6pp improvement with token reduction. Preprint. | `self-compacting-memory.md` §3.4 |
+| HiAgent: Hierarchical Working Memory Management | 2024 (ACL 2025) | `#memory` `#working-memory` `#summarization` `#teaparty-direct` | Subgoal completion as compression trigger; current-phase trajectory kept verbatim, completed phases summarized; 2x success rate, 35% context reduction. | `self-compacting-memory.md` §4.3 |
+| ProMem: Beyond Static Summarization | 2026 | `#memory` `#summarization` `#compaction` `#teaparty-direct` | Three-stage proactive extraction (scan → verify → deduplicate); 73.8% vs 43% memory integrity; grounds every extracted fact against source. | `self-compacting-memory.md` §4.4 |
+| Memory for Autonomous LLM Agents (Survey) | 2026 | `#memory` `#forgetting` `#evaluation` | Identifies summarization drift and proactive interference as primary compaction failure modes; notes selective forgetting is severely underdeveloped. | `self-compacting-memory.md` §3.1 |
 
 ---
 
@@ -141,7 +160,7 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 
 | Title | Org, Year | Tags | One-line Summary | Source |
 |-------|----------|------|-----------------|--------|
-| Amazon Bedrock AgentCore Memory | AWS, 2025 | `#production` `#memory` `#episodic` | Production memory service: 200ms retrieval, 20-40s consolidation; episodic functionality with reflection agent validates COGARCH.md's reflection engine design. | SUPPLEMENT §Theme 7 |
+| Amazon Bedrock AgentCore Memory | AWS, 2025 | `#production` `#memory` `#episodic` | Production memory service: 200ms retrieval, 20-40s consolidation; episodic functionality with reflection agent validates reflection engine design pattern. | SUPPLEMENT §Theme 7 |
 | Agent Skills | Anthropic, 2025 | `#procedural` `#production` `#teaparty-direct` | File-based procedural memory (SKILL.md directories) with progressive disclosure; open standard adopted across the ecosystem. | SUPPLEMENT §Theme 7 |
 | Model Context Protocol (MCP) | Anthropic / Linux Foundation, 2025 | `#production` `#teaparty-direct` | De facto standard for agent tool connectivity; 97M monthly SDK downloads; donated to Linux Foundation Dec 2025. | SUPPLEMENT §Theme 7 |
 | Microsoft Agent Framework | Microsoft, 2025 | `#production` `#multi-agent` | Unification of AutoGen + Semantic Kernel; asynchronous event-driven messaging; cross-language support. | SUPPLEMENT §Theme 7 |
@@ -153,8 +172,8 @@ This bibliography covers five areas that directly inform TeaParty's design: cogn
 | Title | Authors, Year | Tags | One-line Summary | Source |
 |-------|--------------|------|-----------------|--------|
 | Cognitive Challenges in Human-AI Collaboration | Logg et al., 2022 | `#human-ai` `#trust` | Teams improve only when AI delegates to humans, not when humans delegate to AI — challenges assumptions about AI as pure assistant. | SUPPLEMENT §Theme 7 |
-| Theory of Mind for Multi-Agent Collaboration | 2024 | `#multi-agent` `#human-ai` | MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open. | COGARCH §5.1 |
-| Supporting Effortless Coordination (25 years of CSCW awareness research) | Gross, 2013 | `#human-ai` `#coordination` | Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture. | COGARCH §5.1 |
+| Theory of Mind for Multi-Agent Collaboration | 2024 | `#multi-agent` `#human-ai` | MetaMind achieves 81% on ToM tasks; maintaining consistent agent models across extended interactions remains open. | — |
+| Supporting Effortless Coordination (25 years of CSCW awareness research) | Gross, 2013 | `#human-ai` `#coordination` | Teams with better shared mental models coordinate with less explicit communication — validated design principle for agent team architecture. | — |
 
 ---
 
