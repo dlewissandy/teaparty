@@ -6,15 +6,15 @@ Agents working on long tasks can lose important context when their conversation 
 
 ---
 
-## The Problem
+## Problem
 
-The multi-level conversation model (office manager + project sessions + subteam dispatches) means many agents running concurrently, each with its own context window. Without management, agents hit their context limits and lose important information during auto-compaction.
+Many agents run concurrently, each with its own context window. Without management, agents hit their context limits and lose important information during auto-compaction.
 
-## The Insight
+## Key Observation
 
-The orchestrator is already parsing stream-json output from every agent. It sees everything: text responses, tool calls, tool results, decisions, human messages, escalation resolutions. It also sees `result` events with full token usage after every turn.
+The orchestrator already parses stream-json output from every agent. It sees text responses, tool calls, tool results, decisions, human messages, escalation resolutions. It also sees `result` events with full token usage after every turn.
 
-If the orchestrator extracts important content from the stream into files as it flows by, then the conversation becomes expendable. The agent can compact aggressively — or be compacted by the orchestrator — without losing anything that matters. The important stuff is in files, not in conversation history.
+If it extracts important content from the stream into files as it flows by, the conversation becomes expendable. Agents can compact aggressively without losing anything that matters -- the important content is in files, not in conversation history.
 
 ---
 
@@ -22,11 +22,11 @@ If the orchestrator extracts important content from the stream into files as it 
 
 ```
 Agent (claude -p)
-  ↓ stream-json
+  | stream-json
 Orchestrator (watches stream)
-  ↓ extracts
+  | extracts
 Scratch files (worktree)
-  ↑ reads on demand
+  ^ reads on demand
 Agent (after compaction)
 ```
 
@@ -40,27 +40,25 @@ capacity = modelUsage.{model}.contextWindow
 utilization = used / capacity
 ```
 
-This gives real-time visibility into every agent's context state.
+This measures input context pressure, which is what Claude Code's `used_percentage` metric tracks. Output tokens also consume the context window but are not included in `used_percentage`. The formula replicates the metric the orchestrator can observe from stream-json.
 
 ### Content Extraction
 
-As the stream flows, the orchestrator identifies and extracts important content from specific event types. See [extraction-patterns.md](references/extraction-patterns.md) for the complete breakdown.
+As the stream flows, the orchestrator identifies and extracts content from specific event types. See [extraction-patterns.md](references/extraction-patterns.md) for the breakdown, including which categories are mechanically extractable and which require further design work.
 
-The orchestrator maintains a single scratch file per job/task: `{worktree}/.context/scratch.md`. This file is an **index with pointers** — the same progressive disclosure pattern used everywhere in the system. It must stay under 200 lines. See [scratch-file.md](examples/scratch-file.md) for an example.
+A single scratch file per job/task (`{worktree}/.context/scratch.md`) serves as an index with pointers -- the same progressive disclosure pattern used elsewhere in the system. It must stay under 200 lines. An example appears in [scratch-file.md](examples/scratch-file.md).
 
-The scratch file is what the agent reads after compaction. It's a map — one-line summaries with pointers to detail files. If the agent needs the full rationale for a decision, it reads the referenced file. If the one-line summary is enough, it moves on.
+After compaction, the agent reads this file first. One-line summaries point to detail files; the agent follows pointers only when it needs the full rationale. Detail files live in a structured directory described in [context-directory.md](examples/context-directory.md).
 
-Detail files live in a structured directory. See [context-directory.md](examples/context-directory.md) for the directory structure.
-
-The scratch file is the only file the agent must read after compaction. Everything else is on demand.
+Only the scratch file is required reading after compaction. Everything else is on demand.
 
 ### Compaction Triggers
 
-The orchestrator triggers compaction when context utilization exceeds a threshold. See [compaction-thresholds.md](references/compaction-thresholds.md) for the detailed threshold table and actions.
+Compaction fires at turn boundaries: when the current turn completes, the orchestrator injects `/compact` as the next prompt via `--resume`, with a focus argument that directs the agent's attention to its current task. After compaction, the orchestrator also includes a pointer to the scratch file so the agent knows where to find its preserved context. Threshold levels and actions are in [compaction-thresholds.md](references/compaction-thresholds.md).
 
 ### After Compaction
 
-The agent's conversation is summarized. Old tool results, early instructions, and detailed reasoning are gone. But:
+Old tool results, early instructions, and detailed reasoning are gone from the context window. But:
 
 - The current task description is in the agent's prompt (always reloaded)
 - Decisions and human input are in scratch files (agent reads on demand)
@@ -68,7 +66,7 @@ The agent's conversation is summarized. Old tool results, early instructions, an
 - Dead ends are documented (agent reads to avoid repetition)
 - Current state is in a file (agent knows where it is in the workflow)
 
-The agent continues working as if nothing happened. It reads what it needs from files instead of remembering the conversation.
+Work continues from files rather than from conversation memory. Post-compaction effectiveness is strongest for artifact-heavy work where decisions are reflected in code and documents. Decisions that exist only in conversation ("I plan to use approach X" where X is not yet implemented) are the risk area -- the evaluation criteria below include task completion rate to measure this empirically.
 
 ---
 
@@ -76,8 +74,8 @@ The agent continues working as if nothing happened. It reads what it needs from 
 
 Scratch files live in `{worktree}/.context/` for the duration of the job or task.
 
-- **`scratch.md` is rewritten** (not appended) each time the orchestrator updates it. It's always a current snapshot, not a growing log. This is how it stays under 200 lines.
-- **Detail files are appended** as new content arrives (human input accumulates, dead ends accumulate). These can grow, but the agent only reads them on demand — they don't burn context unless referenced.
+- **`scratch.md` is rewritten** (not appended) each time the orchestrator updates it. It is always a current snapshot, not a growing log. This is how it stays under 200 lines. The orchestrator maintains an in-memory model of the current state and serializes it to the scratch file format. If the orchestrator crashes, the `.context/` directory can be scanned on restart to rebuild the index from detail files on disk. The reconstructed index may be slightly stale (missing entries accumulated between the last serialization and the crash), but the detail files themselves are written as they arrive and are complete.
+- **Detail files are appended** as new content arrives (human input accumulates, dead ends accumulate). These can grow, but the agent only reads them on demand.
 - **All `.context/` files are deleted** when the job completes. The job's session log (stream JSONL) is the permanent record.
 
 These files are not committed to git. They are working memory for the duration of the job.
@@ -88,17 +86,18 @@ These files are not committed to git. They are working memory for the duration o
 
 The `result` events include `total_cost_usd` and per-model cost breakdowns. The orchestrator tracks cumulative cost per job and per project. See [cost-budget.md](references/cost-budget.md) for budget enforcement rules and escalation behavior.
 
+Cost budgets are enforced mechanically by the orchestrator (warns at 80%, pauses at 100%). They are configuration values, not advisory norms. See [cost-budget.md](references/cost-budget.md) for the distinction.
+
 ---
 
 ## Why Not ACT-R for Scratch Files
 
-ACT-R's activation-based retrieval is designed for long-term memory across many sessions — the proxy's accumulated knowledge of what the human cares about. It's valuable for cross-session learning.
+ACT-R's activation-based retrieval is designed for long-term memory across many sessions. It is valuable for cross-session learning.
 
-Scratch files are short-term working memory for a single job. They're small (a few hundred lines total), task-scoped, and read in full. There's no retrieval problem to solve — the agent just reads the file. ACT-R's activation decay, spreading activation, and partial matching are overkill for "read the decisions file."
+Scratch files are short-term working memory for a single job. They are small (a few hundred lines total), task-scoped, and read in full. The agent reads the index, decides which pointers to follow based on relevance to its current task, and reads the detail files it needs. This is a table-of-contents lookup, not a memory search. ACT-R's activation decay, spreading activation, and partial matching are unnecessary here.
 
-The right model:
-- **ACT-R** — proxy long-term memory, office manager steering memory, cross-session learning
-- **Scratch files** — job/task working memory, context budget management, compaction safety net
+- **ACT-R** for proxy long-term memory, office manager steering memory, cross-session learning
+- **Scratch files** for job/task working memory, context budget management, compaction safety net
 
 ---
 
@@ -106,11 +105,11 @@ The right model:
 
 This connects to the progressive disclosure model in [../team-configuration/proposal.md](../team-configuration/proposal.md). The hierarchy:
 
-1. **Agent prompt** — always loaded, minimal (role, current task, phase)
-2. **Scratch files** — loaded on demand after compaction, or when the agent needs to recall a decision
-3. **Worktree artifacts** — loaded when the agent needs to read or modify work products
-4. **Team configuration YAML** — loaded when the agent needs to understand team structure
-5. **`.claude/` artifacts** — loaded when the agent needs skill content or agent definitions
+1. **Agent prompt** -- always loaded, minimal (role, current task, phase)
+2. **Scratch files** -- loaded on demand after compaction, or when the agent needs to recall a decision
+3. **Worktree artifacts** -- loaded when the agent needs to read or modify work products
+4. **Team configuration YAML** -- loaded when the agent needs to understand team structure
+5. **`.claude/` artifacts** -- loaded when the agent needs skill content or agent definitions
 
 See [progressive-disclosure-levels.md](references/progressive-disclosure-levels.md) for the full hierarchy definition.
 
@@ -118,14 +117,17 @@ Each level is loaded only when needed. The agent's prompt is lean. Everything el
 
 ---
 
-## Relationship to Other Proposals
+## Resolved: Multi-agent Coordination
 
-- [../team-configuration/proposal.md](../team-configuration/proposal.md) — progressive disclosure configuration tree; scratch files are the job-level addition
-- [../chat-experience/proposal.md](../chat-experience/proposal.md) — chat windows show stream content; the orchestrator watches the same stream
-- [../dashboard-ui/proposal.md](../dashboard-ui/proposal.md) — stats (tokens, cost) on job/task dashboards come from the orchestrator's stream monitoring
+When multiple agents share a worktree (team members on a workgroup), they share scratch files. The orchestrator is the sole writer of scratch files; agents only read them. Since the orchestrator serializes writes (atomic write via temp file and rename), there is no concurrency problem.
 
 ---
 
-## Resolved: Multi-agent Coordination
+## Evaluation Criteria
 
-When multiple agents share a worktree (team members on a workgroup), they share scratch files. Agents working on the same job or task share the same `.context/` scratch files because they share the same worktree. This centralizes state and prevents divergent context across team members.
+| Metric | What it measures |
+|--------|-----------------|
+| Post-compaction task completion rate | Agents after compaction complete tasks at the same rate as agents without compaction |
+| Scratch file coverage | Key decisions and human inputs appear in the scratch file (spot-check) |
+| Context utilization at compaction | How close to the threshold agents get before compaction fires |
+| Cost tracking accuracy | Tracked cost matches actual API charges |

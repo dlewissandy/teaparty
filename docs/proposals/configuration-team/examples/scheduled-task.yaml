@@ -1,6 +1,0 @@
-scheduled:
-  - name: nightly-test-sweep
-    schedule: "0 2 * * *"
-    skill: test-sweep
-    args: "--all-projects"
-    enabled: true

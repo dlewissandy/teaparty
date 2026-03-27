@@ -66,7 +66,7 @@ Every team has exactly one decider. The decider is shown in the dashboard title 
 ## Key Concepts
 
 - **[Matrixed Workgroups](references/matrixed-workgroups.md)** — shared across projects, with norm precedence (project trumps org) and cross-project learning.
-- **[Norms](references/norms.md)** — advisory natural-language statements at org, workgroup, and project levels.
+- **[Norms](references/norms.md)** — advisory natural-language statements at org, workgroup, and project levels. Cost budgets are separate; see [cost-budget](../context-budget/references/cost-budget.md).
 - **[Scheduled Tasks](references/scheduled-tasks.md)** — skill invocations on a timer, plus session-scoped loops.
 - **[Hooks](references/hooks.md)** — shorthand references in YAML; authoritative source is `.claude/settings.json`.
 - **[Progressive Disclosure Scenarios](references/progressive-disclosure-scenarios.md)** — concrete examples of navigating the tree.
@@ -92,4 +92,3 @@ A directory is a TeaParty project if it contains `.git/`, `.claude/`, and `.teap
 - [dashboard-ui](../dashboard-ui/proposal.md) — the dashboard reads these files to populate cards
 - [office-manager](../office-manager/proposal.md) — reads `teaparty.yaml` as its primary source of organizational knowledge
 - [context-budget](../context-budget/proposal.md) — orchestrator writes stats files referenced in YAML
-

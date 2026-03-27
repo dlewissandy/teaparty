@@ -1,14 +1,20 @@
 # Norms
 
-Norms are advisory, not enforced by code. They are natural-language statements that agents read and incorporate into their judgment. This is consistent with the project's core principle: agents are autonomous, not scripted.
+Norms are advisory natural-language statements that agents read and incorporate into their judgment. They are not enforced by code -- agents are autonomous, not scripted.
+
+When an agent violates a norm, the human corrects the gate decision, and the proxy learns to anticipate that correction in the future. Enforcement happens through learning, not through code.
+
+For norms that must remain influential over extended periods, the memory system could use a pinned activation floor (ACT-R's `set-base-levels` / `fixedActivation`), setting a minimum base-level activation for tagged chunks so they resist normal decay. The tradeoff is that pinned chunks consume retrieval capacity that contextually relevant but unpinned chunks would otherwise occupy. Whether pinning is worth the cost depends on empirical decay rates under standard dynamics.
+
+Cost budgets are distinct from norms. They live in their own `budget:` YAML key and are enforced mechanically by the orchestrator. See [context-budget/cost-budget.md](../../context-budget/references/cost-budget.md).
 
 ## Structure
 
 Norms appear at three levels:
 
-- **Organization norms** (in `teaparty.yaml`) — organization-wide standards
-- **Workgroup norms** (in workgroup YAML) — team-specific practices
-- **Project norms** (in `project.yaml`) — project-specific quality and delegation rules
+- **Organization norms** (in `teaparty.yaml`)
+- **Workgroup norms** (in workgroup YAML)
+- **Project norms** (in `project.yaml`)
 
 ## Precedence
 
@@ -18,10 +24,10 @@ When a shared workgroup is dispatched on a project task, the agent reads norms f
 
 The layering:
 
-1. **Workgroup norms** — the baseline (how this team works)
-2. **Project norms** — the override (what this project requires)
+1. **Workgroup norms** -- the baseline (how this team works)
+2. **Project norms** -- the override (what this project requires)
 
-An agent reads both and treats conflicts as "project wins." This is not a merge — if the project says "all changes require integration tests" and the workgroup says "unit tests are sufficient," the project norm applies for tasks in that project.
+An agent reads both and treats conflicts as "project wins." This is not a merge. If the project says "all changes require integration tests" and the workgroup says "unit tests are sufficient," the project norm applies for tasks in that project.
 
 ## Example
 
@@ -50,6 +56,10 @@ norms:
   delegation:
     - Coding workgroup handles implementation and testing
     - Research workgroup handles design proposals and literature review
+
+budget:
+  job_limit_usd: 5.00
+  project_limit_usd: 50.00
 ```
 
-Agents incorporate these norms naturally: they're part of the context that shapes decisions, not rules enforced by runtime validation.
+Agents incorporate norms naturally: they shape decisions, not enforce rules. Budgets are separate and mechanically enforced.

@@ -46,4 +46,3 @@ Every dashboard has: a title bar (name + description), summary stats, and conten
 - [office-manager](../office-manager/proposal.md) — the office manager agent
 - [Milestone 3](../milestone-3.md) — milestone overview: human participation model
 - [configuration-team](../configuration-team/proposal.md) — the Configuration Team that handles agent modifications
-

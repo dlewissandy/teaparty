@@ -2,7 +2,7 @@
 
 # Messaging
 
-The messaging system lets humans and agents have conversations that persist, can be resumed, and work across different interfaces — from the local TUI today to Slack or Teams in the future.
+The messaging system lets humans and agents have conversations that persist, can be resumed, and work across different interfaces.
 
 ---
 
@@ -12,17 +12,20 @@ A message carries:
 - **sender**: who sent it (human, proxy, office-manager, project-lead, ...)
 - **conversation**: which conversation it belongs to
 - **timestamp**: when
+- **type**: what kind (message, escalation, intervention, system)
 - **content**: text
 
 See [examples/message-schema.md](examples/message-schema.md) for the full structure.
 
-Conversations are identified by what they're about — an office manager session, a project session, a dispatch. Each has a stable ID tied to the thing it represents.
+The `type` field distinguishes messages that sibling proposals already need to handle differently: escalations require dashboard badges, interventions trigger CfA processing, system messages carry state transitions.
+
+Conversations are identified by what they represent: an office manager session, a project session, a dispatch. Each has a stable ID tied to the thing it represents.
 
 ---
 
 ## Conversations
 
-Three kinds, mapping to the hierarchy:
+Three kinds, mapping to the hierarchy.
 
 **Office manager conversation.** One per human. Always available. Persists across sessions.
 
@@ -36,11 +39,11 @@ Multiple conversations can be active simultaneously.
 
 ## How Messages Flow
 
-**Human → Agent.** The human types in the chat. The message is delivered to the agent's `claude -p` session via `--resume`. This replaces the FIFO IPC — see [references/migration.md](references/migration.md).
+**Human to Agent.** The human types in the chat. The message is delivered to the agent's `claude -p` session via `--resume` at the next turn boundary. A running `claude -p` process cannot receive input mid-turn; delivery is eventually consistent, bounded by the current turn's duration. This replaces the FIFO IPC; see [references/migration.md](references/migration.md).
 
-**Agent → Human.** Agent output from stream-json is parsed. Conversational content becomes messages. Stream filtering (see [dashboard-ui chat-windows](../dashboard-ui/references/chat-windows.md)) determines what the human sees.
+**Agent to Human.** Agent output from stream-json is parsed. Conversational content becomes messages. Stream filtering (see [dashboard-ui chat-windows](../dashboard-ui/references/chat-windows.md)) determines what the human sees.
 
-**Agent → Agent.** Via MCP tools (AskQuestion, AskTeam) and dispatch — not through the message bus.
+**Agent to Agent.** Via MCP tools (AskQuestion, AskTeam) and dispatch, not through the message bus.
 
 ---
 
@@ -48,7 +51,7 @@ Multiple conversations can be active simultaneously.
 
 The adapter is the boundary between the message bus and whatever renders the conversation. See [references/adapter-interface.md](references/adapter-interface.md) for the three-method contract.
 
-The adapter is auth-agnostic and does not transform content.
+The adapter does not transform message content. It may add presentation formatting for the target platform (Slack markdown, card layouts), but the semantic content passes through unchanged.
 
 ---
 
@@ -60,10 +63,7 @@ SQLite storage, Textual chat panel, message bus replacing the FIFO IPC. See [exa
 
 ## What This Enables
 
-- **Slack/Teams integration** — adapter swap, no orchestrator changes
-- **Mobile access** — respond to gates from a phone via external adapter
-- **Audit trail** — every human-agent interaction is a stored message
-- **Async participation** — messages wait for the human; no need to be watching when a gate fires
+Messages wait for the human; no need to be watching when a gate fires. Every human-agent interaction is a stored, searchable audit trail. The adapter interface means future integrations (different UIs, notification systems) are an adapter swap with no orchestrator changes.
 
 ---
 

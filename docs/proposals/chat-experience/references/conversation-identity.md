@@ -1,8 +1,8 @@
 # Conversation Identity and Persistence
 
-Each conversation pattern has a distinct stable identity tied to what it represents and how long it persists.
+Each conversation pattern has a distinct stable identity tied to what it represents and how long its message history persists. Note: "persistence" here refers to the message thread (what the human sees in the chat window), not the agent's context window. Agent context is ephemeral -- rebuilt from the prompt, memory retrieval, and platform state on each invocation. The message thread is the durable record.
 
-| Pattern | Identity | Persistence |
+| Pattern | Identity | Message History Persistence |
 |---------|----------|-------------|
 | Office manager | Session ID (like Claude Code) | Indefinite — survives across days/weeks |
 | Job chat | Project + job ID | Lives with the job — open while active, read-only history when done |
