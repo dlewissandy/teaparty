@@ -1,40 +1,65 @@
-# Design Readiness Checklist
+# Phase 1: Design Readiness
 
-For a milestone to proceed to sprint planning, the design must be sufficient to guide implementation. This means:
+## Agent Setup
 
-## What to check
+Launch as an **architect** agent with this prompt:
 
-1. **Milestone description references design docs.** The description should point to docs in `docs/proposals/`, `docs/conceptual-design/`, or `docs/detailed-design/`. If it doesn't, that's the first gap.
+> Assess design readiness for a milestone. Here is the milestone:
+>
+> **Title:** {title}
+> **Description:** {description}
+>
+> Read `.claude/skills/sprint-plan/design-readiness.md` for the full procedure and follow it.
+>
+> Return a structured assessment: a table of capabilities with their design doc, coverage level, and blocking open questions. End with a clear verdict: SUFFICIENT or INSUFFICIENT with specific gaps listed.
 
-2. **Each major capability has a design doc.** Parse the milestone description for its driving features. Each one should have at least a proposal or conceptual design doc that describes what the system should do and why. Code-level detailed design is not required — that can emerge during implementation — but the conceptual intent must be written down.
+---
 
-3. **Design docs are current.** Read each referenced doc. Check for:
-   - Open questions that would block implementation (vs. open questions that can be resolved during implementation)
-   - References to code or systems that no longer exist
-   - Contradictions between docs (one says X, another says not-X)
+## Procedure
 
-4. **No orphan capabilities.** Cross-reference the milestone description against the design docs. Are there capabilities mentioned in the milestone that no doc covers? These are design gaps.
+### Step 1: Find the entry point
 
-## What constitutes "sufficient"
+The milestone description references a design document (e.g., `docs/proposals/milestone-3.md`). Read that document. It is the entry point to the design — a landing page with a proposals table and links to sub-documents.
 
-- Every driving feature has a conceptual design or proposal that describes the intended behavior
-- No blocking open questions (questions that must be answered before any work can start)
-- The design docs are consistent with each other
+Do NOT read every linked document upfront. Use progressive disclosure:
+1. Read the landing page to understand the scope and identify the proposals.
+2. For each proposal, read only the `proposal.md` to understand the feature.
+3. Only follow links into `references/` or `examples/` when you need detail to assess a specific coverage question.
 
-## What does NOT block
+### Step 2: Check design coverage
 
-- Missing detailed design — implementation will produce this
-- Open questions about tuning parameters, thresholds, or configuration values
-- Open questions explicitly marked as "resolve during Phase 1" or "empirical"
-- Missing research docs — research informs design but doesn't block implementation
+For each major capability in the milestone description:
+- Does a proposal describe the intended behavior?
+- Are there blocking open questions in the proposal? (Questions that must be answered before work can start)
 
-## Output
+### Step 3: Targeted code review
 
-If insufficient: list each gap as a concrete action item ("Need proposal for X", "Resolve contradiction between Y and Z", "Open question Q blocks all work on feature F").
+For capabilities that claim to extend existing code, verify the claims:
+- Use Grep/Glob to find the code referenced in the proposal (e.g., `proxy_memory.py`, `engine.py`, `actors.py`)
+- Read the relevant sections to confirm the code is as described
+- Flag contradictions between the proposal and the actual code
 
-If sufficient: summarize the design landscape as a table:
+This is not a full code audit. Only check code when a proposal makes a specific claim about existing infrastructure ("the orchestrator already parses stream-json", "the proxy records learnings immediately").
+
+### Step 4: Assess sufficiency
+
+**Sufficient** means:
+- Every driving feature has a proposal describing intended behavior
+- No blocking open questions
+- Proposals are consistent with each other and with the codebase
+
+**Does NOT block:**
+- Missing detailed design — implementation produces this
+- Open questions about tuning parameters, thresholds, or configuration
+- Open questions marked "empirical" or "resolve during implementation"
+
+### Step 5: Return verdict
+
+If **insufficient**, list each gap as a concrete action item ("Need proposal for X", "Resolve contradiction between Y and Z", "Open question Q blocks all work on feature F").
+
+If **sufficient**, return a summary table:
 
 | Capability | Design Doc | Coverage | Open Questions |
 |-----------|-----------|----------|---------------|
-| Feature A | proposals/foo.md | Full | None blocking |
-| Feature B | conceptual-design/bar.md | Partial — missing Z | Q1: resolve before work starts |
+| Feature A | proposals/foo/proposal.md | Full | None blocking |
+| Feature B | proposals/bar/proposal.md | Partial — missing Z | Q1: resolve before work starts |

@@ -1,8 +1,28 @@
-# Backlog Scan Procedure
+# Phase 2: Backlog Scan
 
-Scan unassigned issues for tickets that belong in this milestone.
+## Agent Setup
 
-## Step 1: Fetch unassigned issues
+Launch as a **general-purpose** agent with this prompt:
+
+> Scan the issue backlog for tickets that belong in a milestone. Here is the milestone:
+>
+> **Title:** {title}
+> **Description:** {description}
+>
+> **Design landscape from Phase 1:**
+> {paste the Phase 1 summary table}
+>
+> Read `.claude/skills/sprint-plan/backlog-scan.md` for the full procedure and follow it.
+>
+> Assign matching tickets with `gh issue edit <number> --milestone "{title}"`.
+>
+> Return: the list of assigned tickets grouped by driving feature, and any tickets you considered but rejected (with reasons).
+
+---
+
+## Procedure
+
+### Step 1: Fetch issues
 
 ```bash
 gh issue list --no-milestone --state open --json number,title,body,labels --limit 200
@@ -14,40 +34,34 @@ Also check issues assigned to other open milestones that might be misplaced:
 gh issue list --state open --json number,title,body,labels,milestone --limit 200
 ```
 
-## Step 2: Score relevance
+### Step 2: Score relevance
 
-For each unassigned issue, assess whether it falls within the milestone's scope. Use the milestone description and design docs as the reference — not intuition about what "sounds related."
+For each unassigned issue, assess whether it falls within the milestone's scope. Use the Phase 1 summary table as the reference — it lists the capabilities and their design docs. Only read a design doc if you need to check whether a specific issue falls within its scope.
 
-A ticket belongs in this milestone if:
-- It implements a capability described in the milestone description or referenced design docs
-- It fixes a bug in code that this milestone will build on or modify
-- It resolves a design question that blocks milestone work
-- It is explicitly referenced as a dependency in a design doc
+**Belongs** if it:
+- Implements a capability described in the milestone description or design docs
+- Fixes a bug in code this milestone will build on or modify
+- Resolves a design question that blocks milestone work
+- Is explicitly referenced as a dependency in a design doc
 
-A ticket does NOT belong if:
-- It's about a system area this milestone doesn't touch
-- It's a nice-to-have improvement unrelated to the milestone's driving features
-- It depends on work from a future milestone
+**Does NOT belong** if it:
+- Is about a system area this milestone doesn't touch
+- Is a nice-to-have improvement unrelated to the driving features
+- Depends on work from a future milestone
 
-## Step 3: Assign
-
-For each ticket that belongs:
+### Step 3: Assign
 
 ```bash
 gh issue edit <number> --milestone "<milestone title>"
 ```
 
-## Step 4: Report
+### Step 4: Report
 
-List assigned tickets grouped by which driving feature they support:
+Group assigned tickets by driving feature:
 
 ```
 ### Feature 1: <name>
 - #NNN <title> — <why it belongs>
-- #NNN <title> — <why it belongs>
-
-### Feature 2: <name>
-...
 
 ### Cross-cutting
 - #NNN <title> — <why it belongs>

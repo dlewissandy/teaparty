@@ -7,10 +7,11 @@ user-invocable: true
 
 # Sprint Planning
 
-Plan work for a milestone by ensuring design coverage, assigning relevant backlog tickets, and filing gap tickets.
+Plan work for a milestone by delegating each phase to a subagent.
 
 - `$0` — GitHub milestone number (required)
-- Use **Read**, **Grep**, **Glob** for file operations. Reserve Bash for `git`, `gh`, and shell commands.
+- Each phase runs as a subagent to keep this context lean.
+- Pass milestone info and upstream results to each agent via its prompt.
 
 ## Phase 0: Load Milestone
 
@@ -20,48 +21,22 @@ gh api repos/:owner/:repo/milestones/$0 --jq '{number, title, description, state
 
 If the milestone doesn't exist or is closed, stop.
 
+Save the milestone title and description for use in subagent prompts.
+
 ## Phase 1: Design Readiness
 
-Read `design-readiness.md` in this skill directory for the full checklist.
+Launch an **architect** agent. Read `design-readiness.md` in this skill directory for the agent prompt template. Pass the milestone title and description.
 
-Determine whether the milestone description references design or proposal documents. For each referenced doc, read it. Then assess: is there enough design to guide implementation?
+Wait for the result. **If design is insufficient, HALT.** Report the gaps and stop.
 
-**If design is insufficient:** Report what's missing and **HALT**. List the specific design gaps — missing proposals, unresolved open questions, areas with no design coverage. Do not proceed to ticket creation without design.
+## Phase 2: Backlog Scan
 
-**If design is sufficient:** Summarize the design landscape — which docs cover which capabilities, and any open questions that are acknowledged but not blocking.
-
-## Phase 2: Assign Backlog Tickets
-
-Read `backlog-scan.md` in this skill directory for the scan procedure.
-
-Scan the unassigned backlog for tickets that belong in this milestone. For each candidate, check whether it fits within the milestone's scope as described in the milestone description and design docs.
-
-Assign matching tickets: `gh issue edit <number> --milestone "<title>"`
-
-Report what was assigned and why.
+Launch a **general-purpose** agent. Read `backlog-scan.md` in this skill directory for the agent prompt template. Pass the milestone title, description, and the Phase 1 summary table.
 
 ## Phase 3: Gap Analysis
 
-Read `gap-analysis.md` in this skill directory for the analysis procedure.
-
-**Read the actual code**, not just docs and tickets. For each capability area, use Grep/Glob/Read to understand what's implemented, what's partial, and what infrastructure exists or is missing. Trace integration points across modules. Then compare against the design to find gaps.
-
-For each gap, file a new ticket. Read `.claude/skills/audit/issue-template.md` for the template. File with: `gh issue create --title "<title>" --body "<body>" --milestone "<title>"`
-
-Report what was filed.
+Launch a **general-purpose** agent. Read `gap-analysis.md` in this skill directory for the agent prompt template. Pass the milestone title, description, Phase 1 summary table, and Phase 2 assigned ticket list.
 
 ## Phase 4: Summary
 
-Post a status update to the GitHub project board summarizing the sprint plan:
-
-```bash
-gh api graphql -f query='mutation {
-  createProjectV2StatusUpdate(input: {
-    projectId: "PVT_kwHOAH4OHc4BR81E"
-    status: ON_TRACK
-    body: "<summary>"
-  }) { statusUpdate { id } }
-}'
-```
-
-Include: milestone scope, design coverage assessment, tickets assigned from backlog, new tickets filed, and any open risks.
+Collect results from all three phases and report to the user: milestone scope, design coverage assessment, tickets assigned from backlog, new tickets filed, and any open risks.
