@@ -177,7 +177,6 @@ class TestMessageBusInputProvider(unittest.TestCase):
         request = self._make_input_request(bridge_text='Approve this?')
 
         async def _run():
-            # Simulate human responding after a short delay
             async def _respond():
                 await asyncio.sleep(0.05)
                 self.bus.send(self.conversation_id, 'human', 'yes, approved')
@@ -186,7 +185,7 @@ class TestMessageBusInputProvider(unittest.TestCase):
             result = await self.provider(request)
             return result
 
-        result = asyncio.get_event_loop().run_until_complete(_run())
+        result = asyncio.new_event_loop().run_until_complete(_run())
         self.assertEqual(result, 'yes, approved')
 
     def test_question_persisted_to_bus(self):
@@ -201,7 +200,7 @@ class TestMessageBusInputProvider(unittest.TestCase):
             asyncio.ensure_future(_respond())
             await self.provider(request)
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.new_event_loop().run_until_complete(_run())
         msgs = self.bus.receive(self.conversation_id)
         # Should have both the question and the answer
         self.assertEqual(len(msgs), 2)
@@ -221,7 +220,7 @@ class TestMessageBusInputProvider(unittest.TestCase):
                 asyncio.ensure_future(_respond())
                 await self.provider(req)
 
-        asyncio.get_event_loop().run_until_complete(_run())
+        asyncio.new_event_loop().run_until_complete(_run())
         msgs = self.bus.receive(self.conversation_id)
         # 3 questions + 3 answers = 6 messages
         self.assertEqual(len(msgs), 6)
