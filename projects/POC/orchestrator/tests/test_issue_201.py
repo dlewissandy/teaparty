@@ -233,8 +233,115 @@ class TestMemoryRecording(unittest.TestCase):
         self.assertEqual(chunks[0]['content'], 'from store1')
 
 
+class TestCrossMemoryBridge(unittest.TestCase):
+    """Cross-memory bridge: office manager writes steering chunks to proxy_chunks,
+    reads gate_outcome chunks from proxy_chunks. This is the shared memory pool
+    that makes the two-agent architecture work."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmp, '.proxy-memory.db')
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _make_store(self):
+        from projects.POC.orchestrator.office_manager import MemoryStore
+        return MemoryStore(self.db_path)
+
+    def test_record_steering_writes_to_proxy_chunks(self):
+        """record_steering() creates a MemoryChunk in the proxy's proxy_chunks table."""
+        from projects.POC.orchestrator.proxy_memory import open_proxy_db, get_chunk
+        store = self._make_store()
+        chunk_id = store.record_steering(
+            content='Focus on security across all sessions',
+            source='darrell',
+            current_interaction=1,
+        )
+        # Verify via the proxy_memory API directly
+        conn = open_proxy_db(self.db_path)
+        chunk = get_chunk(conn, chunk_id)
+        conn.close()
+        self.assertIsNotNone(chunk)
+        self.assertEqual(chunk.type, 'steering')
+        self.assertIn('security', chunk.content)
+
+    def test_record_steering_is_retrievable_by_proxy(self):
+        """A steering chunk recorded by the office manager is visible to proxy retrieval."""
+        from projects.POC.orchestrator.proxy_memory import open_proxy_db, query_chunks
+        store = self._make_store()
+        store.record_steering(
+            content='Prioritize database migration',
+            source='darrell',
+            current_interaction=2,
+        )
+        conn = open_proxy_db(self.db_path)
+        chunks = query_chunks(conn, type='steering')
+        conn.close()
+        self.assertEqual(len(chunks), 1)
+        self.assertIn('database migration', chunks[0].content)
+
+    def test_get_gate_outcomes_reads_proxy_chunks(self):
+        """get_gate_outcomes() reads gate_outcome chunks written by the proxy."""
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db, store_chunk, MemoryChunk,
+        )
+        # Write a gate_outcome chunk as the proxy would
+        conn = open_proxy_db(self.db_path)
+        chunk = MemoryChunk(
+            id='gate-test-001',
+            type='gate_outcome',
+            state='APPROVED',
+            task_type='planning',
+            outcome='approved',
+            content='Approved the planning phase for POC session',
+        )
+        store_chunk(conn, chunk)
+        conn.close()
+
+        # Read it via the office manager's bridge method
+        store = self._make_store()
+        outcomes = store.get_gate_outcomes(task_type='planning')
+        self.assertEqual(len(outcomes), 1)
+        self.assertEqual(outcomes[0].state, 'APPROVED')
+        self.assertIn('planning phase', outcomes[0].content)
+
+    def test_shared_db_both_directions(self):
+        """Office manager steering and proxy gate_outcomes coexist in the same DB."""
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db, store_chunk, MemoryChunk, query_chunks,
+        )
+        # Proxy writes a gate_outcome
+        conn = open_proxy_db(self.db_path)
+        store_chunk(conn, MemoryChunk(
+            id='gate-both-001',
+            type='gate_outcome',
+            state='APPROVED',
+            task_type='execution',
+            outcome='approved',
+            content='Approved execution',
+        ))
+        conn.close()
+
+        # Office manager writes a steering chunk
+        store = self._make_store()
+        store.record_steering(
+            content='Focus on tests',
+            source='darrell',
+            current_interaction=3,
+        )
+
+        # Both are visible
+        conn = open_proxy_db(self.db_path)
+        gates = query_chunks(conn, type='gate_outcome')
+        steers = query_chunks(conn, type='steering')
+        conn.close()
+        self.assertEqual(len(gates), 1)
+        self.assertEqual(len(steers), 1)
+
+
 class TestInterventionTools(unittest.TestCase):
-    """MCP intervention tools: WithdrawSession, PauseDispatch, ResumeDispatch."""
+    """MCP intervention tools: WithdrawSession, PauseDispatch, ResumeDispatch, ReprioritizeDispatch."""
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
@@ -339,6 +446,39 @@ class TestInterventionTools(unittest.TestCase):
         result = resume_dispatch(self.infra_dir)
         self.assertEqual(result['status'], 'not_paused')
 
+    def test_reprioritize_dispatch_updates_priority(self):
+        """ReprioritizeDispatch changes the heartbeat priority field."""
+        from projects.POC.orchestrator.office_manager_tools import reprioritize_dispatch
+        self._make_heartbeat(status='running')
+        result = reprioritize_dispatch(self.infra_dir, 'high')
+        self.assertEqual(result['status'], 'reprioritized')
+        self.assertEqual(result['new_priority'], 'high')
+
+        hb_path = os.path.join(self.infra_dir, '.heartbeat')
+        with open(hb_path) as f:
+            hb = json.load(f)
+        self.assertEqual(hb['priority'], 'high')
+
+    def test_reprioritize_paused_dispatch(self):
+        """A paused dispatch can be reprioritized without resuming it."""
+        from projects.POC.orchestrator.office_manager_tools import reprioritize_dispatch
+        self._make_heartbeat(status='paused')
+        result = reprioritize_dispatch(self.infra_dir, 'low')
+        self.assertEqual(result['status'], 'reprioritized')
+
+        hb_path = os.path.join(self.infra_dir, '.heartbeat')
+        with open(hb_path) as f:
+            hb = json.load(f)
+        self.assertEqual(hb['status'], 'paused')
+        self.assertEqual(hb['priority'], 'low')
+
+    def test_reprioritize_not_running_is_noop(self):
+        """Reprioritizing a terminal dispatch returns not_running."""
+        from projects.POC.orchestrator.office_manager_tools import reprioritize_dispatch
+        self._make_heartbeat(status='withdrawn')
+        result = reprioritize_dispatch(self.infra_dir, 'high')
+        self.assertEqual(result['status'], 'not_running')
+
 
 class TestManagementTeamDefinition(unittest.TestCase):
     """Management team agent definition structure."""
@@ -369,6 +509,15 @@ class TestManagementTeamDefinition(unittest.TestCase):
         team = self._load_team_def()
         liaison_keys = [k for k in team if 'liaison' in k]
         self.assertGreater(len(liaison_keys), 0, 'Expected at least one liaison agent')
+
+    def test_team_has_config_workgroup_liaison(self):
+        """Team includes a configuration workgroup liaison per the proposal."""
+        team = self._load_team_def()
+        config_keys = [k for k in team if 'config' in k]
+        self.assertGreater(
+            len(config_keys), 0,
+            'Expected a configuration workgroup liaison agent',
+        )
 
     def test_office_manager_has_intervention_tools(self):
         """office-manager prompt or config references intervention tools."""
