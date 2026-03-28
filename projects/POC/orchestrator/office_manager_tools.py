@@ -39,11 +39,12 @@ def withdraw_session(infra_dir: str) -> dict:
     if cfa.get('state') in ('COMPLETED_WORK', 'WITHDRAWN'):
         return {'status': 'already_terminal', 'state': cfa['state']}
 
-    # Set state to WITHDRAWN
+    # Record pre-transition state, then set to WITHDRAWN
+    prior_state = cfa.get('state', '')
     cfa['state'] = 'WITHDRAWN'
     cfa['phase'] = 'terminal'
     history_entry = {
-        'state': cfa.get('state', ''),
+        'state': prior_state,
         'action': 'withdraw',
         'actor': 'office-manager',
     }
