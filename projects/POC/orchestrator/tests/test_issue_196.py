@@ -327,6 +327,14 @@ class TestEngineScopedSkillLookup(unittest.TestCase):
             with open(plan_path) as f:
                 self.assertIn('Team deploy', f.read())
 
+            # Scope is propagated to active skill and sidecar
+            self.assertEqual(orch._active_skill['scope'], 'team')
+            import json
+            sidecar = os.path.join(infra_dir, '.active-skill.json')
+            with open(sidecar) as f:
+                sidecar_data = json.load(f)
+            self.assertEqual(sidecar_data['scope'], 'team')
+
     def test_project_skill_used_when_no_team_override(self):
         """Without team_override, only project skills dir is searched."""
         with tempfile.TemporaryDirectory() as worktree, \

@@ -454,6 +454,7 @@ class Orchestrator:
             'name': match.name,
             'path': match.path,
             'score': str(match.score),
+            'scope': match.scope,
             'template': match.template,
         }
 
@@ -467,6 +468,7 @@ class Orchestrator:
                     'name': match.name,
                     'path': match.path,
                     'score': str(match.score),
+                    'scope': match.scope,
                     'session_id': self.session_id,
                 }, f)
         except OSError:
@@ -490,6 +492,7 @@ class Orchestrator:
                 'result': 'matched',
                 'skill_name': match.name,
                 'skill_score': match.score,
+                'skill_scope': match.scope,
                 'skill_path': match.path,
             },
             session_id=self.session_id,
