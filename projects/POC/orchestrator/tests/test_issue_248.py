@@ -345,5 +345,73 @@ class TestWithdrawLearningSignal(unittest.TestCase):
         self.assertIn('build widget', msg, 'Learning signal must include task')
 
 
+class TestWithdrawMemoryChunk(unittest.TestCase):
+    """Withdrawal must record an ACT-R memory chunk in the proxy DB."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        # Create a realistic directory hierarchy:
+        # {tmpdir}/test-project/.sessions/20260327-120000/
+        self.project_dir = os.path.join(self.tmpdir, 'test-project')
+        sessions_dir = os.path.join(self.project_dir, '.sessions')
+        self.infra_dir = os.path.join(sessions_dir, '20260327-120000')
+        os.makedirs(self.infra_dir)
+
+        self.cfa_path = os.path.join(self.infra_dir, '.cfa-state.json')
+        with open(self.cfa_path, 'w') as f:
+            json.dump({
+                'phase': 'execution', 'state': 'TASK_IN_PROGRESS',
+                'actor': 'uber_team', 'history': [],
+            }, f)
+
+        with open(os.path.join(self.infra_dir, '.running'), 'w') as f:
+            f.write('99999')
+
+        # Create a proxy memory DB
+        from projects.POC.orchestrator.proxy_memory import open_proxy_db
+        self.db_path = os.path.join(self.project_dir, '.proxy-memory.db')
+        conn = open_proxy_db(self.db_path)
+        conn.close()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_records_withdrawal_memory_chunk(self):
+        """withdraw_session() must store a 'withdrawal' type chunk in proxy_memory.db."""
+        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.proxy_memory import open_proxy_db
+
+        session = _make_session_state(
+            self.infra_dir, task='build widget', cfa_phase='execution',
+            cfa_state='TASK_IN_PROGRESS',
+        )
+        _run(withdraw_session(session))
+
+        conn = open_proxy_db(self.db_path)
+        try:
+            rows = conn.execute(
+                "SELECT type, state, outcome, content FROM proxy_chunks WHERE type='withdrawal'"
+            ).fetchall()
+            self.assertEqual(len(rows), 1, 'Expected exactly one withdrawal chunk')
+            row = rows[0]
+            self.assertEqual(row[0], 'withdrawal')
+            self.assertEqual(row[1], 'TASK_IN_PROGRESS')
+            self.assertEqual(row[2], 'withdrawn')
+            self.assertIn('build widget', row[3])
+            self.assertIn('execution', row[3])
+        finally:
+            conn.close()
+
+    def test_no_chunk_when_db_missing(self):
+        """If proxy_memory.db doesn't exist, withdrawal still succeeds (no crash)."""
+        from projects.POC.tui.withdraw import withdraw_session
+
+        os.unlink(self.db_path)
+        session = _make_session_state(self.infra_dir)
+        result = _run(withdraw_session(session))
+        self.assertTrue(result, 'Withdrawal should succeed even without proxy DB')
+
+
 if __name__ == '__main__':
     unittest.main()
