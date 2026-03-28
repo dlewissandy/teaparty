@@ -206,6 +206,7 @@ class TestScopedSkillLookup(unittest.TestCase):
                 task='Deploy the production microservice',
                 intent='Deploy the microservice to production environment',
                 skills_dirs=[('team', team_skills), ('project', project_skills)],
+                threshold=0.05,  # Low threshold — testing override, not scoring
             )
             # Team version wins even with a weaker description
             self.assertIsNotNone(result)
