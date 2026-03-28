@@ -39,6 +39,7 @@ from projects.POC.orchestrator.actors import (
 )
 from projects.POC.orchestrator.human_presence import HumanPresence
 from projects.POC.orchestrator.escalation_listener import EscalationListener
+from projects.POC.orchestrator.intervention_listener import InterventionListener
 from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.intervention import InterventionQueue, build_intervention_prompt
@@ -169,6 +170,10 @@ class Orchestrator:
         # MCP dispatch listener — bridges AskTeam calls to dispatch()
         # Type annotation uses string to avoid circular import at module level
         self._dispatch_listener: Any | None = None
+        # MCP intervention listener — bridges office manager tools to
+        # session/dispatch operations (Issue #249)
+        self._intervention_listener: InterventionListener | None = None
+        self._intervention_resolver: dict[str, str] = {}
         self._mcp_config: dict | None = None
 
         # Track resume session IDs per phase (for --resume on corrections).
@@ -239,6 +244,18 @@ class Orchestrator:
                 ask_team_socket = await self._dispatch_listener.start()
                 mcp_env['ASK_TEAM_SOCKET'] = ask_team_socket
 
+            # Start the intervention listener so office manager tools
+            # (WithdrawSession, PauseDispatch, etc.) can execute.  The
+            # resolver is a mutable dict — the orchestrator adds entries
+            # as sessions/dispatches start.  Seeded with this session.
+            # Issue #249.
+            self._intervention_resolver[self.session_id] = self.infra_dir
+            self._intervention_listener = InterventionListener(
+                resolver=self._intervention_resolver,
+            )
+            intervention_socket = await self._intervention_listener.start()
+            mcp_env['INTERVENTION_SOCKET'] = intervention_socket
+
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
@@ -259,6 +276,8 @@ class Orchestrator:
                 await self._escalation_listener.stop()
             if self._dispatch_listener:
                 await self._dispatch_listener.stop()
+            if self._intervention_listener:
+                await self._intervention_listener.stop()
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""
