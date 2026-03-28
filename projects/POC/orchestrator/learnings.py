@@ -177,6 +177,13 @@ async def extract_learnings(
             project_dir=project_dir,
         )
 
+    # ── Within-scope learning consolidation (#245) ──────────────────────────
+
+    await _run_scope(
+        'task-consolidation', _consolidate_task_learnings,
+        project_dir=project_dir,
+    )
+
     # ── Proxy correction entry compaction (#198) ────────────────────────────
 
     await _run_scope(
@@ -868,6 +875,46 @@ def _consolidate_proxy_memory(*, project_dir: str) -> None:
             _log.debug('Proxy consolidation failed for %s', db_path, exc_info=True)
         finally:
             conn.close()
+
+
+# ── Within-scope learning consolidation (#245) ──────────────────────────────
+
+def _consolidate_task_learnings(*, project_dir: str) -> None:
+    """Consolidate duplicate/overlapping entries in task-based stores.
+
+    Runs consolidate_task_store() on both tasks/ and proxy-tasks/ directories
+    under project_dir.  Uses embeddings when available, falls back to Jaccard
+    token similarity.
+    """
+    from projects.POC.orchestrator.consolidate_learnings import (
+        consolidate_task_store,
+        jaccard_token_similarity,
+    )
+
+    embed_fn = _make_embed_fn()
+    if embed_fn is not None:
+        from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
+        def _sim(a: str, b: str) -> float:
+            va = embed_fn(a)
+            vb = embed_fn(b)
+            if va is None or vb is None:
+                return jaccard_token_similarity(a, b)
+            return cosine_similarity(va, vb)
+
+        similarity_fn = _sim
+    else:
+        similarity_fn = None  # use default Jaccard
+
+    for subdir in ('tasks', 'proxy-tasks'):
+        store_dir = os.path.join(project_dir, subdir)
+        if os.path.isdir(store_dir):
+            result = consolidate_task_store(store_dir, similarity_fn=similarity_fn)
+            if result.merged_count > 0:
+                _log.info(
+                    'Consolidated %s: %d → %d entries',
+                    subdir, result.original_count, result.final_count,
+                )
 
 
 # ── Proxy correction entry compaction (#198) ─────────────────────────────────
