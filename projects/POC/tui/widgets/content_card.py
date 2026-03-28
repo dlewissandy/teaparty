@@ -17,12 +17,24 @@ class CardItem:
     data: object = None  # arbitrary payload for click handling
 
 
+class _CardItemStatic(Static):
+    """Static that routes clicks to screen.action_card_click."""
+
+    def __init__(self, content: str, card_name: str, index: int, **kwargs):
+        super().__init__(content, **kwargs)
+        self._card_name = card_name
+        self._index = index
+
+    def on_click(self) -> None:
+        self.screen.action_card_click(self._card_name, self._index)
+
+
 class ContentCard(Widget):
     """Dashboard content card: title + clickable item list.
 
-    Items use [@click=screen.card_click('card_name', index)] so clicks
-    go directly to the Screen's action_card_click method — no message
-    bubbling required.
+    Each item is a _CardItemStatic that calls screen.action_card_click
+    on click. Text is rendered as plain Rich markup (no [@click] tags)
+    so color tags work correctly.
     """
 
     def __init__(
@@ -47,12 +59,13 @@ class ContentCard(Widget):
         for i, item in enumerate(self._items):
             yield self._make_item_static(i, item)
 
-    def _make_item_static(self, index: int, item: CardItem) -> Static:
+    def _make_item_static(self, index: int, item: CardItem) -> _CardItemStatic:
         icon = f'{item.icon} ' if item.icon else '  '
         detail = f'  {item.detail}' if item.detail else ''
-        safe_name = self._card_name.replace("'", "\\'")
-        return Static(
-            f"[@click=screen.card_click('{safe_name}', {index})]{icon}{item.label}{detail}[/]",
+        return _CardItemStatic(
+            f'{icon}{item.label}{detail}',
+            card_name=self._card_name,
+            index=index,
             classes='card-item card-item-clickable',
         )
 
