@@ -105,10 +105,16 @@ class ChatApp(App):
         return None
 
     def on_mount(self) -> None:
+        import signal
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
         self._pid_file = _register_pid(self.projects_dir)
         from projects.POC.tui.screens.chat import ChatScreen
         self.push_screen(ChatScreen(initial_conversation=self.initial_conversation))
         self.set_interval(1.0, self._periodic_refresh)
+
+    def _handle_sigterm(self, signum, frame) -> None:
+        """Exit cleanly on SIGTERM so the terminal window closes."""
+        self.exit(return_code=0)
 
     def on_unmount(self) -> None:
         if self._pid_file:

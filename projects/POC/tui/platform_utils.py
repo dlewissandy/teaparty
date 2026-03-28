@@ -118,13 +118,19 @@ def _open_terminal_linux(shell_cmd: str, title: str) -> None:
 
 
 def _open_terminal_wsl(shell_cmd: str) -> None:
-    """Open a new Windows Terminal window from WSL."""
+    """Open a new Windows Terminal window from WSL.
+
+    Uses ``exec`` so bash replaces itself with the target process.
+    This way Windows Terminal sees the process exit directly and
+    closes the tab (under the default ``closeOnExit: graceful`` policy)
+    instead of leaving a dead "process exited" window.
+    """
     if shutil.which('wt.exe'):
         subprocess.Popen(['wt.exe', '-w', 'new', 'new-tab', '--',
-                          'wsl.exe', '-e', 'sh', '-c', shell_cmd])
+                          'wsl.exe', '-e', 'bash', '-lc', shell_cmd])
     else:
         subprocess.Popen(['cmd.exe', '/c', 'start', 'cmd', '/c',
-                          f'wsl -e sh -c "{shell_cmd}"'])
+                          f'wsl -e bash -lc "{shell_cmd}"'])
 
 
 def open_file(path: str) -> None:
