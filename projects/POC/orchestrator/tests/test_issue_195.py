@@ -28,6 +28,7 @@ from projects.POC.orchestrator.config_reader import ScheduledTask
 from projects.POC.orchestrator.cron_scheduler import (
     CronScheduler,
     RunRecord,
+    collect_scheduled_tasks,
     is_due,
     next_run_time,
 )
@@ -230,6 +231,226 @@ class TestRunRecord(unittest.TestCase):
         self.assertEqual(record.task_name, 'sweep')
         self.assertEqual(record.timestamp, now)
         self.assertTrue(record.success)
+
+
+def _make_session_factory(terminal_state='COMPLETED_WORK', side_effect=None):
+    """Create a mock session factory for testing run_task."""
+    mock_session = AsyncMock()
+    if side_effect:
+        mock_session.run.side_effect = side_effect
+    else:
+        mock_result = type('R', (), {'terminal_state': terminal_state})()
+        mock_session.run.return_value = mock_result
+    factory = lambda *args, **kwargs: mock_session  # noqa: E731
+    factory._mock_session = mock_session
+    factory._calls = []
+    original_factory = factory
+
+    def tracking_factory(*args, **kwargs):
+        original_factory._calls.append((args, kwargs))
+        return mock_session
+
+    tracking_factory._mock_session = mock_session
+    tracking_factory._calls = original_factory._calls
+    return tracking_factory
+
+
+class TestRunTask(unittest.TestCase):
+    """run_task dispatches a session scoped to the project."""
+
+    def test_run_task_success(self):
+        """A successful session run records success in the log."""
+        import asyncio
+        scheduler = _make_scheduler()
+        task = _make_scheduled_task()
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        record = asyncio.run(scheduler.run_task(task, session_factory=factory))
+
+        self.assertTrue(record.success)
+        self.assertEqual(record.task_name, 'nightly-sweep')
+        self.assertEqual(record.reason, '')
+
+        # Verify Session was constructed with project scoping
+        call_kwargs = factory._calls[0][1]
+        self.assertEqual(call_kwargs['project_override'], 'test-project')
+        self.assertTrue(call_kwargs['skip_intent'])
+        self.assertTrue(call_kwargs['execute_only'])
+
+    def test_run_task_failure(self):
+        """A failed session run records the failure reason."""
+        import asyncio
+        scheduler = _make_scheduler()
+        task = _make_scheduled_task()
+        factory = _make_session_factory('WITHDRAWN')
+
+        record = asyncio.run(scheduler.run_task(task, session_factory=factory))
+
+        self.assertFalse(record.success)
+        self.assertIn('WITHDRAWN', record.reason)
+
+    def test_run_task_exception(self):
+        """An exception during session run records the error."""
+        import asyncio
+        scheduler = _make_scheduler()
+        task = _make_scheduled_task()
+        factory = _make_session_factory(side_effect=RuntimeError('claude CLI not found'))
+
+        record = asyncio.run(scheduler.run_task(task, session_factory=factory))
+
+        self.assertFalse(record.success)
+        self.assertIn('claude CLI not found', record.reason)
+
+    def test_run_task_includes_skill_and_args_in_description(self):
+        """The task description sent to Session includes skill name and args."""
+        import asyncio
+        scheduler = _make_scheduler()
+        task = _make_scheduled_task(skill='audit', args='--deep')
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        asyncio.run(scheduler.run_task(task, session_factory=factory))
+
+        task_desc = factory._calls[0][0][0]  # first positional arg
+        self.assertIn('audit', task_desc)
+        self.assertIn('--deep', task_desc)
+
+    def test_run_task_updates_last_run(self):
+        """After run_task, get_last_run returns the execution timestamp."""
+        import asyncio
+        state_dir = _make_state_dir()
+        scheduler = _make_scheduler(state_dir=state_dir)
+        task = _make_scheduled_task()
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        asyncio.run(scheduler.run_task(task, session_factory=factory))
+
+        self.assertIsNotNone(scheduler.get_last_run('nightly-sweep'))
+
+
+class TestTick(unittest.TestCase):
+    """tick() runs one full evaluation cycle."""
+
+    def test_tick_executes_due_tasks(self):
+        """tick() finds due tasks and runs them."""
+        import asyncio
+        scheduler = _make_scheduler(tasks=[
+            _make_scheduled_task(name='task-a'),
+            _make_scheduled_task(name='task-b'),
+        ])
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        now = datetime(2026, 3, 28, 2, 1, 0, tzinfo=timezone.utc)
+        records = asyncio.run(scheduler.tick(now=now, session_factory=factory))
+
+        self.assertEqual(len(records), 2)
+        names = [r.task_name for r in records]
+        self.assertIn('task-a', names)
+        self.assertIn('task-b', names)
+
+    def test_tick_skips_not_due_tasks(self):
+        """tick() doesn't run tasks that aren't due yet."""
+        import asyncio
+        state_dir = _make_state_dir()
+        scheduler = _make_scheduler(
+            tasks=[_make_scheduled_task(name='recent')],
+            state_dir=state_dir,
+        )
+        # Record a recent run so the task is not due
+        just_ran = datetime(2026, 3, 28, 2, 0, 0, tzinfo=timezone.utc)
+        scheduler.record_run('recent', just_ran, success=True)
+
+        now = datetime(2026, 3, 28, 2, 1, 0, tzinfo=timezone.utc)
+        records = asyncio.run(scheduler.tick(now=now))
+        self.assertEqual(len(records), 0)
+
+    def test_tick_records_failures(self):
+        """tick() records failures without stopping other tasks."""
+        import asyncio
+        scheduler = _make_scheduler(tasks=[
+            _make_scheduled_task(name='failing-task'),
+        ])
+        factory = _make_session_factory(side_effect=RuntimeError('boom'))
+
+        now = datetime(2026, 3, 28, 2, 1, 0, tzinfo=timezone.utc)
+        records = asyncio.run(scheduler.tick(now=now, session_factory=factory))
+
+        self.assertEqual(len(records), 1)
+        self.assertFalse(records[0].success)
+        self.assertIn('boom', records[0].reason)
+
+
+class TestCollectScheduledTasks(unittest.TestCase):
+    """collect_scheduled_tasks gathers from management + project configs."""
+
+    def _make_teaparty_home(self, yaml_content: str) -> str:
+        home = tempfile.mkdtemp()
+        os.makedirs(os.path.join(home, '.teaparty'))
+        with open(os.path.join(home, '.teaparty', 'teaparty.yaml'), 'w') as f:
+            f.write(yaml_content)
+        return os.path.join(home, '.teaparty')
+
+    def _make_project_dir(self, yaml_content: str) -> str:
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, '.teaparty'))
+        with open(os.path.join(d, '.teaparty', 'project.yaml'), 'w') as f:
+            f.write(yaml_content)
+        return d
+
+    def test_collects_from_both_levels(self):
+        """Tasks from management and project config are merged."""
+        tp_home = self._make_teaparty_home(textwrap.dedent("""\
+            name: Test Org
+            scheduled:
+              - name: org-sweep
+                schedule: "0 3 * * *"
+                skill: sweep
+        """))
+        proj_dir = self._make_project_dir(textwrap.dedent("""\
+            name: My Project
+            scheduled:
+              - name: proj-audit
+                schedule: "0 4 * * *"
+                skill: audit
+        """))
+
+        tasks = collect_scheduled_tasks(proj_dir, teaparty_home=tp_home)
+        names = [t.name for t in tasks]
+        self.assertIn('org-sweep', names)
+        self.assertIn('proj-audit', names)
+        self.assertEqual(len(tasks), 2)
+
+    def test_missing_management_config(self):
+        """Missing management config doesn't crash — just returns project tasks."""
+        proj_dir = self._make_project_dir(textwrap.dedent("""\
+            name: My Project
+            scheduled:
+              - name: proj-task
+                schedule: "0 2 * * *"
+                skill: test
+        """))
+
+        tasks = collect_scheduled_tasks(proj_dir, teaparty_home='/nonexistent')
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].name, 'proj-task')
+
+    def test_missing_project_config(self):
+        """Missing project config doesn't crash — just returns management tasks."""
+        tp_home = self._make_teaparty_home(textwrap.dedent("""\
+            name: Test Org
+            scheduled:
+              - name: org-task
+                schedule: "0 3 * * *"
+                skill: sweep
+        """))
+
+        tasks = collect_scheduled_tasks('/nonexistent', teaparty_home=tp_home)
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0].name, 'org-task')
+
+    def test_both_missing(self):
+        """Both configs missing returns empty list."""
+        tasks = collect_scheduled_tasks('/nonexistent', teaparty_home='/also-nonexistent')
+        self.assertEqual(tasks, [])
 
 
 if __name__ == '__main__':
