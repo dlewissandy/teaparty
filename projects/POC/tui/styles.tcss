@@ -21,8 +21,9 @@ Screen {
 ContentCard {
     height: auto;
     max-height: 12;
+    width: 1fr;
     border: tall $primary-lighten-1;
-    margin: 0 1 1 1;
+    margin: 0 0 1 0;
     padding: 0;
 }
 
@@ -68,10 +69,13 @@ WorkflowProgress {
     height: 1fr;
     overflow-y: auto;
     padding: 1;
+    layout: grid;
+    grid-size: 2;
+    grid-gutter: 0;
 }
 
-.card-row {
-    height: auto;
+.card-grid.-narrow {
+    grid-size: 1;
 }
 
 /* ── Section titles ── */

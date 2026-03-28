@@ -74,6 +74,11 @@ class ProjectDashboard(Screen):
             ContentCard('ESCALATIONS', 'escalations'),
             ContentCard('SESSIONS', 'sessions', show_new_button=True),
             ContentCard('JOBS', 'jobs', show_new_button=True),
+            ContentCard('WORKGROUPS', 'workgroups', show_new_button=True),
+            ContentCard('AGENTS', 'agents', show_new_button=True),
+            ContentCard('SKILLS', 'skills', show_new_button=True),
+            ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True),
+            ContentCard('HOOKS', 'hooks', show_new_button=True),
             id='card-col',
             classes='card-grid',
         )
@@ -81,6 +86,20 @@ class ProjectDashboard(Screen):
 
     def on_mount(self) -> None:
         self._refresh_data(force=True)
+        self._update_grid_columns()
+
+    def on_resize(self) -> None:
+        self._update_grid_columns()
+
+    def _update_grid_columns(self) -> None:
+        try:
+            grid = self.query_one('#card-col')
+            if self.size.width < 80:
+                grid.add_class('-narrow')
+            else:
+                grid.remove_class('-narrow')
+        except Exception:
+            pass
 
     def _refresh_data(self, force: bool = False) -> None:
         reader = self.app.state_reader
