@@ -47,8 +47,11 @@ class ScratchModel:
 
         Only mechanically extractable categories are handled:
         - ``user`` events → human input
-        - ``system``/``state_changed`` events → CfA transitions
         - ``tool_use`` Write/Edit events → file modifications
+
+        CfA state changes use :meth:`record_state_change` instead,
+        since they come from the orchestrator event bus (STATE_CHANGED),
+        not from the Claude Code stream (STREAM_DATA).
         """
         etype = event.get('type', '')
 
@@ -59,19 +62,23 @@ class ScratchModel:
                 self.human_inputs.append(content)
             return
 
-        if etype == 'system' and event.get('subtype') == 'state_changed':
-            self.state_changes.append({
-                'from': event.get('from', ''),
-                'to': event.get('to', ''),
-            })
-            return
-
         if etype == 'tool_use' and event.get('name') in _FILE_MOD_TOOLS:
             inp = event.get('input', {})
             path = inp.get('file_path', '')
             if path and path not in self.artifacts:
                 self.artifacts.append(path)
             return
+
+    def record_state_change(self, previous_state: str, new_state: str) -> None:
+        """Record a CfA state transition.
+
+        Called by the engine when it processes STATE_CHANGED events.
+        These are orchestrator-level events, not stream-json events.
+        """
+        self.state_changes.append({
+            'from': previous_state,
+            'to': new_state,
+        })
 
     def add_dead_end(self, description: str) -> None:
         """Record a failed approach."""

@@ -248,12 +248,12 @@ class Orchestrator:
             }
 
         # Subscribe to stream events for scratch file extraction (Issue #261).
-        self.event_bus.subscribe(self._on_stream_event)
+        self.event_bus.subscribe(self._on_scratch_event)
 
         try:
             return await self._run_loop()
         finally:
-            self.event_bus.unsubscribe(self._on_stream_event)
+            self.event_bus.unsubscribe(self._on_scratch_event)
             self._scratch_writer.cleanup()
             if self._escalation_listener:
                 await self._escalation_listener.stop()
@@ -851,24 +851,34 @@ class Orchestrator:
                 f'partial progress.'
             )
 
-    async def _on_stream_event(self, event: Event) -> None:
-        """Feed stream events into the scratch model (Issue #261).
+    async def _on_scratch_event(self, event: Event) -> None:
+        """Feed events into the scratch model (Issue #261).
 
-        Subscribed to the event bus in run().  Extracts human input,
-        state changes, and file modifications from STREAM_DATA events.
-        Human input is also appended to the detail file immediately.
+        Subscribed to the event bus in run().  Processes two event types:
+        - STREAM_DATA: extracts human input and file modifications
+        - STATE_CHANGED: records CfA state transitions
+
+        These are different event sources: STREAM_DATA comes from the
+        Claude Code CLI stream, while STATE_CHANGED is published by the
+        engine's own _transition method.
         """
-        if event.type != EventType.STREAM_DATA:
-            return
-        data = event.data
-        self._scratch_model.extract(data)
+        if event.type == EventType.STREAM_DATA:
+            data = event.data
+            self._scratch_model.extract(data)
 
-        # Append human input to detail file as it arrives.
-        if data.get('type') == 'user':
-            msg = data.get('message', {})
-            content = msg.get('content', '') if isinstance(msg, dict) else ''
-            if content:
-                self._scratch_writer.append_human_input(content)
+            # Append human input to detail file as it arrives.
+            if data.get('type') == 'user':
+                msg = data.get('message', {})
+                content = msg.get('content', '') if isinstance(msg, dict) else ''
+                if content:
+                    self._scratch_writer.append_human_input(content)
+
+        elif event.type == EventType.STATE_CHANGED:
+            data = event.data
+            self._scratch_model.record_state_change(
+                previous_state=data.get('previous_state', ''),
+                new_state=data.get('state', ''),
+            )
 
     def _update_scratch(self, phase_name: str) -> None:
         """Serialize the scratch model to disk at a turn boundary (Issue #261)."""

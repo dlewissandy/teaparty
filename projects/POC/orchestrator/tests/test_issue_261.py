@@ -53,26 +53,19 @@ class TestScratchModelHumanInput(unittest.TestCase):
 # ── Test 2: Accumulate CfA state changes ──────────────────────────────────
 
 class TestScratchModelStateChanges(unittest.TestCase):
-    """ScratchModel.extract must capture CfA state transitions."""
-
-    def _make_state_event(self, from_state='INTENT_IN_PROGRESS', to_state='INTENT_ASSERT'):
-        return {
-            'type': 'system',
-            'subtype': 'state_changed',
-            'from': from_state,
-            'to': to_state,
-        }
+    """ScratchModel.record_state_change must capture CfA state transitions."""
 
     def test_captures_state_transition(self):
         model = ScratchModel(job='test-job', phase='intent')
-        model.extract(self._make_state_event('INTENT_IN_PROGRESS', 'INTENT_ASSERT'))
+        model.record_state_change('INTENT_IN_PROGRESS', 'INTENT_ASSERT')
         self.assertEqual(len(model.state_changes), 1)
+        self.assertEqual(model.state_changes[0]['from'], 'INTENT_IN_PROGRESS')
         self.assertEqual(model.state_changes[0]['to'], 'INTENT_ASSERT')
 
     def test_accumulates_transitions(self):
         model = ScratchModel(job='test-job', phase='intent')
-        model.extract(self._make_state_event('INTENT_IN_PROGRESS', 'INTENT_ASSERT'))
-        model.extract(self._make_state_event('INTENT_ASSERT', 'INTENT_APPROVED'))
+        model.record_state_change('INTENT_IN_PROGRESS', 'INTENT_ASSERT')
+        model.record_state_change('INTENT_ASSERT', 'INTENT_APPROVED')
         self.assertEqual(len(model.state_changes), 2)
 
 
@@ -140,10 +133,7 @@ class TestScratchModelRender(unittest.TestCase):
                 'type': 'tool_use', 'name': 'Write',
                 'input': {'file_path': f'src/file_{i}.py', 'content': '...'},
             })
-        model.extract({
-            'type': 'system', 'subtype': 'state_changed',
-            'from': 'TASK_IN_PROGRESS', 'to': 'TASK_ASSERT',
-        })
+        model.record_state_change('TASK_IN_PROGRESS', 'TASK_ASSERT')
         return model
 
     def test_under_200_lines(self):
@@ -367,10 +357,10 @@ class TestScratchModelToolUseWriteEdit(unittest.TestCase):
         self.assertEqual(len(model.artifacts), 1)
 
 
-# ── Test 20: Engine _on_stream_event extracts from STREAM_DATA ────────────
+# ── Test 20: Engine _on_scratch_event extracts from STREAM_DATA ────────────
 
 class TestEngineStreamExtraction(unittest.TestCase):
-    """Engine._on_stream_event feeds STREAM_DATA events into the scratch model."""
+    """Engine._on_scratch_event feeds STREAM_DATA events into the scratch model."""
 
     def _make_orchestrator(self):
         from projects.POC.orchestrator.engine import Orchestrator
@@ -415,7 +405,7 @@ class TestEngineStreamExtraction(unittest.TestCase):
         orch, bus, worktree = self._make_orchestrator()
 
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(orch._on_stream_event(Event(
+        loop.run_until_complete(orch._on_scratch_event(Event(
             type=EventType.STREAM_DATA,
             data={'type': 'user', 'message': {'content': 'use approach B'}},
         )))
@@ -430,7 +420,7 @@ class TestEngineStreamExtraction(unittest.TestCase):
         orch, bus, worktree = self._make_orchestrator()
 
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(orch._on_stream_event(Event(
+        loop.run_until_complete(orch._on_scratch_event(Event(
             type=EventType.STREAM_DATA,
             data={'type': 'user', 'message': {'content': 'important decision'}},
         )))
@@ -441,19 +431,43 @@ class TestEngineStreamExtraction(unittest.TestCase):
         content = open(detail_path).read()
         self.assertIn('important decision', content)
 
-    def test_non_stream_data_event_ignored(self):
-        """Events other than STREAM_DATA are ignored by _on_stream_event."""
+    def test_state_changed_event_records_transition(self):
+        """STATE_CHANGED events record CfA transitions in the scratch model."""
         from projects.POC.orchestrator.events import Event, EventType
         orch, bus, worktree = self._make_orchestrator()
 
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(orch._on_stream_event(Event(
+        loop.run_until_complete(orch._on_scratch_event(Event(
             type=EventType.STATE_CHANGED,
-            data={'type': 'user', 'message': {'content': 'should be ignored'}},
+            data={
+                'previous_state': 'TASK_IN_PROGRESS',
+                'state': 'TASK_ASSERT',
+                'phase': 'execution',
+                'actor': 'human',
+                'action': 'assert',
+            },
+        )))
+        loop.close()
+
+        self.assertEqual(len(orch._scratch_model.state_changes), 1)
+        self.assertEqual(orch._scratch_model.state_changes[0]['from'], 'TASK_IN_PROGRESS')
+        self.assertEqual(orch._scratch_model.state_changes[0]['to'], 'TASK_ASSERT')
+
+    def test_irrelevant_event_type_ignored(self):
+        """Event types other than STREAM_DATA and STATE_CHANGED are ignored."""
+        from projects.POC.orchestrator.events import Event, EventType
+        orch, bus, worktree = self._make_orchestrator()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._on_scratch_event(Event(
+            type=EventType.LOG,
+            data={'category': 'test'},
         )))
         loop.close()
 
         self.assertEqual(len(orch._scratch_model.human_inputs), 0)
+        self.assertEqual(len(orch._scratch_model.state_changes), 0)
+        self.assertEqual(len(orch._scratch_model.artifacts), 0)
 
     def test_stream_data_tool_use_extracted(self):
         """STREAM_DATA with tool_use Write populates artifacts."""
@@ -461,7 +475,7 @@ class TestEngineStreamExtraction(unittest.TestCase):
         orch, bus, worktree = self._make_orchestrator()
 
         loop = asyncio.new_event_loop()
-        loop.run_until_complete(orch._on_stream_event(Event(
+        loop.run_until_complete(orch._on_scratch_event(Event(
             type=EventType.STREAM_DATA,
             data={'type': 'tool_use', 'name': 'Write', 'input': {'file_path': 'src/main.py', 'content': '...'}},
         )))
