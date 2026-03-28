@@ -213,19 +213,14 @@ class TestProjectLeadSpawnsLiaisons(unittest.TestCase):
         self.assertIn('TaskOutput', pattern_section,
                       "DISPATCH PATTERN must include a TaskOutput step for monitoring progress")
 
-    def test_each_liaison_mentioned_in_prompt(self):
-        """All five liaison names must appear in the project-lead prompt."""
-        liaison_names = [
-            'art-liaison',
-            'writing-liaison',
-            'editorial-liaison',
-            'research-liaison',
-            'coding-liaison',
-        ]
-        for name in liaison_names:
-            with self.subTest(liaison=name):
-                self.assertIn(name, self.prompt,
-                              f"project-lead prompt must reference {name} so the lead knows it can be spawned")
+    def test_prompt_references_available_teams(self):
+        """Project-lead prompt must reference Available Teams for dynamic injection.
+
+        Issue #141: liaison list is now dynamically injected via the
+        Available Teams context block, not hardcoded in the prompt.
+        """
+        self.assertIn('Available Teams', self.prompt,
+                      "project-lead prompt must reference 'Available Teams' for dynamic injection")
 
 
 # ── Test: liaison prompts reference dispatch mechanism, not dispatch.sh ───────
