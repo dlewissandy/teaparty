@@ -936,8 +936,10 @@ class Orchestrator:
     def _task_for_phase(self, phase_name: str) -> str:
         """Get the task description for a phase.
 
-        Intent phase: uses the original task description.
-        Planning phase: reads INTENT.md (the intent phase's output).
+        Intent phase: uses the original task description, with constraints
+            (resolved norms) and escalation guidance injected.
+        Planning phase: reads INTENT.md (the intent phase's output), with
+            dynamically-resolved available teams injected.
         Execution phase: reads PLAN.md as the workflow to follow,
             with INTENT.md appended as reference context.
 
@@ -979,6 +981,16 @@ class Orchestrator:
             # Intent phase, or artifacts not yet written
             base_task = self.task or self.project_slug
 
+        # Inject phase-specific constraints (Issue #141)
+        if phase_name == 'intent':
+            constraints = self._resolve_intent_constraints()
+            if constraints:
+                base_task += constraints
+        elif phase_name == 'planning':
+            teams_block = self._resolve_available_teams()
+            if teams_block:
+                base_task += teams_block
+
         # Append cold-start context for intent and planning phases
         if phase_name in ('intent', 'planning'):
             obs_count = self._get_observation_count(phase_name)
@@ -997,6 +1009,74 @@ class Orchestrator:
                 base_task += cold_start_context
 
         return base_task
+
+    def _resolve_intent_constraints(self) -> str:
+        """Resolve norms/guardrails as constraints for the intent phase.
+
+        Loads norms from the configuration tree and frames them as constraints
+        with escalation guidance. Returns empty string if no constraints exist.
+
+        Issue #141: agents must know their constraints and escalate.
+        """
+        from projects.POC.orchestrator.config_reader import (
+            load_management_team,
+            load_project_team,
+            resolve_norms,
+        )
+
+        org_norms: dict[str, list[str]] = {}
+        project_norms: dict[str, list[str]] = {}
+
+        try:
+            mgmt = load_management_team()
+            org_norms = mgmt.norms
+        except (FileNotFoundError, OSError):
+            pass
+
+        if self.project_dir:
+            try:
+                proj = load_project_team(self.project_dir)
+                project_norms = proj.norms
+            except (FileNotFoundError, OSError):
+                pass
+
+        norms_text = resolve_norms(
+            org_norms=org_norms, project_norms=project_norms,
+        )
+        if not norms_text:
+            return ''
+
+        return (
+            '\n\n--- Constraints ---\n'
+            'The following constraints apply to this project. If the request '
+            'would violate any of these constraints, escalate — do not accept '
+            'the request as-is. Escalation is the correct response when '
+            'constraints cannot be met.\n\n'
+            f'{norms_text}\n'
+            '--- end ---'
+        )
+
+    def _resolve_available_teams(self) -> str:
+        """Resolve dynamically-available teams for the planning phase.
+
+        Reads the project-scoped team list from PhaseConfig and formats it
+        for injection into the planning task context.
+
+        Issue #141: planning agent must know what teams exist.
+        """
+        teams = self.config.project_teams
+        if not teams:
+            return ''
+
+        team_names = sorted(teams.keys())
+        return (
+            '\n\n--- Available Teams ---\n'
+            'The following teams are available for dispatch: '
+            + ', '.join(team_names) + '. '
+            'Only reference these teams in the plan. If the task requires '
+            'capabilities not covered by these teams, escalate.\n'
+            '--- end ---'
+        )
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     # Each retry adds a flat cooldown — not exponential, since the CLI already
