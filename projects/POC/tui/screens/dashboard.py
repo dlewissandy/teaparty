@@ -74,6 +74,7 @@ class DashboardScreen(Screen):
         Binding('r', 'refresh', 'Refresh', show=True),
         Binding('q', 'quit_app', 'Quit', show=True),
         Binding('f', 'change_folder', 'Folder', show=True),
+        Binding('c', 'open_chat', 'Chat', show=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -327,6 +328,10 @@ class DashboardScreen(Screen):
 
     def action_quit_app(self) -> None:
         self.app.exit()
+
+    def action_open_chat(self) -> None:
+        from projects.POC.tui.screens.chat import ChatScreen
+        self.app.push_screen(ChatScreen())
 
     def action_change_folder(self) -> None:
         self.app.push_screen(ChangeProjectDirScreen())
