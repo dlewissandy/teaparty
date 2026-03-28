@@ -622,10 +622,8 @@ def navigate_to(app, ctx: NavigationContext) -> None:
     while len(app.screen_stack) > 1:
         app.pop_screen()
 
-    if ctx.level == DashboardLevel.MANAGEMENT:
-        return  # base screen is already management
-
-    app.push_screen(DashboardScreen(ctx))
+    # Always replace the base screen with a fresh one
+    app.switch_screen(DashboardScreen(ctx))
 
 
 def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '') -> None:
