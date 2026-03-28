@@ -18,8 +18,8 @@ class CardItem:
     data: object = None  # arbitrary payload for click handling
 
 
-class _ClickableItem(Static):
-    """A Static that posts CardItemClicked when clicked."""
+class CardItemWidget(Static):
+    """A Static that posts Clicked when clicked."""
 
     class Clicked(Message):
         def __init__(self, index: int) -> None:
@@ -78,10 +78,10 @@ class ContentCard(Widget):
         for i, item in enumerate(self._items):
             yield self._make_item_widget(i, item)
 
-    def _make_item_widget(self, index: int, item: CardItem) -> _ClickableItem:
+    def _make_item_widget(self, index: int, item: CardItem) -> CardItemWidget:
         icon = f'{item.icon} ' if item.icon else '  '
         detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-        return _ClickableItem(
+        return CardItemWidget(
             f'{icon}{item.label}{detail}',
             index=index,
             classes='card-item card-item-clickable',
@@ -107,7 +107,7 @@ class ContentCard(Widget):
         for i, item in enumerate(items):
             self.mount(self._make_item_widget(i, item))
 
-    def on__clickable_item_clicked(self, event: _ClickableItem.Clicked) -> None:
+    def on_card_item_widget_clicked(self, event: CardItemWidget.Clicked) -> None:
         """Bubble the click as an ItemSelected message."""
         if 0 <= event.index < len(self._items):
             self.post_message(self.ItemSelected(self._card_name, self._items[event.index]))
