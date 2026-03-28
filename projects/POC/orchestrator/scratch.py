@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
-import time
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -25,7 +24,7 @@ _FILE_MOD_TOOLS = frozenset({'Write', 'Edit'})
 _MAX_RENDER_LINES = 200
 
 
-def _extract_text(content) -> str:
+def extract_text(content) -> str:
     """Extract plain text from a message content field.
 
     Claude Code stream-json ``user`` events carry content as a list of
@@ -76,7 +75,7 @@ class ScratchModel:
         if etype == 'user':
             msg = event.get('message', {})
             content = msg.get('content', '') if isinstance(msg, dict) else ''
-            text = _extract_text(content)
+            text = extract_text(content)
             if text:
                 self.human_inputs.append(text)
             return

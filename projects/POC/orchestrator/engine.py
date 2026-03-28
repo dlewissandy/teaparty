@@ -50,7 +50,7 @@ from projects.POC.orchestrator.context_budget import ContextBudget, build_compac
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.cost_tracker import CostTracker
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
-from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter, _extract_text
+from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter, extract_text
 
 
 @dataclass
@@ -870,7 +870,7 @@ class Orchestrator:
             if data.get('type') == 'user':
                 msg = data.get('message', {})
                 raw = msg.get('content', '') if isinstance(msg, dict) else ''
-                text = _extract_text(raw)
+                text = extract_text(raw)
                 if text:
                     self._scratch_writer.append_human_input(text)
 
