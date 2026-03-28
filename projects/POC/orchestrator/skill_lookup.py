@@ -30,72 +30,103 @@ class SkillMatch:
     description: str
     score: float
     template: str
+    scope: str = 'project'
 
 
 def lookup_skill(
     task: str,
     intent: str,
-    skills_dir: str,
+    skills_dir: str = '',
     threshold: float = 0.15,
+    skills_dirs: list[tuple[str, str]] | None = None,
 ) -> SkillMatch | None:
     """Search the skill library for a matching skill.
+
+    Supports two modes:
+
+    **Single directory** (backward compatible): pass ``skills_dir``.
+    **Scoped directories** (Issue #196): pass ``skills_dirs`` — a list of
+    ``(scope_name, path)`` tuples ordered from narrowest to broadest scope.
+    A skill name that appears at a narrower scope shadows the same name at
+    a broader scope (name-based override).
 
     Args:
         task: The task description.
         intent: The approved intent (INTENT.md content).
-        skills_dir: Path to the skills directory.
+        skills_dir: Path to a single skills directory (legacy).
         threshold: Minimum score to consider a match.
+        skills_dirs: Scope-ordered skill directories, narrowest first.
 
     Returns:
         Best matching SkillMatch if above threshold, else None.
     """
-    if not os.path.isdir(skills_dir):
+    # Normalize into a unified list of (scope, path) tuples.
+    if skills_dirs is not None:
+        dirs = skills_dirs
+    elif skills_dir:
+        dirs = [('project', skills_dir)]
+    else:
         return None
 
     task_tokens = _tokenize(task)
     intent_tokens = _tokenize(intent)
 
-    best: SkillMatch | None = None
-    best_score = 0.0
+    # Collect all skills, applying name-based override: narrower scope wins.
+    # skills_dirs is ordered narrowest-first, so first occurrence of a name wins.
+    seen_names: set[str] = set()
+    candidates: list[SkillMatch] = []
 
-    for filename in os.listdir(skills_dir):
-        if not filename.endswith('.md'):
-            continue
-        path = os.path.join(skills_dir, filename)
-        if not os.path.isfile(path):
-            continue
-
-        try:
-            meta, body = _parse_frontmatter(path)
-        except Exception:
-            _log.debug('Skipping malformed skill file: %s', path)
+    for scope, dirpath in dirs:
+        if not os.path.isdir(dirpath):
             continue
 
-        # Skip degraded skills flagged for review (Issue #229)
-        if meta.get('needs_review', '').lower() == 'true':
-            _log.debug('Skipping degraded skill: %s (needs_review=true)', filename)
-            continue
+        for filename in os.listdir(dirpath):
+            if not filename.endswith('.md'):
+                continue
+            path = os.path.join(dirpath, filename)
+            if not os.path.isfile(path):
+                continue
 
-        name = meta.get('name', filename[:-3])
-        description = meta.get('description', '')
-        category = meta.get('category', '')
+            try:
+                meta, body = _parse_frontmatter(path)
+            except Exception:
+                _log.debug('Skipping malformed skill file: %s', path)
+                continue
 
-        skill_text = f'{name} {description} {category}'
-        skill_tokens = _tokenize(skill_text)
+            # Skip degraded skills flagged for review (Issue #229)
+            if meta.get('needs_review', '').lower() == 'true':
+                _log.debug('Skipping degraded skill: %s (needs_review=true)', filename)
+                continue
 
-        score = _score(task_tokens, intent_tokens, skill_tokens)
+            name = meta.get('name', filename[:-3])
 
-        if score > best_score:
-            best_score = score
-            best = SkillMatch(
+            # Name-based override: skip if a narrower scope already claimed this name
+            if name in seen_names:
+                continue
+            seen_names.add(name)
+
+            description = meta.get('description', '')
+            category = meta.get('category', '')
+
+            skill_text = f'{name} {description} {category}'
+            skill_tokens = _tokenize(skill_text)
+
+            score = _score(task_tokens, intent_tokens, skill_tokens)
+
+            candidates.append(SkillMatch(
                 name=name,
                 path=path,
                 description=description,
                 score=score,
                 template=body,
-            )
+                scope=scope,
+            ))
 
-    if best and best.score >= threshold:
+    if not candidates:
+        return None
+
+    best = max(candidates, key=lambda c: c.score)
+    if best.score >= threshold:
         return best
     return None
 

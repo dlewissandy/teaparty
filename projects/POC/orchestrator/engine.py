@@ -403,8 +403,19 @@ class Orchestrator:
         correct it, the correction goes to PLANNING_RESPONSE → DRAFT and the
         planning agent runs (System 2 fallback).
         """
-        skills_dir = os.path.join(self.project_workdir, 'skills')
-        if not os.path.isdir(skills_dir):
+        # Build scope-ordered skill directories: narrowest first (Issue #196).
+        # Team scope (if team context exists) → project scope.
+        skills_dirs: list[tuple[str, str]] = []
+        if self.team_override:
+            team_skills = os.path.join(
+                self.project_workdir, 'teams', self.team_override, 'skills',
+            )
+            skills_dirs.append(('team', team_skills))
+        project_skills = os.path.join(self.project_workdir, 'skills')
+        skills_dirs.append(('project', project_skills))
+
+        # Fast exit: if no scope directory exists on disk, skip lookup.
+        if not any(os.path.isdir(d) for _, d in skills_dirs):
             return False
 
         # Read the approved intent from infra_dir (Issue #147)
@@ -420,7 +431,7 @@ class Orchestrator:
             match = lookup_skill(
                 task=self.task,
                 intent=intent,
-                skills_dir=skills_dir,
+                skills_dirs=skills_dirs,
             )
         except Exception:
             _log.debug('Skill lookup failed, falling through to cold start')

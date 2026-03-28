@@ -106,6 +106,7 @@ def crystallize_skills(
     *,
     project_dir: str,
     min_candidates: int = 3,
+    team_name: str = '',
 ) -> int:
     """Identify recurring patterns across skill candidates and produce skill templates.
 
@@ -113,7 +114,10 @@ def crystallize_skills(
     groups them, and if enough similar candidates exist (>= min_candidates),
     calls _generalize_candidates() to produce a parameterized skill template.
 
-    Writes produced skills to {project_dir}/skills/.
+    When ``team_name`` is provided (Issue #196), writes produced skills to
+    ``{project_dir}/teams/{team_name}/skills/`` instead of the default
+    ``{project_dir}/skills/``.
+
     Marks source candidates as status=processed.
 
     Returns the number of skills produced.
@@ -149,7 +153,11 @@ def crystallize_skills(
     clusters = _cluster_candidates(pending)
 
     skills_produced = 0
-    skills_dir = os.path.join(project_dir, 'skills')
+    # Issue #196: team-scoped skills go to teams/{name}/skills/
+    if team_name:
+        skills_dir = os.path.join(project_dir, 'teams', team_name, 'skills')
+    else:
+        skills_dir = os.path.join(project_dir, 'skills')
 
     for cluster in clusters:
         if len(cluster) < min_candidates:
