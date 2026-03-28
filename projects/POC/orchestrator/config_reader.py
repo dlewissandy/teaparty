@@ -82,6 +82,7 @@ class ManagementTeam:
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     scheduled: list[ScheduledTask] = field(default_factory=list)
+    norms: dict[str, list[str]] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
 
@@ -194,6 +195,7 @@ def load_management_team(
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         skills=data.get('skills', []),
         scheduled=_parse_scheduled(data.get('scheduled')),
+        norms=data.get('norms', {}),
         stats=data.get('stats', {}),
     )
 
@@ -344,6 +346,57 @@ def resolve_workgroups(
                 resolved.append(load_workgroup(config_path))
 
     return resolved
+
+
+# ── Norms ──────────────────────────────────────────────────────────────────
+
+def apply_norms_precedence(*levels: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Apply norms precedence across configuration levels.
+
+    Per the design doc: "This is not a merge." If a higher-precedence level
+    defines a category, it fully replaces that category from lower levels.
+    Non-conflicting categories from all levels are preserved.
+
+    Args are ordered lowest-to-highest precedence: org, workgroup, project.
+    Any number of levels can be passed (including zero).
+    """
+    result: dict[str, list[str]] = {}
+    for level in levels:
+        result.update(level)
+    return result
+
+
+def format_norms(norms: dict[str, list[str]]) -> str:
+    """Render norms as natural language for prompt injection.
+
+    Returns readable text organized by category. Returns empty string
+    if there are no norms.
+    """
+    if not norms:
+        return ''
+    sections = []
+    for category, statements in norms.items():
+        lines = [f'- {s}' for s in statements]
+        sections.append(f'{category.title()}:\n' + '\n'.join(lines))
+    return '\n\n'.join(sections)
+
+
+def resolve_norms(
+    org_norms: dict[str, list[str]] | None = None,
+    workgroup_norms: dict[str, list[str]] | None = None,
+    project_norms: dict[str, list[str]] | None = None,
+) -> str:
+    """Resolve norms across all three levels and format for prompt injection.
+
+    Applies precedence (org < workgroup < project) and renders as text.
+    This is the integration point for injecting norms into agent context.
+    """
+    effective = apply_norms_precedence(
+        org_norms or {},
+        workgroup_norms or {},
+        project_norms or {},
+    )
+    return format_norms(effective)
 
 
 # ── YAML persistence ──────────────────────────────────────────────────────────

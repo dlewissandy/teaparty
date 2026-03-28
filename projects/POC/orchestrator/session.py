@@ -35,6 +35,9 @@ from projects.POC.orchestrator.messaging import (
     ConversationType, MessageBusInputProvider, SqliteMessageBus,
     make_conversation_id,
 )
+from projects.POC.orchestrator.config_reader import (
+    load_project_team, load_management_team, resolve_norms,
+)
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 from projects.POC.orchestrator.state_writer import StateWriter
@@ -246,6 +249,11 @@ class Session:
         if memory_context:
             task_prompt = f"{self.task}\n\n{memory_context}"
 
+        # 9b. Inject norms from configuration tree (Issue #257)
+        norms_text = self._resolve_norms(project_dir)
+        if norms_text:
+            task_prompt = f"{task_prompt}\n\n{norms_text}"
+
         # 10. Run orchestrator — use message bus input provider for persistent
         # communication (Issue #200).  Falls back to the original input_provider
         # if the bus provider is unavailable (e.g., no-human mode).
@@ -406,6 +414,34 @@ class Session:
         if project_dir:
             return _ensure_project_repo(project_dir)
         return _find_repo_root_from(self.poc_root)
+
+    def _resolve_norms(self, project_dir: str) -> str:
+        """Load and resolve norms from the configuration tree.
+
+        Reads org-level norms from ~/.teaparty/teaparty.yaml and
+        project-level norms from {project_dir}/.teaparty/project.yaml.
+        Applies precedence (org < project) and returns formatted text.
+        Returns empty string if no config tree exists.
+        """
+        org_norms: dict[str, list[str]] = {}
+        project_norms: dict[str, list[str]] = {}
+
+        try:
+            mgmt = load_management_team()
+            org_norms = mgmt.norms
+        except (FileNotFoundError, OSError):
+            pass
+
+        try:
+            proj = load_project_team(project_dir)
+            project_norms = proj.norms
+        except (FileNotFoundError, OSError):
+            pass
+
+        text = resolve_norms(org_norms=org_norms, project_norms=project_norms)
+        if not text:
+            return ''
+        return f'--- Norms (advisory) ---\n{text}\n--- end ---'
 
     def _retrieve_memory(self, project_dir: str) -> str:
         """Retrieve relevant memory entries for the task."""
@@ -679,6 +715,11 @@ class Session:
         if memory_context:
             task_prompt = f'{task}\n\n{memory_context}'
 
+        # 12b. Inject norms from configuration tree (Issue #257)
+        norms_text = cls._resolve_norms_static(project_dir)
+        if norms_text:
+            task_prompt = f'{task_prompt}\n\n{norms_text}'
+
         # 13. Construct and run orchestrator — use message bus input provider
         # for persistent communication (Issue #200).
         effective_input = bus_input_provider or input_provider
@@ -766,6 +807,30 @@ class Session:
             session_id=session_id,
             backtrack_count=result.backtrack_count,
         )
+
+    @staticmethod
+    @staticmethod
+    def _resolve_norms_static(project_dir: str) -> str:
+        """Load and resolve norms without requiring a Session instance."""
+        org_norms: dict[str, list[str]] = {}
+        project_norms: dict[str, list[str]] = {}
+
+        try:
+            mgmt = load_management_team()
+            org_norms = mgmt.norms
+        except (FileNotFoundError, OSError):
+            pass
+
+        try:
+            proj = load_project_team(project_dir)
+            project_norms = proj.norms
+        except (FileNotFoundError, OSError):
+            pass
+
+        text = resolve_norms(org_norms=org_norms, project_norms=project_norms)
+        if not text:
+            return ''
+        return f'--- Norms (advisory) ---\n{text}\n--- end ---'
 
     @staticmethod
     def _retrieve_memory_static(
