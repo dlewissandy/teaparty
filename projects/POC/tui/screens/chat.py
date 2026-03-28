@@ -378,6 +378,10 @@ class ChatScreen(Screen):
         stream_events = self._stream_events.get(self._selected_conv, [])
 
         from rich.text import Text
+        from projects.POC.tui.chat_model import format_gate_context
+
+        # Look up gate context for session conversations
+        gate_ctx = self._gate_context_for_conv(self._selected_conv)
 
         # Render new message-bus messages
         for msg in msgs[self._msg_count:]:
@@ -394,7 +398,22 @@ class ChatScreen(Screen):
             elif msg.sender == 'orchestrator':
                 t.append(f'[{time_str}] ', style='dim')
                 t.append('agent', style='bold cyan')
+                if gate_ctx:
+                    t.append(f'  [{gate_ctx}] ', style='dim yellow')
                 t.append(f'  {msg.content}')
+                # Show artifact preview for gate messages
+                if gate_ctx:
+                    log.write(t)
+                    session_id = _session_id_from_conv(self._selected_conv)
+                    if session_id:
+                        try:
+                            session = self.app.state_reader.find_session(session_id)
+                            if session:
+                                artifact = self._find_artifact(session, session.cfa_state)
+                                self._render_artifact_preview(log, artifact)
+                        except Exception:
+                            pass
+                    continue
             else:
                 t.append(f'[{time_str}] ', style='dim')
                 t.append(msg.sender, style='bold')
@@ -517,6 +536,62 @@ class ChatScreen(Screen):
                 conn.close()
 
         asyncio.create_task(_do_turn())
+
+    def _gate_context_for_conv(self, conv_id: str) -> str:
+        """Return gate context string for a session conversation, or ''."""
+        session_id = _session_id_from_conv(conv_id)
+        if not session_id:
+            return ''
+        try:
+            reader = self.app.state_reader
+            session = reader.find_session(session_id)
+            if not session or not session.cfa_state:
+                return ''
+            state = session.cfa_state
+            artifact = self._find_artifact(session, state)
+            from projects.POC.tui.chat_model import format_gate_context
+            ctx = format_gate_context(state, artifact)
+            return ctx if ctx != state else ''
+        except Exception:
+            return ''
+
+    def _find_artifact(self, session, cfa_state: str) -> str:
+        """Locate the artifact path for a gate's CfA state."""
+        infra_dir = getattr(session, 'infra_dir', '')
+        if not infra_dir:
+            return ''
+        candidates: dict[str, list[str]] = {
+            'INTENT': ['INTENT.md'],
+            'PLAN': ['plan.md', 'PLAN.md'],
+            'WORK': ['.work-summary.md', 'work-summary.md'],
+        }
+        for key, filenames in candidates.items():
+            if key in cfa_state:
+                for fn in filenames:
+                    path = os.path.join(infra_dir, fn)
+                    if os.path.exists(path):
+                        return path
+        return ''
+
+    def _render_artifact_preview(self, log, artifact_path: str) -> None:
+        """Render a preview of the artifact content in the message log."""
+        if not artifact_path or not os.path.exists(artifact_path):
+            return
+        from rich.text import Text
+        try:
+            with open(artifact_path) as f:
+                content = f.read(2000)  # preview, not the whole file
+            if not content.strip():
+                return
+            filename = os.path.basename(artifact_path)
+            log.write(Text(f'  \u2500\u2500 {filename} \u2500\u2500', style='dim yellow'))
+            for line in content.splitlines()[:30]:
+                log.write(Text(f'  {line}', style='dim'))
+            if len(content) >= 2000:
+                log.write(Text('  ... (truncated)', style='dim'))
+            log.write(Text(f'  \u2500\u2500 end {filename} \u2500\u2500', style='dim yellow'))
+        except (OSError, UnicodeDecodeError):
+            pass
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
