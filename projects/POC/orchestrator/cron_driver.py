@@ -63,6 +63,21 @@ class CronDriver:
                 now=now, session_factory=session_factory,
             )
 
+    async def run_now(
+        self,
+        task_name: str,
+        session_factory: Any = None,
+    ) -> RunRecord:
+        """Trigger immediate execution of a task, bypassing the cron schedule.
+
+        Re-entrancy safe: waits for any in-progress tick to finish first.
+        Raises KeyError if no task with the given name exists.
+        """
+        async with self._lock:
+            return await self.scheduler.run_now(
+                task_name, session_factory=session_factory,
+            )
+
     @classmethod
     def from_config(
         cls,

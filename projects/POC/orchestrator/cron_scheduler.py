@@ -258,6 +258,28 @@ class CronScheduler:
             success=success, reason=reason,
         )
 
+    def get_task(self, task_name: str) -> ScheduledTask | None:
+        """Look up a task by name. Returns None if not found."""
+        for task in self.tasks:
+            if task.name == task_name:
+                return task
+        return None
+
+    async def run_now(
+        self,
+        task_name: str,
+        session_factory: Any = None,
+    ) -> RunRecord:
+        """Trigger immediate execution of a task, bypassing the cron schedule.
+
+        Raises KeyError if no task with the given name exists.
+        """
+        task = self.get_task(task_name)
+        if task is None:
+            raise KeyError(f'No scheduled task named {task_name!r}')
+        _log.info('Cron run-now: %s (skill=%s)', task.name, task.skill)
+        return await self.run_task(task, session_factory=session_factory)
+
     async def tick(
         self,
         now: datetime | None = None,
