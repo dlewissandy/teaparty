@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Static
+from textual.widgets import Footer, Header, Static
 
 from projects.POC.tui.navigation import DashboardLevel, NavigationContext
 from projects.POC.tui.widgets.breadcrumb_bar import BreadcrumbBar
@@ -96,13 +96,10 @@ class ManagementDashboard(Screen):
             ),
             id='top-panes',
         )
-        yield Static('', id='chat-attention-label', classes='chat-attention-label')
-        yield Static('', id='projects-dir-label', classes='projects-dir-label')
         yield Footer()
 
     def on_mount(self) -> None:
         self._refresh_data(force=True)
-        self._update_projects_dir_label()
 
     def _refresh_data(self, force: bool = False) -> None:
         reader = self.app.state_reader
@@ -117,8 +114,6 @@ class ManagementDashboard(Screen):
         self._update_skills_card()
         self._update_scheduled_tasks_card()
         self._update_hooks_card()
-        self._update_projects_dir_label()
-        self._update_chat_attention()
 
     def _update_stats(self, reader) -> None:
         total_sessions = sum(len(p.sessions) for p in reader.projects)
@@ -219,56 +214,6 @@ class ManagementDashboard(Screen):
                     break
         except Exception:
             pass
-
-    def _update_projects_dir_label(self) -> None:
-        try:
-            self.query_one('#projects-dir-label', Static).update(
-                f'Projects: {self.app.projects_dir}'
-            )
-        except Exception:
-            pass
-
-    def _update_chat_attention(self) -> None:
-        try:
-            label = self.query_one('#chat-attention-label', Static)
-        except Exception:
-            return
-        try:
-            count = self._get_chat_attention_count()
-        except Exception:
-            count = 0
-        if count > 0:
-            label.update(f'\u23f3 {count} conversation{"s" if count != 1 else ""} need{"" if count != 1 else "s"} your response \u2014 press [bold]c[/bold] to open chat')
-        else:
-            label.update('')
-
-    def _get_chat_attention_count(self) -> int:
-        import os
-        bus_paths: list[str] = []
-        seen: set[str] = set()
-        reader = self.app.state_reader
-        for sid, ip in getattr(self.app, '_in_process', {}).items():
-            if ip.message_bus_path and os.path.exists(ip.message_bus_path):
-                real = os.path.realpath(ip.message_bus_path)
-                if real not in seen:
-                    seen.add(real)
-                    bus_paths.append(ip.message_bus_path)
-        for session in reader.sessions:
-            if session.infra_dir:
-                candidate = os.path.join(session.infra_dir, 'messages.db')
-                if os.path.exists(candidate):
-                    real = os.path.realpath(candidate)
-                    if real not in seen:
-                        seen.add(real)
-                        bus_paths.append(candidate)
-        if not bus_paths:
-            return 0
-        from projects.POC.tui.chat_model import ChatModel
-        model = ChatModel.from_bus_paths(bus_paths)
-        try:
-            return model.attention_count()
-        finally:
-            model.close()
 
     def on_content_card_item_selected(self, event: ContentCard.ItemSelected) -> None:
         """Handle clicks on card items — navigate to the appropriate level."""

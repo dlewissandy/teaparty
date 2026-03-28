@@ -1,14 +1,12 @@
-"""ContentCard widget — titled dashboard card with list items and optional "+ New" action."""
+"""ContentCard widget — titled dashboard card with clickable list items and optional "+ New" action."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
 
 from textual.app import ComposeResult
-from textual.containers import Vertical
 from textual.message import Message
 from textual.widget import Widget
-from textual.widgets import DataTable, Static
+from textual.widgets import Static
 
 
 @dataclass
@@ -21,7 +19,7 @@ class CardItem:
 
 
 class ContentCard(Widget):
-    """Dashboard content card: title, item list, and optional '+ New' action.
+    """Dashboard content card: title, clickable item list, and optional '+ New' action.
 
     Posts ItemSelected when a row is clicked, and NewRequested when '+ New' is clicked.
     """
@@ -60,26 +58,53 @@ class ContentCard(Widget):
         if self._show_new_button:
             header_text += '  [@click=new_item()]\\[+ New][/]'
         yield Static(header_text, classes='card-title')
-        yield Static(self._render_items(), id=f'card-{self._card_name}-items')
+        yield from self._compose_items()
 
-    def _render_items(self) -> str:
+    def _compose_items(self):
         if not self._items:
-            return f'  [dim]{self._empty_text}[/dim]'
-        lines = []
-        for item in self._items:
+            yield Static(
+                f'  [dim]{self._empty_text}[/dim]',
+                id=f'card-{self._card_name}-empty',
+                classes='card-item',
+            )
+            return
+        for i, item in enumerate(self._items):
             icon = f'{item.icon} ' if item.icon else '  '
             detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-            lines.append(f'{icon}{item.label}{detail}')
-        return '\n'.join(lines)
+            yield Static(
+                f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
+                classes='card-item card-item-clickable',
+            )
 
     def update_items(self, items: list[CardItem]) -> None:
-        """Replace card items and re-render."""
+        """Replace card items and re-render the item list."""
         self._items = items
-        try:
-            panel = self.query_one(f'#card-{self._card_name}-items', Static)
-            panel.update(self._render_items())
-        except Exception:
-            pass
+
+        # Remove old item widgets
+        for child in list(self.children):
+            if child.has_class('card-item'):
+                child.remove()
+
+        # Mount new items
+        if not items:
+            self.mount(Static(
+                f'  [dim]{self._empty_text}[/dim]',
+                id=f'card-{self._card_name}-empty',
+                classes='card-item',
+            ))
+        else:
+            for i, item in enumerate(items):
+                icon = f'{item.icon} ' if item.icon else '  '
+                detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
+                self.mount(Static(
+                    f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
+                    classes='card-item card-item-clickable',
+                ))
+
+    def action_select_item(self, index: int) -> None:
+        """Handle click on an item row."""
+        if 0 <= index < len(self._items):
+            self.post_message(self.ItemSelected(self._card_name, self._items[index]))
 
     def action_new_item(self) -> None:
         self.post_message(self.NewRequested(self._card_name))
