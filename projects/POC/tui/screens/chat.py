@@ -156,6 +156,11 @@ class ChatScreen(Screen):
 
     def on_mount(self) -> None:
         self._open_bus()
+
+        # Ensure the requested conversation exists
+        if self._initial_conversation and self._initial_conversation not in self._conv_ids:
+            self._ensure_conversation(self._initial_conversation)
+
         self._rebuild_conv_list()
         # Auto-select: initial conversation > first with attention > first overall
         if self._initial_conversation and self._initial_conversation in self._conv_ids:
@@ -168,6 +173,35 @@ class ChatScreen(Screen):
                         target = conv.id
                         break
             self._select_conversation(target)
+
+    def _ensure_conversation(self, conv_id: str) -> None:
+        """Create the conversation in the global bus if it doesn't exist."""
+        from projects.POC.tui.chat_main import global_bus_path
+        from projects.POC.orchestrator.messaging import SqliteMessageBus
+
+        # Map conversation ID prefix to ConversationType
+        prefix = conv_id.split(':')[0] if ':' in conv_id else ''
+        type_map = {
+            'session': ConversationType.PROJECT_SESSION,
+            'om': ConversationType.OFFICE_MANAGER,
+            'proxy': ConversationType.PROXY_REVIEW,
+            'job': ConversationType.JOB,
+            'task': ConversationType.TASK,
+            'team': ConversationType.SUBTEAM,
+            'liaison': ConversationType.LIAISON,
+        }
+        conv_type = type_map.get(prefix, ConversationType.PROJECT_SESSION)
+        qualifier = conv_id.split(':', 1)[1] if ':' in conv_id else conv_id
+
+        bus_path = global_bus_path(self.app.projects_dir)
+        bus = SqliteMessageBus(bus_path)
+        bus.create_conversation(conv_type, qualifier)
+        bus.close()
+
+        # Reopen the bus so the model sees the new conversation
+        if self._model:
+            self._model.close()
+        self._open_bus()
 
     def on_unmount(self) -> None:
         if self._model:
