@@ -944,21 +944,27 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
         total_removed += g_removed
 
         if g_decisions:
-            try:
-                with open(global_log, 'a') as f:
-                    for d in g_decisions:
-                        f.write(_json.dumps(d) + '\n')
-            except OSError:
-                pass
+            from filelock import FileLock
+            lock = FileLock(global_log + '.lock', timeout=10)
+            with lock:
+                try:
+                    with open(global_log, 'a') as f:
+                        for d in g_decisions:
+                            f.write(_json.dumps(d) + '\n')
+                except OSError:
+                    pass
 
     # Write project-scope decisions
     if all_decisions:
-        try:
-            with open(log_path, 'a') as f:
-                for d in all_decisions:
-                    f.write(_json.dumps(d) + '\n')
-        except OSError:
-            pass
+        from filelock import FileLock
+        lock = FileLock(log_path + '.lock', timeout=10)
+        with lock:
+            try:
+                with open(log_path, 'a') as f:
+                    for d in all_decisions:
+                        f.write(_json.dumps(d) + '\n')
+            except OSError:
+                pass
 
     if total_removed:
         _log.info(

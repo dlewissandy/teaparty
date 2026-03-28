@@ -288,8 +288,12 @@ def consolidate_learning_file(
     removes files for deleted entries, and rewrites files for
     entries whose importance was modified.
 
+    File locks are used for each file operation to prevent corruption
+    under concurrent sessions.
+
     Returns (files_removed, decisions).
     """
+    from filelock import FileLock
     from projects.POC.scripts.memory_entry import parse_memory_file, serialize_entry
 
     if not os.path.isdir(directory):
@@ -306,11 +310,13 @@ def consolidate_learning_file(
 
     for fname in md_files:
         fpath = os.path.join(directory, fname)
-        try:
-            with open(fpath) as f:
-                text = f.read()
-        except OSError:
-            continue
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            try:
+                with open(fpath) as f:
+                    text = f.read()
+            except OSError:
+                continue
         parsed = parse_memory_file(text)
         for entry in parsed:
             entries.append(entry)
@@ -341,37 +347,41 @@ def consolidate_learning_file(
         fpath = entry_to_file.get(entry_id)
         if not fpath or not os.path.isfile(fpath):
             continue
-        surviving_in_file = file_to_kept.get(fpath, [])
-        if surviving_in_file:
-            # File has other entries that must survive — rewrite with
-            # only the surviving entries instead of deleting the file.
-            from projects.POC.scripts.memory_entry import serialize_memory_file
-            try:
-                with open(fpath, 'w') as f:
-                    f.write(serialize_memory_file(surviving_in_file))
-                files_removed += 1
-            except OSError:
-                pass
-            # Clear so we don't rewrite again for another removed entry
-            # in the same file
-            del file_to_kept[fpath]
-        else:
-            try:
-                os.remove(fpath)
-                files_removed += 1
-            except OSError:
-                pass
+        lock = FileLock(fpath + '.lock', timeout=10)
+        with lock:
+            surviving_in_file = file_to_kept.get(fpath, [])
+            if surviving_in_file:
+                # File has other entries that must survive — rewrite with
+                # only the surviving entries instead of deleting the file.
+                from projects.POC.scripts.memory_entry import serialize_memory_file
+                try:
+                    with open(fpath, 'w') as f:
+                        f.write(serialize_memory_file(surviving_in_file))
+                    files_removed += 1
+                except OSError:
+                    pass
+                # Clear so we don't rewrite again for another removed entry
+                # in the same file
+                del file_to_kept[fpath]
+            else:
+                try:
+                    os.remove(fpath)
+                    files_removed += 1
+                except OSError:
+                    pass
 
     # Rewrite files for entries whose importance was modified
     for entry in consolidated:
         if entry.importance != original_importance.get(entry.id):
             fpath = entry_to_file.get(entry.id)
             if fpath and os.path.isfile(fpath):
-                try:
-                    with open(fpath, 'w') as f:
-                        f.write(serialize_entry(entry))
-                except OSError:
-                    pass
+                lock = FileLock(fpath + '.lock', timeout=10)
+                with lock:
+                    try:
+                        with open(fpath, 'w') as f:
+                            f.write(serialize_entry(entry))
+                    except OSError:
+                        pass
 
     return files_removed, decisions
 
@@ -390,8 +400,12 @@ def consolidate_institutional_file(
     resolves them, and rewrites the file when entries are removed
     or importance is modified.
 
+    The entire read-modify-write cycle is covered by a file lock
+    to prevent corruption under concurrent sessions.
+
     Returns (entries_removed, decisions).
     """
+    from filelock import FileLock
     from projects.POC.scripts.memory_entry import (
         parse_memory_file,
         serialize_memory_file,
@@ -400,48 +414,50 @@ def consolidate_institutional_file(
     if not os.path.isfile(file_path):
         return 0, []
 
-    try:
-        with open(file_path) as f:
-            text = f.read()
-    except OSError:
-        return 0, []
-
-    entries = parse_memory_file(text)
-    if len(entries) < 2:
-        return 0, []
-
-    original_importance = {e.id: e.importance for e in entries}
-
-    consolidated, decisions = consolidate_learning_entries(
-        entries, classifier=classifier,
-        already_decayed_ids=already_decayed_ids,
-    )
-
-    entries_removed = len(entries) - len(consolidated)
-    # Also check if any importance values changed
-    importance_changed = any(
-        e.importance != original_importance.get(e.id)
-        for e in consolidated
-    )
-
-    if entries_removed > 0 or importance_changed:
-        output = serialize_memory_file(consolidated)
-        import tempfile
+    lock = FileLock(file_path + '.lock', timeout=30)
+    with lock:
         try:
-            fd, tmp = tempfile.mkstemp(
-                dir=os.path.dirname(os.path.abspath(file_path)),
-                suffix='.tmp',
-            )
-            with os.fdopen(fd, 'w') as f:
-                f.write(output)
-                if output and not output.endswith('\n'):
-                    f.write('\n')
-            os.replace(tmp, file_path)
-        except Exception:
+            with open(file_path) as f:
+                text = f.read()
+        except OSError:
+            return 0, []
+
+        entries = parse_memory_file(text)
+        if len(entries) < 2:
+            return 0, []
+
+        original_importance = {e.id: e.importance for e in entries}
+
+        consolidated, decisions = consolidate_learning_entries(
+            entries, classifier=classifier,
+            already_decayed_ids=already_decayed_ids,
+        )
+
+        entries_removed = len(entries) - len(consolidated)
+        # Also check if any importance values changed
+        importance_changed = any(
+            e.importance != original_importance.get(e.id)
+            for e in consolidated
+        )
+
+        if entries_removed > 0 or importance_changed:
+            output = serialize_memory_file(consolidated)
+            import tempfile
             try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+                fd, tmp = tempfile.mkstemp(
+                    dir=os.path.dirname(os.path.abspath(file_path)),
+                    suffix='.tmp',
+                )
+                with os.fdopen(fd, 'w') as f:
+                    f.write(output)
+                    if output and not output.endswith('\n'):
+                        f.write('\n')
+                os.replace(tmp, file_path)
+            except Exception:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
 
     return entries_removed, decisions
