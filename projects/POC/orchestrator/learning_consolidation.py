@@ -193,13 +193,14 @@ def consolidate_learning_entries(
     *,
     classifier: Callable | None = None,
     similarity_threshold: float = _SIMILARITY_THRESHOLD,
+    already_decayed_ids: set[str] | None = None,
 ) -> tuple[list, list[dict]]:
     """Apply contradiction resolution to a list of MemoryEntry objects.
 
     For each conflicting pair:
     - temporal_obsolescence -> DELETE older entry
     - scope_dependent -> preserve both
-    - genuine_tension -> preserve both (flag for review)
+    - genuine_tension -> preserve both, reduce importance once (#218)
     - retrieval_noise -> preserve both
 
     Args:
@@ -207,6 +208,9 @@ def consolidate_learning_entries(
         classifier: optional callable(entry_a, entry_b) -> cause string.
             When provided, overrides heuristic classification.
         similarity_threshold: Jaccard threshold for conflict detection.
+        already_decayed_ids: entry IDs that had importance reduced in a
+            prior consolidation run. These are skipped for importance
+            reduction to prevent compounding decay across sessions.
 
     Returns:
         (consolidated_entries, decisions) for auditability.
@@ -220,6 +224,7 @@ def consolidate_learning_entries(
     if not pairs:
         return list(entries), []
 
+    _already_decayed = already_decayed_ids or set()
     delete_ids: set[str] = set()
     tension_ids: set[str] = set()
     decisions: list[dict] = []
@@ -246,12 +251,12 @@ def consolidate_learning_entries(
             decision['action'] = 'DELETE'
             decision['deleted_id'] = older_id
         elif cause == CAUSE_GENUINE_TENSION:
-            # Reduce importance of both entries so they decay faster
-            # at retrieval time (#218 interaction). This surfaces the
-            # tension to the human via reduced prominence rather than
-            # silently deleting either entry.
-            tension_ids.add(a.id)
-            tension_ids.add(b.id)
+            # Track entries for importance reduction (#218 interaction),
+            # but only if not already decayed in a prior run.
+            if a.id not in _already_decayed:
+                tension_ids.add(a.id)
+            if b.id not in _already_decayed:
+                tension_ids.add(b.id)
             decision['action'] = 'PRESERVE_BOTH_DECAYED'
         else:
             decision['action'] = 'PRESERVE_BOTH'
@@ -261,6 +266,7 @@ def consolidate_learning_entries(
     consolidated = [e for e in entries if e.id not in delete_ids]
 
     # Apply importance reduction to entries involved in genuine tension
+    # (only those not already decayed in a prior run)
     for entry in consolidated:
         if entry.id in tension_ids:
             entry.importance = max(0.1, entry.importance * _TENSION_IMPORTANCE_FACTOR)
@@ -274,15 +280,17 @@ def consolidate_learning_file(
     directory: str,
     *,
     classifier: Callable | None = None,
+    already_decayed_ids: set[str] | None = None,
 ) -> tuple[int, list[dict]]:
     """Consolidate learning entries in a tasks/ directory.
 
     Reads all .md files, detects contradictions, resolves them,
-    and removes files for deleted entries.
+    removes files for deleted entries, and rewrites files for
+    entries whose importance was modified.
 
     Returns (files_removed, decisions).
     """
-    from projects.POC.scripts.memory_entry import parse_memory_file
+    from projects.POC.scripts.memory_entry import parse_memory_file, serialize_entry
 
     if not os.path.isdir(directory):
         return 0, []
@@ -294,6 +302,7 @@ def consolidate_learning_file(
 
     entries = []
     entry_to_file: dict[str, str] = {}
+    original_importance: dict[str, float] = {}
 
     for fname in md_files:
         fpath = os.path.join(directory, fname)
@@ -306,12 +315,14 @@ def consolidate_learning_file(
         for entry in parsed:
             entries.append(entry)
             entry_to_file[entry.id] = fpath
+            original_importance[entry.id] = entry.importance
 
     if len(entries) < 2:
         return 0, []
 
     consolidated, decisions = consolidate_learning_entries(
         entries, classifier=classifier,
+        already_decayed_ids=already_decayed_ids,
     )
 
     # Determine which entries were removed
@@ -328,6 +339,17 @@ def consolidate_learning_file(
             except OSError:
                 pass
 
+    # Rewrite files for entries whose importance was modified
+    for entry in consolidated:
+        if entry.importance != original_importance.get(entry.id):
+            fpath = entry_to_file.get(entry.id)
+            if fpath and os.path.isfile(fpath):
+                try:
+                    with open(fpath, 'w') as f:
+                        f.write(serialize_entry(entry))
+                except OSError:
+                    pass
+
     return files_removed, decisions
 
 
@@ -337,11 +359,13 @@ def consolidate_institutional_file(
     file_path: str,
     *,
     classifier: Callable | None = None,
+    already_decayed_ids: set[str] | None = None,
 ) -> tuple[int, list[dict]]:
     """Consolidate entries within an institutional.md file.
 
     Reads multi-entry institutional.md, detects contradictions,
-    resolves them, and rewrites the file.
+    resolves them, and rewrites the file when entries are removed
+    or importance is modified.
 
     Returns (entries_removed, decisions).
     """
@@ -363,12 +387,21 @@ def consolidate_institutional_file(
     if len(entries) < 2:
         return 0, []
 
+    original_importance = {e.id: e.importance for e in entries}
+
     consolidated, decisions = consolidate_learning_entries(
         entries, classifier=classifier,
+        already_decayed_ids=already_decayed_ids,
     )
 
     entries_removed = len(entries) - len(consolidated)
-    if entries_removed > 0:
+    # Also check if any importance values changed
+    importance_changed = any(
+        e.importance != original_importance.get(e.id)
+        for e in consolidated
+    )
+
+    if entries_removed > 0 or importance_changed:
         output = serialize_memory_file(consolidated)
         import tempfile
         try:

@@ -843,9 +843,11 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
 
     Scans tasks/ directories and institutional.md files at project scope,
     detects contradictions among entries, classifies them, and resolves
-    (temporal_obsolescence -> DELETE older, everything else -> preserve both).
+    (temporal_obsolescence -> DELETE older, genuine_tension -> reduce
+    importance once for faster decay).
 
-    Writes a consolidation log for auditability.
+    Reads prior consolidation log to avoid compounding importance reduction
+    across sessions. Writes new decisions to the log for auditability.
     """
     import json as _json
     from projects.POC.orchestrator.learning_consolidation import (
@@ -853,25 +855,51 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
         consolidate_institutional_file,
     )
 
+    log_path = os.path.join(project_dir, '.learning-consolidation-log.jsonl')
+
+    # Read prior log to find entry IDs already decayed — prevents
+    # compounding importance reduction across sessions.
+    already_decayed: set[str] = set()
+    if os.path.isfile(log_path):
+        try:
+            with open(log_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        d = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    if d.get('action') == 'PRESERVE_BOTH_DECAYED':
+                        already_decayed.add(d.get('entry_a', ''))
+                        already_decayed.add(d.get('entry_b', ''))
+        except OSError:
+            pass
+    already_decayed.discard('')
+
     total_removed = 0
     all_decisions: list[dict] = []
 
     # Consolidate task learnings
     tasks_dir = os.path.join(project_dir, 'tasks')
     if os.path.isdir(tasks_dir):
-        removed, decisions = consolidate_learning_file(tasks_dir)
+        removed, decisions = consolidate_learning_file(
+            tasks_dir, already_decayed_ids=already_decayed,
+        )
         total_removed += removed
         all_decisions.extend(decisions)
 
     # Consolidate institutional learnings
     inst_path = os.path.join(project_dir, 'institutional.md')
     if os.path.isfile(inst_path):
-        removed, decisions = consolidate_institutional_file(inst_path)
+        removed, decisions = consolidate_institutional_file(
+            inst_path, already_decayed_ids=already_decayed,
+        )
         total_removed += removed
         all_decisions.extend(decisions)
 
     if all_decisions:
-        log_path = os.path.join(project_dir, '.learning-consolidation-log.jsonl')
         try:
             with open(log_path, 'a') as f:
                 for d in all_decisions:
