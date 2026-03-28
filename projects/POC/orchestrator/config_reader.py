@@ -344,19 +344,20 @@ def resolve_workgroups(
 
 # ── Norms ──────────────────────────────────────────────────────────────────
 
-def merge_norms(
-    workgroup_norms: dict[str, list[str]],
-    project_norms: dict[str, list[str]],
-) -> dict[str, list[str]]:
-    """Merge workgroup and project norms with project-wins precedence.
+def apply_norms_precedence(*levels: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Apply norms precedence across configuration levels.
 
-    Per the design doc: "This is not a merge." If the project defines a
-    category, it fully replaces the workgroup's version of that category.
-    Non-conflicting categories from the workgroup are preserved.
+    Per the design doc: "This is not a merge." If a higher-precedence level
+    defines a category, it fully replaces that category from lower levels.
+    Non-conflicting categories from all levels are preserved.
+
+    Args are ordered lowest-to-highest precedence: org, workgroup, project.
+    Any number of levels can be passed (including zero).
     """
-    merged = dict(workgroup_norms)
-    merged.update(project_norms)
-    return merged
+    result: dict[str, list[str]] = {}
+    for level in levels:
+        result.update(level)
+    return result
 
 
 def format_norms(norms: dict[str, list[str]]) -> str:
@@ -372,3 +373,21 @@ def format_norms(norms: dict[str, list[str]]) -> str:
         lines = [f'- {s}' for s in statements]
         sections.append(f'{category.title()}:\n' + '\n'.join(lines))
     return '\n\n'.join(sections)
+
+
+def resolve_norms(
+    org_norms: dict[str, list[str]] | None = None,
+    workgroup_norms: dict[str, list[str]] | None = None,
+    project_norms: dict[str, list[str]] | None = None,
+) -> str:
+    """Resolve norms across all three levels and format for prompt injection.
+
+    Applies precedence (org < workgroup < project) and renders as text.
+    This is the integration point for injecting norms into agent context.
+    """
+    effective = apply_norms_precedence(
+        org_norms or {},
+        workgroup_norms or {},
+        project_norms or {},
+    )
+    return format_norms(effective)

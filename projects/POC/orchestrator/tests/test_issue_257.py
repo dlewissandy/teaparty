@@ -3,11 +3,12 @@
 
 Covers:
  1. ManagementTeam has norms field, loaded from YAML
- 2. merge_norms: project categories replace workgroup categories on conflict
- 3. merge_norms: non-conflicting categories preserved from both levels
- 4. merge_norms: empty inputs handled gracefully
- 5. format_norms: renders merged norms as readable text for prompt injection
- 6. Norms remain distinct from budget (budget not in norms)
+ 2. apply_norms_precedence: project categories replace workgroup categories on conflict
+ 3. apply_norms_precedence: three-level chain (org → workgroup → project)
+ 4. apply_norms_precedence: empty inputs handled gracefully
+ 5. format_norms: renders norms as readable text for prompt injection
+ 6. resolve_norms: end-to-end three-level resolution + formatting
+ 7. Norms remain distinct from budget (budget not in norms)
 """
 import os
 import sys
@@ -23,8 +24,9 @@ from projects.POC.orchestrator.config_reader import (
     load_management_team,
     load_project_team,
     load_workgroup,
-    merge_norms,
+    apply_norms_precedence,
     format_norms,
+    resolve_norms,
 )
 
 
@@ -81,8 +83,8 @@ class TestManagementTeamNorms(unittest.TestCase):
 
 # ── 2. merge_norms precedence ─────────────────────────────────────────────────
 
-class TestMergeNorms(unittest.TestCase):
-    """merge_norms: project categories replace workgroup categories."""
+class TestApplyNormsPrecedence(unittest.TestCase):
+    """apply_norms_precedence: higher-precedence categories replace lower."""
 
     def test_project_replaces_conflicting_category(self):
         """Per design doc: 'This is not a merge.' Project quality replaces workgroup quality."""
@@ -93,31 +95,47 @@ class TestMergeNorms(unittest.TestCase):
         project = {
             'quality': ['All code changes must have integration tests'],
         }
-        merged = merge_norms(workgroup, project)
-        # Project quality fully replaces workgroup quality
-        self.assertEqual(merged['quality'], ['All code changes must have integration tests'])
-        # Non-conflicting workgroup category preserved
-        self.assertEqual(merged['tools'], ['Developers may not use WebSearch'])
+        result = apply_norms_precedence(workgroup, project)
+        self.assertEqual(result['quality'], ['All code changes must have integration tests'])
+        self.assertEqual(result['tools'], ['Developers may not use WebSearch'])
 
     def test_non_conflicting_categories_preserved(self):
         workgroup = {'delegation': ['Architect plans, Developer implements']}
         project = {'quality': ['Tests required']}
-        merged = merge_norms(workgroup, project)
-        self.assertIn('delegation', merged)
-        self.assertIn('quality', merged)
+        result = apply_norms_precedence(workgroup, project)
+        self.assertIn('delegation', result)
+        self.assertIn('quality', result)
 
-    def test_empty_workgroup_norms(self):
-        merged = merge_norms({}, {'quality': ['Tests required']})
-        self.assertEqual(merged, {'quality': ['Tests required']})
+    def test_three_level_chain(self):
+        """Org → workgroup → project: each level overrides the previous."""
+        org = {
+            'communication': ['Weekly status updates'],
+            'quality': ['CI required'],
+        }
+        workgroup = {
+            'quality': ['Code review required'],
+            'tools': ['No WebSearch'],
+        }
+        project = {
+            'quality': ['Integration tests required'],
+        }
+        result = apply_norms_precedence(org, workgroup, project)
+        # Project wins quality
+        self.assertEqual(result['quality'], ['Integration tests required'])
+        # Workgroup wins tools (project didn't override)
+        self.assertEqual(result['tools'], ['No WebSearch'])
+        # Org communication preserved (nobody overrode)
+        self.assertEqual(result['communication'], ['Weekly status updates'])
 
-    def test_empty_project_norms(self):
-        workgroup = {'quality': ['Code review required']}
-        merged = merge_norms(workgroup, {})
-        self.assertEqual(merged, {'quality': ['Code review required']})
+    def test_empty_inputs(self):
+        self.assertEqual(apply_norms_precedence({}, {}, {}), {})
 
-    def test_both_empty(self):
-        merged = merge_norms({}, {})
-        self.assertEqual(merged, {})
+    def test_single_level(self):
+        norms = {'quality': ['Tests required']}
+        self.assertEqual(apply_norms_precedence(norms), norms)
+
+    def test_no_levels(self):
+        self.assertEqual(apply_norms_precedence(), {})
 
 
 # ── 3. format_norms ──────────────────────────────────────────────────────────
@@ -154,7 +172,31 @@ class TestFormatNorms(unittest.TestCase):
         self.assertNotIn('[', text)
 
 
-# ── 4. Norms distinct from budget ────────────────────────────────────────────
+# ── 4. resolve_norms end-to-end ───────────────────────────────────────────────
+
+class TestResolveNorms(unittest.TestCase):
+    """resolve_norms: three-level resolution + formatting in one call."""
+
+    def test_three_level_resolution(self):
+        org = {'communication': ['Weekly updates']}
+        workgroup = {'quality': ['Code review required']}
+        project = {'quality': ['Integration tests required']}
+        text = resolve_norms(org_norms=org, workgroup_norms=workgroup, project_norms=project)
+        self.assertIn('Integration tests required', text)
+        self.assertIn('Weekly updates', text)
+        # Workgroup quality was overridden, should not appear
+        self.assertNotIn('Code review required', text)
+
+    def test_none_inputs(self):
+        text = resolve_norms()
+        self.assertEqual(text, '')
+
+    def test_partial_levels(self):
+        text = resolve_norms(project_norms={'quality': ['Tests required']})
+        self.assertIn('Tests required', text)
+
+
+# ── 5. Norms distinct from budget ────────────────────────────────────────────
 
 class TestNormsBudgetSeparation(unittest.TestCase):
     """Budget keys do not appear in norms; norms do not appear in budget."""
