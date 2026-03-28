@@ -631,19 +631,28 @@ class DashboardScreen(Screen):
         self._set_card('workgroups', self._load_project_workgroups(proj))
 
     def _refresh_workgroup(self) -> None:
-        """Refresh the workgroup dashboard — all five cards from config + state."""
+        """Refresh the workgroup dashboard — all five cards from config + state.
+
+        Works for both management-level workgroups (no project_slug) and
+        project-level workgroups (with project_slug).
+        """
         reader = self.app.state_reader
-        project_slug = self._nav.project_slug
         wg_id = self._nav.workgroup_id
-        if not project_slug or not wg_id:
+        if not wg_id:
             return
 
-        proj = reader.find_project(project_slug)
-        if not proj:
-            return
+        # Collect sessions: from one project or all projects
+        project_slug = self._nav.project_slug
+        if project_slug:
+            proj = reader.find_project(project_slug)
+            all_sessions = proj.sessions if proj else []
+            include_project = False
+        else:
+            all_sessions = [s for p in reader.projects for s in p.sessions]
+            include_project = len(reader.projects) > 1
 
         # Filter sessions to those with dispatches from this workgroup's team
-        wg_sessions = filter_sessions_for_workgroup(proj.sessions, wg_id)
+        wg_sessions = filter_sessions_for_workgroup(all_sessions, wg_id)
 
         # Stats
         stats = compute_workgroup_stats(wg_sessions, wg_id)
@@ -659,7 +668,10 @@ class DashboardScreen(Screen):
 
         # Sessions
         tagged = [('', s) for s in wg_sessions]
-        self._set_card('sessions', _build_session_items(tagged, hide_done=self._hide_done.get('sessions', True)))
+        self._set_card('sessions', _build_session_items(
+            tagged, include_project=include_project,
+            hide_done=self._hide_done.get('sessions', True),
+        ))
 
         # Active Tasks
         self._set_card('active_tasks', build_active_task_items(wg_sessions, wg_id))
@@ -836,31 +848,51 @@ class DashboardScreen(Screen):
             _log.warning('Failed to load project agents for %s', proj.slug, exc_info=True)
             return []
 
-    def _load_workgroup_agents(self) -> list[CardItem]:
-        """Load agent list from workgroup YAML via config_reader.
+    def _resolve_workgroup(self):
+        """Resolve the current workgroup from config.
 
-        Resolves the workgroup from the nav context's workgroup_id.
-        Workgroup agents are dicts with name, role, model.
+        Returns (Workgroup, search_dirs) or (None, []).
+        Works for both management-level and project-level workgroups.
         """
-        try:
-            from projects.POC.orchestrator.config_reader import (
-                load_project_team,
-                resolve_workgroups,
-            )
-            project_slug = self._nav.project_slug
-            wg_id = self._nav.workgroup_id
-            if not project_slug or not wg_id:
-                return []
+        from projects.POC.orchestrator.config_reader import (
+            load_project_team,
+            load_management_team,
+            load_management_workgroups,
+            resolve_workgroups,
+            default_teaparty_home,
+        )
+        wg_id = self._nav.workgroup_id
+        project_slug = self._nav.project_slug
+
+        if project_slug:
             reader = self.app.state_reader
             proj = reader.find_project(project_slug)
             if not proj:
-                return []
+                return None, []
             pt = load_project_team(proj.path)
             workgroups = resolve_workgroups(pt.workgroups, proj.path)
             for wg in workgroups:
                 if wg.name == wg_id:
-                    return build_agent_items(wg.agents, search_dirs=[proj.path])
-            return []
+                    return wg, [proj.path]
+        else:
+            team = load_management_team()
+            home = default_teaparty_home()
+            workgroups = load_management_workgroups(team)
+            for wg in workgroups:
+                if wg.name == wg_id:
+                    return wg, [home]
+        return None, []
+
+    def _load_workgroup_agents(self) -> list[CardItem]:
+        """Load agent list from workgroup YAML via config_reader."""
+        try:
+            wg_id = self._nav.workgroup_id
+            if not wg_id:
+                return []
+            wg, search_dirs = self._resolve_workgroup()
+            if not wg:
+                return []
+            return build_agent_items(wg.agents, search_dirs=search_dirs)
         except Exception:
             _log.warning('Failed to load workgroup agents for %s/%s',
                          self._nav.project_slug, self._nav.workgroup_id,
@@ -870,24 +902,13 @@ class DashboardScreen(Screen):
     def _load_workgroup_skills(self) -> list[CardItem]:
         """Load skill list from workgroup YAML via config_reader."""
         try:
-            from projects.POC.orchestrator.config_reader import (
-                load_project_team,
-                resolve_workgroups,
-            )
-            project_slug = self._nav.project_slug
             wg_id = self._nav.workgroup_id
-            if not project_slug or not wg_id:
+            if not wg_id:
                 return []
-            reader = self.app.state_reader
-            proj = reader.find_project(project_slug)
-            if not proj:
+            wg, _ = self._resolve_workgroup()
+            if not wg:
                 return []
-            pt = load_project_team(proj.path)
-            workgroups = resolve_workgroups(pt.workgroups, proj.path)
-            for wg in workgroups:
-                if wg.name == wg_id:
-                    return build_skill_items(wg.skills)
-            return []
+            return build_skill_items(wg.skills)
         except Exception:
             _log.warning('Failed to load workgroup skills for %s/%s',
                          self._nav.project_slug, self._nav.workgroup_id,

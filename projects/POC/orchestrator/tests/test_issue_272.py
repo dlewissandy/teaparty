@@ -236,5 +236,25 @@ class TestWorkgroupStats(unittest.TestCase):
         self.assertEqual(stats['escalations'], 1)
 
 
+class TestManagementLevelWorkgroupFiltering(unittest.TestCase):
+    """Management-level workgroups have no project_slug — sessions come from all projects."""
+
+    def test_sessions_from_multiple_projects_are_collected(self):
+        """When project_slug is empty, sessions from all projects should be considered."""
+        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        d1 = _make_dispatch(team='configuration', status='active')
+        d2 = _make_dispatch(team='configuration', status='complete')
+        d3 = _make_dispatch(team='coding', status='active')
+        s1 = _make_session(project='proj-a', session_id='20260328-100000', dispatches=[d1])
+        s2 = _make_session(project='proj-b', session_id='20260328-110000', dispatches=[d2])
+        s3 = _make_session(project='proj-a', session_id='20260328-120000', dispatches=[d3])
+        # All sessions from all projects combined
+        all_sessions = [s1, s2, s3]
+        result = filter_sessions_for_workgroup(all_sessions, 'Configuration')
+        self.assertEqual(len(result), 2)
+        session_ids = {s.session_id for s in result}
+        self.assertEqual(session_ids, {'20260328-100000', '20260328-110000'})
+
+
 if __name__ == '__main__':
     unittest.main()
