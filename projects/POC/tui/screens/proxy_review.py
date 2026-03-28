@@ -24,6 +24,12 @@ class ProxyReviewScreen(Screen):
         Binding('escape', 'go_back', 'Back', show=True),
     ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._bus = None
+        self._conn = None
+        self._session = None
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Vertical(
@@ -40,8 +46,35 @@ class ProxyReviewScreen(Screen):
         log.write('Talk to your proxy to inspect and calibrate its model.')
         log.write('Type a message below and press Ctrl+J to send.\n')
 
+        # Open the review session on mount so it persists across messages
+        self._open_session(log)
+
         # Show initial memory state
         self._show_memory_summary(log)
+
+    def _open_session(self, log: RichLog) -> None:
+        """Open a ReviewSession on mount — reused for all messages."""
+        try:
+            import getpass
+
+            from projects.POC.orchestrator.messaging import SqliteMessageBus
+            from projects.POC.orchestrator.proxy_memory import open_proxy_db
+            from projects.POC.orchestrator.proxy_review import open_review_session
+            from projects.POC.tui.chat_main import global_bus_path
+
+            projects_dir = getattr(self.app, 'projects_dir', '')
+            if not projects_dir:
+                return
+
+            self._bus = SqliteMessageBus(global_bus_path(projects_dir))
+            memory_db_path = os.path.join(projects_dir, '.proxy-memory.db')
+            self._conn = open_proxy_db(memory_db_path)
+            human_name = getpass.getuser()
+            self._session = open_review_session(
+                self._bus, human_name=human_name, memory_db_path=memory_db_path,
+            )
+        except Exception:
+            log.write('[dim]Could not initialize review session.[/dim]')
 
     def _show_memory_summary(self, log: RichLog) -> None:
         """Show the current proxy memory state."""
@@ -106,51 +139,46 @@ class ProxyReviewScreen(Screen):
 
         log = self.query_one('#review-log', RichLog)
         log.write(f'[bold green]You:[/bold green] {message}')
+
+        if not self._session or not self._bus or not self._conn:
+            log.write('[bold red]Review session not initialized.[/bold red]')
+            return
+
         log.write('[dim]Proxy is thinking...[/dim]')
+
+        bus = self._bus
+        conn = self._conn
+        session = self._session
 
         async def _do_turn():
             try:
-                from projects.POC.orchestrator.messaging import SqliteMessageBus
-                from projects.POC.orchestrator.proxy_memory import open_proxy_db
                 from projects.POC.orchestrator.proxy_review import (
                     build_dialog_history,
-                    open_review_session,
                     run_review_turn,
                 )
-                from projects.POC.tui.chat_main import global_bus_path
 
-                projects_dir = getattr(self.app, 'projects_dir', '')
-                if not projects_dir:
-                    log.write('[bold red]No projects directory configured.[/bold red]')
-                    return
+                dialog_history = build_dialog_history(bus, session.conversation_id)
 
-                bus = SqliteMessageBus(global_bus_path(projects_dir))
-                memory_db_path = os.path.join(projects_dir, '.proxy-memory.db')
-                conn = open_proxy_db(memory_db_path)
+                response = await run_review_turn(
+                    message,
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                    dialog_history=dialog_history,
+                )
 
-                try:
-                    import getpass
-                    human_name = getpass.getuser()
-                    session = open_review_session(
-                        bus, human_name=human_name, memory_db_path=memory_db_path,
-                    )
-                    dialog_history = build_dialog_history(bus, session.conversation_id)
-
-                    response = await run_review_turn(
-                        message,
-                        conn=conn,
-                        session=session,
-                        bus=bus,
-                        dialog_history=dialog_history,
-                    )
-
-                    log.write(f'[bold cyan]Proxy:[/bold cyan] {response}')
-                finally:
-                    conn.close()
+                log.write(f'[bold cyan]Proxy:[/bold cyan] {response}')
             except Exception as e:
                 log.write(f'[bold red]Error:[/bold red] {e}')
 
         asyncio.create_task(_do_turn())
 
     def action_go_back(self) -> None:
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+        if self._bus:
+            self._bus.close()
+            self._bus = None
+        self._session = None
         self.app.pop_screen()
