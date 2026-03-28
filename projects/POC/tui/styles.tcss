@@ -115,6 +115,19 @@ Screen {
     height: 1fr;
 }
 
+/* ── Chat panel (Issue #200) ── */
+#chat-area {
+    dock: bottom;
+    height: auto;
+    max-height: 10;
+    border-top: tall $primary-lighten-1;
+}
+
+#chat-panel {
+    height: 1fr;
+    padding: 0 1;
+}
+
 #input-area {
     dock: bottom;
     height: auto;

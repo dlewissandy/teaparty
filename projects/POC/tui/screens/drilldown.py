@@ -126,6 +126,11 @@ class DrilldownScreen(Screen):
             ),
         )
         yield Vertical(
+            Static('CONVERSATION', classes='section-title'),
+            RichLog(id='chat-panel', highlight=True, markup=True),
+            id='chat-area',
+        )
+        yield Vertical(
             Static('', id='input-prompt'),
             TextArea(id='input-field'),
             id='input-area',
@@ -135,11 +140,13 @@ class DrilldownScreen(Screen):
     def on_mount(self) -> None:
         self._session = self.app.state_reader.find_session(self.session_id)
         self._in_proc = self.app.get_in_process(self.session_id)
+        self._chat_msg_count = 0  # Track messages shown to avoid re-rendering
         self._update_header()
         self._update_meta()
         self._update_tasks()
         self._update_dispatches()
         self._update_input_area()
+        self._update_chat_panel()
 
         # Start watching stream files
         self.watcher.start()
@@ -494,6 +501,58 @@ class DrilldownScreen(Screen):
         self.query_one('#input-area').remove_class('visible')
         self.query_one('#activity-log', RichLog).focus()
 
+    def _update_chat_panel(self) -> None:
+        """Refresh the chat panel with conversation history from the message bus.
+
+        Reads messages from the session's messages.db and renders them
+        chronologically. Only appends new messages since the last refresh.
+        """
+        chat = self.query_one('#chat-panel', RichLog)
+
+        # Determine the bus path
+        bus_path = ''
+        conv_id = ''
+        if self._in_proc and self._in_proc.message_bus_path and self._in_proc.conversation_id:
+            bus_path = self._in_proc.message_bus_path
+            conv_id = self._in_proc.conversation_id
+        elif self._session and self._session.infra_dir:
+            candidate = os.path.join(self._session.infra_dir, 'messages.db')
+            if os.path.exists(candidate):
+                bus_path = candidate
+                conv_id = f'session:{os.path.basename(self._session.infra_dir)}'
+
+        if not bus_path or not conv_id:
+            return
+
+        try:
+            from projects.POC.orchestrator.messaging import SqliteMessageBus
+            bus = SqliteMessageBus(bus_path)
+            try:
+                messages = bus.receive(conv_id)
+            finally:
+                bus.close()
+        except Exception:
+            return
+
+        # Only render new messages
+        if len(messages) <= self._chat_msg_count:
+            return
+
+        from rich.text import Text
+        for msg in messages[self._chat_msg_count:]:
+            t = Text()
+            if msg.sender == 'human':
+                t.append('[you] ', style='bold green')
+            elif msg.sender == 'orchestrator':
+                t.append('[agent] ', style='bold cyan')
+            else:
+                t.append(f'[{msg.sender}] ', style='bold')
+            t.append(msg.content)
+            chat.write(t)
+
+        self._chat_msg_count = len(messages)
+        chat.scroll_end(animate=False)
+
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         """Submit when the user presses Enter (newline appears in text)."""
         if event.text_area.id != 'input-field':
@@ -513,6 +572,7 @@ class DrilldownScreen(Screen):
         self._update_meta()
         self._update_dispatches()
         self._update_input_area()
+        self._update_chat_panel()
         self.refresh_bindings()
 
         # Watch any new stream files that appeared

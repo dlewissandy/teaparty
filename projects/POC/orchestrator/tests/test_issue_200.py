@@ -453,5 +453,87 @@ class TestSessionBusIntegration(unittest.TestCase):
         self.assertEqual(data['conversation_id'], 'session:20260327-143000')
 
 
+class TestSubteamConversation(unittest.TestCase):
+    """DispatchListener creates subteam conversations in the message bus."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmp, 'messages.db')
+        self.bus = SqliteMessageBus(self.db_path)
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_subteam_conversation_id_format(self):
+        """Subteam conversations use team: prefix."""
+        cid = make_conversation_id(ConversationType.SUBTEAM, 'writing-20260327')
+        self.assertTrue(cid.startswith('team:'))
+        self.assertIn('writing', cid)
+
+    def test_subteam_messages_persisted(self):
+        """Messages sent to a subteam conversation are retrievable."""
+        cid = make_conversation_id(ConversationType.SUBTEAM, 'art-session1')
+        self.bus.send(cid, 'orchestrator', 'Dispatch to art: Draw a logo')
+        self.bus.send(cid, 'art', 'Dispatch completed: COMPLETED_WORK')
+        msgs = self.bus.receive(cid)
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0].sender, 'orchestrator')
+        self.assertIn('Draw a logo', msgs[0].content)
+        self.assertEqual(msgs[1].sender, 'art')
+
+    def test_subteam_isolated_from_session(self):
+        """Subteam messages don't appear in project session conversation."""
+        session_cid = make_conversation_id(ConversationType.PROJECT_SESSION, 'test')
+        team_cid = make_conversation_id(ConversationType.SUBTEAM, 'writing-test')
+        self.bus.send(session_cid, 'orchestrator', 'session msg')
+        self.bus.send(team_cid, 'orchestrator', 'team msg')
+        session_msgs = self.bus.receive(session_cid)
+        team_msgs = self.bus.receive(team_cid)
+        self.assertEqual(len(session_msgs), 1)
+        self.assertEqual(session_msgs[0].content, 'session msg')
+        self.assertEqual(len(team_msgs), 1)
+        self.assertEqual(team_msgs[0].content, 'team msg')
+
+
+class TestChatPanelReads(unittest.TestCase):
+    """Chat panel reads conversation history from the bus."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmp, 'messages.db')
+        self.bus = SqliteMessageBus(self.db_path)
+        self.conversation_id = 'session:chat-test'
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_conversation_history_readable(self):
+        """All messages in a conversation are readable for the chat panel."""
+        self.bus.send(self.conversation_id, 'orchestrator', 'Approve intent?')
+        self.bus.send(self.conversation_id, 'human', 'Yes, approved')
+        self.bus.send(self.conversation_id, 'orchestrator', 'Review plan?')
+        self.bus.send(self.conversation_id, 'human', 'Looks good')
+        msgs = self.bus.receive(self.conversation_id)
+        self.assertEqual(len(msgs), 4)
+        senders = [m.sender for m in msgs]
+        self.assertEqual(senders, ['orchestrator', 'human', 'orchestrator', 'human'])
+
+    def test_incremental_read_via_count(self):
+        """Can track message count for incremental rendering."""
+        self.bus.send(self.conversation_id, 'orchestrator', 'msg1')
+        msgs = self.bus.receive(self.conversation_id)
+        count = len(msgs)
+        self.assertEqual(count, 1)
+        self.bus.send(self.conversation_id, 'human', 'msg2')
+        msgs = self.bus.receive(self.conversation_id)
+        new_msgs = msgs[count:]
+        self.assertEqual(len(new_msgs), 1)
+        self.assertEqual(new_msgs[0].content, 'msg2')
+
+
 if __name__ == '__main__':
     unittest.main()
