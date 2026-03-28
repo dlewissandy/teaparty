@@ -37,6 +37,7 @@ from projects.POC.orchestrator.messaging import (
 )
 from projects.POC.orchestrator.config_reader import (
     load_project_team, load_management_team, resolve_norms,
+    resolve_workgroups,
 )
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
@@ -418,12 +419,14 @@ class Session:
     def _resolve_norms(self, project_dir: str) -> str:
         """Load and resolve norms from the configuration tree.
 
-        Reads org-level norms from ~/.teaparty/teaparty.yaml and
-        project-level norms from {project_dir}/.teaparty/project.yaml.
-        Applies precedence (org < project) and returns formatted text.
-        Returns empty string if no config tree exists.
+        Reads org-level norms from ~/.teaparty/teaparty.yaml, workgroup
+        norms from the project's workgroup definitions, and project-level
+        norms from {project_dir}/.teaparty/project.yaml.
+        Applies precedence (org < workgroup < project) and returns
+        formatted text.  Returns empty string if no config tree exists.
         """
         org_norms: dict[str, list[str]] = {}
+        workgroup_norms: dict[str, list[str]] = {}
         project_norms: dict[str, list[str]] = {}
 
         try:
@@ -435,10 +438,20 @@ class Session:
         try:
             proj = load_project_team(project_dir)
             project_norms = proj.norms
+            try:
+                workgroups = resolve_workgroups(proj.workgroups, project_dir)
+                for wg in workgroups:
+                    workgroup_norms.update(wg.norms)
+            except (FileNotFoundError, OSError):
+                pass
         except (FileNotFoundError, OSError):
             pass
 
-        text = resolve_norms(org_norms=org_norms, project_norms=project_norms)
+        text = resolve_norms(
+            org_norms=org_norms,
+            workgroup_norms=workgroup_norms,
+            project_norms=project_norms,
+        )
         if not text:
             return ''
         return f'--- Norms (advisory) ---\n{text}\n--- end ---'
@@ -809,10 +822,10 @@ class Session:
         )
 
     @staticmethod
-    @staticmethod
     def _resolve_norms_static(project_dir: str) -> str:
         """Load and resolve norms without requiring a Session instance."""
         org_norms: dict[str, list[str]] = {}
+        workgroup_norms: dict[str, list[str]] = {}
         project_norms: dict[str, list[str]] = {}
 
         try:
@@ -824,10 +837,20 @@ class Session:
         try:
             proj = load_project_team(project_dir)
             project_norms = proj.norms
+            try:
+                workgroups = resolve_workgroups(proj.workgroups, project_dir)
+                for wg in workgroups:
+                    workgroup_norms.update(wg.norms)
+            except (FileNotFoundError, OSError):
+                pass
         except (FileNotFoundError, OSError):
             pass
 
-        text = resolve_norms(org_norms=org_norms, project_norms=project_norms)
+        text = resolve_norms(
+            org_norms=org_norms,
+            workgroup_norms=workgroup_norms,
+            project_norms=project_norms,
+        )
         if not text:
             return ''
         return f'--- Norms (advisory) ---\n{text}\n--- end ---'

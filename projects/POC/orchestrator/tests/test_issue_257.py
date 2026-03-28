@@ -264,6 +264,92 @@ class TestNormsReachSession(unittest.TestCase):
         result = Session._resolve_norms_static(d)
         self.assertEqual(result, '')
 
+    def test_resolve_norms_static_includes_workgroup_norms(self):
+        """Workgroup norms appear as the middle level of the precedence chain."""
+        from projects.POC.orchestrator.session import Session
+
+        project_yaml = textwrap.dedent("""\
+            name: Test Project
+            lead: lead
+            decider: darrell
+            workgroups:
+              - name: coding
+                config: workgroups/coding.yaml
+            norms:
+              quality:
+                - Integration tests required
+        """)
+        workgroup_yaml = textwrap.dedent("""\
+            name: coding
+            description: Coding workgroup
+            norms:
+              tools:
+                - No WebSearch
+              quality:
+                - Code review required
+        """)
+        d = tempfile.mkdtemp()
+        tp_dir = os.path.join(d, '.teaparty')
+        os.makedirs(tp_dir)
+        os.makedirs(os.path.join(d, '.git'))
+        os.makedirs(os.path.join(d, '.claude'))
+        wg_dir = os.path.join(tp_dir, 'workgroups')
+        os.makedirs(wg_dir)
+        with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+            f.write(project_yaml)
+        with open(os.path.join(wg_dir, 'coding.yaml'), 'w') as f:
+            f.write(workgroup_yaml)
+
+        result = Session._resolve_norms_static(d)
+        # Workgroup tools norm should appear (not overridden by project)
+        self.assertIn('No WebSearch', result)
+        # Project quality wins over workgroup quality
+        self.assertIn('Integration tests required', result)
+        self.assertNotIn('Code review required', result)
+
+    def test_resolve_norms_static_workgroup_norms_overridden_by_project(self):
+        """Project norms override workgroup norms on the same category."""
+        from projects.POC.orchestrator.session import Session
+
+        project_yaml = textwrap.dedent("""\
+            name: Test Project
+            lead: lead
+            decider: darrell
+            workgroups:
+              - name: coding
+                config: workgroups/coding.yaml
+            norms:
+              delegation:
+                - Project lead decides
+        """)
+        workgroup_yaml = textwrap.dedent("""\
+            name: coding
+            description: Coding workgroup
+            norms:
+              delegation:
+                - Architect decides
+              tools:
+                - Developers may not use WebSearch
+        """)
+        d = tempfile.mkdtemp()
+        tp_dir = os.path.join(d, '.teaparty')
+        os.makedirs(tp_dir)
+        os.makedirs(os.path.join(d, '.git'))
+        os.makedirs(os.path.join(d, '.claude'))
+        wg_dir = os.path.join(tp_dir, 'workgroups')
+        os.makedirs(wg_dir)
+        with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+            f.write(project_yaml)
+        with open(os.path.join(wg_dir, 'coding.yaml'), 'w') as f:
+            f.write(workgroup_yaml)
+
+        result = Session._resolve_norms_static(d)
+        # Project wins delegation
+        self.assertIn('Project lead decides', result)
+        self.assertNotIn('Architect decides', result)
+        # Workgroup tools preserved
+        self.assertIn('Developers may not use WebSearch', result)
+
 
 if __name__ == '__main__':
     unittest.main()
