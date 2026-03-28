@@ -92,6 +92,7 @@ class DrilldownScreen(Screen):
         Binding('f4', 'open_plan', 'Plan', show=True, priority=True),
         Binding('f5', 'open_work_summary', 'Work', show=True, priority=True),
         Binding('s', 'toggle_scroll', 'Scroll Lock', show=True),
+        Binding('c', 'open_chat', 'Chat', show=True),
     ]
 
     def __init__(self, session_id: str):
@@ -539,12 +540,32 @@ class DrilldownScreen(Screen):
             return
 
         from rich.text import Text
+        from projects.POC.tui.chat_model import format_gate_context
         for msg in messages[self._chat_msg_count:]:
             t = Text()
             if msg.sender == 'human':
                 t.append('[you] ', style='bold green')
             elif msg.sender == 'orchestrator':
                 t.append('[agent] ', style='bold cyan')
+                # Add gate context if this is a gate interaction
+                if self._session and self._session.cfa_state:
+                    artifact = ''
+                    state = self._session.cfa_state
+                    if 'INTENT' in state:
+                        p = self._find_doc('INTENT.md')
+                        if p:
+                            artifact = p
+                    elif 'PLAN' in state:
+                        p = self._find_doc('plan.md')
+                        if p:
+                            artifact = p
+                    elif 'WORK' in state:
+                        p = self._find_doc('.work-summary.md')
+                        if p:
+                            artifact = p
+                    gate_ctx = format_gate_context(state, artifact)
+                    if gate_ctx and gate_ctx != state:
+                        t.append(f'[{gate_ctx}] ', style='dim yellow')
             else:
                 t.append(f'[{msg.sender}] ', style='bold')
             t.append(msg.content)
@@ -780,3 +801,7 @@ class DrilldownScreen(Screen):
 
     def action_toggle_scroll(self) -> None:
         self._scroll_locked = not self._scroll_locked
+
+    def action_open_chat(self) -> None:
+        from projects.POC.tui.screens.chat import ChatScreen
+        self.app.push_screen(ChatScreen())

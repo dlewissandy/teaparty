@@ -211,6 +211,13 @@ Screen {
     margin-bottom: 1;
 }
 
+.chat-attention-label {
+    height: auto;
+    padding: 0 1;
+    color: $warning;
+    text-style: bold;
+}
+
 /* ── Chat screen (Issue #206) ── */
 #chat-panes {
     height: 1fr;
