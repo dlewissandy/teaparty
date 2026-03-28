@@ -1144,9 +1144,10 @@ class DashboardScreen(Screen):
     # ── Card/stats helpers ──
 
     def _set_stats(self, stats: list[tuple[str, str]]) -> None:
-        parts = [f'[bold]{k}:[/bold] {v}' for k, v in stats]
+        values = '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in stats)
+        labels = '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in stats)
         try:
-            self.query_one('#dash-stats', Static).update('  \u2502  '.join(parts))
+            self.query_one('#dash-stats', Static).update(f'{values}\n{labels}')
         except Exception:
             pass
 
