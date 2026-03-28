@@ -380,8 +380,14 @@ class TestDiscoverProjects(unittest.TestCase):
 class TestResolveWorkgroups(unittest.TestCase):
     """ref: entries resolve to org-level workgroup definitions."""
 
+    def _research_yaml(self):
+        return "name: Research\ndescription: Research workgroup.\nlead: research-lead\n"
+
     def test_ref_resolves_to_org_workgroup(self):
-        proj = _make_project_dir(MINIMAL_PROJECT_YAML)
+        proj = _make_project_dir(
+            MINIMAL_PROJECT_YAML,
+            workgroup_files={'research.yaml': self._research_yaml()},
+        )
         home = _make_teaparty_home(
             MINIMAL_TEAPARTY_YAML.format(project_path=proj),
             workgroup_files={'coding.yaml': MINIMAL_WORKGROUP_YAML},
@@ -405,7 +411,10 @@ class TestResolveWorkgroups(unittest.TestCase):
         """)
         proj = _make_project_dir(
             MINIMAL_PROJECT_YAML,
-            workgroup_files={'coding.yaml': override_yaml},
+            workgroup_files={
+                'coding.yaml': override_yaml,
+                'research.yaml': self._research_yaml(),
+            },
         )
         home = _make_teaparty_home(
             MINIMAL_TEAPARTY_YAML.format(project_path=proj),
