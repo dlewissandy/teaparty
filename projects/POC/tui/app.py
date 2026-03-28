@@ -1,13 +1,18 @@
 """Main Textual application — screen routing, global state, periodic refresh."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from textual.app import App
 
+from projects.POC.orchestrator.cron_driver import CronDriver
 from projects.POC.tui.state_reader import StateReader
+
+_log = logging.getLogger('orchestrator')
 
 if TYPE_CHECKING:
     from projects.POC.orchestrator.tui_bridge import InProcessSession
@@ -44,6 +49,9 @@ class TeaPartyTUI(App):
             projects_dir=self.projects_dir,
             in_process_checker=self.has_in_process,
         )
+        self.cron_driver = CronDriver.from_config(
+            project_dir=self.poc_root,
+        )
 
     def set_projects_dir(self, new_dir: str) -> None:
         """Change the active projects directory mid-session."""
@@ -59,6 +67,7 @@ class TeaPartyTUI(App):
         from projects.POC.tui.screens.dashboard_screen import DashboardScreen
         self.push_screen(DashboardScreen())
         self.set_interval(1.0, self._periodic_refresh)
+        self.set_interval(60.0, self._cron_tick)
 
     # ── In-process session registry ──
 
@@ -94,6 +103,27 @@ class TeaPartyTUI(App):
         screen = self.screen
         if hasattr(screen, 'periodic_refresh'):
             screen.periodic_refresh()
+
+    def _cron_tick(self) -> None:
+        """Run one cron scheduler cycle (every 60s)."""
+        task = asyncio.create_task(self.cron_driver.tick())
+        task.add_done_callback(self._on_cron_tick_done)
+
+    @staticmethod
+    def _on_cron_tick_done(task: asyncio.Task) -> None:
+        """Log cron tick results and surface errors."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _log.error('Cron tick failed: %s', exc)
+            return
+        records = task.result()
+        for record in records:
+            if record.success:
+                _log.info('Cron task %s completed', record.task_name)
+            else:
+                _log.error('Cron task %s failed: %s', record.task_name, record.reason)
 
     def on_unmount(self) -> None:
         """Kill all chat windows when the dashboard exits."""
