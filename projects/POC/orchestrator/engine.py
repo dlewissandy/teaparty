@@ -736,15 +736,11 @@ class Orchestrator:
                 ))
             return
 
-        # Continue/adjustment: if phase stayed same or moved forward,
-        # clear the flag.  Dispatches keep running.
-        if old_phase == new_phase or not is_backtrack(old_phase, new_phase):
-            # Only clear if this looks like a substantive decision, not an
-            # intermediate transition (e.g., question → response).
-            # The lead might go through several micro-steps before deciding.
-            # We clear the flag on any non-backtrack transition — if the lead
-            # asks a question or asserts, they're continuing.
-            self._intervention_active = False
+        # Continue/adjustment: we reach here only when the transition is
+        # same-phase or forward (WITHDRAWN and backtrack both returned above).
+        # The lead processed the intervention and chose to continue.
+        # Dispatches keep running.
+        self._intervention_active = False
 
     async def _transition(self, action: str, actor_result: ActorResult) -> None:
         """Apply a CfA transition and persist state."""
