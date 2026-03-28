@@ -30,24 +30,97 @@ from projects.POC.scripts.memory_entry import (
 
 _log = logging.getLogger('orchestrator.consolidate_learnings')
 
-CONSOLIDATION_SIMILARITY_THRESHOLD = 0.8
+CONSOLIDATION_SIMILARITY_THRESHOLD = 0.4
+
+# Stop words excluded from similarity computation — these inflate token
+# counts without carrying topical signal.
+_STOP_WORDS = frozenset(
+    'a an the is are was were be been being have has had do does did '
+    'will would shall should can could may might must '
+    'i me my we our you your he she it they them their '
+    'this that these those who what which when where how '
+    'and or but not no nor so if then than too also '
+    'to of in for on at by from with as into about '
+    'all each every some any many much more most other such '
+    'very just only even still already don t s'.split()
+)
 
 
-# ── Jaccard token similarity (default, no dependencies) ─────────────────────
+# ── Normalized token similarity (default, no dependencies) ──────────────────
+
+_SUFFIXES = ('tion', 'sion', 'ness', 'ment', 'ence', 'ance',
+             'ing', 'ies', 'ied', 'ers', 'est', 'ous', 'ive',
+             'ed', 'ly', 'er', 'es', 'en', 'al')
+
+
+def _normalize_token(word: str) -> str:
+    """Basic English normalization: iteratively strip common suffixes.
+
+    Not a full stemmer — just enough to unify plurals, gerunds, and past
+    tense so "tests"/"test", "inputs"/"input", "writing"/"write",
+    "missed"/"miss" all normalize to the same token.
+
+    Applied iteratively so "missed" → "miss" → "mis" matches "miss" → "mis".
+    """
+    current = word
+    prev = None
+    while current != prev and len(current) > 3:
+        prev = current
+        for suffix in _SUFFIXES:
+            if current.endswith(suffix) and len(current) - len(suffix) >= 3:
+                current = current[:-len(suffix)]
+                break
+        else:
+            if current.endswith('s') and len(current) > 3:
+                current = current[:-1]
+    return current
+
 
 def _tokenize(text: str) -> set[str]:
-    """Extract lowercased word tokens from text."""
-    return set(re.findall(r'[a-z0-9]+', text.lower()))
+    """Extract normalized, lowercased content tokens from text.
+
+    Strips stop words and applies basic suffix normalization so that
+    "tests"/"test", "inputs"/"input", "writing"/"write" are treated
+    as the same token.
+    """
+    raw = set(re.findall(r'[a-z0-9]+', text.lower()))
+    return {_normalize_token(w) for w in raw if w not in _STOP_WORDS}
 
 
 def jaccard_token_similarity(a: str, b: str) -> float:
-    """Jaccard similarity over word tokens — default similarity function."""
+    """Jaccard similarity over normalized content tokens."""
     tokens_a = _tokenize(a)
     tokens_b = _tokenize(b)
     union = tokens_a | tokens_b
     if not union:
         return 0.0
     return len(tokens_a & tokens_b) / len(union)
+
+
+def overlap_token_similarity(a: str, b: str) -> float:
+    """Overlap coefficient over normalized content tokens.
+
+    Returns |A ∩ B| / min(|A|, |B|).  Unlike Jaccard, this does not
+    penalize one text for having extra unique terms — it measures how
+    much the smaller set is contained in the larger.  Better for
+    detecting paraphrased duplicates where vocabulary differs.
+    """
+    tokens_a = _tokenize(a)
+    tokens_b = _tokenize(b)
+    if not tokens_a or not tokens_b:
+        return 0.0
+    return len(tokens_a & tokens_b) / min(len(tokens_a), len(tokens_b))
+
+
+def lexical_similarity(a: str, b: str) -> float:
+    """Combined lexical similarity: max of Jaccard and overlap coefficient.
+
+    Default similarity function when embeddings are unavailable.
+    Uses both metrics because Jaccard catches near-duplicates (high
+    overall overlap) while overlap coefficient catches paraphrases
+    (one text's vocabulary is a subset of another's).
+    """
+    return max(jaccard_token_similarity(a, b), overlap_token_similarity(a, b))
 
 
 # ── Clustering ───────────────────────────────────────────────────────────────
@@ -61,7 +134,7 @@ def cluster_entries(
 
     Args:
         entries: MemoryEntry objects to cluster.
-        similarity_fn: (str, str) -> float. Defaults to jaccard_token_similarity.
+        similarity_fn: (str, str) -> float. Defaults to lexical_similarity.
         threshold: Minimum similarity to join a cluster.
 
     Returns:
@@ -69,12 +142,23 @@ def cluster_entries(
         Retired entries are excluded before clustering.
     """
     if similarity_fn is None:
-        similarity_fn = jaccard_token_similarity
+        similarity_fn = lexical_similarity
 
-    # Filter out retired entries
-    active = [e for e in entries if e.status != 'retired']
+    # Filter out retired entries and entries too short to cluster reliably.
+    # Short entries (< 4 content tokens after normalization) have inflated
+    # similarity scores and produce false merges.
+    _MIN_TOKENS = 4
+    active = [
+        e for e in entries
+        if e.status != 'retired' and len(_tokenize(e.content)) >= _MIN_TOKENS
+    ]
+    # Carry through short entries as singleton clusters
+    short = [
+        e for e in entries
+        if e.status != 'retired' and len(_tokenize(e.content)) < _MIN_TOKENS
+    ]
     if not active:
-        return []
+        return [[e] for e in short]
 
     clusters: list[list[MemoryEntry]] = []
 
@@ -91,6 +175,10 @@ def cluster_entries(
                 break
         if not merged:
             clusters.append([entry])
+
+    # Append short entries as singleton clusters (not eligible for merging)
+    for e in short:
+        clusters.append([e])
 
     return clusters
 
@@ -237,20 +325,37 @@ def consolidate_task_store(
     if merged_count == 0:
         return ConsolidationResult(len(all_entries), len(all_entries), 0)
 
-    # Write new files first (safe: new names won't collide with old)
+    # Only rewrite files that participated in merges — leave singletons
+    # and their original filenames untouched to preserve provenance.
     from filelock import FileLock
 
-    new_filenames: set[str] = set()
-    for entry in merged_entries:
-        fname = f'consolidated-{entry.id}.md'
+    # Collect IDs and source files involved in merges
+    merged_ids: set[str] = set()
+    for cluster in clusters:
+        if len(cluster) > 1:
+            for entry in cluster:
+                merged_ids.add(entry.id)
+
+    files_to_remove: set[str] = set()
+    for entry_id in merged_ids:
+        if entry_id in file_for_entry:
+            files_to_remove.add(file_for_entry[entry_id])
+
+    # Write merged entries (new files for merged clusters only)
+    for cluster in clusters:
+        if len(cluster) <= 1:
+            continue
+        merged = merge_cluster(cluster)
+        fname = f'consolidated-{merged.id}.md'
         fpath = os.path.join(directory, fname)
-        new_filenames.add(fname)
+        # Don't remove the new file we're about to write
+        files_to_remove.discard(fname)
         lock = FileLock(fpath + '.lock', timeout=10)
         with lock:
             import tempfile as _tf
             fd, tmp = _tf.mkstemp(dir=directory, suffix='.tmp')
             try:
-                content = serialize_entry(entry)
+                content = serialize_entry(merged)
                 with os.fdopen(fd, 'w') as f:
                     f.write(content)
                     if content and not content.endswith('\n'):
@@ -263,20 +368,18 @@ def consolidate_task_store(
                     pass
                 raise
 
-    # Remove old files that were replaced
-    for fname in md_files:
-        if fname not in new_filenames:
-            fpath = os.path.join(directory, fname)
-            try:
-                os.remove(fpath)
-            except OSError:
-                pass
-            # Clean up lock files
-            lock_path = fpath + '.lock'
-            try:
-                os.remove(lock_path)
-            except OSError:
-                pass
+    # Remove old files that were merged into consolidated entries
+    for fname in files_to_remove:
+        fpath = os.path.join(directory, fname)
+        try:
+            os.remove(fpath)
+        except OSError:
+            pass
+        lock_path = fpath + '.lock'
+        try:
+            os.remove(lock_path)
+        except OSError:
+            pass
 
     # Write consolidation log
     if log_entries:

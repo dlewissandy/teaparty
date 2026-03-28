@@ -334,8 +334,10 @@ class TestConsolidateTaskStore(unittest.TestCase):
         from projects.POC.orchestrator.consolidate_learnings import consolidate_task_store
 
         tasks_dir = os.path.join(self.tmpdir, 'tasks')
-        _write_entry_file(tasks_dir, 'a.md', _make_entry("Alpha approach"))
-        _write_entry_file(tasks_dir, 'b.md', _make_entry("Beta approach"))
+        _write_entry_file(tasks_dir, 'a.md',
+                          _make_entry("Alpha approach to solving complex database migration problems"))
+        _write_entry_file(tasks_dir, 'b.md',
+                          _make_entry("Beta approach to solving complex database migration problems"))
 
         # With always-similar, these should merge
         result = consolidate_task_store(tasks_dir, similarity_fn=lambda a, b: 0.95)
@@ -430,7 +432,7 @@ class TestConsolidationPipelineWiring(unittest.TestCase):
 # ── Default similarity function tests ────────────────────────────────────────
 
 class TestJaccardSimilarity(unittest.TestCase):
-    """Test the default Jaccard token similarity function."""
+    """Test the Jaccard token similarity function."""
 
     def test_identical_strings(self):
         from projects.POC.orchestrator.consolidate_learnings import jaccard_token_similarity
@@ -444,13 +446,134 @@ class TestJaccardSimilarity(unittest.TestCase):
     def test_partial_overlap(self):
         from projects.POC.orchestrator.consolidate_learnings import jaccard_token_similarity
         sim = jaccard_token_similarity("test empty inputs coverage", "test null inputs validation")
-        # "test" and "inputs" overlap — 2 shared out of 6 unique
         self.assertGreater(sim, 0.0)
         self.assertLess(sim, 1.0)
 
     def test_empty_strings(self):
         from projects.POC.orchestrator.consolidate_learnings import jaccard_token_similarity
         self.assertAlmostEqual(jaccard_token_similarity("", ""), 0.0)
+
+
+class TestOverlapSimilarity(unittest.TestCase):
+    """Test the overlap coefficient similarity function."""
+
+    def test_identical_strings(self):
+        from projects.POC.orchestrator.consolidate_learnings import overlap_token_similarity
+        self.assertAlmostEqual(overlap_token_similarity("hello world", "hello world"), 1.0)
+
+    def test_subset_relationship(self):
+        """When one text's tokens are a subset of another's, score is 1.0."""
+        from projects.POC.orchestrator.consolidate_learnings import overlap_token_similarity
+        sim = overlap_token_similarity("test edge cases", "always test edge cases for empty inputs")
+        self.assertAlmostEqual(sim, 1.0)
+
+    def test_empty_strings(self):
+        from projects.POC.orchestrator.consolidate_learnings import overlap_token_similarity
+        self.assertAlmostEqual(overlap_token_similarity("", ""), 0.0)
+
+
+class TestTokenNormalization(unittest.TestCase):
+    """Test that suffix normalization unifies common word variants."""
+
+    def test_plurals_match(self):
+        from projects.POC.orchestrator.consolidate_learnings import _tokenize
+        self.assertIn('test', _tokenize("tests"))
+        self.assertIn('input', _tokenize("inputs"))
+
+    def test_gerunds_match(self):
+        from projects.POC.orchestrator.consolidate_learnings import _tokenize
+        self.assertIn('writ', _tokenize("writing"))
+
+    def test_past_tense_match(self):
+        from projects.POC.orchestrator.consolidate_learnings import _tokenize
+        # "missed" and "miss" should normalize to the same token (iterative stripping)
+        tokens_ed = _tokenize("missed")
+        tokens_base = _tokenize("miss")
+        self.assertEqual(tokens_ed, tokens_base)
+
+    def test_stop_words_removed(self):
+        from projects.POC.orchestrator.consolidate_learnings import _tokenize
+        tokens = _tokenize("the most common source of missed test coverage")
+        self.assertNotIn('the', tokens)
+        self.assertNotIn('most', tokens)
+        self.assertNotIn('of', tokens)
+
+
+class TestIssueExamplesClustering(unittest.TestCase):
+    """Test that the issue's own example entries cluster correctly.
+
+    The issue describes three entries that "a human would recognize as one thing":
+    1. "When writing tests, always check edge cases for empty inputs"
+    2. "Empty-input edge cases are the most common source of missed test coverage"
+    3. "Tests that don't cover empty/null inputs tend to miss real bugs"
+
+    The default lexical similarity (without embeddings) must cluster at least
+    some of these. With embeddings, all three should cluster.
+    """
+
+    def test_issue_examples_cluster_with_default_similarity(self):
+        """All 3 issue examples cluster with lexical similarity via single-linkage."""
+        from projects.POC.orchestrator.consolidate_learnings import cluster_entries
+
+        entries = [
+            _make_entry("When writing tests, always check edge cases for empty inputs"),
+            _make_entry("Empty-input edge cases are the most common source of missed test coverage"),
+            _make_entry("Tests that don't cover empty null inputs tend to miss real bugs"),
+        ]
+        # With normalized tokens + overlap coefficient + single-linkage:
+        # a-b cluster (0.625), c joins through b (0.444), all above 0.4
+        clusters = cluster_entries(entries)
+        self.assertEqual(len(clusters), 1,
+            "Expected all 3 issue examples to cluster into one")
+
+    def test_issue_examples_all_cluster_with_embeddings(self):
+        """With a similarity function that recognizes semantics, all 3 cluster."""
+        from projects.POC.orchestrator.consolidate_learnings import cluster_entries
+
+        entries = [
+            _make_entry("When writing tests, always check edge cases for empty inputs"),
+            _make_entry("Empty-input edge cases are the most common source of missed test coverage"),
+            _make_entry("Tests that don't cover empty null inputs tend to miss real bugs"),
+        ]
+        # Simulate embedding-based similarity that correctly identifies these
+        def _semantic_sim(a, b):
+            return 0.85
+
+        clusters = cluster_entries(entries, similarity_fn=_semantic_sim)
+        self.assertEqual(len(clusters), 1)
+        self.assertEqual(len(clusters[0]), 3)
+
+
+class TestProvenancePreservation(unittest.TestCase):
+    """Test that singleton entries' files are not rewritten."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_singleton_files_not_renamed(self):
+        """Files that don't participate in merges keep their original names."""
+        from projects.POC.orchestrator.consolidate_learnings import consolidate_task_store
+
+        tasks_dir = os.path.join(self.tmpdir, 'tasks')
+        # Two identical entries (will merge) + one unique entry
+        _write_entry_file(tasks_dir, 'dup-a.md', _make_entry("Always test empty inputs"))
+        _write_entry_file(tasks_dir, 'dup-b.md', _make_entry("Always test empty inputs"))
+        _write_entry_file(tasks_dir, 'promoted-unique.md',
+                          _make_entry("Database migrations require backups"))
+
+        consolidate_task_store(tasks_dir)
+
+        remaining = sorted(os.listdir(tasks_dir))
+        md_files = [f for f in remaining if f.endswith('.md')]
+        # The unique entry should keep its original filename
+        self.assertIn('promoted-unique.md', md_files)
+        # The merged entry should have a consolidated-* name
+        consolidated = [f for f in md_files if f.startswith('consolidated-')]
+        self.assertEqual(len(consolidated), 1)
 
 
 if __name__ == '__main__':
