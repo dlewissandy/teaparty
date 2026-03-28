@@ -330,9 +330,32 @@ def consolidate_learning_file(
     removed_ids = {e.id for e in entries} - kept_ids
     files_removed = 0
 
+    # Build reverse map: file → kept entry IDs (for multi-entry file safety)
+    file_to_kept: dict[str, list] = {}
+    for entry in consolidated:
+        fpath = entry_to_file.get(entry.id)
+        if fpath:
+            file_to_kept.setdefault(fpath, []).append(entry)
+
     for entry_id in removed_ids:
         fpath = entry_to_file.get(entry_id)
-        if fpath and os.path.isfile(fpath):
+        if not fpath or not os.path.isfile(fpath):
+            continue
+        surviving_in_file = file_to_kept.get(fpath, [])
+        if surviving_in_file:
+            # File has other entries that must survive — rewrite with
+            # only the surviving entries instead of deleting the file.
+            from projects.POC.scripts.memory_entry import serialize_memory_file
+            try:
+                with open(fpath, 'w') as f:
+                    f.write(serialize_memory_file(surviving_in_file))
+                files_removed += 1
+            except OSError:
+                pass
+            # Clear so we don't rewrite again for another removed entry
+            # in the same file
+            del file_to_kept[fpath]
+        else:
             try:
                 os.remove(fpath)
                 files_removed += 1

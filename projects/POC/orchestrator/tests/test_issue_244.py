@@ -398,9 +398,10 @@ class TestConsolidateLearningFile(unittest.TestCase):
                 f.write(serialize_entry(new_entry))
 
             removed, log_entries = consolidate_learning_file(tasks_dir)
-            self.assertGreaterEqual(removed, 0)
-            # If contradiction was detected and resolved, old file should be gone
-            # (exact behavior depends on similarity threshold)
+            self.assertEqual(removed, 1)
+            # Old file removed, new file survives
+            self.assertFalse(os.path.exists(os.path.join(tasks_dir, 'old-entry.md')))
+            self.assertTrue(os.path.exists(os.path.join(tasks_dir, 'new-entry.md')))
 
     def test_empty_directory_no_op(self):
         from projects.POC.orchestrator.learning_consolidation import consolidate_learning_file
@@ -421,6 +422,51 @@ class TestConsolidateLearningFile(unittest.TestCase):
 
             removed, log_entries = consolidate_learning_file(tmpdir)
             self.assertEqual(removed, 0)
+
+    def test_multi_entry_file_preserves_surviving_entries(self):
+        """If a file has multiple entries and only one is deleted, the
+        other entries in that file must survive (not be lost by os.remove)."""
+        from projects.POC.orchestrator.learning_consolidation import consolidate_learning_file
+        from projects.POC.scripts.memory_entry import (
+            serialize_memory_file, parse_memory_file,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # One file with two entries: old contradicts separate new entry
+            old_entry = _make_entry(
+                'Always run full test suite before merging PRs',
+                entry_id='old-multi', created_at='2025-01-01',
+            )
+            unrelated = _make_entry(
+                'Use descriptive variable names for clarity',
+                entry_id='unrelated', created_at='2025-06-01',
+            )
+            # Write both entries into one file
+            multi_path = os.path.join(tmpdir, 'combined.md')
+            with open(multi_path, 'w') as f:
+                f.write(serialize_memory_file([old_entry, unrelated]))
+
+            # Separate file with the contradicting newer entry
+            new_entry = _make_entry(
+                'Skip full test suite for documentation-only PRs before merging',
+                entry_id='new-entry', created_at='2026-03-15',
+            )
+            with open(os.path.join(tmpdir, 'new-entry.md'), 'w') as f:
+                from projects.POC.scripts.memory_entry import serialize_entry
+                f.write(serialize_entry(new_entry))
+
+            removed, decisions = consolidate_learning_file(tmpdir)
+
+            # The unrelated entry must survive
+            surviving_entries = []
+            for fname in os.listdir(tmpdir):
+                if fname.endswith('.md'):
+                    with open(os.path.join(tmpdir, fname)) as f:
+                        surviving_entries.extend(parse_memory_file(f.read()))
+            surviving_ids = {e.id for e in surviving_entries}
+            self.assertIn('unrelated', surviving_ids,
+                          'Unrelated entry in multi-entry file must not be lost')
+            self.assertIn('new-entry', surviving_ids)
 
 
 # ── Institutional file consolidation ─────────────────────────────────────────
@@ -456,7 +502,15 @@ class TestConsolidateInstitutionalFile(unittest.TestCase):
                 f.write(serialize_memory_file([old_entry, new_entry]))
 
             removed, log_entries = consolidate_institutional_file(inst_path)
-            self.assertGreaterEqual(removed, 0)
+            self.assertEqual(removed, 1)
+            # File still exists (with surviving entry)
+            self.assertTrue(os.path.exists(inst_path))
+            # Verify only the newer entry survives
+            from projects.POC.scripts.memory_entry import parse_memory_file
+            with open(inst_path) as f:
+                surviving = parse_memory_file(f.read())
+            self.assertEqual(len(surviving), 1)
+            self.assertEqual(surviving[0].id, 'new-inst')
 
 
 # ── Idempotency: importance reduction must not compound ──────────────────────
