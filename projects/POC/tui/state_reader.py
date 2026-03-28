@@ -106,6 +106,39 @@ def _is_heartbeat_alive(infra_dir: str) -> bool:
     return False
 
 
+def _heartbeat_three_state(infra_dir: str) -> str:
+    """Return heartbeat status as one of 'alive', 'stale', or 'dead'.
+
+    Issue #254: Three-state heartbeat indicator per design spec.
+    Uses the same thresholds as heartbeat.py (30s alive, 120s stale, 5m dead).
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            from projects.POC.orchestrator.heartbeat import read_heartbeat, is_heartbeat_stale
+            data = read_heartbeat(hb_path)
+            status = data.get('status', '')
+            if status in ('completed', 'withdrawn'):
+                return 'dead'
+            if is_heartbeat_stale(hb_path):
+                return 'dead'
+            # Check if mtime is older than 120s (stale threshold)
+            age = time.time() - os.path.getmtime(hb_path)
+            if age > 120:
+                return 'stale'
+            return 'alive'
+        except Exception:
+            return 'dead'
+
+    # Fallback to .running
+    running_path = os.path.join(infra_dir, '.running')
+    if os.path.exists(running_path):
+        if _running_file_is_stale(running_path) or _running_pid_is_dead(running_path):
+            return 'dead'
+        return 'alive'
+    return 'dead'
+
+
 def _is_heartbeat_terminal(infra_dir: str) -> bool:
     """Return True if the .heartbeat shows a terminal status (completed/withdrawn).
 
@@ -143,6 +176,8 @@ class DispatchState:
     is_running: bool = False
     infra_dir: str = ''
     stream_age_seconds: int = -1
+    needs_input: bool = False
+    heartbeat_status: str = ''   # alive, stale, dead
 
 
 @dataclass
@@ -164,6 +199,18 @@ class SessionState:
     duration_seconds: int = -1
     infra_dir: str = ''
     files_changed: list = field(default_factory=list)
+    heartbeat_status: str = ''       # alive, stale, dead
+
+    @property
+    def escalation_count(self) -> int:
+        """Total unresolved escalations in this session's subtree.
+
+        Sums the session's own escalation (if needs_input) plus all
+        dispatch-level escalations.
+        """
+        count = 1 if self.needs_input else 0
+        count += sum(1 for d in self.dispatches if d.needs_input)
+        return count
 
 
 def _parse_session_ts(session_id: str) -> float:
@@ -459,6 +506,9 @@ class StateReader:
         if not task:
             task = self._read_intent(infra_dir)
 
+        # Issue #254: session-level heartbeat three-state
+        heartbeat_status = _heartbeat_three_state(infra_dir)
+
         return SessionState(
             project=project,
             session_id=session_id,
@@ -475,6 +525,7 @@ class StateReader:
             stream_age_seconds=stream_age,
             duration_seconds=duration,
             infra_dir=infra_dir,
+            heartbeat_status=heartbeat_status,
         )
 
     def _build_dispatch(self, entry: dict, now: float) -> DispatchState:
@@ -484,6 +535,8 @@ class StateReader:
         cfa_state = ''
         cfa_phase = ''
         stream_age = -1
+        needs_input = False
+        heartbeat_status = ''
 
         if infra_dir:
             # Issue #149: use heartbeat for liveness, fallback to .running
@@ -492,6 +545,14 @@ class StateReader:
             cfa_state = cfa.get('state', '')
             cfa_phase = cfa.get('phase', '')
             stream_age = self._stream_age(infra_dir, now)
+
+            # Issue #254: detect escalations at dispatch level
+            needs_input = cfa_state in HUMAN_ACTOR_STATES
+            if os.path.exists(os.path.join(infra_dir, '.input-request.json')):
+                needs_input = True
+
+            # Issue #254: heartbeat three-state indicator
+            heartbeat_status = _heartbeat_three_state(infra_dir)
 
         # Derive status from actual PID liveness, not just the entry dict.
         # A dispatch whose process is dead is complete, not active.
@@ -510,6 +571,8 @@ class StateReader:
             is_running=is_running,
             infra_dir=infra_dir,
             stream_age_seconds=stream_age,
+            needs_input=needs_input,
+            heartbeat_status=heartbeat_status,
         )
 
     def _read_prompt(self, infra_dir: str) -> str:

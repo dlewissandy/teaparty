@@ -252,19 +252,19 @@ class TestCardsForLevel(unittest.TestCase):
     """Each dashboard level has the correct set of content cards."""
 
     def test_management_cards(self):
-        """Management dashboard: escalations merged into sessions."""
+        """Management dashboard: includes escalations card (issue #254)."""
         card_names = cards_for_level(DashboardLevel.MANAGEMENT)
         expected = {
-            'sessions', 'projects', 'workgroups',
+            'escalations', 'sessions', 'projects', 'workgroups',
             'humans', 'agents', 'skills', 'scheduled_tasks', 'hooks',
         }
         self.assertEqual(set(card_names), expected)
 
     def test_project_cards(self):
-        """Project dashboard: escalations merged into jobs."""
+        """Project dashboard: includes escalations card (issue #254)."""
         card_names = cards_for_level(DashboardLevel.PROJECT)
         expected = {
-            'sessions', 'jobs', 'workgroups',
+            'escalations', 'sessions', 'jobs', 'workgroups',
             'agents', 'skills', 'scheduled_tasks', 'hooks',
         }
         self.assertEqual(set(card_names), expected)
@@ -276,9 +276,9 @@ class TestCardsForLevel(unittest.TestCase):
         self.assertEqual(set(card_names), expected)
 
     def test_job_cards(self):
-        """Job dashboard: sessions + tasks + artifacts."""
+        """Job dashboard: escalations + sessions + tasks + artifacts (issue #254)."""
         card_names = cards_for_level(DashboardLevel.JOB)
-        expected = {'sessions', 'tasks', 'artifacts'}
+        expected = {'escalations', 'sessions', 'tasks', 'artifacts'}
         self.assertEqual(set(card_names), expected)
 
     def test_task_cards(self):
@@ -439,19 +439,19 @@ class TestManagementDashboardCards(unittest.TestCase):
     """Management dashboard has the correct card structure."""
 
     def test_management_cards(self):
-        """Management dashboard: escalations merged into sessions."""
+        """Management dashboard: includes escalations card (issue #254)."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.MANAGEMENT)
-        self.assertEqual(len(cards), 8)
-        self.assertNotIn('escalations', cards)
+        self.assertEqual(len(cards), 9)
+        self.assertIn('escalations', cards)
         self.assertIn('sessions', cards)
 
     def test_project_dashboard_cards(self):
-        """Project dashboard: escalations merged into jobs."""
+        """Project dashboard: includes escalations card (issue #254)."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.PROJECT)
-        self.assertEqual(len(cards), 7)
-        self.assertNotIn('escalations', cards)
+        self.assertEqual(len(cards), 8)
+        self.assertIn('escalations', cards)
         self.assertIn('jobs', cards)
 
     def test_workgroup_dashboard_has_five_cards(self):
@@ -461,10 +461,11 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertEqual(len(cards), 5)
 
     def test_job_dashboard_cards(self):
-        """Job dashboard: sessions + tasks + artifacts."""
+        """Job dashboard: escalations + sessions + tasks + artifacts (issue #254)."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.JOB)
-        self.assertEqual(len(cards), 3)
+        self.assertEqual(len(cards), 4)
+        self.assertIn('escalations', cards)
         self.assertIn('sessions', cards)
         self.assertIn('tasks', cards)
         self.assertIn('artifacts', cards)
