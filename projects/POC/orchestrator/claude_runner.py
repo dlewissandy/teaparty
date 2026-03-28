@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from projects.POC.orchestrator.context_budget import ContextBudget
 from projects.POC.orchestrator.events import Event, EventBus, EventType
 from projects.POC.orchestrator.runner_machine import RunnerSM
 
@@ -27,6 +28,7 @@ class ClaudeResult:
     stall_killed: bool = False
     start_time: float = 0.0
     stderr_lines: list[str] = field(default_factory=list)
+    context_budget: ContextBudget = field(default_factory=ContextBudget)
 
     @property
     def had_errors(self) -> bool:
@@ -93,6 +95,7 @@ class ClaudeRunner:
         self._process: asyncio.subprocess.Process | None = None
         self._extracted_session_id: str = ''
         self._sm = RunnerSM()
+        self._context_budget = ContextBudget()
 
     async def run(self) -> ClaudeResult:
         """Run the Claude CLI and stream output. Returns result."""
@@ -149,6 +152,7 @@ class ClaudeRunner:
                 stall_killed=stall_killed,
                 start_time=start_time,
                 stderr_lines=stderr_lines,
+                context_budget=self._context_budget,
             )
         finally:
             # Kill subprocess on cancellation or exception (issue #159).
@@ -309,6 +313,9 @@ class ClaudeRunner:
                             running_agent_count += 1
                         elif subtype == 'task_notification':
                             running_agent_count = max(0, running_agent_count - 1)
+
+                        # Context budget: track token usage from result events (Issue #260)
+                        self._context_budget.update(event_data)
 
                         if self.event_bus:
                             await self.event_bus.publish(Event(
