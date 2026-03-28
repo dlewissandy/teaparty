@@ -157,31 +157,41 @@ def pre_seeded_message(card_name: str, nav: NavigationContext) -> str | None:
     return _GENERIC_MESSAGES.get(card_name)
 
 
-def build_agent_items(agents: list) -> list[CardItem]:
+def build_agent_items(agents: list, search_dirs: list[str] | None = None) -> list[CardItem]:
     """Build CardItems from an agent list.
 
     Handles both forms:
     - list of strings (management/project level): ['office-manager', 'auditor']
     - list of dicts (workgroup level): [{'name': 'Arch', 'role': 'specialist', 'model': '...'}]
+
+    If search_dirs is provided, attempts to read .claude/agents/{name}.md
+    files to enrich the config with model, tools, prompt, etc.
     """
+    from projects.POC.tui.screens.agent_config_modal import enrich_agent_config
+
     items: list[CardItem] = []
     for agent in agents:
         if isinstance(agent, str):
             data = {'name': agent, 'file': f'.claude/agents/{agent}.md'}
+            data = enrich_agent_config(data, search_dirs)
+            role = data.get('role', '')
+            model = data.get('model', '')
+            detail_parts = [p for p in [role, model] if p]
             items.append(CardItem(
                 icon='●',
                 label=agent,
-                detail='',
+                detail='  '.join(detail_parts),
                 data=data,
             ))
         elif isinstance(agent, dict):
             name = agent.get('name', '?')
-            role = agent.get('role', '')
-            model = agent.get('model', '')
-            detail_parts = [p for p in [role, model] if p]
             data = dict(agent)
             if 'name' not in data:
                 data['name'] = name
+            data = enrich_agent_config(data, search_dirs)
+            role = data.get('role', '')
+            model = data.get('model', '')
+            detail_parts = [p for p in [role, model] if p]
             items.append(CardItem(
                 icon='●',
                 label=name,
@@ -536,7 +546,8 @@ class DashboardScreen(Screen):
         try:
             from projects.POC.orchestrator.config_reader import load_management_team
             team = load_management_team()
-            return build_agent_items(team.agents)
+            home = os.path.expanduser('~/.teaparty')
+            return build_agent_items(team.agents, search_dirs=[home])
         except Exception:
             return []
 
@@ -545,7 +556,7 @@ class DashboardScreen(Screen):
         try:
             from projects.POC.orchestrator.config_reader import load_project_team
             pt = load_project_team(proj.path)
-            return build_agent_items(pt.agents)
+            return build_agent_items(pt.agents, search_dirs=[proj.path])
         except Exception:
             return []
 

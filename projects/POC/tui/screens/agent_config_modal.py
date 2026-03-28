@@ -5,6 +5,10 @@ section headers, matching the design in agent-config-view.md.
 """
 from __future__ import annotations
 
+import os
+
+import yaml
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -13,6 +17,94 @@ from textual.widgets import Button, Static
 
 
 _SECTION_WIDTH = 35
+
+
+def read_agent_file(file_path: str) -> dict:
+    """Read an agent definition .md file and extract frontmatter + prompt.
+
+    Agent files use YAML frontmatter (between --- delimiters) with the
+    system prompt in the body. Returns a dict with extracted fields,
+    or empty dict if the file doesn't exist or can't be parsed.
+
+    Recognized frontmatter fields: model, maxTurns, permissionMode,
+    allowedTools, disallowedTools, mcpServers.
+    """
+    if not os.path.isfile(file_path):
+        return {}
+    try:
+        with open(file_path) as f:
+            content = f.read()
+    except OSError:
+        return {}
+
+    # Parse frontmatter
+    if not content.startswith('---'):
+        # No frontmatter — entire file is the prompt
+        return {'prompt': content.strip()} if content.strip() else {}
+
+    parts = content.split('---', 2)
+    if len(parts) < 3:
+        return {}
+
+    frontmatter_text = parts[1]
+    body = parts[2].strip()
+
+    try:
+        fm = yaml.safe_load(frontmatter_text)
+    except yaml.YAMLError:
+        return {}
+
+    if not isinstance(fm, dict):
+        return {}
+
+    result: dict = {}
+    if 'model' in fm:
+        result['model'] = fm['model']
+    if 'maxTurns' in fm:
+        result['max_turns'] = fm['maxTurns']
+    if 'permissionMode' in fm:
+        result['permission_mode'] = fm['permissionMode']
+    if 'allowedTools' in fm:
+        result['tools'] = fm['allowedTools']
+    if 'disallowedTools' in fm:
+        result['disallowed_tools'] = fm['disallowedTools']
+    if 'mcpServers' in fm:
+        result['mcp_servers'] = fm['mcpServers']
+    if body:
+        result['prompt'] = body
+    return result
+
+
+def enrich_agent_config(config: dict, search_dirs: list[str] | None = None) -> dict:
+    """Enrich an agent config dict by reading its definition file if available.
+
+    Looks for the agent file in search_dirs (e.g., project .claude/agents/).
+    Fields from the file are merged into the config, with existing values
+    taking precedence (so workgroup YAML role/model aren't overwritten).
+    """
+    file_path = config.get('file', '')
+    if not file_path:
+        return config
+
+    # Try absolute path first
+    if os.path.isabs(file_path) and os.path.isfile(file_path):
+        file_data = read_agent_file(file_path)
+        if file_data:
+            merged = dict(file_data)
+            merged.update(config)
+            return merged
+
+    # Try relative to each search directory
+    for d in (search_dirs or []):
+        candidate = os.path.join(d, file_path)
+        if os.path.isfile(candidate):
+            file_data = read_agent_file(candidate)
+            if file_data:
+                merged = dict(file_data)
+                merged.update(config)
+                return merged
+
+    return config
 
 
 def _section_header(title: str) -> str:

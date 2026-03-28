@@ -10,11 +10,15 @@ Verifies:
 7. Agent card click routing maps to agents card_name in action_card_click
 8. Agent card items are built from config_reader agent data
 """
+import os
+import tempfile
 import unittest
 
 from projects.POC.tui.screens.agent_config_modal import (
     AgentConfigModal,
+    enrich_agent_config,
     format_agent_config,
+    read_agent_file,
 )
 
 
@@ -194,6 +198,122 @@ class TestAgentConfigModal(unittest.TestCase):
         import inspect
         source = inspect.getsource(AgentConfigModal)
         self.assertIn('agent-config-close-btn', source)
+
+
+class TestReadAgentFile(unittest.TestCase):
+    """read_agent_file extracts frontmatter and prompt from .md agent definitions."""
+
+    def test_reads_frontmatter_model(self):
+        """Extracts model from YAML frontmatter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write('---\nmodel: claude-opus-4\nmaxTurns: 25\n---\nYou are a test agent.\n')
+            path = f.name
+        try:
+            result = read_agent_file(path)
+            self.assertEqual(result['model'], 'claude-opus-4')
+            self.assertEqual(result['max_turns'], 25)
+            self.assertEqual(result['prompt'], 'You are a test agent.')
+        finally:
+            os.unlink(path)
+
+    def test_reads_tools_and_permission(self):
+        """Extracts allowedTools, disallowedTools, permissionMode."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write('---\npermissionMode: plan\nallowedTools:\n  - Read\n  - Grep\ndisallowedTools:\n  - Write\n---\nPrompt text.\n')
+            path = f.name
+        try:
+            result = read_agent_file(path)
+            self.assertEqual(result['permission_mode'], 'plan')
+            self.assertEqual(result['tools'], ['Read', 'Grep'])
+            self.assertEqual(result['disallowed_tools'], ['Write'])
+        finally:
+            os.unlink(path)
+
+    def test_reads_mcp_servers(self):
+        """Extracts mcpServers from frontmatter."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write('---\nmcpServers:\n  - ask-question\n---\n')
+            path = f.name
+        try:
+            result = read_agent_file(path)
+            self.assertEqual(result['mcp_servers'], ['ask-question'])
+        finally:
+            os.unlink(path)
+
+    def test_nonexistent_file_returns_empty(self):
+        """Non-existent file returns empty dict."""
+        result = read_agent_file('/no/such/file.md')
+        self.assertEqual(result, {})
+
+    def test_file_without_frontmatter_returns_prompt_only(self):
+        """File without frontmatter treats entire content as prompt."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write('You are a simple agent with no config.')
+            path = f.name
+        try:
+            result = read_agent_file(path)
+            self.assertEqual(result['prompt'], 'You are a simple agent with no config.')
+            self.assertNotIn('model', result)
+        finally:
+            os.unlink(path)
+
+    def test_empty_file_returns_empty(self):
+        """Empty file returns empty dict."""
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False) as f:
+            f.write('')
+            path = f.name
+        try:
+            result = read_agent_file(path)
+            self.assertEqual(result, {})
+        finally:
+            os.unlink(path)
+
+
+class TestEnrichAgentConfig(unittest.TestCase):
+    """enrich_agent_config merges file data into the config dict."""
+
+    def test_enriches_from_agent_file(self):
+        """Reads agent file and merges model, tools, prompt into config."""
+        tmpdir = tempfile.mkdtemp()
+        agent_dir = os.path.join(tmpdir, '.claude', 'agents')
+        os.makedirs(agent_dir)
+        with open(os.path.join(agent_dir, 'test-agent.md'), 'w') as f:
+            f.write('---\nmodel: claude-opus-4\nmaxTurns: 30\nallowedTools:\n  - Read\n  - Glob\n---\nYou are a test agent.\n')
+        config = {'name': 'test-agent', 'file': '.claude/agents/test-agent.md'}
+        enriched = enrich_agent_config(config, search_dirs=[tmpdir])
+        self.assertEqual(enriched['model'], 'claude-opus-4')
+        self.assertEqual(enriched['max_turns'], 30)
+        self.assertEqual(enriched['tools'], ['Read', 'Glob'])
+        self.assertEqual(enriched['prompt'], 'You are a test agent.')
+        # Original fields preserved
+        self.assertEqual(enriched['name'], 'test-agent')
+
+    def test_existing_config_values_take_precedence(self):
+        """Config dict values are not overwritten by file data."""
+        tmpdir = tempfile.mkdtemp()
+        agent_dir = os.path.join(tmpdir, '.claude', 'agents')
+        os.makedirs(agent_dir)
+        with open(os.path.join(agent_dir, 'lead.md'), 'w') as f:
+            f.write('---\nmodel: claude-sonnet-4\n---\nFile prompt.\n')
+        config = {'name': 'lead', 'file': '.claude/agents/lead.md', 'model': 'claude-opus-4', 'role': 'team-lead'}
+        enriched = enrich_agent_config(config, search_dirs=[tmpdir])
+        # Config's model takes precedence over file's
+        self.assertEqual(enriched['model'], 'claude-opus-4')
+        self.assertEqual(enriched['role'], 'team-lead')
+        # File's prompt is added since config didn't have one
+        self.assertEqual(enriched['prompt'], 'File prompt.')
+
+    def test_no_file_returns_config_unchanged(self):
+        """When no agent file exists, config is returned as-is."""
+        config = {'name': 'missing', 'file': '.claude/agents/missing.md'}
+        enriched = enrich_agent_config(config, search_dirs=['/nonexistent'])
+        self.assertEqual(enriched, config)
+
+    def test_no_file_key_returns_config_unchanged(self):
+        """When config has no file key, returned as-is."""
+        config = {'name': 'bare'}
+        enriched = enrich_agent_config(config)
+        self.assertEqual(enriched, config)
 
 
 class TestAgentCardClickRouting(unittest.TestCase):
