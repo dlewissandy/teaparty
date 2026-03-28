@@ -9,10 +9,16 @@ Budget enforcement is mechanical (not advisory like norms):
   - Warns at 80% of job_limit_usd
   - Pauses at 100% of job_limit_usd
 
+Project-level aggregation: ProjectCostLedger persists per-turn cost
+records to a JSONL file.  The orchestrator checks project_limit_usd
+against the aggregate across all jobs.
+
 See docs/proposals/context-budget/references/cost-budget.md for design.
 """
 from __future__ import annotations
 
+import json
+import os
 from collections import defaultdict
 from typing import Any
 
@@ -73,8 +79,73 @@ class CostTracker:
         return self._total_cost >= self.job_limit * WARNING_THRESHOLD
 
     @property
+    def project_limit(self) -> float:
+        return self._budget.get('project_limit_usd', 0.0)
+
+    @property
     def limit_reached(self) -> bool:
         """True when cost reaches 100% of job_limit_usd."""
         if not self.job_limit:
             return False
         return self._total_cost >= self.job_limit * LIMIT_THRESHOLD
+
+
+# ── Project-level cost ledger ────────────────────────────────────────────────
+
+_LEDGER_FILENAME = '.cost-ledger.jsonl'
+
+
+class ProjectCostLedger:
+    """Persists per-turn cost records and aggregates across jobs.
+
+    Each record is a JSONL line: {"session_id": ..., "cost_usd": ...}.
+    The ledger file lives in the project's .teaparty/ directory.
+    """
+
+    def __init__(self, project_dir: str):
+        self._dir = os.path.join(project_dir, '.teaparty')
+        self._path = os.path.join(self._dir, _LEDGER_FILENAME)
+
+    def record(self, session_id: str, cost_usd: float) -> None:
+        """Append a cost record for a session turn."""
+        if cost_usd <= 0:
+            return
+        os.makedirs(self._dir, exist_ok=True)
+        entry = json.dumps({'session_id': session_id, 'cost_usd': cost_usd})
+        with open(self._path, 'a') as f:
+            f.write(entry + '\n')
+
+    def total_cost(self) -> float:
+        """Sum all cost records across all sessions."""
+        if not os.path.exists(self._path):
+            return 0.0
+        total = 0.0
+        with open(self._path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    total += entry.get('cost_usd', 0.0)
+                except json.JSONDecodeError:
+                    continue
+        return total
+
+    def session_cost(self, session_id: str) -> float:
+        """Sum cost records for a specific session."""
+        if not os.path.exists(self._path):
+            return 0.0
+        total = 0.0
+        with open(self._path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                    if entry.get('session_id') == session_id:
+                        total += entry.get('cost_usd', 0.0)
+                except json.JSONDecodeError:
+                    continue
+        return total

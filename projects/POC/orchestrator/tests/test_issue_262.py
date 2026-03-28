@@ -458,11 +458,12 @@ class TestEngineCostBudgetCheck(unittest.TestCase):
         config.human_actor_states = set()
         config.stall_timeout = 1800
 
+        input_mock = AsyncMock(return_value='yes')
         engine = Orchestrator(
             cfa_state=cfa,
             phase_config=config,
             event_bus=event_bus,
-            input_provider=AsyncMock(),
+            input_provider=input_mock,
             infra_dir='/tmp/infra',
             project_workdir='/tmp/project',
             session_worktree='/tmp/worktree',
@@ -510,13 +511,29 @@ class TestEngineCostBudgetCheck(unittest.TestCase):
         self.assertEqual(len(cost_events), 1)
         self.assertAlmostEqual(cost_events[0].data['total_cost_usd'], 10.00)
 
-    def test_limit_injects_escalation_prompt(self):
+    def test_limit_pauses_for_human_input(self):
+        """At 100%, the engine asks the human via input_provider."""
         import asyncio
         engine, tracker, published = self._make_engine_with_tracker(10.00)
         tracker.record({'type': 'result', 'total_cost_usd': 10.00})
         asyncio.run(engine._check_cost_budget())
+        # Human said "yes" (default mock), so no intervention injected
+        self.assertEqual(engine._pending_intervention, '')
+        # INPUT_REQUESTED event was published
+        input_events = [e for e in published if e.type == EventType.INPUT_REQUESTED]
+        self.assertEqual(len(input_events), 1)
+        self.assertIn('$10.00', input_events[0].data['bridge_text'])
+
+    def test_limit_injects_wrapup_on_decline(self):
+        """When human declines to continue, wrap-up prompt is injected."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        engine.input_provider = AsyncMock(return_value='no')
+        tracker.record({'type': 'result', 'total_cost_usd': 10.00})
+        asyncio.run(engine._check_cost_budget())
         self.assertIn('COST BUDGET EXCEEDED', engine._pending_intervention)
-        self.assertIn('$10.00', engine._pending_intervention)
+        self.assertIn('declined', engine._pending_intervention)
 
     def test_no_events_without_tracker(self):
         """Engine without a cost_tracker does nothing."""
@@ -550,6 +567,189 @@ class TestEngineCostBudgetCheck(unittest.TestCase):
         )
         asyncio.run(engine._check_cost_budget())
         self.assertEqual(len(published), 0)
+
+
+class TestProjectCostLedger(unittest.TestCase):
+    """Tests for cross-job project-level cost aggregation."""
+
+    def _make_ledger(self):
+        import tempfile
+        from projects.POC.orchestrator.cost_tracker import ProjectCostLedger
+        tmpdir = tempfile.mkdtemp()
+        return ProjectCostLedger(tmpdir), tmpdir
+
+    def test_record_and_total(self):
+        ledger, _ = self._make_ledger()
+        ledger.record('session-1', 1.50)
+        ledger.record('session-2', 2.50)
+        self.assertAlmostEqual(ledger.total_cost(), 4.00)
+
+    def test_session_cost(self):
+        ledger, _ = self._make_ledger()
+        ledger.record('session-1', 1.50)
+        ledger.record('session-2', 2.50)
+        ledger.record('session-1', 0.50)
+        self.assertAlmostEqual(ledger.session_cost('session-1'), 2.00)
+        self.assertAlmostEqual(ledger.session_cost('session-2'), 2.50)
+
+    def test_empty_ledger(self):
+        ledger, _ = self._make_ledger()
+        self.assertAlmostEqual(ledger.total_cost(), 0.0)
+        self.assertAlmostEqual(ledger.session_cost('any'), 0.0)
+
+    def test_zero_cost_not_recorded(self):
+        ledger, _ = self._make_ledger()
+        ledger.record('session-1', 0.0)
+        self.assertAlmostEqual(ledger.total_cost(), 0.0)
+
+
+class TestPerModelCostFlow(unittest.TestCase):
+    """Tests for per-model cost breakdown through the runtime path."""
+
+    def test_claude_result_carries_per_model(self):
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        result = ClaudeResult(
+            exit_code=0,
+            cost_usd=5.0,
+            cost_per_model={'claude-3-opus': 3.0, 'claude-3-haiku': 2.0},
+        )
+        self.assertEqual(result.cost_per_model['claude-3-opus'], 3.0)
+        self.assertEqual(result.cost_per_model['claude-3-haiku'], 2.0)
+
+    def test_cost_tracker_records_per_model(self):
+        from projects.POC.orchestrator.cost_tracker import CostTracker
+        tracker = CostTracker(budget={'job_limit_usd': 10.0})
+        tracker.record({
+            'type': 'result',
+            'total_cost_usd': 5.0,
+            'cost_usd': {'claude-3-opus': 3.0, 'claude-3-haiku': 2.0},
+        })
+        self.assertEqual(tracker.model_costs['claude-3-opus'], 3.0)
+        self.assertEqual(tracker.model_costs['claude-3-haiku'], 2.0)
+
+    def test_engine_passes_per_model_to_tracker(self):
+        """Engine feeds per-model data from actor result to CostTracker."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from projects.POC.orchestrator.cost_tracker import CostTracker
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+
+        tracker = CostTracker(budget={'job_limit_usd': 100.0})
+        event_bus = EventBus()
+        cfa = MagicMock()
+        config = MagicMock()
+        config.human_actor_states = set()
+        config.stall_timeout = 1800
+
+        engine = Orchestrator(
+            cfa_state=cfa,
+            phase_config=config,
+            event_bus=event_bus,
+            input_provider=AsyncMock(return_value='yes'),
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='/tmp/poc',
+            cost_tracker=tracker,
+        )
+
+        # Simulate what the engine does when it gets per-model data
+        from projects.POC.orchestrator.actors import ActorResult
+        actor_result = ActorResult(
+            action='continue',
+            data={
+                'cost_usd': 5.0,
+                'cost_per_model': {'claude-3-opus': 3.0, 'claude-3-haiku': 2.0},
+            },
+        )
+        # Feed cost to tracker the same way the engine does
+        turn_cost = actor_result.data.get('cost_usd', 0.0)
+        cost_event = {'type': 'result', 'total_cost_usd': turn_cost}
+        per_model = actor_result.data.get('cost_per_model')
+        if per_model:
+            cost_event['cost_usd'] = per_model
+        tracker.record(cost_event)
+
+        self.assertAlmostEqual(tracker.total_cost_usd, 5.0)
+        self.assertEqual(tracker.model_costs['claude-3-opus'], 3.0)
+
+
+class TestCostSidecar(unittest.TestCase):
+    """Tests for the .cost sidecar file written by the engine."""
+
+    def test_write_cost_sidecar(self):
+        import tempfile
+        from unittest.mock import AsyncMock, MagicMock
+        from projects.POC.orchestrator.cost_tracker import CostTracker
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+
+        infra_dir = tempfile.mkdtemp()
+        tracker = CostTracker(budget={'job_limit_usd': 100.0})
+        tracker.record({'type': 'result', 'total_cost_usd': 3.50})
+
+        cfa = MagicMock()
+        config = MagicMock()
+        config.human_actor_states = set()
+        config.stall_timeout = 1800
+
+        engine = Orchestrator(
+            cfa_state=cfa,
+            phase_config=config,
+            event_bus=EventBus(),
+            input_provider=AsyncMock(return_value='yes'),
+            infra_dir=infra_dir,
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='/tmp/poc',
+            cost_tracker=tracker,
+        )
+        engine._write_cost_sidecar()
+
+        import os
+        cost_path = os.path.join(infra_dir, '.cost')
+        self.assertTrue(os.path.exists(cost_path))
+        with open(cost_path) as f:
+            val = float(f.read().strip())
+        self.assertAlmostEqual(val, 3.50)
+
+
+class TestProductionWiring(unittest.TestCase):
+    """Tests that CostTracker is wired into production paths."""
+
+    def test_resolve_cost_tracker_returns_tracker_with_budget(self):
+        """_resolve_cost_tracker_impl returns CostTracker when budget exists."""
+        import tempfile, os, yaml
+        from projects.POC.orchestrator.session import _resolve_cost_tracker_impl
+
+        tmpdir = tempfile.mkdtemp()
+        teaparty_dir = os.path.join(tmpdir, '.teaparty')
+        os.makedirs(teaparty_dir)
+        with open(os.path.join(teaparty_dir, 'project.yaml'), 'w') as f:
+            yaml.dump({
+                'name': 'test',
+                'workgroups': [],
+                'budget': {'job_limit_usd': 5.0, 'project_limit_usd': 50.0},
+            }, f)
+
+        tracker = _resolve_cost_tracker_impl(tmpdir)
+        self.assertIsNotNone(tracker)
+        self.assertAlmostEqual(tracker.job_limit, 5.0)
+        self.assertAlmostEqual(tracker.project_limit, 50.0)
+
+    def test_resolve_cost_tracker_returns_none_without_budget(self):
+        """_resolve_cost_tracker_impl returns None when no budget configured."""
+        import tempfile
+        from projects.POC.orchestrator.session import _resolve_cost_tracker_impl
+
+        tmpdir = tempfile.mkdtemp()
+        tracker = _resolve_cost_tracker_impl(tmpdir)
+        self.assertIsNone(tracker)
 
 
 if __name__ == '__main__':

@@ -110,6 +110,18 @@ _ALIVE_THRESHOLD = 30    # Heartbeat mtime within 30s = alive (one BEAT_INTERVAL
 _DEAD_THRESHOLD = 300    # Heartbeat mtime > 5 minutes = dead
 
 
+def _read_cost_sidecar(infra_dir: str) -> float:
+    """Read the running cost total from the engine's .cost sidecar file."""
+    if not infra_dir:
+        return 0.0
+    cost_path = os.path.join(infra_dir, '.cost')
+    try:
+        with open(cost_path) as f:
+            return float(f.read().strip())
+    except (FileNotFoundError, ValueError, OSError):
+        return 0.0
+
+
 def _heartbeat_three_state(infra_dir: str) -> str:
     """Return heartbeat status as one of 'alive', 'stale', or 'dead'.
 
@@ -205,6 +217,7 @@ class SessionState:
     infra_dir: str = ''
     files_changed: list = field(default_factory=list)
     heartbeat_status: str = ''       # alive, stale, dead
+    total_cost_usd: float = 0.0      # cumulative cost from cost ledger
 
     @property
     def escalation_count(self) -> int:
@@ -533,6 +546,7 @@ class StateReader:
             duration_seconds=duration,
             infra_dir=infra_dir,
             heartbeat_status=heartbeat_status,
+            total_cost_usd=_read_cost_sidecar(infra_dir),
         )
 
     def _build_dispatch(self, entry: dict, now: float) -> DispatchState:
