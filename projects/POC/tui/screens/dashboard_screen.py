@@ -464,8 +464,7 @@ class DashboardScreen(Screen):
         self.app.push_screen(ChangeProjectDirScreen())
 
     def action_proxy_review(self) -> None:
-        from projects.POC.tui.screens.proxy_review import ProxyReviewScreen
-        self.app.push_screen(ProxyReviewScreen())
+        open_chat_window(self.app)
 
     def periodic_refresh(self) -> None:
         self._refresh_data()
