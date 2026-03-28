@@ -123,9 +123,9 @@ class JobDashboard(Screen):
             RichLog(id='activity-log', highlight=True, markup=True),
             Vertical(
                 Static('', id='session-meta'),
-                ContentCard('ESCALATIONS', 'escalations', empty_text='No escalations'),
-                ContentCard('ARTIFACTS', 'artifacts', empty_text='No artifacts'),
-                ContentCard('TASKS', 'job_tasks', empty_text='No dispatches'),
+                ContentCard('ESCALATIONS', 'escalations'),
+                ContentCard('ARTIFACTS', 'artifacts'),
+                ContentCard('TASKS', 'job_tasks'),
                 id='right-pane',
             ),
         )

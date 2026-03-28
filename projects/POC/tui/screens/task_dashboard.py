@@ -63,9 +63,9 @@ class TaskDashboard(Screen):
             RichLog(id='activity-log', highlight=True, markup=True),
             Vertical(
                 Static('', id='dispatch-meta'),
-                ContentCard('ESCALATIONS', 'escalations', empty_text='No escalations'),
-                ContentCard('ARTIFACTS', 'artifacts', empty_text='No files changed'),
-                ContentCard('TODO LIST', 'todo_list', empty_text='No todos'),
+                ContentCard('ESCALATIONS', 'escalations'),
+                ContentCard('ARTIFACTS', 'artifacts'),
+                ContentCard('TODO LIST', 'todo_list'),
                 id='right-pane',
             ),
         )
