@@ -325,5 +325,178 @@ class TestEngineAcceptsProjectDir(unittest.TestCase):
         self.assertEqual(orch.project_dir, '/tmp/my-project')
 
 
+# ── 9. Permission mode overrides (finding #2) ───────────────────────────────
+
+class TestPermissionModeOverride(unittest.TestCase):
+    """Project can override permission_mode per agent."""
+
+    def test_permission_mode_override(self):
+        """Project-level permission_mode replaces org default."""
+        d = _make_project_dir({
+            'teams': {
+                'coding': {
+                    'agent_overrides': {
+                        'coder': {'permission_mode': 'plan'},
+                    },
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        resolved = config.resolve_team_agents('coding')
+        self.assertEqual(resolved['coder']['permission_mode'], 'plan')
+
+    def test_planning_permission_mode_override(self):
+        """Project can override team-level planning_permission_mode."""
+        d = _make_project_dir({
+            'teams': {
+                'coding': {
+                    'planning_permission_mode': 'acceptEdits',
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        team = config.resolve_team_spec('coding')
+        self.assertEqual(team.planning_permission_mode, 'acceptEdits')
+
+    def test_planning_permission_mode_org_default(self):
+        """Without override, org planning_permission_mode is preserved."""
+        d = _make_project_dir({'teams': {'coding': {}}})
+        config = _make_phase_config(project_dir=d)
+        org_config = _make_phase_config()
+        org_team = org_config.team('coding')
+        proj_team = config.resolve_team_spec('coding')
+        self.assertEqual(proj_team.planning_permission_mode, org_team.planning_permission_mode)
+
+
+# ── 10. Skills overrides (finding #3) ───────────────────────────────────────
+
+class TestSkillsOverride(unittest.TestCase):
+    """Project can configure skills (allowedTools) per agent."""
+
+    def test_allowed_tools_override(self):
+        """Project-level allowedTools replaces org default."""
+        d = _make_project_dir({
+            'teams': {
+                'coding': {
+                    'agent_overrides': {
+                        'coder': {
+                            'allowedTools': ['Read', 'Write', 'Grep'],
+                        },
+                    },
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        resolved = config.resolve_team_agents('coding')
+        self.assertEqual(resolved['coder']['allowedTools'], ['Read', 'Write', 'Grep'])
+
+
+# ── 11. Project .claude/CLAUDE.md (finding #1) ──────────────────────────────
+
+class TestProjectClaudeMd(unittest.TestCase):
+    """PhaseConfig loads .claude/CLAUDE.md from project_dir."""
+
+    def test_claude_md_loaded(self):
+        """CLAUDE.md content is available via project_claude_md."""
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, '.claude'))
+        with open(os.path.join(d, '.claude', 'CLAUDE.md'), 'w') as f:
+            f.write('# Project Rules\nUse LaTeX for all docs.')
+        with open(os.path.join(d, 'project.json'), 'w') as f:
+            json.dump({'teams': {'coding': {}}}, f)
+        config = _make_phase_config(project_dir=d)
+        self.assertEqual(config.project_claude_md, '# Project Rules\nUse LaTeX for all docs.')
+
+    def test_no_claude_md_returns_empty(self):
+        """Without .claude/CLAUDE.md, project_claude_md is empty string."""
+        d = _make_project_dir({'teams': {'coding': {}}})
+        config = _make_phase_config(project_dir=d)
+        self.assertEqual(config.project_claude_md, '')
+
+    def test_no_project_dir_returns_empty(self):
+        """Without project_dir, project_claude_md is empty string."""
+        config = _make_phase_config()
+        self.assertEqual(config.project_claude_md, '')
+
+
+# ── 12. Phase-level overrides (finding #5) ───────────────────────────────────
+
+class TestPhaseOverrides(unittest.TestCase):
+    """Project can override phase-level agent configuration."""
+
+    def test_phase_agent_file_override(self):
+        """Project can override which agent file a phase uses."""
+        d = _make_project_dir({
+            'teams': {'coding': {}},
+            'phases': {
+                'planning': {
+                    'agent_file': 'agents/coding-team.json',
+                    'lead': 'coding-lead',
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        spec = config.resolve_phase('planning')
+        self.assertEqual(spec.agent_file, 'agents/coding-team.json')
+        self.assertEqual(spec.lead, 'coding-lead')
+
+    def test_phase_permission_mode_override(self):
+        """Project can override phase permission_mode."""
+        d = _make_project_dir({
+            'teams': {'coding': {}},
+            'phases': {
+                'execution': {
+                    'permission_mode': 'plan',
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        spec = config.resolve_phase('execution')
+        self.assertEqual(spec.permission_mode, 'plan')
+
+    def test_phase_settings_overlay_override(self):
+        """Project can override phase settings_overlay."""
+        d = _make_project_dir({
+            'teams': {'coding': {}},
+            'phases': {
+                'intent': {
+                    'settings_overlay': {
+                        'permissions': {'allow': ['Read', 'Grep']},
+                    },
+                },
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        spec = config.resolve_phase('intent')
+        self.assertEqual(spec.settings_overlay, {'permissions': {'allow': ['Read', 'Grep']}})
+
+    def test_unoverridden_phase_preserved(self):
+        """Phases without project overrides keep org defaults."""
+        d = _make_project_dir({
+            'teams': {'coding': {}},
+            'phases': {
+                'planning': {'lead': 'coding-lead'},
+            },
+        })
+        config = _make_phase_config(project_dir=d)
+        org_config = _make_phase_config()
+        # execution not overridden
+        self.assertEqual(
+            config.resolve_phase('execution').agent_file,
+            org_config.phase('execution').agent_file,
+        )
+
+    def test_no_project_phases_returns_org(self):
+        """Without phase overrides, resolve_phase returns org defaults."""
+        d = _make_project_dir({'teams': {'coding': {}}})
+        config = _make_phase_config(project_dir=d)
+        org_config = _make_phase_config()
+        for phase_name in ('intent', 'planning', 'execution'):
+            resolved = config.resolve_phase(phase_name)
+            org = org_config.phase(phase_name)
+            self.assertEqual(resolved.agent_file, org.agent_file)
+            self.assertEqual(resolved.lead, org.lead)
+
+
 if __name__ == '__main__':
     unittest.main()
