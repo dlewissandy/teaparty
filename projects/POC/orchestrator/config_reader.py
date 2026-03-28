@@ -66,6 +66,7 @@ class Workgroup:
     agents: list[dict[str, Any]] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
+    budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
 
@@ -83,6 +84,7 @@ class ManagementTeam:
     skills: list[str] = field(default_factory=list)
     scheduled: list[ScheduledTask] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
+    budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
 
@@ -100,6 +102,7 @@ class ProjectTeam:
     scheduled: list[ScheduledTask] = field(default_factory=list)
     hooks: list[dict[str, str]] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
+    budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
 
@@ -196,6 +199,7 @@ def load_management_team(
         skills=data.get('skills', []),
         scheduled=_parse_scheduled(data.get('scheduled')),
         norms=data.get('norms', {}),
+        budget=data.get('budget', {}),
         stats=data.get('stats', {}),
     )
 
@@ -233,6 +237,7 @@ def load_project_team(
         scheduled=_parse_scheduled(data.get('scheduled')),
         hooks=data.get('hooks', []),
         norms=data.get('norms', {}),
+        budget=data.get('budget', {}),
         stats=data.get('stats', {}),
     )
 
@@ -257,6 +262,7 @@ def load_workgroup(path: str) -> Workgroup:
         agents=data.get('agents', []),
         skills=data.get('skills', []),
         norms=data.get('norms', {}),
+        budget=data.get('budget', {}),
         stats=data.get('stats', {}),
     )
 
@@ -399,7 +405,43 @@ def resolve_norms(
     return format_norms(effective)
 
 
-# ── YAML persistence ──────────────────────────────────────────────────────────
+# ── Budgets ───────��───────────────────────────────────────────────────────────
+
+def apply_budget_precedence(*levels: dict[str, float]) -> dict[str, float]:
+    """Apply budget precedence across configuration levels.
+
+    Higher-precedence levels override individual keys from lower levels.
+    Unlike norms (which replace entire categories), budgets merge at the
+    key level — a project can override job_limit_usd without losing the
+    org-level project_limit_usd.
+
+    Args are ordered lowest-to-highest precedence: org, workgroup, project.
+    """
+    result: dict[str, float] = {}
+    for level in levels:
+        result.update(level)
+    return result
+
+
+def resolve_budget(
+    org_budget: dict[str, float] | None = None,
+    workgroup_budget: dict[str, float] | None = None,
+    project_budget: dict[str, float] | None = None,
+) -> dict[str, float]:
+    """Resolve budgets across all three levels.
+
+    Applies precedence (org < workgroup < project) and returns the
+    effective budget dict.  This is the integration point for reading
+    budget limits in the orchestrator.
+    """
+    return apply_budget_precedence(
+        org_budget or {},
+        workgroup_budget or {},
+        project_budget or {},
+    )
+
+
+# ── YAML persistence ───────────────────────��──────────────────────────────────
 
 def _save_management_yaml(
     data: dict[str, Any],

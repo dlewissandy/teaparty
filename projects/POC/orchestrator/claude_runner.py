@@ -27,6 +27,7 @@ class ClaudeResult:
     stream_file: str = ''
     stall_killed: bool = False
     start_time: float = 0.0
+    cost_usd: float = 0.0
     stderr_lines: list[str] = field(default_factory=list)
     context_budget: ContextBudget = field(default_factory=ContextBudget)
 
