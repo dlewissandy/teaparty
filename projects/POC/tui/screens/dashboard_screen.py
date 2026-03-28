@@ -426,6 +426,211 @@ def compute_workgroup_stats(
     }
 
 
+# ── Stat helpers (issue #273) ──
+
+def format_stat_value(value) -> str:
+    """Format a stat value for display. None → '—' (em dash)."""
+    if value is None:
+        return '\u2014'
+    return str(value)
+
+
+def _uptime_str() -> str:
+    """Human-readable uptime from system boot time."""
+    from projects.POC.tui.state_reader import _get_cached_boot_time
+    import time as _time
+    boot = _get_cached_boot_time()
+    if boot is None:
+        return '\u2014'
+    elapsed = int(_time.time() - boot)
+    return _human_age(elapsed)
+
+
+def _proxy_stats(project_paths: list[str]) -> tuple:
+    """Query proxy_memory.db for accuracy and chunk count across projects.
+
+    Returns (accuracy_str | None, chunk_count | None).
+    """
+    import sqlite3
+    total_correct = 0
+    total_eligible = 0
+    total_chunks = 0
+    found_any = False
+
+    for proj_path in project_paths:
+        db_path = os.path.join(proj_path, '.proxy-memory.db')
+        if not os.path.exists(db_path):
+            continue
+        try:
+            conn = sqlite3.connect(db_path, timeout=1)
+            conn.execute('PRAGMA query_only = ON')
+        except Exception:
+            continue
+        try:
+            # Proxy accuracy from proxy_accuracy table
+            rows = conn.execute(
+                'SELECT posterior_correct, posterior_total FROM proxy_accuracy'
+            ).fetchall()
+            for row in rows:
+                total_correct += row[0]
+                total_eligible += row[1]
+        except Exception:
+            pass  # Table may not exist yet
+        try:
+            # Skills learned = non-deleted chunk count
+            count = conn.execute(
+                'SELECT COUNT(*) FROM proxy_chunks WHERE deleted = 0'
+            ).fetchone()
+            if count:
+                total_chunks += count[0]
+        except Exception:
+            pass  # Table may not exist yet
+        found_any = True
+        conn.close()
+
+    if not found_any:
+        return (None, None)
+
+    accuracy = None
+    if total_eligible > 0:
+        pct = int(100 * total_correct / total_eligible)
+        accuracy = f'{pct}%'
+
+    return (accuracy, total_chunks)
+
+
+def _aggregate_sessions(sessions: list, project_paths: list[str] | None = None) -> dict:
+    """Compute common aggregated stats from a list of sessions."""
+    jobs_done = sum(1 for s in sessions if s.cfa_state == 'COMPLETED_WORK')
+    tasks_done = sum(
+        1 for s in sessions
+        for d in (s.dispatches or [])
+        if d.status == 'complete'
+    )
+    active = sum(1 for s in sessions if s.status == 'active')
+    one_shots = sum(
+        1 for s in sessions
+        if s.cfa_state == 'COMPLETED_WORK' and s.backtrack_count == 0
+    )
+    backtracks = sum(s.backtrack_count for s in sessions)
+    withdrawals = sum(1 for s in sessions if s.cfa_state == 'WITHDRAWN')
+    escalations = sum(s.escalation_count for s in sessions)
+
+    # Optional subsystems — query proxy_memory.db if project paths available
+    proxy_accuracy = None
+    skills_learned = None
+    if project_paths:
+        proxy_accuracy, skills_learned = _proxy_stats(project_paths)
+
+    return {
+        'jobs_done': jobs_done,
+        'tasks_done': tasks_done,
+        'active': active,
+        'one_shots': one_shots,
+        'backtracks': backtracks,
+        'withdrawals': withdrawals,
+        'escalations': escalations,
+        'interventions': None,  # No persisted counter — needs event tracking
+        'proxy_accuracy': proxy_accuracy,
+        'tokens': None,  # Not yet persisted to disk
+        'skills_learned': skills_learned,
+    }
+
+
+def compute_management_stats(projects: list) -> dict:
+    """Compute all 12 management dashboard stats from project list."""
+    all_sessions = [s for p in projects for s in p.sessions]
+    project_paths = [p.path for p in projects]
+    stats = _aggregate_sessions(all_sessions, project_paths)
+    stats['uptime'] = _uptime_str()
+    return stats
+
+
+def compute_project_stats(sessions: list, project_path: str = '') -> dict:
+    """Compute project dashboard stats (same as management minus Uptime)."""
+    paths = [project_path] if project_path else []
+    return _aggregate_sessions(sessions, paths)
+
+
+def compute_job_stats(session) -> dict:
+    """Compute job dashboard stats: Tasks, Backtracks, Escalations, Tokens, Elapsed."""
+    dispatches = session.dispatches or []
+    complete_d = sum(1 for d in dispatches if d.status == 'complete')
+    return {
+        'tasks': f'{complete_d}/{len(dispatches)}',
+        'backtracks': session.backtrack_count,
+        'escalations': session.escalation_count,
+        'tokens': None,  # Not yet persisted to disk
+        'elapsed': _human_age(session.duration_seconds),
+    }
+
+
+def compute_task_stats(dispatch) -> dict:
+    """Compute task dashboard stats: Tokens, Elapsed."""
+    return {
+        'tokens': None,  # Not yet persisted to disk
+        'elapsed': _human_age(dispatch.stream_age_seconds),
+    }
+
+
+def format_management_stats(projects: list) -> list[tuple[str, str]]:
+    """Format management stats as (label, value) pairs for the stats bar."""
+    stats = compute_management_stats(projects)
+    return [
+        ('Jobs Done', format_stat_value(stats['jobs_done'])),
+        ('Tasks Done', format_stat_value(stats['tasks_done'])),
+        ('Active', format_stat_value(stats['active'])),
+        ('One-shots', format_stat_value(stats['one_shots'])),
+        ('Backtracks', format_stat_value(stats['backtracks'])),
+        ('Withdrawals', format_stat_value(stats['withdrawals'])),
+        ('Escalations', format_stat_value(stats['escalations'])),
+        ('Interventions', format_stat_value(stats['interventions'])),
+        ('Proxy Acc.', format_stat_value(stats['proxy_accuracy'])),
+        ('Tokens', format_stat_value(stats['tokens'])),
+        ('Skills Learned', format_stat_value(stats['skills_learned'])),
+        ('Uptime', format_stat_value(stats['uptime'])),
+    ]
+
+
+def format_project_stats(sessions: list, project_path: str = '') -> list[tuple[str, str]]:
+    """Format project stats as (label, value) pairs for the stats bar."""
+    stats = compute_project_stats(sessions, project_path)
+    return [
+        ('Jobs Done', format_stat_value(stats['jobs_done'])),
+        ('Tasks Done', format_stat_value(stats['tasks_done'])),
+        ('Active', format_stat_value(stats['active'])),
+        ('One-shots', format_stat_value(stats['one_shots'])),
+        ('Backtracks', format_stat_value(stats['backtracks'])),
+        ('Withdrawals', format_stat_value(stats['withdrawals'])),
+        ('Escalations', format_stat_value(stats['escalations'])),
+        ('Interventions', format_stat_value(stats['interventions'])),
+        ('Proxy Acc.', format_stat_value(stats['proxy_accuracy'])),
+        ('Tokens', format_stat_value(stats['tokens'])),
+        ('Skills Learned', format_stat_value(stats['skills_learned'])),
+    ]
+
+
+def format_job_stats(session) -> list[tuple[str, str]]:
+    """Format job stats as (label, value) pairs for the stats bar."""
+    stats = compute_job_stats(session)
+    return [
+        ('Tasks', format_stat_value(stats['tasks'])),
+        ('Backtracks', format_stat_value(stats['backtracks'])),
+        ('Escalations', format_stat_value(stats['escalations'])),
+        ('Tokens', format_stat_value(stats['tokens'])),
+        ('Elapsed', format_stat_value(stats['elapsed'])),
+    ]
+
+
+def format_task_stats(dispatch) -> list[tuple[str, str]]:
+    """Format task stats as (label, value) pairs for the stats bar."""
+    stats = compute_task_stats(dispatch)
+    return [
+        ('Tokens', format_stat_value(stats['tokens'])),
+        ('Elapsed', format_stat_value(stats['elapsed'])),
+    ]
+
+
 # ── Screen ──
 
 class DashboardScreen(Screen):
@@ -562,17 +767,8 @@ class DashboardScreen(Screen):
 
     def _refresh_management(self, reader) -> None:
         projects = reader.projects
-        total = sum(len(p.sessions) for p in projects)
-        active = sum(p.active_count for p in projects)
-        done = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'COMPLETED_WORK')
-        withdrawn = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'WITHDRAWN')
-        # Issue #254: escalation count includes dispatch subtree
-        attention = sum(s.escalation_count for p in projects for s in p.sessions)
-        self._set_stats([
-            ('Projects', str(len(projects))), ('Jobs', str(total)),
-            ('Active', str(active)), ('Done', str(done)),
-            ('Withdrawn', str(withdrawn)), ('Escalations', str(attention)),
-        ])
+        # Issue #273: full stat set from management-dashboard.md
+        self._set_stats(format_management_stats(projects))
 
         # Escalations — all escalation items across all projects
         tagged = [(proj.slug, s) for proj in projects for s in proj.sessions]
@@ -600,17 +796,8 @@ class DashboardScreen(Screen):
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
-        total = len(proj.sessions)
-        active_count = proj.active_count
-        done = sum(1 for s in proj.sessions if s.cfa_state == 'COMPLETED_WORK')
-        withdrawn = sum(1 for s in proj.sessions if s.cfa_state == 'WITHDRAWN')
-        # Issue #254: escalation count includes dispatch subtree
-        attention = sum(s.escalation_count for s in proj.sessions)
-        self._set_stats([
-            ('Jobs', str(total)), ('Active', str(active_count)),
-            ('Done', str(done)), ('Withdrawn', str(withdrawn)),
-            ('Escalations', str(attention)),
-        ])
+        # Issue #273: full stat set from project-dashboard.md
+        self._set_stats(format_project_stats(proj.sessions, proj.path))
 
         # Escalations — all escalation items within this project
         tagged = [('', s) for s in proj.sessions]
@@ -685,18 +872,8 @@ class DashboardScreen(Screen):
     def _refresh_job(self, reader, session) -> None:
         if not session:
             return
-        dispatches = session.dispatches or []
-        active_d = sum(1 for d in dispatches if d.status == 'active')
-        complete_d = sum(1 for d in dispatches if d.status == 'complete')
-        # Issue #254: escalation count from task subtree
-        escalation_count = session.escalation_count
-        self._set_stats([
-            ('Tasks', f'{complete_d}/{len(dispatches)}'),
-            ('Active', str(active_d)),
-            ('Escalations', str(escalation_count)),
-            ('Elapsed', _human_age(session.duration_seconds)),
-            ('Idle', _human_age(session.stream_age_seconds)),
-        ])
+        # Issue #273: full stat set from job-dashboard.md
+        self._set_stats(format_job_stats(session))
 
         # Escalations — dispatch-level escalations within this job
         escalation_items = []
@@ -780,11 +957,8 @@ class DashboardScreen(Screen):
     def _refresh_task(self, reader, session, dispatch) -> None:
         if not dispatch:
             return
-        self._set_stats([
-            ('Team', dispatch.team or '?'),
-            ('Status', dispatch.status or '\u2014'),
-            ('Age', _human_age(dispatch.stream_age_seconds)),
-        ])
+        # Issue #273: full stat set from task-dashboard.md
+        self._set_stats(format_task_stats(dispatch))
 
         # Escalations — this task's own escalation state
         escalation_items = []
