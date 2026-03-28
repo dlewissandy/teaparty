@@ -200,6 +200,13 @@ class DashboardScreen(Screen):
             ))
         self._set_card('projects', items)
 
+        # Humans — always show the current user
+        import getpass
+        username = getpass.getuser()
+        self._set_card('humans', [
+            CardItem(icon='\u263a', label=username, detail='decider'),
+        ])
+
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
