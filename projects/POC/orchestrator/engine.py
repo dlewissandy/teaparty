@@ -432,11 +432,22 @@ class Orchestrator:
         except OSError:
             pass
 
+        # Build embed_fn from memory_indexer if available (Issue #215).
+        embed_fn = None
+        try:
+            from projects.POC.scripts.memory_indexer import try_embed, detect_provider
+            provider, model = detect_provider()
+            if provider != 'none':
+                embed_fn = lambda text: try_embed(text, provider=provider, model=model)
+        except Exception:
+            _log.debug('Embedding provider unavailable for skill lookup')
+
         try:
             match = lookup_skill(
                 task=self.task,
                 intent=intent,
                 skills_dirs=skills_dirs,
+                embed_fn=embed_fn,
             )
         except Exception:
             _log.debug('Skill lookup failed, falling through to cold start')
