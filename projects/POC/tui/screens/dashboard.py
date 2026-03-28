@@ -75,6 +75,7 @@ class DashboardScreen(Screen):
         Binding('q', 'quit_app', 'Quit', show=True),
         Binding('f', 'change_folder', 'Folder', show=True),
         Binding('c', 'open_chat', 'Chat', show=True),
+        Binding('x', 'proxy_review', 'Proxy Review', show=True),
     ]
 
     def compose(self) -> ComposeResult:
@@ -335,6 +336,11 @@ class DashboardScreen(Screen):
 
     def action_change_folder(self) -> None:
         self.app.push_screen(ChangeProjectDirScreen())
+
+    def action_proxy_review(self) -> None:
+        """Open a proxy review session for the current decider."""
+        from projects.POC.tui.screens.proxy_review import ProxyReviewScreen
+        self.app.push_screen(ProxyReviewScreen())
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""

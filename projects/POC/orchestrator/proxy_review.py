@@ -15,7 +15,9 @@ Issue #259.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import subprocess
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -234,3 +236,104 @@ def summarize_accuracy(conn) -> str:
         lines.append(f'| {state} | {task_type} | {prior_pct} | {post_pct} | {row[6] or "n/a"} |')
 
     return '\n'.join(lines)
+
+
+# ── Review conversation turn ───────────────────────────────────────────────
+
+def build_review_prompt(
+    human_message: str,
+    *,
+    memory_context: str,
+    accuracy_context: str,
+    dialog_history: str = '',
+) -> str:
+    """Build the self-review prompt for the proxy agent.
+
+    Unlike gate-prediction mode, the proxy is transparent about its memory:
+    it explains activation levels, confidence scores, and prediction patterns.
+    It accepts corrections and reinforcements conversationally.
+    """
+    return (
+        'You are a human proxy agent in self-review mode. The human who you '
+        'model is talking directly to you to inspect and calibrate your model '
+        'of their decision-making.\n\n'
+        'In this mode you are fully transparent. You:\n'
+        '- Explain what patterns you have picked up from past gates\n'
+        '- Show your confidence levels and where you are uncertain\n'
+        '- Accept corrections ("stop flagging X", "care more about Y")\n'
+        '- Accept reinforcements ("yes, that pattern is important")\n'
+        '- Respond from your actual memory, citing activation levels and '
+        'prediction history when relevant\n\n'
+        'When the human corrects you, acknowledge the correction and explain '
+        'how it will change your future behavior.\n'
+        'When the human asks what you have learned, summarize from the '
+        'memories below.\n\n'
+        f'{memory_context}\n\n'
+        f'{accuracy_context}\n\n'
+        f'{dialog_history}'
+        f'Human: {human_message}\n'
+    )
+
+
+async def run_review_turn(
+    human_message: str,
+    *,
+    conn,
+    session: ReviewSession,
+    bus: SqliteMessageBus,
+    dialog_history: str = '',
+) -> str:
+    """Execute one turn of a proxy review conversation.
+
+    1. Gathers introspection context from the proxy's ACT-R memory
+    2. Invokes the proxy agent in self-review mode via claude -p
+    3. Records both messages on the message bus
+    4. Returns the proxy's response text
+
+    The caller (TUI or CLI) is responsible for the conversation loop.
+    """
+    # Record the human's message
+    bus.send(session.conversation_id, session.human_name, human_message)
+
+    # Gather memory context for the prompt
+    current = get_interaction_counter(conn)
+    entries = introspect_chunks(conn, current_interaction=current)
+    memory_context = format_introspection(entries)
+    accuracy_context = summarize_accuracy(conn)
+
+    prompt = build_review_prompt(
+        human_message,
+        memory_context=memory_context,
+        accuracy_context=accuracy_context,
+        dialog_history=dialog_history,
+    )
+
+    # Invoke the proxy agent in review mode
+    response = await _invoke_review_agent(prompt)
+
+    # Record the proxy's response
+    bus.send(session.conversation_id, 'proxy', response)
+
+    return response
+
+
+async def _invoke_review_agent(prompt: str) -> str:
+    """Invoke claude -p in review mode. Returns the response text."""
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ['claude', '-p', '--output-format', 'text',
+                 '--permission-mode', 'bypassPermissions'],
+                input=prompt, capture_output=True, text=True, timeout=60,
+            ),
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        _log.warning('Review agent invocation failed')
+        return 'I was unable to process your request. Please try again.'
+
+    if result.returncode != 0 or not result.stdout.strip():
+        _log.warning('Review agent returned non-zero or empty output')
+        return 'I was unable to process your request. Please try again.'
+
+    return result.stdout.strip()
