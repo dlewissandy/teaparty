@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -10,6 +11,8 @@ from textual.app import App
 
 from projects.POC.orchestrator.cron_driver import CronDriver
 from projects.POC.tui.state_reader import StateReader
+
+_log = logging.getLogger('orchestrator')
 
 if TYPE_CHECKING:
     from projects.POC.orchestrator.tui_bridge import InProcessSession
@@ -103,7 +106,24 @@ class TeaPartyTUI(App):
 
     def _cron_tick(self) -> None:
         """Run one cron scheduler cycle (every 60s)."""
-        asyncio.create_task(self.cron_driver.tick())
+        task = asyncio.create_task(self.cron_driver.tick())
+        task.add_done_callback(self._on_cron_tick_done)
+
+    @staticmethod
+    def _on_cron_tick_done(task: asyncio.Task) -> None:
+        """Log cron tick results and surface errors."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            _log.error('Cron tick failed: %s', exc)
+            return
+        records = task.result()
+        for record in records:
+            if record.success:
+                _log.info('Cron task %s completed', record.task_name)
+            else:
+                _log.error('Cron task %s failed: %s', record.task_name, record.reason)
 
     def on_unmount(self) -> None:
         """Kill all chat windows when the dashboard exits."""

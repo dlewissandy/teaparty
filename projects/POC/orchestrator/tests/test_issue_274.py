@@ -232,6 +232,47 @@ class TestTUIIntegration(unittest.TestCase):
         self.assertIsNotNone(app.cron_driver)
         self.assertIsInstance(app.cron_driver, CronDriver)
 
+    def test_cron_tick_done_callback_logs_results(self):
+        """_on_cron_tick_done logs success and failure records."""
+        from projects.POC.orchestrator.cron_scheduler import RunRecord
+        from projects.POC.tui.app import TeaPartyTUI
+
+        now = datetime(2026, 3, 28, 2, 0, 0, tzinfo=timezone.utc)
+        records = [
+            RunRecord(task_name='ok-task', timestamp=now, success=True),
+            RunRecord(task_name='bad-task', timestamp=now, success=False, reason='boom'),
+        ]
+
+        # Create a completed task with records as result
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        future.set_result(records)
+
+        with patch('projects.POC.tui.app._log') as mock_log:
+            TeaPartyTUI._on_cron_tick_done(future)
+            # Should log info for success, error for failure
+            info_calls = [c for c in mock_log.info.call_args_list if 'ok-task' in str(c)]
+            error_calls = [c for c in mock_log.error.call_args_list if 'bad-task' in str(c)]
+            self.assertEqual(len(info_calls), 1)
+            self.assertEqual(len(error_calls), 1)
+
+        loop.close()
+
+    def test_cron_tick_done_callback_logs_exceptions(self):
+        """_on_cron_tick_done logs exceptions from tick()."""
+        from projects.POC.tui.app import TeaPartyTUI
+
+        loop = asyncio.new_event_loop()
+        future = loop.create_future()
+        future.set_exception(RuntimeError('event loop died'))
+
+        with patch('projects.POC.tui.app._log') as mock_log:
+            TeaPartyTUI._on_cron_tick_done(future)
+            error_calls = [c for c in mock_log.error.call_args_list if 'event loop died' in str(c)]
+            self.assertEqual(len(error_calls), 1)
+
+        loop.close()
+
 
 if __name__ == '__main__':
     unittest.main()
