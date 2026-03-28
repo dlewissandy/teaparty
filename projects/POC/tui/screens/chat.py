@@ -27,7 +27,7 @@ from textual.widgets.option_list import Option
 from projects.POC.orchestrator.messaging import ConversationType
 from projects.POC.tui.chat_model import ChatModel
 from projects.POC.tui.event_parser import EventParser
-from projects.POC.tui.stream_filter import StreamCategory, StreamFilter, classify_event
+from projects.POC.tui.stream_filter import StreamCategory, StreamFilter
 
 
 _FILTER_LABELS: list[tuple[StreamCategory, str]] = [
