@@ -255,12 +255,43 @@ def load_workgroup(path: str) -> Workgroup:
 
 # ── Discovery & resolution ──────────────────────────────────────────────────
 
-def discover_projects(team: ManagementTeam) -> list[dict[str, str]]:
-    """Return the list of project entries from the management team.
+def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
+    """Walk teams: entries and check which paths are valid TeaParty projects.
 
-    Each entry has 'name' and 'path' keys. Paths are already expanded.
+    A directory is a TeaParty project if it contains .git/, .claude/, and
+    .teaparty/ (per the design doc). Each returned entry has:
+      - name: the team name from teaparty.yaml
+      - path: the expanded absolute path
+      - valid: True if the path exists and contains required markers
+
+    Returns all entries (including invalid ones) so callers can report
+    missing or misconfigured projects.
     """
-    return list(team.teams)
+    required_markers = ['.git', '.claude', '.teaparty']
+    result: list[dict[str, Any]] = []
+    for entry in team.teams:
+        path = entry['path']
+        valid = os.path.isdir(path) and all(
+            os.path.isdir(os.path.join(path, m)) for m in required_markers
+        )
+        result.append({'name': entry['name'], 'path': path, 'valid': valid})
+    return result
+
+
+def load_management_workgroups(
+    team: ManagementTeam,
+    teaparty_home: str = '~/.teaparty',
+) -> list[Workgroup]:
+    """Load all workgroup definitions from the management team.
+
+    Each WorkgroupEntry's config path is resolved relative to teaparty_home.
+    """
+    home = os.path.expanduser(teaparty_home)
+    result: list[Workgroup] = []
+    for entry in team.workgroups:
+        config_path = os.path.join(home, entry.config)
+        result.append(load_workgroup(config_path))
+    return result
 
 
 def resolve_workgroups(

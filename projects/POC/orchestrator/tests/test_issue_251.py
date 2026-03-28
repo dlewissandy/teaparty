@@ -28,6 +28,7 @@ from projects.POC.orchestrator.config_reader import (
     Workgroup,
     WorkgroupRef,
     load_management_team,
+    load_management_workgroups,
     load_project_team,
     load_workgroup,
     discover_projects,
@@ -343,6 +344,24 @@ class TestDiscoverProjects(unittest.TestCase):
         self.assertEqual(len(projects), 1)
         self.assertEqual(projects[0]['name'], 'My Backend')
         self.assertEqual(projects[0]['path'], proj)
+        self.assertTrue(projects[0]['valid'])
+
+    def test_invalid_project_missing_markers(self):
+        """A directory without .git/.claude/.teaparty is marked invalid."""
+        d = tempfile.mkdtemp()  # bare dir, no markers
+        yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=d)
+        home = _make_teaparty_home(yaml_text)
+        team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
+        projects = discover_projects(team)
+        self.assertFalse(projects[0]['valid'])
+
+    def test_nonexistent_path_invalid(self):
+        """A path that doesn't exist is marked invalid."""
+        yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path='/nonexistent/project')
+        home = _make_teaparty_home(yaml_text)
+        team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
+        projects = discover_projects(team)
+        self.assertFalse(projects[0]['valid'])
 
     def test_tilde_expansion(self):
         """Paths with ~ are expanded to the user's home directory."""
@@ -445,7 +464,40 @@ class TestResolveWorkgroups(unittest.TestCase):
             )
 
 
-# ── 6. Design doc example YAML fidelity ─────────────────────────────────────
+# ── 6. Management-level workgroup loading ────────────────────────────────────
+
+class TestLoadManagementWorkgroups(unittest.TestCase):
+    """Management-level workgroups are loaded from ~/.teaparty/workgroups/."""
+
+    def test_loads_management_workgroups(self):
+        config_yaml = textwrap.dedent("""\
+            name: Configuration
+            description: Configuration management.
+            lead: config-lead
+        """)
+        proj = _make_project_dir("name: D\ndescription: d\nlead: x\ndecider: x\n")
+        home = _make_teaparty_home(
+            MINIMAL_TEAPARTY_YAML.format(project_path=proj),
+            workgroup_files={'configuration.yaml': config_yaml},
+        )
+        team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
+        workgroups = load_management_workgroups(team, teaparty_home=os.path.join(home, '.teaparty'))
+        self.assertEqual(len(workgroups), 1)
+        self.assertEqual(workgroups[0].name, 'Configuration')
+        self.assertEqual(workgroups[0].lead, 'config-lead')
+
+    def test_missing_management_workgroup_raises(self):
+        proj = _make_project_dir("name: D\ndescription: d\nlead: x\ndecider: x\n")
+        home = _make_teaparty_home(
+            MINIMAL_TEAPARTY_YAML.format(project_path=proj),
+            # No configuration.yaml provided
+        )
+        team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
+        with self.assertRaises(FileNotFoundError):
+            load_management_workgroups(team, teaparty_home=os.path.join(home, '.teaparty'))
+
+
+# ── 7. Design doc example YAML fidelity ─────────────────────────────────────
 
 class TestDesignDocExamples(unittest.TestCase):
     """The reader can load the actual example YAML files from the design doc."""
