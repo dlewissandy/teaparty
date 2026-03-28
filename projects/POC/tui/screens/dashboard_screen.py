@@ -382,10 +382,12 @@ def build_active_task_items(
                 elif not name:
                     name = d.team or '?'
                 hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.heartbeat_status else ''
+                # Show parent job so users know which job each task belongs to
+                job_tag = f'[dim]{s.session_id}[/dim]  ' if s.session_id else ''
                 items.append(CardItem(
                     icon='\u25b6',
                     label=name,
-                    detail=f'{_state_display(d.cfa_phase, d.cfa_state)}  {_human_age(d.stream_age_seconds)}{hb}',
+                    detail=f'{job_tag}{_state_display(d.cfa_phase, d.cfa_state)}  {_human_age(d.stream_age_seconds)}{hb}',
                     data={'session_id': s.session_id, 'dispatch': d},
                 ))
     return items
@@ -1028,7 +1030,7 @@ class DashboardScreen(Screen):
             if wg_id:
                 self._navigate(self._nav.drill_down(DashboardLevel.WORKGROUP, workgroup_id=wg_id))
 
-        elif card_name == 'tasks':
+        elif card_name in ('tasks', 'active_tasks'):
             dispatch = data.get('dispatch')
             if dispatch:
                 task_id = os.path.basename(dispatch.infra_dir) if dispatch.infra_dir else dispatch.worktree_name
@@ -1094,7 +1096,7 @@ class DashboardScreen(Screen):
         if not project:
             reader = self.app.state_reader
             project = reader.projects[0].slug if reader.projects else ''
-        self.app.push_screen(LaunchScreen(project))
+        self.app.push_screen(LaunchScreen(project, workgroup=self._nav.workgroup_id))
 
     def action_new_project(self) -> None:
         from projects.POC.tui.screens.new_project import NewProjectScreen
