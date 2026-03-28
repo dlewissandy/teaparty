@@ -331,6 +331,41 @@ def filter_sessions_for_workgroup(
     return [s for s in sessions if any(d.team.lower() == team for d in (s.dispatches or []))]
 
 
+def _build_workgroup_escalation_items(
+    sessions: list,
+    workgroup_name: str,
+) -> list[CardItem]:
+    """Build escalation items scoped to a workgroup's team.
+
+    Only includes dispatch-level escalations from matching team dispatches,
+    plus session-level escalations (which apply to the whole job).
+    """
+    team = workgroup_name.lower()
+    items: list[CardItem] = []
+    for s in sessions:
+        if s.needs_input:
+            items.append(CardItem(
+                icon='\u23f3',
+                label=s.session_id,
+                detail=f'[dim red]{_state_display(s.cfa_phase, s.cfa_state)}[/dim red]',
+                data={'session_id': s.session_id},
+            ))
+        for d in (s.dispatches or []):
+            if d.needs_input and d.team.lower() == team:
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = d.team or '?'
+                items.append(CardItem(
+                    icon='\u23f3',
+                    label=f'{s.session_id}/{name}',
+                    detail=f'[dim red]{_state_display(d.cfa_phase, d.cfa_state)}[/dim red]  {d.team or "?"}',
+                    data={'session_id': s.session_id, 'dispatch': d},
+                ))
+    return items
+
+
 def build_active_task_items(
     sessions: list,
     workgroup_name: str,
@@ -617,15 +652,14 @@ class DashboardScreen(Screen):
             ('Escalations', str(stats['escalations'])),
         ])
 
-        # Escalations
-        tagged = [('', s) for s in wg_sessions]
-        self._set_card('escalations', _build_escalation_items(tagged))
+        # Escalations — only from this workgroup's team
+        self._set_card('escalations', _build_workgroup_escalation_items(wg_sessions, wg_id))
 
         # Sessions
         self._set_card('sessions', _build_session_items(tagged, hide_done=self._hide_done.get('sessions', True)))
 
         # Active Tasks
-        self._set_card('active_tasks', build_active_task_items(proj.sessions, wg_id))
+        self._set_card('active_tasks', build_active_task_items(wg_sessions, wg_id))
 
         # Agents
         self._set_card('agents', self._load_workgroup_agents())

@@ -141,27 +141,41 @@ class TestWorkgroupEscalations(unittest.TestCase):
         """An escalation in a dispatch whose team matches the workgroup should appear."""
         from projects.POC.tui.screens.dashboard_screen import (
             filter_sessions_for_workgroup,
-            _build_escalation_items,
+            _build_workgroup_escalation_items,
         )
         escalated = _make_dispatch(team='coding', needs_input=True,
                                    cfa_state='WORK_ASSERT')
         session = _make_session(dispatches=[escalated])
         filtered = filter_sessions_for_workgroup([session], 'Coding')
-        items = _build_escalation_items([('', s) for s in filtered])
+        items = _build_workgroup_escalation_items(filtered, 'Coding')
         self.assertEqual(len(items), 1)
 
     def test_session_level_escalation_on_matching_session(self):
         """A session-level escalation should appear if the session has matching dispatches."""
         from projects.POC.tui.screens.dashboard_screen import (
             filter_sessions_for_workgroup,
-            _build_escalation_items,
+            _build_workgroup_escalation_items,
         )
         dispatch = _make_dispatch(team='coding')
         session = _make_session(dispatches=[dispatch], needs_input=True,
                                 cfa_state='INTENT_ASSERT')
         filtered = filter_sessions_for_workgroup([session], 'Coding')
-        items = _build_escalation_items([('', s) for s in filtered])
+        items = _build_workgroup_escalation_items(filtered, 'Coding')
         self.assertEqual(len(items), 1)
+
+    def test_escalation_from_other_team_dispatch_excluded(self):
+        """A dispatch escalation from a non-matching team should not appear."""
+        from projects.POC.tui.screens.dashboard_screen import (
+            filter_sessions_for_workgroup,
+            _build_workgroup_escalation_items,
+        )
+        coding = _make_dispatch(team='coding', needs_input=False)
+        research = _make_dispatch(team='research', needs_input=True, cfa_state='WORK_ASSERT')
+        session = _make_session(dispatches=[coding, research])
+        filtered = filter_sessions_for_workgroup([session], 'Coding')
+        items = _build_workgroup_escalation_items(filtered, 'Coding')
+        # Only session-level if needed, not the research dispatch escalation
+        self.assertEqual(len(items), 0)
 
 
 class TestWorkgroupActiveTasks(unittest.TestCase):
