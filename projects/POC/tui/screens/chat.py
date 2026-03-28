@@ -20,10 +20,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, Header, OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
-from projects.POC.orchestrator.messaging import (
-    ConversationType,
-    SqliteMessageBus,
-)
+from projects.POC.orchestrator.messaging import ConversationType
 from projects.POC.tui.chat_model import ChatModel
 
 
@@ -43,7 +40,7 @@ def _conv_label(conv, model: ChatModel) -> str:
     type_label = _TYPE_LABELS.get(conv.type, conv.type.value)
     # Extract qualifier from ID (after the prefix:)
     qualifier = conv.id.split(':', 1)[1] if ':' in conv.id else conv.id
-    unread = model.unread_tracker.unread_count(model.bus, conv.id)
+    unread = model.unread_tracker.unread_count(model._bus_for(conv.id), conv.id)
     attention = model.needs_attention(conv.id)
     badge = ''
     if attention:
@@ -64,7 +61,6 @@ class ChatScreen(Screen):
     def __init__(self):
         super().__init__()
         self._model: ChatModel | None = None
-        self._bus: SqliteMessageBus | None = None
         self._conv_ids: list[str] = []
         self._selected_conv: str = ''
         self._msg_count: int = 0
@@ -104,39 +100,44 @@ class ChatScreen(Screen):
             self._select_conversation(target)
 
     def on_unmount(self) -> None:
-        if self._bus:
-            self._bus.close()
-            self._bus = None
+        if self._model:
+            self._model.close()
             self._model = None
 
     def _open_bus(self) -> None:
-        """Find and open the message bus.
+        """Find and open message buses across all sessions.
 
-        Scans active sessions for messages.db files. Uses the first one found.
-        Also checks for a shared bus at the POC root.
+        Scans in-process sessions and session infra dirs for messages.db
+        files. Aggregates all found buses into a single ChatModel so
+        conversations from different sessions appear in one view.
         """
         reader = self.app.state_reader
         reader.reload()
+        bus_paths: list[str] = []
+        seen: set[str] = set()
 
-        # Check in-process sessions first
+        # In-process sessions
         for sid, ip in getattr(self.app, '_in_process', {}).items():
             if ip.message_bus_path and os.path.exists(ip.message_bus_path):
-                self._bus = SqliteMessageBus(ip.message_bus_path)
-                self._model = ChatModel(self._bus)
-                return
+                real = os.path.realpath(ip.message_bus_path)
+                if real not in seen:
+                    seen.add(real)
+                    bus_paths.append(ip.message_bus_path)
 
-        # Scan session infra dirs for messages.db
+        # Session infra dirs
         for session in reader.sessions:
             if session.infra_dir:
-                bus_path = os.path.join(session.infra_dir, 'messages.db')
-                if os.path.exists(bus_path):
-                    self._bus = SqliteMessageBus(bus_path)
-                    self._model = ChatModel(self._bus)
-                    return
+                candidate = os.path.join(session.infra_dir, 'messages.db')
+                if os.path.exists(candidate):
+                    real = os.path.realpath(candidate)
+                    if real not in seen:
+                        seen.add(real)
+                        bus_paths.append(candidate)
 
-        # No bus found — create a placeholder
-        self._bus = None
-        self._model = None
+        if bus_paths:
+            self._model = ChatModel.from_bus_paths(bus_paths)
+        else:
+            self._model = None
 
     def _rebuild_conv_list(self) -> None:
         """Refresh the conversation list from the model."""

@@ -333,5 +333,151 @@ class TestChatModelSendMessage(unittest.TestCase):
         self.assertTrue(len(msg_id) > 0)
 
 
+class TestMultiBusAggregation(unittest.TestCase):
+    """ChatModel aggregates conversations across multiple session buses."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        # Two separate session buses (like two different sessions)
+        self.bus1, self.bus1_path = _make_bus(self._tmp, 'session1.db')
+        self.bus2, self.bus2_path = _make_bus(self._tmp, 'session2.db')
+
+    def tearDown(self):
+        self.bus1.close()
+        self.bus2.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_aggregates_conversations_across_buses(self):
+        """Conversations from multiple buses appear in a single listing."""
+        self.bus1.create_conversation(ConversationType.PROJECT_SESSION, 'sess-1')
+        self.bus2.create_conversation(ConversationType.PROJECT_SESSION, 'sess-2')
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel.from_bus_paths([self.bus1_path, self.bus2_path])
+        convos = model.conversations()
+        ids = [c.id for c in convos]
+        self.assertIn('session:sess-1', ids)
+        self.assertIn('session:sess-2', ids)
+
+    def test_messages_from_correct_bus(self):
+        """Messages are read from the bus that owns the conversation."""
+        c1 = self.bus1.create_conversation(ConversationType.PROJECT_SESSION, 'sess-1')
+        self.bus1.send(c1.id, 'orchestrator', 'msg from bus1')
+        c2 = self.bus2.create_conversation(ConversationType.PROJECT_SESSION, 'sess-2')
+        self.bus2.send(c2.id, 'orchestrator', 'msg from bus2')
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel.from_bus_paths([self.bus1_path, self.bus2_path])
+        msgs1 = model.messages(c1.id)
+        msgs2 = model.messages(c2.id)
+        self.assertEqual(len(msgs1), 1)
+        self.assertEqual(msgs1[0].content, 'msg from bus1')
+        self.assertEqual(len(msgs2), 1)
+        self.assertEqual(msgs2[0].content, 'msg from bus2')
+
+    def test_send_to_correct_bus(self):
+        """send_message routes to the bus that owns the conversation."""
+        c1 = self.bus1.create_conversation(ConversationType.PROJECT_SESSION, 'sess-1')
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel.from_bus_paths([self.bus1_path, self.bus2_path])
+        model.send_message(c1.id, 'human reply')
+        # Verify it went to bus1, not bus2
+        msgs = self.bus1.receive(c1.id)
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0].sender, 'human')
+        msgs2 = self.bus2.receive(c1.id)
+        self.assertEqual(len(msgs2), 0)
+
+    def test_attention_across_buses(self):
+        """attention_conversations() spans all buses."""
+        c1 = self.bus1.create_conversation(ConversationType.PROJECT_SESSION, 'sess-1')
+        self.bus1.send(c1.id, 'orchestrator', 'Question?')
+        c2 = self.bus2.create_conversation(ConversationType.PROJECT_SESSION, 'sess-2')
+        self.bus2.send(c2.id, 'orchestrator', 'Another?')
+        self.bus2.send(c2.id, 'human', 'Answer')
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel.from_bus_paths([self.bus1_path, self.bus2_path])
+        attention = model.attention_conversations()
+        ids = [c.id for c in attention]
+        self.assertIn(c1.id, ids)
+        self.assertNotIn(c2.id, ids)
+
+
+class TestDashboardAttentionCount(unittest.TestCase):
+    """Dashboard can query total attention count across all conversations."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.bus, self.bus_path = _make_bus(self._tmp)
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_attention_count_for_dashboard(self):
+        """attention_count() returns total number of conversations needing attention."""
+        c1 = self.bus.create_conversation(ConversationType.PROJECT_SESSION, 'a')
+        c2 = self.bus.create_conversation(ConversationType.PROJECT_SESSION, 'b')
+        c3 = self.bus.create_conversation(ConversationType.PROJECT_SESSION, 'c')
+        self.bus.send(c1.id, 'orchestrator', 'Q1?')
+        self.bus.send(c2.id, 'orchestrator', 'Q2?')
+        self.bus.send(c3.id, 'orchestrator', 'Q3?')
+        self.bus.send(c3.id, 'human', 'A3')
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel(self.bus)
+        self.assertEqual(model.attention_count(), 2)
+
+
+class TestGateContextInMessages(unittest.TestCase):
+    """Gate messages include CfA state and artifact references."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.bus, self.bus_path = _make_bus(self._tmp)
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_format_gate_message_includes_state_label(self):
+        """format_gate_message() includes a human-readable CfA state label."""
+        from projects.POC.tui.chat_model import format_gate_context
+        context = format_gate_context(
+            cfa_state='INTENT_ASSERT',
+            artifact_path='/tmp/session/INTENT.md',
+        )
+        self.assertIn('review intent', context.lower())
+        self.assertIn('INTENT.md', context)
+
+    def test_format_gate_message_plan_assert(self):
+        """format_gate_context for PLAN_ASSERT references the plan."""
+        from projects.POC.tui.chat_model import format_gate_context
+        context = format_gate_context(
+            cfa_state='PLAN_ASSERT',
+            artifact_path='/tmp/session/plan.md',
+        )
+        self.assertIn('plan', context.lower())
+        self.assertIn('plan.md', context)
+
+    def test_format_gate_message_work_assert(self):
+        """format_gate_context for WORK_ASSERT references the work."""
+        from projects.POC.tui.chat_model import format_gate_context
+        context = format_gate_context(
+            cfa_state='WORK_ASSERT',
+            artifact_path='',
+        )
+        self.assertIn('work', context.lower())
+
+    def test_format_gate_message_escalation(self):
+        """format_gate_context for escalation states."""
+        from projects.POC.tui.chat_model import format_gate_context
+        context = format_gate_context(
+            cfa_state='INTENT_ESCALATE',
+            artifact_path='',
+        )
+        self.assertIn('question', context.lower())
+
+
 if __name__ == '__main__':
     unittest.main()

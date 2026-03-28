@@ -100,6 +100,7 @@ class DashboardScreen(Screen):
             ),
             id='bottom-pane',
         )
+        yield Static('', id='chat-attention-label', classes='chat-attention-label')
         yield Static('', id='projects-dir-label', classes='projects-dir-label')
         yield Footer()
 
@@ -127,6 +128,47 @@ class DashboardScreen(Screen):
             f'Projects: {self.app.projects_dir}'
         )
 
+    def _update_chat_attention(self) -> None:
+        """Update the chat attention indicator with count of conversations needing response."""
+        label = self.query_one('#chat-attention-label', Static)
+        try:
+            count = self._get_chat_attention_count()
+        except Exception:
+            count = 0
+        if count > 0:
+            label.update(f'\u23f3 {count} conversation{"s" if count != 1 else ""} need{"" if count != 1 else "s"} your response — press [bold]c[/bold] to open chat')
+        else:
+            label.update('')
+
+    def _get_chat_attention_count(self) -> int:
+        """Scan all session buses and return the total attention count."""
+        import os
+        bus_paths: list[str] = []
+        seen: set[str] = set()
+        reader = self.app.state_reader
+        for sid, ip in getattr(self.app, '_in_process', {}).items():
+            if ip.message_bus_path and os.path.exists(ip.message_bus_path):
+                real = os.path.realpath(ip.message_bus_path)
+                if real not in seen:
+                    seen.add(real)
+                    bus_paths.append(ip.message_bus_path)
+        for session in reader.sessions:
+            if session.infra_dir:
+                candidate = os.path.join(session.infra_dir, 'messages.db')
+                if os.path.exists(candidate):
+                    real = os.path.realpath(candidate)
+                    if real not in seen:
+                        seen.add(real)
+                        bus_paths.append(candidate)
+        if not bus_paths:
+            return 0
+        from projects.POC.tui.chat_model import ChatModel
+        model = ChatModel.from_bus_paths(bus_paths)
+        try:
+            return model.attention_count()
+        finally:
+            model.close()
+
     def _refresh_data(self, force: bool = False) -> None:
         reader = self.app.state_reader
         reader.reload()
@@ -149,6 +191,7 @@ class DashboardScreen(Screen):
 
         self._update_prompt_panel()
         self._update_projects_dir_label()
+        self._update_chat_attention()
 
     def _rebuild_project_table(self) -> None:
         ptable = self.query_one('#project-table', DataTable)
