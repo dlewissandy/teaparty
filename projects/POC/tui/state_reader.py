@@ -106,25 +106,30 @@ def _is_heartbeat_alive(infra_dir: str) -> bool:
     return False
 
 
+_ALIVE_THRESHOLD = 30    # Heartbeat mtime within 30s = alive (one BEAT_INTERVAL)
+_DEAD_THRESHOLD = 300    # Heartbeat mtime > 5 minutes = dead
+
+
 def _heartbeat_three_state(infra_dir: str) -> str:
     """Return heartbeat status as one of 'alive', 'stale', or 'dead'.
 
-    Issue #254: Three-state heartbeat indicator per design spec.
-    Uses the same thresholds as heartbeat.py (30s alive, 120s stale, 5m dead).
+    Thresholds match claude_runner.py BEAT_INTERVAL (30s) and design spec:
+      alive: mtime within 30s (one beat interval)
+      stale: mtime 30s–300s (agent not beating, may be in extended thinking)
+      dead:  mtime > 300s or process exit
     """
     hb_path = os.path.join(infra_dir, '.heartbeat')
     if os.path.exists(hb_path):
         try:
-            from projects.POC.orchestrator.heartbeat import read_heartbeat, is_heartbeat_stale
+            from projects.POC.orchestrator.heartbeat import read_heartbeat
             data = read_heartbeat(hb_path)
             status = data.get('status', '')
             if status in ('completed', 'withdrawn'):
                 return 'dead'
-            if is_heartbeat_stale(hb_path):
-                return 'dead'
-            # Check if mtime is older than 120s (stale threshold)
             age = time.time() - os.path.getmtime(hb_path)
-            if age > 120:
+            if age > _DEAD_THRESHOLD:
+                return 'dead'
+            if age > _ALIVE_THRESHOLD:
                 return 'stale'
             return 'alive'
         except Exception:

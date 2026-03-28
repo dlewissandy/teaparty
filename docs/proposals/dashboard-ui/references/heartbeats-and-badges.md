@@ -6,13 +6,13 @@ Active processes show a liveness indicator with three states:
 
 | State | Threshold | Meaning |
 |-------|-----------|---------|
-| Alive | Stream-json event within the last 30 seconds | Agent is actively working |
-| Stale | No event for 120 seconds | Agent has not reported recently (may be in extended thinking) |
-| Dead | Process exit, or no event for 5 minutes | Agent process has ended or is unresponsive |
+| Alive | Heartbeat mtime within the last 30 seconds | Agent is actively working |
+| Stale | Heartbeat mtime older than 30 seconds | Agent has not reported recently (may be in extended thinking) |
+| Dead | Process exit, or heartbeat mtime older than 5 minutes | Agent process has ended or is unresponsive |
 
-Extended thinking can produce gaps in stream-json output. A stale indicator during extended thinking is correct behavior: the agent is not producing output, and the user should see that state. The indicator will return to alive when the thinking completes and output resumes.
+The heartbeat file (`heartbeat.py`) is touched every 30 seconds (`BEAT_INTERVAL`) by `claude_runner.py`. Extended thinking can produce gaps in heartbeat touches. A stale indicator during extended thinking is correct behavior: the agent is not producing output, and the user should see that state. The indicator will return to alive when the thinking completes and heartbeat touches resume.
 
-These thresholds are defaults. The existing `claude_runner.py` already uses similar values (30s heartbeat interval, 120s stale threshold, 300s kill threshold).
+These thresholds align with `claude_runner.py` constants: `BEAT_INTERVAL = 30`, `STALE_THRESHOLD = 120`.
 
 Heartbeats appear on: sessions (management dashboard), tasks (job and workgroup dashboards).
 

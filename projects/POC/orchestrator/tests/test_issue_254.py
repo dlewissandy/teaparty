@@ -314,5 +314,68 @@ class TestStateReaderDispatchNeedsInput(unittest.TestCase):
             self.assertFalse(dispatch.needs_input)
 
 
+class TestHeartbeatThreeStateThresholds(unittest.TestCase):
+    """_heartbeat_three_state uses the correct thresholds from the design spec."""
+
+    def test_fresh_heartbeat_is_alive(self):
+        """Heartbeat touched within 30s reports 'alive'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hb_path = os.path.join(tmpdir, '.heartbeat')
+            with open(hb_path, 'w') as f:
+                json.dump({'pid': os.getpid(), 'status': 'running'}, f)
+            # mtime is now (< 30s ago)
+            from projects.POC.tui.state_reader import _heartbeat_three_state
+            self.assertEqual(_heartbeat_three_state(tmpdir), 'alive')
+
+    def test_heartbeat_older_than_30s_is_stale(self):
+        """Heartbeat not touched for > 30s but < 300s reports 'stale'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hb_path = os.path.join(tmpdir, '.heartbeat')
+            with open(hb_path, 'w') as f:
+                json.dump({'pid': os.getpid(), 'status': 'running'}, f)
+            # Backdate mtime to 60s ago
+            old_time = time.time() - 60
+            os.utime(hb_path, (old_time, old_time))
+            from projects.POC.tui.state_reader import _heartbeat_three_state
+            self.assertEqual(_heartbeat_three_state(tmpdir), 'stale')
+
+    def test_heartbeat_older_than_300s_is_dead(self):
+        """Heartbeat not touched for > 300s reports 'dead'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hb_path = os.path.join(tmpdir, '.heartbeat')
+            with open(hb_path, 'w') as f:
+                json.dump({'pid': os.getpid(), 'status': 'running'}, f)
+            # Backdate mtime to 600s ago
+            old_time = time.time() - 600
+            os.utime(hb_path, (old_time, old_time))
+            from projects.POC.tui.state_reader import _heartbeat_three_state
+            self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
+
+    def test_terminal_heartbeat_is_dead(self):
+        """Completed heartbeat reports 'dead' regardless of mtime."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            hb_path = os.path.join(tmpdir, '.heartbeat')
+            with open(hb_path, 'w') as f:
+                json.dump({'pid': os.getpid(), 'status': 'completed'}, f)
+            from projects.POC.tui.state_reader import _heartbeat_three_state
+            self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
+
+    def test_no_heartbeat_file_is_dead(self):
+        """Missing heartbeat file reports 'dead'."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            from projects.POC.tui.state_reader import _heartbeat_three_state
+            self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
+
+    def test_alive_threshold_matches_beat_interval(self):
+        """The alive threshold (30s) matches claude_runner.py BEAT_INTERVAL."""
+        from projects.POC.tui.state_reader import _ALIVE_THRESHOLD
+        self.assertEqual(_ALIVE_THRESHOLD, 30)
+
+    def test_dead_threshold_is_five_minutes(self):
+        """The dead threshold (300s) matches the design spec's 5-minute boundary."""
+        from projects.POC.tui.state_reader import _DEAD_THRESHOLD
+        self.assertEqual(_DEAD_THRESHOLD, 300)
+
+
 if __name__ == '__main__':
     unittest.main()
