@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 AGENTS_DIR = Path(__file__).parent.parent.parent / 'agents'
 
-# The 7 files explicitly listed in the issue
+# All team definition files that must have point-not-paste directives
 REQUIRED_FILES = [
     'intent-team.json',
     'uber-team.json',
@@ -26,6 +26,7 @@ REQUIRED_FILES = [
     'editorial-team.json',
     'research-team.json',
     'coding-team.json',
+    'configuration-team.json',
 ]
 
 
@@ -167,6 +168,16 @@ class TestPointNotPasteDirective(unittest.TestCase):
                 self.assertTrue(
                     _has_point_not_paste(role_def.get('prompt', '')),
                     f"uber-team.json:{role_name} missing point-not-paste",
+                )
+
+    def test_configuration_team_has_directive(self):
+        """configuration-team.json roles have point-not-paste guidance."""
+        agents = _load_agents('configuration-team.json')
+        for role_name, role_def in agents.items():
+            with self.subTest(role=role_name):
+                self.assertTrue(
+                    _has_point_not_paste(role_def.get('prompt', '')),
+                    f"configuration-team.json:{role_name} missing point-not-paste",
                 )
 
 

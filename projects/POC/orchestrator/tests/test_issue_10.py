@@ -125,8 +125,8 @@ class TestModelOverride(unittest.TestCase):
         })
         config = _make_phase_config(project_dir=d)
         resolved = config.resolve_team_agents('coding')
-        # 'coder' has no override, should keep org default
-        self.assertNotEqual(resolved['coder']['model'], 'haiku')
+        # 'developer' has no override, should keep org default
+        self.assertNotEqual(resolved['developer']['model'], 'haiku')
 
 
 # ── 4. Additive prompts ─────────────────────────────────────────────────────
@@ -141,14 +141,14 @@ class TestAdditivePrompts(unittest.TestCase):
             'teams': {
                 'coding': {
                     'agent_overrides': {
-                        'coder': {'prompt_addition': addition},
+                        'developer': {'prompt_addition': addition},
                     },
                 },
             },
         })
         config = _make_phase_config(project_dir=d)
         resolved = config.resolve_team_agents('coding')
-        self.assertTrue(resolved['coder']['prompt'].endswith(addition))
+        self.assertTrue(resolved['developer']['prompt'].endswith(addition))
 
     def test_org_prompt_preserved(self):
         """The original org prompt is still present."""
@@ -157,7 +157,7 @@ class TestAdditivePrompts(unittest.TestCase):
             'teams': {
                 'coding': {
                     'agent_overrides': {
-                        'coder': {'prompt_addition': addition},
+                        'developer': {'prompt_addition': addition},
                     },
                 },
             },
@@ -167,8 +167,8 @@ class TestAdditivePrompts(unittest.TestCase):
         org_config = PhaseConfig(find_poc_root())
         org_agents = org_config.resolve_team_agents('coding')
         resolved = config.resolve_team_agents('coding')
-        self.assertTrue(resolved['coder']['prompt'].startswith(
-            org_agents['coder']['prompt']))
+        self.assertTrue(resolved['developer']['prompt'].startswith(
+            org_agents['developer']['prompt']))
 
 
 # ── 5. Tool overrides ────────────────────────────────────────────────────────
@@ -182,7 +182,7 @@ class TestToolOverrides(unittest.TestCase):
             'teams': {
                 'coding': {
                     'agent_overrides': {
-                        'coder': {
+                        'developer': {
                             'disallowedTools': ['Bash', 'Write'],
                         },
                     },
@@ -191,7 +191,7 @@ class TestToolOverrides(unittest.TestCase):
         })
         config = _make_phase_config(project_dir=d)
         resolved = config.resolve_team_agents('coding')
-        self.assertEqual(resolved['coder']['disallowedTools'], ['Bash', 'Write'])
+        self.assertEqual(resolved['developer']['disallowedTools'], ['Bash', 'Write'])
 
 
 # ── 6. Resolution order ─────────────────────────────────────────────────────
@@ -336,14 +336,14 @@ class TestPermissionModeOverride(unittest.TestCase):
             'teams': {
                 'coding': {
                     'agent_overrides': {
-                        'coder': {'permission_mode': 'plan'},
+                        'developer': {'permission_mode': 'plan'},
                     },
                 },
             },
         })
         config = _make_phase_config(project_dir=d)
         resolved = config.resolve_team_agents('coding')
-        self.assertEqual(resolved['coder']['permission_mode'], 'plan')
+        self.assertEqual(resolved['developer']['permission_mode'], 'plan')
 
     def test_planning_permission_mode_override(self):
         """Project can override team-level planning_permission_mode."""
@@ -379,7 +379,7 @@ class TestSkillsOverride(unittest.TestCase):
             'teams': {
                 'coding': {
                     'agent_overrides': {
-                        'coder': {
+                        'developer': {
                             'allowedTools': ['Read', 'Write', 'Grep'],
                         },
                     },
@@ -388,7 +388,7 @@ class TestSkillsOverride(unittest.TestCase):
         })
         config = _make_phase_config(project_dir=d)
         resolved = config.resolve_team_agents('coding')
-        self.assertEqual(resolved['coder']['allowedTools'], ['Read', 'Write', 'Grep'])
+        self.assertEqual(resolved['developer']['allowedTools'], ['Read', 'Write', 'Grep'])
 
 
 # ── 11. Project .claude/CLAUDE.md (finding #1) ──────────────────────────────
