@@ -145,12 +145,12 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
         msg = pre_seeded_message('sessions', nav)
         self.assertIsNone(msg)
 
-    def test_projects_card_returns_none(self):
-        """Projects card returns None — handled by NewProjectScreen, not pre-seed."""
+    def test_projects_card_at_management_level(self):
+        """Projects card at management level produces generic message per spec."""
         from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('projects', nav)
-        self.assertIsNone(msg)
+        self.assertEqual(msg, 'I would like to create a new project')
 
     def test_jobs_card_at_project_level(self):
         """Jobs card at project level includes project name."""

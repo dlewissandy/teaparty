@@ -101,7 +101,7 @@ _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 # ── Pre-seeded messages for "+ New" buttons ──
 
 # Cards handled by existing screens (not pre-seeded)
-_NON_PRESEED_CARDS = frozenset({'sessions', 'projects'})
+_NON_PRESEED_CARDS = frozenset({'sessions'})
 
 # Generic (management-level) messages per card type
 _GENERIC_MESSAGES: dict[str, str] = {
@@ -111,6 +111,7 @@ _GENERIC_MESSAGES: dict[str, str] = {
     'scheduled_tasks': 'I would like to create a new scheduled task',
     'workgroups': 'I would like to create a new shared workgroup',
     'jobs': 'I would like to create a new job',
+    'projects': 'I would like to create a new project',
 }
 
 # Project-scoped message templates (format with project=slug)
@@ -577,8 +578,6 @@ class DashboardScreen(Screen):
         """Handle '+ New' click on a card."""
         if card_name == 'sessions':
             self.action_new_session()
-        elif card_name == 'projects':
-            self.action_new_project()
         else:
             msg = pre_seeded_message(card_name, self._nav)
             if msg:
