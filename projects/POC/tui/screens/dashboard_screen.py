@@ -357,7 +357,7 @@ class DashboardScreen(Screen):
             if slug:
                 self._navigate(self._nav.drill_down(DashboardLevel.PROJECT, project_slug=slug))
 
-        elif event.card_name in ('jobs', 'sessions', 'escalations'):
+        elif event.card_name == 'jobs':
             if level == DashboardLevel.MANAGEMENT:
                 project = data.get('project', '')
                 sid = data.get('session_id', '')
@@ -369,6 +369,10 @@ class DashboardScreen(Screen):
                 sid = data.get('session_id', '')
                 if sid:
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
+
+        elif event.card_name in ('escalations', 'sessions'):
+            # Opens chat in a separate window
+            open_chat_window(self.app)
 
         elif event.card_name == 'workgroups':
             wg_id = data.get('workgroup_id', '')
