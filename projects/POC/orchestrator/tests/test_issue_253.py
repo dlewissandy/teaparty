@@ -276,9 +276,9 @@ class TestCardsForLevel(unittest.TestCase):
         self.assertEqual(set(card_names), expected)
 
     def test_job_cards(self):
-        """Job dashboard: escalations + sessions + tasks + artifacts (issue #254)."""
+        """Job dashboard: escalations + artifacts + tasks per spec."""
         card_names = cards_for_level(DashboardLevel.JOB)
-        expected = {'escalations', 'sessions', 'tasks', 'artifacts'}
+        expected = {'escalations', 'artifacts', 'tasks'}
         self.assertEqual(set(card_names), expected)
 
     def test_task_cards(self):
@@ -401,14 +401,14 @@ class TestWorkflowProgress(unittest.TestCase):
         self.assertIn('yellow', rendered)
 
     def test_execution_phase_shows_prior_phases_complete(self):
-        """During execution, intent and planning phases show as complete."""
+        """During work, intent and plan phases show as complete."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress(cfa_phase='execution', cfa_state='WORK_IN_PROGRESS')
         rendered = wp._format_text()
-        # Intent and planning should be green (complete)
+        # Intent and plan should be green (complete)
         self.assertIn('green', rendered)
         self.assertIn('INTENT', rendered)
-        self.assertIn('PLANNING', rendered)
+        self.assertIn('PLAN', rendered)
 
     def test_completed_work_shows_all_done(self):
         """COMPLETED_WORK shows all phases as done."""
@@ -461,12 +461,11 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertEqual(len(cards), 5)
 
     def test_job_dashboard_cards(self):
-        """Job dashboard: escalations + sessions + tasks + artifacts (issue #254)."""
+        """Job dashboard: escalations + artifacts + tasks per spec."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.JOB)
-        self.assertEqual(len(cards), 4)
+        self.assertEqual(len(cards), 3)
         self.assertIn('escalations', cards)
-        self.assertIn('sessions', cards)
         self.assertIn('tasks', cards)
         self.assertIn('artifacts', cards)
 

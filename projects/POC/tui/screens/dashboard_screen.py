@@ -25,6 +25,7 @@ from projects.POC.tui.navigation import (
     breadcrumbs_for_level,
 )
 from projects.POC.tui.widgets.content_card import CardItem, ContentCard
+from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
 
 
 class _BreadcrumbStatic(Static):
@@ -398,6 +399,28 @@ def build_skill_items(skills: list[str]) -> list[CardItem]:
     return [CardItem(icon='\u2699', label=name, detail='', data={'skill': name}) for name in skills]
 
 
+def _build_scheduled_task_items(scheduled: list) -> list[CardItem]:
+    """Build CardItems for a list of ScheduledTask objects."""
+    items: list[CardItem] = []
+    for st in scheduled:
+        icon = '\u25b6' if st.enabled else '[dim]\u23f8[/dim]'
+        detail = f'{st.schedule}  {st.skill}'
+        if st.args:
+            detail += f' {st.args}'
+        items.append(CardItem(icon=icon, label=st.name, detail=detail, data={'scheduled_task': st.name}))
+    return items
+
+
+def _build_hook_items(hooks: list[dict]) -> list[CardItem]:
+    """Build CardItems for a list of hook dicts."""
+    items: list[CardItem] = []
+    for hook in hooks:
+        event = hook.get('event', '?')
+        handler = hook.get('handler', hook.get('command', '?'))
+        items.append(CardItem(icon='\u26a1', label=event, detail=str(handler), data=hook))
+    return items
+
+
 def compute_workgroup_stats(
     sessions: list,
     workgroup_name: str,
@@ -695,8 +718,34 @@ class DashboardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id='dash-title')
+        # Job/Task: worktree open buttons in title bar
+        if self._nav.level in (DashboardLevel.JOB, DashboardLevel.TASK):
+            yield Horizontal(
+                Static('[bold]Open:[/bold] ', classes='open-label'),
+                Static('[link]Finder[/link]', id='btn-open-finder', classes='open-btn'),
+                Static(' | ', classes='open-sep'),
+                Static('[link]Editor[/link]', id='btn-open-editor', classes='open-btn'),
+                id='title-actions',
+            )
+        # Task: subtitle (assignee, status, workgroup link)
+        if self._nav.level == DashboardLevel.TASK:
+            yield Static('', id='task-subtitle')
         yield Horizontal(*self._compose_breadcrumbs(), id='dash-breadcrumbs')
         yield Static('', id='dash-stats')
+        # Job: workflow progress indicator
+        if self._nav.level == DashboardLevel.JOB:
+            yield WorkflowProgress(id='job-workflow-progress')
+        # Task: progress indicator (completed/total todos with percentage)
+        if self._nav.level == DashboardLevel.TASK:
+            yield Static('', id='task-progress')
+        # Job/Task: action buttons (Chat, Withdraw)
+        if self._nav.level in (DashboardLevel.JOB, DashboardLevel.TASK):
+            yield Horizontal(
+                Static('[bold link]Chat[/bold link]', id='btn-chat', classes='action-btn'),
+                Static(' | ', classes='action-sep'),
+                Static('[bold link]Withdraw[/bold link]', id='btn-withdraw', classes='action-btn'),
+                id='action-bar',
+            )
         card_defs = card_defs_for_level(self._nav.level)
         mid = (len(card_defs) + 1) // 2
         left_defs = card_defs[:mid]
@@ -719,6 +768,9 @@ class DashboardScreen(Screen):
                 classes='card-columns',
             ),
         )
+        # Job/Task: worktree path footer
+        if self._nav.level in (DashboardLevel.JOB, DashboardLevel.TASK):
+            yield Static('', id='worktree-footer')
         yield Footer()
 
     def on_mount(self) -> None:
@@ -793,6 +845,11 @@ class DashboardScreen(Screen):
         # Workgroups — from config_reader if available
         self._set_card('workgroups', self._load_management_workgroups())
 
+        # Skills, Scheduled Tasks, Hooks — from config
+        self._set_card('skills', self._load_management_skills())
+        self._set_card('scheduled_tasks', self._load_management_scheduled_tasks())
+        self._set_card('hooks', self._load_management_hooks())
+
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
@@ -816,6 +873,11 @@ class DashboardScreen(Screen):
 
         # Workgroups — from project config if available
         self._set_card('workgroups', self._load_project_workgroups(proj))
+
+        # Skills, Scheduled Tasks, Hooks — from project config
+        self._set_card('skills', self._load_project_skills(proj))
+        self._set_card('scheduled_tasks', self._load_project_scheduled_tasks(proj))
+        self._set_card('hooks', self._load_project_hooks(proj))
 
     def _refresh_workgroup(self) -> None:
         """Refresh the workgroup dashboard — all five cards from config + state.
@@ -872,8 +934,12 @@ class DashboardScreen(Screen):
     def _refresh_job(self, reader, session) -> None:
         if not session:
             return
+        dispatches = session.dispatches or []
         # Issue #273: full stat set from job-dashboard.md
         self._set_stats(format_job_stats(session))
+
+        # Workflow progress
+        self._update_workflow_progress(session)
 
         # Escalations — dispatch-level escalations within this job
         escalation_items = []
@@ -899,33 +965,7 @@ class DashboardScreen(Screen):
             ))
         self._set_card('escalations', escalation_items)
 
-        # Sessions — parent job session + all dispatch (subteam) sessions
-        session_items = _build_session_items([('', session)])
-        for d in dispatches:
-            name = d.worktree_name
-            if '--' in name:
-                name = name.split('--', 1)[1][:25]
-            elif not name:
-                name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
-            state_text = _state_display(d.cfa_phase, d.cfa_state)
-            # Issue #254: heartbeat indicator on active dispatches
-            hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.status == 'active' and d.heartbeat_status else ''
-            if d.status == 'active':
-                icon = '\u25b6'
-                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}{hb}'
-            elif d.status == 'complete':
-                icon = '\u2713'
-                detail = f'[green]{state_text}[/green]  {d.team or "?"}'
-            else:
-                icon = '\u2717'
-                detail = f'[dim]{state_text}[/dim]  {d.team or "?"}'
-            session_items.append(CardItem(
-                icon=icon, label=name, detail=detail,
-                data={'dispatch': d},
-            ))
-        self._set_card('sessions', session_items)
-
-        # Tasks — all dispatches with CFA state, same color coding
+        # Tasks — all dispatches with CFA state, color coding
         task_items = []
         for d in dispatches:
             name = d.worktree_name
@@ -946,7 +986,7 @@ class DashboardScreen(Screen):
 
         # Artifacts
         items = []
-        for name, label in [('INTENT.md', 'Intent'), ('plan.md', 'Plan'), ('.work-summary.md', 'Work Summary')]:
+        for name, label in [('INTENT.md', 'Intent'), ('PLAN.md', 'Plan'), ('WORK_ASSERT.md', 'Work Assert')]:
             path = self._find_doc(session, name)
             if path:
                 items.append(CardItem(icon='\u2713', label=label, detail=name, data={'path': path}))
@@ -954,11 +994,20 @@ class DashboardScreen(Screen):
                 items.append(CardItem(icon='\u2591', label=f'[dim]{label}[/dim]'))
         self._set_card('artifacts', items)
 
+        # Worktree footer
+        self._update_worktree_footer(session)
+
     def _refresh_task(self, reader, session, dispatch) -> None:
         if not dispatch:
             return
         # Issue #273: full stat set from task-dashboard.md
         self._set_stats(format_task_stats(dispatch))
+
+        # Subtitle (assignee, status, workgroup link)
+        self._update_task_subtitle(dispatch)
+
+        # Progress indicator
+        self._update_task_progress(dispatch)
 
         # Escalations — this task's own escalation state
         escalation_items = []
@@ -998,6 +1047,9 @@ class DashboardScreen(Screen):
             icon = '\u2713' if status == 'completed' else '\u2610' if status == 'in_progress' else '\u2591'
             items.append(CardItem(icon=icon, label=todo.get('content', '?')))
         self._set_card('todo_list', items)
+
+        # Worktree footer (shares parent job's worktree)
+        self._update_worktree_footer(session)
 
     # ── Config-reader integration ──
 
@@ -1139,6 +1191,55 @@ class DashboardScreen(Screen):
             return items
         except Exception:
             _log.warning('Failed to load project workgroups for %s', proj.slug, exc_info=True)
+            return []
+
+    def _load_management_skills(self) -> list[CardItem]:
+        try:
+            from projects.POC.orchestrator.config_reader import load_management_team
+            team = load_management_team()
+            return build_skill_items(team.skills)
+        except Exception:
+            _log.warning('Failed to load management skills', exc_info=True)
+            return []
+
+    def _load_management_scheduled_tasks(self) -> list[CardItem]:
+        try:
+            from projects.POC.orchestrator.config_reader import load_management_team
+            team = load_management_team()
+            return _build_scheduled_task_items(team.scheduled)
+        except Exception:
+            _log.warning('Failed to load management scheduled tasks', exc_info=True)
+            return []
+
+    def _load_management_hooks(self) -> list[CardItem]:
+        # ManagementTeam doesn't have hooks in the config schema yet
+        return []
+
+    def _load_project_skills(self, proj) -> list[CardItem]:
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            return build_skill_items(pt.skills)
+        except Exception:
+            _log.warning('Failed to load project skills for %s', proj.slug, exc_info=True)
+            return []
+
+    def _load_project_scheduled_tasks(self, proj) -> list[CardItem]:
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            return _build_scheduled_task_items(pt.scheduled)
+        except Exception:
+            _log.warning('Failed to load project scheduled tasks for %s', proj.slug, exc_info=True)
+            return []
+
+    def _load_project_hooks(self, proj) -> list[CardItem]:
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            return _build_hook_items(pt.hooks)
+        except Exception:
+            _log.warning('Failed to load project hooks for %s', proj.slug, exc_info=True)
             return []
 
     # ── Card/stats helpers ──
@@ -1309,6 +1410,113 @@ class DashboardScreen(Screen):
     def action_proxy_review(self) -> None:
         import getpass
         open_chat_window(self.app, ensure_proxy_review=getpass.getuser())
+
+    def action_withdraw(self) -> None:
+        """Withdraw the current job or task."""
+        reader = self.app.state_reader
+        if self._nav.level == DashboardLevel.JOB:
+            session = reader.find_session(self._nav.job_id)
+            if session:
+                import asyncio
+                asyncio.ensure_future(self._do_withdraw(session))
+        elif self._nav.level == DashboardLevel.TASK:
+            session = reader.find_session(self._nav.job_id)
+            dispatch = self._find_dispatch(session) if session else None
+            if session and dispatch:
+                import asyncio
+                asyncio.ensure_future(self._do_withdraw(session))
+
+    async def _do_withdraw(self, session) -> None:
+        from projects.POC.tui.withdraw import withdraw_session
+        await withdraw_session(session)
+        self._refresh_data()
+
+    # ── Click handlers for title-bar and action-bar buttons ──
+
+    def on_click(self, event: Click) -> None:
+        target = event.widget
+        if target is None:
+            return
+        wid = getattr(target, 'id', '')
+        if wid == 'btn-open-finder':
+            self._open_worktree_finder()
+        elif wid == 'btn-open-editor':
+            self._open_worktree_editor()
+        elif wid == 'btn-chat':
+            self.action_open_chat()
+        elif wid == 'btn-withdraw':
+            self.action_withdraw()
+
+    def _open_worktree_finder(self) -> None:
+        wt = self._resolve_worktree_path()
+        if wt:
+            from projects.POC.tui.platform_utils import open_file
+            open_file(wt)
+
+    def _open_worktree_editor(self) -> None:
+        wt = self._resolve_worktree_path()
+        if wt:
+            try:
+                subprocess.Popen(['code', wt])
+            except FileNotFoundError:
+                from projects.POC.tui.platform_utils import open_file
+                open_file(wt)
+
+    def _resolve_worktree_path(self) -> str | None:
+        reader = self.app.state_reader
+        session = reader.find_session(self._nav.job_id)
+        if not session:
+            return None
+        if session.worktree_path and os.path.isdir(session.worktree_path):
+            return session.worktree_path
+        return None
+
+    def _update_workflow_progress(self, session) -> None:
+        try:
+            wp = self.query_one('#job-workflow-progress', WorkflowProgress)
+            wp.update_progress(session.cfa_phase or '', session.cfa_state or '')
+        except Exception:
+            pass
+
+    def _update_worktree_footer(self, session) -> None:
+        wt = ''
+        if session and session.worktree_path:
+            wt = session.worktree_path
+        try:
+            self.query_one('#worktree-footer', Static).update(
+                f'[dim]Worktree: {wt}[/dim]' if wt else ''
+            )
+        except Exception:
+            pass
+
+    def _update_task_subtitle(self, dispatch) -> None:
+        if not dispatch:
+            return
+        agent = dispatch.team or '?'
+        status = dispatch.status or '?'
+        wg_link = ''
+        if self._nav.workgroup_id:
+            wg_link = f'  [dim]Workgroup:[/dim] {self._nav.workgroup_id}'
+        try:
+            self.query_one('#task-subtitle', Static).update(
+                f'[bold]{agent}[/bold]  {status}{wg_link}'
+            )
+        except Exception:
+            pass
+
+    def _update_task_progress(self, dispatch) -> None:
+        from projects.POC.tui.todo_reader import read_todos_from_streams
+        stream_files = self._dispatch_stream_files(dispatch)
+        todos = read_todos_from_streams(stream_files)
+        total = len(todos)
+        done = sum(1 for t in todos if t.get('status') == 'completed')
+        pct = int(100 * done / total) if total > 0 else 0
+        try:
+            self.query_one('#task-progress', Static).update(
+                f'[bold]Progress:[/bold] {done}/{total} ({pct}%)'
+            )
+        except Exception:
+            pass
 
     def periodic_refresh(self) -> None:
         self._refresh_data()

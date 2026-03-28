@@ -5,25 +5,32 @@ from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import Static
 
-# CfA phases in order
-_CFA_PHASES = ['intent', 'planning', 'execution']
+# CfA phases matching dashboard spec: INTENT, PLAN, WORK, WORK_ASSERT, DONE
+_CFA_PHASES = ['intent', 'plan', 'work', 'work_assert']
 
-# Map CfA states to their phase
+# Map CfA states to their display phase
 _STATE_TO_PHASE = {
     'INTENT_ASSERT': 'intent',
     'INTENT_ESCALATE': 'intent',
     'INTENT_QUESTION': 'intent',
     'INTENT_IN_PROGRESS': 'intent',
-    'PLAN_ASSERT': 'planning',
-    'PLANNING_ESCALATE': 'planning',
-    'PLANNING_QUESTION': 'planning',
-    'PLANNING_IN_PROGRESS': 'planning',
-    'WORK_IN_PROGRESS': 'execution',
-    'WORK_ASSERT': 'execution',
-    'TASK_ESCALATE': 'execution',
-    'TASK_ASSERT': 'execution',
+    'PLAN_ASSERT': 'plan',
+    'PLANNING_ESCALATE': 'plan',
+    'PLANNING_QUESTION': 'plan',
+    'PLANNING_IN_PROGRESS': 'plan',
+    'WORK_IN_PROGRESS': 'work',
+    'WORK_ASSERT': 'work_assert',
+    'TASK_ESCALATE': 'work',
+    'TASK_ASSERT': 'work_assert',
     'COMPLETED_WORK': 'done',
     'WITHDRAWN': 'withdrawn',
+}
+
+# Map engine phase names to display phases
+_ENGINE_PHASE_MAP = {
+    'intent': 'intent',
+    'planning': 'plan',
+    'execution': 'work',
 }
 
 
@@ -39,9 +46,11 @@ class WorkflowProgress(Widget):
         yield Static(self._format_text(), id='workflow-progress-text')
 
     def _format_text(self) -> str:
-        current_phase = self._cfa_phase.lower() if self._cfa_phase else ''
-        if not current_phase and self._cfa_state:
+        current_phase = ''
+        if self._cfa_state:
             current_phase = _STATE_TO_PHASE.get(self._cfa_state, '')
+        if not current_phase and self._cfa_phase:
+            current_phase = _ENGINE_PHASE_MAP.get(self._cfa_phase.lower(), self._cfa_phase.lower())
 
         is_done = self._cfa_state in ('COMPLETED_WORK', 'WITHDRAWN')
 
