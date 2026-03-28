@@ -66,3 +66,5 @@ class InProcessSession:
     event_bus: EventBus
     input_provider: TUIInputProvider
     run_task: asyncio.Task | None = None
+    message_bus_path: str = ''
+    conversation_id: str = ''

@@ -129,11 +129,13 @@ class LaunchScreen(Screen):
             input_provider=provider,
         )
 
-        # Capture session_id when the session starts
+        # Capture session_id and message bus info when the session starts
         async def on_session_started(event: Event) -> None:
             if event.type == EventType.SESSION_STARTED:
                 sid = event.data.get('session_id', '')
                 if sid:
+                    in_proc.message_bus_path = event.data.get('message_bus_path', '')
+                    in_proc.conversation_id = event.data.get('conversation_id', '')
                     self.app.register_in_process(sid, in_proc)
                 bus.unsubscribe(on_session_started)
 
