@@ -13,7 +13,7 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Click
 from textual.screen import Screen
-from textual.widgets import Footer, Header, Static
+from textual.widgets import Footer, Static
 
 from projects.POC.tui.navigation import (
     DashboardLevel,
@@ -22,6 +22,17 @@ from projects.POC.tui.navigation import (
     breadcrumbs_for_level,
 )
 from projects.POC.tui.widgets.content_card import CardItem, ContentCard
+
+
+class _BreadcrumbStatic(Static):
+    """A clickable breadcrumb that calls screen.action_breadcrumb_click."""
+
+    def __init__(self, content: str, index: int, **kwargs):
+        super().__init__(content, **kwargs)
+        self._index = index
+
+    def on_click(self) -> None:
+        self.screen.action_breadcrumb_click(self._index)
 
 
 # ── Helpers ──
@@ -152,6 +163,7 @@ class DashboardScreen(Screen):
     def __init__(self, nav_context: NavigationContext | None = None):
         super().__init__()
         self._nav = nav_context or NavigationContext(level=DashboardLevel.MANAGEMENT)
+        self._breadcrumb_contexts: list[NavigationContext] = []
 
     def _title_text(self) -> str:
         title = self._LEVEL_TITLES.get(self._nav.level, 'Dashboard')
@@ -164,19 +176,29 @@ class DashboardScreen(Screen):
             title += f' \u2014 {self._nav.task_id}'
         return f'[bold]{title}[/bold]'
 
-    def _breadcrumb_text(self) -> str:
+    def _compose_breadcrumbs(self) -> ComposeResult:
         crumbs = breadcrumbs_for_level(self._nav)
-        parts = []
-        for crumb in crumbs:
+        self._breadcrumb_contexts = []
+        widgets = []
+        for i, crumb in enumerate(crumbs):
+            if i > 0:
+                widgets.append(Static(' > ', classes='crumb-sep'))
             if crumb.clickable:
-                parts.append(f'[bold]{crumb.label}[/bold]')
+                self._breadcrumb_contexts.append(crumb.nav_context)
+                idx = len(self._breadcrumb_contexts) - 1
+                w = _BreadcrumbStatic(f'[bold]{crumb.label}[/bold]', index=idx, classes='crumb-link')
+                widgets.append(w)
             else:
-                parts.append(f'[dim]{crumb.label}[/dim]')
-        return ' > '.join(parts)
+                widgets.append(Static(f'[dim]{crumb.label}[/dim]', classes='crumb-current'))
+        return widgets
+
+    def action_breadcrumb_click(self, index: int) -> None:
+        if 0 <= index < len(self._breadcrumb_contexts):
+            self._navigate(self._breadcrumb_contexts[index])
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id='dash-title')
-        yield Static(self._breadcrumb_text(), id='dash-breadcrumbs')
+        yield Horizontal(*self._compose_breadcrumbs(), id='dash-breadcrumbs')
         yield Static('', id='dash-stats')
         card_defs = card_defs_for_level(self._nav.level)
         mid = (len(card_defs) + 1) // 2
@@ -500,7 +522,14 @@ class DashboardScreen(Screen):
         if self._nav.level == DashboardLevel.MANAGEMENT:
             self.app.exit()
         else:
-            self.app.pop_screen()
+            # Navigate to parent level via breadcrumbs
+            crumbs = breadcrumbs_for_level(self._nav)
+            if len(crumbs) >= 2:
+                # Second-to-last crumb is the parent
+                parent_ctx = crumbs[-2].nav_context
+                self._navigate(parent_ctx)
+            else:
+                self._navigate(NavigationContext(level=DashboardLevel.MANAGEMENT))
 
     def action_refresh(self) -> None:
         self._refresh_data()

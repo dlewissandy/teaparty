@@ -19,6 +19,22 @@ Screen {
     padding: 0 1;
 }
 
+.crumb-sep {
+    width: auto;
+}
+
+.crumb-link {
+    width: auto;
+}
+
+.crumb-link:hover {
+    background: $accent 20%;
+}
+
+.crumb-current {
+    width: auto;
+}
+
 /* ── Content cards ── */
 ContentCard {
     height: auto;
