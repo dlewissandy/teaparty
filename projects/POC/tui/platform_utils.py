@@ -58,13 +58,18 @@ def _open_terminal_macos(cmd_str: str, title: str) -> None:
     term_program = os.environ.get('TERM_PROGRAM', '')
 
     if 'iTerm' in term_program:
+        # Create a new window with a login shell, then type the command into it.
+        # Using 'write text' instead of 'command' so the shell has full PATH.
         script = (
             'tell application "iTerm2"\n'
-            f'  create window with default profile command "{cmd_str}"\n'
+            '  set newWindow to (create window with default profile)\n'
+            '  tell current session of newWindow\n'
+            f'    write text "{cmd_str}"\n'
+            '  end tell\n'
             'end tell'
         )
     else:
-        # Terminal.app or unknown — "do script ... in (make new window)" forces a new window
+        # Terminal.app — do script runs in a login shell with full PATH
         script = (
             'tell application "Terminal"\n'
             '  activate\n'
