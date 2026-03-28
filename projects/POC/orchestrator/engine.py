@@ -46,6 +46,7 @@ from projects.POC.orchestrator.interrupt_propagation import (
     cascade_withdraw_children,
     is_backtrack,
 )
+from projects.POC.orchestrator.context_budget import ContextBudget, build_compact_prompt
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 
@@ -591,6 +592,10 @@ class Orchestrator:
                     and not is_globally_terminal(self.cfa.state)):
                 await self._deliver_intervention()
 
+            # Turn boundary: check context budget for compaction (Issue #260).
+            if not is_globally_terminal(self.cfa.state):
+                await self._check_context_budget(actor_result, phase_name)
+
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
         """Dispatch to the correct actor based on current state."""
@@ -693,6 +698,56 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+    async def _check_context_budget(self, actor_result: ActorResult, phase_name: str) -> None:
+        """Check context budget and inject /compact at turn boundary (Issue #260).
+
+        Called after every CfA transition.  Inspects the context_budget
+        from the actor result and:
+        - At warning threshold: publishes CONTEXT_WARNING event
+        - At compact threshold: injects /compact as next prompt via --resume
+        """
+        budget = actor_result.data.get('context_budget')
+        if not isinstance(budget, ContextBudget):
+            return
+
+        if budget.should_warn and not budget.should_compact:
+            await self.event_bus.publish(Event(
+                type=EventType.CONTEXT_WARNING,
+                data={
+                    'utilization': budget.utilization,
+                    'used_tokens': budget.used_tokens,
+                    'context_window': budget.context_window,
+                    'phase': phase_name,
+                },
+                session_id=self.session_id,
+            ))
+            budget.clear_warning()
+
+        if budget.should_compact:
+            task = self._task_for_phase(phase_name)
+            compact_prompt = build_compact_prompt(
+                cfa_state=self.cfa.state,
+                task=task,
+                scratch_path='.context/scratch.md',
+            )
+            # Inject as pending intervention — same mechanism as Issue #246.
+            # Compaction takes priority: overwrite any pending intervention.
+            self._pending_intervention = compact_prompt
+
+            await self.event_bus.publish(Event(
+                type=EventType.CONTEXT_WARNING,
+                data={
+                    'utilization': budget.utilization,
+                    'used_tokens': budget.used_tokens,
+                    'context_window': budget.context_window,
+                    'phase': phase_name,
+                    'action': 'compact',
+                    'compact_prompt': compact_prompt,
+                },
+                session_id=self.session_id,
+            ))
+            budget.clear_compact()
 
     async def _check_interrupt_propagation(self, old_state: str) -> None:
         """Cascade intervention decisions to active child dispatches (Issue #247).

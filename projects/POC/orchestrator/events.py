@@ -34,6 +34,7 @@ class EventType(Enum):
     API_OVERLOADED = 'api_overloaded'
     COST_WARNING = 'cost_warning'
     COST_LIMIT = 'cost_limit'
+    CONTEXT_WARNING = 'context_warning'
 
 
 @dataclass

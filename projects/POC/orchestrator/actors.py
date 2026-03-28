@@ -302,6 +302,8 @@ class AgentRunner:
         data: dict = {'claude_session_id': result.session_id}
         if result.stderr_lines:
             data['stderr_lines'] = result.stderr_lines
+        # Pass context budget to the engine for turn-boundary decisions (Issue #260)
+        data['context_budget'] = result.context_budget
 
         # Check for expected artifact — look in infra_dir (Issue #147).
         if ctx.phase_spec.artifact:

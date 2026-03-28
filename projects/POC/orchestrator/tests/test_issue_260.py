@@ -12,8 +12,14 @@ Verifies:
 9. ContextBudget handles result events with nested usage dict
 10. ContextBudget handles result events without token data (no-op)
 11. ClaudeResult carries context_budget from the runner
-12. Engine injects /compact at turn boundary when compaction fires
-13. Engine publishes warning event at 70% threshold
+12. Engine _check_context_budget injects /compact at turn boundary
+13. Engine _check_context_budget publishes CONTEXT_WARNING at 70%
+14. Engine _check_context_budget is a no-op below 70%
+15. Engine _check_context_budget is a no-op without budget in data
+16. Engine compact prompt includes scratch file pointer
+17. CONTEXT_WARNING EventType exists
+18. ActorResult carries context_budget in data from _interpret_output
+19. Custom thresholds are configurable
 """
 import asyncio
 import json
@@ -28,6 +34,7 @@ from projects.POC.orchestrator.context_budget import (
     DEFAULT_WARNING_THRESHOLD,
     build_compact_prompt,
 )
+from projects.POC.orchestrator.events import EventType
 
 
 # ── Test 1: Extract token usage from result events ──────────────────────────
@@ -165,8 +172,6 @@ class TestFlagLatching(unittest.TestCase):
         budget.update({'type': 'result', 'input_tokens': 150000})
         self.assertTrue(budget.should_warn)
 
-        # Even after a lower-utilization event, warning stays set
-        # (in practice, utilization only goes up within a session)
         budget.clear_warning()
         self.assertFalse(budget.should_warn)
 
@@ -205,7 +210,7 @@ class TestBuildCompactPrompt(unittest.TestCase):
         self.assertIn('After compaction', prompt)
 
 
-# ── Test 8: build_compact_prompt without scratch file ───────────────────────
+# ── Test 8: build_compact_prompt without scratch file ──────────��────────────
 
 class TestBuildCompactPromptNoScratch(unittest.TestCase):
     """build_compact_prompt omits scratch pointer when not provided."""
@@ -264,50 +269,167 @@ class TestClaudeResultContextBudget(unittest.TestCase):
         self.assertIsInstance(result.context_budget, ContextBudget)
 
 
-# ── Test 12: Engine injects /compact at turn boundary ───────────────────────
+# ── Test 12–16: Engine _check_context_budget ────────────────────────────────
 
-class TestEngineCompactInjection(unittest.TestCase):
-    """When ClaudeResult signals compaction, engine injects /compact on next turn."""
+class TestEngineCheckContextBudget(unittest.TestCase):
+    """Orchestrator._check_context_budget injects /compact at turn boundary."""
 
-    def _make_budget_at_threshold(self):
-        """Create a ContextBudget that has crossed the compact threshold."""
-        budget = ContextBudget(context_window=200000)
-        budget.update({'type': 'result', 'input_tokens': 160000})
-        return budget
+    def _make_orchestrator(self):
+        """Create a minimal Orchestrator for testing _check_context_budget."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
 
-    def test_compact_flag_signals_engine(self):
-        """A budget with should_compact=True signals need for compaction."""
-        budget = self._make_budget_at_threshold()
-        self.assertTrue(budget.should_compact)
+        infra = tempfile.mkdtemp(prefix='test-260-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
 
-        # Engine would build the compact prompt
-        prompt = build_compact_prompt(
-            cfa_state='TASK_IN_PROGRESS',
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=infra,
+            project_workdir=infra,
+            session_worktree=infra,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
             task='implement feature X',
+            session_id='test-session',
         )
-        self.assertIn('/compact', prompt)
+        return orch, bus
 
-        # Engine would clear the flag after injecting
-        budget.clear_compact()
-        self.assertFalse(budget.should_compact)
+    def _make_actor_result_with_budget(self, utilization_pct):
+        """Create an ActorResult with a context budget at given utilization."""
+        from projects.POC.orchestrator.actors import ActorResult
+        budget = ContextBudget(context_window=200000)
+        budget.update({'type': 'result', 'input_tokens': int(200000 * utilization_pct)})
+        return ActorResult(action='auto-approve', data={'context_budget': budget}), budget
+
+    def test_compact_threshold_injects_pending_intervention(self):
+        """At 78%+, _check_context_budget sets _pending_intervention to /compact."""
+        orch, bus = self._make_orchestrator()
+        actor_result, budget = self._make_actor_result_with_budget(0.80)
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._check_context_budget(actor_result, 'execution'))
+        loop.close()
+
+        self.assertIn('/compact', orch._pending_intervention)
+        self.assertIn('TASK_IN_PROGRESS', orch._pending_intervention)
+        self.assertFalse(budget.should_compact, 'Flag should be cleared after injection')
+
+    def test_warning_threshold_publishes_event(self):
+        """At 70%-77%, _check_context_budget publishes CONTEXT_WARNING."""
+        orch, bus = self._make_orchestrator()
+        actor_result, budget = self._make_actor_result_with_budget(0.72)
+
+        events = []
+        loop = asyncio.new_event_loop()
+
+        async def run():
+            bus.subscribe(lambda e: events.append(e))
+            await orch._check_context_budget(actor_result, 'execution')
+
+        loop.run_until_complete(run())
+        loop.close()
+
+        warning_events = [e for e in events if e.type == EventType.CONTEXT_WARNING]
+        self.assertEqual(len(warning_events), 1)
+        self.assertAlmostEqual(warning_events[0].data['utilization'], 0.72, places=2)
+        self.assertFalse(budget.should_warn, 'Warning flag should be cleared')
+
+    def test_below_warning_does_nothing(self):
+        """Below 70%, no intervention or event is produced."""
+        orch, bus = self._make_orchestrator()
+        actor_result, budget = self._make_actor_result_with_budget(0.60)
+
+        events = []
+        loop = asyncio.new_event_loop()
+
+        async def run():
+            bus.subscribe(lambda e: events.append(e))
+            await orch._check_context_budget(actor_result, 'execution')
+
+        loop.run_until_complete(run())
+        loop.close()
+
+        self.assertEqual(orch._pending_intervention, '')
+        self.assertEqual(len(events), 0)
+
+    def test_no_budget_in_data_is_noop(self):
+        """If actor result has no context_budget, nothing happens."""
+        from projects.POC.orchestrator.actors import ActorResult
+        orch, bus = self._make_orchestrator()
+        actor_result = ActorResult(action='auto-approve', data={})
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._check_context_budget(actor_result, 'execution'))
+        loop.close()
+
+        self.assertEqual(orch._pending_intervention, '')
+
+    def test_compact_prompt_includes_scratch_path(self):
+        """The injected compact prompt includes a .context/scratch.md pointer."""
+        orch, bus = self._make_orchestrator()
+        actor_result, _ = self._make_actor_result_with_budget(0.80)
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._check_context_budget(actor_result, 'execution'))
+        loop.close()
+
+        self.assertIn('.context/scratch.md', orch._pending_intervention)
 
 
-# ── Test 13: Warning event published at 70% ─────────────────────────────────
+# ── Test 17: CONTEXT_WARNING EventType exists ────────────────────────────────
 
-class TestWarningEventPublished(unittest.TestCase):
-    """The event bus should receive a warning when context crosses 70%."""
+class TestContextWarningEventType(unittest.TestCase):
+    """CONTEXT_WARNING must exist on EventType."""
 
-    def test_budget_triggers_warning_at_threshold(self):
-        """ContextBudget flags warning at exactly 70% utilization."""
-        budget = ContextBudget(context_window=100000)
-        # Exactly 70%
-        budget.update({'type': 'result', 'input_tokens': 70000})
-        self.assertTrue(budget.should_warn)
-        self.assertFalse(budget.should_compact)
-        self.assertAlmostEqual(budget.utilization, 0.70)
+    def test_event_type_exists(self):
+        self.assertEqual(EventType.CONTEXT_WARNING.value, 'context_warning')
 
 
-# ── Test 14: Custom thresholds ──────────────────────────────────────────────
+# ── Test 18: ActorResult carries context_budget in data ─────────────────────
+
+class TestActorResultCarriesBudget(unittest.TestCase):
+    """AgentRunner._interpret_output includes context_budget in ActorResult.data."""
+
+    def test_interpret_output_includes_budget(self):
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+        from projects.POC.orchestrator.actors import AgentRunner
+
+        budget = ContextBudget(context_window=200000)
+        budget.update({'type': 'result', 'input_tokens': 150000})
+
+        result = ClaudeResult(exit_code=0, session_id='sid-1', context_budget=budget)
+
+        class FakePhaseSpec:
+            artifact = None
+        class FakeCtx:
+            state = 'TASK_IN_PROGRESS'
+            phase_spec = FakePhaseSpec()
+            infra_dir = tempfile.mkdtemp()
+
+        runner = AgentRunner()
+        actor_result = runner._interpret_output(FakeCtx(), result)
+        self.assertIs(actor_result.data['context_budget'], budget)
+
+
+# ── Test 19: Custom thresholds ──────────────────────────────────────────────
 
 class TestCustomThresholds(unittest.TestCase):
     """Thresholds are configurable per ContextBudget instance."""
