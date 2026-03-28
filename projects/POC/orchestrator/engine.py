@@ -40,6 +40,7 @@ from projects.POC.orchestrator.actors import (
 from projects.POC.orchestrator.escalation_listener import EscalationListener
 from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
+from projects.POC.orchestrator.intervention import InterventionQueue, build_intervention_prompt
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
 
@@ -103,6 +104,7 @@ class Orchestrator:
         last_actor_data: dict[str, Any] | None = None,
         parent_heartbeat: str = '',
         project_dir: str = '',
+        intervention_queue: InterventionQueue | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -127,6 +129,7 @@ class Orchestrator:
         self.team_override = team_override
         self._parent_heartbeat = parent_heartbeat
         self.project_dir = project_dir
+        self._intervention_queue = intervention_queue
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -614,6 +617,34 @@ class Orchestrator:
 
         # Agent actor — run agent
         return await self._agent_runner.run(ctx)
+
+    async def _deliver_intervention(self) -> None:
+        """Drain the intervention queue and publish an INTERVENE event.
+
+        Called at turn boundaries when the queue has pending messages.
+        The actual prompt injection happens in _run_phase() by setting
+        the backtrack context on the next actor invocation.
+
+        Issue #246.
+        """
+        if not self._intervention_queue:
+            return
+
+        messages = self._intervention_queue.drain()
+        if not messages:
+            return
+
+        prompt = build_intervention_prompt(messages)
+
+        await self.event_bus.publish(Event(
+            type=EventType.INTERVENE,
+            data={
+                'content': prompt,
+                'message_count': len(messages),
+                'senders': [m.sender for m in messages],
+            },
+            session_id=self.session_id,
+        ))
 
     async def _transition(self, action: str, actor_result: ActorResult) -> None:
         """Apply a CfA transition and persist state."""

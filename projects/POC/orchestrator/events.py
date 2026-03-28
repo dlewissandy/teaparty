@@ -27,6 +27,7 @@ class EventType(Enum):
     SESSION_STARTED = 'session_started'
     SESSION_COMPLETED = 'session_completed'
     WITHDRAW = 'withdraw'
+    INTERVENE = 'intervene'
     STREAM_ERROR = 'stream_error'
     FAILURE = 'failure'
     LOG = 'log'
