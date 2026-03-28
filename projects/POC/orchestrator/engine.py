@@ -42,6 +42,7 @@ from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.intervention import InterventionQueue, build_intervention_prompt
 from projects.POC.orchestrator.phase_config import PhaseConfig
+from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 
 
 @dataclass
@@ -105,6 +106,7 @@ class Orchestrator:
         parent_heartbeat: str = '',
         project_dir: str = '',
         intervention_queue: InterventionQueue | None = None,
+        role_enforcer: RoleEnforcer | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -130,6 +132,7 @@ class Orchestrator:
         self._parent_heartbeat = parent_heartbeat
         self.project_dir = project_dir
         self._intervention_queue = intervention_queue
+        self._role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
 
         # Agent runners
@@ -654,7 +657,7 @@ class Orchestrator:
         if not messages:
             return
 
-        prompt = build_intervention_prompt(messages)
+        prompt = build_intervention_prompt(messages, role_enforcer=self._role_enforcer)
         self._pending_intervention = prompt
 
         await self.event_bus.publish(Event(
