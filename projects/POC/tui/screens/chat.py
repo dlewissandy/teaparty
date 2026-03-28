@@ -388,7 +388,32 @@ class ChatScreen(Screen):
             event.text_area.clear()
             if text and self._model and self._selected_conv:
                 self._model.send_message(self._selected_conv, text)
-                self._refresh_messages()
+                # Render immediately — don't wait for periodic refresh
+                from rich.text import Text
+                log = self.query_one('#message-log', RichLog)
+                t = Text()
+                t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                t.append('you', style='bold green')
+                t.append(f'  {text}')
+                log.write(t)
+                log.scroll_end(animate=False)
+                self._msg_count += 1  # skip re-rendering on next refresh
+
+                # Proxy review: auto-respond that the proxy isn't active yet
+                if self._selected_conv.startswith('proxy:'):
+                    self._model.send_message(
+                        self._selected_conv,
+                        '[Proxy agent is not yet connected. '
+                        'Messages are saved and will be available when the proxy starts.]',
+                    )
+                    t2 = Text()
+                    t2.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                    t2.append('proxy', style='bold cyan')
+                    t2.append('  [Proxy agent is not yet connected. '
+                              'Messages are saved and will be available when the proxy starts.]')
+                    log.write(t2)
+                    log.scroll_end(animate=False)
+                    self._msg_count += 1
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
