@@ -59,16 +59,33 @@ Write specification-based tests that encode the issue's requirements. Read `test
 5. Fix regressions before proceeding.
 6. Commit.
 
-## Phase 5: Close Out
+## Phase 5: Resolution Summary
 
-Post final issue comment: root cause, what fix does, which tests verify.
-Close: `gh issue close $0`. Update project board to **Done** (see `project-board.md`).
+Post issue comment: root cause, what fix does, which tests verify. Do NOT close the issue — the audit decides that.
 
 ## Phase 6: Self-Review
 
 Read `self-review.md` in this skill directory and execute every step. This is adversarial — your job is to find problems, not confirm you're done.
 
-## Phase 7: Merge
+## Phase 7: Audit
+
+Run `//audit-issue $0` to verify intent fidelity before merging.
+
+Act on the verdict:
+
+- **COMPLETE** — proceed to Phase 8.
+- **PARTIAL** — the audit reopens the issue and posts findings. You MUST loop:
+  1. Read every open finding.
+  2. Go back to Phase 4: fix what's missing, run tests, commit.
+  3. Re-run `//audit-issue $0`.
+  4. If the second audit is COMPLETE, proceed to Phase 8. If not, escalate to the human.
+- **WRONG DIRECTION** — stop and escalate to the human.
+
+Do NOT proceed to Phase 8 until the audit verdict is COMPLETE.
+
+## Phase 8: Close and Merge
+
+Close: `gh issue close $0`. Update project board to **Done** (see `project-board.md`).
 
 ```bash
 cd /Users/darrell/git/teaparty

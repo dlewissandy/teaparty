@@ -379,5 +379,178 @@ class TestBudgetNotInNorms(unittest.TestCase):
         self.assertEqual(team.budget['job_limit_usd'], 5.00)
 
 
+# ── 10. ClaudeRunner extracts cost from stream ──────────────────────────────
+
+class TestClaudeRunnerCostExtraction(unittest.TestCase):
+    """ClaudeRunner._maybe_extract_cost accumulates cost from result events."""
+
+    def _make_runner(self):
+        from projects.POC.orchestrator.claude_runner import ClaudeRunner
+        from projects.POC.orchestrator.events import EventBus
+        return ClaudeRunner(
+            prompt='test',
+            cwd='/tmp',
+            stream_file='/tmp/stream.jsonl',
+            event_bus=EventBus(),
+        )
+
+    def test_extracts_cost_from_result_event(self):
+        runner = self._make_runner()
+        runner._maybe_extract_cost({'type': 'result', 'total_cost_usd': 0.05})
+        self.assertAlmostEqual(runner._accumulated_cost, 0.05)
+
+    def test_accumulates_across_events(self):
+        runner = self._make_runner()
+        runner._maybe_extract_cost({'type': 'result', 'total_cost_usd': 0.05})
+        runner._maybe_extract_cost({'type': 'result', 'total_cost_usd': 0.10})
+        self.assertAlmostEqual(runner._accumulated_cost, 0.15)
+
+    def test_ignores_non_result_events(self):
+        runner = self._make_runner()
+        runner._maybe_extract_cost({'type': 'tool_use', 'name': 'Read'})
+        self.assertAlmostEqual(runner._accumulated_cost, 0.0)
+
+    def test_handles_missing_cost_field(self):
+        runner = self._make_runner()
+        runner._maybe_extract_cost({'type': 'result', 'subtype': 'success'})
+        self.assertAlmostEqual(runner._accumulated_cost, 0.0)
+
+
+# ── 11. AgentRunner passes cost to ActorResult ──────────────────────────────
+
+class TestAgentRunnerCostPassthrough(unittest.TestCase):
+    """AgentRunner puts cost_usd on ActorResult.data when present."""
+
+    def test_cost_on_claude_result_propagates(self):
+        """ClaudeResult.cost_usd > 0 is copied to ActorResult.data."""
+        from projects.POC.orchestrator.claude_runner import ClaudeResult
+
+        result = ClaudeResult(exit_code=0, cost_usd=1.50)
+        self.assertAlmostEqual(result.cost_usd, 1.50)
+
+
+# ── 12. Engine cost budget checking ─────────────────────────────────────────
+
+class TestEngineCostBudgetCheck(unittest.TestCase):
+    """Engine._check_cost_budget publishes events at thresholds."""
+
+    def _make_engine_with_tracker(self, job_limit: float):
+        """Create a minimal Orchestrator with a CostTracker for testing."""
+        from unittest.mock import AsyncMock, MagicMock
+        from projects.POC.orchestrator.cost_tracker import CostTracker
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+
+        tracker = CostTracker(budget={'job_limit_usd': job_limit})
+        event_bus = EventBus()
+
+        # Collect published events
+        published: list = []
+        async def capture(event):
+            published.append(event)
+        event_bus.subscribe(capture)
+
+        # Create orchestrator with minimal mocking
+        cfa = MagicMock()
+        cfa.state = 'TASK_IN_PROGRESS'
+        cfa.actor = 'agent'
+        config = MagicMock()
+        config.human_actor_states = set()
+        config.stall_timeout = 1800
+
+        engine = Orchestrator(
+            cfa_state=cfa,
+            phase_config=config,
+            event_bus=event_bus,
+            input_provider=AsyncMock(),
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='/tmp/poc',
+            cost_tracker=tracker,
+        )
+
+        return engine, tracker, published
+
+    def test_no_event_below_80_percent(self):
+        import asyncio
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        tracker.record({'type': 'result', 'total_cost_usd': 7.99})
+        asyncio.run(engine._check_cost_budget())
+        cost_events = [e for e in published if e.type in (EventType.COST_WARNING, EventType.COST_LIMIT)]
+        self.assertEqual(len(cost_events), 0)
+
+    def test_warning_event_at_80_percent(self):
+        import asyncio
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        tracker.record({'type': 'result', 'total_cost_usd': 8.00})
+        asyncio.run(engine._check_cost_budget())
+        cost_events = [e for e in published if e.type == EventType.COST_WARNING]
+        self.assertEqual(len(cost_events), 1)
+        self.assertAlmostEqual(cost_events[0].data['total_cost_usd'], 8.00)
+        self.assertAlmostEqual(cost_events[0].data['utilization'], 0.8)
+
+    def test_warning_emitted_only_once(self):
+        import asyncio
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        tracker.record({'type': 'result', 'total_cost_usd': 8.00})
+        asyncio.run(engine._check_cost_budget())
+        asyncio.run(engine._check_cost_budget())
+        cost_events = [e for e in published if e.type == EventType.COST_WARNING]
+        self.assertEqual(len(cost_events), 1)
+
+    def test_limit_event_at_100_percent(self):
+        import asyncio
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        tracker.record({'type': 'result', 'total_cost_usd': 10.00})
+        asyncio.run(engine._check_cost_budget())
+        cost_events = [e for e in published if e.type == EventType.COST_LIMIT]
+        self.assertEqual(len(cost_events), 1)
+        self.assertAlmostEqual(cost_events[0].data['total_cost_usd'], 10.00)
+
+    def test_limit_injects_escalation_prompt(self):
+        import asyncio
+        engine, tracker, published = self._make_engine_with_tracker(10.00)
+        tracker.record({'type': 'result', 'total_cost_usd': 10.00})
+        asyncio.run(engine._check_cost_budget())
+        self.assertIn('COST BUDGET EXCEEDED', engine._pending_intervention)
+        self.assertIn('$10.00', engine._pending_intervention)
+
+    def test_no_events_without_tracker(self):
+        """Engine without a cost_tracker does nothing."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+
+        event_bus = EventBus()
+        published: list = []
+        async def capture(event):
+            published.append(event)
+        event_bus.subscribe(capture)
+
+        cfa = MagicMock()
+        config = MagicMock()
+        config.human_actor_states = set()
+        config.stall_timeout = 1800
+
+        engine = Orchestrator(
+            cfa_state=cfa,
+            phase_config=config,
+            event_bus=event_bus,
+            input_provider=AsyncMock(),
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='/tmp/poc',
+        )
+        asyncio.run(engine._check_cost_budget())
+        self.assertEqual(len(published), 0)
+
+
 if __name__ == '__main__':
     unittest.main()

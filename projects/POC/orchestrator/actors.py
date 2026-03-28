@@ -281,6 +281,10 @@ class AgentRunner:
         # Detect what the agent produced
         actor_result = self._interpret_output(ctx, result)
 
+        # Carry cost data for budget tracking (Issue #262)
+        if result.cost_usd:
+            actor_result.data['cost_usd'] = result.cost_usd
+
         # Emit artifact detection for --verbose tracing
         await ctx.event_bus.publish(Event(
             type=EventType.LOG,
