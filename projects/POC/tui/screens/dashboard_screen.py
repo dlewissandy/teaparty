@@ -346,18 +346,29 @@ class DashboardScreen(Screen):
         except Exception:
             pass
 
-    # ── Click routing ──
+    # ── Click routing (called directly from item markup via screen.card_click) ──
 
-    def on_content_card_item_selected(self, event: ContentCard.ItemSelected) -> None:
-        data = event.item.data or {}
+    def _find_card(self, card_name: str) -> ContentCard | None:
+        for widget in self.query(ContentCard):
+            if widget._card_name == card_name:
+                return widget
+        return None
+
+    def action_card_click(self, card_name: str, index: int) -> None:
+        """Handle click on a card item. Called via [@click=screen.card_click(...)]."""
+        card = self._find_card(card_name)
+        if not card or index < 0 or index >= len(card._items):
+            return
+        item = card._items[index]
+        data = item.data or {}
         level = self._nav.level
 
-        if event.card_name == 'projects':
+        if card_name == 'projects':
             slug = data.get('project', '')
             if slug:
                 self._navigate(self._nav.drill_down(DashboardLevel.PROJECT, project_slug=slug))
 
-        elif event.card_name == 'jobs':
+        elif card_name == 'jobs':
             if level == DashboardLevel.MANAGEMENT:
                 project = data.get('project', '')
                 sid = data.get('session_id', '')
@@ -370,31 +381,31 @@ class DashboardScreen(Screen):
                 if sid:
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
 
-        elif event.card_name in ('escalations', 'sessions'):
-            # Opens chat in a separate window
+        elif card_name in ('escalations', 'sessions'):
             open_chat_window(self.app)
 
-        elif event.card_name == 'workgroups':
+        elif card_name == 'workgroups':
             wg_id = data.get('workgroup_id', '')
             if wg_id:
                 self._navigate(self._nav.drill_down(DashboardLevel.WORKGROUP, workgroup_id=wg_id))
 
-        elif event.card_name == 'tasks':
+        elif card_name == 'tasks':
             dispatch = data.get('dispatch')
             if dispatch:
                 task_id = os.path.basename(dispatch.infra_dir) if dispatch.infra_dir else dispatch.worktree_name
                 self._navigate(self._nav.drill_down(DashboardLevel.TASK, task_id=task_id))
 
-        elif event.card_name == 'artifacts':
+        elif card_name == 'artifacts':
             path = data.get('path', '')
             if path:
                 from projects.POC.tui.platform_utils import open_file
                 open_file(path)
 
-    def on_content_card_new_requested(self, event: ContentCard.NewRequested) -> None:
-        if event.card_name in ('sessions', 'jobs'):
+    def action_card_new(self, card_name: str) -> None:
+        """Handle '+ New' click on a card. Called via [@click=screen.card_new(...)]."""
+        if card_name in ('sessions', 'jobs'):
             self.action_new_session()
-        elif event.card_name == 'projects':
+        elif card_name == 'projects':
             self.action_new_project()
 
     def on_breadcrumb_bar_navigate(self, event: BreadcrumbBar.Navigate) -> None:
