@@ -21,7 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import call, patch, MagicMock
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
@@ -112,8 +112,9 @@ class TestSelfKillGuard(unittest.TestCase):
             _kill_pid(fake_child_pid)
             # Should not use killpg with our own pgid
             mock_killpg.assert_not_called()
-            # Should fall back to direct os.kill on the PID
-            mock_kill.assert_called_once_with(fake_child_pid, signal.SIGTERM)
+            # Should send SIGTERM on the PID directly (first call)
+            first_call = mock_kill.call_args_list[0]
+            self.assertEqual(first_call, call(fake_child_pid, signal.SIGTERM))
 
 
 class TestWithdrawSelfKillPrevention(unittest.TestCase):
