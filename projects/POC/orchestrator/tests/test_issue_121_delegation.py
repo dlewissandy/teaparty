@@ -91,11 +91,53 @@ class TestProjectLeadPrompt(unittest.TestCase):
     def setUp(self):
         agents = _load_agents_file('uber-team.json')
         self.prompt = agents['project-lead']['prompt']
+        exec_idx = self.prompt.find('EXECUTION PHASE')
+        self.assertGreater(exec_idx, -1, "Prompt must contain an EXECUTION PHASE section")
+        self.exec_section = self.prompt[exec_idx:]
 
     def test_prompt_mentions_sendmessage(self):
         """The prompt must tell the lead that SendMessage is available."""
         self.assertIn('SendMessage', self.prompt,
                       "Lead prompt must mention SendMessage so the agent knows how to coordinate")
+
+    def test_prompt_discourages_direct_file_reading(self):
+        """The prompt must tell the lead NOT to read source files directly."""
+        self.assertTrue(
+            'NOT read source files' in self.exec_section or
+            'Do not read source files' in self.exec_section or
+            'not read source' in self.exec_section.lower(),
+            "EXECUTION PHASE must discourage direct source file reading"
+        )
+
+    def test_prompt_mentions_task_tool_in_execution_phase(self):
+        """The execution phase section must mention the Task tool for spawning agents."""
+        self.assertIn('Task', self.exec_section,
+                      "EXECUTION PHASE must mention Task tool for spawning agents")
+
+    def test_prompt_mentions_taskoutput_in_execution_phase(self):
+        """The execution phase section must mention TaskOutput for monitoring progress."""
+        self.assertIn('TaskOutput', self.exec_section,
+                      "EXECUTION PHASE must mention TaskOutput to monitor progress")
+
+    def test_execution_phase_has_spawning_section(self):
+        """The execution phase must have a SPAWNING LIAISONS section."""
+        self.assertIn('SPAWNING LIAISONS', self.exec_section,
+                      "EXECUTION PHASE must contain a SPAWNING LIAISONS section")
+
+    def test_coordination_section_present(self):
+        """The execution phase must have a COORDINATION section."""
+        self.assertIn('COORDINATION', self.exec_section,
+                      "EXECUTION PHASE must contain a COORDINATION section")
+
+    def test_dispatch_pattern_section_present(self):
+        """The execution phase must have a DISPATCH PATTERN section."""
+        self.assertIn('DISPATCH PATTERN', self.exec_section,
+                      "EXECUTION PHASE must contain a DISPATCH PATTERN section")
+
+    def test_prompt_references_planning_constraints(self):
+        """Project-lead prompt must reference Planning Constraints for dynamic injection."""
+        self.assertIn('Planning Constraints', self.prompt,
+                      "project-lead prompt must reference 'Planning Constraints' for dynamic injection")
 
 
 # ── Test: intent-team research-liaison uses dispatch_cli ─────────────────────
