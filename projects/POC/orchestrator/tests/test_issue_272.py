@@ -216,7 +216,8 @@ class TestWorkgroupStats(unittest.TestCase):
         s2 = _make_session(session_id='20260328-130000', dispatches=[escalated_d])
         stats = compute_workgroup_stats([s1, s2], 'Coding')
         self.assertEqual(stats['sessions'], 2)
-        self.assertEqual(stats['active_tasks'], 1)
+        # escalated dispatch is still active (status='active')
+        self.assertEqual(stats['active_tasks'], 2)
         self.assertEqual(stats['complete_tasks'], 1)
         self.assertEqual(stats['escalations'], 1)
 
