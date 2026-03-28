@@ -55,6 +55,7 @@ class MemoryStore:
     """
 
     def __init__(self, db_path: str):
+        self._db_path = db_path
         self._conn = sqlite3.connect(db_path)
         self._conn.execute('PRAGMA journal_mode=WAL')
         self._conn.execute('''
@@ -108,6 +109,43 @@ class MemoryStore:
             }
             for row in cursor.fetchall()
         ]
+
+    def record_steering(
+        self, *, content: str, source: str, current_interaction: int,
+    ) -> str:
+        """Record a steering chunk into proxy_chunks for cross-conversation learning.
+
+        Steering chunks are stored as MemoryChunk objects in the proxy's
+        proxy_chunks table so that activation-based retrieval surfaces them
+        at gates when context matches.
+        """
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db,
+            record_steering_chunk,
+        )
+        proxy_conn = open_proxy_db(self._db_path)
+        try:
+            chunk_id = record_steering_chunk(
+                proxy_conn,
+                content=content,
+                source=source,
+                current_interaction=current_interaction,
+            )
+            return chunk_id
+        finally:
+            proxy_conn.close()
+
+    def get_gate_outcomes(self, *, task_type: str = ''):
+        """Read gate_outcome chunks from proxy_chunks for status reporting."""
+        from projects.POC.orchestrator.proxy_memory import (
+            open_proxy_db,
+            query_gate_outcomes,
+        )
+        proxy_conn = open_proxy_db(self._db_path)
+        try:
+            return query_gate_outcomes(proxy_conn, task_type=task_type)
+        finally:
+            proxy_conn.close()
 
     def close(self) -> None:
         self._conn.close()
