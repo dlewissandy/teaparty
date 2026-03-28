@@ -1,4 +1,4 @@
-"""AskQuestion and AskTeam MCP server for agent escalation and dispatch.
+"""MCP server for agent escalation, dispatch, and intervention tools.
 
 The agent calls AskQuestion(question, context).  The handler routes
 through the proxy: confident → return proxy answer; not confident →
@@ -8,9 +8,13 @@ The agent calls AskTeam(team, task) to dispatch work to a specialist
 subteam.  The handler sends the request to the DispatchListener via
 a Unix domain socket (ASK_TEAM_SOCKET env var) and returns the result.
 
+The office manager calls WithdrawSession, PauseDispatch, ResumeDispatch,
+or ReprioritizeDispatch to exercise team-lead authority.  These route
+through the InterventionListener via INTERVENTION_SOCKET.
+
 The MCP server communicates with the orchestrator via Unix domain
-sockets whose paths are passed in the ASK_QUESTION_SOCKET and
-ASK_TEAM_SOCKET env vars.
+sockets whose paths are passed in the ASK_QUESTION_SOCKET,
+ASK_TEAM_SOCKET, and INTERVENTION_SOCKET env vars.
 """
 from __future__ import annotations
 
@@ -109,6 +113,36 @@ async def _default_human(question: str) -> str:
         await writer.wait_closed()
 
 
+async def intervention_handler(request_type: str, **kwargs) -> str:
+    """Core handler for intervention tools (WithdrawSession, PauseDispatch, etc.).
+
+    Sends the request to the InterventionListener via the Unix socket
+    at INTERVENTION_SOCKET and returns the result JSON as a string.
+
+    Args:
+        request_type: One of withdraw_session, pause_dispatch,
+            resume_dispatch, reprioritize_dispatch.
+        **kwargs: Additional fields for the request (session_id,
+            dispatch_id, priority).
+    """
+    socket_path = os.environ.get('INTERVENTION_SOCKET', '')
+    if not socket_path:
+        raise RuntimeError(
+            'INTERVENTION_SOCKET not set — cannot execute intervention'
+        )
+    reader, writer = await asyncio.open_unix_connection(socket_path)
+    try:
+        request = json.dumps({'type': request_type, **kwargs})
+        writer.write(request.encode() + b'\n')
+        await writer.drain()
+        response_line = await reader.readline()
+        response = json.loads(response_line.decode())
+        return json.dumps(response)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 async def ask_team_handler(team: str, task: str) -> str:
     """Core handler logic for AskTeam.
 
@@ -177,6 +211,65 @@ def create_server() -> FastMCP:
                 criteria so the team can work autonomously.
         """
         return await ask_team_handler(team=team, task=task)
+
+    @server.tool()
+    async def WithdrawSession(session_id: str) -> str:
+        """Withdraw a session, setting its CfA state to WITHDRAWN.
+
+        This is a team-lead authority action. It terminates the session
+        and finalizes its heartbeat. Use when a session should be stopped
+        entirely — the work is no longer needed or the approach is wrong.
+
+        Args:
+            session_id: The session to withdraw.
+        """
+        return await intervention_handler(
+            'withdraw_session', session_id=session_id,
+        )
+
+    @server.tool()
+    async def PauseDispatch(dispatch_id: str) -> str:
+        """Pause a running dispatch.
+
+        A paused dispatch will not launch new phases. Work already in
+        progress completes but no new work starts. Use when you need
+        to temporarily halt a dispatch without terminating it.
+
+        Args:
+            dispatch_id: The dispatch to pause.
+        """
+        return await intervention_handler(
+            'pause_dispatch', dispatch_id=dispatch_id,
+        )
+
+    @server.tool()
+    async def ResumeDispatch(dispatch_id: str) -> str:
+        """Resume a paused dispatch.
+
+        Restores the dispatch to running state so new phases can launch.
+        Only works on dispatches that are currently paused.
+
+        Args:
+            dispatch_id: The dispatch to resume.
+        """
+        return await intervention_handler(
+            'resume_dispatch', dispatch_id=dispatch_id,
+        )
+
+    @server.tool()
+    async def ReprioritizeDispatch(dispatch_id: str, priority: str) -> str:
+        """Change the priority of a dispatch.
+
+        Updates the dispatch's priority level. Only works on dispatches
+        that are currently running or paused (not terminal).
+
+        Args:
+            dispatch_id: The dispatch to reprioritize.
+            priority: The new priority level (e.g. 'high', 'normal', 'low').
+        """
+        return await intervention_handler(
+            'reprioritize_dispatch', dispatch_id=dispatch_id, priority=priority,
+        )
 
     return server
 

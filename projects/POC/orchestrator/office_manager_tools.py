@@ -4,11 +4,12 @@ Team-lead authority tools that operate on session infrastructure files.
 These are distinct from gate authority (which belongs to the proxy).
 
 Tools:
-  withdraw_session  — set CfA state to WITHDRAWN, finalize heartbeat
-  pause_dispatch    — pause an active dispatch (heartbeat → paused)
-  resume_dispatch   — resume a paused dispatch (heartbeat → running)
+  withdraw_session      — set CfA state to WITHDRAWN, finalize heartbeat
+  pause_dispatch        — pause an active dispatch (heartbeat → paused)
+  resume_dispatch       — resume a paused dispatch (heartbeat → running)
+  reprioritize_dispatch — change dispatch priority (heartbeat priority field)
 
-Issue #201.
+Issues #201, #249.
 """
 from __future__ import annotations
 
@@ -100,6 +101,38 @@ def resume_dispatch(infra_dir: str) -> dict:
 
     _set_heartbeat_status(hb_path, 'running')
     return {'status': 'resumed'}
+
+
+def reprioritize_dispatch(infra_dir: str, priority: str) -> dict:
+    """Change the priority of a dispatch by updating the heartbeat.
+
+    Only running or paused dispatches can be reprioritized.
+
+    Returns a status dict: {status: 'reprioritized' | 'not_running' | 'error', ...}
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+
+    try:
+        with open(hb_path) as f:
+            hb = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {'status': 'error', 'reason': f'Heartbeat not found: {hb_path}'}
+
+    if hb.get('status') not in ('running', 'starting', 'paused'):
+        return {'status': 'not_running', 'current_status': hb.get('status', 'unknown')}
+
+    old_priority = hb.get('priority', 'normal')
+    hb['priority'] = priority
+    tmp = hb_path + '.tmp'
+    with open(tmp, 'w') as f:
+        json.dump(hb, f)
+    os.replace(tmp, hb_path)
+
+    return {
+        'status': 'reprioritized',
+        'old_priority': old_priority,
+        'new_priority': priority,
+    }
 
 
 def _set_heartbeat_status(hb_path: str, status: str) -> None:
