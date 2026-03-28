@@ -341,6 +341,28 @@ class TestConsolidateTaskStore(unittest.TestCase):
         result = consolidate_task_store(tasks_dir, similarity_fn=lambda a, b: 0.95)
         self.assertGreater(result.merged_count, 0)
 
+    def test_correction_files_excluded(self):
+        """correction-*.md files are excluded — they have a dedicated compaction pipeline."""
+        from projects.POC.orchestrator.consolidate_learnings import consolidate_task_store
+
+        proxy_dir = os.path.join(self.tmpdir, 'proxy-tasks')
+        # Two correction files with identical content
+        _write_entry_file(proxy_dir, 'correction-aaa.md', _make_entry("Prefer concise responses"))
+        _write_entry_file(proxy_dir, 'correction-bbb.md', _make_entry("Prefer concise responses"))
+        # One regular file
+        _write_entry_file(proxy_dir, 'task-ccc.md', _make_entry("Check edge cases"))
+
+        result = consolidate_task_store(proxy_dir)
+        # Only the regular file should be counted (1 entry, no merges)
+        self.assertEqual(result.original_count, 1)
+        self.assertEqual(result.merged_count, 0)
+
+        # Correction files should still exist untouched
+        remaining = sorted(os.listdir(proxy_dir))
+        md_files = [f for f in remaining if f.endswith('.md')]
+        correction_files = [f for f in md_files if f.startswith('correction-')]
+        self.assertEqual(len(correction_files), 2)
+
     def test_files_with_multiple_entries_handled(self):
         """Files containing multiple entries are parsed and each entry considered."""
         from projects.POC.orchestrator.consolidate_learnings import consolidate_task_store

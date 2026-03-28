@@ -185,10 +185,12 @@ def consolidate_task_store(
     if not os.path.isdir(directory):
         return ConsolidationResult(0, 0, 0)
 
-    # Read all .md files and their entries
+    # Read all .md files and their entries.
+    # Exclude correction-*.md files — they have a dedicated compaction
+    # pipeline (_compact_proxy_correction_entries, issue #198).
     md_files = sorted(
         f for f in os.listdir(directory)
-        if f.endswith('.md') and not f.startswith('.')
+        if f.endswith('.md') and not f.startswith('.') and not f.startswith('correction-')
     )
     if not md_files:
         return ConsolidationResult(0, 0, 0)
