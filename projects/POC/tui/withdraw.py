@@ -71,7 +71,8 @@ async def withdraw_session(
     # 5. Clean up sentinel files (leave worktree intact)
     _cleanup_sentinels(session.infra_dir)
 
-    # 6. Emit learning signal
+    # 6. Record learning signal (memory chunk + LOG event)
+    _record_withdrawal_memory_chunk(session, phase)
     if event_bus is not None:
         from projects.POC.orchestrator.events import Event, EventType
         await event_bus.publish(Event(
@@ -163,6 +164,50 @@ def _set_state_withdrawn_recursive(infra_dir: str, phase: str, depth: int = 0) -
                 _set_state_withdrawn_recursive(dispatch_dir, phase, depth + 1)
         except OSError:
             continue
+
+
+def _record_withdrawal_memory_chunk(session: SessionState, phase: str) -> None:
+    """Record the withdrawal as a memory chunk in the proxy memory DB.
+
+    Per the CfA extensions design, both INTERVENE and WITHDRAW are recorded
+    as memory chunks — they capture moments where the human overrode agent
+    behavior, which is what the proxy needs to learn from.
+
+    Derives the proxy DB path from infra_dir (two levels up = project dir).
+    Fails silently if the DB doesn't exist or isn't writable.
+    """
+    try:
+        import uuid
+        from projects.POC.orchestrator.proxy_memory import (
+            MemoryChunk, open_proxy_db, store_chunk,
+        )
+
+        # infra_dir = {projects_dir}/{project}/.sessions/{ts}/
+        # project_dir = {projects_dir}/{project}/
+        project_dir = os.path.dirname(os.path.dirname(session.infra_dir.rstrip('/')))
+        db_path = os.path.join(project_dir, '.proxy-memory.db')
+        if not os.path.isfile(db_path):
+            return
+
+        conn = open_proxy_db(db_path)
+        try:
+            chunk = MemoryChunk(
+                id=str(uuid.uuid4()),
+                type='withdrawal',
+                state=session.cfa_state or 'UNKNOWN',
+                task_type=session.project or '',
+                outcome='withdrawn',
+                content=(
+                    f'Human withdrew session during {phase} phase. '
+                    f'Task: {session.task or "(unknown)"}. '
+                    f'CfA state at withdrawal: {session.cfa_state or "unknown"}.'
+                ),
+            )
+            store_chunk(conn, chunk)
+        finally:
+            conn.close()
+    except Exception:
+        pass  # Best-effort — don't let DB failure block withdrawal
 
 
 def _read_pid_from_infra(infra_dir: str) -> int | None:
