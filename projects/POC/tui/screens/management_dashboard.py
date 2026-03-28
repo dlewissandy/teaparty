@@ -1,4 +1,8 @@
-"""Management Dashboard — top-level home screen showing all projects and org-level cards."""
+"""Management Dashboard — top-level home screen with content cards per design spec.
+
+Cards: Escalations, Sessions, Projects, Workgroups, Humans, Agents, Skills,
+Scheduled Tasks, Hooks. Stats bar at top. Breadcrumb shows 'TeaParty'.
+"""
 from __future__ import annotations
 
 from textual.app import ComposeResult
@@ -9,6 +13,8 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from projects.POC.tui.navigation import DashboardLevel, NavigationContext
 from projects.POC.tui.widgets.breadcrumb_bar import BreadcrumbBar
+from projects.POC.tui.widgets.content_card import CardItem, ContentCard
+from projects.POC.tui.widgets.stats_bar import StatsBar
 
 
 def _human_age(seconds: int) -> str:
@@ -21,18 +27,35 @@ def _human_age(seconds: int) -> str:
     return f'{seconds // 3600}h{seconds % 3600 // 60}m'
 
 
-def _project_snapshot(reader) -> list[tuple]:
-    return [
-        (p.slug, len(p.sessions), p.active_count, p.attention_count)
-        for p in reader.projects
-    ]
+def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = False) -> str:
+    if is_orphaned:
+        return '\u26a0'
+    if needs_input:
+        return '\u23f3'
+    if status == 'active':
+        return '\u25b6'
+    if status == 'complete':
+        return '\u2713'
+    if status == 'failed':
+        return '\u2717'
+    return ' '
+
+
+def _state_display(phase: str, state: str) -> str:
+    if not phase and not state:
+        return '\u2014'
+    if state in ('COMPLETED_WORK', 'WITHDRAWN'):
+        return state
+    if phase:
+        return f'{phase}/{state}'
+    return state
 
 
 class ManagementDashboard(Screen):
-    """Home screen. Cards: projects, sessions, escalations, workgroups, etc."""
+    """Home screen. Cards per design spec + stats bar + breadcrumbs."""
 
     BINDINGS = [
-        Binding('enter', 'select_project', 'Open Project', show=True),
+        Binding('enter', 'select_item', 'Open', show=True),
         Binding('n', 'new_session', 'New Session', show=True),
         Binding('p', 'new_project', 'New Project', show=True),
         Binding('d', 'diagnostics', 'Diagnostics', show=True),
@@ -50,55 +73,166 @@ class ManagementDashboard(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
+        yield StatsBar(id='mgmt-stats')
         yield Horizontal(
-            Vertical(
-                Static('PROJECTS', classes='section-title'),
-                DataTable(id='project-table'),
-                id='left-pane',
+            # Left column: primary navigation cards
+            VerticalScroll(
+                ContentCard('ESCALATIONS', 'escalations', empty_text='No pending escalations'),
+                ContentCard('SESSIONS', 'sessions', show_new_button=True, empty_text='No active sessions'),
+                ContentCard('PROJECTS', 'projects', show_new_button=True, empty_text='No projects'),
+                ContentCard('WORKGROUPS', 'workgroups', show_new_button=True, empty_text='No workgroups'),
+                id='left-card-col',
+                classes='card-grid',
             ),
-            Vertical(
-                Static('SESSIONS', classes='section-title', id='sessions-title'),
-                DataTable(id='session-table'),
-                id='right-pane',
+            # Right column: resource cards
+            VerticalScroll(
+                ContentCard('HUMANS', 'humans', empty_text='No humans configured'),
+                ContentCard('AGENTS', 'agents', show_new_button=True, empty_text='No agents'),
+                ContentCard('SKILLS', 'skills', show_new_button=True, empty_text='No skills'),
+                ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True, empty_text='No scheduled tasks'),
+                ContentCard('HOOKS', 'hooks', show_new_button=True, empty_text='No hooks'),
+                id='right-card-col',
+                classes='card-grid',
             ),
             id='top-panes',
-        )
-        yield Vertical(
-            Static('PROMPT', classes='section-title', id='prompt-title'),
-            VerticalScroll(
-                Static('', id='dash-prompt-panel'),
-                id='prompt-scroll',
-            ),
-            id='bottom-pane',
         )
         yield Static('', id='chat-attention-label', classes='chat-attention-label')
         yield Static('', id='projects-dir-label', classes='projects-dir-label')
         yield Footer()
 
     def on_mount(self) -> None:
-        ptable = self.query_one('#project-table', DataTable)
-        ptable.cursor_type = 'row'
-        ptable.add_columns('', 'Project', '#', '')
-
-        stable = self.query_one('#session-table', DataTable)
-        stable.cursor_type = 'row'
-        stable.add_columns('', 'Session', 'State', 'Idle', 'Dur')
-
-        self._project_slugs: list[str] = []
-        self._session_ids: list[str] = []
-        self._selected_project: str = ''
-        self._last_project_snap: list[tuple] = []
-        self._last_session_snap: list[tuple] = []
         self._refresh_data(force=True)
         self._update_projects_dir_label()
 
-    def _update_projects_dir_label(self) -> None:
-        self.query_one('#projects-dir-label', Static).update(
-            f'Projects: {self.app.projects_dir}'
+    def _refresh_data(self, force: bool = False) -> None:
+        reader = self.app.state_reader
+        reader.reload()
+        self._update_stats(reader)
+        self._update_escalations_card(reader)
+        self._update_sessions_card(reader)
+        self._update_projects_card(reader)
+        self._update_workgroups_card()
+        self._update_humans_card()
+        self._update_agents_card()
+        self._update_skills_card()
+        self._update_scheduled_tasks_card()
+        self._update_hooks_card()
+        self._update_projects_dir_label()
+        self._update_chat_attention()
+
+    def _update_stats(self, reader) -> None:
+        total_sessions = sum(len(p.sessions) for p in reader.projects)
+        active_sessions = sum(p.active_count for p in reader.projects)
+        completed = sum(
+            1 for p in reader.projects for s in p.sessions
+            if s.cfa_state == 'COMPLETED_WORK'
         )
+        withdrawn = sum(
+            1 for p in reader.projects for s in p.sessions
+            if s.cfa_state == 'WITHDRAWN'
+        )
+        attention = sum(p.attention_count for p in reader.projects)
+
+        stats = [
+            ('Projects', str(len(reader.projects))),
+            ('Jobs', str(total_sessions)),
+            ('Active', str(active_sessions)),
+            ('Done', str(completed)),
+            ('Withdrawn', str(withdrawn)),
+            ('Escalations', str(attention)),
+        ]
+        try:
+            self.query_one('#mgmt-stats', StatsBar).update_stats(stats)
+        except Exception:
+            pass
+
+    def _update_escalations_card(self, reader) -> None:
+        items = []
+        for proj in reader.projects:
+            for sess in proj.sessions:
+                if sess.needs_input:
+                    items.append(CardItem(
+                        icon='\u23f3',
+                        label=f'{proj.slug}/{sess.session_id}',
+                        detail=sess.cfa_state,
+                        data={'project': proj.slug, 'session_id': sess.session_id},
+                    ))
+        self._update_card('escalations', items)
+
+    def _update_sessions_card(self, reader) -> None:
+        items = []
+        for proj in reader.projects:
+            for sess in proj.sessions:
+                if sess.status == 'active':
+                    icon = _status_icon(sess.status, sess.needs_input, sess.is_orphaned)
+                    items.append(CardItem(
+                        icon=icon,
+                        label=f'{proj.slug}/{sess.session_id}',
+                        detail=_state_display(sess.cfa_phase, sess.cfa_state),
+                        data={'project': proj.slug, 'session_id': sess.session_id},
+                    ))
+        self._update_card('sessions', items)
+
+    def _update_projects_card(self, reader) -> None:
+        items = []
+        for proj in reader.projects:
+            active = proj.active_count
+            total = len(proj.sessions)
+            attn = f' \u23f3' if proj.attention_count > 0 else ''
+            items.append(CardItem(
+                icon='\u25b6' if active > 0 else '\u2713',
+                label=proj.slug,
+                detail=f'{active} active / {total} total{attn}',
+                data={'project': proj.slug},
+            ))
+        self._update_card('projects', items)
+
+    def _update_workgroups_card(self) -> None:
+        # Workgroups are not yet in the data model (pending #251)
+        self._update_card('workgroups', [])
+
+    def _update_humans_card(self) -> None:
+        # Humans are not yet in the data model (pending #251)
+        self._update_card('humans', [])
+
+    def _update_agents_card(self) -> None:
+        # Agents are not yet in the data model (pending #251)
+        self._update_card('agents', [])
+
+    def _update_skills_card(self) -> None:
+        # Skills are not yet in the data model (pending #251)
+        self._update_card('skills', [])
+
+    def _update_scheduled_tasks_card(self) -> None:
+        # Scheduled tasks are not yet in the data model (pending #195)
+        self._update_card('scheduled_tasks', [])
+
+    def _update_hooks_card(self) -> None:
+        # Hooks are not yet in the data model (pending #251)
+        self._update_card('hooks', [])
+
+    def _update_card(self, card_name: str, items: list[CardItem]) -> None:
+        try:
+            for widget in self.query(ContentCard):
+                if widget._card_name == card_name:
+                    widget.update_items(items)
+                    break
+        except Exception:
+            pass
+
+    def _update_projects_dir_label(self) -> None:
+        try:
+            self.query_one('#projects-dir-label', Static).update(
+                f'Projects: {self.app.projects_dir}'
+            )
+        except Exception:
+            pass
 
     def _update_chat_attention(self) -> None:
-        label = self.query_one('#chat-attention-label', Static)
+        try:
+            label = self.query_one('#chat-attention-label', Static)
+        except Exception:
+            return
         try:
             count = self._get_chat_attention_count()
         except Exception:
@@ -136,158 +270,43 @@ class ManagementDashboard(Screen):
         finally:
             model.close()
 
-    def _refresh_data(self, force: bool = False) -> None:
-        reader = self.app.state_reader
-        reader.reload()
+    def on_content_card_item_selected(self, event: ContentCard.ItemSelected) -> None:
+        """Handle clicks on card items — navigate to the appropriate level."""
+        data = event.item.data or {}
+        if event.card_name == 'projects':
+            slug = data.get('project', '')
+            if slug:
+                ctx = self._nav_context.drill_down(DashboardLevel.PROJECT, project_slug=slug)
+                _navigate_to_context(self.app, ctx)
+        elif event.card_name in ('escalations', 'sessions'):
+            project = data.get('project', '')
+            sid = data.get('session_id', '')
+            if project and sid:
+                ctx = self._nav_context.drill_down(
+                    DashboardLevel.JOB, project_slug=project, job_id=sid,
+                )
+                _navigate_to_context(self.app, ctx)
 
-        proj_snap = _project_snapshot(reader)
-        if force or proj_snap != self._last_project_snap:
-            self._last_project_snap = proj_snap
-            self._rebuild_project_table()
-
-        proj = reader.find_project(self._selected_project)
-        sess_snap = _session_snapshot(proj)
-        if force or sess_snap != self._last_session_snap:
-            self._last_session_snap = sess_snap
-            self._rebuild_session_table()
-        else:
-            self._update_session_times()
-
-        self._update_prompt_panel()
-        self._update_projects_dir_label()
-        self._update_chat_attention()
-
-    def _rebuild_project_table(self) -> None:
-        ptable = self.query_one('#project-table', DataTable)
-        ptable.clear()
-        self._project_slugs = []
-
-        for proj in self.app.state_reader.projects:
-            count = str(len(proj.sessions))
-            attention = '\u23f3' if proj.attention_count > 0 else ''
-            ptable.add_row(' ', proj.slug, count, attention)
-            self._project_slugs.append(proj.slug)
-
-        if not self._project_slugs:
-            ptable.add_row('', '(no projects)', '', '')
-            self._selected_project = ''
-            return
-
-        if not self._selected_project or self._selected_project not in self._project_slugs:
-            self._selected_project = self._project_slugs[0]
-
-        idx = self._project_slugs.index(self._selected_project)
-        ptable.move_cursor(row=idx)
-
-    def _rebuild_session_table(self) -> None:
-        stable = self.query_one('#session-table', DataTable)
-        title = self.query_one('#sessions-title', Static)
-        stable.clear()
-        self._session_ids = []
-
-        proj = self.app.state_reader.find_project(self._selected_project)
-        if not proj:
-            title.update('SESSIONS')
-            return
-
-        title.update(f'SESSIONS ({proj.slug})')
-
-        for sess in proj.sessions:
-            icon = _status_icon(sess.status, sess.needs_input, getattr(sess, 'is_orphaned', False))
-            state = _state_display(sess.cfa_phase, sess.cfa_state)
-            idle = _human_age(sess.stream_age_seconds)
-            dur = _human_age(sess.duration_seconds)
-            stable.add_row(icon, sess.session_id, state, idle, dur)
-            self._session_ids.append(sess.session_id)
-
-        if not self._session_ids:
-            stable.add_row('', '(no sessions)', '', '', '')
-
-    def _update_session_times(self) -> None:
-        from textual.coordinate import Coordinate
-        stable = self.query_one('#session-table', DataTable)
-        proj = self.app.state_reader.find_project(self._selected_project)
-        if not proj:
-            return
-        for row_idx, sess in enumerate(proj.sessions):
-            if row_idx >= len(self._session_ids):
-                break
-            stable.update_cell_at(Coordinate(row_idx, 3), _human_age(sess.stream_age_seconds))
-            stable.update_cell_at(Coordinate(row_idx, 4), _human_age(sess.duration_seconds))
-
-    def _update_prompt_panel(self) -> None:
-        title = self.query_one('#prompt-title', Static)
-        panel = self.query_one('#dash-prompt-panel', Static)
-        stable = self.query_one('#session-table', DataTable)
-        cursor_row = stable.cursor_row
-
-        if not self._session_ids or cursor_row < 0 or cursor_row >= len(self._session_ids):
-            title.update('PROMPT')
-            panel.update('  (no session selected)')
-            return
-
-        sid = self._session_ids[cursor_row]
-        session = self.app.state_reader.find_session(sid)
-        if not session:
-            title.update(f'PROMPT ({sid})')
-            panel.update('  (no session)')
-            return
-
-        title.update(f'PROMPT ({sid})')
-        panel.update(f'  {session.task}' if session.task else '  (no prompt)')
-
-    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        table_id = event.data_table.id
-        if table_id == 'project-table':
-            cursor = event.cursor_row
-            if 0 <= cursor < len(self._project_slugs):
-                new_project = self._project_slugs[cursor]
-                if new_project != self._selected_project:
-                    self._selected_project = new_project
-                    self._last_session_snap = []
-                    self._rebuild_session_table()
-                    self._update_prompt_panel()
-        elif table_id == 'session-table':
-            self._update_prompt_panel()
-
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        table_id = event.data_table.id
-        if table_id == 'session-table':
-            self._navigate_to_job()
-        elif table_id == 'project-table':
-            self.action_select_project()
+    def on_content_card_new_requested(self, event: ContentCard.NewRequested) -> None:
+        """Handle '+ New' clicks on cards."""
+        if event.card_name == 'projects':
+            self.action_new_project()
+        elif event.card_name == 'sessions':
+            self.action_new_session()
 
     def on_breadcrumb_bar_navigate(self, event: BreadcrumbBar.Navigate) -> None:
-        """Handle breadcrumb clicks — navigate to ancestor level."""
         _navigate_to_context(self.app, event.nav_context)
 
-    def action_select_project(self) -> None:
-        """Drill down into the selected project."""
-        ptable = self.query_one('#project-table', DataTable)
-        cursor = ptable.cursor_row
-        if 0 <= cursor < len(self._project_slugs):
-            slug = self._project_slugs[cursor]
-            ctx = self._nav_context.drill_down(
-                DashboardLevel.PROJECT, project_slug=slug,
-            )
-            _navigate_to_context(self.app, ctx)
-
-    def _navigate_to_job(self) -> None:
-        """Drill down into the selected session (job)."""
-        stable = self.query_one('#session-table', DataTable)
-        cursor_row = stable.cursor_row
-        if 0 <= cursor_row < len(self._session_ids):
-            sid = self._session_ids[cursor_row]
-            ctx = self._nav_context.drill_down(
-                DashboardLevel.JOB,
-                project_slug=self._selected_project,
-                job_id=sid,
-            )
-            _navigate_to_context(self.app, ctx)
+    def action_select_item(self) -> None:
+        # Enter key — try to navigate to focused project card item
+        pass
 
     def action_new_session(self) -> None:
         from projects.POC.tui.screens.launch import LaunchScreen
-        self.app.push_screen(LaunchScreen(self._selected_project))
+        # Use first project if available
+        reader = self.app.state_reader
+        project = reader.projects[0].slug if reader.projects else ''
+        self.app.push_screen(LaunchScreen(project))
 
     def action_new_project(self) -> None:
         from projects.POC.tui.screens.new_project import NewProjectScreen
@@ -319,30 +338,6 @@ class ManagementDashboard(Screen):
         self._refresh_data()
 
 
-def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = False) -> str:
-    if is_orphaned:
-        return '\u26a0'
-    if needs_input:
-        return '\u23f3'
-    if status == 'active':
-        return '\u25b6'
-    if status == 'complete':
-        return '\u2713'
-    if status == 'failed':
-        return '\u2717'
-    return ' '
-
-
-def _state_display(phase: str, state: str) -> str:
-    if not phase and not state:
-        return '\u2014'
-    if state in ('COMPLETED_WORK', 'WITHDRAWN'):
-        return state
-    if phase:
-        return f'{phase}/{state}'
-    return state
-
-
 def _session_snapshot(proj) -> list[tuple]:
     if not proj:
         return []
@@ -354,16 +349,12 @@ def _session_snapshot(proj) -> list[tuple]:
 
 
 def _navigate_to_context(app, ctx: NavigationContext) -> None:
-    """Navigate the app to the screen for the given NavigationContext.
-
-    Pops all screens back to the base and pushes the appropriate screen.
-    """
-    # Pop back to base screen
+    """Navigate the app to the screen for the given NavigationContext."""
     while len(app.screen_stack) > 1:
         app.pop_screen()
 
     if ctx.level == DashboardLevel.MANAGEMENT:
-        return  # Already at management (base screen)
+        return
 
     if ctx.level == DashboardLevel.PROJECT:
         from projects.POC.tui.screens.project_dashboard import ProjectDashboard

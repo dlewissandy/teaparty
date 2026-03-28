@@ -17,6 +17,54 @@ Screen {
     width: 1fr;
 }
 
+/* ── Content cards ── */
+ContentCard {
+    height: auto;
+    max-height: 12;
+    border: tall $primary-lighten-1;
+    margin: 0 1 1 1;
+    padding: 0;
+}
+
+.card-title {
+    text-style: bold;
+    color: $accent;
+    padding: 0 1;
+    height: 1;
+    background: $primary-darken-1;
+}
+
+/* ── Stats bar ── */
+StatsBar {
+    dock: top;
+    height: 1;
+    background: $primary-darken-1;
+    padding: 0 1;
+}
+
+#stats-bar-text {
+    width: 1fr;
+}
+
+/* ── Workflow progress ── */
+WorkflowProgress {
+    dock: top;
+    height: 1;
+    padding: 0 1;
+    background: $primary-darken-2;
+}
+
+/* ── Card grid layout ── */
+.card-grid {
+    height: 1fr;
+    overflow-y: auto;
+    padding: 1;
+}
+
+.card-row {
+    height: auto;
+}
+
 /* ── Section titles ── */
 .section-title {
     text-style: bold;
