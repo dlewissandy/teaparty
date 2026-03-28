@@ -4,17 +4,21 @@ Screen {
     background: $surface;
 }
 
-/* ── Breadcrumb bar ── */
-#breadcrumb-bar {
+/* ── Dashboard title and breadcrumbs ── */
+#dash-title {
+    dock: top;
+    height: 1;
+    background: $primary-darken-3;
+    color: $text;
+    padding: 0 1;
+}
+
+#dash-breadcrumbs {
     dock: top;
     height: 1;
     background: $primary-darken-2;
     color: $text;
     padding: 0 1;
-}
-
-#breadcrumb-text {
-    width: 1fr;
 }
 
 /* ── Content cards ── */

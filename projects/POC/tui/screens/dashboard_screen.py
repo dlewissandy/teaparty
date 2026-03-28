@@ -21,7 +21,6 @@ from projects.POC.tui.navigation import (
     card_defs_for_level,
     breadcrumbs_for_level,
 )
-from projects.POC.tui.widgets.breadcrumb_bar import BreadcrumbBar
 from projects.POC.tui.widgets.content_card import CardItem, ContentCard
 from projects.POC.tui.widgets.stats_bar import StatsBar
 
@@ -143,13 +142,42 @@ class DashboardScreen(Screen):
         Binding('x', 'proxy_review', 'Proxy Review', show=False),
     ]
 
+    _LEVEL_TITLES = {
+        DashboardLevel.MANAGEMENT: 'Management Dashboard',
+        DashboardLevel.PROJECT: 'Project Dashboard',
+        DashboardLevel.WORKGROUP: 'Workgroup Dashboard',
+        DashboardLevel.JOB: 'Job Dashboard',
+        DashboardLevel.TASK: 'Task Dashboard',
+    }
+
     def __init__(self, nav_context: NavigationContext | None = None):
         super().__init__()
         self._nav = nav_context or NavigationContext(level=DashboardLevel.MANAGEMENT)
 
+    def _title_text(self) -> str:
+        title = self._LEVEL_TITLES.get(self._nav.level, 'Dashboard')
+        # Add context info
+        if self._nav.project_slug:
+            title += f' \u2014 {self._nav.project_slug}'
+        if self._nav.job_id:
+            title += f' \u2014 {self._nav.job_id}'
+        if self._nav.task_id:
+            title += f' \u2014 {self._nav.task_id}'
+        return f'[bold]{title}[/bold]'
+
+    def _breadcrumb_text(self) -> str:
+        crumbs = breadcrumbs_for_level(self._nav)
+        parts = []
+        for crumb in crumbs:
+            if crumb.clickable:
+                parts.append(f'[bold]{crumb.label}[/bold]')
+            else:
+                parts.append(f'[dim]{crumb.label}[/dim]')
+        return ' > '.join(parts)
+
     def compose(self) -> ComposeResult:
-        yield Header()
-        yield BreadcrumbBar(self._nav, id='breadcrumb-bar')
+        yield Static(self._title_text(), id='dash-title')
+        yield Static(self._breadcrumb_text(), id='dash-breadcrumbs')
         yield StatsBar(id='dash-stats')
         card_defs = card_defs_for_level(self._nav.level)
         mid = (len(card_defs) + 1) // 2
@@ -460,9 +488,6 @@ class DashboardScreen(Screen):
             self.action_new_session()
         elif card_name == 'projects':
             self.action_new_project()
-
-    def on_breadcrumb_bar_navigate(self, event: BreadcrumbBar.Navigate) -> None:
-        self._navigate(event.nav_context)
 
     # ── Navigation ──
 
