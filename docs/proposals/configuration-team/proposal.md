@@ -10,7 +10,7 @@ When the human wants to create a new agent, skill, hook, or workgroup, they desc
 
 The four specialists use different models and different tool sets. The Skill Architect and Agent Designer use opus for prompt engineering and have Write access. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. The Systems Engineer uses sonnet with Write for hooks and settings. A single agent cannot simultaneously be an opus agent with Write tools for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
 
-Whether the coordination overhead is worth it at the current POC scale is a prioritization decision. The design is sound; the question is when to build it.
+Whether the coordination overhead is worth it at the current POC scale is a prioritization decision. The design is sound; the question is when to build it. For simple single-artifact requests, the office manager routes directly to the specialist — the team structure activates only when its coordination value justifies the overhead (see [Request Triage](#request-triage)).
 
 ---
 
@@ -135,15 +135,37 @@ See [scheduled-task.yaml](examples/scheduled-task.yaml) for a complete example.
 
 ---
 
+## Request Triage
+
+Not every configuration request justifies the full team hierarchy. The delegation chain exists to compress context at boundaries — but simple requests have no context to compress. The office manager triages incoming requests before routing.
+
+**Simple request** — the office manager routes directly to the appropriate specialist, bypassing the Configuration Lead:
+
+- Single artifact (one skill, one hook, one agent definition)
+- Clear requirements (the human stated what they want without ambiguity)
+- No cross-artifact coordination needed
+
+The office manager already knows which specialist handles which artifact type (skills → Skill Architect, hooks → Systems Engineer, agents → Agent Designer). For a request like "create a skill called deploy that runs validation and deployment," the office manager routes directly to the Skill Architect. The specialist does its work and reports completion back to the office manager. Three hops: human → office manager → specialist → office manager confirmation.
+
+**Complex request** — the office manager dispatches to the Configuration Lead, who coordinates the full team:
+
+- Multiple artifacts (e.g., "create a new workgroup" requires agent definitions, skills, possibly hooks)
+- Ambiguous requirements that need specialist input to clarify what artifacts are needed
+- Cross-artifact dependencies where one specialist's output feeds another's input
+
+The Configuration Lead's value is coordination and decomposition. For single-artifact requests, there is nothing to coordinate.
+
+---
+
 ## How Requests Flow
 
-See [request-flows.md](references/request-flows.md) for five detailed scenarios:
+See [request-flows.md](references/request-flows.md) for five detailed scenarios. Simple requests use the fast path (3 hops); complex requests use the full team (5-7 hops):
 
-1. "I would like to create a new skill"
-2. "I would like to create a new workgroup"
-3. "Optimize the audit skill for progressive disclosure"
-4. "Add a pre-commit hook that runs tests"
-5. "Run the test sweep every night at 2am"
+1. "I would like to create a new skill" — **fast path** (single artifact, clear type)
+2. "I would like to create a new workgroup" — **full team** (multi-artifact coordination)
+3. "Optimize the audit skill for progressive disclosure" — **fast path** (single artifact)
+4. "Add a pre-commit hook that runs tests" — **fast path** (single artifact, clear type)
+5. "Run the test sweep every night at 2am" — **full team** (multi-artifact: may need skill + scheduled task)
 
 ---
 
