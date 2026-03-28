@@ -157,6 +157,74 @@ def pre_seeded_message(card_name: str, nav: NavigationContext) -> str | None:
     return _GENERIC_MESSAGES.get(card_name)
 
 
+def _heartbeat_icon(status: str) -> str:
+    """Return a visual indicator for heartbeat three-state status.
+
+    Issue #254: alive (green pulse), stale (yellow), dead (dim).
+    """
+    if status == 'alive':
+        return '[green]\u25cf[/green]'
+    if status == 'stale':
+        return '[yellow]\u25cb[/yellow]'
+    return '[dim]\u2022[/dim]'
+
+
+def _build_project_items(projects: list) -> list[CardItem]:
+    """Build CardItems for the PROJECTS card on the management dashboard.
+
+    Issue #254: Shows numeric escalation badge count instead of boolean indicator.
+    """
+    items = []
+    for proj in projects:
+        # Sum escalation_count across all sessions (includes dispatch subtree)
+        escalation_total = sum(s.escalation_count for s in proj.sessions)
+        badge = f' \u23f3 {escalation_total}' if escalation_total > 0 else ''
+        items.append(CardItem(
+            icon='\u25b6' if proj.active_count > 0 else '\u2713',
+            label=proj.slug,
+            detail=f'{proj.active_count} active / {len(proj.sessions)} total{badge}',
+            data={'project': proj.slug},
+        ))
+    return items
+
+
+def _build_escalation_items(
+    tagged_sessions: list[tuple[str, object]],
+) -> list[CardItem]:
+    """Build CardItems for the ESCALATIONS card from a set of sessions.
+
+    Issue #254: Collects all escalation items (session-level and dispatch-level)
+    across the subtree. Each item is a clickable pointer to the relevant chat.
+    """
+    items = []
+    for slug, s in tagged_sessions:
+        # Session-level escalation
+        if s.needs_input:
+            label = f'{slug}/{s.session_id}' if slug else s.session_id
+            items.append(CardItem(
+                icon='\u23f3',
+                label=label,
+                detail=f'[dim red]{_state_display(s.cfa_phase, s.cfa_state)}[/dim red]',
+                data={'session_id': s.session_id, 'project': slug},
+            ))
+        # Dispatch-level escalations
+        for d in (s.dispatches or []):
+            if d.needs_input:
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = d.team or '?'
+                label = f'{slug}/{s.session_id}/{name}' if slug else f'{s.session_id}/{name}'
+                items.append(CardItem(
+                    icon='\u23f3',
+                    label=label,
+                    detail=f'[dim red]{_state_display(d.cfa_phase, d.cfa_state)}[/dim red]  {d.team or "?"}',
+                    data={'session_id': s.session_id, 'dispatch': d, 'project': slug},
+                ))
+    return items
+
+
 def _build_session_items(
     tagged_sessions: list[tuple[str, object]],
     include_project: bool = False,
@@ -191,7 +259,12 @@ def _build_session_items(
     for slug, s in combined:
         icon = _status_icon(s.status, s.needs_input, getattr(s, 'is_orphaned', False))
         label = f'{slug}/{s.session_id}' if include_project and slug else s.session_id
-        detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}'
+        # Issue #254: heartbeat indicator on active sessions
+        hb = ''
+        hb_status = getattr(s, 'heartbeat_status', '')
+        if hb_status and s.status == 'active':
+            hb = f' {_heartbeat_icon(hb_status)}'
+        detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}{hb}'
         data = {'session_id': s.session_id}
         if slug:
             data['project'] = slug
@@ -339,28 +412,23 @@ class DashboardScreen(Screen):
         active = sum(p.active_count for p in projects)
         done = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'COMPLETED_WORK')
         withdrawn = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'WITHDRAWN')
-        attention = sum(p.attention_count for p in projects)
+        # Issue #254: escalation count includes dispatch subtree
+        attention = sum(s.escalation_count for p in projects for s in p.sessions)
         self._set_stats([
             ('Projects', str(len(projects))), ('Jobs', str(total)),
             ('Active', str(active)), ('Done', str(done)),
             ('Withdrawn', str(withdrawn)), ('Escalations', str(attention)),
         ])
 
-        # Sessions — escalations first, then rest, newest first
+        # Escalations — all escalation items across all projects
         tagged = [(proj.slug, s) for proj in projects for s in proj.sessions]
+        self._set_card('escalations', _build_escalation_items(tagged))
+
+        # Sessions — escalations first, then rest, newest first
         self._set_card('sessions', _build_session_items(tagged, include_project=True, hide_done=self._hide_done.get('sessions', True)))
 
-        # Projects
-        items = []
-        for proj in projects:
-            attn = ' \u23f3' if proj.attention_count > 0 else ''
-            items.append(CardItem(
-                icon='\u25b6' if proj.active_count > 0 else '\u2713',
-                label=proj.slug,
-                detail=f'{proj.active_count} active / {len(proj.sessions)} total{attn}',
-                data={'project': proj.slug},
-            ))
-        self._set_card('projects', items)
+        # Projects — Issue #254: numeric badge count
+        self._set_card('projects', _build_project_items(projects))
 
         # Humans — always show the current user
         import getpass
@@ -373,14 +441,20 @@ class DashboardScreen(Screen):
         if not proj:
             return
         total = len(proj.sessions)
-        active = proj.active_count
+        active_count = proj.active_count
         done = sum(1 for s in proj.sessions if s.cfa_state == 'COMPLETED_WORK')
         withdrawn = sum(1 for s in proj.sessions if s.cfa_state == 'WITHDRAWN')
+        # Issue #254: escalation count includes dispatch subtree
+        attention = sum(s.escalation_count for s in proj.sessions)
         self._set_stats([
-            ('Jobs', str(total)), ('Active', str(active)),
+            ('Jobs', str(total)), ('Active', str(active_count)),
             ('Done', str(done)), ('Withdrawn', str(withdrawn)),
-            ('Escalations', str(proj.attention_count)),
+            ('Escalations', str(attention)),
         ])
+
+        # Escalations — all escalation items within this project
+        tagged = [('', s) for s in proj.sessions]
+        self._set_card('escalations', _build_escalation_items(tagged))
 
         # Sessions (active only)
         active = [('', s) for s in proj.sessions if s.status == 'active']
@@ -396,12 +470,39 @@ class DashboardScreen(Screen):
         dispatches = session.dispatches or []
         active_d = sum(1 for d in dispatches if d.status == 'active')
         complete_d = sum(1 for d in dispatches if d.status == 'complete')
+        # Issue #254: escalation count from task subtree
+        escalation_count = session.escalation_count
         self._set_stats([
             ('Tasks', f'{complete_d}/{len(dispatches)}'),
             ('Active', str(active_d)),
+            ('Escalations', str(escalation_count)),
             ('Elapsed', _human_age(session.duration_seconds)),
             ('Idle', _human_age(session.stream_age_seconds)),
         ])
+
+        # Escalations — dispatch-level escalations within this job
+        escalation_items = []
+        for d in dispatches:
+            if d.needs_input:
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = d.team or '?'
+                escalation_items.append(CardItem(
+                    icon='\u23f3',
+                    label=name,
+                    detail=f'[dim red]{_state_display(d.cfa_phase, d.cfa_state)}[/dim red]  {d.team or "?"}',
+                    data={'session_id': session.session_id, 'dispatch': d},
+                ))
+        if session.needs_input:
+            escalation_items.insert(0, CardItem(
+                icon='\u23f3',
+                label=session.session_id,
+                detail=f'[dim red]{_state_display(session.cfa_phase, session.cfa_state)}[/dim red]',
+                data={'session_id': session.session_id},
+            ))
+        self._set_card('escalations', escalation_items)
 
         # Sessions — parent job session + all dispatch (subteam) sessions
         session_items = _build_session_items([('', session)])
@@ -412,9 +513,11 @@ class DashboardScreen(Screen):
             elif not name:
                 name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
             state_text = _state_display(d.cfa_phase, d.cfa_state)
+            # Issue #254: heartbeat indicator on active dispatches
+            hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.status == 'active' and d.heartbeat_status else ''
             if d.status == 'active':
                 icon = '\u25b6'
-                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}'
+                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}{hb}'
             elif d.status == 'complete':
                 icon = '\u2713'
                 detail = f'[green]{state_text}[/green]  {d.team or "?"}'
@@ -435,10 +538,13 @@ class DashboardScreen(Screen):
                 name = name.split('--', 1)[1][:25]
             elif not name:
                 name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+            # Issue #254: heartbeat + escalation indicators on task items
+            task_icon = _status_icon(d.status, d.needs_input, False)
+            hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.status == 'active' and d.heartbeat_status else ''
             task_items.append(CardItem(
-                icon=_status_icon(d.status, False, False),
+                icon=task_icon,
                 label=name,
-                detail=_colored_dispatch_state(d),
+                detail=f'{_colored_dispatch_state(d)}{hb}',
                 data={'dispatch': d},
             ))
         self._set_card('tasks', task_items)
@@ -461,6 +567,18 @@ class DashboardScreen(Screen):
             ('Status', dispatch.status or '\u2014'),
             ('Age', _human_age(dispatch.stream_age_seconds)),
         ])
+
+        # Escalations — this task's own escalation state
+        escalation_items = []
+        if dispatch.needs_input:
+            name = dispatch.worktree_name or dispatch.team or '?'
+            escalation_items.append(CardItem(
+                icon='\u23f3',
+                label=name,
+                detail=f'[dim red]{_state_display(dispatch.cfa_phase, dispatch.cfa_state)}[/dim red]',
+                data={'session_id': session.session_id if session else '', 'dispatch': dispatch},
+            ))
+        self._set_card('escalations', escalation_items)
 
         # Artifacts (changed files)
         wt = self._dispatch_worktree(dispatch, session)
@@ -542,7 +660,13 @@ class DashboardScreen(Screen):
                 if sid:
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
 
-        elif card_name in ('escalations', 'sessions'):
+        elif card_name == 'escalations':
+            # Escalation clicks always open the relevant chat (per spec)
+            sid = data.get('session_id', '')
+            conv = f'session:{sid}' if sid else ''
+            open_chat_window(self.app, conversation=conv)
+
+        elif card_name == 'sessions':
             # At job level, dispatch items navigate to task dashboard
             dispatch = data.get('dispatch')
             if dispatch:
