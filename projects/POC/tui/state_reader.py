@@ -205,6 +205,7 @@ class SessionState:
     infra_dir: str = ''
     files_changed: list = field(default_factory=list)
     heartbeat_status: str = ''       # alive, stale, dead
+    backtrack_count: int = 0         # cross-phase backtracks from .cfa-state.json
 
     @property
     def escalation_count(self) -> int:
@@ -429,6 +430,7 @@ class StateReader:
         cfa_phase = cfa.get('phase', '')
         cfa_state = cfa.get('state', '')
         cfa_actor = cfa.get('actor', '')
+        backtrack_count = cfa.get('backtrack_count', 0)
 
         # Determine if human input needed
         needs_input = cfa_state in HUMAN_ACTOR_STATES
@@ -533,6 +535,7 @@ class StateReader:
             duration_seconds=duration,
             infra_dir=infra_dir,
             heartbeat_status=heartbeat_status,
+            backtrack_count=backtrack_count,
         )
 
     def _build_dispatch(self, entry: dict, now: float) -> DispatchState:
