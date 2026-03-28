@@ -3,14 +3,17 @@
 
 Covers:
  1. _task_for_phase('intent') includes norms/guardrails as constraints
- 2. _task_for_phase('intent') includes escalation guidance referencing INTENT_ESCALATE
- 3. _task_for_phase('planning') includes dynamically-resolved available teams
- 4. Planning task context lists only project-scoped teams when project config restricts them
- 5. uber-team.json project-lead prompt no longer contains hardcoded liaison list
- 6. intent-team.json intent-lead prompt includes constraint/escalation language
+ 2. _task_for_phase('intent') includes escalation guidance
+ 3. _task_for_phase('intent') has no constraints block when no norms configured
+ 4. _task_for_phase('planning') includes dynamically-resolved available teams
+ 5. Planning task context excludes teams not in project config
+ 6. _task_for_phase('planning') lists available skills from project skills dir
+ 7. uber-team.json project-lead prompt no longer contains hardcoded liaison list
+ 8. intent-team.json intent-lead prompt includes constraint/escalation language
 """
 import json
 import os
+import shutil
 import sys
 import tempfile
 import textwrap
@@ -56,6 +59,20 @@ def _poc_root():
     return str(Path(__file__).parent.parent.parent)
 
 
+def _make_skill(skills_dir, name, description):
+    """Write a minimal skill markdown file to skills_dir."""
+    os.makedirs(skills_dir, exist_ok=True)
+    Path(os.path.join(skills_dir, f'{name}.md')).write_text(textwrap.dedent(f"""\
+        ---
+        name: {name}
+        description: {description}
+        category: test
+        ---
+        ## Phase 1
+        Do the thing.
+    """))
+
+
 # ── 1. Intent task includes constraints ──────────────────────────────────────
 
 class TestIntentTaskIncludesConstraints(unittest.TestCase):
@@ -65,12 +82,10 @@ class TestIntentTaskIncludesConstraints(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
 
     def tearDown(self):
-        import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_intent_task_contains_constraints_section(self):
         """Intent task must have a constraints block when norms are configured."""
-        # Create a project dir with norms
         project_dir = tempfile.mkdtemp()
         tp_dir = os.path.join(project_dir, '.teaparty')
         os.makedirs(tp_dir)
@@ -90,7 +105,7 @@ class TestIntentTaskIncludesConstraints(unittest.TestCase):
         self.assertIn('Only modify files in the project directory', task)
 
     def test_intent_task_contains_escalation_guidance(self):
-        """Intent task must reference INTENT_ESCALATE as the correct response."""
+        """Intent task must mention escalation when constraints are present."""
         project_dir = tempfile.mkdtemp()
         tp_dir = os.path.join(project_dir, '.teaparty')
         os.makedirs(tp_dir)
@@ -107,6 +122,14 @@ class TestIntentTaskIncludesConstraints(unittest.TestCase):
         self.assertIn('escalat', task.lower(),
                       "Intent task must mention escalation when constraints are present")
 
+    def test_intent_task_no_constraints_when_no_norms(self):
+        """Intent task must NOT have a constraints block when no norms exist."""
+        orch = _make_orchestrator(self.tmpdir, _poc_root())
+        task = orch._task_for_phase('intent')
+
+        self.assertNotIn('--- Constraints ---', task,
+                         "No constraints block when no norms are configured")
+
 
 # ── 2. Planning task includes available teams ────────────────────────────────
 
@@ -117,29 +140,26 @@ class TestPlanningTaskIncludesTeams(unittest.TestCase):
         self.tmpdir = tempfile.mkdtemp()
 
     def tearDown(self):
-        import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_planning_task_lists_available_teams(self):
         """Planning task must list teams from phase config."""
-        # Write INTENT.md so planning reads it
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text(
             '## Objective\nBuild something.\n')
 
         orch = _make_orchestrator(self.tmpdir, _poc_root())
         task = orch._task_for_phase('planning')
 
-        # All default teams should appear
         for team_name in ('art', 'writing', 'editorial', 'research', 'coding'):
             self.assertIn(team_name, task,
                           f"Planning task must list available team '{team_name}'")
 
     def test_planning_task_respects_project_team_subset(self):
-        """When project config restricts teams, only those appear."""
+        """When project config restricts teams, excluded teams must not appear
+        in the Planning Constraints block."""
         Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text(
             '## Objective\nBuild something.\n')
 
-        # Create project dir with restricted teams
         project_dir = tempfile.mkdtemp()
         os.makedirs(os.path.join(project_dir, '.teaparty'), exist_ok=True)
         Path(os.path.join(project_dir, 'project.json')).write_text(
@@ -148,14 +168,90 @@ class TestPlanningTaskIncludesTeams(unittest.TestCase):
         orch = _make_orchestrator(self.tmpdir, _poc_root(), project_dir=project_dir)
         task = orch._task_for_phase('planning')
 
-        self.assertIn('coding', task)
-        self.assertIn('research', task)
-        # art, writing, editorial should NOT appear in the available teams list
-        # (They may appear in the INTENT.md content, but the injected teams block
-        # should not list them)
+        # Extract the Planning Constraints block
+        start = task.find('--- Planning Constraints ---')
+        end = task.find('--- end ---', start) if start != -1 else -1
+        self.assertGreater(start, -1, "Planning Constraints block must exist")
+        constraints_block = task[start:end]
+
+        self.assertIn('coding', constraints_block)
+        self.assertIn('research', constraints_block)
+        # Excluded teams must NOT be in the constraints block
+        self.assertNotIn('art', constraints_block,
+                         "'art' team must not appear when project restricts to coding+research")
+        self.assertNotIn('writing', constraints_block,
+                         "'writing' team must not appear when project restricts to coding+research")
+        self.assertNotIn('editorial', constraints_block,
+                         "'editorial' team must not appear when project restricts to coding+research")
 
 
-# ── 3. Hardcoded liaison list removed from uber-team.json ────────────────────
+# ── 3. Planning task includes available skills ───────────────────────────────
+
+class TestPlanningTaskIncludesSkills(unittest.TestCase):
+    """_task_for_phase('planning') must list available skills."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_planning_task_lists_skills(self):
+        """When skills exist, planning task must list their names and descriptions."""
+        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text(
+            '## Objective\nBuild something.\n')
+
+        skills_dir = os.path.join(self.tmpdir, 'skills')
+        _make_skill(skills_dir, 'deploy-web', 'Standard web deployment procedure')
+        _make_skill(skills_dir, 'code-review', 'Structured code review workflow')
+
+        orch = _make_orchestrator(self.tmpdir, _poc_root())
+        task = orch._task_for_phase('planning')
+
+        self.assertIn('deploy-web', task)
+        self.assertIn('Standard web deployment procedure', task)
+        self.assertIn('code-review', task)
+        self.assertIn('Structured code review workflow', task)
+
+    def test_planning_task_no_skills_section_when_none_exist(self):
+        """When no skills directory exists, planning task has no skills listing."""
+        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text(
+            '## Objective\nBuild something.\n')
+
+        orch = _make_orchestrator(self.tmpdir, _poc_root())
+        task = orch._task_for_phase('planning')
+
+        self.assertNotIn('Available skills', task,
+                         "No skills section when no skills exist")
+
+    def test_planning_task_skips_degraded_skills(self):
+        """Skills with needs_review=true must not appear in planning context."""
+        Path(os.path.join(self.tmpdir, 'INTENT.md')).write_text(
+            '## Objective\nBuild something.\n')
+
+        skills_dir = os.path.join(self.tmpdir, 'skills')
+        _make_skill(skills_dir, 'good-skill', 'Works fine')
+        # Write a degraded skill
+        os.makedirs(skills_dir, exist_ok=True)
+        Path(os.path.join(skills_dir, 'broken-skill.md')).write_text(textwrap.dedent("""\
+            ---
+            name: broken-skill
+            description: This skill is broken
+            needs_review: true
+            ---
+            ## Phase 1
+            Broken.
+        """))
+
+        orch = _make_orchestrator(self.tmpdir, _poc_root())
+        task = orch._task_for_phase('planning')
+
+        self.assertIn('good-skill', task)
+        self.assertNotIn('broken-skill', task,
+                         "Degraded skills (needs_review=true) must not appear in planning context")
+
+
+# ── 4. Hardcoded liaison list removed from uber-team.json ────────────────────
 
 class TestNoHardcodedLiaisonList(unittest.TestCase):
     """uber-team.json must not contain a hardcoded liaison list."""
@@ -167,12 +263,11 @@ class TestNoHardcodedLiaisonList(unittest.TestCase):
             agents = json.load(f)
 
         prompt = agents['project-lead']['prompt']
-        # The old hardcoded string was: "Available liaisons: art-liaison, writing-liaison..."
         self.assertNotIn('art-liaison, writing-liaison', prompt,
                          "Hardcoded liaison list must be removed from project-lead prompt")
 
 
-# ── 4. Intent agent prompt includes constraint awareness ─────────────────────
+# ── 5. Intent agent prompt includes constraint awareness ─────────────────────
 
 class TestIntentAgentConstraintAwareness(unittest.TestCase):
     """intent-team.json must include constraint/escalation language."""

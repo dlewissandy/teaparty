@@ -1115,26 +1115,89 @@ class Orchestrator:
         )
 
     def _resolve_available_teams(self) -> str:
-        """Resolve dynamically-available teams for the planning phase.
+        """Resolve dynamically-available teams and skills for the planning phase.
 
-        Reads the project-scoped team list from PhaseConfig and formats it
-        for injection into the planning task context.
+        Reads the project-scoped team list from PhaseConfig and available
+        skills from the project's skills directories.  Formats both for
+        injection into the planning task context.
 
-        Issue #141: planning agent must know what teams exist.
+        Issue #141: planning agent must know what teams and skills exist.
         """
+        parts = []
+
+        # Teams
         teams = self.config.project_teams
-        if not teams:
+        if teams:
+            team_names = sorted(teams.keys())
+            parts.append(
+                'Available teams for dispatch: '
+                + ', '.join(team_names) + '.\n'
+                'Only reference these teams in the plan. If the task requires '
+                'capabilities not covered by these teams, escalate.'
+            )
+
+        # Skills
+        skills_summary = self._list_available_skills()
+        if skills_summary:
+            parts.append(
+                'Available skills (learned procedures that can seed the plan):\n'
+                + skills_summary
+            )
+
+        if not parts:
             return ''
 
-        team_names = sorted(teams.keys())
         return (
-            '\n\n--- Available Teams ---\n'
-            'The following teams are available for dispatch: '
-            + ', '.join(team_names) + '. '
-            'Only reference these teams in the plan. If the task requires '
-            'capabilities not covered by these teams, escalate.\n'
-            '--- end ---'
+            '\n\n--- Planning Constraints ---\n'
+            + '\n\n'.join(parts)
+            + '\n--- end ---'
         )
+
+    def _list_available_skills(self) -> str:
+        """List skill names and descriptions from the project's skills directories.
+
+        Returns a formatted summary or empty string if no skills exist.
+        """
+        from projects.POC.orchestrator.skill_lookup import _parse_frontmatter
+
+        skills_dirs: list[tuple[str, str]] = []
+        if self.team_override:
+            team_skills = os.path.join(
+                self.project_workdir, 'teams', self.team_override, 'skills',
+            )
+            skills_dirs.append(('team', team_skills))
+        project_skills = os.path.join(self.project_workdir, 'skills')
+        skills_dirs.append(('project', project_skills))
+
+        seen_names: set[str] = set()
+        entries: list[str] = []
+
+        for _scope, dirpath in skills_dirs:
+            if not os.path.isdir(dirpath):
+                continue
+            for filename in sorted(os.listdir(dirpath)):
+                if not filename.endswith('.md'):
+                    continue
+                path = os.path.join(dirpath, filename)
+                if not os.path.isfile(path):
+                    continue
+                try:
+                    meta, _ = _parse_frontmatter(path)
+                except Exception:
+                    continue
+                if meta.get('needs_review', '').lower() == 'true':
+                    continue
+                name = meta.get('name', filename[:-3])
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                desc = meta.get('description', '')
+                entry = f'- {name}'
+                if desc:
+                    entry += f': {desc}'
+                entries.append(entry)
+
+        return '\n'.join(entries)
 
     # Maximum auto-retries for API overloaded (529) before escalating to human.
     # Each retry adds a flat cooldown — not exponential, since the CLI already
