@@ -459,6 +459,98 @@ class TestConsolidateInstitutionalFile(unittest.TestCase):
             self.assertGreaterEqual(removed, 0)
 
 
+# ── Idempotency: importance reduction must not compound ──────────────────────
+
+
+class TestImportanceReductionIdempotency(unittest.TestCase):
+    """Importance reduction must apply once, not compound across sessions."""
+
+    def test_already_decayed_ids_skipped(self):
+        """Entries in already_decayed_ids are not reduced again."""
+        from projects.POC.orchestrator.learning_consolidation import consolidate_learning_entries
+
+        a = _make_entry(
+            'Always run tests before committing code changes to the repository',
+            entry_id='a', created_at='2026-03-10',
+            reinforcement_count=5, importance=0.56,  # already reduced from 0.8
+        )
+        b = _make_entry(
+            'Skip tests before committing documentation-only code changes',
+            entry_id='b', created_at='2026-03-12',
+            reinforcement_count=4, importance=0.56,
+        )
+        result, decisions = consolidate_learning_entries(
+            [a, b], already_decayed_ids={'a', 'b'},
+        )
+        # Importance should NOT be reduced further
+        for entry in result:
+            self.assertEqual(entry.importance, 0.56)
+
+    def test_new_tension_pair_gets_decayed(self):
+        """A tension pair not in already_decayed_ids DOES get reduced."""
+        from projects.POC.orchestrator.learning_consolidation import consolidate_learning_entries
+
+        a = _make_entry(
+            'Always run tests before committing code changes to the repository',
+            entry_id='a', created_at='2026-03-10',
+            reinforcement_count=5, importance=0.8,
+        )
+        b = _make_entry(
+            'Skip tests before committing documentation-only code changes',
+            entry_id='b', created_at='2026-03-12',
+            reinforcement_count=4, importance=0.8,
+        )
+        result, decisions = consolidate_learning_entries(
+            [a, b], already_decayed_ids=set(),
+        )
+        for entry in result:
+            self.assertLess(entry.importance, 0.8)
+
+
+# ── Persistence: task file rewrite on importance change ──────────────────────
+
+
+class TestTaskFilePersistence(unittest.TestCase):
+    """consolidate_learning_file() must rewrite task files when importance changes."""
+
+    def test_importance_persisted_to_disk(self):
+        """After consolidation, surviving task files reflect reduced importance."""
+        from projects.POC.orchestrator.learning_consolidation import consolidate_learning_file
+        from projects.POC.scripts.memory_entry import serialize_entry, parse_memory_file
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            a = _make_entry(
+                'Always run tests before committing code changes to the repository',
+                entry_id='entry-a', created_at='2026-03-10',
+                reinforcement_count=5, importance=0.8,
+            )
+            b = _make_entry(
+                'Skip tests before committing documentation-only code changes',
+                entry_id='entry-b', created_at='2026-03-12',
+                reinforcement_count=4, importance=0.8,
+            )
+
+            path_a = os.path.join(tmpdir, 'entry-a.md')
+            path_b = os.path.join(tmpdir, 'entry-b.md')
+            with open(path_a, 'w') as f:
+                f.write(serialize_entry(a))
+            with open(path_b, 'w') as f:
+                f.write(serialize_entry(b))
+
+            consolidate_learning_file(tmpdir)
+
+            # Re-read files from disk — importance should be reduced
+            with open(path_a) as f:
+                reread_a = parse_memory_file(f.read())
+            with open(path_b) as f:
+                reread_b = parse_memory_file(f.read())
+
+            if reread_a:
+                self.assertLess(reread_a[0].importance, 0.8)
+            if reread_b:
+                self.assertLess(reread_b[0].importance, 0.8)
+
+
 # ── Pipeline wiring ──────────────────────────────────────────────────────────
 
 
