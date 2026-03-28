@@ -32,6 +32,8 @@ class EventType(Enum):
     FAILURE = 'failure'
     LOG = 'log'
     API_OVERLOADED = 'api_overloaded'
+    COST_WARNING = 'cost_warning'
+    COST_LIMIT = 'cost_limit'
 
 
 @dataclass
