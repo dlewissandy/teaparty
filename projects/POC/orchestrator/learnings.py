@@ -191,6 +191,13 @@ async def extract_learnings(
         project_dir=project_dir,
     )
 
+    # ── Task and institutional contradiction consolidation (#244) ────────────
+
+    await _run_scope(
+        'learning-consolidation', _consolidate_task_and_institutional,
+        project_dir=project_dir,
+    )
+
     # ── Proxy contradiction consolidation (#228) ──────────────────────────────
 
     await _run_scope(
@@ -723,6 +730,56 @@ def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
             friction_events=friction_events,
             correction_deltas=correction_deltas,
             was_refined=was_refined,
+        )
+
+
+# ── Task and institutional contradiction consolidation (#244) ─────────────────
+
+def _consolidate_task_and_institutional(*, project_dir: str) -> None:
+    """Run contradiction consolidation on task and institutional learnings.
+
+    Scans tasks/ directories and institutional.md files at project scope,
+    detects contradictions among entries, classifies them, and resolves
+    (temporal_obsolescence -> DELETE older, everything else -> preserve both).
+
+    Writes a consolidation log for auditability.
+    """
+    import json as _json
+    from projects.POC.orchestrator.learning_consolidation import (
+        consolidate_learning_file,
+        consolidate_institutional_file,
+    )
+
+    total_removed = 0
+    all_decisions: list[dict] = []
+
+    # Consolidate task learnings
+    tasks_dir = os.path.join(project_dir, 'tasks')
+    if os.path.isdir(tasks_dir):
+        removed, decisions = consolidate_learning_file(tasks_dir)
+        total_removed += removed
+        all_decisions.extend(decisions)
+
+    # Consolidate institutional learnings
+    inst_path = os.path.join(project_dir, 'institutional.md')
+    if os.path.isfile(inst_path):
+        removed, decisions = consolidate_institutional_file(inst_path)
+        total_removed += removed
+        all_decisions.extend(decisions)
+
+    if all_decisions:
+        log_path = os.path.join(project_dir, '.learning-consolidation-log.jsonl')
+        try:
+            with open(log_path, 'a') as f:
+                for d in all_decisions:
+                    f.write(_json.dumps(d) + '\n')
+        except OSError:
+            pass
+
+    if total_removed:
+        _log.info(
+            'Learning consolidation: removed %d entries (%d decisions)',
+            total_removed, len(all_decisions),
         )
 
 
