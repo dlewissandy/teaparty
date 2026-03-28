@@ -368,6 +368,31 @@ def consolidate_task_store(
                     pass
                 raise
 
+    # Rescue orphaned entries: entries in files marked for removal that
+    # were NOT part of any merge.  Prevents data loss when a multi-entry
+    # file contains both merged and non-merged entries.
+    for entry in all_entries:
+        if entry.id not in merged_ids and file_for_entry.get(entry.id) in files_to_remove:
+            fname = f'{entry.id}.md'
+            fpath = os.path.join(directory, fname)
+            lock = FileLock(fpath + '.lock', timeout=10)
+            with lock:
+                import tempfile as _tf
+                fd, tmp = _tf.mkstemp(dir=directory, suffix='.tmp')
+                try:
+                    content = serialize_entry(entry)
+                    with os.fdopen(fd, 'w') as f:
+                        f.write(content)
+                        if content and not content.endswith('\n'):
+                            f.write('\n')
+                    os.replace(tmp, fpath)
+                except Exception:
+                    try:
+                        os.unlink(tmp)
+                    except OSError:
+                        pass
+                    raise
+
     # Remove old files that were merged into consolidated entries
     for fname in files_to_remove:
         fpath = os.path.join(directory, fname)

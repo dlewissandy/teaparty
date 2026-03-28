@@ -386,6 +386,39 @@ class TestConsolidateTaskStore(unittest.TestCase):
         # At least 2 entries should have been identified as duplicates
         self.assertGreater(result.original_count, 1)
 
+    def test_multi_entry_file_orphan_rescue(self):
+        """Non-merged entries in a multi-entry file are not lost when the file is removed."""
+        from projects.POC.orchestrator.consolidate_learnings import consolidate_task_store
+        from projects.POC.scripts.memory_entry import serialize_memory_file, parse_memory_file
+
+        tasks_dir = os.path.join(self.tmpdir, 'tasks')
+        os.makedirs(tasks_dir)
+
+        # multi.md: entry A (will merge with dup.md) + entry B (unique, must survive)
+        entry_a = _make_entry("Always test edge cases for empty inputs in your code")
+        entry_b = _make_entry(
+            "Database migrations require full backup verification before deployment")
+        Path(os.path.join(tasks_dir, 'multi.md')).write_text(
+            serialize_memory_file([entry_a, entry_b]))
+
+        # dup.md: same content as entry A
+        _write_entry_file(tasks_dir, 'dup.md',
+                          _make_entry("Always test edge cases for empty inputs in your code"))
+
+        consolidate_task_store(tasks_dir)
+
+        # Collect all surviving entries
+        all_content = ''
+        for f in sorted(os.listdir(tasks_dir)):
+            if f.endswith('.md'):
+                all_content += Path(os.path.join(tasks_dir, f)).read_text()
+        surviving = parse_memory_file(all_content)
+        surviving_ids = {e.id for e in surviving}
+
+        # Entry B must survive -- it was not part of any merge
+        self.assertIn(entry_b.id, surviving_ids,
+            "Non-merged entry from multi-entry file was lost (data loss bug)")
+
 
 # ── Pipeline wiring tests ────────────────────────────────────────────────────
 
