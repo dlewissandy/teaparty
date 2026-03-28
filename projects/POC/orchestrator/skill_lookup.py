@@ -214,22 +214,12 @@ def _score_embedding(
     embed_fn: Callable[[str], list[float] | None],
 ) -> float:
     """Score a skill against the query using cosine similarity of embeddings."""
+    from projects.POC.orchestrator.proxy_memory import cosine_similarity
+
     try:
         skill_vec = embed_fn(skill_text)
     except Exception:
         return 0.0
     if skill_vec is None:
         return 0.0
-    return _cosine_similarity(query_vec, skill_vec)
-
-
-def _cosine_similarity(a: list[float], b: list[float]) -> float:
-    """Cosine similarity between two vectors."""
-    if len(a) != len(b) or not a:
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b))
-    mag_a = sum(x * x for x in a) ** 0.5
-    mag_b = sum(x * x for x in b) ** 0.5
-    if mag_a == 0 or mag_b == 0:
-        return 0.0
-    return dot / (mag_a * mag_b)
+    return cosine_similarity(query_vec, skill_vec)
