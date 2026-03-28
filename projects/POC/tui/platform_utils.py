@@ -60,11 +60,13 @@ def _open_terminal_macos(cmd_str: str, title: str) -> None:
     if 'iTerm' in term_program:
         # Create a new window with a login shell, then type the command into it.
         # Using 'write text' instead of 'command' so the shell has full PATH.
+        # Append '; exit' so the shell exits when the command finishes,
+        # which triggers iTerm2 to close the session.
         script = (
             'tell application "iTerm2"\n'
             '  set newWindow to (create window with default profile)\n'
             '  tell current session of newWindow\n'
-            f'    write text "{cmd_str}"\n'
+            f'    write text "{cmd_str}; exit"\n'
             '  end tell\n'
             'end tell'
         )
@@ -73,7 +75,7 @@ def _open_terminal_macos(cmd_str: str, title: str) -> None:
         script = (
             'tell application "Terminal"\n'
             '  activate\n'
-            f'  do script "{cmd_str}" in (make new window)\n'
+            f'  do script "{cmd_str}; exit" in (make new window)\n'
             'end tell'
         )
 
