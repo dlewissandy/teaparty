@@ -765,7 +765,7 @@ class Orchestrator:
                 settings_overlay=base.settings_overlay,
             )
 
-        base = self.config.phase(phase_name)
+        base = self.config.resolve_phase(phase_name)
 
         # --flat: swap hierarchical team (uber-team with liaisons) for a flat
         # team where the lead recruits agents dynamically via the Agent tool.

@@ -47,6 +47,7 @@ class PhaseConfig:
         self._teams: dict[str, TeamSpec] = {}
         self._project_config: dict[str, Any] = {}
         self._org_agents: dict[str, dict[str, Any]] = {}
+        self._project_claude_md: str = ''
         self.stall_timeout: int = 1800
         self.max_dispatch_retries: int = 5
 
@@ -62,6 +63,7 @@ class PhaseConfig:
         self._load_phase_config()
         self._load_state_machine()
         self._load_project_config()
+        self._load_project_claude_md()
 
     def _load_phase_config(self) -> None:
         path = os.path.join(os.path.dirname(__file__), 'phase-config.json')
@@ -134,6 +136,17 @@ class PhaseConfig:
         with open(path) as f:
             self._project_config = json.load(f)
 
+    def _load_project_claude_md(self) -> None:
+        """Load .claude/CLAUDE.md from project_dir if it exists."""
+        if not self.project_dir:
+            return
+        path = os.path.join(self.project_dir, '.claude', 'CLAUDE.md')
+        try:
+            with open(path) as f:
+                self._project_claude_md = f.read()
+        except (FileNotFoundError, OSError):
+            pass
+
     def _load_org_agents(self, team_name: str) -> dict[str, Any]:
         """Load the org-level agent definitions for a team."""
         if team_name in self._org_agents:
@@ -166,6 +179,49 @@ class PhaseConfig:
             if name in project_team_names
         }
 
+    @property
+    def project_claude_md(self) -> str:
+        """Project-scoped CLAUDE.md content, or empty string if none."""
+        return self._project_claude_md
+
+    def resolve_team_spec(self, team_name: str) -> TeamSpec:
+        """Resolve a TeamSpec with project overrides applied.
+
+        Handles planning_permission_mode override from project config.
+        """
+        import copy
+        base = self._teams.get(team_name)
+        if not base:
+            raise KeyError(f'Unknown team: {team_name}')
+        result = copy.copy(base)
+        project_teams = self._project_config.get('teams', {})
+        team_overrides = project_teams.get(team_name, {})
+        if 'planning_permission_mode' in team_overrides:
+            result.planning_permission_mode = team_overrides['planning_permission_mode']
+        return result
+
+    def resolve_phase(self, phase_name: str) -> PhaseSpec:
+        """Resolve a PhaseSpec with project overrides applied.
+
+        Project config can override agent_file, lead, permission_mode,
+        and settings_overlay per phase.  Unoverridden fields keep org defaults.
+        """
+        base = self._phases[phase_name]
+        project_phases = self._project_config.get('phases', {})
+        overrides = project_phases.get(phase_name, {})
+        if not overrides:
+            return base
+        return PhaseSpec(
+            name=base.name,
+            agent_file=overrides.get('agent_file', base.agent_file),
+            lead=overrides.get('lead', base.lead),
+            permission_mode=overrides.get('permission_mode', base.permission_mode),
+            stream_file=base.stream_file,
+            artifact=base.artifact,
+            approval_state=base.approval_state,
+            settings_overlay=overrides.get('settings_overlay', base.settings_overlay),
+        )
+
     def resolve_team_agents(self, team_name: str) -> dict[str, dict[str, Any]]:
         """Resolve agent definitions for a team with project overrides applied.
 
@@ -197,6 +253,10 @@ class PhaseConfig:
                 agent['prompt'] = agent.get('prompt', '') + '\n\n' + overrides['prompt_addition']
             if 'disallowedTools' in overrides:
                 agent['disallowedTools'] = overrides['disallowedTools']
+            if 'allowedTools' in overrides:
+                agent['allowedTools'] = overrides['allowedTools']
+            if 'permission_mode' in overrides:
+                agent['permission_mode'] = overrides['permission_mode']
 
         return resolved
 
