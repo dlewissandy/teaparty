@@ -58,6 +58,10 @@ def lookup_skill(
         skills_dir: Path to a single skills directory (legacy).
         threshold: Minimum score to consider a match.
         skills_dirs: Scope-ordered skill directories, narrowest first.
+        embed_fn: Embedding function ``(text) -> vector | None``.  When
+            provided, scoring uses cosine similarity of embeddings instead
+            of Jaccard bag-of-words.  Falls back to Jaccard when None or
+            when the function returns None for the query.
 
     Returns:
         Best matching SkillMatch if above threshold, else None.
@@ -85,6 +89,10 @@ def lookup_skill(
             use_embeddings = True
 
     if use_embeddings:
+        # Cosine similarity of text embeddings clusters in [0.3, 0.9] for
+        # related pairs and [0.0, 0.3] for unrelated.  0.5 discriminates
+        # related from unrelated while still matching synonym-heavy queries
+        # that Jaccard misses entirely (Issue #215).
         effective_threshold = max(threshold, 0.5)
     else:
         effective_threshold = threshold

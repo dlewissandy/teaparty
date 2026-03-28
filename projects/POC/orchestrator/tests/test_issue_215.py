@@ -13,8 +13,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
-
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from projects.POC.orchestrator.skill_lookup import SkillMatch, lookup_skill
@@ -61,7 +59,7 @@ def _fake_embed(text: str) -> list[float]:
 
     # Auth/login concept group — dimension 0
     auth_words = ['login', 'authentication', 'sign-in', 'auth', 'sign in',
-                  'repair', 'fix', 'defect', 'bug']
+                  'credential', 'repair', 'fix', 'defect', 'bug']
     for w in auth_words:
         if w in text_lower:
             vec[0] += 0.5
@@ -93,6 +91,49 @@ def _fake_embed(text: str) -> list[float]:
 
 
 # ── Tests ────────────────────────────────────────────────────────────────────
+
+
+class TestJaccardFailsOnSynonyms(unittest.TestCase):
+    """The issue's motivating example: Jaccard fails, embeddings succeed."""
+
+    def test_jaccard_misses_pure_synonym_query(self):
+        """Synonym-only variation: 'repair sign-in credential defect' shares
+        zero Jaccard tokens with 'fix login authentication bug'.  Jaccard
+        returns None because all content words are synonyms, not matches."""
+        td = _make_skills_dir({
+            'fix-auth-bug.md': _make_skill_content(
+                name='fix-auth-bug',
+                description='Fix login authentication bug',
+                category='debugging',
+            ),
+        })
+        with td:
+            result = lookup_skill(
+                task='Repair sign-in credential defect',
+                intent='Repair sign-in credential defect',
+                skills_dir=td.name,
+                embed_fn=None,
+            )
+            self.assertIsNone(result, 'Jaccard should fail on synonym-heavy queries')
+
+    def test_embeddings_match_same_synonym_query(self):
+        """Same input as above, but with embeddings: the skill is found."""
+        td = _make_skills_dir({
+            'fix-auth-bug.md': _make_skill_content(
+                name='fix-auth-bug',
+                description='Fix login authentication bug',
+                category='debugging',
+            ),
+        })
+        with td:
+            result = lookup_skill(
+                task='Repair sign-in credential defect',
+                intent='Repair sign-in credential defect',
+                skills_dir=td.name,
+                embed_fn=_fake_embed,
+            )
+            self.assertIsNotNone(result, 'Embeddings should match synonym-heavy queries')
+            self.assertEqual(result.name, 'fix-auth-bug')
 
 
 class TestEmbeddingSkillLookup(unittest.TestCase):
