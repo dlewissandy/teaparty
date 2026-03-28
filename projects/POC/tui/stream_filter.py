@@ -124,5 +124,17 @@ class StreamFilter:
             return False
         return self._state.get(category, False)
 
+    def should_show_sender(self, sender: str) -> bool:
+        """Return True if messages from this sender should be displayed.
+
+        Maps message-bus sender names to filter categories:
+        - 'human' → HUMAN
+        - 'orchestrator' → AGENT
+        - anything else → AGENT (treat as agent output)
+        """
+        if sender == 'human':
+            return self._state.get(StreamCategory.HUMAN, False)
+        return self._state.get(StreamCategory.AGENT, False)
+
     def enabled_categories(self) -> set[StreamCategory]:
         return {cat for cat, on in self._state.items() if on}

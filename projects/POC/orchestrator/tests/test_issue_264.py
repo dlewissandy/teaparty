@@ -300,5 +300,45 @@ class TestAssistantEventWithMixedContent(unittest.TestCase):
         self.assertEqual(classify_event(event), StreamCategory.AGENT)
 
 
+class TestShouldShowSender(unittest.TestCase):
+    """should_show_sender gates message-bus messages by sender."""
+
+    def test_human_sender_shown_by_default(self):
+        f = StreamFilter()
+        self.assertTrue(f.should_show_sender('human'))
+
+    def test_orchestrator_sender_shown_by_default(self):
+        f = StreamFilter()
+        self.assertTrue(f.should_show_sender('orchestrator'))
+
+    def test_human_sender_hidden_when_disabled(self):
+        f = StreamFilter()
+        f.disable(StreamCategory.HUMAN)
+        self.assertFalse(f.should_show_sender('human'))
+
+    def test_orchestrator_sender_hidden_when_agent_disabled(self):
+        f = StreamFilter()
+        f.disable(StreamCategory.AGENT)
+        self.assertFalse(f.should_show_sender('orchestrator'))
+
+    def test_unknown_sender_maps_to_agent(self):
+        f = StreamFilter()
+        self.assertTrue(f.should_show_sender('proxy'))
+        f.disable(StreamCategory.AGENT)
+        self.assertFalse(f.should_show_sender('proxy'))
+
+    def test_disable_agent_still_shows_human(self):
+        """Disabling AGENT doesn't affect HUMAN — they're independent."""
+        f = StreamFilter()
+        f.disable(StreamCategory.AGENT)
+        self.assertTrue(f.should_show_sender('human'))
+
+    def test_disable_human_still_shows_agent(self):
+        """Disabling HUMAN doesn't affect AGENT — they're independent."""
+        f = StreamFilter()
+        f.disable(StreamCategory.HUMAN)
+        self.assertTrue(f.should_show_sender('orchestrator'))
+
+
 if __name__ == '__main__':
     unittest.main()

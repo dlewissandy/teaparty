@@ -256,8 +256,11 @@ class ChatScreen(Screen):
         if len(msgs) <= self._msg_count:
             return
 
+        sf = self._filter_for(self._selected_conv)
         from rich.text import Text
         for msg in msgs[self._msg_count:]:
+            if not sf.should_show_sender(msg.sender):
+                continue
             t = Text()
             dt = datetime.fromtimestamp(msg.timestamp)
             time_str = dt.strftime('%H:%M')
