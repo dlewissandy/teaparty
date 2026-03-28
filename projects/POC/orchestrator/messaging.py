@@ -24,9 +24,12 @@ import time
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from projects.POC.orchestrator.events import InputRequest
+
+if TYPE_CHECKING:
+    from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 
 _log = logging.getLogger('orchestrator.messaging')
 
@@ -114,7 +117,12 @@ class SqliteMessageBus:
 
     Single table schema: id, conversation, sender, content, timestamp.
     Uses WAL mode for concurrent read safety.
+
+    Optional ``role_enforcer`` attribute: when set to a ``RoleEnforcer``,
+    ``send()`` checks the sender's D-A-I role before accepting input.
     """
+
+    role_enforcer: 'RoleEnforcer | None'
 
     def __init__(self, db_path: str):
         self._conn = sqlite3.connect(db_path)
@@ -141,8 +149,13 @@ class SqliteMessageBus:
             )
         ''')
         self._conn.commit()
+        self.role_enforcer = None
 
     def send(self, conversation_id: str, sender: str, content: str) -> str:
+        # Check D-A-I role if enforcer is configured
+        if self.role_enforcer is not None:
+            self.role_enforcer.check_send(sender)
+
         # Reject writes to closed conversations
         row = self._conn.execute(
             'SELECT state FROM conversations WHERE id = ?',
