@@ -61,6 +61,21 @@ def kill_chat_windows(projects_dir: str) -> None:
             pass
 
 
+def global_bus_path(projects_dir: str) -> str:
+    """Path to the global message bus (conversations not tied to a session)."""
+    return os.path.join(projects_dir, '.messages.db')
+
+
+def ensure_proxy_review_conversation(projects_dir: str, username: str) -> None:
+    """Create the proxy_review conversation for the user if it doesn't exist."""
+    from projects.POC.orchestrator.messaging import (
+        ConversationType, SqliteMessageBus,
+    )
+    bus = SqliteMessageBus(global_bus_path(projects_dir))
+    bus.create_conversation(ConversationType.PROXY_REVIEW, username)
+    bus.close()
+
+
 class ChatApp(App):
     """Standalone chat application in its own terminal window."""
 
@@ -107,11 +122,17 @@ class ChatApp(App):
 def main():
     parser = argparse.ArgumentParser(description='TeaParty Chat Window')
     parser.add_argument('--project-dir', type=str, default=None)
+    parser.add_argument('--ensure-proxy-review', type=str, default=None,
+                        metavar='USERNAME',
+                        help='Ensure a proxy_review conversation exists for this user')
     args = parser.parse_args()
 
     projects_dir = None
     if args.project_dir:
         projects_dir = os.path.realpath(os.path.abspath(args.project_dir))
+
+    if args.ensure_proxy_review and projects_dir:
+        ensure_proxy_review_conversation(projects_dir, args.ensure_proxy_review)
 
     app = ChatApp(projects_dir=projects_dir)
     app.run()

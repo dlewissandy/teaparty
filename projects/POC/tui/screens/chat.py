@@ -201,6 +201,15 @@ class ChatScreen(Screen):
                         seen.add(real)
                         bus_paths.append(candidate)
 
+        # Global bus (proxy_review, office_manager conversations)
+        from projects.POC.tui.chat_main import global_bus_path
+        global_bus = global_bus_path(self.app.projects_dir)
+        if os.path.exists(global_bus):
+            real = os.path.realpath(global_bus)
+            if real not in seen:
+                seen.add(real)
+                bus_paths.append(global_bus)
+
         if bus_paths:
             self._model = ChatModel.from_bus_paths(bus_paths)
         else:

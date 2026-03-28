@@ -392,7 +392,8 @@ class DashboardScreen(Screen):
             open_chat_window(self.app)
 
         elif card_name == 'humans':
-            self.action_proxy_review()
+            import getpass
+            open_chat_window(self.app, ensure_proxy_review=getpass.getuser())
 
         elif card_name == 'workgroups':
             wg_id = data.get('workgroup_id', '')
@@ -464,7 +465,8 @@ class DashboardScreen(Screen):
         self.app.push_screen(ChangeProjectDirScreen())
 
     def action_proxy_review(self) -> None:
-        open_chat_window(self.app)
+        import getpass
+        open_chat_window(self.app, ensure_proxy_review=getpass.getuser())
 
     def periodic_refresh(self) -> None:
         self._refresh_data()
@@ -530,11 +532,13 @@ def navigate_to(app, ctx: NavigationContext) -> None:
     app.push_screen(DashboardScreen(ctx))
 
 
-def open_chat_window(app) -> None:
+def open_chat_window(app, ensure_proxy_review: str = '') -> None:
     """Spawn the chat UI in a separate terminal window."""
     from pathlib import Path
     from projects.POC.tui.platform_utils import open_terminal
     repo_root = str(Path(app.poc_root).parent.parent)
     cmd = ['uv', 'run', 'python', '-m', 'projects.POC.tui.chat_main',
            '--project-dir', app.projects_dir]
+    if ensure_proxy_review:
+        cmd += ['--ensure-proxy-review', ensure_proxy_review]
     open_terminal(cmd, title='TeaParty Chat', cwd=repo_root)
