@@ -76,6 +76,7 @@ class ManagementTeam:
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     scheduled: list[ScheduledTask] = field(default_factory=list)
+    norms: dict[str, list[str]] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
 
@@ -188,6 +189,7 @@ def load_management_team(
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         skills=data.get('skills', []),
         scheduled=_parse_scheduled(data.get('scheduled')),
+        norms=data.get('norms', {}),
         stats=data.get('stats', {}),
     )
 
@@ -338,3 +340,35 @@ def resolve_workgroups(
                 resolved.append(load_workgroup(config_path))
 
     return resolved
+
+
+# ── Norms ──────────────────────────────────────────────────────────────────
+
+def merge_norms(
+    workgroup_norms: dict[str, list[str]],
+    project_norms: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Merge workgroup and project norms with project-wins precedence.
+
+    Per the design doc: "This is not a merge." If the project defines a
+    category, it fully replaces the workgroup's version of that category.
+    Non-conflicting categories from the workgroup are preserved.
+    """
+    merged = dict(workgroup_norms)
+    merged.update(project_norms)
+    return merged
+
+
+def format_norms(norms: dict[str, list[str]]) -> str:
+    """Render norms as natural language for prompt injection.
+
+    Returns readable text organized by category. Returns empty string
+    if there are no norms.
+    """
+    if not norms:
+        return ''
+    sections = []
+    for category, statements in norms.items():
+        lines = [f'- {s}' for s in statements]
+        sections.append(f'{category.title()}:\n' + '\n'.join(lines))
+    return '\n\n'.join(sections)
