@@ -391,6 +391,9 @@ class DashboardScreen(Screen):
         elif card_name in ('escalations', 'sessions'):
             open_chat_window(self.app)
 
+        elif card_name == 'humans':
+            self.action_proxy_review()
+
         elif card_name == 'workgroups':
             wg_id = data.get('workgroup_id', '')
             if wg_id:
