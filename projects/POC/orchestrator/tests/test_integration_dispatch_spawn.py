@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Integration test: project-lead MUST spawn liaisons via Agent/Task, not just SendMessage.
+"""Integration test: project-lead MUST spawn teammates via Agent/Task, not just SendMessage.
 
 This is not a unit test — it runs a real Claude CLI invocation with the
 uber-team agents config and a minimal execution task, then parses the
-stream JSONL to verify the lead actually spawned a liaison agent.
+stream JSONL to verify the lead actually spawned a teammate agent.
 
 Proves:
-  1. The project-lead uses Agent/Task to spawn a liaison
-  2. The spawned liaison actually starts (async launch confirmed)
+  1. The project-lead uses Agent/Task to spawn a teammate
+  2. The spawned teammate actually starts (async launch confirmed)
   3. SendMessage alone is NOT the dispatch mechanism
 
 Note: The CLI's init lists the tool as "Task" but ToolSearch resolves
@@ -82,19 +82,18 @@ def _extract_tool_results(events: list[dict]) -> list[dict]:
 
 # Agent-spawning tool names: CLI init lists "Task" but ToolSearch resolves to "Agent"
 SPAWN_TOOL_NAMES = frozenset({'Task', 'Agent'})
-LIAISON_NAMES = frozenset({
-    'art-liaison', 'writing-liaison', 'editorial-liaison',
-    'research-liaison', 'coding-liaison',
+TEAMMATE_NAMES = frozenset({
+    'qa-reviewer',
 })
-LIAISON_KEYWORDS = frozenset({'research', 'writing', 'coding', 'art', 'editorial'})
+TEAMMATE_KEYWORDS = frozenset({'qa', 'review', 'test', 'verify'})
 
 
 @unittest.skipUnless(
     os.environ.get('RUN_INTEGRATION_TESTS'),
     'Set RUN_INTEGRATION_TESTS=1 to run live Claude integration tests',
 )
-class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
-    """Run a real Claude session and prove the lead spawns liaisons via Task/Agent."""
+class TestProjectLeadSpawnsTeammateViaTask(unittest.TestCase):
+    """Run a real Claude session and prove the lead spawns teammates via Task/Agent."""
 
     TIMEOUT = 120  # seconds
 
@@ -133,8 +132,8 @@ class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
         agents_json = _load_agents_json()
         prompt = (
             "You are in the EXECUTION PHASE. Read PLAN.md and INTENT.md in your "
-            "working directory, then execute the plan by spawning the appropriate "
-            "liaison(s) via the Task tool. Do NOT do the work yourself."
+            "working directory, then execute the plan by delegating to your "
+            "teammate(s) via the Task tool. Do NOT do the work yourself."
         )
 
         args = [
@@ -173,11 +172,11 @@ class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
 
         return _parse_stream(self.stream_file)
 
-    def test_lead_spawns_liaison_via_agent_tool(self):
-        """The project-lead MUST use Agent/Task tool to spawn at least one liaison.
+    def test_lead_spawns_teammate_via_agent_tool(self):
+        """The project-lead MUST use Agent/Task tool to spawn at least one teammate.
 
         This is the core proof: the lead reads the plan, recognizes it needs
-        to delegate to a liaison, and uses the agent-spawning tool (Agent or
+        to delegate to a teammate, and uses the agent-spawning tool (Agent or
         Task) — NOT just SendMessage.
         """
         events = self._run_lead()
@@ -195,33 +194,33 @@ class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
         # ASSERTION 1: The lead used the spawn tool
         self.assertGreater(
             len(spawn_calls), 0,
-            f"Lead never spawned a liaison! "
+            f"Lead never spawned a teammate! "
             f"Tools used: {all_names}. "
             f"SendMessage-only calls: {len(send_calls)}. "
-            f"This means liaisons were never started as processes."
+            f"This means teammates were never started as processes."
         )
 
-        # ASSERTION 2: The spawn call targets a liaison agent
-        spawned_liaison = False
+        # ASSERTION 2: The spawn call targets a teammate agent
+        spawned_teammate = False
         for tc in spawn_calls:
             inp = tc.get('input', {})
             agent_type = inp.get('subagent_type', '')
-            if agent_type in LIAISON_NAMES:
-                spawned_liaison = True
+            if agent_type in TEAMMATE_NAMES:
+                spawned_teammate = True
                 break
-            # Fallback: check description/prompt for liaison keywords
+            # Fallback: check description/prompt for teammate keywords
             text = (inp.get('description', '') + ' ' + inp.get('prompt', '')).lower()
-            if any(kw in text for kw in LIAISON_KEYWORDS):
-                spawned_liaison = True
+            if any(kw in text for kw in TEAMMATE_KEYWORDS):
+                spawned_teammate = True
                 break
 
         self.assertTrue(
-            spawned_liaison,
-            f"Spawn tool was called but not targeting a liaison. "
+            spawned_teammate,
+            f"Spawn tool was called but not targeting a teammate. "
             f"Spawn inputs: {json.dumps([tc.get('input',{}) for tc in spawn_calls], indent=2)[:500]}"
         )
 
-        # ASSERTION 3: The spawn call got a result (liaison actually started)
+        # ASSERTION 3: The spawn call got a result (teammate actually started)
         spawn_ids = {tc['id'] for tc in spawn_calls}
         spawn_results = [
             tr for tr in tool_results
@@ -229,7 +228,7 @@ class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
         ]
         self.assertGreater(
             len(spawn_results), 0,
-            "Spawn call was made but no result received — liaison may not have started."
+            "Spawn call was made but no result received — teammate may not have started."
         )
 
         # ASSERTION 4: The result indicates async launch (not an error)
@@ -237,7 +236,7 @@ class TestProjectLeadSpawnsLiaisonViaTask(unittest.TestCase):
             content = str(sr.get('content', ''))
             self.assertNotIn(
                 'error', content.lower().split('agent')[0] if 'agent' in content.lower() else content.lower(),
-                f"Liaison spawn returned an error: {content[:200]}"
+                f"Teammate spawn returned an error: {content[:200]}"
             )
 
 

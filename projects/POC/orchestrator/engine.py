@@ -1172,8 +1172,8 @@ class Orchestrator:
 
         base = self.config.resolve_phase(phase_name)
 
-        # --flat: swap hierarchical team (uber-team with liaisons) for a flat
-        # team where the lead recruits agents dynamically via the Agent tool.
+        # --flat: swap the project team for a flat team where the lead
+        # recruits agents dynamically via the Agent tool.
         # Only affects phases that use uber-team.json (planning, execution).
         if self.flat and 'uber-team' in base.agent_file:
             from projects.POC.orchestrator.phase_config import PhaseSpec

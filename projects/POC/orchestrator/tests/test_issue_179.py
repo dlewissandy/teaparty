@@ -513,6 +513,7 @@ class TestCalibrateConfidence(unittest.TestCase):
                    return_value=memory_depth):
             return _calibrate_confidence(
                 agent_conf, 'PLAN_ASSERT', 'test', '/tmp/test.json', '',
+                _random=1.0,  # bypass exploration rate guard
             )
 
     def test_agent_confidence_passes_through(self):

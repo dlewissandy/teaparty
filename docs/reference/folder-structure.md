@@ -12,13 +12,15 @@ projects/
 ├── POC/                                # proof-of-concept (uses parent repo)
 │   ├── agents/                         # team definitions
 │   │   ├── uber-team.json              # strategic coordination team
-│   │   ├── coding-team.json            # coding subteam
-│   │   ├── writing-team.json           # writing subteam
-│   │   ├── art-team.json               # art subteam
-│   │   ├── research-team.json          # research subteam
-│   │   ├── editorial-team.json         # editorial subteam
+│   │   ├── coding-team.json            # coding workgroup
+│   │   ├── configuration-team.json     # configuration workgroup
+│   │   ├── writing-team.json           # writing workgroup
+│   │   ├── art-team.json               # art workgroup
+│   │   ├── research-team.json          # research workgroup
+│   │   ├── editorial-team.json         # editorial workgroup
 │   │   ├── intent-team.json            # intent gathering team
-│   │   └── project-team.json           # project-level liaison team
+│   │   ├── flat-team.json              # flat-mode project team
+│   │   └── uber-team.json              # project team (project-lead + qa-reviewer)
 │   ├── orchestrator/                   # CfA engine, actors, session lifecycle
 │   ├── scripts/                        # CfA state machine, proxy model, learning
 │   ├── tui/                            # terminal UI dashboard

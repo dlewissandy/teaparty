@@ -234,42 +234,6 @@ class TestAskTeamPermissions(unittest.TestCase):
                         f"AskTeam must be in execution phase permissions.allow. Got: {allowed}")
 
 
-# ── Liaison prompts reference AskTeam ───────────────────────────────────────
-
-class TestLiaisonPromptsUseAskTeam(unittest.TestCase):
-    """Liaison agent prompts must reference AskTeam, not dispatch_cli."""
-
-    def _load_uber_team(self) -> dict:
-        path = Path(__file__).parent.parent.parent / 'agents' / 'uber-team.json'
-        with open(path) as f:
-            return json.load(f)
-
-    def test_no_liaison_references_dispatch_cli(self):
-        """No liaison prompt should mention dispatch_cli or python3 -m."""
-        agents = self._load_uber_team()
-        for name, agent in agents.items():
-            if 'liaison' not in name:
-                continue
-            prompt = agent.get('prompt', '')
-            self.assertNotIn('dispatch_cli', prompt,
-                             f"{name} prompt still references dispatch_cli")
-            self.assertNotIn('python3 -m projects.POC', prompt,
-                             f"{name} prompt still references python3 -m subprocess call")
-
-    def test_liaisons_reference_ask_team(self):
-        """Each liaison prompt must mention AskTeam."""
-        agents = self._load_uber_team()
-        liaison_count = 0
-        for name, agent in agents.items():
-            if 'liaison' not in name:
-                continue
-            liaison_count += 1
-            prompt = agent.get('prompt', '')
-            self.assertIn('AskTeam', prompt,
-                          f"{name} prompt must reference AskTeam tool")
-        self.assertGreater(liaison_count, 0, "Must have at least one liaison agent")
-
-
 # ── dispatch() accepts explicit parameters ──────────────────────────────────
 
 class TestDispatchAcceptsParameters(unittest.TestCase):
