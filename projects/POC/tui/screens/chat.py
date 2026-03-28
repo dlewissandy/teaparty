@@ -110,8 +110,9 @@ class ChatScreen(Screen):
         Binding('r', 'refresh', 'Refresh', show=True),
     ]
 
-    def __init__(self):
+    def __init__(self, initial_conversation: str = ''):
         super().__init__()
+        self._initial_conversation = initial_conversation
         self._model: ChatModel | None = None
         self._conv_ids: list[str] = []
         self._selected_conv: str = ''
@@ -156,8 +157,10 @@ class ChatScreen(Screen):
     def on_mount(self) -> None:
         self._open_bus()
         self._rebuild_conv_list()
-        # Auto-select first conversation with attention, or first overall
-        if self._conv_ids:
+        # Auto-select: initial conversation > first with attention > first overall
+        if self._initial_conversation and self._initial_conversation in self._conv_ids:
+            self._select_conversation(self._initial_conversation)
+        elif self._conv_ids:
             target = self._conv_ids[0]
             if self._model:
                 for conv in self._model.attention_conversations():

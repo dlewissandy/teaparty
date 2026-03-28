@@ -83,12 +83,13 @@ class ChatApp(App):
     CSS_PATH = 'styles.tcss'
     ENABLE_COMMAND_PALETTE = False
 
-    def __init__(self, projects_dir: str | None = None):
+    def __init__(self, projects_dir: str | None = None, conversation: str = ''):
         super().__init__()
         from pathlib import Path
         here = Path(__file__).resolve().parent
         self.poc_root = str(here.parent)
         self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(self.poc_root)
+        self.initial_conversation = conversation
         self._in_process: dict = {}
         self._pid_file: str = ''
         self.state_reader = StateReader(
@@ -106,7 +107,7 @@ class ChatApp(App):
     def on_mount(self) -> None:
         self._pid_file = _register_pid(self.projects_dir)
         from projects.POC.tui.screens.chat import ChatScreen
-        self.push_screen(ChatScreen())
+        self.push_screen(ChatScreen(initial_conversation=self.initial_conversation))
         self.set_interval(1.0, self._periodic_refresh)
 
     def on_unmount(self) -> None:
@@ -122,6 +123,8 @@ class ChatApp(App):
 def main():
     parser = argparse.ArgumentParser(description='TeaParty Chat Window')
     parser.add_argument('--project-dir', type=str, default=None)
+    parser.add_argument('--conversation', type=str, default='',
+                        help='Auto-select this conversation ID on open')
     parser.add_argument('--ensure-proxy-review', type=str, default=None,
                         metavar='USERNAME',
                         help='Ensure a proxy_review conversation exists for this user')
@@ -134,7 +137,11 @@ def main():
     if args.ensure_proxy_review and projects_dir:
         ensure_proxy_review_conversation(projects_dir, args.ensure_proxy_review)
 
-    app = ChatApp(projects_dir=projects_dir)
+    conversation = args.conversation
+    if not conversation and args.ensure_proxy_review:
+        conversation = f'proxy:{args.ensure_proxy_review}'
+
+    app = ChatApp(projects_dir=projects_dir, conversation=conversation)
     app.run()
 
 

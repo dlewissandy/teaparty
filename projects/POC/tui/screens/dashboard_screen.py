@@ -389,7 +389,9 @@ class DashboardScreen(Screen):
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
 
         elif card_name in ('escalations', 'sessions'):
-            open_chat_window(self.app)
+            sid = data.get('session_id', '')
+            conv = f'session:{sid}' if sid else ''
+            open_chat_window(self.app, conversation=conv)
 
         elif card_name == 'humans':
             import getpass
@@ -532,13 +534,18 @@ def navigate_to(app, ctx: NavigationContext) -> None:
     app.push_screen(DashboardScreen(ctx))
 
 
-def open_chat_window(app, ensure_proxy_review: str = '') -> None:
-    """Spawn the chat UI in a separate terminal window."""
+def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '') -> None:
+    """Spawn the chat UI in a separate terminal window.
+
+    If conversation is given, the chat opens to that specific conversation.
+    """
     from pathlib import Path
     from projects.POC.tui.platform_utils import open_terminal
     repo_root = str(Path(app.poc_root).parent.parent)
     cmd = ['uv', 'run', 'python', '-m', 'projects.POC.tui.chat_main',
            '--project-dir', app.projects_dir]
+    if conversation:
+        cmd += ['--conversation', conversation]
     if ensure_proxy_review:
         cmd += ['--ensure-proxy-review', ensure_proxy_review]
     open_terminal(cmd, title='TeaParty Chat', cwd=repo_root)
