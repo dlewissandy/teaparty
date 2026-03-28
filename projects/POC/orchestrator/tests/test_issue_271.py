@@ -178,5 +178,44 @@ class TestFlatModeLogicUpdated(unittest.TestCase):
                       'engine.py must reference uber-team for flat-mode swap')
 
 
+# ── 7. No hardcoded team lists in runtime code ──────────────────────────────
+
+class TestNoHardcodedTeamLists(unittest.TestCase):
+    """Runtime code must load team names from phase-config.json, not hardcode them."""
+
+    def test_get_team_names_includes_configuration(self):
+        """get_team_names() must return the configuration team."""
+        from projects.POC.orchestrator.phase_config import get_team_names
+        names = get_team_names(_poc_root())
+        self.assertIn('configuration', names)
+
+    def test_get_team_names_matches_phase_config(self):
+        """get_team_names() must match the teams in phase-config.json."""
+        from projects.POC.orchestrator.phase_config import get_team_names
+        config_path = os.path.join(_poc_root(), 'orchestrator', 'phase-config.json')
+        with open(config_path) as f:
+            config = json.load(f)
+        expected = tuple(config['teams'].keys())
+        # Clear cache to get fresh result
+        import projects.POC.orchestrator.phase_config as pc
+        pc._team_names_cache = None
+        actual = get_team_names(_poc_root())
+        self.assertEqual(actual, expected)
+
+    def test_state_reader_no_hardcoded_teams(self):
+        """state_reader.py must not contain a hardcoded team tuple."""
+        import projects.POC.tui.state_reader as sr
+        source = open(sr.__file__).read()
+        self.assertNotIn("'art', 'writing', 'editorial', 'research', 'coding'", source,
+                         'state_reader.py still has hardcoded team list')
+
+    def test_withdraw_no_hardcoded_teams(self):
+        """withdraw.py must not contain a hardcoded team tuple."""
+        import projects.POC.tui.withdraw as wd
+        source = open(wd.__file__).read()
+        self.assertNotIn("'art', 'writing', 'editorial', 'research', 'coding'", source,
+                         'withdraw.py still has hardcoded team list')
+
+
 if __name__ == '__main__':
     unittest.main()

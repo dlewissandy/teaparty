@@ -372,7 +372,8 @@ class StateReader:
         dispatch timestamps back to worktrees.json entries.
         """
         matched = []
-        teams = ('art', 'writing', 'editorial', 'research', 'coding')
+        from projects.POC.orchestrator.phase_config import get_team_names
+        teams = get_team_names(self.poc_root)
 
         for team in teams:
             team_dir = os.path.join(sess_dir, team)

@@ -948,7 +948,8 @@ def promote(
         """Filter to non-empty existing files."""
         return [p for p in paths if os.path.isfile(p) and os.path.getsize(p) > 0]
 
-    TEAM_NAMES = ['art', 'writing', 'editorial', 'research', 'coding']
+    from projects.POC.orchestrator.phase_config import get_team_names
+    TEAM_NAMES = list(get_team_names())
 
     if scope == 'team':
         # Dispatch MEMORY.md files → team institutional.md + team/tasks/<ts>.md

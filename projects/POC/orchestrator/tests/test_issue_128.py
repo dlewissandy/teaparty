@@ -257,7 +257,7 @@ class TestSessionCreatesTeamInfraDirs(unittest.TestCase):
     always finds nothing and all 4 rollup scopes produce zero output.
     """
 
-    TEAM_NAMES = ['art', 'writing', 'coding', 'editorial', 'research']
+    TEAM_NAMES = ['art', 'writing', 'coding', 'editorial', 'research', 'configuration']
 
     def setUp(self):
         self.tmpdir = tempfile.mkdtemp()

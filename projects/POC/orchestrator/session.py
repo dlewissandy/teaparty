@@ -1146,7 +1146,8 @@ def _cleanup_stale_dispatch_sentinels(infra_dir: str) -> int:
     from projects.POC.orchestrator.heartbeat import (
         read_heartbeat, finalize_heartbeat, is_heartbeat_stale,
     )
-    teams = ('art', 'writing', 'editorial', 'research', 'coding')
+    from projects.POC.orchestrator.phase_config import get_team_names
+    teams = get_team_names()
     cleaned = 0
     for team in teams:
         team_dir = os.path.join(infra_dir, team)

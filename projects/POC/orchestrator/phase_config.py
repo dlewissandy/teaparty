@@ -279,3 +279,30 @@ class PhaseConfig:
     def resolve_agent_path(self, agent_file: str) -> str:
         """Resolve a relative agent file path against poc_root."""
         return os.path.join(self.poc_root, agent_file)
+
+
+_team_names_cache: tuple[str, ...] | None = None
+
+
+def get_team_names(poc_root: str | None = None) -> tuple[str, ...]:
+    """Return team names from phase-config.json, cached after first load.
+
+    Used by TUI and orchestrator code that needs to scan dispatch
+    directories without constructing a full PhaseConfig.
+    """
+    global _team_names_cache
+    if _team_names_cache is not None:
+        return _team_names_cache
+
+    if poc_root is None:
+        from projects.POC.orchestrator import find_poc_root
+        poc_root = find_poc_root()
+
+    config_path = os.path.join(poc_root, 'orchestrator', 'phase-config.json')
+    try:
+        with open(config_path) as f:
+            config = json.load(f)
+        _team_names_cache = tuple(config.get('teams', {}).keys())
+    except (OSError, json.JSONDecodeError):
+        _team_names_cache = ()
+    return _team_names_cache

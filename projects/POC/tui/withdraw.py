@@ -15,8 +15,10 @@ if TYPE_CHECKING:
 
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
-# Teams whose subdirectories may contain nested dispatches.
-_DISPATCH_TEAMS = ('art', 'writing', 'editorial', 'research', 'coding')
+def _dispatch_teams() -> tuple[str, ...]:
+    """Team names from phase-config.json (cached in phase_config module)."""
+    from projects.POC.orchestrator.phase_config import get_team_names
+    return get_team_names()
 
 
 async def withdraw_session(
@@ -126,7 +128,7 @@ def _kill_nested_dispatches(infra_dir: str, depth: int = 0) -> None:
     if depth > 10:
         return
 
-    for team in _DISPATCH_TEAMS:
+    for team in _dispatch_teams():
         team_dir = os.path.join(infra_dir, team)
         if not os.path.isdir(team_dir):
             continue
@@ -152,7 +154,7 @@ def _set_state_withdrawn_recursive(infra_dir: str, phase: str, depth: int = 0) -
     if depth > 10:
         return
 
-    for team in _DISPATCH_TEAMS:
+    for team in _dispatch_teams():
         team_dir = os.path.join(infra_dir, team)
         if not os.path.isdir(team_dir):
             continue
