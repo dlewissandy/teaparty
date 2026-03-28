@@ -135,6 +135,35 @@ See [scheduled-task.yaml](examples/scheduled-task.yaml) for a complete example.
 
 ---
 
+## Partial Failure in Multi-Artifact Requests
+
+A multi-artifact request like "create a new workgroup" coordinates across specialists sequentially. If a specialist fails after others have already succeeded, the Configuration Lead must handle the partial result explicitly.
+
+### Artifact Dependency Classification
+
+Not all cross-artifact dependencies are equal. Some artifact pairs must co-exist for the configuration to be usable; others can exist independently and be completed later.
+
+**Hard dependencies** — the referencing artifact is broken without the referenced one:
+
+- Agent definitions that name specific skills in their tool scoping or prompt. An agent configured to invoke a skill that doesn't exist will fail at runtime. The Agent Designer must not reference skills by name until the Skill Architect confirms they exist.
+
+**Soft dependencies** — the artifact is useful on its own, completable later:
+
+- A workgroup with agent definitions but no custom skills. Agents can operate with their built-in tools; skills add capability but aren't required for the workgroup to function.
+- A workgroup with agents and skills but no hooks. Hooks add lifecycle automation but agents work without them.
+- A workgroup description without registration in the parent team config. The artifacts exist on disk; wiring them into the team hierarchy is a separate, independent step.
+
+### Configuration Lead Failure Behavior
+
+When a specialist fails after prior specialists have already created artifacts, the Configuration Lead:
+
+1. **Does not silently report success.** The Lead reports exactly which artifacts were created, which failed, and what remains incomplete. The office manager relays this to the human.
+2. **Does not roll back successful artifacts.** At POC scale, compensating rollback adds complexity without proportional value. Artifacts already written are valid on their own (because hard dependencies are enforced by creation order, not rollback).
+3. **Enforces creation order for hard dependencies.** The Lead sequences specialist work so that referenced artifacts exist before referencing ones are created. Concretely: skills before agents that reference those skills.
+4. **Marks the request as partially complete.** The human can retry the failed portion through a follow-up conversation — "finish setting up the workgroup" — which the Lead routes to the specialist that failed.
+
+---
+
 ## How Requests Flow
 
 See [request-flows.md](references/request-flows.md) for five detailed scenarios:

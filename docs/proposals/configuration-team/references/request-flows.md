@@ -18,13 +18,15 @@ These five scenarios show how the Configuration Team coordinates to handle commo
 
 ## "I would like to create a new workgroup"
 
-This is a multi-artifact request. The Configuration Lead coordinates:
+This is a multi-artifact request. The Configuration Lead coordinates, sequencing work so that hard dependencies (skills before agents that reference them) are satisfied:
 
 1. **Description** — Configuration Lead writes the workgroup description (the one-line summary that tells team leads when to dispatch to this workgroup)
-2. **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
-3. **Skills** — Skill Architect creates or assigns workgroup-scoped skills
+2. **Skills** — Skill Architect creates or assigns workgroup-scoped skills (before agents, because agents may reference skills by name)
+3. **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
 4. **Hooks** — Systems Engineer creates any workgroup-specific hooks
 5. **Registration** — Configuration Lead writes the workgroup YAML and updates the parent team's configuration. If the workgroup is shared (org-level), it goes in `~/.teaparty/workgroups/`. If project-scoped, it goes in `{project}/.teaparty/workgroups/`
+
+**If a specialist fails** after prior steps have already succeeded, the Configuration Lead does not roll back the artifacts already created — they are independently valid. Instead, the Lead reports to the office manager exactly what was created and what failed. The human can retry the failed step through a follow-up conversation ("finish setting up the workgroup"), which the Lead routes to the specialist that failed.
 
 ---
 
