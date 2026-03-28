@@ -1,25 +1,15 @@
 """Tests for issue #261: Scratch file lifecycle — orchestrator-written .context/ working memory.
 
-Verifies:
-1. ScratchModel accumulates human input from user events
-2. ScratchModel accumulates CfA state changes from state_changed events
-3. ScratchModel accumulates file modifications from tool_use events
-4. ScratchModel accumulates dead ends (backtrack reasons)
-5. ScratchModel.render produces markdown under 200 lines
-6. ScratchModel.render includes pointers to detail files
-7. ScratchWriter serializes scratch.md to worktree (atomic write)
-8. ScratchWriter appends human input to detail file
-9. ScratchWriter appends dead ends to detail file
-10. ScratchWriter.cleanup removes .context/ directory
-11. Engine calls scratch extraction at turn boundaries
-12. Engine calls scratch cleanup on session completion
-13. ScratchModel ignores irrelevant event types
-14. ScratchModel tracks job/phase metadata in render output
-15. Scratch file render stays under 200 lines even with many entries
-16. ScratchWriter creates .context/ directory if it doesn't exist
-17. ScratchWriter atomic write: temp file + rename
-18. ScratchModel.extract handles tool_use Write events (file artifacts)
-19. ScratchModel.extract handles tool_use Edit events (file artifacts)
+Covers:
+- ScratchModel extraction: human input (plain string and content-block formats),
+  CfA state changes (via record_state_change), file modifications (Write/Edit),
+  dead ends, irrelevant event filtering
+- ScratchModel rendering: under 200 lines, metadata, pointers, overflow protection
+- ScratchWriter: scratch.md serialization (atomic write), human-input.md append,
+  dead-ends.md append, .context/ directory creation and cleanup
+- Engine integration: _on_scratch_event (STREAM_DATA + STATE_CHANGED extraction),
+  _update_scratch (turn-boundary serialization), _record_dead_end (model + detail),
+  cleanup, ordering invariant (scratch write before compaction check)
 """
 import asyncio
 import os
@@ -35,18 +25,36 @@ class TestScratchModelHumanInput(unittest.TestCase):
     """ScratchModel.extract must capture human messages from user events."""
 
     def _make_user_event(self, text='Please use approach B'):
+        """Create a user event with plain string content."""
         return {'type': 'user', 'message': {'content': text}}
 
-    def test_captures_human_message(self):
+    def _make_user_event_blocks(self, text='Please use approach B'):
+        """Create a user event with list-of-blocks content (actual stream-json format)."""
+        return {
+            'type': 'user',
+            'message': {
+                'role': 'user',
+                'content': [{'type': 'text', 'text': text}],
+            },
+        }
+
+    def test_captures_human_message_plain_string(self):
         model = ScratchModel(job='test-job', phase='execution')
         model.extract(self._make_user_event('Use the adapter pattern'))
+        self.assertEqual(len(model.human_inputs), 1)
+        self.assertIn('adapter pattern', model.human_inputs[0])
+
+    def test_captures_human_message_content_blocks(self):
+        """Claude Code stream-json uses list-of-blocks for content."""
+        model = ScratchModel(job='test-job', phase='execution')
+        model.extract(self._make_user_event_blocks('Use the adapter pattern'))
         self.assertEqual(len(model.human_inputs), 1)
         self.assertIn('adapter pattern', model.human_inputs[0])
 
     def test_accumulates_multiple_messages(self):
         model = ScratchModel(job='test-job', phase='execution')
         model.extract(self._make_user_event('First instruction'))
-        model.extract(self._make_user_event('Second instruction'))
+        model.extract(self._make_user_event_blocks('Second instruction'))
         self.assertEqual(len(model.human_inputs), 2)
 
 

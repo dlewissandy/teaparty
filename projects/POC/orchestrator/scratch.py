@@ -25,6 +25,24 @@ _FILE_MOD_TOOLS = frozenset({'Write', 'Edit'})
 _MAX_RENDER_LINES = 200
 
 
+def _extract_text(content) -> str:
+    """Extract plain text from a message content field.
+
+    Claude Code stream-json ``user`` events carry content as a list of
+    content blocks (``[{"type": "text", "text": "..."}]``), not as a
+    plain string.  This function handles both forms.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get('type') == 'text':
+                parts.append(block.get('text', ''))
+        return '\n'.join(parts)
+    return ''
+
+
 @dataclass
 class ScratchModel:
     """In-memory model of extracted content for a job/task.
@@ -58,8 +76,9 @@ class ScratchModel:
         if etype == 'user':
             msg = event.get('message', {})
             content = msg.get('content', '') if isinstance(msg, dict) else ''
-            if content:
-                self.human_inputs.append(content)
+            text = _extract_text(content)
+            if text:
+                self.human_inputs.append(text)
             return
 
         if etype == 'tool_use' and event.get('name') in _FILE_MOD_TOOLS:
