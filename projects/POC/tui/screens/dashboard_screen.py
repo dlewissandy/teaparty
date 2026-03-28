@@ -434,7 +434,7 @@ class DashboardScreen(Screen):
                     icon='\u23f3',
                     label=name,
                     detail=f'[dim red]{_state_display(d.cfa_phase, d.cfa_state)}[/dim red]  {d.team or "?"}',
-                    data={'dispatch': d},
+                    data={'session_id': session.session_id, 'dispatch': d},
                 ))
         if session.needs_input:
             escalation_items.insert(0, CardItem(
