@@ -524,7 +524,10 @@ def navigate_to(app, ctx: NavigationContext) -> None:
 def open_chat_window(app) -> None:
     """Spawn the chat UI in a separate terminal window."""
     import sys
+    from pathlib import Path
     from projects.POC.tui.platform_utils import open_terminal
+    # The repo root — two levels up from poc_root (projects/POC/)
+    repo_root = str(Path(app.poc_root).parent.parent)
     cmd = [sys.executable, '-m', 'projects.POC.tui.chat_main',
            '--project-dir', app.projects_dir]
-    open_terminal(cmd, title='TeaParty Chat')
+    open_terminal(cmd, title='TeaParty Chat', cwd=repo_root)
