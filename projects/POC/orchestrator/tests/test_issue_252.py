@@ -23,6 +23,16 @@ def _make_bus():
     return SqliteMessageBus(tmp)
 
 
+def _make_stub_phase_config():
+    """Minimal PhaseConfig stub for Orchestrator construction."""
+    class _Stub:
+        stall_timeout = 1800
+        human_actor_states = frozenset()
+        def phase_spec(self, phase_name):
+            return None
+    return _Stub()
+
+
 def _make_role_map():
     """Role map: darrell=decider, alice=advisor, bob=informed."""
     from projects.POC.orchestrator.role_enforcer import DAIRole
@@ -256,3 +266,99 @@ class TestInterventionPromptFraming(unittest.TestCase):
         msgs = [self._make_msg('hello', sender='human')]
         prompt = build_intervention_prompt(msgs)
         self.assertIn('[CfA INTERVENE', prompt)
+
+
+# ── Test 7: Orchestrator accepts role_enforcer ─────────────────────────────
+
+class TestOrchestratorRoleEnforcer(unittest.TestCase):
+    """Orchestrator must accept and store a role_enforcer parameter."""
+
+    def test_orchestrator_has_role_enforcer_param(self):
+        """Orchestrator.__init__ accepts role_enforcer."""
+        import inspect
+        from projects.POC.orchestrator.engine import Orchestrator
+        sig = inspect.signature(Orchestrator.__init__)
+        self.assertIn('role_enforcer', sig.parameters)
+
+    def test_orchestrator_stores_role_enforcer(self):
+        """Orchestrator stores the role_enforcer for use in _deliver_intervention."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.orchestrator.role_enforcer import RoleEnforcer, DAIRole
+        from projects.POC.scripts.cfa_state import make_initial_state
+        enforcer = RoleEnforcer({'darrell': DAIRole.DECIDER})
+        orch = Orchestrator(
+            cfa_state=make_initial_state(task_id='test'),
+            phase_config=_make_stub_phase_config(),
+            event_bus=EventBus(),
+            input_provider=None,
+            infra_dir='/tmp/fake',
+            project_workdir='/tmp/fake',
+            session_worktree='/tmp/fake',
+            proxy_model_path='/tmp/fake',
+            project_slug='test',
+            poc_root='/tmp/fake',
+            role_enforcer=enforcer,
+        )
+        self.assertIs(orch._role_enforcer, enforcer)
+
+    def test_orchestrator_defaults_none(self):
+        """Without role_enforcer param, it defaults to None."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import make_initial_state
+        orch = Orchestrator(
+            cfa_state=make_initial_state(task_id='test'),
+            phase_config=_make_stub_phase_config(),
+            event_bus=EventBus(),
+            input_provider=None,
+            infra_dir='/tmp/fake',
+            project_workdir='/tmp/fake',
+            session_worktree='/tmp/fake',
+            proxy_model_path='/tmp/fake',
+            project_slug='test',
+            poc_root='/tmp/fake',
+        )
+        self.assertIsNone(orch._role_enforcer)
+
+
+# ── Test 8: Session accepts humans and wires enforcer ──────────────────────
+
+class TestSessionRoleEnforcerWiring(unittest.TestCase):
+    """Session must create a RoleEnforcer from humans and set it on the bus."""
+
+    def test_session_accepts_humans(self):
+        """Session.__init__ accepts a humans parameter."""
+        import inspect
+        from projects.POC.orchestrator.session import Session
+        sig = inspect.signature(Session.__init__)
+        self.assertIn('humans', sig.parameters)
+
+    def test_session_creates_enforcer_from_humans(self):
+        """When humans are provided, Session creates a RoleEnforcer."""
+        from projects.POC.orchestrator.config_reader import Human
+        from projects.POC.orchestrator.session import Session
+        from projects.POC.orchestrator.role_enforcer import DAIRole
+        humans = [Human(name='darrell', role='decider')]
+        poc_root = os.path.join(os.path.dirname(__file__), '..', '..')
+        session = Session(
+            task='test',
+            poc_root=poc_root,
+            humans=humans,
+        )
+        self.assertIsNotNone(session._role_enforcer)
+        self.assertEqual(session._role_enforcer.get_role('darrell'), DAIRole.DECIDER)
+
+    def test_session_no_humans_no_enforcer(self):
+        """Without humans, Session has no enforcer (backwards compatible)."""
+        from projects.POC.orchestrator.session import Session
+        poc_root = os.path.join(os.path.dirname(__file__), '..', '..')
+        session = Session(task='test', poc_root=poc_root)
+        self.assertIsNone(session._role_enforcer)
+
+    def test_resume_accepts_humans(self):
+        """resume_from_disk accepts a humans parameter."""
+        import inspect
+        from projects.POC.orchestrator.session import Session
+        sig = inspect.signature(Session.resume_from_disk)
+        self.assertIn('humans', sig.parameters)

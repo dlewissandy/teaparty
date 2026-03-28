@@ -35,6 +35,7 @@ from projects.POC.orchestrator.messaging import (
     make_conversation_id,
 )
 from projects.POC.orchestrator.phase_config import PhaseConfig
+from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 from projects.POC.orchestrator.state_writer import StateWriter
 from projects.POC.orchestrator.worktree import (
     create_session_worktree, cleanup_worktree,
@@ -86,6 +87,7 @@ class Session:
         input_provider: InputProvider | None = None,
         learning_retrieval_mode: str = 'flat',
         skip_learning_retrieval: bool = False,
+        humans: list | None = None,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -109,6 +111,7 @@ class Session:
         self.input_provider = input_provider
         self.learning_retrieval_mode = learning_retrieval_mode
         self.skip_learning_retrieval = skip_learning_retrieval
+        self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
 
         # Resolved during run
         self.project_slug = ''
@@ -152,6 +155,8 @@ class Session:
         # 4a. Create message bus for persistent human-agent communication (Issue #200).
         bus_path = os.path.join(infra_dir, 'messages.db')
         self._message_bus = SqliteMessageBus(bus_path)
+        if self._role_enforcer:
+            self._message_bus.role_enforcer = self._role_enforcer
         self._conversation_id = make_conversation_id(
             ConversationType.PROJECT_SESSION, self.session_id,
         )
@@ -264,6 +269,7 @@ class Session:
             suppress_backtracks=self.suppress_backtracks,
             proxy_enabled=self.proxy_enabled,
             project_dir=project_dir,
+            role_enforcer=self._role_enforcer,
         )
 
         result = await orchestrator.run()
@@ -550,6 +556,7 @@ class Session:
         projects_dir: str | None = None,
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
+        humans: list | None = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
 
@@ -602,8 +609,11 @@ class Session:
             worktree_path = ''
 
         # 5b. Create message bus for persistent communication (Issue #200).
+        role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
         bus_path = os.path.join(infra_dir, 'messages.db')
         message_bus = SqliteMessageBus(bus_path)
+        if role_enforcer:
+            message_bus.role_enforcer = role_enforcer
         conversation_id = make_conversation_id(
             ConversationType.PROJECT_SESSION, session_id,
         )
@@ -685,6 +695,7 @@ class Session:
             phase_session_ids=phase_session_ids,
             last_actor_data=last_actor_data,
             project_dir=project_dir,
+            role_enforcer=role_enforcer,
         )
 
         result = await orchestrator.run()
