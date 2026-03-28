@@ -74,21 +74,36 @@ def _colored_state(session) -> str:
     return state_text
 
 
+_TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
+
+
 def _build_session_items(
     tagged_sessions: list[tuple[str, object]],
     include_project: bool = False,
 ) -> list[CardItem]:
     """Build sorted, color-coded CardItems from (project_slug, session) pairs.
 
-    Escalations first (newest first), then rest newest first.
+    Three groups, each sorted newest first:
+    1. Escalations (needs_input)
+    2. Active (non-terminal, non-escalation)
+    3. Terminal (COMPLETED_WORK, WITHDRAWN)
     """
-    escalations = [(slug, s) for slug, s in tagged_sessions if s.needs_input]
-    rest = [(slug, s) for slug, s in tagged_sessions if not s.needs_input]
+    escalations = []
+    active = []
+    terminal = []
+    for slug, s in tagged_sessions:
+        if s.needs_input:
+            escalations.append((slug, s))
+        elif s.cfa_state in _TERMINAL_STATES:
+            terminal.append((slug, s))
+        else:
+            active.append((slug, s))
     escalations.sort(key=lambda t: t[1].session_id, reverse=True)
-    rest.sort(key=lambda t: t[1].session_id, reverse=True)
+    active.sort(key=lambda t: t[1].session_id, reverse=True)
+    terminal.sort(key=lambda t: t[1].session_id, reverse=True)
 
     items = []
-    for slug, s in escalations + rest:
+    for slug, s in escalations + active + terminal:
         icon = _status_icon(s.status, s.needs_input, getattr(s, 'is_orphaned', False))
         label = f'{slug}/{s.session_id}' if include_project and slug else s.session_id
         detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}'
