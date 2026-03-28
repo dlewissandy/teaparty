@@ -200,7 +200,12 @@ def _build_session_items(
     for slug, s in combined:
         icon = _status_icon(s.status, s.needs_input, getattr(s, 'is_orphaned', False))
         label = f'{slug}/{s.session_id}' if include_project and slug else s.session_id
-        detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}'
+        # Issue #254: heartbeat indicator on active sessions
+        hb = ''
+        hb_status = getattr(s, 'heartbeat_status', '')
+        if hb_status and s.status == 'active':
+            hb = f' {_heartbeat_icon(hb_status)}'
+        detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}{hb}'
         data = {'session_id': s.session_id}
         if slug:
             data['project'] = slug
@@ -449,9 +454,11 @@ class DashboardScreen(Screen):
             elif not name:
                 name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
             state_text = _state_display(d.cfa_phase, d.cfa_state)
+            # Issue #254: heartbeat indicator on active dispatches
+            hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.status == 'active' and d.heartbeat_status else ''
             if d.status == 'active':
                 icon = '\u25b6'
-                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}'
+                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}{hb}'
             elif d.status == 'complete':
                 icon = '\u2713'
                 detail = f'[green]{state_text}[/green]  {d.team or "?"}'
@@ -472,10 +479,13 @@ class DashboardScreen(Screen):
                 name = name.split('--', 1)[1][:25]
             elif not name:
                 name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+            # Issue #254: heartbeat + escalation indicators on task items
+            task_icon = _status_icon(d.status, d.needs_input, False)
+            hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.status == 'active' and d.heartbeat_status else ''
             task_items.append(CardItem(
-                icon=_status_icon(d.status, False, False),
+                icon=task_icon,
                 label=name,
-                detail=_colored_dispatch_state(d),
+                detail=f'{_colored_dispatch_state(d)}{hb}',
                 data={'dispatch': d},
             ))
         self._set_card('tasks', task_items)

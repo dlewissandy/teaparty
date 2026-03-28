@@ -311,7 +311,8 @@ class StateReader:
             )
 
             active = sum(1 for s in proj_sessions if s.status == 'active')
-            attention = sum(1 for s in proj_sessions if s.needs_input)
+            # Issue #254: attention_count includes dispatch-level escalations
+            attention = sum(s.escalation_count for s in proj_sessions)
 
             projects.append(ProjectState(
                 slug=slug,
