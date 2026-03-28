@@ -20,7 +20,6 @@ Screen {
 /* ── Content cards ── */
 ContentCard {
     height: auto;
-    max-height: 12;
     width: 1fr;
     border-left: tall $primary-lighten-1;
     border-right: tall $primary-lighten-1;

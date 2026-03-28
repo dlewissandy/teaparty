@@ -200,10 +200,9 @@ class DashboardScreen(Screen):
             ('Withdrawn', str(withdrawn)), ('Escalations', str(attention)),
         ])
 
-        # Sessions — active only, escalations first
-        active_sessions = [(proj.slug, s) for proj in projects for s in proj.sessions
-                           if s.status == 'active']
-        self._set_card('sessions', _build_session_items(active_sessions, include_project=True))
+        # Sessions — escalations first, then rest, newest first
+        tagged = [(proj.slug, s) for proj in projects for s in proj.sessions]
+        self._set_card('sessions', _build_session_items(tagged, include_project=True))
 
         # Projects
         items = []
