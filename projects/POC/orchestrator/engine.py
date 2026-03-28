@@ -37,6 +37,7 @@ from projects.POC.orchestrator.actors import (
     ApprovalGate,
     InputProvider,
 )
+from projects.POC.orchestrator.gate_queue import GateQueue
 from projects.POC.orchestrator.human_presence import HumanPresence
 from projects.POC.orchestrator.escalation_listener import EscalationListener
 from projects.POC.orchestrator.intervention_listener import InterventionListener
@@ -117,6 +118,7 @@ class Orchestrator:
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
         human_presence: HumanPresence | None = None,
+        gate_queue: GateQueue | None = None,
         cost_tracker: CostTracker | None = None,
     ):
         self.cfa = cfa_state
@@ -165,6 +167,7 @@ class Orchestrator:
             proxy_enabled=proxy_enabled,
             never_escalate=never_escalate,
             human_presence=human_presence,
+            gate_queue=gate_queue,
         )
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human
