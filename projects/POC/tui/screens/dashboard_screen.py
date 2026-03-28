@@ -272,8 +272,8 @@ class DashboardScreen(Screen):
             ('Idle', _human_age(session.stream_age_seconds)),
         ])
 
-        # Tasks (dispatches) — same sorted/colored pattern as sessions
-        items = []
+        # Sessions — parent job session + all dispatch (subteam) sessions
+        session_items = _build_session_items([('', session)])
         for d in dispatches:
             name = d.worktree_name
             if '--' in name:
@@ -290,11 +290,11 @@ class DashboardScreen(Screen):
             else:
                 icon = '\u2717'
                 detail = f'[dim]{state_text}[/dim]  {d.team or "?"}'
-            items.append(CardItem(
+            session_items.append(CardItem(
                 icon=icon, label=name, detail=detail,
                 data={'dispatch': d},
             ))
-        self._set_card('tasks', items)
+        self._set_card('sessions', session_items)
 
         # Artifacts
         items = []
@@ -395,9 +395,15 @@ class DashboardScreen(Screen):
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
 
         elif card_name in ('escalations', 'sessions'):
-            sid = data.get('session_id', '')
-            conv = f'session:{sid}' if sid else ''
-            open_chat_window(self.app, conversation=conv)
+            # At job level, dispatch items navigate to task dashboard
+            dispatch = data.get('dispatch')
+            if dispatch:
+                task_id = os.path.basename(dispatch.infra_dir) if dispatch.infra_dir else dispatch.worktree_name
+                self._navigate(self._nav.drill_down(DashboardLevel.TASK, task_id=task_id))
+            else:
+                sid = data.get('session_id', '')
+                conv = f'session:{sid}' if sid else ''
+                open_chat_window(self.app, conversation=conv)
 
         elif card_name == 'humans':
             import getpass
