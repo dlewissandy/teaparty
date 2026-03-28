@@ -656,6 +656,7 @@ class DashboardScreen(Screen):
         self._set_card('escalations', _build_workgroup_escalation_items(wg_sessions, wg_id))
 
         # Sessions
+        tagged = [('', s) for s in wg_sessions]
         self._set_card('sessions', _build_session_items(tagged, hide_done=self._hide_done.get('sessions', True)))
 
         # Active Tasks
