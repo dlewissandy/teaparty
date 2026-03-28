@@ -19,10 +19,9 @@ class StatsBar(Widget):
     def _format_text(self) -> str:
         if not self._stats:
             return ''
-        parts = []
-        for key, value in self._stats:
-            parts.append(f'[bold]{key}:[/bold] {value}')
-        return '  \u2502  '.join(parts)
+        values = '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in self._stats)
+        labels = '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in self._stats)
+        return f'{values}\n{labels}'
 
     def update_stats(self, stats: list[tuple[str, str]]) -> None:
         """Update the displayed stats."""
