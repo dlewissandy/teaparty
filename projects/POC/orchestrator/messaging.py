@@ -4,12 +4,16 @@ Replaces the blocking FIFO IPC with a persistent, conversation-based
 message bus.  The adapter interface allows swapping storage backends
 (SQLite for POC, external adapters like Slack/Teams later).
 
-Three conversation types:
-  - office_manager: one per human, persistent across sessions
-  - project_session: one per active session, closed on completion
-  - subteam: one per dispatch, proxy participates
+Conversation types (see docs/proposals/chat-experience/references/conversation-identity.md):
+  - office_manager: one per human, persistent across days/weeks
+  - job: one per project+job, lives with the job
+  - task: one per project+job+task, lives with the task
+  - proxy_review: one per decider, indefinite persistence
+  - liaison: session-scoped, requester+target
+  - project_session: one per active session (legacy, from issue #200)
+  - subteam: one per dispatch (legacy, from issue #200)
 
-Issue #200.
+Issues #200, #263.
 """
 from __future__ import annotations
 
@@ -25,6 +29,21 @@ from typing import Protocol, runtime_checkable
 from projects.POC.orchestrator.events import InputRequest
 
 _log = logging.getLogger('orchestrator.messaging')
+
+
+class ConversationType(Enum):
+    OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
+    PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
+    SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
+    JOB = 'job'                          # One per project+job, lives with the job
+    TASK = 'task'                        # One per project+job+task, lives with the task
+    PROXY_REVIEW = 'proxy_review'        # One per decider, indefinite persistence
+    LIAISON = 'liaison'                  # Session-scoped, requester+target
+
+
+class ConversationState(Enum):
+    ACTIVE = 'active'
+    CLOSED = 'closed'
 
 
 @dataclass
@@ -44,21 +63,6 @@ class Conversation:
     type: ConversationType
     state: ConversationState
     created_at: float
-
-
-class ConversationType(Enum):
-    OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
-    PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
-    SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
-    JOB = 'job'                          # One per project+job, lives with the job
-    TASK = 'task'                        # One per project+job+task, lives with the task
-    PROXY_REVIEW = 'proxy_review'        # One per decider, indefinite persistence
-    LIAISON = 'liaison'                  # Session-scoped, requester+target
-
-
-class ConversationState(Enum):
-    ACTIVE = 'active'
-    CLOSED = 'closed'
 
 
 _PREFIXES = {
