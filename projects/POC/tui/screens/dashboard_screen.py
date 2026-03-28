@@ -618,12 +618,18 @@ class DashboardScreen(Screen):
 # ── Module-level helpers (used by app.py and other screens) ──
 
 def navigate_to(app, ctx: NavigationContext) -> None:
-    """Navigate the app to the screen for the given NavigationContext."""
-    while len(app.screen_stack) > 1:
-        app.pop_screen()
+    """Navigate the app to the screen for the given NavigationContext.
 
-    # Always replace the base screen with a fresh one
-    app.switch_screen(DashboardScreen(ctx))
+    Pops all pushed screens, then pushes a fresh DashboardScreen.
+    The base screen (Textual's _default) is never touched.
+    """
+    while len(app.screen_stack) > 2:
+        app.pop_screen()
+    # Pop the last pushed DashboardScreen if there is one
+    if len(app.screen_stack) > 1:
+        app.pop_screen()
+    # Push the target level
+    app.push_screen(DashboardScreen(ctx))
 
 
 def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '') -> None:
