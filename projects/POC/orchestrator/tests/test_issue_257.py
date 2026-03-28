@@ -224,5 +224,46 @@ class TestNormsBudgetSeparation(unittest.TestCase):
         self.assertNotIn('job_limit_usd', team.norms)
 
 
+# ── 6. Integration: norms reach session prompt ───────────────────────────────
+
+class TestNormsReachSession(unittest.TestCase):
+    """Norms from YAML flow into the session's task prompt."""
+
+    def test_resolve_norms_static_with_project_yaml(self):
+        """Session._resolve_norms_static reads .teaparty/project.yaml norms."""
+        from projects.POC.orchestrator.session import Session
+
+        yaml_text = textwrap.dedent("""\
+            name: Test Project
+            lead: lead
+            decider: darrell
+            norms:
+              quality:
+                - All changes need integration tests
+              delegation:
+                - Architect plans, Developer implements
+        """)
+        d = tempfile.mkdtemp()
+        tp_dir = os.path.join(d, '.teaparty')
+        os.makedirs(tp_dir)
+        os.makedirs(os.path.join(d, '.git'))
+        os.makedirs(os.path.join(d, '.claude'))
+        with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+            f.write(yaml_text)
+
+        result = Session._resolve_norms_static(d)
+        self.assertIn('All changes need integration tests', result)
+        self.assertIn('Architect plans, Developer implements', result)
+        self.assertIn('Norms (advisory)', result)
+
+    def test_resolve_norms_static_no_config(self):
+        """When no .teaparty/ exists, returns empty string."""
+        from projects.POC.orchestrator.session import Session
+
+        d = tempfile.mkdtemp()
+        result = Session._resolve_norms_static(d)
+        self.assertEqual(result, '')
+
+
 if __name__ == '__main__':
     unittest.main()
