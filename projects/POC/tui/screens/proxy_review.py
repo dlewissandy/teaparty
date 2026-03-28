@@ -101,14 +101,56 @@ class ProxyReviewScreen(Screen):
             self._send_message(message)
 
     def _send_message(self, message: str) -> None:
-        """Send a message to the proxy and display the exchange."""
+        """Send a message to the proxy via run_review_turn and display the exchange."""
+        import asyncio
+
         log = self.query_one('#review-log', RichLog)
         log.write(f'[bold green]You:[/bold green] {message}')
         log.write('[dim]Proxy is thinking...[/dim]')
-        # The actual agent invocation would be async via run_review_turn().
-        # For now, the screen provides the UI entry point; the orchestrator
-        # integration (wiring run_review_turn into the TUI event loop)
-        # follows the same pattern as the existing gate escalation flow.
+
+        async def _do_turn():
+            try:
+                from projects.POC.orchestrator.messaging import SqliteMessageBus
+                from projects.POC.orchestrator.proxy_memory import open_proxy_db
+                from projects.POC.orchestrator.proxy_review import (
+                    build_dialog_history,
+                    open_review_session,
+                    run_review_turn,
+                )
+                from projects.POC.tui.chat_main import global_bus_path
+
+                projects_dir = getattr(self.app, 'projects_dir', '')
+                if not projects_dir:
+                    log.write('[bold red]No projects directory configured.[/bold red]')
+                    return
+
+                bus = SqliteMessageBus(global_bus_path(projects_dir))
+                memory_db_path = os.path.join(projects_dir, '.proxy-memory.db')
+                conn = open_proxy_db(memory_db_path)
+
+                try:
+                    import getpass
+                    human_name = getpass.getuser()
+                    session = open_review_session(
+                        bus, human_name=human_name, memory_db_path=memory_db_path,
+                    )
+                    dialog_history = build_dialog_history(bus, session.conversation_id)
+
+                    response = await run_review_turn(
+                        message,
+                        conn=conn,
+                        session=session,
+                        bus=bus,
+                        dialog_history=dialog_history,
+                    )
+
+                    log.write(f'[bold cyan]Proxy:[/bold cyan] {response}')
+                finally:
+                    conn.close()
+            except Exception as e:
+                log.write(f'[bold red]Error:[/bold red] {e}')
+
+        asyncio.create_task(_do_turn())
 
     def action_go_back(self) -> None:
         self.app.pop_screen()

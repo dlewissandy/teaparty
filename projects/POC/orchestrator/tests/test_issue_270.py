@@ -54,7 +54,7 @@ def _make_bus(db_path=None):
 
 def _run_async(coro):
     """Run an async coroutine synchronously."""
-    return asyncio.get_event_loop().run_until_complete(coro)
+    return asyncio.run(coro)
 
 
 # ── 1. Message bus records both sides ──────────────────────────────────────
@@ -110,9 +110,9 @@ class TestDialogHistory(unittest.TestCase):
 
         history = build_dialog_history(bus, session.conversation_id)
 
-        self.assertIn('bob', history)
+        self.assertIn('Human', history)
         self.assertIn('What have you learned?', history)
-        self.assertIn('proxy', history)
+        self.assertIn('Proxy', history)
         self.assertIn('I learned you prioritize tests.', history)
 
     @patch('projects.POC.orchestrator.proxy_review._invoke_review_agent',

@@ -455,13 +455,18 @@ class ChatScreen(Screen):
         conn = open_proxy_db(memory_db_path)
 
         # Build the review session handle
-        from projects.POC.orchestrator.proxy_review import ReviewSession, run_review_turn
+        from projects.POC.orchestrator.proxy_review import (
+            ReviewSession, build_dialog_history, run_review_turn,
+        )
         human_name = conv_id.split(':', 1)[1] if ':' in conv_id else 'user'
         session = ReviewSession(
             conversation_id=conv_id,
             human_name=human_name,
             memory_db_path=memory_db_path,
         )
+
+        # Build dialog history from prior messages on the bus
+        dialog_history = build_dialog_history(bus, conv_id)
 
         async def _do_turn():
             try:
@@ -470,6 +475,7 @@ class ChatScreen(Screen):
                     conn=conn,
                     session=session,
                     bus=bus,
+                    dialog_history=dialog_history,
                 )
                 # Render the proxy response
                 from rich.text import Text
