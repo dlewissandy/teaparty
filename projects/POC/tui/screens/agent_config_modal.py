@@ -7,9 +7,9 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import Static
+from textual.widgets import Button, Static
 
 
 _SECTION_WIDTH = 35
@@ -135,9 +135,21 @@ class AgentConfigModal(ModalScreen):
     }
 
     #agent-config-footer {
-        text-align: center;
-        color: $text-muted;
+        height: auto;
         margin-top: 1;
+    }
+
+    #agent-config-footer-text {
+        color: $text-muted;
+    }
+
+    #agent-config-buttons {
+        align: right middle;
+        height: 3;
+    }
+
+    #agent-config-buttons Button {
+        margin: 0 1;
     }
     """
 
@@ -157,12 +169,33 @@ class AgentConfigModal(ModalScreen):
             VerticalScroll(
                 Static(self._formatted_text, id='agent-config-body'),
             ),
-            Static(
-                'Read-only. To modify, use the office manager chat.',
+            Vertical(
+                Static(
+                    'Read-only. To modify, use the office manager chat.',
+                    id='agent-config-footer-text',
+                ),
+                Horizontal(
+                    Button('Modify via Chat', variant='primary', id='agent-config-modify-btn'),
+                    Button('Close', variant='default', id='agent-config-close-btn'),
+                    id='agent-config-buttons',
+                ),
                 id='agent-config-footer',
             ),
             id='agent-config-dialog',
         )
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == 'agent-config-modify-btn':
+            name = self._agent_config.get('name', 'agent')
+            self.dismiss()
+            from projects.POC.tui.screens.dashboard_screen import open_chat_window
+            open_chat_window(
+                self.app,
+                conversation='om:new',
+                pre_seed=f'I would like to modify the {name} agent',
+            )
+        elif event.button.id == 'agent-config-close-btn':
+            self.dismiss()
 
     def action_dismiss_modal(self) -> None:
         self.dismiss()

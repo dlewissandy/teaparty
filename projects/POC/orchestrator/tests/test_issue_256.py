@@ -182,6 +182,20 @@ class TestAgentConfigModal(unittest.TestCase):
         self.assertEqual(modal._formatted_text, expected)
 
 
+    def test_modal_has_modify_via_chat_button(self):
+        """AgentConfigModal has a 'Modify via Chat' button for office manager."""
+        import inspect
+        source = inspect.getsource(AgentConfigModal)
+        self.assertIn('Modify via Chat', source)
+        self.assertIn('agent-config-modify-btn', source)
+
+    def test_modal_has_close_button(self):
+        """AgentConfigModal has a Close button."""
+        import inspect
+        source = inspect.getsource(AgentConfigModal)
+        self.assertIn('agent-config-close-btn', source)
+
+
 class TestAgentCardClickRouting(unittest.TestCase):
     """Agent card clicks open the agent config modal."""
 
