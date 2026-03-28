@@ -7,7 +7,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "uv not found — installing via astral.sh..."
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | sh || true
     # Source the env so uv is available in this session
     if [ -f "$HOME/.local/bin/env" ]; then
         . "$HOME/.local/bin/env"

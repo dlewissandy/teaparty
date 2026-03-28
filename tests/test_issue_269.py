@@ -7,11 +7,9 @@ Verifies:
  3. After a failed install (uv still missing), the script exits non-zero with a diagnostic.
  4. The check uses `command -v uv` (fast, POSIX) not `which`.
 """
-import os
 import subprocess
 import sys
 import tempfile
-import textwrap
 import unittest
 from pathlib import Path
 
