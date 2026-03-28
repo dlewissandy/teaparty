@@ -202,6 +202,50 @@ Currently, creating a new skill or agent requires the human to know the file for
 
 ---
 
+## Validation
+
+Configuration artifacts can be structurally valid but semantically wrong — an agent with the wrong tools for its role, a skill whose progressive disclosure defers the wrong content, a hook whose matcher is too broad. Validation has three levels, each catching a different class of defect.
+
+### Structural
+
+Does the artifact parse? Do its references resolve? Are named values legal?
+
+- **Agents:** frontmatter fields present and typed correctly, model name is valid, listed tools exist, permission mode is recognized, MCP server names resolve to entries in `.mcp.json`
+- **Skills:** SKILL.md has required frontmatter, supporting files referenced in the body exist, `!`command`` injections are syntactically valid, invocation mode is recognized
+- **Hooks:** event name is a valid lifecycle event, matcher syntax parses, handler type is one of command/agent/prompt/http, referenced scripts or agents exist
+- **MCP servers:** server entry has required fields (command or url), environment variables referenced in args are defined
+- **Scheduled tasks:** cron expression parses, referenced skill exists
+
+Structural checks are fully automatable. The Systems Engineer or relevant specialist runs them as part of artifact creation. A structural failure is a bug in the Configuration Team, not in the human's request.
+
+### Behavioral
+
+Does the artifact do something reasonable when exercised?
+
+- **Agents:** spawn the agent with a representative prompt for its role; verify it uses the expected tools, produces output in the expected form, and terminates without error
+- **Skills:** invoke the skill with representative arguments; verify the flow reaches its key decision points and the agent loads supporting files on demand rather than all upfront
+- **Hooks:** simulate the trigger event; verify the hook fires, the matcher selects the right events, and the handler produces a meaningful response (not just exit 0)
+- **MCP servers:** start the server; verify it responds to a list-tools call and the advertised tools match what the agent definition expects
+- **Scheduled tasks:** trigger the schedule manually; verify the skill invocation completes
+
+Behavioral checks verify that the artifact *runs* — that it exercises its intended path without crashing or doing nothing. They catch wiring errors (tool not available, file path wrong, matcher too narrow) and gross functional failures (agent ignores its role, skill loads everything upfront despite progressive disclosure design).
+
+What behavioral checks cannot catch: an agent that completes its task but makes the wrong judgment calls. A skill that flows correctly but defers content the human actually needed upfront. A hook that fires on the right events but makes a poor blocking decision. These are semantic defects.
+
+### Semantic
+
+Does the artifact mean what the human intended?
+
+Semantic validation asks whether the artifact's behavior aligns with the human's purpose — not just whether it runs, but whether it does the *right thing*. This is where behavioral checks end and human judgment begins.
+
+For agents, the question is whether the prompt, tool set, and model selection produce the kind of reasoning and output the human expects for this role — something that can only be assessed by observing the agent on real tasks and comparing its behavior to the human's expectations. For skills, it is whether the progressive disclosure structure surfaces the right content at the right time for the human's actual workflow. For hooks, it is whether the matcher breadth and blocking decisions match the human's intent about what should be intercepted and what should pass through.
+
+The Configuration Team's role in semantic validation is to *surface the artifact's behavior for human review*, not to judge it autonomously. After creating an artifact, the relevant specialist reports what was created and how it behaves on a representative task. The human observes, iterates through further conversation, and converges on the right behavior through use.
+
+Full semantic validation of LLM-facing artifacts is an open research problem. An agent's prompt is a natural-language program executed by a language model — verifying that it "means the right thing" is equivalent to verifying natural-language program correctness, which has no general automated solution. The Configuration Team can catch structural and behavioral defects systematically. Semantic correctness emerges through human-in-the-loop iteration, not through testing.
+
+---
+
 ## Relationship to Other Proposals
 
 - [chat-experience](../chat-experience/proposal.md) -- the "+ New" buttons on dashboard cards pre-seed office manager conversations that trigger this team
