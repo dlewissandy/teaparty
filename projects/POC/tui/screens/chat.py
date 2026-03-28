@@ -465,6 +465,10 @@ class ChatScreen(Screen):
                     self._run_proxy_turn(text)
                 else:
                     self._model.send_message(self._selected_conv, text)
+                    # If an in-process session owns this conversation,
+                    # enqueue as an INTERVENE for turn-boundary delivery
+                    # (Issue #246).
+                    self._enqueue_intervention(self._selected_conv, text)
                     # Render immediately — don't wait for periodic refresh
                     from rich.text import Text
                     log = self.query_one('#message-log', RichLog)
@@ -475,6 +479,17 @@ class ChatScreen(Screen):
                     log.write(t)
                     log.scroll_end(animate=False)
                     self._msg_count += 1
+
+    def _enqueue_intervention(self, conv_id: str, text: str) -> None:
+        """Route human input to the intervention queue of an active session.
+
+        If an in-process session owns this conversation, the message is
+        enqueued for turn-boundary delivery via --resume (Issue #246).
+        """
+        for _sid, ip in getattr(self.app, '_in_process', {}).items():
+            if ip.conversation_id == conv_id and ip.intervention_queue:
+                ip.intervention_queue.enqueue(text, sender='human')
+                return
 
     def _run_proxy_turn(self, human_message: str) -> None:
         """Invoke the proxy agent for a review turn, render response when done."""

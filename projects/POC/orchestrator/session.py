@@ -40,6 +40,7 @@ from projects.POC.orchestrator.config_reader import (
     resolve_budget, resolve_workgroups,
 )
 from projects.POC.orchestrator.cost_tracker import CostTracker
+from projects.POC.orchestrator.intervention import InterventionQueue
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 from projects.POC.orchestrator.state_writer import StateWriter
@@ -299,6 +300,15 @@ class Session:
         # if the bus provider is unavailable (e.g., no-human mode).
         proxy_model_path = os.path.join(project_dir, '.proxy-confidence.json')
         effective_input = self._bus_input_provider or self.input_provider
+
+        # Create intervention queue for human INTERVENE delivery (Issue #246).
+        self._intervention_queue = InterventionQueue(
+            message_bus=self._message_bus,
+            conversation_id=self._conversation_id,
+        )
+        if self._role_enforcer:
+            self._intervention_queue.role_enforcer = self._role_enforcer
+
         orchestrator = Orchestrator(
             cfa_state=cfa,
             phase_config=self.config,
@@ -323,6 +333,7 @@ class Session:
             role_enforcer=self._role_enforcer,
             human_presence=self.human_presence,
             cost_tracker=self._resolve_cost_tracker(project_dir),
+            intervention_queue=self._intervention_queue,
         )
 
         result = await orchestrator.run()
@@ -781,6 +792,15 @@ class Session:
         # for persistent communication (Issue #200).
         effective_input = bus_input_provider or input_provider
         proxy_model_path = os.path.join(project_dir, '.proxy-confidence.json')
+
+        # Create intervention queue for human INTERVENE delivery (Issue #246).
+        intervention_queue = InterventionQueue(
+            message_bus=message_bus,
+            conversation_id=conversation_id,
+        )
+        if role_enforcer:
+            intervention_queue.role_enforcer = role_enforcer
+
         orchestrator = Orchestrator(
             cfa_state=cfa,
             phase_config=config,
@@ -801,6 +821,7 @@ class Session:
             role_enforcer=role_enforcer,
             human_presence=human_presence,
             cost_tracker=_resolve_cost_tracker_impl(project_dir),
+            intervention_queue=intervention_queue,
         )
 
         result = await orchestrator.run()
