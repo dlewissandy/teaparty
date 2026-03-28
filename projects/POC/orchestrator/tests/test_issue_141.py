@@ -264,7 +264,7 @@ class TestNoHardcodedLiaisonList(unittest.TestCase):
 
         prompt = agents['project-lead']['prompt']
         self.assertNotIn('art-liaison, writing-liaison', prompt,
-                         "Hardcoded liaison list must be removed from project-lead prompt")
+                         "Hardcoded agent list must be removed from project-lead prompt")
 
 
 # ── 5. Intent agent prompt includes constraint awareness ─────────────────────
