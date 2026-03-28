@@ -146,6 +146,7 @@ Not all cross-artifact dependencies are equal. Some artifact pairs must co-exist
 **Hard dependencies** — the referencing artifact is broken without the referenced one:
 
 - Agent definitions that name specific skills in their tool scoping or prompt. An agent configured to invoke a skill that doesn't exist will fail at runtime. The Agent Designer must not reference skills by name until the Skill Architect confirms they exist.
+- Scheduled tasks that reference a skill. A scheduled trigger pointing to a nonexistent skill will fail on every invocation. The Skill Architect must create the skill before the Systems Engineer creates the trigger.
 
 **Soft dependencies** — the artifact is useful on its own, completable later:
 
