@@ -210,3 +210,39 @@ Screen {
     height: auto;
     margin-bottom: 1;
 }
+
+/* ── Chat screen (Issue #206) ── */
+#chat-panes {
+    height: 1fr;
+}
+
+#chat-left-pane {
+    width: 30%;
+    border-right: tall $primary-lighten-1;
+}
+
+#chat-right-pane {
+    width: 70%;
+}
+
+#conv-list {
+    height: 1fr;
+    margin: 0 1;
+}
+
+#message-log {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#chat-input-area {
+    dock: bottom;
+    height: auto;
+    max-height: 5;
+    border-top: tall $primary-lighten-1;
+}
+
+#chat-input-area #chat-input {
+    width: 1fr;
+    height: 3;
+}
