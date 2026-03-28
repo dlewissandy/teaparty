@@ -63,7 +63,7 @@ def _state_display(phase: str, state: str) -> str:
 
 
 def _colored_state(session) -> str:
-    """Return the CFA state with color markup."""
+    """Return the CFA state with color markup for a session."""
     state_text = _state_display(session.cfa_phase, session.cfa_state)
     if session.needs_input:
         return f'[dim red]{state_text}[/dim red]'
@@ -72,6 +72,18 @@ def _colored_state(session) -> str:
     if session.cfa_state == 'WITHDRAWN':
         return f'[dim]{state_text}[/dim]'
     return state_text
+
+
+def _colored_dispatch_state(dispatch) -> str:
+    """Return the CFA state with color markup for a dispatch."""
+    state_text = _state_display(dispatch.cfa_phase, dispatch.cfa_state)
+    if dispatch.cfa_state in _TERMINAL_STATES:
+        if dispatch.cfa_state == 'COMPLETED_WORK':
+            return f'[green]{state_text}[/green]  {dispatch.team or "?"}'
+        return f'[dim]{state_text}[/dim]  {dispatch.team or "?"}'
+    if dispatch.status == 'active':
+        return f'{state_text}  {dispatch.team or "?"}  {_human_age(dispatch.stream_age_seconds)}'
+    return f'[dim]{state_text}[/dim]  {dispatch.team or "?"}'
 
 
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
@@ -295,6 +307,22 @@ class DashboardScreen(Screen):
                 data={'dispatch': d},
             ))
         self._set_card('sessions', session_items)
+
+        # Tasks — all dispatches with CFA state, same color coding
+        task_items = []
+        for d in dispatches:
+            name = d.worktree_name
+            if '--' in name:
+                name = name.split('--', 1)[1][:25]
+            elif not name:
+                name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+            task_items.append(CardItem(
+                icon=_status_icon(d.status, False, False),
+                label=name,
+                detail=_colored_dispatch_state(d),
+                data={'dispatch': d},
+            ))
+        self._set_card('tasks', task_items)
 
         # Artifacts
         items = []

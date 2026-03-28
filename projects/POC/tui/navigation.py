@@ -201,6 +201,7 @@ _CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
     ],
     DashboardLevel.JOB: [
         CardDef('sessions', 'SESSIONS'),
+        CardDef('tasks', 'TASKS'),
         CardDef('artifacts', 'ARTIFACTS'),
     ],
     DashboardLevel.TASK: [

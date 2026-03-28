@@ -276,9 +276,9 @@ class TestCardsForLevel(unittest.TestCase):
         self.assertEqual(set(card_names), expected)
 
     def test_job_cards(self):
-        """Job dashboard: sessions + artifacts."""
+        """Job dashboard: sessions + tasks + artifacts."""
         card_names = cards_for_level(DashboardLevel.JOB)
-        expected = {'sessions', 'artifacts'}
+        expected = {'sessions', 'tasks', 'artifacts'}
         self.assertEqual(set(card_names), expected)
 
     def test_task_cards(self):
@@ -461,11 +461,12 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertEqual(len(cards), 5)
 
     def test_job_dashboard_cards(self):
-        """Job dashboard: sessions (parent + subteam dispatches) + artifacts."""
+        """Job dashboard: sessions + tasks + artifacts."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.JOB)
-        self.assertEqual(len(cards), 2)
+        self.assertEqual(len(cards), 3)
         self.assertIn('sessions', cards)
+        self.assertIn('tasks', cards)
         self.assertIn('artifacts', cards)
 
     def test_task_dashboard_cards(self):
