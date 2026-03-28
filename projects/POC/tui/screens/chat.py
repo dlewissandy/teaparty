@@ -424,21 +424,31 @@ class ChatScreen(Screen):
             text = event.text_area.text.replace('\n', '').strip()
             event.text_area.clear()
             if text and self._model and self._selected_conv:
-                self._model.send_message(self._selected_conv, text)
-                # Render immediately — don't wait for periodic refresh
-                from rich.text import Text
-                log = self.query_one('#message-log', RichLog)
-                t = Text()
-                t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
-                t.append('you', style='bold green')
-                t.append(f'  {text}')
-                log.write(t)
-                log.scroll_end(animate=False)
-                self._msg_count += 1  # skip re-rendering on next refresh
-
-                # Proxy review: invoke the proxy agent
+                # Proxy review: run_review_turn handles bus recording
                 if self._selected_conv.startswith('proxy:'):
+                    # Render the human message immediately
+                    from rich.text import Text
+                    log = self.query_one('#message-log', RichLog)
+                    t = Text()
+                    t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                    t.append('you', style='bold green')
+                    t.append(f'  {text}')
+                    log.write(t)
+                    log.scroll_end(animate=False)
+                    self._msg_count += 1
                     self._run_proxy_turn(text)
+                else:
+                    self._model.send_message(self._selected_conv, text)
+                    # Render immediately — don't wait for periodic refresh
+                    from rich.text import Text
+                    log = self.query_one('#message-log', RichLog)
+                    t = Text()
+                    t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                    t.append('you', style='bold green')
+                    t.append(f'  {text}')
+                    log.write(t)
+                    log.scroll_end(animate=False)
+                    self._msg_count += 1
 
     def _run_proxy_turn(self, human_message: str) -> None:
         """Invoke the proxy agent for a review turn, render response when done."""
