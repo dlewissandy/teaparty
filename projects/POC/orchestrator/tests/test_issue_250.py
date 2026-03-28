@@ -203,6 +203,55 @@ class TestCrossConversationRetrieval(unittest.TestCase):
         self.assertIn('steering', types)
         self.assertIn('gate_outcome', types)
 
+    def test_steering_surfaces_with_state_filter(self):
+        """Steering chunks surface even when proxy filters by CfA state.
+
+        The proxy passes state='REVIEW' (or similar) to retrieve_chunks.
+        Steering chunks have state='' because they are state-agnostic.
+        They must still appear in results — this is the core cross-conversation
+        learning path described in the proposal.
+        """
+        store_chunk(self.conn, _make_chunk(
+            chunk_type='gate_outcome', state='REVIEW', outcome='approve',
+            content='Approved plan', traces=[1, 2, 3],
+        ))
+        from projects.POC.orchestrator.proxy_memory import record_steering_chunk
+        record_steering_chunk(
+            self.conn,
+            content='Worried about the database migration',
+            source='darrell',
+            current_interaction=4,
+        )
+
+        # Proxy retrieves with state filter — steering must still appear
+        results = retrieve_chunks(
+            self.conn, state='REVIEW', current_interaction=5,
+            tau=-10.0,
+        )
+        types = {c.type for c in results}
+        self.assertIn('steering', types,
+                       'Steering chunks must surface even when proxy filters by CfA state')
+        self.assertIn('gate_outcome', types)
+
+    def test_steering_surfaces_with_task_type_filter(self):
+        """Steering chunks surface even when proxy filters by task_type."""
+        store_chunk(self.conn, _make_chunk(
+            chunk_type='gate_outcome', state='REVIEW', task_type='poc',
+            outcome='approve', traces=[1, 2, 3],
+        ))
+        from projects.POC.orchestrator.proxy_memory import record_steering_chunk
+        record_steering_chunk(
+            self.conn,
+            content='Focus on security',
+            source='darrell',
+            current_interaction=4,
+        )
+
+        results = query_chunks(self.conn, task_type='poc')
+        types = {c.type for c in results}
+        self.assertIn('steering', types,
+                       'Steering chunks must surface even when filtering by task_type')
+
     def test_om_reads_gate_outcomes(self):
         """Office manager can read gate_outcome chunks for status reporting."""
         from projects.POC.orchestrator.proxy_memory import query_gate_outcomes

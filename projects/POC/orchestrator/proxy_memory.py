@@ -339,10 +339,12 @@ def query_chunks(
     clauses = ['deleted_at IS NULL']
     params: list[str] = []
     if state:
-        clauses.append('state = ?')
+        # Steering chunks are state-agnostic — they apply regardless of CfA
+        # state and must surface in retrieval when activation/context matches.
+        clauses.append("(state = ? OR type = 'steering')")
         params.append(state)
     if task_type:
-        clauses.append('task_type = ?')
+        clauses.append("(task_type = ? OR type = 'steering')")
         params.append(task_type)
     if type:
         clauses.append('type = ?')
