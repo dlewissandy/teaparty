@@ -36,9 +36,9 @@ class WorkflowProgress(Widget):
         self._cfa_state = cfa_state
 
     def compose(self) -> ComposeResult:
-        yield Static(self._render(), id='workflow-progress-text')
+        yield Static(self._format_text(), id='workflow-progress-text')
 
-    def _render(self) -> str:
+    def _format_text(self) -> str:
         current_phase = self._cfa_phase.lower() if self._cfa_phase else ''
         if not current_phase and self._cfa_state:
             current_phase = _STATE_TO_PHASE.get(self._cfa_state, '')
@@ -73,6 +73,6 @@ class WorkflowProgress(Widget):
         self._cfa_phase = cfa_phase
         self._cfa_state = cfa_state
         try:
-            self.query_one('#workflow-progress-text', Static).update(self._render())
+            self.query_one('#workflow-progress-text', Static).update(self._format_text())
         except Exception:
             pass

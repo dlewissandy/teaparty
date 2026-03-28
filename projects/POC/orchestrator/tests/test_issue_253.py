@@ -395,7 +395,7 @@ class TestWorkflowProgress(unittest.TestCase):
         """During intent phase, INTENT is highlighted."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress(cfa_phase='intent', cfa_state='INTENT_IN_PROGRESS')
-        rendered = wp._render()
+        rendered = wp._format_text()
         self.assertIn('INTENT', rendered)
         # Intent should be active (bold yellow)
         self.assertIn('yellow', rendered)
@@ -404,7 +404,7 @@ class TestWorkflowProgress(unittest.TestCase):
         """During execution, intent and planning phases show as complete."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress(cfa_phase='execution', cfa_state='WORK_IN_PROGRESS')
-        rendered = wp._render()
+        rendered = wp._format_text()
         # Intent and planning should be green (complete)
         self.assertIn('green', rendered)
         self.assertIn('INTENT', rendered)
@@ -414,7 +414,7 @@ class TestWorkflowProgress(unittest.TestCase):
         """COMPLETED_WORK shows all phases as done."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress(cfa_state='COMPLETED_WORK')
-        rendered = wp._render()
+        rendered = wp._format_text()
         self.assertIn('DONE', rendered)
         # Should not have dim (future) phases
         self.assertNotIn('dim', rendered)
@@ -423,7 +423,7 @@ class TestWorkflowProgress(unittest.TestCase):
         """WITHDRAWN state shows withdrawn indicator."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress(cfa_state='WITHDRAWN')
-        rendered = wp._render()
+        rendered = wp._format_text()
         self.assertIn('WITHDRAWN', rendered)
         self.assertIn('red', rendered)
 
@@ -431,7 +431,7 @@ class TestWorkflowProgress(unittest.TestCase):
         """No phase/state shows everything as future (dim)."""
         from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
         wp = WorkflowProgress()
-        rendered = wp._render()
+        rendered = wp._format_text()
         self.assertIn('dim', rendered)
 
 

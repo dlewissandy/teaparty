@@ -14,9 +14,9 @@ class StatsBar(Widget):
         self._stats = stats or []
 
     def compose(self) -> ComposeResult:
-        yield Static(self._render(), id='stats-bar-text')
+        yield Static(self._format_text(), id='stats-bar-text')
 
-    def _render(self) -> str:
+    def _format_text(self) -> str:
         if not self._stats:
             return ''
         parts = []
@@ -28,6 +28,6 @@ class StatsBar(Widget):
         """Update the displayed stats."""
         self._stats = stats
         try:
-            self.query_one('#stats-bar-text', Static).update(self._render())
+            self.query_one('#stats-bar-text', Static).update(self._format_text())
         except Exception:
             pass
