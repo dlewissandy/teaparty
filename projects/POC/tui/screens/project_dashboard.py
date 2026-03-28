@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -71,17 +71,25 @@ class ProjectDashboard(Screen):
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield StatsBar(id='project-stats')
         yield VerticalScroll(
-            Vertical(
-                ContentCard('ESCALATIONS', 'escalations'),
-                ContentCard('SESSIONS', 'sessions', show_new_button=True),
-                ContentCard('JOBS', 'jobs', show_new_button=True),
-                ContentCard('WORKGROUPS', 'workgroups', show_new_button=True),
-                ContentCard('AGENTS', 'agents', show_new_button=True),
-                ContentCard('SKILLS', 'skills', show_new_button=True),
-                ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True),
-                ContentCard('HOOKS', 'hooks', show_new_button=True),
-                id='card-col',
-                classes='card-grid',
+            Horizontal(
+                Vertical(
+                    ContentCard('ESCALATIONS', 'escalations'),
+                    ContentCard('SESSIONS', 'sessions', show_new_button=True),
+                    ContentCard('JOBS', 'jobs', show_new_button=True),
+                    ContentCard('WORKGROUPS', 'workgroups', show_new_button=True),
+                    id='card-col-left',
+                    classes='card-column',
+                ),
+                Vertical(
+                    ContentCard('AGENTS', 'agents', show_new_button=True),
+                    ContentCard('SKILLS', 'skills', show_new_button=True),
+                    ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True),
+                    ContentCard('HOOKS', 'hooks', show_new_button=True),
+                    id='card-col-right',
+                    classes='card-column',
+                ),
+                id='card-cols',
+                classes='card-columns',
             ),
         )
         yield Footer()
@@ -95,11 +103,11 @@ class ProjectDashboard(Screen):
 
     def _update_grid_columns(self) -> None:
         try:
-            grid = self.query_one('#card-col')
+            cols = self.query_one('#card-cols')
             if self.size.width < 80:
-                grid.add_class('-narrow')
+                cols.add_class('-narrow')
             else:
-                grid.remove_class('-narrow')
+                cols.remove_class('-narrow')
         except Exception:
             pass
 

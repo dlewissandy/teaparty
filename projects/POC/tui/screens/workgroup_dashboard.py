@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header
 
@@ -33,14 +33,22 @@ class WorkgroupDashboard(Screen):
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield StatsBar(id='wg-stats')
         yield VerticalScroll(
-            Vertical(
-                ContentCard('ESCALATIONS', 'escalations'),
-                ContentCard('SESSIONS', 'sessions', show_new_button=True),
-                ContentCard('ACTIVE TASKS', 'active_tasks'),
-                ContentCard('AGENTS', 'agents', show_new_button=True),
-                ContentCard('SKILLS', 'skills', show_new_button=True),
-                id='card-col',
-                classes='card-grid',
+            Horizontal(
+                Vertical(
+                    ContentCard('ESCALATIONS', 'escalations'),
+                    ContentCard('SESSIONS', 'sessions', show_new_button=True),
+                    ContentCard('ACTIVE TASKS', 'active_tasks'),
+                    id='card-col-left',
+                    classes='card-column',
+                ),
+                Vertical(
+                    ContentCard('AGENTS', 'agents', show_new_button=True),
+                    ContentCard('SKILLS', 'skills', show_new_button=True),
+                    id='card-col-right',
+                    classes='card-column',
+                ),
+                id='card-cols',
+                classes='card-columns',
             ),
         )
         yield Footer()
