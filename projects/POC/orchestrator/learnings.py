@@ -587,6 +587,7 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
                 continue
 
             updated = []
+            changed = False
             count = 0
             for entry in entries:
                 if entry.id not in retrieved_ids or entry.status != 'active':
@@ -602,11 +603,18 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
                         last_reinforced=today,
                     ))
                     count += 1
+                    changed = True
                 else:
-                    # Not aligned — leave unchanged (floor at 0)
-                    updated.append(entry)
+                    # Not aligned — decrement with floor at 0 (Issue #199)
+                    new_count = max(0, entry.reinforcement_count - 1)
+                    if new_count != entry.reinforcement_count:
+                        changed = True
+                    updated.append(_replace(
+                        entry,
+                        reinforcement_count=new_count,
+                    ))
 
-            if count > 0:
+            if changed:
                 try:
                     Path(mem_path).write_text(serialize_memory_file(updated))
                     total_reinforced += count
@@ -1341,7 +1349,11 @@ def write_assumption_checkpoint(
 
     Called at CfA phase transitions to capture what the completing phase
     assumed and produced.  The post-session ``_promote_in_flight`` pipeline
-    reads this file and promotes it into project-level task learnings.
+    reads this file as context for LLM-based extraction, so the entry must
+    include substantive content — not just metadata.
+
+    The artifact_summary should contain the actual artifact content (INTENT.md
+    or PLAN.md text) so the downstream Haiku call has real signal to work with.
     """
     entry = {
         'phase': phase,

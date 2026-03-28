@@ -266,22 +266,52 @@ class TestAccuracyAwareReinforcement(unittest.TestCase):
         # Should be reinforced (count > 0)
         self.assertGreaterEqual(entries[0].reinforcement_count, 1)
 
-    def test_reinforcement_count_never_below_zero(self):
-        """Negative reinforcement has a floor at 0."""
+    def test_decrements_non_aligned_entries(self):
+        """Entries retrieved but not aligned with outcomes get decremented."""
         from projects.POC.orchestrator.learnings import _reinforce_retrieved
 
-        entry = self._make_memory_entry('entry-floor', 'Some learning', reinforcement_count=0)
+        # Entry about database backups, but session was about UI refactoring
+        entry = self._make_memory_entry(
+            'entry-misaligned', 'Always backup database before migration',
+            reinforcement_count=3,
+        )
         self._make_tasks_file([entry])
-        self._make_retrieved_ids(['entry-floor'])
-        # Empty exec stream — no alignment signal
-        self._make_exec_stream([])
+        self._make_retrieved_ids(['entry-misaligned'])
+        # Exec stream about completely unrelated work
+        self._make_exec_stream([
+            'Refactoring the CSS layout for the dashboard component',
+            'Updated flexbox properties and grid alignment',
+        ])
 
         _reinforce_retrieved(infra_dir=self.infra_dir, project_dir=self.project_dir)
 
         from projects.POC.scripts.memory_entry import parse_memory_file
         content = Path(os.path.join(self.project_dir, 'tasks', 'test-learnings.md')).read_text()
         entries = parse_memory_file(content)
-        self.assertGreaterEqual(entries[0].reinforcement_count, 0)
+        # Should be decremented from 3 to 2
+        self.assertEqual(entries[0].reinforcement_count, 2)
+
+    def test_reinforcement_count_never_below_zero(self):
+        """Negative reinforcement has a floor at 0."""
+        from projects.POC.orchestrator.learnings import _reinforce_retrieved
+
+        entry = self._make_memory_entry(
+            'entry-floor', 'Obscure database migration pattern',
+            reinforcement_count=0,
+        )
+        self._make_tasks_file([entry])
+        self._make_retrieved_ids(['entry-floor'])
+        # Exec stream about completely unrelated work
+        self._make_exec_stream([
+            'Refactoring the CSS layout for the dashboard component',
+        ])
+
+        _reinforce_retrieved(infra_dir=self.infra_dir, project_dir=self.project_dir)
+
+        from projects.POC.scripts.memory_entry import parse_memory_file
+        content = Path(os.path.join(self.project_dir, 'tasks', 'test-learnings.md')).read_text()
+        entries = parse_memory_file(content)
+        self.assertEqual(entries[0].reinforcement_count, 0)
 
 
 # ── 4. Engine: assumption checkpoints at phase completion ────────────────────
@@ -338,6 +368,29 @@ class TestEngineAssumptionCheckpoints(unittest.TestCase):
             self.assertTrue(os.path.exists(path))
             entry = json.loads(Path(path).read_text().strip())
             self.assertEqual(entry['phase'], 'intent')
+        finally:
+            import shutil
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_engine_includes_artifact_content_in_checkpoint(self):
+        """_write_assumption_checkpoint reads INTENT.md and includes its content."""
+        tmpdir = tempfile.mkdtemp()
+        try:
+            orch = self._make_orchestrator(tmpdir)
+
+            # Write an INTENT.md artifact
+            intent_content = '# Intent\n\nRefactor the auth module to use OAuth2.'
+            _write(os.path.join(tmpdir, 'INTENT.md'), intent_content)
+
+            # Call the engine method directly
+            orch._write_assumption_checkpoint('intent')
+
+            path = os.path.join(tmpdir, '.assumptions.jsonl')
+            self.assertTrue(os.path.exists(path))
+            entry = json.loads(Path(path).read_text().strip())
+            # Artifact content should be in the summary, not just "phase completed"
+            self.assertIn('OAuth2', entry['artifact_summary'])
+            self.assertNotIn('phase completed', entry['artifact_summary'])
         finally:
             import shutil
             shutil.rmtree(tmpdir, ignore_errors=True)
