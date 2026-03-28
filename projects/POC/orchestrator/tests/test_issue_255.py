@@ -152,12 +152,22 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
         msg = pre_seeded_message('projects', nav)
         self.assertIsNone(msg)
 
-    def test_jobs_card_returns_none(self):
-        """Jobs card returns None — handled by LaunchScreen, not pre-seed."""
+    def test_jobs_card_at_project_level(self):
+        """Jobs card at project level includes project name."""
         from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
-        nav = _make_nav_context(level=DashboardLevel.PROJECT)
+        nav = _make_nav_context(
+            level=DashboardLevel.PROJECT,
+            project_slug='POC Project',
+        )
         msg = pre_seeded_message('jobs', nav)
-        self.assertIsNone(msg)
+        self.assertEqual(msg, 'I would like to create a new job in the POC Project project')
+
+    def test_jobs_card_at_management_level(self):
+        """Jobs card at management level produces generic message."""
+        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
+        msg = pre_seeded_message('jobs', nav)
+        self.assertEqual(msg, 'I would like to create a new job')
 
 
 class TestOpenChatWindowPreSeed(unittest.TestCase):
