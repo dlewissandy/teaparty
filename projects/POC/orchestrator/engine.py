@@ -633,15 +633,16 @@ class Orchestrator:
                     and not is_globally_terminal(self.cfa.state)):
                 await self._deliver_intervention()
 
+            # Turn boundary: update scratch file (Issue #261).
+            # Must happen BEFORE the compaction check so that
+            # .context/scratch.md exists when compaction fires and
+            # the compact prompt tells the agent to read it.
+            if not is_globally_terminal(self.cfa.state):
+                self._update_scratch(phase_name)
+
             # Turn boundary: check context budget for compaction (Issue #260).
             if not is_globally_terminal(self.cfa.state):
                 await self._check_context_budget(actor_result, phase_name)
-
-            # Turn boundary: update scratch file (Issue #261).
-            # Serialize the in-memory model to .context/scratch.md so it
-            # exists before any compaction fires.
-            if not is_globally_terminal(self.cfa.state):
-                self._update_scratch(phase_name)
 
             # Turn boundary: check cost budget (Issue #262).
             # Warn at 80%, pause at 100%. Pausing means withholding the
@@ -1084,16 +1085,38 @@ class Orchestrator:
     def _write_assumption_checkpoint(self, phase_name: str) -> None:
         """Write an assumption checkpoint at phase completion (Issue #199).
 
-        Captures the phase that just completed and the CfA state, so the
-        post-session in-flight extraction pipeline has input to work with.
+        Reads the phase's artifact (INTENT.md or PLAN.md) and includes its
+        content in the checkpoint, so the downstream in-flight extraction
+        pipeline has substantive assumptions to work with — not just metadata.
         """
+        from pathlib import Path as _Path
+
+        # Read the artifact that this phase produced
+        artifact_names = {
+            'intent': 'INTENT.md',
+            'planning': 'PLAN.md',
+        }
+        artifact_name = artifact_names.get(phase_name)
+        artifact_content = ''
+        if artifact_name:
+            artifact_path = os.path.join(self.infra_dir, artifact_name)
+            if os.path.isfile(artifact_path):
+                try:
+                    artifact_content = _Path(artifact_path).read_text(errors='replace')
+                except OSError:
+                    pass
+
+        summary = artifact_content if artifact_content.strip() else (
+            f'{phase_name} phase completed at {self.cfa.state}'
+        )
+
         try:
             from projects.POC.orchestrator.learnings import write_assumption_checkpoint
             write_assumption_checkpoint(
                 infra_dir=self.infra_dir,
                 phase=phase_name,
                 cfa_state=self.cfa.state,
-                artifact_summary=f'{phase_name} phase completed at {self.cfa.state}',
+                artifact_summary=summary,
             )
         except Exception as exc:
             _log.warning('Assumption checkpoint failed (non-fatal): %s', exc)

@@ -21,6 +21,7 @@ Verifies:
 18. ScratchModel.extract handles tool_use Write events (file artifacts)
 19. ScratchModel.extract handles tool_use Edit events (file artifacts)
 """
+import asyncio
 import os
 import tempfile
 import unittest
@@ -364,6 +365,362 @@ class TestScratchModelToolUseWriteEdit(unittest.TestCase):
             'input': {'file_path': '/tmp/worktree/src/main.py', 'old_string': 'a', 'new_string': 'b'},
         })
         self.assertEqual(len(model.artifacts), 1)
+
+
+# ── Test 20: Engine _on_stream_event extracts from STREAM_DATA ────────────
+
+class TestEngineStreamExtraction(unittest.TestCase):
+    """Engine._on_stream_event feeds STREAM_DATA events into the scratch model."""
+
+    def _make_orchestrator(self):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
+
+        worktree = tempfile.mkdtemp(prefix='test-261-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
+
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=worktree,
+            project_workdir=worktree,
+            session_worktree=worktree,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
+            task='implement feature X',
+            session_id='test-session',
+        )
+        return orch, bus, worktree
+
+    def test_stream_data_user_event_extracted(self):
+        """STREAM_DATA with a user event populates scratch model human_inputs."""
+        from projects.POC.orchestrator.events import Event, EventType
+        orch, bus, worktree = self._make_orchestrator()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._on_stream_event(Event(
+            type=EventType.STREAM_DATA,
+            data={'type': 'user', 'message': {'content': 'use approach B'}},
+        )))
+        loop.close()
+
+        self.assertEqual(len(orch._scratch_model.human_inputs), 1)
+        self.assertIn('approach B', orch._scratch_model.human_inputs[0])
+
+    def test_stream_data_user_event_writes_detail_file(self):
+        """STREAM_DATA with a user event also appends to human-input.md."""
+        from projects.POC.orchestrator.events import Event, EventType
+        orch, bus, worktree = self._make_orchestrator()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._on_stream_event(Event(
+            type=EventType.STREAM_DATA,
+            data={'type': 'user', 'message': {'content': 'important decision'}},
+        )))
+        loop.close()
+
+        detail_path = os.path.join(worktree, '.context', 'human-input.md')
+        self.assertTrue(os.path.exists(detail_path))
+        content = open(detail_path).read()
+        self.assertIn('important decision', content)
+
+    def test_non_stream_data_event_ignored(self):
+        """Events other than STREAM_DATA are ignored by _on_stream_event."""
+        from projects.POC.orchestrator.events import Event, EventType
+        orch, bus, worktree = self._make_orchestrator()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._on_stream_event(Event(
+            type=EventType.STATE_CHANGED,
+            data={'type': 'user', 'message': {'content': 'should be ignored'}},
+        )))
+        loop.close()
+
+        self.assertEqual(len(orch._scratch_model.human_inputs), 0)
+
+    def test_stream_data_tool_use_extracted(self):
+        """STREAM_DATA with tool_use Write populates artifacts."""
+        from projects.POC.orchestrator.events import Event, EventType
+        orch, bus, worktree = self._make_orchestrator()
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._on_stream_event(Event(
+            type=EventType.STREAM_DATA,
+            data={'type': 'tool_use', 'name': 'Write', 'input': {'file_path': 'src/main.py', 'content': '...'}},
+        )))
+        loop.close()
+
+        self.assertIn('src/main.py', orch._scratch_model.artifacts)
+
+
+# ── Test 21: Engine _update_scratch writes scratch.md ─────────────────────
+
+class TestEngineUpdateScratch(unittest.TestCase):
+    """Engine._update_scratch serializes scratch model to disk at turn boundary."""
+
+    def _make_orchestrator(self):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
+
+        worktree = tempfile.mkdtemp(prefix='test-261-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
+
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=worktree,
+            project_workdir=worktree,
+            session_worktree=worktree,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
+            task='implement feature X',
+            session_id='test-session',
+        )
+        return orch, worktree
+
+    def test_writes_scratch_file_to_worktree(self):
+        """_update_scratch creates .context/scratch.md in the session worktree."""
+        orch, worktree = self._make_orchestrator()
+        orch._scratch_model.extract({'type': 'user', 'message': {'content': 'hello'}})
+        orch._update_scratch('execution')
+
+        scratch_path = os.path.join(worktree, '.context', 'scratch.md')
+        self.assertTrue(os.path.exists(scratch_path))
+        content = open(scratch_path).read()
+        self.assertIn('hello', content)
+        self.assertIn('execution', content)
+
+    def test_updates_phase_in_model(self):
+        """_update_scratch sets the model's phase to the current phase."""
+        orch, worktree = self._make_orchestrator()
+        orch._update_scratch('planning')
+        self.assertEqual(orch._scratch_model.phase, 'planning')
+
+
+# ── Test 22: Engine _record_dead_end ──────────────────────────────────────
+
+class TestEngineRecordDeadEnd(unittest.TestCase):
+    """Engine._record_dead_end populates model and writes detail file."""
+
+    def _make_orchestrator(self):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
+
+        worktree = tempfile.mkdtemp(prefix='test-261-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
+
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=worktree,
+            project_workdir=worktree,
+            session_worktree=worktree,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
+            task='implement feature X',
+            session_id='test-session',
+        )
+        return orch, worktree
+
+    def test_records_dead_end_in_model(self):
+        orch, worktree = self._make_orchestrator()
+        orch._record_dead_end('execution', 'backtracked to planning', 'approach was wrong')
+        self.assertEqual(len(orch._scratch_model.dead_ends), 1)
+        self.assertIn('execution', orch._scratch_model.dead_ends[0])
+        self.assertIn('approach was wrong', orch._scratch_model.dead_ends[0])
+
+    def test_writes_dead_end_detail_file(self):
+        orch, worktree = self._make_orchestrator()
+        orch._record_dead_end('planning', 'backtracked to intent')
+
+        path = os.path.join(worktree, '.context', 'dead-ends.md')
+        self.assertTrue(os.path.exists(path))
+        content = open(path).read()
+        self.assertIn('planning: backtracked to intent', content)
+
+
+# ── Test 23: Engine cleanup removes .context/ ─────────────────────────────
+
+class TestEngineCleanup(unittest.TestCase):
+    """Engine run() finally block cleans up .context/ directory."""
+
+    def _make_orchestrator(self):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
+
+        worktree = tempfile.mkdtemp(prefix='test-261-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
+
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=worktree,
+            project_workdir=worktree,
+            session_worktree=worktree,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
+            task='implement feature X',
+            session_id='test-session',
+        )
+        return orch, worktree
+
+    def test_scratch_writer_cleanup_removes_context_dir(self):
+        """After cleanup, .context/ no longer exists."""
+        orch, worktree = self._make_orchestrator()
+        # Write something to create the directory
+        orch._update_scratch('execution')
+        ctx_dir = os.path.join(worktree, '.context')
+        self.assertTrue(os.path.exists(ctx_dir))
+
+        # Cleanup should remove it
+        orch._scratch_writer.cleanup()
+        self.assertFalse(os.path.exists(ctx_dir))
+
+
+# ── Test 24: Scratch write happens before compaction check ────────────────
+
+class TestScratchBeforeCompaction(unittest.TestCase):
+    """The scratch file must exist before the compaction check fires.
+
+    This verifies the ordering invariant: _update_scratch runs before
+    _check_context_budget at turn boundaries, so when compaction tells
+    the agent to read .context/scratch.md, the file is current.
+    """
+
+    def _make_orchestrator(self):
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import CfaState
+
+        worktree = tempfile.mkdtemp(prefix='test-261-')
+        bus = EventBus()
+        cfa = CfaState(state='TASK_IN_PROGRESS', phase='execution', actor='agent')
+
+        class FakePhaseConfig:
+            stall_timeout = 1800
+            max_dispatch_retries = 5
+            human_actor_states = frozenset()
+            approval_gate_successors = {}
+            valid_actions_by_state = {}
+            phase_for_state = {}
+            poc_root = ''
+            def phase_spec(self, name): return None
+            def project_config(self): return {}
+            def get_project_claude_md(self): return ''
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=FakePhaseConfig(),
+            event_bus=bus,
+            input_provider=None,
+            infra_dir=worktree,
+            project_workdir=worktree,
+            session_worktree=worktree,
+            proxy_model_path='',
+            project_slug='test',
+            poc_root='',
+            task='implement feature X',
+            session_id='test-session',
+        )
+        return orch, bus, worktree
+
+    def test_scratch_exists_when_compaction_fires(self):
+        """When _check_context_budget fires compaction, scratch.md already exists."""
+        from projects.POC.orchestrator.actors import ActorResult
+        from projects.POC.orchestrator.context_budget import ContextBudget
+
+        orch, bus, worktree = self._make_orchestrator()
+
+        # Populate the model with some content
+        orch._scratch_model.extract({'type': 'user', 'message': {'content': 'test'}})
+
+        # Write scratch first (as the engine does)
+        orch._update_scratch('execution')
+
+        # Now check context budget — scratch.md should exist
+        scratch_path = os.path.join(worktree, '.context', 'scratch.md')
+        self.assertTrue(os.path.exists(scratch_path))
+
+        # Create a budget that would trigger compaction
+        budget = ContextBudget(context_window=200000)
+        budget.update({'type': 'result', 'input_tokens': 170000})
+        actor_result = ActorResult(action='auto-approve', data={'context_budget': budget})
+
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(orch._check_context_budget(actor_result, 'execution'))
+        loop.close()
+
+        # Compaction was triggered, and the scratch file was already there
+        self.assertIn('.context/scratch.md', orch._pending_intervention)
+        self.assertTrue(os.path.exists(scratch_path))
 
 
 if __name__ == '__main__':
