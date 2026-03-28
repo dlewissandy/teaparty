@@ -151,6 +151,9 @@ class MessageBusInputProvider:
     When called, sends the agent's question to the conversation as an
     'orchestrator' message, then polls for a 'human' response.  This
     preserves the full exchange as an audit trail in the message bus.
+
+    Exposes ``is_waiting`` and ``current_request`` for TUI compatibility
+    with the older TUIInputProvider interface.
     """
 
     def __init__(
@@ -162,21 +165,39 @@ class MessageBusInputProvider:
         self.bus = bus
         self.conversation_id = conversation_id
         self.poll_interval = poll_interval
+        self._waiting = False
+        self._current_request: InputRequest | None = None
+
+    @property
+    def is_waiting(self) -> bool:
+        """True when the orchestrator is blocked waiting for input."""
+        return self._waiting
+
+    @property
+    def current_request(self) -> InputRequest | None:
+        """The InputRequest the orchestrator is waiting on, or None."""
+        return self._current_request if self._waiting else None
 
     async def __call__(self, request: InputRequest) -> str:
         """Send the question and poll for a human response."""
-        # Record the question
-        self.bus.send(
-            self.conversation_id,
-            'orchestrator',
-            request.bridge_text,
-        )
+        self._current_request = request
+        self._waiting = True
+        try:
+            # Record the question
+            self.bus.send(
+                self.conversation_id,
+                'orchestrator',
+                request.bridge_text,
+            )
 
-        # Poll for human response
-        since = time.time()
-        while True:
-            messages = self.bus.receive(self.conversation_id, since_timestamp=since)
-            for msg in messages:
-                if msg.sender == 'human':
-                    return msg.content
-            await asyncio.sleep(self.poll_interval)
+            # Poll for human response
+            since = time.time()
+            while True:
+                messages = self.bus.receive(self.conversation_id, since_timestamp=since)
+                for msg in messages:
+                    if msg.sender == 'human':
+                        return msg.content
+                await asyncio.sleep(self.poll_interval)
+        finally:
+            self._waiting = False
+            self._current_request = None

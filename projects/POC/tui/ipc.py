@@ -1,9 +1,16 @@
-"""FIFO-based input request/response protocol for TUI ↔ session IPC.
+"""Input request/response protocol for TUI ↔ session IPC.
 
-When POC_TUI_MODE=1, the orchestration scripts (ui.sh) write an input
-request to .input-request.json and block reading from .input-response.fifo.
-The TUI polls for request files, shows the input widget, and writes the
-user's response to the FIFO to unblock the session.
+Two transport mechanisms:
+
+  1. Message bus (Issue #200): SQLite-backed message bus at {infra_dir}/messages.db.
+     The orchestrator sends questions via the bus and polls for human responses.
+     The TUI writes responses via send_message_bus_response().
+
+  2. FIFO (legacy): .input-request.json + .input-response.fifo for shell-launched
+     sessions that predate the Python orchestrator.
+
+The message bus is the primary path for sessions launched via the Python
+orchestrator.  FIFO is retained as a fallback for legacy compatibility.
 """
 from __future__ import annotations
 
@@ -89,3 +96,64 @@ def create_fifo(infra_dir: str) -> str:
     if not os.path.exists(fifo_path):
         os.mkfifo(fifo_path)
     return fifo_path
+
+
+# ── Message bus transport (Issue #200) ──────────────────────────────────────
+
+
+def check_message_bus_request(
+    bus_path: str, conversation_id: str,
+) -> dict | None:
+    """Check if the orchestrator is waiting for input via the message bus.
+
+    Looks for the most recent 'orchestrator' message that has no subsequent
+    'human' response.  Returns a dict with 'bridge_text' (the question),
+    or None if no pending question.
+    """
+    if not os.path.exists(bus_path):
+        return None
+    try:
+        from projects.POC.orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(bus_path)
+        try:
+            messages = bus.receive(conversation_id)
+            if not messages:
+                return None
+            # Find last orchestrator message with no human response after it
+            last_orch_idx = -1
+            for i, msg in enumerate(messages):
+                if msg.sender == 'orchestrator':
+                    last_orch_idx = i
+            if last_orch_idx < 0:
+                return None
+            # Check if there's a human response after it
+            for msg in messages[last_orch_idx + 1:]:
+                if msg.sender == 'human':
+                    return None  # Already answered
+            return {'bridge_text': messages[last_orch_idx].content}
+        finally:
+            bus.close()
+    except Exception:
+        return None
+
+
+def send_message_bus_response(
+    bus_path: str, conversation_id: str, response: str,
+) -> bool:
+    """Send a human response to the message bus.
+
+    The orchestrator's MessageBusInputProvider polls for 'human' messages
+    and will pick this up.
+
+    Returns True on success, False on failure.
+    """
+    try:
+        from projects.POC.orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(bus_path)
+        try:
+            bus.send(conversation_id, 'human', response)
+            return True
+        finally:
+            bus.close()
+    except Exception:
+        return False

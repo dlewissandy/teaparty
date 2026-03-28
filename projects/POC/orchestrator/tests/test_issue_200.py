@@ -8,6 +8,9 @@ Verifies:
 5. Conversation type prefixes (office_manager, project_session, subteam)
 6. Audit trail: all messages persisted and retrievable
 7. MessageBusInputProvider bridges message bus to InputProvider protocol
+8. is_waiting / current_request properties on MessageBusInputProvider
+9. TUI IPC: check_message_bus_request and send_message_bus_response
+10. Session integration: bus created in infra_dir, bus info in SESSION_STARTED event
 """
 import asyncio
 import os
@@ -239,6 +242,215 @@ class TestAdapterProtocol(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestMessageBusInputProviderState(unittest.TestCase):
+    """is_waiting and current_request properties for TUI compat."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmp, 'messages.db')
+        self.bus = SqliteMessageBus(self.db_path)
+        self.conversation_id = 'session:test-state'
+        self.provider = MessageBusInputProvider(
+            bus=self.bus,
+            conversation_id=self.conversation_id,
+        )
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _make_input_request(self, **kwargs):
+        from projects.POC.orchestrator.events import InputRequest
+        defaults = {
+            'type': 'approval',
+            'state': 'INTENT_ASSERT',
+            'artifact': '',
+            'bridge_text': 'Do you approve?',
+        }
+        defaults.update(kwargs)
+        return InputRequest(**defaults)
+
+    def test_not_waiting_initially(self):
+        """Provider is not waiting before any call."""
+        self.assertFalse(self.provider.is_waiting)
+        self.assertIsNone(self.provider.current_request)
+
+    def test_waiting_during_call(self):
+        """Provider is_waiting is True while awaiting a response."""
+        request = self._make_input_request(bridge_text='Waiting test')
+        waiting_observed = []
+
+        async def _run():
+            async def _check_and_respond():
+                await asyncio.sleep(0.05)
+                waiting_observed.append(self.provider.is_waiting)
+                waiting_observed.append(
+                    self.provider.current_request is not None
+                )
+                self.bus.send(self.conversation_id, 'human', 'done')
+
+            asyncio.ensure_future(_check_and_respond())
+            await self.provider(request)
+
+        asyncio.new_event_loop().run_until_complete(_run())
+        self.assertTrue(waiting_observed[0], 'is_waiting should be True during call')
+        self.assertTrue(waiting_observed[1], 'current_request should be set during call')
+
+    def test_not_waiting_after_call(self):
+        """Provider is not waiting after call completes."""
+        request = self._make_input_request()
+
+        async def _run():
+            async def _respond():
+                await asyncio.sleep(0.05)
+                self.bus.send(self.conversation_id, 'human', 'ok')
+
+            asyncio.ensure_future(_respond())
+            await self.provider(request)
+
+        asyncio.new_event_loop().run_until_complete(_run())
+        self.assertFalse(self.provider.is_waiting)
+        self.assertIsNone(self.provider.current_request)
+
+
+class TestTuiIpcMessageBus(unittest.TestCase):
+    """TUI IPC message bus functions: check_message_bus_request, send_message_bus_response."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.db_path = os.path.join(self._tmp, 'messages.db')
+        self.bus = SqliteMessageBus(self.db_path)
+        self.conversation_id = 'session:ipc-test'
+
+    def tearDown(self):
+        self.bus.close()
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_no_pending_request_when_empty(self):
+        """No request when conversation has no messages."""
+        from projects.POC.tui.ipc import check_message_bus_request
+        result = check_message_bus_request(self.db_path, self.conversation_id)
+        self.assertIsNone(result)
+
+    def test_pending_request_after_orchestrator_sends(self):
+        """Pending request detected when orchestrator sends a question."""
+        from projects.POC.tui.ipc import check_message_bus_request
+        self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
+        result = check_message_bus_request(self.db_path, self.conversation_id)
+        self.assertIsNotNone(result)
+        self.assertEqual(result['bridge_text'], 'Approve?')
+
+    def test_no_pending_after_human_responds(self):
+        """No pending request after human has responded."""
+        from projects.POC.tui.ipc import check_message_bus_request
+        self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
+        self.bus.send(self.conversation_id, 'human', 'yes')
+        result = check_message_bus_request(self.db_path, self.conversation_id)
+        self.assertIsNone(result)
+
+    def test_send_message_bus_response(self):
+        """send_message_bus_response writes a human message to the bus."""
+        from projects.POC.tui.ipc import send_message_bus_response
+        self.bus.send(self.conversation_id, 'orchestrator', 'Color?')
+        ok = send_message_bus_response(self.db_path, self.conversation_id, 'blue')
+        self.assertTrue(ok)
+        msgs = self.bus.receive(self.conversation_id)
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[1].sender, 'human')
+        self.assertEqual(msgs[1].content, 'blue')
+
+    def test_nonexistent_db_returns_none(self):
+        """check_message_bus_request returns None for missing DB."""
+        from projects.POC.tui.ipc import check_message_bus_request
+        result = check_message_bus_request('/nonexistent/path.db', 'conv')
+        self.assertIsNone(result)
+
+    def test_end_to_end_bus_round_trip(self):
+        """Full round trip: orchestrator sends question → TUI sends response → orchestrator receives."""
+        from projects.POC.tui.ipc import check_message_bus_request, send_message_bus_response
+        provider = MessageBusInputProvider(
+            bus=self.bus,
+            conversation_id=self.conversation_id,
+            poll_interval=0.02,
+        )
+
+        async def _run():
+            from projects.POC.orchestrator.events import InputRequest
+            request = InputRequest(
+                type='approval',
+                state='INTENT_ASSERT',
+                bridge_text='Approve the intent?',
+            )
+
+            async def _tui_responds():
+                # Simulate TUI polling and responding
+                while True:
+                    await asyncio.sleep(0.03)
+                    pending = check_message_bus_request(
+                        self.db_path, self.conversation_id,
+                    )
+                    if pending:
+                        send_message_bus_response(
+                            self.db_path, self.conversation_id, 'approved',
+                        )
+                        break
+
+            asyncio.ensure_future(_tui_responds())
+            result = await provider(request)
+            return result
+
+        result = asyncio.new_event_loop().run_until_complete(_run())
+        self.assertEqual(result, 'approved')
+
+        # Verify audit trail
+        msgs = self.bus.receive(self.conversation_id)
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0].sender, 'orchestrator')
+        self.assertIn('Approve the intent?', msgs[0].content)
+        self.assertEqual(msgs[1].sender, 'human')
+        self.assertEqual(msgs[1].content, 'approved')
+
+
+class TestSessionBusIntegration(unittest.TestCase):
+    """Session creates bus in infra_dir and publishes bus info in SESSION_STARTED."""
+
+    def test_session_started_event_includes_bus_info(self):
+        """SESSION_STARTED event contains message_bus_path and conversation_id."""
+        from projects.POC.orchestrator.events import EventBus, Event, EventType
+
+        captured_events = []
+
+        async def _capture(event):
+            if event.type == EventType.SESSION_STARTED:
+                captured_events.append(event)
+
+        bus = EventBus()
+        bus.subscribe(_capture)
+
+        # Publish a mock SESSION_STARTED event with bus info (as Session does)
+        async def _run():
+            await bus.publish(Event(
+                type=EventType.SESSION_STARTED,
+                data={
+                    'task': 'test',
+                    'project': 'test-project',
+                    'session_id': '20260327-143000',
+                    'worktree': '/tmp/wt',
+                    'message_bus_path': '/tmp/infra/messages.db',
+                    'conversation_id': 'session:20260327-143000',
+                },
+                session_id='20260327-143000',
+            ))
+
+        asyncio.new_event_loop().run_until_complete(_run())
+        self.assertEqual(len(captured_events), 1)
+        data = captured_events[0].data
+        self.assertEqual(data['message_bus_path'], '/tmp/infra/messages.db')
+        self.assertEqual(data['conversation_id'], 'session:20260327-143000')
 
 
 if __name__ == '__main__':

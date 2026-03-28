@@ -331,28 +331,41 @@ class DrilldownScreen(Screen):
         prompt_label = self.query_one('#input-prompt', Static)
         was_visible = input_area.has_class('visible')
 
-        # ── In-process path: TUIInputProvider (Python orchestrator) ──
-        if self._in_proc and self._in_proc.input_provider.is_waiting:
+        # ── In-process path: check message bus for pending questions (Issue #200) ──
+        # Falls back to TUIInputProvider.is_waiting for backward compat.
+        _bus_bridge_text = ''
+        _input_waiting = False
+        if self._in_proc and self._in_proc.message_bus_path and self._in_proc.conversation_id:
+            from projects.POC.tui.ipc import check_message_bus_request
+            _bus_req = check_message_bus_request(
+                self._in_proc.message_bus_path,
+                self._in_proc.conversation_id,
+            )
+            if _bus_req is not None:
+                _input_waiting = True
+                _bus_bridge_text = _bus_req.get('bridge_text', '')
+        if not _input_waiting and self._in_proc and self._in_proc.input_provider.is_waiting:
+            _input_waiting = True
             req = self._in_proc.input_provider.current_request
+            if req and req.bridge_text:
+                _bus_bridge_text = req.bridge_text
+
+        if _input_waiting and self._in_proc:
             self._input_cooldown = False
             if not self._input_latched:
                 self._input_latched = True
                 input_area.add_class('visible')
                 state = self._session.cfa_state if self._session else ''
-                # Use bridge_text as the prompt when available (issue #137)
-                if req and req.bridge_text:
-                    label = req.bridge_text
-                else:
-                    label = _human_label(state)
+                label = _bus_bridge_text if _bus_bridge_text else _human_label(state)
                 prompt_label.update(f'[bold yellow]{label}[/bold yellow]')
-                # Display bridge_text (dialog reply / review summary) in activity log
-                if req and req.bridge_text and req.bridge_text != self._shown_dialog_reply:
-                    self._shown_dialog_reply = req.bridge_text
+                # Display bridge_text in activity log
+                if _bus_bridge_text and _bus_bridge_text != self._shown_dialog_reply:
+                    self._shown_dialog_reply = _bus_bridge_text
                     log = self.query_one('#activity-log', RichLog)
                     from rich.text import Text
                     t = Text()
                     t.append('[agent] ', style='bold cyan')
-                    t.append(req.bridge_text)
+                    t.append(_bus_bridge_text)
                     log.write(t)
                     if not self._scroll_locked:
                         log.scroll_end(animate=False)
@@ -427,15 +440,44 @@ class DrilldownScreen(Screen):
                 input_area.remove_class('visible')
 
     def _submit_input(self) -> None:
-        """Handle user input submission."""
+        """Handle user input submission.
+
+        Sends the human response via the message bus (Issue #200).
+        Falls back to FIFO IPC for legacy shell-launched sessions.
+        """
         field = self.query_one('#input-field', TextArea)
         response = field.text.strip()
         if not response:
             return
 
-        # ── In-process path: resolve TUIInputProvider's Future directly ──
-        if self._in_proc and self._in_proc.input_provider.is_waiting:
-            self._in_proc.input_provider.provide_response(response)
+        sent = False
+
+        # ── Message bus path (Issue #200) ──
+        # In-process sessions: use the bus from InProcessSession.
+        # External sessions: open the bus from {infra_dir}/messages.db.
+        if self._in_proc and self._in_proc.message_bus_path and self._in_proc.conversation_id:
+            from projects.POC.tui.ipc import send_message_bus_response
+            send_message_bus_response(
+                self._in_proc.message_bus_path,
+                self._in_proc.conversation_id,
+                response,
+            )
+            sent = True
+        elif self._session and self._session.infra_dir and not self._session.is_orphaned:
+            # Try message bus from infra_dir (external sessions with bus)
+            from projects.POC.tui.ipc import send_message_bus_response
+            bus_path = os.path.join(self._session.infra_dir, 'messages.db')
+            if os.path.exists(bus_path):
+                conv_id = f'session:{os.path.basename(self._session.infra_dir)}'
+                send_message_bus_response(bus_path, conv_id, response)
+                sent = True
+            else:
+                # ── FIFO IPC fallback (legacy shell-launched sessions) ──
+                from projects.POC.tui.ipc import send_response
+                send_response(self._session.infra_dir, response)
+                sent = True
+
+        if sent:
             log = self.query_one('#activity-log', RichLog)
             from rich.text import Text
             text = Text()
@@ -444,24 +486,6 @@ class DrilldownScreen(Screen):
             log.write(text)
             if not self._scroll_locked:
                 log.scroll_end(animate=False)
-            self._input_latched = False
-            self._input_cooldown = True
-            field.clear()
-            self.query_one('#input-area').remove_class('visible')
-            self.query_one('#activity-log', RichLog).focus()
-            return
-
-        # ── FIFO IPC path (shell-launched sessions) ──
-        # Orphan recovery is handled by the recovery modal, not text input.
-        if self._session and self._session.infra_dir and not self._session.is_orphaned:
-            from projects.POC.tui.ipc import send_response
-            send_response(self._session.infra_dir, response)
-            log = self.query_one('#activity-log', RichLog)
-            from rich.text import Text
-            text = Text()
-            text.append('[you] ', style='bold green')
-            text.append(response)
-            log.write(text)
 
         # Release latch, enter cooldown (persistent until CfA state advances)
         self._input_latched = False
@@ -534,16 +558,24 @@ class DrilldownScreen(Screen):
             log.write(t)
             return
 
-        bus = EventBus()
+        event_bus = EventBus()
         provider = TUIInputProvider()
 
         in_proc = InProcessSession(
             session_id=self.session_id,
             project=self._session.project if self._session else '',
             task=self._session.task if self._session else '',
-            event_bus=bus,
+            event_bus=event_bus,
             input_provider=provider,
         )
+
+        # Capture message bus info from SESSION_STARTED event (Issue #200)
+        async def on_session_started(event: Event) -> None:
+            if event.type == EventType.SESSION_STARTED:
+                in_proc.message_bus_path = event.data.get('message_bus_path', '')
+                in_proc.conversation_id = event.data.get('conversation_id', '')
+                event_bus.unsubscribe(on_session_started)
+        event_bus.subscribe(on_session_started)
 
         # Register immediately since we already know the session_id
         self.app.register_in_process(self.session_id, in_proc)
@@ -555,7 +587,7 @@ class DrilldownScreen(Screen):
                     infra_dir,
                     poc_root=self.app.poc_root,
                     projects_dir=self.app.projects_dir,
-                    event_bus=bus,
+                    event_bus=event_bus,
                     input_provider=provider,
                 )
             except BaseException as exc:

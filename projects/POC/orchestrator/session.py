@@ -30,6 +30,10 @@ from projects.POC.orchestrator.learnings import extract_learnings
 from projects.POC.orchestrator.merge import (
     commit_deliverables, squash_merge, MergeConflictEscalation,
 )
+from projects.POC.orchestrator.messaging import (
+    ConversationType, MessageBusInputProvider, SqliteMessageBus,
+    make_conversation_id,
+)
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.state_writer import StateWriter
 from projects.POC.orchestrator.worktree import (
@@ -142,6 +146,20 @@ class Session:
         infra_dir = self.session_info['infra_dir']
         worktree_path = self.session_info['worktree_path']
 
+        # 4a. Create message bus for persistent human-agent communication (Issue #200).
+        bus_path = os.path.join(infra_dir, 'messages.db')
+        self._message_bus = SqliteMessageBus(bus_path)
+        self._conversation_id = make_conversation_id(
+            ConversationType.PROJECT_SESSION, self.session_id,
+        )
+        if self.input_provider is not None:
+            self._bus_input_provider = MessageBusInputProvider(
+                bus=self._message_bus,
+                conversation_id=self._conversation_id,
+            )
+        else:
+            self._bus_input_provider = None
+
         # 4b. Copy pre-written artifacts into infra_dir (Issue #147).
         # Session artifacts live in the session folder, not the worktree.
         if self.intent_file:
@@ -165,6 +183,8 @@ class Session:
                 'project': self.project_slug,
                 'session_id': self.session_id,
                 'worktree': worktree_path,
+                'message_bus_path': bus_path,
+                'conversation_id': self._conversation_id,
             },
             session_id=self.session_id,
         ))
@@ -215,13 +235,16 @@ class Session:
         if memory_context:
             task_prompt = f"{self.task}\n\n{memory_context}"
 
-        # 10. Run orchestrator
+        # 10. Run orchestrator — use message bus input provider for persistent
+        # communication (Issue #200).  Falls back to the original input_provider
+        # if the bus provider is unavailable (e.g., no-human mode).
         proxy_model_path = os.path.join(project_dir, '.proxy-confidence.json')
+        effective_input = self._bus_input_provider or self.input_provider
         orchestrator = Orchestrator(
             cfa_state=cfa,
             phase_config=self.config,
             event_bus=self.event_bus,
-            input_provider=self.input_provider,
+            input_provider=effective_input,
             infra_dir=infra_dir,
             project_workdir=project_dir,
             session_worktree=worktree_path,
@@ -246,7 +269,7 @@ class Session:
 
         # 12. Squash-merge session into main — the work is done, get it merged.
         if result.terminal_state == 'COMPLETED_WORK':
-            callback = self._make_conflict_callback() if self.input_provider else None
+            callback = self._make_conflict_callback() if effective_input else None
             try:
                 await squash_merge(
                     source=worktree_path,
@@ -300,7 +323,8 @@ class Session:
         )
 
     def _make_conflict_callback(self):
-        """Build a merge conflict callback that asks the human via input_provider."""
+        """Build a merge conflict callback that asks the human via message bus."""
+        provider = self._bus_input_provider or self.input_provider
         async def _callback(conflicted_files, source, target):
             bridge_text = (
                 f'Merge conflict in {len(conflicted_files)} file(s):\n'
@@ -319,7 +343,7 @@ class Session:
                 session_id=self.session_id,
             ))
             from projects.POC.orchestrator.events import InputRequest
-            response = await self.input_provider(InputRequest(
+            response = await provider(InputRequest(
                 type='merge_conflict',
                 state='MERGE_CONFLICT',
                 artifact='',
@@ -573,6 +597,20 @@ class Session:
             _log.warning('Could not resolve worktree for session %s', session_id)
             worktree_path = ''
 
+        # 5b. Create message bus for persistent communication (Issue #200).
+        bus_path = os.path.join(infra_dir, 'messages.db')
+        message_bus = SqliteMessageBus(bus_path)
+        conversation_id = make_conversation_id(
+            ConversationType.PROJECT_SESSION, session_id,
+        )
+        if input_provider is not None:
+            bus_input_provider = MessageBusInputProvider(
+                bus=message_bus,
+                conversation_id=conversation_id,
+            )
+        else:
+            bus_input_provider = None
+
         # 6. Start state writer + publish SESSION_STARTED with resumed flag
         # Note: don't delete .running first — _write_running() overwrites it
         # atomically, avoiding a race where StateReader sees no .running file
@@ -589,6 +627,8 @@ class Session:
                 'session_id': session_id,
                 'worktree': worktree_path,
                 'resumed': True,
+                'message_bus_path': bus_path,
+                'conversation_id': conversation_id,
             },
             session_id=session_id,
         ))
@@ -620,13 +660,15 @@ class Session:
         if memory_context:
             task_prompt = f'{task}\n\n{memory_context}'
 
-        # 13. Construct and run orchestrator
+        # 13. Construct and run orchestrator — use message bus input provider
+        # for persistent communication (Issue #200).
+        effective_input = bus_input_provider or input_provider
         proxy_model_path = os.path.join(project_dir, '.proxy-confidence.json')
         orchestrator = Orchestrator(
             cfa_state=cfa,
             phase_config=config,
             event_bus=event_bus,
-            input_provider=input_provider,
+            input_provider=effective_input,
             infra_dir=infra_dir,
             project_workdir=project_dir,
             session_worktree=worktree_path,
@@ -652,8 +694,8 @@ class Session:
         if result.terminal_state == 'COMPLETED_WORK' and worktree_path:
             repo_root = _ensure_project_repo(project_dir)
             conflict_cb = _make_conflict_callback_static(
-                input_provider, event_bus, session_id,
-            ) if input_provider else None
+                effective_input, event_bus, session_id,
+            ) if effective_input else None
             try:
                 await squash_merge(
                     source=worktree_path,
