@@ -14,10 +14,15 @@ import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import Any
 
 from croniter import croniter
 
-from projects.POC.orchestrator.config_reader import ScheduledTask
+from projects.POC.orchestrator.config_reader import (
+    ScheduledTask,
+    load_management_team,
+    load_project_team,
+)
 
 _log = logging.getLogger('orchestrator')
 
@@ -199,3 +204,104 @@ class CronScheduler:
     def get_run_log(self, task_name: str) -> list[RunRecord]:
         """Return all run records for a task."""
         return _load_log(self.state_dir, task_name)
+
+    async def run_task(
+        self,
+        task: ScheduledTask,
+        session_factory: Any = None,
+    ) -> RunRecord:
+        """Execute a single scheduled task as a session.
+
+        Constructs a task description from the skill name and args,
+        then launches a Session scoped to this scheduler's project.
+        Records the result (success/failure) and returns the RunRecord.
+
+        Args:
+            task: The scheduled task to execute.
+            session_factory: Callable that creates a Session (default: real
+                Session class). Injected for testing.
+        """
+        from projects.POC.orchestrator import find_poc_root
+        from projects.POC.orchestrator.events import EventBus
+
+        if session_factory is None:
+            from projects.POC.orchestrator.session import Session
+            session_factory = Session
+
+        now = datetime.now(timezone.utc)
+        task_description = f'[scheduled:{task.name}] {task.skill}'
+        if task.args:
+            task_description += f' {task.args}'
+
+        poc_root = find_poc_root()
+        try:
+            session = session_factory(
+                task_description,
+                poc_root=poc_root,
+                project_override=self.project_slug,
+                skip_intent=True,
+                execute_only=True,
+                skip_learnings=True,
+                event_bus=EventBus(),
+                input_provider=None,
+            )
+            result = await session.run()
+            success = result.terminal_state == 'COMPLETED_WORK'
+            reason = '' if success else f'terminal_state={result.terminal_state}'
+        except Exception as exc:
+            success = False
+            reason = str(exc)
+
+        self.record_run(task.name, now, success=success, reason=reason)
+        return RunRecord(
+            task_name=task.name, timestamp=now,
+            success=success, reason=reason,
+        )
+
+    async def tick(
+        self,
+        now: datetime | None = None,
+        session_factory: Any = None,
+    ) -> list[RunRecord]:
+        """Run one evaluation cycle: find due tasks, execute them, record results.
+
+        Returns a list of RunRecords for all tasks that were executed.
+        """
+        due = self.get_due_tasks(now=now)
+        records: list[RunRecord] = []
+        for task in due:
+            _log.info('Cron executing: %s (skill=%s)', task.name, task.skill)
+            record = await self.run_task(task, session_factory=session_factory)
+            records.append(record)
+            if not record.success:
+                _log.error(
+                    'Cron task %s failed: %s', task.name, record.reason,
+                )
+        return records
+
+
+# ── Task collection ──────────────────────────────────────────────────────────
+
+def collect_scheduled_tasks(
+    project_dir: str,
+    teaparty_home: str = '~/.teaparty',
+) -> list[ScheduledTask]:
+    """Collect scheduled tasks from management team and project config.
+
+    Merges both levels. Management-level tasks apply to the org;
+    project-level tasks are scoped to the project.
+    """
+    tasks: list[ScheduledTask] = []
+    try:
+        mgmt = load_management_team(teaparty_home=teaparty_home)
+        tasks.extend(mgmt.scheduled)
+    except FileNotFoundError:
+        _log.debug('No management config found at %s', teaparty_home)
+
+    try:
+        proj = load_project_team(project_dir)
+        tasks.extend(proj.scheduled)
+    except FileNotFoundError:
+        _log.debug('No project config found at %s', project_dir)
+
+    return tasks
