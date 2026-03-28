@@ -6,10 +6,14 @@ gate questions inline.
 
 Layout: conversation list (left) | message stream + input (right).
 
-Issue #206.
+Stream filtering (Issue #264): the chat carries the full stream-json
+output and the human controls visibility via per-type toggles.
+
+Issue #206, #264.
 """
 from __future__ import annotations
 
+import json
 import os
 from datetime import datetime
 
@@ -22,7 +26,8 @@ from textual.widgets.option_list import Option
 
 from projects.POC.orchestrator.messaging import ConversationType
 from projects.POC.tui.chat_model import ChatModel
-from projects.POC.tui.stream_filter import StreamCategory, StreamFilter
+from projects.POC.tui.event_parser import EventParser
+from projects.POC.tui.stream_filter import StreamCategory, StreamFilter, classify_event
 
 
 _FILTER_LABELS: list[tuple[StreamCategory, str]] = [
@@ -48,6 +53,9 @@ _TYPE_LABELS = {
     ConversationType.LIAISON: 'Liaison',
 }
 
+# Conversation type prefixes that map to sessions with stream files
+_SESSION_PREFIXES = ('session:', 'team:', 'job:', 'task:')
+
 
 def _conv_label(conv, model: ChatModel) -> str:
     """Build a display label for a conversation list entry."""
@@ -62,6 +70,36 @@ def _conv_label(conv, model: ChatModel) -> str:
     elif unread > 0:
         badge = f' ({unread})'
     return f'{type_label}: {qualifier}{badge}'
+
+
+def _load_stream_events(stream_files: list[str]) -> list[dict]:
+    """Load all events from JSONL stream files, sorted by position."""
+    events: list[dict] = []
+    for path in stream_files:
+        try:
+            with open(path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            events.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+        except (OSError, FileNotFoundError):
+            pass
+    return events
+
+
+def _session_id_from_conv(conv_id: str) -> str | None:
+    """Extract session_id from a conversation ID, if applicable.
+
+    Conversation IDs like 'session:20260327-143000' have the session
+    qualifier after the colon.
+    """
+    for prefix in _SESSION_PREFIXES:
+        if conv_id.startswith(prefix):
+            return conv_id.split(':', 1)[1]
+    return None
 
 
 class ChatScreen(Screen):
@@ -79,6 +117,9 @@ class ChatScreen(Screen):
         self._selected_conv: str = ''
         self._msg_count: int = 0
         self._filters: dict[str, StreamFilter] = {}  # conv_id → filter
+        self._event_parser = EventParser(show_progress=True)
+        self._stream_events: dict[str, list[dict]] = {}  # conv_id → events
+        self._stream_event_count: int = 0  # events rendered so far
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -224,12 +265,28 @@ class ChatScreen(Screen):
         self._update_filter_bar()
         self._refresh_messages(full=True)
 
+    def _load_stream_events_for_conv(self, conv_id: str) -> list[dict]:
+        """Load stream-json events for a conversation's session."""
+        session_id = _session_id_from_conv(conv_id)
+        if not session_id:
+            return []
+        try:
+            reader = self.app.state_reader
+            stream_files = reader.active_stream_files(session_id)
+            return _load_stream_events(stream_files)
+        except Exception:
+            return []
+
     def _select_conversation(self, conv_id: str) -> None:
         """Switch to a conversation and load its messages."""
         self._selected_conv = conv_id
         self._msg_count = 0
+        self._stream_event_count = 0
         if self._model:
             self._model.select_conversation(conv_id)
+
+        # Load stream events for this conversation
+        self._stream_events[conv_id] = self._load_stream_events_for_conv(conv_id)
 
         # Update title
         title = self.query_one('#messages-title', Static)
@@ -242,22 +299,34 @@ class ChatScreen(Screen):
         self._refresh_messages(full=True)
 
     def _refresh_messages(self, full: bool = False) -> None:
-        """Refresh the message log. If full, clear and reload all."""
+        """Refresh the message log with filtered messages and stream events.
+
+        Renders message-bus messages filtered by sender category, plus
+        stream-json events filtered by their classified category. On full
+        refresh (filter toggle or conversation switch), clears and reloads
+        everything.
+        """
         if not self._model or not self._selected_conv:
             return
 
         log = self.query_one('#message-log', RichLog)
-        msgs = self._model.messages(self._selected_conv)
+        sf = self._filter_for(self._selected_conv)
 
         if full:
             log.clear()
             self._msg_count = 0
+            self._stream_event_count = 0
+            # Reload stream events on full refresh
+            self._stream_events[self._selected_conv] = (
+                self._load_stream_events_for_conv(self._selected_conv)
+            )
 
-        if len(msgs) <= self._msg_count:
-            return
+        msgs = self._model.messages(self._selected_conv)
+        stream_events = self._stream_events.get(self._selected_conv, [])
 
-        sf = self._filter_for(self._selected_conv)
         from rich.text import Text
+
+        # Render new message-bus messages
         for msg in msgs[self._msg_count:]:
             if not sf.should_show_sender(msg.sender):
                 continue
@@ -280,6 +349,16 @@ class ChatScreen(Screen):
             log.write(t)
 
         self._msg_count = len(msgs)
+
+        # Render new stream-json events
+        for event in stream_events[self._stream_event_count:]:
+            if not sf.should_show(event):
+                continue
+            formatted = self._event_parser.format_event(event)
+            if formatted is not None:
+                log.write(formatted)
+
+        self._stream_event_count = len(stream_events)
         log.scroll_end(animate=False)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
@@ -305,6 +384,10 @@ class ChatScreen(Screen):
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
         if self._model and self._selected_conv:
+            # Reload stream events for live updates
+            new_events = self._load_stream_events_for_conv(self._selected_conv)
+            if len(new_events) > self._stream_event_count:
+                self._stream_events[self._selected_conv] = new_events
             self._refresh_messages()
         self._rebuild_conv_list()
 
@@ -314,4 +397,4 @@ class ChatScreen(Screen):
     def action_refresh(self) -> None:
         self._rebuild_conv_list()
         if self._selected_conv:
-            self._refresh_messages()
+            self._refresh_messages(full=True)

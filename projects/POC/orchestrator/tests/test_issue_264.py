@@ -8,7 +8,13 @@ Verifies:
 5. Per-conversation filter state (separate instances track independently)
 6. All 9 categories from the design spec are supported
 7. Unknown/unclassifiable events are excluded by default
+8. should_show_sender gates message-bus messages by sender
+9. Stream event loading from JSONL files
+10. Session ID extraction from conversation IDs
 """
+import json
+import os
+import tempfile
 import unittest
 
 from projects.POC.tui.stream_filter import StreamFilter, StreamCategory, classify_event
@@ -338,6 +344,140 @@ class TestShouldShowSender(unittest.TestCase):
         f = StreamFilter()
         f.disable(StreamCategory.HUMAN)
         self.assertTrue(f.should_show_sender('orchestrator'))
+
+
+class TestLoadStreamEvents(unittest.TestCase):
+    """_load_stream_events reads and parses JSONL files."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def _write_jsonl(self, name, events):
+        path = os.path.join(self._tmp, name)
+        with open(path, 'w') as f:
+            for ev in events:
+                f.write(json.dumps(ev) + '\n')
+        return path
+
+    def test_loads_events_from_single_file(self):
+        from projects.POC.tui.screens.chat import _load_stream_events
+        path = self._write_jsonl('stream.jsonl', [
+            {'type': 'system', 'subtype': 'init'},
+            {'type': 'assistant', 'message': {'content': [{'type': 'text', 'text': 'Hello'}]}},
+        ])
+        events = _load_stream_events([path])
+        self.assertEqual(len(events), 2)
+        self.assertEqual(events[0]['type'], 'system')
+        self.assertEqual(events[1]['type'], 'assistant')
+
+    def test_loads_events_from_multiple_files(self):
+        from projects.POC.tui.screens.chat import _load_stream_events
+        p1 = self._write_jsonl('a.jsonl', [{'type': 'system', 'subtype': 'init'}])
+        p2 = self._write_jsonl('b.jsonl', [{'type': 'result', 'total_cost_usd': 0.01}])
+        events = _load_stream_events([p1, p2])
+        self.assertEqual(len(events), 2)
+
+    def test_skips_invalid_json_lines(self):
+        from projects.POC.tui.screens.chat import _load_stream_events
+        path = os.path.join(self._tmp, 'bad.jsonl')
+        with open(path, 'w') as f:
+            f.write('{"type": "system"}\n')
+            f.write('not json\n')
+            f.write('{"type": "result"}\n')
+        events = _load_stream_events([path])
+        self.assertEqual(len(events), 2)
+
+    def test_handles_missing_file(self):
+        from projects.POC.tui.screens.chat import _load_stream_events
+        events = _load_stream_events(['/nonexistent/path.jsonl'])
+        self.assertEqual(events, [])
+
+    def test_empty_file_returns_empty(self):
+        from projects.POC.tui.screens.chat import _load_stream_events
+        path = os.path.join(self._tmp, 'empty.jsonl')
+        with open(path, 'w') as f:
+            pass
+        events = _load_stream_events([path])
+        self.assertEqual(events, [])
+
+
+class TestSessionIdFromConv(unittest.TestCase):
+    """_session_id_from_conv extracts session IDs from conversation IDs."""
+
+    def test_session_prefix(self):
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertEqual(_session_id_from_conv('session:20260327-143000'), '20260327-143000')
+
+    def test_team_prefix(self):
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertEqual(_session_id_from_conv('team:writing-abc'), 'writing-abc')
+
+    def test_job_prefix(self):
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertEqual(_session_id_from_conv('job:build-123'), 'build-123')
+
+    def test_task_prefix(self):
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertEqual(_session_id_from_conv('task:fix-bug'), 'fix-bug')
+
+    def test_om_prefix_returns_none(self):
+        """Office manager conversations don't map to a session."""
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertIsNone(_session_id_from_conv('om:darrell'))
+
+    def test_unknown_prefix_returns_none(self):
+        from projects.POC.tui.screens.chat import _session_id_from_conv
+        self.assertIsNone(_session_id_from_conv('proxy:review-1'))
+
+
+class TestStreamFilterIntegration(unittest.TestCase):
+    """End-to-end: stream events are filtered correctly by category."""
+
+    def test_tool_events_hidden_by_default_shown_when_enabled(self):
+        """Tool use events are hidden by default, shown when tools filter is enabled."""
+        f = StreamFilter()
+        tool_event = {
+            'type': 'assistant',
+            'message': {'content': [{'type': 'tool_use', 'name': 'Read', 'input': {}}]},
+        }
+        self.assertFalse(f.should_show(tool_event))
+        f.enable(StreamCategory.TOOLS)
+        self.assertTrue(f.should_show(tool_event))
+
+    def test_thinking_events_hidden_by_default_shown_when_enabled(self):
+        f = StreamFilter()
+        think_event = {
+            'type': 'assistant',
+            'message': {'content': [{'type': 'thinking', 'thinking': 'analyzing...'}]},
+        }
+        self.assertFalse(f.should_show(think_event))
+        f.enable(StreamCategory.THINKING)
+        self.assertTrue(f.should_show(think_event))
+
+    def test_cost_events_hidden_by_default_shown_when_enabled(self):
+        f = StreamFilter()
+        cost_event = {'type': 'result', 'total_cost_usd': 0.05, 'duration_seconds': 10}
+        self.assertFalse(f.should_show(cost_event))
+        f.enable(StreamCategory.COST)
+        self.assertTrue(f.should_show(cost_event))
+
+    def test_system_events_hidden_by_default_shown_when_enabled(self):
+        f = StreamFilter()
+        sys_event = {'type': 'system', 'subtype': 'init'}
+        self.assertFalse(f.should_show(sys_event))
+        f.enable(StreamCategory.SYSTEM)
+        self.assertTrue(f.should_show(sys_event))
+
+    def test_result_events_hidden_by_default_shown_when_enabled(self):
+        f = StreamFilter()
+        result_event = {'type': 'tool_result', 'output': 'file contents'}
+        self.assertFalse(f.should_show(result_event))
+        f.enable(StreamCategory.RESULTS)
+        self.assertTrue(f.should_show(result_event))
 
 
 if __name__ == '__main__':
