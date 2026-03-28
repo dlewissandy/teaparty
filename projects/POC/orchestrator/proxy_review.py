@@ -376,8 +376,16 @@ async def run_review_turn(
     return response
 
 
+class ReviewAgentError(RuntimeError):
+    """Raised when the review agent invocation fails."""
+
+
 async def _invoke_review_agent(prompt: str) -> str:
-    """Invoke claude -p in review mode. Returns the response text."""
+    """Invoke claude -p in review mode. Returns the response text.
+
+    Raises ReviewAgentError on failure so callers can distinguish
+    a failed invocation from a genuine proxy response.
+    """
     try:
         result = await asyncio.get_event_loop().run_in_executor(
             None,
@@ -387,12 +395,17 @@ async def _invoke_review_agent(prompt: str) -> str:
                 input=prompt, capture_output=True, text=True, timeout=60,
             ),
         )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        _log.warning('Review agent invocation failed')
-        return 'I was unable to process your request. Please try again.'
+    except FileNotFoundError as exc:
+        raise ReviewAgentError('claude CLI not found') from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ReviewAgentError('review agent timed out') from exc
 
-    if result.returncode != 0 or not result.stdout.strip():
-        _log.warning('Review agent returned non-zero or empty output')
-        return 'I was unable to process your request. Please try again.'
+    if result.returncode != 0:
+        raise ReviewAgentError(
+            f'review agent exited with code {result.returncode}: '
+            f'{result.stderr.strip()}'
+        )
+    if not result.stdout.strip():
+        raise ReviewAgentError('review agent returned empty output')
 
     return result.stdout.strip()
