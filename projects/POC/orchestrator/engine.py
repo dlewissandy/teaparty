@@ -37,6 +37,7 @@ from projects.POC.orchestrator.actors import (
     ApprovalGate,
     InputProvider,
 )
+from projects.POC.orchestrator.human_presence import HumanPresence
 from projects.POC.orchestrator.escalation_listener import EscalationListener
 from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
@@ -111,6 +112,7 @@ class Orchestrator:
         project_dir: str = '',
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
+        human_presence: HumanPresence | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -139,6 +141,7 @@ class Orchestrator:
         self._role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
+        self.human_presence = human_presence
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -148,6 +151,7 @@ class Orchestrator:
             poc_root=poc_root,
             proxy_enabled=proxy_enabled,
             never_escalate=never_escalate,
+            human_presence=human_presence,
         )
 
         # MCP escalation listener — bridges AskQuestion calls to proxy/human

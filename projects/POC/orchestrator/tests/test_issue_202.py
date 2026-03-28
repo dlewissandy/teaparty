@@ -8,11 +8,16 @@ Covers:
   - Dynamic never-escalate: states become escalatable when human is present
   - Cross-level learning: observation chunks stored as ACT-R memory
   - Backward compatibility: sessions without arrive/depart behave as before
+  - Integration: ApprovalGate routes to human when present, proxy when absent
 """
 from __future__ import annotations
 
 import asyncio
+import os
+import shutil
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from projects.POC.orchestrator.human_presence import (
@@ -20,6 +25,10 @@ from projects.POC.orchestrator.human_presence import (
     PresenceLevel,
 )
 from projects.POC.orchestrator.gate_queue import GateQueue, GateRequest
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 def _make_presence() -> HumanPresence:
@@ -34,6 +43,50 @@ def _make_gate_request(
 ) -> GateRequest:
     """Create a GateRequest for testing."""
     return GateRequest(state=state, team=team, priority=priority)
+
+
+def _make_approval_gate(tmpdir, human_presence=None, never_escalate=False):
+    """Create an ApprovalGate with optional human presence."""
+    from projects.POC.orchestrator.actors import ApprovalGate
+    model_path = os.path.join(tmpdir, 'project', '.proxy-confidence.json')
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    Path(model_path).write_text('{}')
+    return ApprovalGate(
+        proxy_model_path=model_path,
+        input_provider=AsyncMock(return_value='approve'),
+        poc_root=tmpdir,
+        proxy_enabled=True,
+        never_escalate=never_escalate,
+        human_presence=human_presence,
+    )
+
+
+def _make_actor_context(tmpdir, state='TASK_ASSERT', team='art'):
+    """Create a minimal ActorContext for testing."""
+    from projects.POC.orchestrator.actors import ActorContext
+    from projects.POC.orchestrator.events import EventBus
+    infra_dir = os.path.join(tmpdir, 'infra')
+    worktree = os.path.join(tmpdir, 'worktree')
+    os.makedirs(infra_dir, exist_ok=True)
+    os.makedirs(worktree, exist_ok=True)
+    return ActorContext(
+        state=state,
+        phase='execution',
+        task='test task',
+        infra_dir=infra_dir,
+        project_workdir=tmpdir,
+        session_worktree=worktree,
+        stream_file='.exec-stream.jsonl',
+        phase_spec=MagicMock(
+            artifact='',
+            stream_file='.exec-stream.jsonl',
+            settings_overlay={},
+        ),
+        poc_root=tmpdir,
+        event_bus=EventBus(),
+        session_id='test-session',
+        env_vars={'POC_PROJECT': 'test', 'POC_TEAM': team},
+    )
 
 
 class TestHumanPresence(unittest.TestCase):
@@ -335,6 +388,221 @@ class TestBackwardCompatibility(unittest.TestCase):
         self.assertFalse(hp.human_should_answer('TASK_ASSERT', team='art'))
         self.assertFalse(hp.human_should_answer('WORK_ASSERT'))
         self.assertFalse(hp.human_should_answer('INTENT_ASSERT'))
+
+
+class TestApprovalGateHumanPresenceIntegration(unittest.TestCase):
+    """ApprovalGate._ask_human_through_proxy routes based on HumanPresence."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_human_present_routes_to_input_provider(self):
+        """When human is present at subteam, gate asks human directly."""
+        hp = _make_presence()
+        hp.arrive(PresenceLevel.SUBTEAM, team='art')
+        gate = _make_approval_gate(self.tmpdir, human_presence=hp)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        # Mock consult_proxy to return a low-confidence result (would normally
+        # trigger escalation, but presence check should short-circuit first)
+        proxy_result = MagicMock(
+            text='proxy says approve', confidence=0.5,
+            from_agent=True,
+            prior_action='approve', prior_confidence=0.5,
+            posterior_action='approve', posterior_confidence=0.5,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result):
+            text, from_proxy = _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        # Human answered, not proxy
+        self.assertFalse(from_proxy)
+        # The input_provider was called (human answered)
+        gate.input_provider.assert_called_once()
+
+    def test_human_absent_uses_proxy(self):
+        """When human is absent, proxy answers as usual (never-escalate state)."""
+        hp = _make_presence()
+        # Human NOT present at subteam
+        gate = _make_approval_gate(self.tmpdir, human_presence=hp)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        proxy_result = MagicMock(
+            text='proxy approves', confidence=0.9,
+            from_agent=True,
+            prior_action='approve', prior_confidence=0.9,
+            posterior_action='approve', posterior_confidence=0.9,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result):
+            text, from_proxy = _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        # Proxy answered (confident)
+        self.assertTrue(from_proxy)
+        self.assertEqual(text, 'proxy approves')
+        # Human input_provider was NOT called
+        gate.input_provider.assert_not_called()
+
+    def test_presence_records_observation_on_direct_answer(self):
+        """When human answers directly, an observation is recorded."""
+        hp = _make_presence()
+        hp.arrive(PresenceLevel.SUBTEAM, team='art')
+        gate = _make_approval_gate(self.tmpdir, human_presence=hp)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        proxy_result = MagicMock(
+            text='proxy text', confidence=0.5, from_agent=True,
+            prior_action='approve', prior_confidence=0.5,
+            posterior_action='approve', posterior_confidence=0.5,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result):
+            _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='test.py', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        # Check that an observation was recorded
+        observations = hp.get_observations(PresenceLevel.SUBTEAM, team='art')
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].state, 'TASK_ASSERT')
+        self.assertEqual(observations[0].human_response, 'approve')
+
+    def test_no_presence_object_preserves_never_escalate(self):
+        """ApprovalGate without HumanPresence preserves original behavior."""
+        gate = _make_approval_gate(self.tmpdir, human_presence=None)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        # Proxy not confident, but TASK_ASSERT is never-escalate → proxy answers
+        proxy_result = MagicMock(
+            text='proxy guess', confidence=0.3,
+            from_agent=True,
+            prior_action='approve', prior_confidence=0.3,
+            posterior_action='approve', posterior_confidence=0.3,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result):
+            text, from_proxy = _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        # Proxy answered (never-escalate, original behavior)
+        self.assertTrue(from_proxy)
+        self.assertEqual(text, 'proxy guess')
+
+    def test_human_present_at_wrong_level_still_uses_proxy(self):
+        """Human present at project level doesn't affect subteam gates."""
+        hp = _make_presence()
+        hp.arrive(PresenceLevel.PROJECT)  # present at project, not subteam
+        gate = _make_approval_gate(self.tmpdir, human_presence=hp)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        proxy_result = MagicMock(
+            text='proxy answers', confidence=0.9,
+            from_agent=True,
+            prior_action='approve', prior_confidence=0.9,
+            posterior_action='approve', posterior_confidence=0.9,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result):
+            text, from_proxy = _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        # Proxy answered — human at project level doesn't affect task gate
+        self.assertTrue(from_proxy)
+
+
+class TestOrchestratorHumanPresenceWiring(unittest.TestCase):
+    """Orchestrator passes HumanPresence through to ApprovalGate."""
+
+    def test_orchestrator_passes_presence_to_gate(self):
+        """Orchestrator constructor wires human_presence to ApprovalGate."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import make_initial_state
+        from projects.POC.orchestrator.phase_config import PhaseConfig
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            infra_dir = os.path.join(tmpdir, 'infra')
+            worktree = os.path.join(tmpdir, 'worktree')
+            os.makedirs(infra_dir)
+            os.makedirs(worktree)
+
+            hp = _make_presence()
+            cfa = make_initial_state()
+
+            orch = Orchestrator(
+                cfa_state=cfa,
+                phase_config=MagicMock(stall_timeout=300),
+                event_bus=EventBus(),
+                input_provider=AsyncMock(),
+                infra_dir=infra_dir,
+                project_workdir=tmpdir,
+                session_worktree=worktree,
+                proxy_model_path=os.path.join(tmpdir, '.proxy-confidence.json'),
+                project_slug='test',
+                poc_root=tmpdir,
+                human_presence=hp,
+            )
+            self.assertIs(orch.human_presence, hp)
+            self.assertIs(orch._approval_gate.human_presence, hp)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_orchestrator_without_presence_is_none(self):
+        """Orchestrator without human_presence has None on gate."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.scripts.cfa_state import make_initial_state
+        from projects.POC.orchestrator.phase_config import PhaseConfig
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            infra_dir = os.path.join(tmpdir, 'infra')
+            worktree = os.path.join(tmpdir, 'worktree')
+            os.makedirs(infra_dir)
+            os.makedirs(worktree)
+
+            cfa = make_initial_state()
+            orch = Orchestrator(
+                cfa_state=cfa,
+                phase_config=MagicMock(stall_timeout=300),
+                event_bus=EventBus(),
+                input_provider=AsyncMock(),
+                infra_dir=infra_dir,
+                project_workdir=tmpdir,
+                session_worktree=worktree,
+                proxy_model_path=os.path.join(tmpdir, '.proxy-confidence.json'),
+                project_slug='test',
+                poc_root=tmpdir,
+            )
+            self.assertIsNone(orch.human_presence)
+            self.assertIsNone(orch._approval_gate.human_presence)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == '__main__':

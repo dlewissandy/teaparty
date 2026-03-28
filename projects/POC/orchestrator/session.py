@@ -26,6 +26,7 @@ from projects.POC.scripts.cfa_state import (
 from projects.POC.orchestrator.actors import InputProvider
 from projects.POC.orchestrator.engine import Orchestrator, OrchestratorResult
 from projects.POC.orchestrator.events import Event, EventBus, EventType
+from projects.POC.orchestrator.human_presence import HumanPresence
 from projects.POC.orchestrator.learnings import extract_learnings
 from projects.POC.orchestrator.merge import (
     commit_deliverables, squash_merge, MergeConflictEscalation,
@@ -88,6 +89,7 @@ class Session:
         learning_retrieval_mode: str = 'flat',
         skip_learning_retrieval: bool = False,
         humans: list | None = None,
+        human_presence: HumanPresence | None = None,
     ):
         self.task = task
         self.poc_root = poc_root
@@ -112,6 +114,7 @@ class Session:
         self.learning_retrieval_mode = learning_retrieval_mode
         self.skip_learning_retrieval = skip_learning_retrieval
         self._role_enforcer = RoleEnforcer.from_humans(humans) if humans else None
+        self.human_presence = human_presence
 
         # Resolved during run
         self.project_slug = ''
@@ -270,6 +273,7 @@ class Session:
             proxy_enabled=self.proxy_enabled,
             project_dir=project_dir,
             role_enforcer=self._role_enforcer,
+            human_presence=self.human_presence,
         )
 
         result = await orchestrator.run()
@@ -557,6 +561,7 @@ class Session:
         event_bus: EventBus | None = None,
         input_provider: InputProvider | None = None,
         humans: list | None = None,
+        human_presence: HumanPresence | None = None,
     ) -> SessionResult:
         """Reconstruct a session from persisted disk state and resume orchestration.
 
@@ -696,6 +701,7 @@ class Session:
             last_actor_data=last_actor_data,
             project_dir=project_dir,
             role_enforcer=role_enforcer,
+            human_presence=human_presence,
         )
 
         result = await orchestrator.run()
