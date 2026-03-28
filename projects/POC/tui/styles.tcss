@@ -22,22 +22,23 @@ ContentCard {
     height: auto;
     max-height: 12;
     width: 1fr;
-    border-left: vkey $primary-lighten-1;
-    border-right: vkey $primary-lighten-1;
+    border-left: tall $primary-lighten-1;
+    border-right: tall $primary-lighten-1;
+    border-bottom: tall $primary-lighten-1;
     padding: 0;
 }
 
 .card-title {
     text-style: bold;
     color: $accent;
-    padding: 0 1;
+    padding: 0 0;
     height: 1;
     background: $primary-darken-1;
 }
 
 .card-item {
     height: auto;
-    padding: 0 1;
+    padding: 0 0;
 }
 
 .card-item-clickable:hover {
@@ -67,7 +68,7 @@ WorkflowProgress {
 /* ── Card grid layout ── */
 .card-grid {
     height: auto;
-    padding: 0;
+    padding: 1 2;
     layout: grid;
     grid-size: 2;
     grid-gutter: 1 2;
