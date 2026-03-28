@@ -56,3 +56,4 @@ refinement/
 
 # Audit pipeline — scratch findings
 /audit/
+/audit-issue/
