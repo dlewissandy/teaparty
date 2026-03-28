@@ -18,6 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from typing import Callable
 
 _log = logging.getLogger('orchestrator')
 
@@ -39,6 +40,7 @@ def lookup_skill(
     skills_dir: str = '',
     threshold: float = 0.15,
     skills_dirs: list[tuple[str, str]] | None = None,
+    embed_fn: Callable[[str], list[float] | None] | None = None,
 ) -> SkillMatch | None:
     """Search the skill library for a matching skill.
 
@@ -68,8 +70,27 @@ def lookup_skill(
     else:
         return None
 
-    task_tokens = _tokenize(task)
-    intent_tokens = _tokenize(intent)
+    # Determine scoring mode: embedding or Jaccard fallback.
+    # Embedding mode: embed the query once, embed each skill, cosine similarity.
+    # Jaccard mode: tokenize and compute set overlap (legacy).
+    use_embeddings = False
+    query_embedding: list[float] | None = None
+    if embed_fn is not None:
+        query_text = f'{task} {intent}'
+        try:
+            query_embedding = embed_fn(query_text)
+        except Exception:
+            _log.debug('embed_fn failed for query, falling back to Jaccard')
+        if query_embedding is not None:
+            use_embeddings = True
+
+    if use_embeddings:
+        effective_threshold = max(threshold, 0.5)
+    else:
+        effective_threshold = threshold
+
+    task_tokens = _tokenize(task) if not use_embeddings else set()
+    intent_tokens = _tokenize(intent) if not use_embeddings else set()
 
     # Collect all skills, applying name-based override: narrower scope wins.
     # skills_dirs is ordered narrowest-first, so first occurrence of a name wins.
@@ -109,9 +130,14 @@ def lookup_skill(
             category = meta.get('category', '')
 
             skill_text = f'{name} {description} {category}'
-            skill_tokens = _tokenize(skill_text)
 
-            score = _score(task_tokens, intent_tokens, skill_tokens)
+            if use_embeddings:
+                score = _score_embedding(
+                    query_embedding, skill_text, embed_fn,
+                )
+            else:
+                skill_tokens = _tokenize(skill_text)
+                score = _score(task_tokens, intent_tokens, skill_tokens)
 
             candidates.append(SkillMatch(
                 name=name,
@@ -126,7 +152,7 @@ def lookup_skill(
         return None
 
     best = max(candidates, key=lambda c: c.score)
-    if best.score >= threshold:
+    if best.score >= effective_threshold:
         return best
     return None
 
@@ -173,10 +199,37 @@ def _score(
     intent_tokens: set[str],
     skill_tokens: set[str],
 ) -> float:
-    """Score a skill against task + intent using Jaccard similarity."""
+    """Score a skill against task + intent using Jaccard similarity (fallback)."""
     query_tokens = task_tokens | intent_tokens
     if not query_tokens or not skill_tokens:
         return 0.0
     intersection = query_tokens & skill_tokens
     union = query_tokens | skill_tokens
     return len(intersection) / len(union) if union else 0.0
+
+
+def _score_embedding(
+    query_vec: list[float],
+    skill_text: str,
+    embed_fn: Callable[[str], list[float] | None],
+) -> float:
+    """Score a skill against the query using cosine similarity of embeddings."""
+    try:
+        skill_vec = embed_fn(skill_text)
+    except Exception:
+        return 0.0
+    if skill_vec is None:
+        return 0.0
+    return _cosine_similarity(query_vec, skill_vec)
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Cosine similarity between two vectors."""
+    if len(a) != len(b) or not a:
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    mag_a = sum(x * x for x in a) ** 0.5
+    mag_b = sum(x * x for x in b) ** 0.5
+    if mag_a == 0 or mag_b == 0:
+        return 0.0
+    return dot / (mag_a * mag_b)
