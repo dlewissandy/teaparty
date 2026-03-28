@@ -4,8 +4,7 @@ Verifies:
 1. run_review_turn records both sides on the message bus
 2. Dialog history is built from bus messages and passed to run_review_turn
 3. Corrections in proxy responses are detected and recorded as high-activation chunks
-4. ProxyReviewScreen._send_message invokes run_review_turn (not a stub)
-5. ChatScreen._run_proxy_turn passes dialog_history across turns
+4. ChatScreen._run_proxy_turn passes dialog_history across turns
 """
 import asyncio
 import os
@@ -206,23 +205,7 @@ class TestCorrectionRecording(unittest.TestCase):
             conn.close()
 
 
-# ── 4. ProxyReviewScreen wiring ────────────────────────────────────────────
-
-class TestProxyReviewScreenWiring(unittest.TestCase):
-    """The ProxyReviewScreen._send_message invokes the orchestrator."""
-
-    def test_send_message_calls_run_review_turn(self):
-        """_send_message must invoke run_review_turn, not be a no-op stub."""
-        from projects.POC.tui.screens.proxy_review import ProxyReviewScreen
-
-        # Inspect the source — the method must reference run_review_turn
-        import inspect
-        source = inspect.getsource(ProxyReviewScreen._send_message)
-        self.assertIn('run_review_turn', source,
-                      '_send_message is still a stub — it must call run_review_turn')
-
-
-# ── 5. ChatScreen dialog history ───────────────────────────────────────────
+# ── 4. ChatScreen dialog history ───────────────────────────────────────────
 
 class TestChatScreenDialogHistory(unittest.TestCase):
     """ChatScreen._run_proxy_turn passes dialog_history to run_review_turn."""

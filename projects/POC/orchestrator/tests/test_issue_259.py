@@ -682,5 +682,192 @@ class TestRunReviewTurn(unittest.TestCase):
             bus.close()
 
 
+# ── 7. Response signal parsing ──────────────────────────────────────────────
+
+class TestProcessResponseSignals(unittest.TestCase):
+    """_process_response_signals bridges conversation to memory mutation."""
+
+    def test_correction_tag_records_chunk(self):
+        """A [CORRECTION: ...] tag in the response creates a review_correction chunk."""
+        from projects.POC.orchestrator.proxy_review import (
+            ReviewSession,
+            _process_response_signals,
+        )
+
+        conn, path = _make_temp_db()
+        try:
+            session = ReviewSession(
+                conversation_id='proxy:darrell',
+                human_name='darrell',
+                memory_db_path=path,
+            )
+            response = (
+                'Got it, I will stop flagging that. '
+                '[CORRECTION: Stop flagging missing rollback strategies for internal tools]'
+            )
+
+            _process_response_signals(response, conn=conn, session=session)
+
+            chunks = query_chunks(conn, type='review_correction')
+            self.assertEqual(len(chunks), 1)
+            self.assertIn('rollback', chunks[0].content)
+        finally:
+            conn.close()
+            os.unlink(path)
+
+    def test_reinforce_tag_adds_trace(self):
+        """A [REINFORCE: chunk_id] tag boosts the target chunk's traces."""
+        from projects.POC.orchestrator.proxy_review import (
+            ReviewSession,
+            _process_response_signals,
+        )
+
+        conn, path = _make_temp_db()
+        try:
+            chunk = _make_gate_chunk(conn, chunk_id='target-chunk')
+            original_traces = len(chunk.traces)
+
+            session = ReviewSession(
+                conversation_id='proxy:darrell',
+                human_name='darrell',
+                memory_db_path=path,
+            )
+            response = (
+                'Yes, that pattern is important. '
+                '[REINFORCE: target-chunk]'
+            )
+
+            _process_response_signals(response, conn=conn, session=session)
+
+            updated = query_chunks(conn)
+            target = [c for c in updated if c.id == 'target-chunk'][0]
+            self.assertGreater(len(target.traces), original_traces)
+        finally:
+            conn.close()
+            os.unlink(path)
+
+    def test_multiple_corrections_in_one_response(self):
+        """Multiple [CORRECTION: ...] tags each create a separate chunk."""
+        from projects.POC.orchestrator.proxy_review import (
+            ReviewSession,
+            _process_response_signals,
+        )
+
+        conn, path = _make_temp_db()
+        try:
+            session = ReviewSession(
+                conversation_id='proxy:darrell',
+                human_name='darrell',
+                memory_db_path=path,
+            )
+            response = (
+                '[CORRECTION: Stop flagging rollback] '
+                'Also [CORRECTION: Care more about test coverage]'
+            )
+
+            _process_response_signals(response, conn=conn, session=session)
+
+            chunks = query_chunks(conn, type='review_correction')
+            self.assertEqual(len(chunks), 2)
+        finally:
+            conn.close()
+            os.unlink(path)
+
+    def test_reinforce_nonexistent_chunk_logs_warning(self):
+        """Reinforcing a nonexistent chunk logs a warning but does not raise."""
+        from projects.POC.orchestrator.proxy_review import (
+            ReviewSession,
+            _process_response_signals,
+        )
+
+        conn, path = _make_temp_db()
+        try:
+            session = ReviewSession(
+                conversation_id='proxy:darrell',
+                human_name='darrell',
+                memory_db_path=path,
+            )
+            response = '[REINFORCE: nonexistent-id]'
+
+            # Should not raise — the function logs a warning instead
+            _process_response_signals(response, conn=conn, session=session)
+        finally:
+            conn.close()
+            os.unlink(path)
+
+    def test_run_review_turn_processes_correction_signals(self):
+        """run_review_turn end-to-end: agent response with CORRECTION tag creates chunk."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from projects.POC.orchestrator.proxy_review import (
+            open_review_session,
+            run_review_turn,
+        )
+
+        bus = _make_bus()
+        conn, path = _make_temp_db()
+        try:
+            session = open_review_session(bus, human_name='darrell')
+
+            with patch(
+                'projects.POC.orchestrator.proxy_review._invoke_review_agent',
+                new_callable=AsyncMock,
+                return_value='Understood. [CORRECTION: Stop flagging missing rollback strategies]',
+            ):
+                asyncio.run(run_review_turn(
+                    'Stop flagging missing rollback strategies.',
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                ))
+
+            chunks = query_chunks(conn, type='review_correction')
+            self.assertEqual(len(chunks), 1)
+            self.assertIn('rollback', chunks[0].content)
+        finally:
+            conn.close()
+            os.unlink(path)
+            bus.close()
+
+    def test_run_review_turn_processes_reinforce_signals(self):
+        """run_review_turn end-to-end: agent response with REINFORCE tag boosts chunk."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from projects.POC.orchestrator.proxy_review import (
+            open_review_session,
+            run_review_turn,
+        )
+
+        bus = _make_bus()
+        conn, path = _make_temp_db()
+        try:
+            chunk = _make_gate_chunk(conn, chunk_id='boost-me')
+            original_traces = len(chunk.traces)
+
+            session = open_review_session(bus, human_name='darrell')
+
+            with patch(
+                'projects.POC.orchestrator.proxy_review._invoke_review_agent',
+                new_callable=AsyncMock,
+                return_value='That pattern matters. [REINFORCE: boost-me]',
+            ):
+                asyncio.run(run_review_turn(
+                    'Yes, test coverage is important.',
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                ))
+
+            updated = query_chunks(conn)
+            target = [c for c in updated if c.id == 'boost-me'][0]
+            self.assertGreater(len(target.traces), original_traces)
+        finally:
+            conn.close()
+            os.unlink(path)
+            bus.close()
+
+
 if __name__ == '__main__':
     unittest.main()
