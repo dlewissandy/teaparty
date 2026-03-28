@@ -1,54 +1,65 @@
 # Request Flow Scenarios
 
-These five scenarios show how the Configuration Team coordinates to handle common requests.
+These five scenarios show how the Configuration Team handles common requests. Simple requests (single artifact, clear requirements) use the **fast path** — the office manager routes directly to the specialist, bypassing the Configuration Lead. Complex requests (multi-artifact or ambiguous) use the **full team** with the Configuration Lead coordinating.
 
 ---
 
-## "I would like to create a new skill"
+## "I would like to create a new skill" — fast path
+
+Single artifact, clear type → office manager routes directly to Skill Architect.
 
 1. Human types in office manager chat (or clicks "+ New" on Skills card, which pre-seeds the message)
-2. Office manager recognizes this as a configuration request and dispatches to Configuration Team via AskTeam
-3. Configuration Lead receives the request, asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
-4. Configuration Lead routes to Skill Architect
+2. Office manager recognizes this as a single-artifact configuration request for a skill
+3. Office manager routes directly to Skill Architect via AskTeam
+4. Skill Architect asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
 5. Skill Architect designs the skill structure, writes files to `.claude/skills/{name}/`
-6. Configuration Lead reviews and reports completion back to office manager
-7. Office manager confirms to the human: "Created skill `deploy` with 4 files"
+6. Office manager confirms to the human: "Created skill `deploy` with 4 files"
 
 ---
 
-## "I would like to create a new workgroup"
+## "I would like to create a new workgroup" — full team
 
-This is a multi-artifact request. The Configuration Lead coordinates:
+Multi-artifact request → office manager dispatches to Configuration Lead, who coordinates.
 
-1. **Description** — Configuration Lead writes the workgroup description (the one-line summary that tells team leads when to dispatch to this workgroup)
-2. **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
-3. **Skills** — Skill Architect creates or assigns workgroup-scoped skills
-4. **Hooks** — Systems Engineer creates any workgroup-specific hooks
-5. **Registration** — Configuration Lead writes the workgroup YAML and updates the parent team's configuration. If the workgroup is shared (org-level), it goes in `~/.teaparty/workgroups/`. If project-scoped, it goes in `{project}/.teaparty/workgroups/`
-
----
-
-## "Optimize the audit skill for progressive disclosure"
-
-1. Skill Architect reads the current skill structure
-2. Analyzes which content is loaded upfront vs. could be deferred
-3. Decomposes monolithic content into supporting files
-4. Updates SKILL.md to reference supporting files instead of including them inline
-5. Validates that the skill still invokes correctly
-6. Reports what changed and the context savings
+1. Office manager recognizes this requires multiple artifact types and routes to Configuration Lead
+2. Configuration Lead decomposes the request and coordinates:
+   - **Description** — Configuration Lead writes the workgroup description (the one-line summary that tells team leads when to dispatch to this workgroup)
+   - **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
+   - **Skills** — Skill Architect creates or assigns workgroup-scoped skills
+   - **Hooks** — Systems Engineer creates any workgroup-specific hooks
+   - **Registration** — Configuration Lead writes the workgroup YAML and updates the parent team's configuration. If the workgroup is shared (org-level), it goes in `~/.teaparty/workgroups/`. If project-scoped, it goes in `{project}/.teaparty/workgroups/`
 
 ---
 
-## "Add a pre-commit hook that runs tests"
+## "Optimize the audit skill for progressive disclosure" — fast path
 
-1. Systems Engineer reads current `.claude/settings.json`
-2. Adds a `PreToolUse` hook matching `Bash` with a matcher that detects git commit commands
-3. Writes the hook handler (command type pointing to a validation script, or agent type that runs tests)
-4. Creates the handler script if needed (`.claude/hooks/pre-commit-tests.sh`)
+Single artifact, clear type → office manager routes directly to Skill Architect.
+
+1. Office manager routes to Skill Architect
+2. Skill Architect reads the current skill structure
+3. Analyzes which content is loaded upfront vs. could be deferred
+4. Decomposes monolithic content into supporting files
+5. Updates SKILL.md to reference supporting files instead of including them inline
+6. Validates that the skill still invokes correctly
+7. Reports what changed and the context savings
 
 ---
 
-## "Run the test sweep every night at 2am"
+## "Add a pre-commit hook that runs tests" — fast path
+
+Single artifact, clear type → office manager routes directly to Systems Engineer.
+
+1. Office manager routes to Systems Engineer
+2. Systems Engineer reads current `.claude/settings.json`
+3. Adds a `PreToolUse` hook matching `Bash` with a matcher that detects git commit commands
+4. Writes the hook handler (command type pointing to a validation script, or agent type that runs tests)
+5. Creates the handler script if needed (`.claude/hooks/pre-commit-tests.sh`)
+
+---
+
+## "Run the test sweep every night at 2am" — full team
+
+May require multiple artifacts (skill + scheduled task) → office manager dispatches to Configuration Lead.
 
 1. Configuration Lead checks: does a `test-sweep` skill exist? If not → routes to Skill Architect first
 2. Skill Architect creates `.claude/skills/test-sweep/SKILL.md` (if needed)
