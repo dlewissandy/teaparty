@@ -253,3 +253,26 @@ Screen {
     width: 1fr;
     height: 3;
 }
+
+/* ── Stream filter bar (Issue #264) ── */
+#filter-bar {
+    height: 1;
+    dock: top;
+    padding: 0 1;
+}
+
+.filter-toggle {
+    width: auto;
+    padding: 0 1;
+    margin: 0 0 0 0;
+}
+
+.filter-on {
+    color: $accent;
+    text-style: bold;
+}
+
+.filter-off {
+    color: $text-muted;
+    text-style: none;
+}
