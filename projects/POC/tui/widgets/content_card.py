@@ -18,6 +18,22 @@ class CardItem:
     data: object = None  # arbitrary payload for click handling
 
 
+class _ClickableItem(Static):
+    """A Static that posts CardItemClicked when clicked."""
+
+    class Clicked(Message):
+        def __init__(self, index: int) -> None:
+            super().__init__()
+            self.index = index
+
+    def __init__(self, content: str, index: int, **kwargs) -> None:
+        super().__init__(content, **kwargs)
+        self._index = index
+
+    def on_click(self) -> None:
+        self.post_message(self.Clicked(self._index))
+
+
 class ContentCard(Widget):
     """Dashboard content card: title, clickable item list, and optional '+ New' action.
 
@@ -43,7 +59,6 @@ class ContentCard(Widget):
         card_name: str,
         items: list[CardItem] | None = None,
         show_new_button: bool = False,
-        empty_text: str = '(none)',
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -51,7 +66,6 @@ class ContentCard(Widget):
         self._card_name = card_name
         self._items = items or []
         self._show_new_button = show_new_button
-        self._empty_text = empty_text
 
     def compose(self) -> ComposeResult:
         header_text = self._title
@@ -61,49 +75,42 @@ class ContentCard(Widget):
         yield from self._compose_items()
 
     def _compose_items(self):
-        if not self._items:
-            return
         for i, item in enumerate(self._items):
-            icon = f'{item.icon} ' if item.icon else '  '
-            detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-            yield Static(
-                f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
-                classes='card-item card-item-clickable',
-            )
+            yield self._make_item_widget(i, item)
+
+    def _make_item_widget(self, index: int, item: CardItem) -> _ClickableItem:
+        icon = f'{item.icon} ' if item.icon else '  '
+        detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
+        return _ClickableItem(
+            f'{icon}{item.label}{detail}',
+            index=index,
+            classes='card-item card-item-clickable',
+        )
 
     def update_items(self, items: list[CardItem]) -> None:
         """Replace card items and re-render the item list.
 
         Skips rebuild if items haven't changed (avoids mount/unmount flashing).
         """
-        # Build fingerprint to detect actual changes
         new_fp = [(it.icon, it.label, it.detail) for it in items]
         old_fp = [(it.icon, it.label, it.detail) for it in self._items]
         if new_fp == old_fp:
-            # Data refs may differ, update silently
             self._items = items
             return
 
         self._items = items
 
-        # Remove old item widgets
         for child in list(self.children):
             if child.has_class('card-item'):
                 child.remove()
 
-        # Mount new items (empty list = no items shown, no placeholder text)
         for i, item in enumerate(items):
-            icon = f'{item.icon} ' if item.icon else '  '
-            detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-            self.mount(Static(
-                f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
-                classes='card-item card-item-clickable',
-            ))
+            self.mount(self._make_item_widget(i, item))
 
-    def action_select_item(self, index: int) -> None:
-        """Handle click on an item row."""
-        if 0 <= index < len(self._items):
-            self.post_message(self.ItemSelected(self._card_name, self._items[index]))
+    def on__clickable_item_clicked(self, event: _ClickableItem.Clicked) -> None:
+        """Bubble the click as an ItemSelected message."""
+        if 0 <= event.index < len(self._items):
+            self.post_message(self.ItemSelected(self._card_name, self._items[event.index]))
 
     def action_new_item(self) -> None:
         self.post_message(self.NewRequested(self._card_name))
