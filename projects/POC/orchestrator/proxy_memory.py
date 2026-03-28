@@ -216,6 +216,50 @@ def store_chunk(conn: sqlite3.Connection, chunk: MemoryChunk) -> None:
     conn.commit()
 
 
+def record_steering_chunk(
+    conn: sqlite3.Connection,
+    *,
+    content: str,
+    source: str,
+    current_interaction: int,
+    task_type: str = '',
+) -> str:
+    """Record a steering chunk from the office manager into the shared memory.
+
+    Steering chunks carry durable human preferences and concerns. They are
+    stored as standard MemoryChunk objects in proxy_chunks so the proxy's
+    activation-based retrieval surfaces them at gates when context matches.
+
+    The source (human who produced the directive) is stored in task_type
+    for attribution. Returns the chunk ID.
+    """
+    chunk_id = uuid.uuid4().hex
+    chunk = MemoryChunk(
+        id=chunk_id,
+        type='steering',
+        state='',
+        task_type=task_type or source,
+        outcome='',
+        content=content,
+        traces=[current_interaction],
+    )
+    store_chunk(conn, chunk)
+    return chunk_id
+
+
+def query_gate_outcomes(
+    conn: sqlite3.Connection,
+    *,
+    task_type: str = '',
+    state: str = '',
+) -> list[MemoryChunk]:
+    """Query gate_outcome chunks for the office manager's status reporting.
+
+    Convenience wrapper over query_chunks with type='gate_outcome'.
+    """
+    return query_chunks(conn, type='gate_outcome', task_type=task_type, state=state)
+
+
 def get_chunk(conn: sqlite3.Connection, chunk_id: str) -> MemoryChunk | None:
     row = conn.execute(
         'SELECT * FROM proxy_chunks WHERE id=? AND deleted_at IS NULL', (chunk_id,),
@@ -290,6 +334,7 @@ def purge_deleted_chunks(
 
 def query_chunks(
     conn: sqlite3.Connection, *, state: str = '', task_type: str = '',
+    type: str = '',
 ) -> list[MemoryChunk]:
     clauses = ['deleted_at IS NULL']
     params: list[str] = []
@@ -299,6 +344,9 @@ def query_chunks(
     if task_type:
         clauses.append('task_type = ?')
         params.append(task_type)
+    if type:
+        clauses.append('type = ?')
+        params.append(type)
     where = ' WHERE ' + ' AND '.join(clauses)
     rows = conn.execute(f'SELECT * FROM proxy_chunks{where}', params).fetchall()
     return [_row_to_chunk(r) for r in rows]
@@ -469,6 +517,7 @@ def retrieve_chunks(
     *,
     state: str = '',
     task_type: str = '',
+    type: str = '',
     context_embeddings: dict[str, list[float]] | None = None,
     context_blended: list[float] | None = None,
     scoring: str = 'multi_dim',
@@ -491,7 +540,7 @@ def retrieve_chunks(
     if scoring not in ('multi_dim', 'single'):
         raise ValueError(f"scoring must be 'multi_dim' or 'single', got {scoring!r}")
 
-    candidates = query_chunks(conn, state=state, task_type=task_type)
+    candidates = query_chunks(conn, state=state, task_type=task_type, type=type)
     context_embeddings = context_embeddings or {}
 
     # Stage 1: filter by raw activation
