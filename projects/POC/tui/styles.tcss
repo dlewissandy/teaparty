@@ -4,6 +4,19 @@ Screen {
     background: $surface;
 }
 
+/* ── Breadcrumb bar ── */
+#breadcrumb-bar {
+    dock: top;
+    height: 1;
+    background: $primary-darken-2;
+    color: $text;
+    padding: 0 1;
+}
+
+#breadcrumb-text {
+    width: 1fr;
+}
+
 /* ── Section titles ── */
 .section-title {
     text-style: bold;
@@ -216,6 +229,26 @@ Screen {
     padding: 0 1;
     color: $warning;
     text-style: bold;
+}
+
+/* ── Workgroup dashboard ── */
+#wg-title {
+    padding: 1 2;
+    text-style: bold;
+}
+
+#wg-content {
+    padding: 1 2;
+}
+
+/* ── Project dashboard details ── */
+#details-scroll {
+    height: 1fr;
+    padding: 0 1;
+}
+
+#job-details-panel {
+    padding: 0 1;
 }
 
 /* ── Chat screen (Issue #206) ── */
