@@ -109,7 +109,6 @@ async def dispatch(
         resume_infra: Existing infra dir for resumed dispatch (issue #149).
     """
     poc_root = find_poc_root()
-    config = PhaseConfig(poc_root)
 
     # Resolve session context — explicit parameters take precedence over env vars
     if not session_worktree:
@@ -118,6 +117,10 @@ async def dispatch(
         infra_dir = os.environ.get('POC_SESSION_DIR', '')
     if not project_slug:
         project_slug = os.environ.get('POC_PROJECT', 'default')
+
+    # Resolve project_dir for project-scoped team config (issue #10)
+    project_dir = os.environ.get('POC_PROJECT_DIR', '')
+    config = PhaseConfig(poc_root, project_dir=project_dir or None)
 
     if not infra_dir and not resume_infra:
         return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}

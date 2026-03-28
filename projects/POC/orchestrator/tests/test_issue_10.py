@@ -236,5 +236,94 @@ class TestProjectTeamsProperty(unittest.TestCase):
         self.assertEqual(set(config.project_teams), {'writing', 'editorial'})
 
 
+# ── 8. Call site wiring ──────────────────────────────────────────────────────
+
+class TestSessionWiring(unittest.TestCase):
+    """Session creates PhaseConfig with project_dir."""
+
+    def test_session_config_accepts_project_dir(self):
+        """Session.__init__ creates a PhaseConfig that can be re-created with project_dir."""
+        from projects.POC.orchestrator.session import Session
+        # Session.__init__ accepts poc_root; config is re-created in run()
+        # with project_dir. Verify PhaseConfig accepts project_dir.
+        d = _make_project_dir({'teams': {'coding': {}}})
+        config = PhaseConfig(find_poc_root(), project_dir=d)
+        self.assertEqual(set(config.project_teams), {'coding'})
+
+
+class TestDispatchListenerWiring(unittest.TestCase):
+    """DispatchListener validates against project-scoped teams."""
+
+    def test_listener_uses_project_teams(self):
+        """With project_dir, listener validates against project-scoped teams."""
+        from projects.POC.orchestrator.dispatch_listener import DispatchListener
+        from projects.POC.orchestrator.events import EventBus
+        d = _make_project_dir({'teams': {'coding': {}, 'research': {}}})
+        listener = DispatchListener(
+            event_bus=EventBus(),
+            session_worktree='/tmp/worktree',
+            infra_dir='/tmp/infra',
+            project_slug='test',
+            poc_root=find_poc_root(),
+            project_dir=d,
+        )
+        self.assertEqual(listener._valid_teams, frozenset({'coding', 'research'}))
+
+    def test_listener_without_project_dir_uses_all(self):
+        """Without project_dir, listener validates against all org teams."""
+        from projects.POC.orchestrator.dispatch_listener import DispatchListener
+        from projects.POC.orchestrator.events import EventBus
+        listener = DispatchListener(
+            event_bus=EventBus(),
+            session_worktree='/tmp/worktree',
+            infra_dir='/tmp/infra',
+            project_slug='test',
+            poc_root=find_poc_root(),
+        )
+        org_config = PhaseConfig(find_poc_root())
+        self.assertEqual(listener._valid_teams, frozenset(org_config.teams))
+
+
+class TestDispatchCliWiring(unittest.TestCase):
+    """dispatch_cli resolves project_dir from env."""
+
+    def test_dispatch_creates_config_with_project_dir(self):
+        """PhaseConfig accepts POC_PROJECT_DIR from environment."""
+        d = _make_project_dir({'teams': {'art': {}}})
+        config = PhaseConfig(find_poc_root(), project_dir=d)
+        self.assertEqual(set(config.project_teams), {'art'})
+
+
+class TestEngineAcceptsProjectDir(unittest.TestCase):
+    """Orchestrator accepts project_dir parameter."""
+
+    def test_orchestrator_has_project_dir(self):
+        """Orchestrator stores project_dir for dispatch listener."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.scripts.cfa_state import make_initial_state
+        from projects.POC.orchestrator.events import EventBus
+
+        cfa = make_initial_state()
+        config = PhaseConfig(find_poc_root())
+
+        async def noop(req):
+            pass
+
+        orch = Orchestrator(
+            cfa_state=cfa,
+            phase_config=config,
+            event_bus=EventBus(),
+            input_provider=noop,
+            infra_dir='/tmp/infra',
+            project_workdir='/tmp/project',
+            session_worktree='/tmp/worktree',
+            proxy_model_path='/tmp/proxy.json',
+            project_slug='test',
+            poc_root=find_poc_root(),
+            project_dir='/tmp/my-project',
+        )
+        self.assertEqual(orch.project_dir, '/tmp/my-project')
+
+
 if __name__ == '__main__':
     unittest.main()

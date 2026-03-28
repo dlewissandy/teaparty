@@ -102,6 +102,7 @@ class Orchestrator:
         phase_session_ids: dict[str, str] | None = None,
         last_actor_data: dict[str, Any] | None = None,
         parent_heartbeat: str = '',
+        project_dir: str = '',
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -125,6 +126,7 @@ class Orchestrator:
         self.never_escalate = never_escalate
         self.team_override = team_override
         self._parent_heartbeat = parent_heartbeat
+        self.project_dir = project_dir
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -206,6 +208,7 @@ class Orchestrator:
                     session_id=self.session_id,
                     poc_root=self.poc_root,
                     proxy_model_path=self.proxy_model_path,
+                    project_dir=self.project_dir,
                 )
                 ask_team_socket = await self._dispatch_listener.start()
                 mcp_env['ASK_TEAM_SOCKET'] = ask_team_socket

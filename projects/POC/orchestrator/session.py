@@ -110,7 +110,7 @@ class Session:
         self.project_slug = ''
         self.session_id = ''
         self.session_info: dict = {}
-        self.config = PhaseConfig(poc_root)
+        self.config = PhaseConfig(poc_root)  # re-created with project_dir in run()
 
     async def run(self) -> SessionResult:
         """Execute the full session lifecycle."""
@@ -126,6 +126,9 @@ class Session:
         project_dir = os.path.join(self.projects_dir, self.project_slug)
         os.makedirs(project_dir, exist_ok=True)
         os.makedirs(os.path.join(project_dir, '.sessions'), exist_ok=True)
+
+        # 2b. Re-create config with project-scoped overrides (issue #10)
+        self.config = PhaseConfig(self.poc_root, project_dir=project_dir)
 
         # 3. Find repo root (project may have its own .git)
         repo_root = self._find_repo_root(project_dir)
@@ -237,6 +240,7 @@ class Session:
             flat=self.flat,
             suppress_backtracks=self.suppress_backtracks,
             proxy_enabled=self.proxy_enabled,
+            project_dir=project_dir,
         )
 
         result = await orchestrator.run()
@@ -607,7 +611,7 @@ class Session:
         skip_intent = current_phase != 'intent'
 
         # 10. Reconstruct _last_actor_data
-        config = PhaseConfig(poc_root)
+        config = PhaseConfig(poc_root, project_dir=project_dir)
         last_actor_data = _reconstruct_last_actor_data(
             cfa, config, worktree_path, infra_dir,
         )
@@ -638,6 +642,7 @@ class Session:
             skip_intent=skip_intent,
             phase_session_ids=phase_session_ids,
             last_actor_data=last_actor_data,
+            project_dir=project_dir,
         )
 
         result = await orchestrator.run()
