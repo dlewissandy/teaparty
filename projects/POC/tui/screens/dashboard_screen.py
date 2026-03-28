@@ -101,13 +101,14 @@ _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 def _build_session_items(
     tagged_sessions: list[tuple[str, object]],
     include_project: bool = False,
+    hide_done: bool = False,
 ) -> list[CardItem]:
     """Build sorted, color-coded CardItems from (project_slug, session) pairs.
 
     Three groups, each sorted newest first:
     1. Escalations (needs_input)
     2. Active (non-terminal, non-escalation)
-    3. Terminal (COMPLETED_WORK, WITHDRAWN)
+    3. Terminal (COMPLETED_WORK, WITHDRAWN) — omitted if hide_done
     """
     escalations = []
     active = []
@@ -123,8 +124,12 @@ def _build_session_items(
     active.sort(key=lambda t: t[1].session_id, reverse=True)
     terminal.sort(key=lambda t: t[1].session_id, reverse=True)
 
+    combined = escalations + active
+    if not hide_done:
+        combined += terminal
+
     items = []
-    for slug, s in escalations + active + terminal:
+    for slug, s in combined:
         icon = _status_icon(s.status, s.needs_input, getattr(s, 'is_orphaned', False))
         label = f'{slug}/{s.session_id}' if include_project and slug else s.session_id
         detail = f'{_colored_state(s)}  {_human_age(s.duration_seconds)}'
@@ -164,6 +169,7 @@ class DashboardScreen(Screen):
         super().__init__()
         self._nav = nav_context or NavigationContext(level=DashboardLevel.MANAGEMENT)
         self._breadcrumb_contexts: list[NavigationContext] = []
+        self._hide_done: dict[str, bool] = {'sessions': True, 'jobs': True}  # default: hide terminal
 
     def _title_text(self) -> str:
         title = self._LEVEL_TITLES.get(self._nav.level, 'Dashboard')
@@ -207,13 +213,13 @@ class DashboardScreen(Screen):
         yield VerticalScroll(
             Horizontal(
                 Vertical(
-                    *(ContentCard(d.title, d.name, show_new_button=d.new_button)
+                    *(ContentCard(d.title, d.name, show_new_button=d.new_button, show_filter_button=d.filter_button)
                       for d in left_defs),
                     id='card-col-left',
                     classes='card-column',
                 ),
                 Vertical(
-                    *(ContentCard(d.title, d.name, show_new_button=d.new_button)
+                    *(ContentCard(d.title, d.name, show_new_button=d.new_button, show_filter_button=d.filter_button)
                       for d in right_defs),
                     id='card-col-right',
                     classes='card-column',
@@ -225,6 +231,11 @@ class DashboardScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Set initial filter state on cards
+        for card_name, active in self._hide_done.items():
+            card = self._find_card(card_name)
+            if card:
+                card.set_filter_active(active)
         self._refresh_data()
         self._update_columns()
 
@@ -278,7 +289,7 @@ class DashboardScreen(Screen):
 
         # Sessions — escalations first, then rest, newest first
         tagged = [(proj.slug, s) for proj in projects for s in proj.sessions]
-        self._set_card('sessions', _build_session_items(tagged, include_project=True))
+        self._set_card('sessions', _build_session_items(tagged, include_project=True, hide_done=self._hide_done.get('sessions', True)))
 
         # Projects
         items = []
@@ -314,11 +325,11 @@ class DashboardScreen(Screen):
 
         # Sessions (active only)
         active = [('', s) for s in proj.sessions if s.status == 'active']
-        self._set_card('sessions', _build_session_items(active))
+        self._set_card('sessions', _build_session_items(active, hide_done=self._hide_done.get('sessions', True)))
 
         # Jobs (all)
         all_jobs = [('', s) for s in proj.sessions]
-        self._set_card('jobs', _build_session_items(all_jobs))
+        self._set_card('jobs', _build_session_items(all_jobs, hide_done=self._hide_done.get('jobs', True)))
 
     def _refresh_job(self, reader, session) -> None:
         if not session:
@@ -505,11 +516,21 @@ class DashboardScreen(Screen):
                 open_file(path)
 
     def action_card_new(self, card_name: str) -> None:
-        """Handle '+ New' click on a card. Called via [@click=screen.card_new(...)]."""
+        """Handle '+ New' click on a card."""
         if card_name in ('sessions', 'jobs'):
             self.action_new_session()
         elif card_name == 'projects':
             self.action_new_project()
+
+    def action_card_filter(self, card_name: str) -> None:
+        """Toggle hide/show terminal states on a card."""
+        self._hide_done[card_name] = not self._hide_done.get(card_name, False)
+        # Update the toggle label
+        card = self._find_card(card_name)
+        if card:
+            card.set_filter_active(self._hide_done[card_name])
+        # Re-populate
+        self._refresh_data()
 
     # ── Navigation ──
 

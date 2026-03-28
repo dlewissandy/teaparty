@@ -169,12 +169,13 @@ class CardDef:
     """Definition of a content card at a dashboard level."""
     name: str         # internal key (e.g. 'projects', 'jobs')
     title: str        # display title (e.g. 'PROJECTS', 'JOBS')
-    new_button: bool = False  # show "+ New" button
+    new_button: bool = False    # show "+ New" button
+    filter_button: bool = False  # show "Hide Done / Show All" toggle
 
 
 _CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
     DashboardLevel.MANAGEMENT: [
-        CardDef('sessions', 'SESSIONS', new_button=True),
+        CardDef('sessions', 'SESSIONS', new_button=True, filter_button=True),
         CardDef('projects', 'PROJECTS', new_button=True),
         CardDef('workgroups', 'WORKGROUPS', new_button=True),
         CardDef('humans', 'HUMANS'),
@@ -184,8 +185,8 @@ _CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
         CardDef('hooks', 'HOOKS', new_button=True),
     ],
     DashboardLevel.PROJECT: [
-        CardDef('sessions', 'SESSIONS', new_button=True),
-        CardDef('jobs', 'JOBS', new_button=True),
+        CardDef('sessions', 'SESSIONS', new_button=True, filter_button=True),
+        CardDef('jobs', 'JOBS', new_button=True, filter_button=True),
         CardDef('workgroups', 'WORKGROUPS', new_button=True),
         CardDef('agents', 'AGENTS', new_button=True),
         CardDef('skills', 'SKILLS', new_button=True),
