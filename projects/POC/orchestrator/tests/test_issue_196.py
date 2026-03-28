@@ -406,28 +406,96 @@ class TestEngineScopedSkillLookup(unittest.TestCase):
 class TestProceduralLearningTeamScope(unittest.TestCase):
     """crystallize_skills writes to team dir when team_name is provided."""
 
+    def _make_candidate(self, candidates_dir, filename, *, task='Write a paper',
+                        category='writing', status='pending'):
+        """Write a skill candidate file with frontmatter."""
+        content = (
+            f'---\n'
+            f'task: {task}\n'
+            f'category: {category}\n'
+            f'status: {status}\n'
+            f'session_id: test-session\n'
+            f'timestamp: 2026-03-14T12:00:00\n'
+            f'---\n\n'
+            f'## Decomposition\n\n1. Survey\n2. Draft\n3. Edit\n'
+        )
+        os.makedirs(candidates_dir, exist_ok=True)
+        path = os.path.join(candidates_dir, filename)
+        with open(path, 'w') as f:
+            f.write(content)
+        return path
+
     def test_crystallize_to_team_dir(self):
         """When team_name is given, skills are written to teams/{name}/skills/."""
+        from unittest.mock import patch
         from projects.POC.orchestrator.procedural_learning import crystallize_skills
 
         with tempfile.TemporaryDirectory() as project_dir:
-            # Create plan candidates directory with enough similar plans
-            plans_dir = os.path.join(project_dir, '.sessions')
-            os.makedirs(plans_dir)
+            candidates_dir = os.path.join(project_dir, 'skill-candidates')
+            for i in range(3):
+                self._make_candidate(candidates_dir, f'candidate-{i}.md')
 
-            # We need at least min_candidates (default 3) similar plans.
-            # Since crystallize_skills uses LLM to generalize, we'll check
-            # that the output directory is correct by testing the path construction.
-            # Full crystallization requires an LLM call — we test the directory
-            # targeting separately.
+            fake_skill = (
+                '---\n'
+                'name: research-paper\n'
+                'description: Write a research paper\n'
+                'category: writing\n'
+                '---\n\n'
+                '## Steps\n1. Survey\n2. Draft\n3. Edit\n'
+            )
+            with patch(
+                'projects.POC.orchestrator.procedural_learning._generalize_candidates',
+                return_value=fake_skill,
+            ):
+                result = crystallize_skills(
+                    project_dir=project_dir, team_name='coding-team',
+                )
+
+            self.assertEqual(result, 1)
             team_skills_dir = os.path.join(
                 project_dir, 'teams', 'coding-team', 'skills',
             )
-            # The function should target this directory when team_name is set.
-            # We verify the directory path construction here; the actual
-            # crystallization is tested in test_issue_101.py and test_issue_234.py.
-            expected = os.path.join(project_dir, 'teams', 'coding-team', 'skills')
-            self.assertEqual(team_skills_dir, expected)
+            self.assertTrue(os.path.isdir(team_skills_dir))
+            skill_files = [f for f in os.listdir(team_skills_dir) if f.endswith('.md')]
+            self.assertEqual(len(skill_files), 1)
+
+            # Project-level skills/ should NOT exist
+            project_skills_dir = os.path.join(project_dir, 'skills')
+            self.assertFalse(os.path.exists(project_skills_dir))
+
+    def test_crystallize_without_team_uses_project_dir(self):
+        """Without team_name, skills are written to {project_dir}/skills/."""
+        from unittest.mock import patch
+        from projects.POC.orchestrator.procedural_learning import crystallize_skills
+
+        with tempfile.TemporaryDirectory() as project_dir:
+            candidates_dir = os.path.join(project_dir, 'skill-candidates')
+            for i in range(3):
+                self._make_candidate(candidates_dir, f'candidate-{i}.md')
+
+            fake_skill = (
+                '---\n'
+                'name: research-paper\n'
+                'description: Write a research paper\n'
+                'category: writing\n'
+                '---\n\n'
+                '## Steps\n1. Survey\n2. Draft\n3. Edit\n'
+            )
+            with patch(
+                'projects.POC.orchestrator.procedural_learning._generalize_candidates',
+                return_value=fake_skill,
+            ):
+                result = crystallize_skills(project_dir=project_dir)
+
+            self.assertEqual(result, 1)
+            project_skills_dir = os.path.join(project_dir, 'skills')
+            self.assertTrue(os.path.isdir(project_skills_dir))
+            skill_files = [f for f in os.listdir(project_skills_dir) if f.endswith('.md')]
+            self.assertEqual(len(skill_files), 1)
+
+            # Team dir should NOT exist
+            teams_dir = os.path.join(project_dir, 'teams')
+            self.assertFalse(os.path.exists(teams_dir))
 
 
 if __name__ == '__main__':
