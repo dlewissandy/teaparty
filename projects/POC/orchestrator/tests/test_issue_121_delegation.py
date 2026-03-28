@@ -213,14 +213,14 @@ class TestProjectLeadSpawnsLiaisons(unittest.TestCase):
         self.assertIn('TaskOutput', pattern_section,
                       "DISPATCH PATTERN must include a TaskOutput step for monitoring progress")
 
-    def test_prompt_references_available_teams(self):
-        """Project-lead prompt must reference Available Teams for dynamic injection.
+    def test_prompt_references_planning_constraints(self):
+        """Project-lead prompt must reference Planning Constraints for dynamic injection.
 
         Issue #141: liaison list is now dynamically injected via the
-        Available Teams context block, not hardcoded in the prompt.
+        Planning Constraints context block, not hardcoded in the prompt.
         """
-        self.assertIn('Available Teams', self.prompt,
-                      "project-lead prompt must reference 'Available Teams' for dynamic injection")
+        self.assertIn('Planning Constraints', self.prompt,
+                      "project-lead prompt must reference 'Planning Constraints' for dynamic injection")
 
 
 # ── Test: liaison prompts reference dispatch mechanism, not dispatch.sh ───────
