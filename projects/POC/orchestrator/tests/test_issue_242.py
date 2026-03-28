@@ -75,7 +75,7 @@ class TestThreeCheckLevels(unittest.TestCase):
 class TestArtifactTypeCoverage(unittest.TestCase):
     """Each artifact type must appear in the validation section."""
 
-    ARTIFACT_TYPES = ['agent', 'skill', 'hook']
+    ARTIFACT_TYPES = ['agent', 'skill', 'hook', 'mcp', 'scheduled']
 
     def setUp(self):
         text = _read_proposal()

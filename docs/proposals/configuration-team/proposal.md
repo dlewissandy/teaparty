@@ -186,6 +186,7 @@ Does the artifact do something reasonable when exercised?
 - **Agents:** spawn the agent with a representative prompt for its role; verify it uses the expected tools, produces output in the expected form, and terminates without error
 - **Skills:** invoke the skill with representative arguments; verify the flow reaches its key decision points and the agent loads supporting files on demand rather than all upfront
 - **Hooks:** simulate the trigger event; verify the hook fires, the matcher selects the right events, and the handler produces a meaningful response (not just exit 0)
+- **MCP servers:** start the server; verify it responds to a list-tools call and the advertised tools match what the agent definition expects
 - **Scheduled tasks:** trigger the schedule manually; verify the skill invocation completes
 
 Behavioral checks verify that the artifact *runs* — that it exercises its intended path without crashing or doing nothing. They catch wiring errors (tool not available, file path wrong, matcher too narrow) and gross functional failures (agent ignores its role, skill loads everything upfront despite progressive disclosure design).
