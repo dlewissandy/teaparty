@@ -838,51 +838,54 @@ def _refine_skill_unified(*, infra_dir: str, project_dir: str) -> None:
 
 # ── Task and institutional contradiction consolidation (#244) ─────────────────
 
-def _consolidate_task_and_institutional(*, project_dir: str) -> None:
-    """Run contradiction consolidation on task and institutional learnings.
+def _read_already_decayed(log_path: str) -> set[str]:
+    """Read prior consolidation log to find entry IDs already decayed.
 
-    Scans tasks/ directories and institutional.md files at project scope,
-    detects contradictions among entries, classifies them, and resolves
-    (temporal_obsolescence -> DELETE older, genuine_tension -> reduce
-    importance once for faster decay).
-
-    Reads prior consolidation log to avoid compounding importance reduction
-    across sessions. Writes new decisions to the log for auditability.
+    Prevents compounding importance reduction across sessions.
     """
     import json as _json
+
+    already_decayed: set[str] = set()
+    if not os.path.isfile(log_path):
+        return already_decayed
+    try:
+        with open(log_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if d.get('action') == 'PRESERVE_BOTH_DECAYED':
+                    already_decayed.add(d.get('entry_a', ''))
+                    already_decayed.add(d.get('entry_b', ''))
+    except OSError:
+        pass
+    already_decayed.discard('')
+    return already_decayed
+
+
+def _consolidate_scope(
+    scope_dir: str,
+    *,
+    already_decayed: set[str],
+) -> tuple[int, list[dict]]:
+    """Consolidate task and institutional learnings at a single scope directory.
+
+    Returns (total_removed, all_decisions).
+    """
     from projects.POC.orchestrator.learning_consolidation import (
         consolidate_learning_file,
         consolidate_institutional_file,
     )
 
-    log_path = os.path.join(project_dir, '.learning-consolidation-log.jsonl')
-
-    # Read prior log to find entry IDs already decayed — prevents
-    # compounding importance reduction across sessions.
-    already_decayed: set[str] = set()
-    if os.path.isfile(log_path):
-        try:
-            with open(log_path) as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        d = _json.loads(line)
-                    except _json.JSONDecodeError:
-                        continue
-                    if d.get('action') == 'PRESERVE_BOTH_DECAYED':
-                        already_decayed.add(d.get('entry_a', ''))
-                        already_decayed.add(d.get('entry_b', ''))
-        except OSError:
-            pass
-    already_decayed.discard('')
-
     total_removed = 0
     all_decisions: list[dict] = []
 
     # Consolidate task learnings
-    tasks_dir = os.path.join(project_dir, 'tasks')
+    tasks_dir = os.path.join(scope_dir, 'tasks')
     if os.path.isdir(tasks_dir):
         removed, decisions = consolidate_learning_file(
             tasks_dir, already_decayed_ids=already_decayed,
@@ -891,7 +894,7 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
         all_decisions.extend(decisions)
 
     # Consolidate institutional learnings
-    inst_path = os.path.join(project_dir, 'institutional.md')
+    inst_path = os.path.join(scope_dir, 'institutional.md')
     if os.path.isfile(inst_path):
         removed, decisions = consolidate_institutional_file(
             inst_path, already_decayed_ids=already_decayed,
@@ -899,6 +902,56 @@ def _consolidate_task_and_institutional(*, project_dir: str) -> None:
         total_removed += removed
         all_decisions.extend(decisions)
 
+    return total_removed, all_decisions
+
+
+def _consolidate_task_and_institutional(*, project_dir: str) -> None:
+    """Run contradiction consolidation on task and institutional learnings.
+
+    Consolidates at two scopes:
+    - Project scope: project_dir/tasks/ and project_dir/institutional.md
+    - Global scope: projects_dir/tasks/ and projects_dir/institutional.md
+
+    Reads prior consolidation log to avoid compounding importance reduction
+    across sessions. Writes new decisions to the log for auditability.
+    """
+    import json as _json
+
+    log_path = os.path.join(project_dir, '.learning-consolidation-log.jsonl')
+    already_decayed = _read_already_decayed(log_path)
+
+    total_removed = 0
+    all_decisions: list[dict] = []
+
+    # ── Project scope ──────────────────────────────────────────────────────
+    removed, decisions = _consolidate_scope(
+        project_dir, already_decayed=already_decayed,
+    )
+    total_removed += removed
+    all_decisions.extend(decisions)
+
+    # ── Global scope ───────────────────────────────────────────────────────
+    # Global learnings are promoted to the parent of project_dir (projects/).
+    global_dir = os.path.dirname(project_dir)
+    if global_dir and os.path.isdir(global_dir) and global_dir != project_dir:
+        # Read global-scope log separately (different scope, different log)
+        global_log = os.path.join(global_dir, '.learning-consolidation-log.jsonl')
+        global_decayed = _read_already_decayed(global_log)
+
+        g_removed, g_decisions = _consolidate_scope(
+            global_dir, already_decayed=global_decayed,
+        )
+        total_removed += g_removed
+
+        if g_decisions:
+            try:
+                with open(global_log, 'a') as f:
+                    for d in g_decisions:
+                        f.write(_json.dumps(d) + '\n')
+            except OSError:
+                pass
+
+    # Write project-scope decisions
     if all_decisions:
         try:
             with open(log_path, 'a') as f:
