@@ -144,6 +144,8 @@ class Orchestrator:
         self.project_dir = project_dir
         self._intervention_queue = intervention_queue
         self._role_enforcer = role_enforcer
+        if intervention_queue and role_enforcer:
+            intervention_queue.role_enforcer = role_enforcer
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
         self.human_presence = human_presence

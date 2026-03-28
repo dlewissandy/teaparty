@@ -302,6 +302,31 @@ class TestOrchestratorRoleEnforcer(unittest.TestCase):
         )
         self.assertIs(orch._role_enforcer, enforcer)
 
+    def test_orchestrator_wires_enforcer_to_intervention_queue(self):
+        """Orchestrator wires role_enforcer onto intervention_queue when both provided."""
+        from projects.POC.orchestrator.engine import Orchestrator
+        from projects.POC.orchestrator.events import EventBus
+        from projects.POC.orchestrator.intervention import InterventionQueue
+        from projects.POC.orchestrator.role_enforcer import RoleEnforcer, DAIRole
+        from projects.POC.scripts.cfa_state import make_initial_state
+        enforcer = RoleEnforcer({'bob': DAIRole.INFORMED})
+        q = InterventionQueue()
+        orch = Orchestrator(
+            cfa_state=make_initial_state(task_id='test'),
+            phase_config=_make_stub_phase_config(),
+            event_bus=EventBus(),
+            input_provider=None,
+            infra_dir='/tmp/fake',
+            project_workdir='/tmp/fake',
+            session_worktree='/tmp/fake',
+            proxy_model_path='/tmp/fake',
+            project_slug='test',
+            poc_root='/tmp/fake',
+            role_enforcer=enforcer,
+            intervention_queue=q,
+        )
+        self.assertIs(q.role_enforcer, enforcer)
+
     def test_orchestrator_defaults_none(self):
         """Without role_enforcer param, it defaults to None."""
         from projects.POC.orchestrator.engine import Orchestrator
