@@ -150,7 +150,7 @@ class TestPlanningTaskIncludesTeams(unittest.TestCase):
         orch = _make_orchestrator(self.tmpdir, _poc_root())
         task = orch._task_for_phase('planning')
 
-        for team_name in ('art', 'writing', 'editorial', 'research', 'coding'):
+        for team_name in ('art', 'writing', 'editorial', 'research', 'coding', 'configuration'):
             self.assertIn(team_name, task,
                           f"Planning task must list available team '{team_name}'")
 

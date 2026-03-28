@@ -115,8 +115,8 @@ def _cascade_nested(
         finalize_heartbeat,
     )
 
-    # Same team list as tui/withdraw.py
-    dispatch_teams = ('art', 'writing', 'editorial', 'research', 'coding')
+    from projects.POC.orchestrator.phase_config import get_team_names
+    dispatch_teams = get_team_names()
 
     for team in dispatch_teams:
         team_dir = os.path.join(infra_dir, team)

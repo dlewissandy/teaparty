@@ -128,7 +128,7 @@ class TestPromoteTeam(unittest.TestCase):
             promote('team', self.session_dir, '', '')
 
         # art, writing, editorial, research should not appear in outputs
-        for unexpected_team in ('art', 'writing', 'editorial', 'research'):
+        for unexpected_team in ('art', 'writing', 'editorial', 'research', 'configuration'):
             for output in calls:
                 self.assertNotIn(
                     f'/{unexpected_team}/', output,

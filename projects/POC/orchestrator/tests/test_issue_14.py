@@ -72,7 +72,8 @@ def _make_session_on_disk(layout: dict, session_id: str, task_slug: str = 'test-
 
     os.makedirs(worktree_path, exist_ok=True)
     os.makedirs(infra_dir, exist_ok=True)
-    for team in ('art', 'writing', 'editorial', 'research', 'coding'):
+    from projects.POC.orchestrator.phase_config import get_team_names
+    for team in get_team_names():
         os.makedirs(os.path.join(infra_dir, team), exist_ok=True)
 
     _register_worktree(layout['repo_root'], {

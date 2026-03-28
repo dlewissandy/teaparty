@@ -40,7 +40,8 @@ async def create_session_worktree(
     # Create infra directory and team subdirs for dispatch MEMORY.md rollup
     infra_dir = os.path.join(project_dir, '.sessions', session_id)
     os.makedirs(infra_dir, exist_ok=True)
-    for team_name in ('art', 'writing', 'editorial', 'research', 'coding'):
+    from projects.POC.orchestrator.phase_config import get_team_names
+    for team_name in get_team_names():
         os.makedirs(os.path.join(infra_dir, team_name), exist_ok=True)
 
     # Register in manifest
