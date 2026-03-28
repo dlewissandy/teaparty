@@ -30,6 +30,9 @@ import tempfile
 
 from projects.POC.orchestrator.dispatch_cli import dispatch
 from projects.POC.orchestrator.events import Event, EventBus, EventType
+from projects.POC.orchestrator.messaging import (
+    ConversationType, SqliteMessageBus, make_conversation_id,
+)
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
 _log = logging.getLogger('orchestrator.dispatch')
@@ -170,12 +173,25 @@ class DispatchListener:
 
         _log.info('Dispatching to team %r: %s', team, task[:80])
 
+        # Create a subteam conversation in the session's message bus (Issue #200).
+        # This persists the dispatch task and result as an audit trail.
+        dispatch_id = f'{team}-{self.session_id}'
+        conversation_id = make_conversation_id(ConversationType.SUBTEAM, dispatch_id)
+        bus_path = os.path.join(self.infra_dir, 'messages.db')
+        try:
+            bus = SqliteMessageBus(bus_path)
+            bus.send(conversation_id, 'orchestrator', f'Dispatch to {team}: {task}')
+            bus.close()
+        except Exception:
+            _log.debug('Failed to record dispatch to message bus', exc_info=True)
+
         await self.event_bus.publish(Event(
             type=EventType.LOG,
             data={
                 'category': 'dispatch_start',
                 'team': team,
                 'task': task[:200],
+                'conversation_id': conversation_id,
             },
             session_id=self.session_id,
         ))
@@ -209,6 +225,16 @@ class DispatchListener:
             },
             session_id=self.session_id,
         ))
+
+        # Record dispatch result in subteam conversation (Issue #200).
+        try:
+            bus = SqliteMessageBus(bus_path)
+            status = result.get('status', 'unknown')
+            terminal = result.get('terminal_state', '')
+            bus.send(conversation_id, team, f'Dispatch {status}: {terminal}')
+            bus.close()
+        except Exception:
+            _log.debug('Failed to record dispatch result to message bus', exc_info=True)
 
         _log.info('Dispatch to %r completed: %s', team, result.get('status', '?'))
         return result

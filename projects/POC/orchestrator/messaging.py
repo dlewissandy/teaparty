@@ -38,9 +38,9 @@ class Message:
 
 
 class ConversationType(Enum):
-    OFFICE_MANAGER = 'office_manager'
-    PROJECT_SESSION = 'project_session'
-    SUBTEAM = 'subteam'
+    OFFICE_MANAGER = 'office_manager'   # Deferred: depends on office manager feature
+    PROJECT_SESSION = 'project_session'  # Active: created by Session.run()
+    SUBTEAM = 'subteam'                  # Active: created by DispatchListener
 
 
 _PREFIXES = {
