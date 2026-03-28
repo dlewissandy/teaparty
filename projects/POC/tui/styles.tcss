@@ -77,8 +77,12 @@ WorkflowProgress {
     padding: 0 1;
 }
 
-.card-columns.-narrow #card-col-right {
-    display: none;
+.card-columns.-narrow {
+    layout: vertical;
+}
+
+.card-columns.-narrow .card-column {
+    width: 100%;
 }
 
 /* ── Section titles ── */
