@@ -58,7 +58,7 @@ class ManagementDashboard(Screen):
         Binding('enter', 'select_item', 'Open', show=True),
         Binding('n', 'new_session', 'New Session', show=False),
         Binding('p', 'new_project', 'New Project', show=False),
-        Binding('d', 'diagnostics', 'Diagnostics', show=True),
+        Binding('d', 'diagnostics', 'Diagnostics', show=False),
         Binding('r', 'refresh', 'Refresh', show=True),
         Binding('q', 'quit_app', 'Quit', show=True),
         Binding('f', 'change_folder', 'Folder', show=True),
