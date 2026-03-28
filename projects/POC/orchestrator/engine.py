@@ -343,6 +343,9 @@ class Orchestrator:
 
                 # Bridge planning → execution (PLAN has one edge: delegate → TASK)
                 await self._auto_bridge()
+
+                # Prospective learning: generate premortem before execution (Issue #199)
+                self._write_premortem()
             # else: CfA is already at TASK (set_state_direct in Session.run)
 
             # Phase 3: Execution
@@ -577,6 +580,8 @@ class Orchestrator:
                     data={'phase': phase_name, 'state': self.cfa.state},
                     session_id=self.session_id,
                 ))
+                # In-flight learning: write assumption checkpoint (Issue #199)
+                self._write_assumption_checkpoint(phase_name)
                 return PhaseResult()
 
             # Check for phase exit (e.g., INTENT → planning, PLAN → execution)
@@ -1075,6 +1080,38 @@ class Orchestrator:
                             )
                 except Exception as exc:
                     _log.warning('Stage retirement failed: %s', exc)
+
+    def _write_assumption_checkpoint(self, phase_name: str) -> None:
+        """Write an assumption checkpoint at phase completion (Issue #199).
+
+        Captures the phase that just completed and the CfA state, so the
+        post-session in-flight extraction pipeline has input to work with.
+        """
+        try:
+            from projects.POC.orchestrator.learnings import write_assumption_checkpoint
+            write_assumption_checkpoint(
+                infra_dir=self.infra_dir,
+                phase=phase_name,
+                cfa_state=self.cfa.state,
+                artifact_summary=f'{phase_name} phase completed at {self.cfa.state}',
+            )
+        except Exception as exc:
+            _log.warning('Assumption checkpoint failed (non-fatal): %s', exc)
+
+    def _write_premortem(self) -> None:
+        """Generate premortem from PLAN.md before execution begins (Issue #199).
+
+        Called at the planning→execution bridge so the post-session
+        prospective extraction pipeline has input to work with.
+        """
+        try:
+            from projects.POC.orchestrator.learnings import write_premortem
+            write_premortem(
+                infra_dir=self.infra_dir,
+                task=self.task,
+            )
+        except Exception as exc:
+            _log.warning('Premortem generation failed (non-fatal): %s', exc)
 
     def _phase_spec(self, phase_name: str) -> 'PhaseSpec':
         """Get the phase spec, accounting for team and flat overrides."""
