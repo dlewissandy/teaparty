@@ -484,6 +484,9 @@ class DashboardScreen(Screen):
         # Agents — from config_reader if available
         self._set_card('agents', self._load_management_agents())
 
+        # Workgroups — from config_reader if available
+        self._set_card('workgroups', self._load_management_workgroups())
+
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
@@ -513,6 +516,9 @@ class DashboardScreen(Screen):
 
         # Agents — from project config if available
         self._set_card('agents', self._load_project_agents(proj))
+
+        # Workgroups — from project config if available
+        self._set_card('workgroups', self._load_project_workgroups(proj))
 
     def _refresh_workgroup(self) -> None:
         """Refresh the workgroup dashboard — agents card from config_reader."""
@@ -707,6 +713,56 @@ class DashboardScreen(Screen):
                 if wg.name == wg_id:
                     return build_agent_items(wg.agents, search_dirs=[proj.path])
             return []
+        except Exception:
+            return []
+
+    def _load_management_workgroups(self) -> list[CardItem]:
+        """Load workgroup list from teaparty.yaml via config_reader."""
+        try:
+            from projects.POC.orchestrator.config_reader import (
+                load_management_team,
+                load_management_workgroups,
+            )
+            team = load_management_team()
+            workgroups = load_management_workgroups(team)
+            items: list[CardItem] = []
+            for wg in workgroups:
+                agent_count = len(wg.agents)
+                detail = f'{agent_count} agent{"s" if agent_count != 1 else ""}'
+                if wg.lead:
+                    detail = f'{wg.lead}  {detail}'
+                items.append(CardItem(
+                    icon='\u25cb',
+                    label=wg.name,
+                    detail=detail,
+                    data={'workgroup_id': wg.name},
+                ))
+            return items
+        except Exception:
+            return []
+
+    def _load_project_workgroups(self, proj) -> list[CardItem]:
+        """Load workgroup list from project.yaml via config_reader."""
+        try:
+            from projects.POC.orchestrator.config_reader import (
+                load_project_team,
+                resolve_workgroups,
+            )
+            pt = load_project_team(proj.path)
+            workgroups = resolve_workgroups(pt.workgroups, proj.path)
+            items: list[CardItem] = []
+            for wg in workgroups:
+                agent_count = len(wg.agents)
+                detail = f'{agent_count} agent{"s" if agent_count != 1 else ""}'
+                if wg.lead:
+                    detail = f'{wg.lead}  {detail}'
+                items.append(CardItem(
+                    icon='\u25cb',
+                    label=wg.name,
+                    detail=detail,
+                    data={'workgroup_id': wg.name},
+                ))
+            return items
         except Exception:
             return []
 
