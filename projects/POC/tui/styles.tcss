@@ -48,14 +48,10 @@ ContentCard {
 }
 
 /* ── Stats bar ── */
-StatsBar {
+#dash-stats {
     height: 1;
     background: $primary-darken-1;
     padding: 0 1;
-}
-
-#stats-bar-text {
-    width: 1fr;
 }
 
 /* ── Workflow progress ── */

@@ -22,7 +22,6 @@ from projects.POC.tui.navigation import (
     breadcrumbs_for_level,
 )
 from projects.POC.tui.widgets.content_card import CardItem, ContentCard
-from projects.POC.tui.widgets.stats_bar import StatsBar
 
 
 # ── Helpers ──
@@ -178,7 +177,7 @@ class DashboardScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id='dash-title')
         yield Static(self._breadcrumb_text(), id='dash-breadcrumbs')
-        yield StatsBar(id='dash-stats')
+        yield Static('', id='dash-stats')
         card_defs = card_defs_for_level(self._nav.level)
         mid = (len(card_defs) + 1) // 2
         left_defs = card_defs[:mid]
@@ -401,8 +400,9 @@ class DashboardScreen(Screen):
     # ── Card/stats helpers ──
 
     def _set_stats(self, stats: list[tuple[str, str]]) -> None:
+        parts = [f'[bold]{k}:[/bold] {v}' for k, v in stats]
         try:
-            self.query_one('#dash-stats', StatsBar).update_stats(stats)
+            self.query_one('#dash-stats', Static).update('  \u2502  '.join(parts))
         except Exception:
             pass
 
