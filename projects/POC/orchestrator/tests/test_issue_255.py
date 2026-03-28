@@ -179,7 +179,7 @@ class TestOpenChatWindowPreSeed(unittest.TestCase):
         app.poc_root = '/fake/projects/POC'
         app.projects_dir = '/fake/projects'
 
-        with patch('projects.POC.tui.screens.dashboard_screen.open_terminal') as mock_term:
+        with patch('projects.POC.tui.platform_utils.open_terminal') as mock_term:
             open_chat_window(app, pre_seed='I would like to create a new agent')
             mock_term.assert_called_once()
             cmd = mock_term.call_args[0][0]
@@ -196,7 +196,7 @@ class TestOpenChatWindowPreSeed(unittest.TestCase):
         app.poc_root = '/fake/projects/POC'
         app.projects_dir = '/fake/projects'
 
-        with patch('projects.POC.tui.screens.dashboard_screen.open_terminal') as mock_term:
+        with patch('projects.POC.tui.platform_utils.open_terminal') as mock_term:
             open_chat_window(app)
             mock_term.assert_called_once()
             cmd = mock_term.call_args[0][0]
@@ -227,8 +227,8 @@ class TestChatMainPreSeedArg(unittest.TestCase):
 class TestPreSeedConversationRouting(unittest.TestCase):
     """Pre-seeded messages route to the office manager conversation."""
 
-    def test_pre_seed_targets_office_manager_conversation(self):
-        """When pre_seed is given, the conversation should be om:preseed."""
+    def test_action_card_new_passes_om_conversation_with_pre_seed(self):
+        """action_card_new routes non-session cards to om: conversation with pre_seed."""
         from unittest.mock import patch, MagicMock
         from projects.POC.tui.screens.dashboard_screen import open_chat_window
 
@@ -236,13 +236,17 @@ class TestPreSeedConversationRouting(unittest.TestCase):
         app.poc_root = '/fake/projects/POC'
         app.projects_dir = '/fake/projects'
 
-        with patch('projects.POC.tui.screens.dashboard_screen.open_terminal') as mock_term:
-            open_chat_window(app, pre_seed='I would like to create a new agent')
+        with patch('projects.POC.tui.platform_utils.open_terminal') as mock_term:
+            open_chat_window(app, conversation='om:new', pre_seed='I would like to create a new agent')
             cmd = mock_term.call_args[0][0]
             # Should target the office manager conversation
             self.assertIn('--conversation', cmd)
             idx = cmd.index('--conversation')
             self.assertTrue(cmd[idx + 1].startswith('om:'))
+            # Should include the pre-seed
+            self.assertIn('--pre-seed', cmd)
+            idx = cmd.index('--pre-seed')
+            self.assertEqual(cmd[idx + 1], 'I would like to create a new agent')
 
 
 if __name__ == '__main__':
