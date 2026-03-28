@@ -275,6 +275,62 @@ class TestManagementDashboardStats(unittest.TestCase):
         self.assertIsNone(stats['interventions'])
 
 
+# ── Proxy stats from proxy_memory.db ─────────────────────────────────────────
+
+class TestProxyStatsFromDB(unittest.TestCase):
+    """Proxy accuracy and skills learned should be queried from proxy_memory.db."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self.proj_path = os.path.join(self.tmpdir, 'test-proj')
+        os.makedirs(self.proj_path)
+
+    def test_proxy_accuracy_computed_from_db(self):
+        """When proxy_memory.db exists with accuracy data, proxy_accuracy should be a percentage string."""
+        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        _make_proxy_db(self.proj_path, n_chunks=10, n_matched=7)
+        # Also populate proxy_accuracy table
+        db_path = os.path.join(self.proj_path, '.proxy-memory.db')
+        conn = sqlite3.connect(db_path)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS proxy_accuracy "
+            "(state TEXT, task_type TEXT, prior_correct INTEGER, prior_total INTEGER, "
+            "posterior_correct INTEGER, posterior_total INTEGER, last_updated TEXT, "
+            "PRIMARY KEY (state, task_type))"
+        )
+        conn.execute(
+            "INSERT INTO proxy_accuracy VALUES (?, ?, ?, ?, ?, ?, ?)",
+            ('WORK_ASSERT', 'fix', 6, 10, 7, 10, '2026-03-28'),
+        )
+        conn.commit()
+        conn.close()
+        accuracy, chunks = _proxy_stats([self.proj_path])
+        self.assertEqual(accuracy, '70%')
+
+    def test_skills_learned_from_chunk_count(self):
+        """Skills learned should equal non-deleted chunk count."""
+        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        _make_proxy_db(self.proj_path, n_chunks=8, n_matched=5)
+        _, chunks = _proxy_stats([self.proj_path])
+        self.assertEqual(chunks, 8)
+
+    def test_no_db_returns_none(self):
+        """When no proxy_memory.db exists, return None for both."""
+        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        accuracy, chunks = _proxy_stats([self.proj_path])
+        self.assertIsNone(accuracy)
+        self.assertIsNone(chunks)
+
+    def test_management_stats_wire_proxy_data(self):
+        """compute_management_stats should pass project paths to _proxy_stats."""
+        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        _make_proxy_db(self.proj_path, n_chunks=5, n_matched=3)
+        proj = _make_project(slug='test-proj', path=self.proj_path,
+                             sessions=[_make_session()])
+        stats = compute_management_stats([proj])
+        self.assertEqual(stats['skills_learned'], 5)
+
+
 # ── Project dashboard stats ──────────────────────────────────────────────────
 
 class TestProjectDashboardStats(unittest.TestCase):

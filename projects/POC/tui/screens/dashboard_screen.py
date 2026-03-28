@@ -446,7 +446,60 @@ def _uptime_str() -> str:
     return _human_age(elapsed)
 
 
-def _aggregate_sessions(sessions: list) -> dict:
+def _proxy_stats(project_paths: list[str]) -> tuple:
+    """Query proxy_memory.db for accuracy and chunk count across projects.
+
+    Returns (accuracy_str | None, chunk_count | None).
+    """
+    import sqlite3
+    total_correct = 0
+    total_eligible = 0
+    total_chunks = 0
+    found_any = False
+
+    for proj_path in project_paths:
+        db_path = os.path.join(proj_path, '.proxy-memory.db')
+        if not os.path.exists(db_path):
+            continue
+        try:
+            conn = sqlite3.connect(db_path, timeout=1)
+            conn.execute('PRAGMA query_only = ON')
+        except Exception:
+            continue
+        try:
+            # Proxy accuracy from proxy_accuracy table
+            rows = conn.execute(
+                'SELECT posterior_correct, posterior_total FROM proxy_accuracy'
+            ).fetchall()
+            for row in rows:
+                total_correct += row[0]
+                total_eligible += row[1]
+        except Exception:
+            pass  # Table may not exist yet
+        try:
+            # Skills learned = non-deleted chunk count
+            count = conn.execute(
+                'SELECT COUNT(*) FROM proxy_chunks WHERE deleted = 0'
+            ).fetchone()
+            if count:
+                total_chunks += count[0]
+        except Exception:
+            pass  # Table may not exist yet
+        found_any = True
+        conn.close()
+
+    if not found_any:
+        return (None, None)
+
+    accuracy = None
+    if total_eligible > 0:
+        pct = int(100 * total_correct / total_eligible)
+        accuracy = f'{pct}%'
+
+    return (accuracy, total_chunks)
+
+
+def _aggregate_sessions(sessions: list, project_paths: list[str] | None = None) -> dict:
     """Compute common aggregated stats from a list of sessions."""
     jobs_done = sum(1 for s in sessions if s.cfa_state == 'COMPLETED_WORK')
     tasks_done = sum(
@@ -462,6 +515,13 @@ def _aggregate_sessions(sessions: list) -> dict:
     backtracks = sum(s.backtrack_count for s in sessions)
     withdrawals = sum(1 for s in sessions if s.cfa_state == 'WITHDRAWN')
     escalations = sum(s.escalation_count for s in sessions)
+
+    # Optional subsystems — query proxy_memory.db if project paths available
+    proxy_accuracy = None
+    skills_learned = None
+    if project_paths:
+        proxy_accuracy, skills_learned = _proxy_stats(project_paths)
+
     return {
         'jobs_done': jobs_done,
         'tasks_done': tasks_done,
@@ -470,25 +530,26 @@ def _aggregate_sessions(sessions: list) -> dict:
         'backtracks': backtracks,
         'withdrawals': withdrawals,
         'escalations': escalations,
-        # Optional subsystems — None means unavailable
-        'interventions': None,
-        'proxy_accuracy': None,
-        'tokens': None,
-        'skills_learned': None,
+        'interventions': None,  # No persisted counter — needs event tracking
+        'proxy_accuracy': proxy_accuracy,
+        'tokens': None,  # Not yet persisted to disk
+        'skills_learned': skills_learned,
     }
 
 
 def compute_management_stats(projects: list) -> dict:
     """Compute all 12 management dashboard stats from project list."""
     all_sessions = [s for p in projects for s in p.sessions]
-    stats = _aggregate_sessions(all_sessions)
+    project_paths = [p.path for p in projects]
+    stats = _aggregate_sessions(all_sessions, project_paths)
     stats['uptime'] = _uptime_str()
     return stats
 
 
-def compute_project_stats(sessions: list) -> dict:
+def compute_project_stats(sessions: list, project_path: str = '') -> dict:
     """Compute project dashboard stats (same as management minus Uptime)."""
-    return _aggregate_sessions(sessions)
+    paths = [project_path] if project_path else []
+    return _aggregate_sessions(sessions, paths)
 
 
 def compute_job_stats(session) -> dict:
@@ -531,9 +592,9 @@ def format_management_stats(projects: list) -> list[tuple[str, str]]:
     ]
 
 
-def format_project_stats(sessions: list) -> list[tuple[str, str]]:
+def format_project_stats(sessions: list, project_path: str = '') -> list[tuple[str, str]]:
     """Format project stats as (label, value) pairs for the stats bar."""
-    stats = compute_project_stats(sessions)
+    stats = compute_project_stats(sessions, project_path)
     return [
         ('Jobs Done', format_stat_value(stats['jobs_done'])),
         ('Tasks Done', format_stat_value(stats['tasks_done'])),
@@ -736,7 +797,7 @@ class DashboardScreen(Screen):
         if not proj:
             return
         # Issue #273: full stat set from project-dashboard.md
-        self._set_stats(format_project_stats(proj.sessions))
+        self._set_stats(format_project_stats(proj.sessions, proj.path))
 
         # Escalations — all escalation items within this project
         tagged = [('', s) for s in proj.sessions]
