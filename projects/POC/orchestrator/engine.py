@@ -41,6 +41,10 @@ from projects.POC.orchestrator.escalation_listener import EscalationListener
 from projects.POC.orchestrator.worktree import commit_artifact
 from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
 from projects.POC.orchestrator.intervention import InterventionQueue, build_intervention_prompt
+from projects.POC.orchestrator.interrupt_propagation import (
+    cascade_withdraw_children,
+    is_backtrack,
+)
 from projects.POC.orchestrator.phase_config import PhaseConfig
 
 
@@ -131,6 +135,7 @@ class Orchestrator:
         self.project_dir = project_dir
         self._intervention_queue = intervention_queue
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
+        self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -656,6 +661,7 @@ class Orchestrator:
 
         prompt = build_intervention_prompt(messages)
         self._pending_intervention = prompt
+        self._intervention_active = True  # Issue #247: track for cascade
 
         await self.event_bus.publish(Event(
             type=EventType.INTERVENE,
@@ -666,6 +672,79 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+    async def _check_interrupt_propagation(self, old_state: str) -> None:
+        """Cascade intervention decisions to active child dispatches (Issue #247).
+
+        Called after every CfA transition.  When an intervention was recently
+        delivered (_intervention_active) and the lead's response caused a
+        cross-phase backtrack or a withdrawal, cascade-withdraw all active
+        child dispatches.
+
+        If the lead continues (same or forward phase), the flag is cleared
+        and dispatches are left running.
+        """
+        if not self._intervention_active:
+            return
+
+        new_state = self.cfa.state
+
+        # Withdrawal: cascade immediately
+        if new_state == 'WITHDRAWN':
+            withdrawn = cascade_withdraw_children(self.infra_dir, self.cfa.phase)
+            self._intervention_active = False
+            if withdrawn:
+                await self.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'interrupt_propagation',
+                        'trigger': 'withdrawal',
+                        'old_state': old_state,
+                        'new_state': new_state,
+                        'children_withdrawn': len(withdrawn),
+                        'teams': [w['team'] for w in withdrawn],
+                    },
+                    session_id=self.session_id,
+                ))
+            return
+
+        # Backtrack: cascade-withdraw if phase moved earlier
+        try:
+            old_phase = phase_for_state(old_state)
+            new_phase = phase_for_state(new_state)
+        except ValueError:
+            self._intervention_active = False
+            return
+
+        if is_backtrack(old_phase, new_phase):
+            withdrawn = cascade_withdraw_children(self.infra_dir, new_phase)
+            self._intervention_active = False
+            if withdrawn:
+                await self.event_bus.publish(Event(
+                    type=EventType.LOG,
+                    data={
+                        'category': 'interrupt_propagation',
+                        'trigger': 'backtrack',
+                        'old_state': old_state,
+                        'old_phase': old_phase,
+                        'new_state': new_state,
+                        'new_phase': new_phase,
+                        'children_withdrawn': len(withdrawn),
+                        'teams': [w['team'] for w in withdrawn],
+                    },
+                    session_id=self.session_id,
+                ))
+            return
+
+        # Continue/adjustment: if phase stayed same or moved forward,
+        # clear the flag.  Dispatches keep running.
+        if old_phase == new_phase or not is_backtrack(old_phase, new_phase):
+            # Only clear if this looks like a substantive decision, not an
+            # intermediate transition (e.g., question → response).
+            # The lead might go through several micro-steps before deciding.
+            # We clear the flag on any non-backtrack transition — if the lead
+            # asks a question or asserts, they're continuing.
+            self._intervention_active = False
 
     async def _transition(self, action: str, actor_result: ActorResult) -> None:
         """Apply a CfA transition and persist state."""
@@ -714,6 +793,9 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+        # Interrupt propagation: cascade intervention decisions to children (Issue #247)
+        await self._check_interrupt_propagation(old_state)
 
         # Auto-commit artifacts to the session worktree after writes
         await self._commit_artifacts(old_state, action)
