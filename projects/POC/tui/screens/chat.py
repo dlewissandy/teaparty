@@ -22,6 +22,20 @@ from textual.widgets.option_list import Option
 
 from projects.POC.orchestrator.messaging import ConversationType
 from projects.POC.tui.chat_model import ChatModel
+from projects.POC.tui.stream_filter import StreamCategory, StreamFilter
+
+
+_FILTER_LABELS: list[tuple[StreamCategory, str]] = [
+    (StreamCategory.AGENT, 'agt'),
+    (StreamCategory.HUMAN, 'hum'),
+    (StreamCategory.THINKING, 'thk'),
+    (StreamCategory.TOOLS, 'tls'),
+    (StreamCategory.RESULTS, 'res'),
+    (StreamCategory.SYSTEM, 'sys'),
+    (StreamCategory.STATE, 'sta'),
+    (StreamCategory.COST, 'cst'),
+    (StreamCategory.LOG, 'log'),
+]
 
 
 _TYPE_LABELS = {
@@ -64,6 +78,7 @@ class ChatScreen(Screen):
         self._conv_ids: list[str] = []
         self._selected_conv: str = ''
         self._msg_count: int = 0
+        self._filters: dict[str, StreamFilter] = {}  # conv_id → filter
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -75,6 +90,17 @@ class ChatScreen(Screen):
             ),
             Vertical(
                 Static('MESSAGES', classes='section-title', id='messages-title'),
+                Horizontal(
+                    *(
+                        Static(
+                            f'[{label}]',
+                            id=f'filter-{cat.value}',
+                            classes='filter-toggle filter-on' if StreamFilter().is_enabled(cat) else 'filter-toggle filter-off',
+                        )
+                        for cat, label in _FILTER_LABELS
+                    ),
+                    id='filter-bar',
+                ),
                 RichLog(id='message-log', highlight=True, markup=True),
                 Vertical(
                     TextArea(id='chat-input'),
@@ -159,6 +185,45 @@ class ChatScreen(Screen):
             ol.add_option(Option(label))
             self._conv_ids.append(conv.id)
 
+    def _filter_for(self, conv_id: str) -> StreamFilter:
+        """Get or create the StreamFilter for a conversation."""
+        if conv_id not in self._filters:
+            self._filters[conv_id] = StreamFilter()
+        return self._filters[conv_id]
+
+    def _update_filter_bar(self) -> None:
+        """Update filter toggle visuals to reflect current conversation's state."""
+        if not self._selected_conv:
+            return
+        sf = self._filter_for(self._selected_conv)
+        for cat, label in _FILTER_LABELS:
+            try:
+                widget = self.query_one(f'#filter-{cat.value}', Static)
+            except Exception:
+                continue
+            on = sf.is_enabled(cat)
+            widget.set_classes('filter-toggle filter-on' if on else 'filter-toggle filter-off')
+
+    def on_click(self, event) -> None:
+        """Handle clicks on filter toggle buttons."""
+        widget = event.widget
+        if not isinstance(widget, Static):
+            return
+        wid = widget.id or ''
+        if not wid.startswith('filter-'):
+            return
+        cat_value = wid[len('filter-'):]
+        try:
+            cat = StreamCategory(cat_value)
+        except ValueError:
+            return
+        if not self._selected_conv:
+            return
+        sf = self._filter_for(self._selected_conv)
+        sf.toggle(cat)
+        self._update_filter_bar()
+        self._refresh_messages(full=True)
+
     def _select_conversation(self, conv_id: str) -> None:
         """Switch to a conversation and load its messages."""
         self._selected_conv = conv_id
@@ -169,6 +234,9 @@ class ChatScreen(Screen):
         # Update title
         title = self.query_one('#messages-title', Static)
         title.update(f'MESSAGES ({conv_id})')
+
+        # Update filter bar for this conversation's state
+        self._update_filter_bar()
 
         # Load messages
         self._refresh_messages(full=True)
