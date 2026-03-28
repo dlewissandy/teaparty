@@ -129,7 +129,7 @@ class TestDispatchSkipsWorktreeForDirect(unittest.TestCase):
             mock_orch_inst.run = AsyncMock(return_value=mock_result)
             mock_orch.return_value = mock_orch_inst
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 dispatch(
                     team='configuration',
                     task='create a skill',
@@ -184,7 +184,7 @@ class TestDispatchSkipsMergeForDirect(unittest.TestCase):
             mock_orch_inst.run = AsyncMock(return_value=mock_result)
             mock_orch.return_value = mock_orch_inst
 
-            result = asyncio.get_event_loop().run_until_complete(
+            result = asyncio.run(
                 dispatch(
                     team='configuration',
                     task='create a skill',

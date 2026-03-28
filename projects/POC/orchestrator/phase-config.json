@@ -45,7 +45,8 @@
     "writing":   { "agent_file": "agents/writing-team.json",   "lead": "writing-lead",   "planning_permission_mode": "plan" },
     "editorial": { "agent_file": "agents/editorial-team.json", "lead": "editorial-lead", "planning_permission_mode": "plan" },
     "research":  { "agent_file": "agents/research-team.json",  "lead": "research-lead",  "planning_permission_mode": "plan" },
-    "coding":    { "agent_file": "agents/coding-team.json",    "lead": "coding-lead",    "planning_permission_mode": "plan" }
+    "coding":    { "agent_file": "agents/coding-team.json",    "lead": "coding-lead",    "planning_permission_mode": "plan" },
+    "configuration": { "agent_file": "agents/configuration-team.json", "lead": "configuration-lead", "planning_permission_mode": "plan", "execution_model": "direct" }
   },
   "stall_timeout_seconds": 1800,
   "max_dispatch_retries": 5
