@@ -49,8 +49,7 @@ class ContentCard(Widget):
 
     def _make_item_static(self, index: int, item: CardItem) -> Static:
         icon = f'{item.icon} ' if item.icon else '  '
-        detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-        # Escape single quotes in label for the action string
+        detail = f'  {item.detail}' if item.detail else ''
         safe_name = self._card_name.replace("'", "\\'")
         return Static(
             f"[@click=screen.card_click('{safe_name}', {index})]{icon}{item.label}{detail}[/]",
