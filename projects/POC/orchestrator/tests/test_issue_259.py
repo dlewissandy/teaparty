@@ -479,5 +479,208 @@ class TestAccuracySummary(unittest.TestCase):
             os.unlink(path)
 
 
+# ── 6. Review conversation turn ────────────────────────────────────────────
+
+class TestBuildReviewPrompt(unittest.TestCase):
+    """build_review_prompt constructs the self-review agent prompt."""
+
+    def test_prompt_includes_human_message(self):
+        """The human's message appears in the prompt."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'What patterns have you picked up?',
+            memory_context='## Memory Introspection\nNo memories.',
+            accuracy_context='No prediction accuracy data yet.',
+        )
+
+        self.assertIn('What patterns have you picked up?', prompt)
+
+    def test_prompt_includes_memory_context(self):
+        """The memory introspection context is injected into the prompt."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'Tell me what you know.',
+            memory_context='## Memory Introspection\n### Memory abc12345\n**Outcome:** approve',
+            accuracy_context='No data.',
+        )
+
+        self.assertIn('abc12345', prompt)
+        self.assertIn('approve', prompt)
+
+    def test_prompt_includes_accuracy_context(self):
+        """Accuracy data appears in the prompt."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'How accurate are you?',
+            memory_context='No memories.',
+            accuracy_context='## Prediction Accuracy\n| TASK_ASSERT | 90% |',
+        )
+
+        self.assertIn('90%', prompt)
+
+    def test_prompt_includes_dialog_history(self):
+        """Prior dialog turns are included when provided."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'And what else?',
+            memory_context='No memories.',
+            accuracy_context='No data.',
+            dialog_history='Human: What have you learned?\nProxy: I noticed you care about tests.\n',
+        )
+
+        self.assertIn('What have you learned?', prompt)
+        self.assertIn('I noticed you care about tests', prompt)
+
+    def test_prompt_establishes_self_review_mode(self):
+        """The prompt tells the agent it is in self-review mode."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'Hello.',
+            memory_context='',
+            accuracy_context='',
+        )
+
+        self.assertIn('self-review mode', prompt)
+        self.assertIn('transparent', prompt)
+
+    def test_prompt_instructs_correction_acknowledgement(self):
+        """The prompt instructs the agent to acknowledge corrections."""
+        from projects.POC.orchestrator.proxy_review import build_review_prompt
+
+        prompt = build_review_prompt(
+            'Stop flagging rollback.',
+            memory_context='',
+            accuracy_context='',
+        )
+
+        self.assertIn('correction', prompt.lower())
+
+
+class TestRunReviewTurn(unittest.TestCase):
+    """run_review_turn orchestrates a single conversation turn."""
+
+    def test_run_review_turn_records_human_message(self):
+        """The human's message is recorded on the bus."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from projects.POC.orchestrator.proxy_review import (
+            open_review_session,
+            run_review_turn,
+        )
+
+        bus = _make_bus()
+        conn, path = _make_temp_db()
+        try:
+            session = open_review_session(bus, human_name='darrell')
+
+            with patch(
+                'projects.POC.orchestrator.proxy_review._invoke_review_agent',
+                new_callable=AsyncMock,
+                return_value='I have learned that you care about tests.',
+            ):
+                asyncio.run(run_review_turn(
+                    'What have you learned?',
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                ))
+
+            messages = bus.receive(session.conversation_id)
+            human_msgs = [m for m in messages if m.sender == 'darrell']
+            self.assertEqual(len(human_msgs), 1)
+            self.assertEqual(human_msgs[0].content, 'What have you learned?')
+        finally:
+            conn.close()
+            os.unlink(path)
+            bus.close()
+
+    def test_run_review_turn_records_proxy_response(self):
+        """The proxy's response is recorded on the bus."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from projects.POC.orchestrator.proxy_review import (
+            open_review_session,
+            run_review_turn,
+        )
+
+        bus = _make_bus()
+        conn, path = _make_temp_db()
+        try:
+            session = open_review_session(bus, human_name='darrell')
+
+            with patch(
+                'projects.POC.orchestrator.proxy_review._invoke_review_agent',
+                new_callable=AsyncMock,
+                return_value='You tend to approve when tests pass.',
+            ):
+                response = asyncio.run(run_review_turn(
+                    'What patterns do you see?',
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                ))
+
+            self.assertEqual(response, 'You tend to approve when tests pass.')
+
+            messages = bus.receive(session.conversation_id)
+            proxy_msgs = [m for m in messages if m.sender == 'proxy']
+            self.assertEqual(len(proxy_msgs), 1)
+            self.assertIn('tests pass', proxy_msgs[0].content)
+        finally:
+            conn.close()
+            os.unlink(path)
+            bus.close()
+
+    def test_run_review_turn_passes_memory_to_agent(self):
+        """The agent receives memory introspection as context."""
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+
+        from projects.POC.orchestrator.proxy_review import (
+            open_review_session,
+            run_review_turn,
+        )
+
+        bus = _make_bus()
+        conn, path = _make_temp_db()
+        try:
+            _make_gate_chunk(conn, chunk_id='c1', outcome='approve',
+                             content='Approved the test plan.')
+            session = open_review_session(bus, human_name='darrell')
+
+            captured_prompt = []
+
+            async def capture_invoke(prompt):
+                captured_prompt.append(prompt)
+                return 'I see one memory about approving test plans.'
+
+            with patch(
+                'projects.POC.orchestrator.proxy_review._invoke_review_agent',
+                side_effect=capture_invoke,
+            ):
+                asyncio.run(run_review_turn(
+                    'What do you remember?',
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                ))
+
+            self.assertEqual(len(captured_prompt), 1)
+            # The prompt should contain the memory introspection
+            self.assertIn('approve', captured_prompt[0])
+            self.assertIn('Approved the test plan', captured_prompt[0])
+        finally:
+            conn.close()
+            os.unlink(path)
+            bus.close()
+
+
 if __name__ == '__main__':
     unittest.main()
