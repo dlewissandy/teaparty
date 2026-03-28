@@ -22,6 +22,8 @@ ContentCard {
     height: auto;
     max-height: 12;
     width: 1fr;
+    border-left: vkey $primary-lighten-1;
+    border-right: vkey $primary-lighten-1;
     padding: 0;
 }
 
@@ -64,14 +66,12 @@ WorkflowProgress {
 
 /* ── Card grid layout ── */
 .card-grid {
-    height: 1fr;
-    overflow-y: auto;
+    height: auto;
     padding: 0;
     layout: grid;
     grid-size: 2;
-    grid-gutter: 0;
+    grid-gutter: 1 2;
     grid-rows: auto;
-    align: left top;
 }
 
 .card-grid.-narrow {

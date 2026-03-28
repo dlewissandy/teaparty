@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -75,17 +75,19 @@ class ManagementDashboard(Screen):
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield StatsBar(id='mgmt-stats')
         yield VerticalScroll(
-            ContentCard('ESCALATIONS', 'escalations'),
-            ContentCard('SESSIONS', 'sessions', show_new_button=True),
-            ContentCard('PROJECTS', 'projects', show_new_button=True),
-            ContentCard('WORKGROUPS', 'workgroups', show_new_button=True),
-            ContentCard('HUMANS', 'humans'),
-            ContentCard('AGENTS', 'agents', show_new_button=True),
-            ContentCard('SKILLS', 'skills', show_new_button=True),
-            ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True),
-            ContentCard('HOOKS', 'hooks', show_new_button=True),
-            id='card-col',
-            classes='card-grid',
+            Vertical(
+                ContentCard('ESCALATIONS', 'escalations'),
+                ContentCard('SESSIONS', 'sessions', show_new_button=True),
+                ContentCard('PROJECTS', 'projects', show_new_button=True),
+                ContentCard('WORKGROUPS', 'workgroups', show_new_button=True),
+                ContentCard('HUMANS', 'humans'),
+                ContentCard('AGENTS', 'agents', show_new_button=True),
+                ContentCard('SKILLS', 'skills', show_new_button=True),
+                ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True),
+                ContentCard('HOOKS', 'hooks', show_new_button=True),
+                id='card-col',
+                classes='card-grid',
+            ),
         )
         yield Footer()
 
