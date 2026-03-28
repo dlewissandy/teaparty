@@ -284,7 +284,7 @@ class CronScheduler:
 
 def collect_scheduled_tasks(
     project_dir: str,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> list[ScheduledTask]:
     """Collect scheduled tasks from management team and project config.
 

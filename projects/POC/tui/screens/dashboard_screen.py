@@ -675,9 +675,9 @@ class DashboardScreen(Screen):
     def _load_management_agents(self) -> list[CardItem]:
         """Load agent list from teaparty.yaml via config_reader."""
         try:
-            from projects.POC.orchestrator.config_reader import load_management_team
+            from projects.POC.orchestrator.config_reader import load_management_team, default_teaparty_home
             team = load_management_team()
-            home = os.path.expanduser('~/.teaparty')
+            home = default_teaparty_home()
             return build_agent_items(team.agents, search_dirs=[home])
         except Exception:
             _log.warning('Failed to load management agents', exc_info=True)

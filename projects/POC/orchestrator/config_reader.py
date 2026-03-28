@@ -1,7 +1,7 @@
 """Configuration tree reader and project management for teaparty.yaml and project.yaml.
 
 Loads the two-level configuration tree:
-  Level 1: ~/.teaparty/teaparty.yaml → ManagementTeam
+  Level 1: {repo_root}/.teaparty/teaparty.yaml → ManagementTeam
   Level 2: {project}/.teaparty/project.yaml → ProjectTeam
   Workgroups: {level}/.teaparty/workgroups/*.yaml → Workgroup
 
@@ -20,6 +20,22 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
+
+
+# ── Default paths ────────────────────────────────────────────────────────────
+
+_cached_teaparty_home: str | None = None
+
+
+def default_teaparty_home() -> str:
+    """Return the repo-level .teaparty/ directory, cached after first call."""
+    global _cached_teaparty_home
+    if _cached_teaparty_home is None:
+        from projects.POC.orchestrator import find_poc_root
+        poc_root = find_poc_root()
+        repo_root = os.path.dirname(os.path.dirname(poc_root))
+        _cached_teaparty_home = os.path.join(repo_root, '.teaparty')
+    return _cached_teaparty_home
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────
@@ -170,16 +186,16 @@ def _parse_teams(raw: list[dict] | None) -> list[dict[str, str]]:
 # ── Loaders ──────────────────────────────────────────────────────────────────
 
 def load_management_team(
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
     config_filename: str = 'teaparty.yaml',
 ) -> ManagementTeam:
     """Load the management team from teaparty.yaml.
 
     Args:
-        teaparty_home: Path to the .teaparty directory (default ~/.teaparty).
+        teaparty_home: Path to the .teaparty directory (default: repo root).
         config_filename: Name of the config file within teaparty_home.
     """
-    home = os.path.expanduser(teaparty_home)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
     path = os.path.join(home, config_filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f'Management team config not found: {path}')
@@ -294,13 +310,13 @@ def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
 
 def load_management_workgroups(
     team: ManagementTeam,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> list[Workgroup]:
     """Load all workgroup definitions from the management team.
 
     Each WorkgroupEntry's config path is resolved relative to teaparty_home.
     """
-    home = os.path.expanduser(teaparty_home)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
     result: list[Workgroup] = []
     for entry in team.workgroups:
         config_path = os.path.join(home, entry.config)
@@ -311,7 +327,7 @@ def load_management_workgroups(
 def resolve_workgroups(
     entries: list[WorkgroupRef | WorkgroupEntry],
     project_dir: str,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> list[Workgroup]:
     """Resolve workgroup entries to fully loaded Workgroup objects.
 
@@ -323,7 +339,7 @@ def resolve_workgroups(
     WorkgroupEntry entries are loaded from their config path relative to
     the project or teaparty home directory.
     """
-    home = os.path.expanduser(teaparty_home)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
     resolved: list[Workgroup] = []
 
     for entry in entries:
@@ -445,22 +461,22 @@ def resolve_budget(
 
 def _save_management_yaml(
     data: dict[str, Any],
-    teaparty_home: str,
+    teaparty_home: str | None,
     config_filename: str = 'teaparty.yaml',
 ) -> None:
     """Write a management team data dict back to teaparty.yaml."""
-    home = os.path.expanduser(teaparty_home)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
     path = os.path.join(home, config_filename)
     with open(path, 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _load_management_yaml(
-    teaparty_home: str,
+    teaparty_home: str | None,
     config_filename: str = 'teaparty.yaml',
 ) -> dict[str, Any]:
     """Load the raw YAML dict from teaparty.yaml."""
-    home = os.path.expanduser(teaparty_home)
+    home = os.path.expanduser(teaparty_home or default_teaparty_home())
     path = os.path.join(home, config_filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f'Management team config not found: {path}')
@@ -494,7 +510,7 @@ def _scaffold_project_yaml(name: str, project_dir: str) -> None:
 def add_project(
     name: str,
     path: str,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> ManagementTeam:
     """Add an existing directory as a TeaParty project.
 
@@ -533,7 +549,7 @@ def add_project(
 def create_project(
     name: str,
     path: str,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
@@ -575,7 +591,7 @@ def create_project(
 
 def remove_project(
     name: str,
-    teaparty_home: str = '~/.teaparty',
+    teaparty_home: str | None = None,
 ) -> ManagementTeam:
     """Remove a project from teams: in teaparty.yaml.
 

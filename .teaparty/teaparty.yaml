@@ -1,0 +1,38 @@
+# TeaParty Management Team Configuration
+#
+# The root entry point. An agent reads this first to understand the organization.
+
+name: Management Team
+description: Cross-project coordination, human interaction, organizational strategy, and configuration management.
+lead: office-manager
+decider: darrell
+
+agents:
+  - office-manager
+  - auditor
+  - researcher
+  - strategist
+
+humans:
+  - name: darrell
+    role: decider
+
+teams:
+  - name: POC
+    path: projects/POC
+
+workgroups:
+  - name: Configuration
+    config: workgroups/configuration.yaml
+    status: active
+
+skills:
+  - sprint-plan
+  - audit
+  - close-milestone
+  - fix-issue
+  - refine
+  - research
+
+stats:
+  storage: .teaparty/stats/management.json

@@ -1,0 +1,42 @@
+# Workgroup — Coding
+#
+# Implementation, testing, and code review. Handles all coding tasks including
+# bug fixes, new features, refactoring, and test coverage.
+
+name: Coding
+description: Implementation, testing, and code review. Handles all coding tasks including bug fixes, new features, refactoring, and test coverage.
+lead: coding-lead
+
+team_file: .claude/agents/coding-team.json
+
+agents:
+  - name: Coding Lead
+    role: team-lead
+    model: claude-sonnet-4
+  - name: Architect
+    role: specialist
+    model: claude-opus-4
+  - name: Developer
+    role: specialist
+    model: claude-sonnet-4
+  - name: Reviewer
+    role: specialist
+    model: claude-sonnet-4
+
+skills:
+  - fix-issue
+  - code-cleanup
+
+norms:
+  quality:
+    - Code review required before merge
+    - Test coverage must not decrease
+  tools:
+    - Developers may not use WebSearch
+    - Architect has read-only access
+  delegation:
+    - Architect produces the plan, Developer implements
+    - Reviewer checks against plan before approval
+
+stats:
+  storage: .teaparty/stats/coding.json
