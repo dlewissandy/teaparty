@@ -24,8 +24,9 @@ from projects.POC.orchestrator.events import (
     Event, EventBus, EventType, InputRequest,
 )
 from projects.POC.orchestrator.human_presence import (
-    HumanPresence, PresenceLevel, should_never_escalate,
+    HumanPresence, PresenceLevel, _STATE_TO_LEVEL, should_never_escalate,
 )
+from projects.POC.orchestrator.gate_queue import GateQueue
 from projects.POC.scripts.cfa_state import TRANSITIONS
 from projects.POC.scripts.approval_gate import (
     _extract_question_patterns,
@@ -584,6 +585,7 @@ class ApprovalGate:
         proxy_enabled: bool = True,
         never_escalate: bool = False,
         human_presence: HumanPresence | None = None,
+        gate_queue: GateQueue | None = None,
     ):
         self.proxy_model_path = proxy_model_path
         self.input_provider = input_provider
@@ -591,6 +593,8 @@ class ApprovalGate:
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
         self.human_presence = human_presence
+        self.gate_queue = gate_queue
+        self._gate_lock = asyncio.Lock()  # Serializes concurrent gate processing (#202)
         self._last_proxy_result = None  # Most recent ProxyResult for memory recording
         # Set by engine when a skill-based plan is active (Issue #146).
         # Used by _log_interaction to tag gate outcomes with the skill name.
@@ -726,7 +730,22 @@ class ApprovalGate:
         invocation, confidence check, and escalation to the actual human
         if the proxy can't answer.  This method is the single interface
         between the approval gate and the proxy system.
+
+        Gate processing is serialized via _gate_lock so concurrent gates from
+        parallel dispatches are handled one at a time (Issue #202).
         """
+        async with self._gate_lock:
+            return await self._ask_human_through_proxy_inner(
+                ctx, question, artifact_path, project_slug, team,
+                dialog_history, bridge_override,
+            )
+
+    async def _ask_human_through_proxy_inner(
+        self, ctx: ActorContext, question: str, artifact_path: str,
+        project_slug: str, team: str, dialog_history: str,
+        bridge_override: str = '',
+    ) -> tuple[str, bool]:
+        """Inner implementation of _ask_human_through_proxy (runs under _gate_lock)."""
         from projects.POC.orchestrator.proxy_agent import (
             consult_proxy, PROXY_AGENT_CONFIDENCE_THRESHOLD,
         )
@@ -773,11 +792,27 @@ class ApprovalGate:
                 session_id=ctx.session_id,
             ))
             # Record observation for proxy learning
-            level = PresenceLevel.SUBTEAM if team else PresenceLevel.PROJECT
+            level = _STATE_TO_LEVEL.get(ctx.state, PresenceLevel.PROJECT)
             self.human_presence.record_observation(
                 level=level, team=team, state=ctx.state,
                 human_response=response_text,
                 context=f'Gate {ctx.state} artifact={artifact_path}',
+            )
+            # Persist to ACT-R memory so cross-level learning flows (#202)
+            pr = self._last_proxy_result
+            self._proxy_record(
+                ctx.state, project_slug, 'approve',
+                artifact_path=artifact_path, team=team,
+                feedback=response_text,
+                conversation=response_text,
+                prediction=pr.text if pr else '',
+                predicted_response=pr.text if pr else '',
+            )
+            self._log_interaction(
+                ctx, project_slug,
+                prediction=pr.text if pr else '',
+                outcome='human_direct',
+                delta=response_text,
             )
             return response_text, False
 

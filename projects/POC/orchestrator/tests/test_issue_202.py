@@ -605,5 +605,134 @@ class TestOrchestratorHumanPresenceWiring(unittest.TestCase):
             shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+class TestGateSerialization(unittest.TestCase):
+    """Concurrent gates are serialized via _gate_lock (Issue #202 FIFO)."""
+
+    def test_gate_lock_serializes_concurrent_calls(self):
+        """Two concurrent _ask_human_through_proxy calls execute sequentially."""
+        tmpdir = tempfile.mkdtemp()
+        try:
+            hp = _make_presence()
+            gate = _make_approval_gate(tmpdir, human_presence=hp)
+
+            call_order = []
+
+            original_inner = gate._ask_human_through_proxy_inner
+
+            async def tracking_inner(*args, **kwargs):
+                call_order.append('start')
+                await asyncio.sleep(0.05)
+                call_order.append('end')
+                return ('ok', True)
+
+            gate._ask_human_through_proxy_inner = tracking_inner
+
+            async def run_two():
+                ctx = _make_actor_context(tmpdir, state='TASK_ASSERT', team='art')
+                t1 = asyncio.create_task(gate._ask_human_through_proxy(
+                    ctx=ctx, question='q1', artifact_path='',
+                    project_slug='test', team='art', dialog_history='',
+                ))
+                t2 = asyncio.create_task(gate._ask_human_through_proxy(
+                    ctx=ctx, question='q2', artifact_path='',
+                    project_slug='test', team='art', dialog_history='',
+                ))
+                await asyncio.gather(t1, t2)
+
+            _run(run_two())
+            # If serialized: start, end, start, end (not interleaved)
+            self.assertEqual(call_order, ['start', 'end', 'start', 'end'])
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_gate_queue_accessible_on_approval_gate(self):
+        """ApprovalGate stores the gate_queue reference."""
+        from projects.POC.orchestrator.gate_queue import GateQueue
+        tmpdir = tempfile.mkdtemp()
+        try:
+            gq = GateQueue()
+            gate = _make_approval_gate(tmpdir)
+            self.assertIsNone(gate.gate_queue)
+
+            from projects.POC.orchestrator.actors import ApprovalGate
+            model_path = os.path.join(tmpdir, 'project', '.proxy-confidence.json')
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            Path(model_path).write_text('{}')
+            gate2 = ApprovalGate(
+                proxy_model_path=model_path,
+                input_provider=AsyncMock(return_value='approve'),
+                poc_root=tmpdir,
+                gate_queue=gq,
+            )
+            self.assertIs(gate2.gate_queue, gq)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+class TestObservationLevelMapping(unittest.TestCase):
+    """Observation recording uses _STATE_TO_LEVEL, not heuristic."""
+
+    def test_office_manager_state_records_at_om_level(self):
+        """OFFICE_MANAGER state observations are recorded at OFFICE_MANAGER level."""
+        hp = _make_presence()
+        hp.arrive(PresenceLevel.OFFICE_MANAGER)
+        obs = hp.record_observation(
+            level=PresenceLevel.OFFICE_MANAGER,
+            team='',
+            state='OFFICE_MANAGER',
+            human_response='looks good',
+            context='test',
+        )
+        self.assertIsNotNone(obs)
+        observations = hp.get_observations(PresenceLevel.OFFICE_MANAGER)
+        self.assertEqual(len(observations), 1)
+
+    def test_state_to_level_mapping_used_in_gate(self):
+        """The _STATE_TO_LEVEL mapping is imported and accessible in actors."""
+        from projects.POC.orchestrator.human_presence import _STATE_TO_LEVEL
+        self.assertEqual(_STATE_TO_LEVEL['TASK_ASSERT'], PresenceLevel.SUBTEAM)
+        self.assertEqual(_STATE_TO_LEVEL['WORK_ASSERT'], PresenceLevel.PROJECT)
+        self.assertEqual(_STATE_TO_LEVEL['OFFICE_MANAGER'], PresenceLevel.OFFICE_MANAGER)
+
+
+class TestACTRPersistenceFromHumanPresence(unittest.TestCase):
+    """Human-present path persists observations to ACT-R memory."""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_human_present_calls_proxy_record(self):
+        """When human answers directly, _proxy_record is called for ACT-R storage."""
+        hp = _make_presence()
+        hp.arrive(PresenceLevel.SUBTEAM, team='art')
+        gate = _make_approval_gate(self.tmpdir, human_presence=hp)
+        ctx = _make_actor_context(self.tmpdir, state='TASK_ASSERT', team='art')
+
+        proxy_result = MagicMock(
+            text='proxy text', confidence=0.5, from_agent=True,
+            prior_action='approve', prior_confidence=0.5,
+            posterior_action='approve', posterior_confidence=0.5,
+            prediction_delta='', salient_percepts=[],
+        )
+        with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                   new_callable=AsyncMock, return_value=proxy_result), \
+             patch.object(gate, '_proxy_record') as mock_record, \
+             patch.object(gate, '_log_interaction') as mock_log:
+            _run(gate._ask_human_through_proxy(
+                ctx=ctx, question='Review this?',
+                artifact_path='test.py', project_slug='test', team='art',
+                dialog_history='',
+            ))
+
+        mock_record.assert_called_once()
+        mock_log.assert_called_once()
+        # Verify _log_interaction was called with 'human_direct' outcome
+        log_call = mock_log.call_args
+        self.assertEqual(log_call[1].get('outcome') or log_call[0][3], 'human_direct')
+
+
 if __name__ == '__main__':
     unittest.main()
