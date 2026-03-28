@@ -645,26 +645,40 @@ class TestGateSerialization(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_gate_queue_accessible_on_approval_gate(self):
-        """ApprovalGate stores the gate_queue reference."""
+    def test_gate_queue_enqueue_dequeue_called(self):
+        """GateQueue.enqueue and dequeue are called during gate processing."""
         from projects.POC.orchestrator.gate_queue import GateQueue
         tmpdir = tempfile.mkdtemp()
         try:
             gq = GateQueue()
-            gate = _make_approval_gate(tmpdir)
-            self.assertIsNone(gate.gate_queue)
-
             from projects.POC.orchestrator.actors import ApprovalGate
             model_path = os.path.join(tmpdir, 'project', '.proxy-confidence.json')
             os.makedirs(os.path.dirname(model_path), exist_ok=True)
             Path(model_path).write_text('{}')
-            gate2 = ApprovalGate(
+            gate = ApprovalGate(
                 proxy_model_path=model_path,
                 input_provider=AsyncMock(return_value='approve'),
                 poc_root=tmpdir,
+                human_presence=_make_presence(),
                 gate_queue=gq,
             )
-            self.assertIs(gate2.gate_queue, gq)
+            ctx = _make_actor_context(tmpdir, state='TASK_ASSERT', team='art')
+
+            proxy_result = MagicMock(
+                text='proxy ok', confidence=0.9, from_agent=True,
+                prior_action='approve', prior_confidence=0.9,
+                posterior_action='approve', posterior_confidence=0.9,
+                prediction_delta='', salient_percepts=[],
+            )
+            with patch('projects.POC.orchestrator.proxy_agent.consult_proxy',
+                       new_callable=AsyncMock, return_value=proxy_result):
+                _run(gate._ask_human_through_proxy(
+                    ctx=ctx, question='q', artifact_path='',
+                    project_slug='test', team='art', dialog_history='',
+                ))
+
+            # Queue should be empty after dequeue (enqueue then dequeue happened)
+            self.assertEqual(gq.size(), 0)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

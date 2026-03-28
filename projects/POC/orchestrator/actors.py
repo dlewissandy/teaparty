@@ -731,10 +731,18 @@ class ApprovalGate:
         if the proxy can't answer.  This method is the single interface
         between the approval gate and the proxy system.
 
-        Gate processing is serialized via _gate_lock so concurrent gates from
-        parallel dispatches are handled one at a time (Issue #202).
+        Gate processing is serialized via _gate_lock with FIFO ordering through
+        the GateQueue so concurrent gates from parallel dispatches are handled
+        one at a time in arrival order (Issue #202).
         """
+        from projects.POC.orchestrator.gate_queue import GateRequest
+        if self.gate_queue is not None:
+            self.gate_queue.enqueue(GateRequest(
+                state=ctx.state, team=ctx.env_vars.get('POC_TEAM', ''),
+            ))
         async with self._gate_lock:
+            if self.gate_queue is not None:
+                self.gate_queue.dequeue()
             return await self._ask_human_through_proxy_inner(
                 ctx, question, artifact_path, project_slug, team,
                 dialog_history, bridge_override,
