@@ -745,5 +745,5 @@ class JobDashboard(Screen):
         self._scroll_locked = not self._scroll_locked
 
     def action_open_chat(self) -> None:
-        from projects.POC.tui.screens.chat import ChatScreen
-        self.app.push_screen(ChatScreen())
+        from projects.POC.tui.screens.management_dashboard import _open_chat_window
+        _open_chat_window(self.app)

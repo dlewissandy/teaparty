@@ -253,8 +253,7 @@ class ManagementDashboard(Screen):
         self.app.exit()
 
     def action_open_chat(self) -> None:
-        from projects.POC.tui.screens.chat import ChatScreen
-        self.app.push_screen(ChatScreen())
+        _open_chat_window(self.app)
 
     def action_change_folder(self) -> None:
         from projects.POC.tui.screens.dashboard import ChangeProjectDirScreen
@@ -276,6 +275,15 @@ def _session_snapshot(proj) -> list[tuple]:
          s.needs_input, len(s.dispatches))
         for s in proj.sessions
     ]
+
+
+def _open_chat_window(app) -> None:
+    """Spawn the chat UI in a separate terminal window."""
+    import sys
+    from projects.POC.tui.platform_utils import open_terminal
+    cmd = [sys.executable, '-m', 'projects.POC.tui.chat_main',
+           '--project-dir', app.projects_dir]
+    open_terminal(cmd, title='TeaParty Chat')
 
 
 def _navigate_to_context(app, ctx: NavigationContext) -> None:
