@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import subprocess
 import uuid
 from dataclasses import dataclass
@@ -238,6 +239,53 @@ def summarize_accuracy(conn) -> str:
     return '\n'.join(lines)
 
 
+# ── Dialog history ─────────────────────────────────────────────────────────
+
+def build_dialog_history(
+    bus: SqliteMessageBus,
+    conversation_id: str,
+) -> str:
+    """Build a dialog history string from prior messages on the bus.
+
+    Returns a formatted string of prior turns for inclusion in the
+    review prompt, giving the proxy context across the session.
+    """
+    messages = bus.receive(conversation_id)
+    if not messages:
+        return ''
+
+    lines = []
+    for msg in messages:
+        label = 'Human' if msg.sender != 'proxy' else 'Proxy'
+        lines.append(f'{label}: {msg.content}')
+
+    return '\n'.join(lines) + '\n'
+
+
+# ── Response signal parsing ────────────────────────────────────────────────
+
+_CORRECTION_RE = re.compile(r'\[CORRECTION:\s*(.+?)\]')
+_REINFORCE_RE = re.compile(r'\[REINFORCE:\s*(.+?)\]')
+
+
+def _process_response_signals(response: str, *, conn, session: 'ReviewSession') -> None:
+    """Parse structured signals from the proxy's response and act on them.
+
+    Corrections are recorded as high-activation memory chunks.
+    Reinforcements boost the trace count on existing chunks.
+    """
+    for match in _CORRECTION_RE.finditer(response):
+        correction_text = match.group(1).strip()
+        record_correction(conn, correction=correction_text, source=f'review:{session.human_name}')
+
+    for match in _REINFORCE_RE.finditer(response):
+        chunk_id = match.group(1).strip()
+        try:
+            reinforce_chunk(conn, chunk_id=chunk_id)
+        except ValueError:
+            _log.warning('Reinforce target %s not found', chunk_id)
+
+
 # ── Review conversation turn ───────────────────────────────────────────────
 
 def build_review_prompt(
@@ -264,8 +312,12 @@ def build_review_prompt(
         '- Accept reinforcements ("yes, that pattern is important")\n'
         '- Respond from your actual memory, citing activation levels and '
         'prediction history when relevant\n\n'
-        'When the human corrects you, acknowledge the correction and explain '
-        'how it will change your future behavior.\n'
+        'When the human corrects you, acknowledge the correction, explain '
+        'how it will change your future behavior, and emit a structured tag:\n'
+        '  [CORRECTION: <concise description of the correction>]\n'
+        'When the human reinforces a pattern ("yes, that\'s important"), '
+        'emit:\n'
+        '  [REINFORCE: <chunk_id>]\n'
         'When the human asks what you have learned, summarize from the '
         'memories below.\n\n'
         f'{memory_context}\n\n'
@@ -292,6 +344,10 @@ async def run_review_turn(
 
     The caller (TUI or CLI) is responsible for the conversation loop.
     """
+    # Build dialog history from prior bus messages if not provided
+    if not dialog_history:
+        dialog_history = build_dialog_history(bus, session.conversation_id)
+
     # Record the human's message
     bus.send(session.conversation_id, session.human_name, human_message)
 
@@ -310,6 +366,9 @@ async def run_review_turn(
 
     # Invoke the proxy agent in review mode
     response = await _invoke_review_agent(prompt)
+
+    # Process correction and reinforcement signals
+    _process_response_signals(response, conn=conn, session=session)
 
     # Record the proxy's response
     bus.send(session.conversation_id, 'proxy', response)
