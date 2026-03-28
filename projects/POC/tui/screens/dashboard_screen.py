@@ -225,6 +225,50 @@ def _build_escalation_items(
     return items
 
 
+def build_agent_items(agents: list, search_dirs: list[str] | None = None) -> list[CardItem]:
+    """Build CardItems from an agent list.
+
+    Handles both forms:
+    - list of strings (management/project level): ['office-manager', 'auditor']
+    - list of dicts (workgroup level): [{'name': 'Arch', 'role': 'specialist', 'model': '...'}]
+
+    If search_dirs is provided, attempts to read .claude/agents/{name}.md
+    files to enrich the config with model, tools, prompt, etc.
+    """
+    from projects.POC.tui.screens.agent_config_modal import enrich_agent_config
+
+    items: list[CardItem] = []
+    for agent in agents:
+        if isinstance(agent, str):
+            data = {'name': agent, 'file': f'.claude/agents/{agent}.md'}
+            data = enrich_agent_config(data, search_dirs)
+            role = data.get('role', '')
+            model = data.get('model', '')
+            detail_parts = [p for p in [role, model] if p]
+            items.append(CardItem(
+                icon='●',
+                label=agent,
+                detail='  '.join(detail_parts),
+                data=data,
+            ))
+        elif isinstance(agent, dict):
+            name = agent.get('name', '?')
+            data = dict(agent)
+            if 'name' not in data:
+                data['name'] = name
+            data = enrich_agent_config(data, search_dirs)
+            role = data.get('role', '')
+            model = data.get('model', '')
+            detail_parts = [p for p in [role, model] if p]
+            items.append(CardItem(
+                icon='●',
+                label=name,
+                detail='  '.join(detail_parts),
+                data=data,
+            ))
+    return items
+
+
 def _build_session_items(
     tagged_sessions: list[tuple[str, object]],
     include_project: bool = False,
@@ -437,6 +481,9 @@ class DashboardScreen(Screen):
             CardItem(icon='\u263a', label=username, detail='decider'),
         ])
 
+        # Agents — from config_reader if available
+        self._set_card('agents', self._load_management_agents())
+
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
@@ -463,6 +510,9 @@ class DashboardScreen(Screen):
         # Jobs (all)
         all_jobs = [('', s) for s in proj.sessions]
         self._set_card('jobs', _build_session_items(all_jobs, hide_done=self._hide_done.get('jobs', True)))
+
+        # Agents — from project config if available
+        self._set_card('agents', self._load_project_agents(proj))
 
     def _refresh_job(self, reader, session) -> None:
         if not session:
@@ -607,6 +657,27 @@ class DashboardScreen(Screen):
             items.append(CardItem(icon=icon, label=todo.get('content', '?')))
         self._set_card('todo_list', items)
 
+    # ── Config-reader integration ──
+
+    def _load_management_agents(self) -> list[CardItem]:
+        """Load agent list from teaparty.yaml via config_reader."""
+        try:
+            from projects.POC.orchestrator.config_reader import load_management_team
+            team = load_management_team()
+            home = os.path.expanduser('~/.teaparty')
+            return build_agent_items(team.agents, search_dirs=[home])
+        except Exception:
+            return []
+
+    def _load_project_agents(self, proj) -> list[CardItem]:
+        """Load agent list from project.yaml via config_reader."""
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            return build_agent_items(pt.agents, search_dirs=[proj.path])
+        except Exception:
+            return []
+
     # ── Card/stats helpers ──
 
     def _set_stats(self, stats: list[tuple[str, str]]) -> None:
@@ -680,6 +751,11 @@ class DashboardScreen(Screen):
         elif card_name == 'humans':
             import getpass
             open_chat_window(self.app, ensure_proxy_review=getpass.getuser())
+
+        elif card_name == 'agents':
+            from projects.POC.tui.screens.agent_config_modal import AgentConfigModal
+            if data:
+                self.app.push_screen(AgentConfigModal(data))
 
         elif card_name == 'workgroups':
             wg_id = data.get('workgroup_id', '')
