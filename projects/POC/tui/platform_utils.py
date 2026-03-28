@@ -59,7 +59,7 @@ def _open_terminal_macos(cmd_str: str, title: str) -> None:
 
     if 'iTerm' in term_program:
         script = (
-            'tell application "iTerm"\n'
+            'tell application "iTerm2"\n'
             f'  create window with default profile command "{cmd_str}"\n'
             'end tell'
         )
