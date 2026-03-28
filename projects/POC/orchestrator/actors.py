@@ -23,6 +23,9 @@ from projects.POC.orchestrator.claude_runner import ClaudeRunner, ClaudeResult
 from projects.POC.orchestrator.events import (
     Event, EventBus, EventType, InputRequest,
 )
+from projects.POC.orchestrator.human_presence import (
+    HumanPresence, PresenceLevel, should_never_escalate,
+)
 from projects.POC.scripts.cfa_state import TRANSITIONS
 from projects.POC.scripts.approval_gate import (
     _extract_question_patterns,
@@ -574,12 +577,14 @@ class ApprovalGate:
         poc_root: str,
         proxy_enabled: bool = True,
         never_escalate: bool = False,
+        human_presence: HumanPresence | None = None,
     ):
         self.proxy_model_path = proxy_model_path
         self.input_provider = input_provider
         self.poc_root = poc_root
         self.proxy_enabled = proxy_enabled
         self.never_escalate = never_escalate
+        self.human_presence = human_presence
         self._last_proxy_result = None  # Most recent ProxyResult for memory recording
         # Set by engine when a skill-based plan is active (Issue #146).
         # Used by _log_interaction to tag gate outcomes with the skill name.
@@ -639,11 +644,14 @@ class ApprovalGate:
                 session_id=ctx.session_id,
             ))
 
-            # At _NEVER_ESCALATE states the proxy is the sole decision-maker.
+            # At never-escalate states the proxy is the sole decision-maker.
             # If it consistently fails (returns empty → __fallback__), retrying
             # is pointless.  Auto-approve so WORK_ASSERT can catch real problems
-            # downstream.  Issue #155.
-            if action == '__fallback__' and ctx.state in _NEVER_ESCALATE_STATES:
+            # downstream.  Issue #155.  Dynamic via human presence (#202).
+            team = ctx.env_vars.get('POC_TEAM', '')
+            if action == '__fallback__' and should_never_escalate(
+                ctx.state, self.human_presence, team=team,
+            ):
                 fallback_count += 1
                 if fallback_count >= _MAX_FALLBACK_RETRIES:
                     _actor_log.warning(
@@ -732,6 +740,41 @@ class ApprovalGate:
         )
         self._last_proxy_result = proxy_result
 
+        # Issue #202: When the human is present at this gate's level,
+        # route directly to the human.  The proxy still ran (for observation
+        # and learning) but doesn't answer — the human does.
+        team = ctx.env_vars.get('POC_TEAM', '')
+        if (self.human_presence is not None
+                and self.human_presence.human_should_answer(ctx.state, team=team)):
+            # Human is present — ask them directly, record observation
+            bridge_text = bridge_override or self._generate_bridge(
+                artifact_path, ctx.state, ctx.task,
+                session_worktree=ctx.session_worktree, infra_dir=ctx.infra_dir,
+            )
+            await ctx.event_bus.publish(Event(
+                type=EventType.INPUT_REQUESTED,
+                data={'state': ctx.state, 'artifact': artifact_path,
+                      'bridge_text': bridge_text, 'human_present': True},
+                session_id=ctx.session_id,
+            ))
+            response_text = await self.input_provider(InputRequest(
+                type='approval', state=ctx.state,
+                artifact=artifact_path, bridge_text=bridge_text,
+            ))
+            await ctx.event_bus.publish(Event(
+                type=EventType.INPUT_RECEIVED,
+                data={'response': response_text, 'human_present': True},
+                session_id=ctx.session_id,
+            ))
+            # Record observation for proxy learning
+            level = PresenceLevel.SUBTEAM if team else PresenceLevel.PROJECT
+            self.human_presence.record_observation(
+                level=level, team=team, state=ctx.state,
+                human_response=response_text,
+                context=f'Gate {ctx.state} artifact={artifact_path}',
+            )
+            return response_text, False
+
         proxy_confident = (
             proxy_result.from_agent
             and proxy_result.confidence >= PROXY_AGENT_CONFIDENCE_THRESHOLD
@@ -741,8 +784,10 @@ class ApprovalGate:
         if proxy_confident:
             return proxy_result.text, True
 
-        # Never-escalate: the proxy's text is always the answer.
-        if self.never_escalate or ctx.state in _NEVER_ESCALATE_STATES:
+        # Never-escalate: dynamic based on human presence (Issue #202).
+        if self.never_escalate or should_never_escalate(
+            ctx.state, self.human_presence, team=team,
+        ):
             return proxy_result.text, True
 
         # Proxy can't answer — escalate to the actual human.
