@@ -179,11 +179,11 @@ class DashboardScreen(Screen):
             icon = _status_icon(s.status, s.needs_input, s.is_orphaned)
             state_text = _state_display(s.cfa_phase, s.cfa_state)
             if s.needs_input:
-                detail = f'[red]{state_text}[/red]'
+                detail = f'[dim red]{state_text}[/dim red]'
             elif s.cfa_state == 'COMPLETED_WORK':
-                detail = f'[dark_green]{state_text}[/dark_green]'
+                detail = f'[green]{state_text}[/green]'
             elif s.cfa_state == 'WITHDRAWN':
-                detail = f'[grey]{state_text}[/grey]'
+                detail = f'[dim]{state_text}[/dim]'
             else:
                 detail = state_text
             items.append(CardItem(
@@ -248,11 +248,11 @@ class DashboardScreen(Screen):
             icon = _status_icon(s.status, s.needs_input, s.is_orphaned)
             state_text = _state_display(s.cfa_phase, s.cfa_state)
             if s.needs_input:
-                detail = f'[red]{state_text}[/red]  {_human_age(s.duration_seconds)}'
+                detail = f'[dim red]{state_text}[/dim red]  {_human_age(s.duration_seconds)}'
             elif s.cfa_state == 'COMPLETED_WORK':
-                detail = f'[dark_green]{state_text}[/dark_green]  {_human_age(s.duration_seconds)}'
+                detail = f'[green]{state_text}[/green]  {_human_age(s.duration_seconds)}'
             elif s.cfa_state == 'WITHDRAWN':
-                detail = f'[grey]{state_text}[/grey]  {_human_age(s.duration_seconds)}'
+                detail = f'[dim]{state_text}[/dim]  {_human_age(s.duration_seconds)}'
             else:
                 detail = f'{state_text}  {_human_age(s.duration_seconds)}'
             items.append(CardItem(
