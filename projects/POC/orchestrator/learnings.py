@@ -1076,7 +1076,7 @@ def _consolidate_task_learnings(*, project_dir: str) -> None:
     """
     from projects.POC.orchestrator.consolidate_learnings import (
         consolidate_task_store,
-        jaccard_token_similarity,
+        lexical_similarity,
     )
 
     embed_fn = _make_embed_fn()
@@ -1087,12 +1087,16 @@ def _consolidate_task_learnings(*, project_dir: str) -> None:
             va = embed_fn(a)
             vb = embed_fn(b)
             if va is None or vb is None:
-                return jaccard_token_similarity(a, b)
+                return lexical_similarity(a, b)
             return cosine_similarity(va, vb)
 
         similarity_fn = _sim
     else:
-        similarity_fn = None  # use default Jaccard
+        _log.info(
+            'No embedding provider available; consolidation will use '
+            'lexical similarity only (degraded mode)',
+        )
+        similarity_fn = None  # use default lexical_similarity
 
     for subdir in ('tasks', 'proxy-tasks'):
         store_dir = os.path.join(project_dir, subdir)
@@ -1375,19 +1379,40 @@ def write_assumption_checkpoint(
 ) -> None:
     """Append a structured assumption checkpoint to .assumptions.jsonl.
 
-    Called at CfA phase transitions to capture what the completing phase
-    assumed and produced.  The post-session ``_promote_in_flight`` pipeline
-    reads this file as context for LLM-based extraction, so the entry must
-    include substantive content — not just metadata.
+    Called at CfA phase transitions.  The post-session ``_promote_in_flight``
+    pipeline reads this file as context and passes it to Haiku via the
+    ``in-flight`` prompt template, which expects entries shaped like::
 
-    The artifact_summary should contain the actual artifact content (INTENT.md
-    or PLAN.md text) so the downstream Haiku call has real signal to work with.
+        {"milestone": "...", "timestamp": "...",
+         "assumptions": {"complexity": "...", "approach_viability": "...",
+                         "preference_model": "...", "scope": "..."},
+         "recommendation": "..."}
+
+    The ``artifact_summary`` should contain the actual artifact content
+    (INTENT.md or PLAN.md text) so the downstream LLM has real signal.
+    Assumptions are inferred from the phase boundary context.
     """
+    from datetime import datetime as _dt
+
     entry = {
-        'phase': phase,
-        'cfa_state': cfa_state,
-        'timestamp': _time_mod.time(),
-        'artifact_summary': artifact_summary,
+        'milestone': f'{phase} phase completed ({cfa_state})',
+        'timestamp': _dt.now().isoformat(),
+        'assumptions': {
+            'complexity': (artifact_summary[:500] if artifact_summary
+                          else f'{phase} completed'),
+            'approach_viability': (
+                f'{phase} approach approved at gate'
+                if cfa_state in ('INTENT', 'PLAN')
+                else 'in progress'
+            ),
+            'preference_model': (
+                'human-approved'
+                if cfa_state in ('INTENT', 'PLAN')
+                else 'proxy-predicted'
+            ),
+            'scope': artifact_summary[:200] if artifact_summary else 'not captured',
+        },
+        'recommendation': 'continue',
     }
 
     path = os.path.join(infra_dir, '.assumptions.jsonl')
@@ -1422,20 +1447,18 @@ def write_premortem(
     if not plan_content.strip():
         return
 
-    # Build a structured premortem from the plan content.
-    # This is a lightweight extraction — no LLM call.  The plan itself
-    # contains the assumptions; the premortem reformats them as risks.
+    # The premortem is the plan content framed as a pre-execution snapshot.
+    # The downstream ``prospective`` prompt template compares this against
+    # the exec stream to identify which risks materialized, which were
+    # missed, and which were false alarms.  No LLM call here — the plan
+    # content IS the primary input; the analysis happens post-session.
     from datetime import date as _date
 
     premortem = (
         f'# Pre-Mortem: {task}\n\n'
         f'Generated: {_date.today().isoformat()}\n\n'
-        f'## Plan Summary\n\n'
-        f'{plan_content}\n\n'
-        f'## Assumptions and Risks\n\n'
-        f'The above plan assumes successful completion of each step in sequence. '
-        f'Key risks include: dependencies between steps, untested assumptions '
-        f'about the codebase, and scope creep beyond the original task.\n'
+        f'## Plan\n\n'
+        f'{plan_content}\n'
     )
 
     premortem_path = os.path.join(infra_dir, '.premortem.md')

@@ -64,8 +64,13 @@ class TestWriteAssumptionCheckpoint(unittest.TestCase):
 
         self.assertTrue(os.path.exists(path))
 
-    def test_entry_has_required_fields(self):
-        """Each JSONL entry has phase, cfa_state, timestamp, artifact_summary."""
+    def test_entry_matches_prompt_schema(self):
+        """Each JSONL entry matches the in-flight prompt's expected schema.
+
+        The in-flight prompt template expects: milestone, timestamp,
+        assumptions (with complexity, approach_viability, preference_model,
+        scope), and recommendation.
+        """
         from projects.POC.orchestrator.learnings import write_assumption_checkpoint
 
         write_assumption_checkpoint(
@@ -79,10 +84,20 @@ class TestWriteAssumptionCheckpoint(unittest.TestCase):
         line = Path(path).read_text().strip()
         entry = json.loads(line)
 
-        self.assertEqual(entry['phase'], 'planning')
-        self.assertEqual(entry['cfa_state'], 'PLAN')
+        # Schema fields the in-flight prompt template expects
+        self.assertIn('milestone', entry)
         self.assertIn('timestamp', entry)
-        self.assertEqual(entry['artifact_summary'], 'Decomposed into 3 sub-tasks')
+        self.assertIn('assumptions', entry)
+        self.assertIn('recommendation', entry)
+
+        assumptions = entry['assumptions']
+        self.assertIn('complexity', assumptions)
+        self.assertIn('approach_viability', assumptions)
+        self.assertIn('preference_model', assumptions)
+        self.assertIn('scope', assumptions)
+
+        # Artifact content should be embedded in assumptions
+        self.assertIn('Decomposed into 3 sub-tasks', assumptions['complexity'])
 
     def test_appends_multiple_entries(self):
         """Successive calls append, not overwrite."""
@@ -106,8 +121,8 @@ class TestWriteAssumptionCheckpoint(unittest.TestCase):
         self.assertEqual(len(lines), 2)
 
         entries = [json.loads(l) for l in lines]
-        self.assertEqual(entries[0]['phase'], 'intent')
-        self.assertEqual(entries[1]['phase'], 'planning')
+        self.assertIn('intent', entries[0]['milestone'])
+        self.assertIn('planning', entries[1]['milestone'])
 
 
 # ── 2. Premortem generation ──────────────────────────────────────────────────
@@ -367,7 +382,8 @@ class TestEngineAssumptionCheckpoints(unittest.TestCase):
             path = os.path.join(tmpdir, '.assumptions.jsonl')
             self.assertTrue(os.path.exists(path))
             entry = json.loads(Path(path).read_text().strip())
-            self.assertEqual(entry['phase'], 'intent')
+            self.assertIn('intent', entry['milestone'])
+            self.assertIn('assumptions', entry)
         finally:
             import shutil
             shutil.rmtree(tmpdir, ignore_errors=True)
@@ -388,9 +404,8 @@ class TestEngineAssumptionCheckpoints(unittest.TestCase):
             path = os.path.join(tmpdir, '.assumptions.jsonl')
             self.assertTrue(os.path.exists(path))
             entry = json.loads(Path(path).read_text().strip())
-            # Artifact content should be in the summary, not just "phase completed"
-            self.assertIn('OAuth2', entry['artifact_summary'])
-            self.assertNotIn('phase completed', entry['artifact_summary'])
+            # Artifact content should appear in the assumptions fields
+            self.assertIn('OAuth2', entry['assumptions']['complexity'])
         finally:
             import shutil
             shutil.rmtree(tmpdir, ignore_errors=True)

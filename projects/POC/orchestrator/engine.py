@@ -50,7 +50,7 @@ from projects.POC.orchestrator.context_budget import ContextBudget, build_compac
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.cost_tracker import CostTracker
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
-from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter
+from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter, _extract_text
 
 
 @dataclass
@@ -869,9 +869,10 @@ class Orchestrator:
             # Append human input to detail file as it arrives.
             if data.get('type') == 'user':
                 msg = data.get('message', {})
-                content = msg.get('content', '') if isinstance(msg, dict) else ''
-                if content:
-                    self._scratch_writer.append_human_input(content)
+                raw = msg.get('content', '') if isinstance(msg, dict) else ''
+                text = _extract_text(raw)
+                if text:
+                    self._scratch_writer.append_human_input(text)
 
         elif event.type == EventType.STATE_CHANGED:
             data = event.data
