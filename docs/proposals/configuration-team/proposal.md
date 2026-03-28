@@ -157,6 +157,23 @@ The Configuration Lead's value is coordination and decomposition. For single-art
 
 ---
 
+## Execution Model: Direct Write
+
+Content-producing teams (coding, writing, art) use the **worktree-isolated** execution model: dispatch creates a child worktree, the team works there, and results are squash-merged back into the session worktree. This model gives automatic rollback on failure and prevents partial work from contaminating the session.
+
+The Configuration Team uses the **direct** execution model instead. Configuration artifacts live in `.claude/` (agents, skills, hooks, settings) and `.teaparty/` (team YAML, norms) — these modify the runtime environment itself, not versioned project content. A worktree-merge model creates a chicken-and-egg problem: the configuration artifact doesn't take effect until merged, but the team may need to validate it before merging.
+
+With the direct model, the Configuration Team runs in the session worktree without child worktree isolation. Dispatch skips `create_dispatch_worktree` and `squash_merge`, and the team's writes land immediately in the live environment.
+
+**Trade-offs:**
+- No automatic rollback: a failed dispatch leaves partial config artifacts in place. The Configuration Lead validates artifacts before reporting completion; partial writes are detectable by the human.
+- No merge conflicts: config paths (`.claude/`, `.teaparty/`) are disjoint from content paths, so concurrent content-team dispatches don't interfere.
+- Immediate validation: the team can test its own output (e.g., invoke a newly created skill) without waiting for a merge step.
+
+The `execution_model` field is set in `phase-config.json` per team. All existing teams default to `"worktree"`; the configuration team is set to `"direct"`.
+
+---
+
 ## How Requests Flow
 
 See [request-flows.md](references/request-flows.md) for five detailed scenarios. Simple requests use the fast path (3 hops); complex requests use the full team (5-7 hops):

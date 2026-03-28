@@ -125,6 +125,11 @@ async def dispatch(
     if not infra_dir and not resume_infra:
         return {'status': 'failed', 'reason': 'POC_SESSION_DIR not set'}
 
+    # Resolve execution model from team config (issue #240).
+    # "direct" teams run in the session worktree without child worktree isolation.
+    team_spec = config.teams.get(team)
+    direct_model = team_spec and team_spec.execution_model == 'direct'
+
     # Load parent CfA state for child linkage (skip on resume — we use existing child state)
     parent_cfa = None
     if not resume_worktree:
@@ -184,8 +189,34 @@ async def dispatch(
             os.path.join(dispatch_infra, '.heartbeat'),
             role=team,
         )
+    elif direct_model:
+        # Direct execution model (issue #240): run in session worktree,
+        # no child worktree. Used by teams whose output is runtime config
+        # (.claude/, .teaparty/) that must take effect immediately.
+        from datetime import datetime
+        dispatch_id = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+        worktree_path = session_worktree
+        dispatch_infra = os.path.join(infra_dir, team, dispatch_id)
+        os.makedirs(dispatch_infra, exist_ok=True)
+
+        from projects.POC.orchestrator.heartbeat import register_child, create_heartbeat
+        create_heartbeat(os.path.join(dispatch_infra, '.heartbeat'), role=team)
+        children_path = os.path.join(infra_dir, '.children')
+        register_child(
+            children_path,
+            heartbeat=os.path.join(dispatch_infra, '.heartbeat'),
+            team=team,
+            task_id=liaison_task_id or None,
+        )
+
+        cfa = make_child_state(
+            parent_cfa, team,
+            task_id=f'dispatch-{team}-{dispatch_id}',
+        )
+        save_state(cfa, os.path.join(dispatch_infra, '.cfa-state.json'))
     else:
-        # Create dispatch worktree
+        # Worktree-isolated execution model: create a child worktree,
+        # run orchestrator there, squash-merge results back.
         try:
             dispatch_info = await create_dispatch_worktree(
                 team=team,
@@ -233,12 +264,16 @@ async def dispatch(
 
     # Derive dispatch_id for session_id and stream file naming.
     # On fresh dispatch, comes from dispatch_info.  On resume, derive from infra dir name.
+    # Direct model sets dispatch_id earlier (issue #240).
     if resume_worktree and resume_infra:
         dispatch_id = os.path.basename(dispatch_infra)
         # Extract prior Claude session ID from stream files for --resume continuity
         resume_session_id = _extract_session_id_from_streams(dispatch_infra)
-    else:
+    elif not direct_model:
         dispatch_id = dispatch_info['dispatch_id']
+        resume_session_id = ''
+    else:
+        # dispatch_id already set in direct model branch above
         resume_session_id = ''
 
     # Build phase_session_ids for --resume support
@@ -294,10 +329,11 @@ async def dispatch(
 
         retries += 1
 
-    # Merge back into parent session worktree
+    # Merge back into parent session worktree.
+    # Direct-model teams (issue #240) already wrote to session_worktree — no merge needed.
     merge_failed = False
     merge_error = ''
-    if result and result.terminal_state == 'COMPLETED_WORK':
+    if not direct_model and result and result.terminal_state == 'COMPLETED_WORK':
         # Generate commit message — failures fall back to a static message
         # so they never prevent the merge from being attempted.
         try:
@@ -324,14 +360,14 @@ async def dispatch(
             merge_failed = True
             merge_error = str(e)
 
-    # Write dispatch MEMORY.md for the rollup chain — only if merge succeeded.
-    # A failed merge means deliverables didn't land; writing memory would give
-    # the rollup chain a phantom "completed" record with no artifacts.
+    # Write dispatch MEMORY.md for the rollup chain — only if merge succeeded
+    # (or direct model, where there's no merge step).
     if result and result.terminal_state == 'COMPLETED_WORK' and not merge_failed:
         _write_dispatch_memory(dispatch_infra, team, task, result)
 
-    # Clean up
-    await cleanup_worktree(worktree_path)
+    # Clean up worktree — skip for direct model (no child worktree to remove)
+    if not direct_model:
+        await cleanup_worktree(worktree_path)
 
     # Finalize heartbeat with terminal status (issue #149)
     from projects.POC.orchestrator.heartbeat import finalize_heartbeat
