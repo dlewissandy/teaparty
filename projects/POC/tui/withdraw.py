@@ -237,7 +237,10 @@ def _read_pid_from_infra(infra_dir: str) -> int | None:
 
 
 def _kill_pid(pid: int) -> None:
-    """Kill a process and its children via process group, then direct signal.
+    """Kill a process via SIGTERM, falling back to SIGKILL.
+
+    Per the CfA extensions spec: "sends SIGTERM down the tree, falling
+    back to SIGKILL."
 
     Guards against self-kill: when a session runs in-process, .heartbeat
     contains the TUI's own PID.  Killing our own process group would
@@ -254,19 +257,37 @@ def _kill_pid(pid: int) -> None:
     # If the target shares our process group, skip killpg (it would
     # kill us too) and fall back to direct signal on just the PID.
     if target_pgid == os.getpgid(os.getpid()):
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        _sigterm_then_sigkill(pid)
         return
 
     try:
         os.killpg(target_pgid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
-        try:
-            os.kill(pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError, OSError):
-            pass
+        _sigterm_then_sigkill(pid)
+        return
+
+    # SIGKILL fallback: if process survived SIGTERM, force-kill
+    _sigkill_if_alive(pid)
+
+
+def _sigterm_then_sigkill(pid: int) -> None:
+    """Send SIGTERM to a single PID, then SIGKILL if it survives."""
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        return
+    _sigkill_if_alive(pid)
+
+
+def _sigkill_if_alive(pid: int) -> None:
+    """If pid is still alive after a short grace period, send SIGKILL."""
+    import time
+    time.sleep(0.1)
+    try:
+        os.kill(pid, 0)  # Check if still alive
+        os.kill(pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass  # Already dead or inaccessible
 
 
 def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
