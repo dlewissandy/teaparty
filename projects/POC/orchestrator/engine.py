@@ -130,6 +130,7 @@ class Orchestrator:
         self._parent_heartbeat = parent_heartbeat
         self.project_dir = project_dir
         self._intervention_queue = intervention_queue
+        self._pending_intervention: str = ''  # Prompt to inject at next agent turn
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -556,6 +557,14 @@ class Orchestrator:
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
+            # Turn boundary: check for pending interventions (Issue #246).
+            # Only deliver when the next actor is an agent, not a human gate.
+            if (self._intervention_queue
+                    and self._intervention_queue.has_pending()
+                    and self.cfa.state not in self.config.human_actor_states
+                    and not is_globally_terminal(self.cfa.state)):
+                await self._deliver_intervention()
+
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
         """Dispatch to the correct actor based on current state."""
@@ -615,15 +624,26 @@ class Orchestrator:
                 + f'[stderr from previous turn]\n{stderr_block}'
             )
 
+        # Inject pending intervention from the queue (Issue #246).
+        # The intervention prompt replaces backtrack_context so the agent
+        # receives it as the next --resume prompt at the turn boundary.
+        if self._pending_intervention:
+            ctx.backtrack_context = (
+                (ctx.backtrack_context + '\n\n' if ctx.backtrack_context else '')
+                + self._pending_intervention
+            )
+            self._pending_intervention = ''
+
         # Agent actor — run agent
         return await self._agent_runner.run(ctx)
 
     async def _deliver_intervention(self) -> None:
-        """Drain the intervention queue and publish an INTERVENE event.
+        """Drain the intervention queue, publish INTERVENE, store prompt for injection.
 
         Called at turn boundaries when the queue has pending messages.
-        The actual prompt injection happens in _run_phase() by setting
-        the backtrack context on the next actor invocation.
+        Stores the intervention prompt in ``_pending_intervention`` so
+        ``_invoke_actor()`` injects it as backtrack context on the next
+        agent turn (delivered via ``--resume``).
 
         Issue #246.
         """
@@ -635,6 +655,7 @@ class Orchestrator:
             return
 
         prompt = build_intervention_prompt(messages)
+        self._pending_intervention = prompt
 
         await self.event_bus.publish(Event(
             type=EventType.INTERVENE,
