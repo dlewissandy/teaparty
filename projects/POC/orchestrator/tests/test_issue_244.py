@@ -312,6 +312,26 @@ class TestConsolidateLearningEntries(unittest.TestCase):
         result_ids = {e.id for e in result}
         self.assertEqual(result_ids, {'a', 'b'})
 
+    def test_genuine_tension_reduces_importance(self):
+        """Entries in genuine tension get importance reduced so they decay
+        faster at retrieval time (#218 interaction)."""
+        from projects.POC.orchestrator.learning_consolidation import consolidate_learning_entries
+
+        original_importance = 0.8
+        a = _make_entry(
+            'Always run tests before committing code changes to the repository',
+            entry_id='a', created_at='2026-03-10',
+            reinforcement_count=5, importance=original_importance,
+        )
+        b = _make_entry(
+            'Skip tests before committing documentation-only code changes',
+            entry_id='b', created_at='2026-03-12',
+            reinforcement_count=4, importance=original_importance,
+        )
+        result, decisions = consolidate_learning_entries([a, b])
+        for entry in result:
+            self.assertLess(entry.importance, original_importance)
+
     def test_returns_decisions_for_auditability(self):
         from projects.POC.orchestrator.learning_consolidation import consolidate_learning_entries
 

@@ -53,6 +53,11 @@ _TENSION_REINFORCEMENT_THRESHOLD = 3
 # Jaccard similarity threshold for detecting topically related entries.
 _SIMILARITY_THRESHOLD = 0.3
 
+# Importance multiplier for entries involved in genuine tension.
+# Reduces prominence at retrieval time so contradicted entries decay
+# faster (#218 interaction). 0.7 means a 30% importance reduction.
+_TENSION_IMPORTANCE_FACTOR = 0.7
+
 
 @dataclass
 class LearningConflictClassification:
@@ -216,6 +221,7 @@ def consolidate_learning_entries(
         return list(entries), []
 
     delete_ids: set[str] = set()
+    tension_ids: set[str] = set()
     decisions: list[dict] = []
 
     for a, b in pairs:
@@ -239,12 +245,26 @@ def consolidate_learning_entries(
             delete_ids.add(older_id)
             decision['action'] = 'DELETE'
             decision['deleted_id'] = older_id
+        elif cause == CAUSE_GENUINE_TENSION:
+            # Reduce importance of both entries so they decay faster
+            # at retrieval time (#218 interaction). This surfaces the
+            # tension to the human via reduced prominence rather than
+            # silently deleting either entry.
+            tension_ids.add(a.id)
+            tension_ids.add(b.id)
+            decision['action'] = 'PRESERVE_BOTH_DECAYED'
         else:
             decision['action'] = 'PRESERVE_BOTH'
 
         decisions.append(decision)
 
     consolidated = [e for e in entries if e.id not in delete_ids]
+
+    # Apply importance reduction to entries involved in genuine tension
+    for entry in consolidated:
+        if entry.id in tension_ids:
+            entry.importance = max(0.1, entry.importance * _TENSION_IMPORTANCE_FACTOR)
+
     return consolidated, decisions
 
 
