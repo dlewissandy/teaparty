@@ -98,6 +98,65 @@ def _colored_dispatch_state(dispatch) -> str:
 _TERMINAL_STATES = frozenset({'COMPLETED_WORK', 'WITHDRAWN'})
 
 
+# ── Pre-seeded messages for "+ New" buttons ──
+
+# Cards handled by existing screens (not pre-seeded)
+_NON_PRESEED_CARDS = frozenset({'sessions'})
+
+# Generic (management-level) messages per card type
+_GENERIC_MESSAGES: dict[str, str] = {
+    'agents': 'I would like to create a new agent',
+    'skills': 'I would like to create a new skill',
+    'hooks': 'I would like to create a new hook',
+    'scheduled_tasks': 'I would like to create a new scheduled task',
+    'workgroups': 'I would like to create a new shared workgroup',
+    'jobs': 'I would like to create a new job',
+    'projects': 'I would like to create a new project',
+}
+
+# Project-scoped message templates (format with project=slug)
+_PROJECT_MESSAGES: dict[str, str] = {
+    'agents': 'I would like to add a new agent to the {project} project',
+    'skills': 'I would like to create a new skill for the {project} project',
+    'hooks': 'I would like to create a new hook for the {project} project',
+    'scheduled_tasks': 'I would like to create a new scheduled task for the {project} project',
+    'workgroups': 'I would like to create a new workgroup in the {project} project',
+    'jobs': 'I would like to create a new job in the {project} project',
+}
+
+# Workgroup-scoped message templates (format with workgroup=id)
+_WORKGROUP_MESSAGES: dict[str, str] = {
+    'agents': 'I would like to add a new agent to the {workgroup} workgroup',
+    'skills': 'I would like to create a new skill for the {workgroup} workgroup',
+}
+
+
+def pre_seeded_message(card_name: str, nav: NavigationContext) -> str | None:
+    """Return the pre-seeded message for a "+ New" button click.
+
+    Returns None for card types handled by dedicated screens (sessions,
+    projects, jobs). For all others, returns a context-aware message
+    following the spec table in creating-things.md.
+    """
+    if card_name in _NON_PRESEED_CARDS:
+        return None
+
+    # Workgroup level — most specific scope
+    if nav.level == DashboardLevel.WORKGROUP and nav.workgroup_id:
+        template = _WORKGROUP_MESSAGES.get(card_name)
+        if template:
+            return template.format(workgroup=nav.workgroup_id)
+
+    # Project level
+    if nav.project_slug and nav.level in (DashboardLevel.PROJECT, DashboardLevel.WORKGROUP):
+        template = _PROJECT_MESSAGES.get(card_name)
+        if template:
+            return template.format(project=nav.project_slug)
+
+    # Management level — generic
+    return _GENERIC_MESSAGES.get(card_name)
+
+
 def _build_session_items(
     tagged_sessions: list[tuple[str, object]],
     include_project: bool = False,
@@ -517,10 +576,12 @@ class DashboardScreen(Screen):
 
     def action_card_new(self, card_name: str) -> None:
         """Handle '+ New' click on a card."""
-        if card_name in ('sessions', 'jobs'):
+        if card_name == 'sessions':
             self.action_new_session()
-        elif card_name == 'projects':
-            self.action_new_project()
+        else:
+            msg = pre_seeded_message(card_name, self._nav)
+            if msg:
+                open_chat_window(self.app, conversation='om:new', pre_seed=msg)
 
     def action_card_filter(self, card_name: str) -> None:
         """Toggle hide/show terminal states on a card."""
@@ -653,10 +714,11 @@ def navigate_to(app, ctx: NavigationContext) -> None:
     app.push_screen(DashboardScreen(ctx))
 
 
-def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '') -> None:
+def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '', pre_seed: str = '') -> None:
     """Spawn the chat UI in a separate terminal window.
 
     If conversation is given, the chat opens to that specific conversation.
+    If pre_seed is given, the chat sends that message into the conversation on open.
     """
     from pathlib import Path
     from projects.POC.tui.platform_utils import open_terminal
@@ -667,4 +729,6 @@ def open_chat_window(app, conversation: str = '', ensure_proxy_review: str = '')
         cmd += ['--conversation', conversation]
     if ensure_proxy_review:
         cmd += ['--ensure-proxy-review', ensure_proxy_review]
+    if pre_seed:
+        cmd += ['--pre-seed', pre_seed]
     open_terminal(cmd, title='TeaParty Chat', cwd=repo_root)

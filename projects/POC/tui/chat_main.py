@@ -83,13 +83,14 @@ class ChatApp(App):
     CSS_PATH = 'styles.tcss'
     ENABLE_COMMAND_PALETTE = False
 
-    def __init__(self, projects_dir: str | None = None, conversation: str = ''):
+    def __init__(self, projects_dir: str | None = None, conversation: str = '', pre_seed: str = ''):
         super().__init__()
         from pathlib import Path
         here = Path(__file__).resolve().parent
         self.poc_root = str(here.parent)
         self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(self.poc_root)
         self.initial_conversation = conversation
+        self._pre_seed = pre_seed
         self._in_process: dict = {}
         self._pid_file: str = ''
         self.state_reader = StateReader(
@@ -109,7 +110,10 @@ class ChatApp(App):
         signal.signal(signal.SIGTERM, self._handle_sigterm)
         self._pid_file = _register_pid(self.projects_dir)
         from projects.POC.tui.screens.chat import ChatScreen
-        self.push_screen(ChatScreen(initial_conversation=self.initial_conversation))
+        self.push_screen(ChatScreen(
+            initial_conversation=self.initial_conversation,
+            pre_seed=self._pre_seed,
+        ))
         self.set_interval(1.0, self._periodic_refresh)
 
     def _handle_sigterm(self, signum, frame) -> None:
@@ -134,6 +138,8 @@ def main():
     parser.add_argument('--ensure-proxy-review', type=str, default=None,
                         metavar='USERNAME',
                         help='Ensure a proxy_review conversation exists for this user')
+    parser.add_argument('--pre-seed', type=str, default='',
+                        help='Pre-seeded message to send into the conversation on open')
     args = parser.parse_args()
 
     projects_dir = None
@@ -147,7 +153,7 @@ def main():
     if not conversation and args.ensure_proxy_review:
         conversation = f'proxy:{args.ensure_proxy_review}'
 
-    app = ChatApp(projects_dir=projects_dir, conversation=conversation)
+    app = ChatApp(projects_dir=projects_dir, conversation=conversation, pre_seed=args.pre_seed)
     app.run()
 
 

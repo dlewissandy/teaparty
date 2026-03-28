@@ -110,9 +110,10 @@ class ChatScreen(Screen):
         Binding('r', 'refresh', 'Refresh', show=True),
     ]
 
-    def __init__(self, initial_conversation: str = ''):
+    def __init__(self, initial_conversation: str = '', pre_seed: str = ''):
         super().__init__()
         self._initial_conversation = initial_conversation
+        self._pre_seed = pre_seed
         self._model: ChatModel | None = None
         self._conv_ids: list[str] = []
         self._selected_conv: str = ''
@@ -173,6 +174,12 @@ class ChatScreen(Screen):
                         target = conv.id
                         break
             self._select_conversation(target)
+
+        # Auto-send the pre-seeded message into the selected conversation
+        if self._pre_seed and self._model and self._selected_conv:
+            self._model.send_message(self._selected_conv, self._pre_seed)
+            self._pre_seed = ''  # only send once
+            self._refresh_messages(full=True)
 
     def _ensure_conversation(self, conv_id: str) -> None:
         """Create the conversation in the global bus if it doesn't exist."""
