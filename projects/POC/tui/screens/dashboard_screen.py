@@ -5,8 +5,11 @@ Cards, stats, and click behavior are determined by the NavigationContext.
 """
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
+
+_log = logging.getLogger(__name__)
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -677,6 +680,7 @@ class DashboardScreen(Screen):
             home = os.path.expanduser('~/.teaparty')
             return build_agent_items(team.agents, search_dirs=[home])
         except Exception:
+            _log.warning('Failed to load management agents', exc_info=True)
             return []
 
     def _load_project_agents(self, proj) -> list[CardItem]:
@@ -686,6 +690,7 @@ class DashboardScreen(Screen):
             pt = load_project_team(proj.path)
             return build_agent_items(pt.agents, search_dirs=[proj.path])
         except Exception:
+            _log.warning('Failed to load project agents for %s', proj.slug, exc_info=True)
             return []
 
     def _load_workgroup_agents(self) -> list[CardItem]:
@@ -714,6 +719,9 @@ class DashboardScreen(Screen):
                     return build_agent_items(wg.agents, search_dirs=[proj.path])
             return []
         except Exception:
+            _log.warning('Failed to load workgroup agents for %s/%s',
+                         self._nav.project_slug, self._nav.workgroup_id,
+                         exc_info=True)
             return []
 
     def _load_management_workgroups(self) -> list[CardItem]:
@@ -739,6 +747,7 @@ class DashboardScreen(Screen):
                 ))
             return items
         except Exception:
+            _log.warning('Failed to load management workgroups', exc_info=True)
             return []
 
     def _load_project_workgroups(self, proj) -> list[CardItem]:
@@ -764,6 +773,7 @@ class DashboardScreen(Screen):
                 ))
             return items
         except Exception:
+            _log.warning('Failed to load project workgroups for %s', proj.slug, exc_info=True)
             return []
 
     # ── Card/stats helpers ──
