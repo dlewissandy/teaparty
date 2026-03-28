@@ -94,3 +94,8 @@ class TeaPartyTUI(App):
         screen = self.screen
         if hasattr(screen, 'periodic_refresh'):
             screen.periodic_refresh()
+
+    def on_unmount(self) -> None:
+        """Kill all chat windows when the dashboard exits."""
+        from projects.POC.tui.chat_main import kill_chat_windows
+        kill_chat_windows(self.projects_dir)

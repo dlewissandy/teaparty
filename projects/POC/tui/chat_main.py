@@ -18,6 +18,49 @@ from textual.app import App, ComposeResult
 from projects.POC.tui.state_reader import StateReader
 
 
+def _pid_dir(projects_dir: str) -> str:
+    """Directory where chat window PIDs are registered."""
+    d = os.path.join(projects_dir, '.chat-pids')
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _register_pid(projects_dir: str) -> str:
+    """Write this process's PID to a file. Returns the path."""
+    pid_file = os.path.join(_pid_dir(projects_dir), str(os.getpid()))
+    with open(pid_file, 'w') as f:
+        f.write(str(os.getpid()))
+    return pid_file
+
+
+def _unregister_pid(pid_file: str) -> None:
+    """Remove the PID file on exit."""
+    try:
+        os.unlink(pid_file)
+    except OSError:
+        pass
+
+
+def kill_chat_windows(projects_dir: str) -> None:
+    """Kill all registered chat window processes."""
+    import signal
+    d = os.path.join(projects_dir, '.chat-pids')
+    if not os.path.isdir(d):
+        return
+    for name in os.listdir(d):
+        path = os.path.join(d, name)
+        try:
+            with open(path) as f:
+                pid = int(f.read().strip())
+            os.kill(pid, signal.SIGTERM)
+        except (ValueError, OSError, ProcessLookupError):
+            pass
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
 class ChatApp(App):
     """Standalone chat application in its own terminal window."""
 
@@ -32,6 +75,7 @@ class ChatApp(App):
         self.poc_root = str(here.parent)
         self.projects_dir = projects_dir if projects_dir is not None else os.path.dirname(self.poc_root)
         self._in_process: dict = {}
+        self._pid_file: str = ''
         self.state_reader = StateReader(
             self.poc_root,
             projects_dir=self.projects_dir,
@@ -45,9 +89,14 @@ class ChatApp(App):
         return None
 
     def on_mount(self) -> None:
+        self._pid_file = _register_pid(self.projects_dir)
         from projects.POC.tui.screens.chat import ChatScreen
         self.push_screen(ChatScreen())
         self.set_interval(1.0, self._periodic_refresh)
+
+    def on_unmount(self) -> None:
+        if self._pid_file:
+            _unregister_pid(self._pid_file)
 
     def _periodic_refresh(self) -> None:
         screen = self.screen
