@@ -46,15 +46,16 @@ class LaunchScreen(Screen):
         Binding('escape', 'go_back', 'Cancel', show=True),
     ]
 
-    def __init__(self, project: str = 'POC'):
+    def __init__(self, project: str = 'POC', workgroup: str = ''):
         super().__init__()
         self._default_project = project or 'POC'
+        self._workgroup = workgroup
 
     def compose(self) -> ComposeResult:
         yield Vertical(
             Center(
                 Vertical(
-                    Static(f'New Session ({self._default_project})', classes='form-title'),
+                    Static(f'New Session ({self._default_project}{" / " + self._workgroup if self._workgroup else ""})', classes='form-title'),
                     Static('Task:'),
                     Input(placeholder='Describe the task...', id='task-input'),
                     Static('Project:'),
@@ -101,6 +102,9 @@ class LaunchScreen(Screen):
         task = self.query_one('#task-input', Input).value.strip()
         if not task:
             return
+        # Implicit workgroup context: prepend workgroup scope to the task
+        if self._workgroup:
+            task = f'[Workgroup: {self._workgroup}] {task}'
 
         project_select = self.query_one('#project-select', Select)
         project = str(project_select.value) if project_select.value != Select.BLANK else 'POC'

@@ -319,6 +319,113 @@ def _build_session_items(
     return items
 
 
+def filter_sessions_for_workgroup(
+    sessions: list,
+    workgroup_name: str,
+) -> list:
+    """Return sessions that have at least one dispatch from this workgroup's team.
+
+    Matching is case-insensitive: workgroup name 'Coding' matches dispatch team 'coding'.
+    """
+    team = workgroup_name.lower()
+    return [s for s in sessions if any(d.team.lower() == team for d in (s.dispatches or []))]
+
+
+def _build_workgroup_escalation_items(
+    sessions: list,
+    workgroup_name: str,
+) -> list[CardItem]:
+    """Build escalation items scoped to a workgroup's team.
+
+    Only includes dispatch-level escalations from matching team dispatches,
+    plus session-level escalations (which apply to the whole job).
+    """
+    team = workgroup_name.lower()
+    items: list[CardItem] = []
+    for s in sessions:
+        if s.needs_input:
+            items.append(CardItem(
+                icon='\u23f3',
+                label=s.session_id,
+                detail=f'[dim red]{_state_display(s.cfa_phase, s.cfa_state)}[/dim red]',
+                data={'session_id': s.session_id},
+            ))
+        for d in (s.dispatches or []):
+            if d.needs_input and d.team.lower() == team:
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = d.team or '?'
+                items.append(CardItem(
+                    icon='\u23f3',
+                    label=f'{s.session_id}/{name}',
+                    detail=f'[dim red]{_state_display(d.cfa_phase, d.cfa_state)}[/dim red]  {d.team or "?"}',
+                    data={'session_id': s.session_id, 'dispatch': d},
+                ))
+    return items
+
+
+def build_active_task_items(
+    sessions: list,
+    workgroup_name: str,
+) -> list[CardItem]:
+    """Build CardItems for active dispatches belonging to a workgroup's team."""
+    team = workgroup_name.lower()
+    items: list[CardItem] = []
+    for s in sessions:
+        for d in (s.dispatches or []):
+            if d.team.lower() == team and d.status == 'active':
+                name = d.worktree_name
+                if '--' in name:
+                    name = name.split('--', 1)[1][:25]
+                elif not name:
+                    name = d.team or '?'
+                hb = f' {_heartbeat_icon(d.heartbeat_status)}' if d.heartbeat_status else ''
+                # Show parent job so users know which job each task belongs to
+                job_tag = f'[dim]{s.session_id}[/dim]  ' if s.session_id else ''
+                items.append(CardItem(
+                    icon='\u25b6',
+                    label=name,
+                    detail=f'{job_tag}{_state_display(d.cfa_phase, d.cfa_state)}  {_human_age(d.stream_age_seconds)}{hb}',
+                    data={'session_id': s.session_id, 'dispatch': d},
+                ))
+    return items
+
+
+def build_skill_items(skills: list[str]) -> list[CardItem]:
+    """Build CardItems for a list of skill names."""
+    return [CardItem(icon='\u2699', label=name, detail='', data={'skill': name}) for name in skills]
+
+
+def compute_workgroup_stats(
+    sessions: list,
+    workgroup_name: str,
+) -> dict[str, int]:
+    """Compute summary stats for a workgroup from its filtered sessions."""
+    team = workgroup_name.lower()
+    active_tasks = 0
+    complete_tasks = 0
+    escalations = 0
+    for s in sessions:
+        for d in (s.dispatches or []):
+            if d.team.lower() == team:
+                if d.status == 'active':
+                    active_tasks += 1
+                elif d.status == 'complete':
+                    complete_tasks += 1
+                if d.needs_input:
+                    escalations += 1
+        if s.needs_input:
+            escalations += 1
+    return {
+        'sessions': len(sessions),
+        'active_tasks': active_tasks,
+        'complete_tasks': complete_tasks,
+        'escalations': escalations,
+    }
+
+
 # ── Screen ──
 
 class DashboardScreen(Screen):
@@ -524,8 +631,44 @@ class DashboardScreen(Screen):
         self._set_card('workgroups', self._load_project_workgroups(proj))
 
     def _refresh_workgroup(self) -> None:
-        """Refresh the workgroup dashboard — agents card from config_reader."""
+        """Refresh the workgroup dashboard — all five cards from config + state."""
+        reader = self.app.state_reader
+        project_slug = self._nav.project_slug
+        wg_id = self._nav.workgroup_id
+        if not project_slug or not wg_id:
+            return
+
+        proj = reader.find_project(project_slug)
+        if not proj:
+            return
+
+        # Filter sessions to those with dispatches from this workgroup's team
+        wg_sessions = filter_sessions_for_workgroup(proj.sessions, wg_id)
+
+        # Stats
+        stats = compute_workgroup_stats(wg_sessions, wg_id)
+        self._set_stats([
+            ('Sessions', str(stats['sessions'])),
+            ('Active', str(stats['active_tasks'])),
+            ('Done', str(stats['complete_tasks'])),
+            ('Escalations', str(stats['escalations'])),
+        ])
+
+        # Escalations — only from this workgroup's team
+        self._set_card('escalations', _build_workgroup_escalation_items(wg_sessions, wg_id))
+
+        # Sessions
+        tagged = [('', s) for s in wg_sessions]
+        self._set_card('sessions', _build_session_items(tagged, hide_done=self._hide_done.get('sessions', True)))
+
+        # Active Tasks
+        self._set_card('active_tasks', build_active_task_items(wg_sessions, wg_id))
+
+        # Agents
         self._set_card('agents', self._load_workgroup_agents())
+
+        # Skills
+        self._set_card('skills', self._load_workgroup_skills())
 
     def _refresh_job(self, reader, session) -> None:
         if not session:
@@ -724,6 +867,33 @@ class DashboardScreen(Screen):
                          exc_info=True)
             return []
 
+    def _load_workgroup_skills(self) -> list[CardItem]:
+        """Load skill list from workgroup YAML via config_reader."""
+        try:
+            from projects.POC.orchestrator.config_reader import (
+                load_project_team,
+                resolve_workgroups,
+            )
+            project_slug = self._nav.project_slug
+            wg_id = self._nav.workgroup_id
+            if not project_slug or not wg_id:
+                return []
+            reader = self.app.state_reader
+            proj = reader.find_project(project_slug)
+            if not proj:
+                return []
+            pt = load_project_team(proj.path)
+            workgroups = resolve_workgroups(pt.workgroups, proj.path)
+            for wg in workgroups:
+                if wg.name == wg_id:
+                    return build_skill_items(wg.skills)
+            return []
+        except Exception:
+            _log.warning('Failed to load workgroup skills for %s/%s',
+                         self._nav.project_slug, self._nav.workgroup_id,
+                         exc_info=True)
+            return []
+
     def _load_management_workgroups(self) -> list[CardItem]:
         """Load workgroup list from teaparty.yaml via config_reader."""
         try:
@@ -860,7 +1030,7 @@ class DashboardScreen(Screen):
             if wg_id:
                 self._navigate(self._nav.drill_down(DashboardLevel.WORKGROUP, workgroup_id=wg_id))
 
-        elif card_name == 'tasks':
+        elif card_name in ('tasks', 'active_tasks'):
             dispatch = data.get('dispatch')
             if dispatch:
                 task_id = os.path.basename(dispatch.infra_dir) if dispatch.infra_dir else dispatch.worktree_name
@@ -926,7 +1096,7 @@ class DashboardScreen(Screen):
         if not project:
             reader = self.app.state_reader
             project = reader.projects[0].slug if reader.projects else ''
-        self.app.push_screen(LaunchScreen(project))
+        self.app.push_screen(LaunchScreen(project, workgroup=self._nav.workgroup_id))
 
     def action_new_project(self) -> None:
         from projects.POC.tui.screens.new_project import NewProjectScreen
