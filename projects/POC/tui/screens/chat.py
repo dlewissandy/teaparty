@@ -399,21 +399,64 @@ class ChatScreen(Screen):
                 log.scroll_end(animate=False)
                 self._msg_count += 1  # skip re-rendering on next refresh
 
-                # Proxy review: auto-respond that the proxy isn't active yet
+                # Proxy review: invoke the proxy agent
                 if self._selected_conv.startswith('proxy:'):
-                    self._model.send_message(
-                        self._selected_conv,
-                        '[Proxy agent is not yet connected. '
-                        'Messages are saved and will be available when the proxy starts.]',
-                    )
-                    t2 = Text()
-                    t2.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
-                    t2.append('proxy', style='bold cyan')
-                    t2.append('  [Proxy agent is not yet connected. '
-                              'Messages are saved and will be available when the proxy starts.]')
-                    log.write(t2)
-                    log.scroll_end(animate=False)
-                    self._msg_count += 1
+                    self._run_proxy_turn(text)
+
+    def _run_proxy_turn(self, human_message: str) -> None:
+        """Invoke the proxy agent for a review turn, render response when done."""
+        import asyncio
+
+        conv_id = self._selected_conv
+        bus = self._model._bus_for(conv_id) if self._model else None
+        if not bus:
+            return
+
+        # Open proxy memory DB
+        from projects.POC.orchestrator.proxy_memory import open_proxy_db
+        memory_db_path = os.path.join(self.app.projects_dir, '.proxy-memory.db')
+        conn = open_proxy_db(memory_db_path)
+
+        # Build the review session handle
+        from projects.POC.orchestrator.proxy_review import ReviewSession, run_review_turn
+        human_name = conv_id.split(':', 1)[1] if ':' in conv_id else 'user'
+        session = ReviewSession(
+            conversation_id=conv_id,
+            human_name=human_name,
+            memory_db_path=memory_db_path,
+        )
+
+        async def _do_turn():
+            try:
+                response = await run_review_turn(
+                    human_message,
+                    conn=conn,
+                    session=session,
+                    bus=bus,
+                )
+                # Render the proxy response
+                from rich.text import Text
+                log = self.query_one('#message-log', RichLog)
+                t = Text()
+                t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                t.append('proxy', style='bold cyan')
+                t.append(f'  {response}')
+                log.write(t)
+                log.scroll_end(animate=False)
+                self._msg_count += 1
+            except Exception as e:
+                from rich.text import Text
+                log = self.query_one('#message-log', RichLog)
+                t = Text()
+                t.append(f'[{datetime.now().strftime("%H:%M")}] ', style='dim')
+                t.append('error', style='bold red')
+                t.append(f'  Proxy failed: {e}')
+                log.write(t)
+                log.scroll_end(animate=False)
+            finally:
+                conn.close()
+
+        asyncio.create_task(_do_turn())
 
     def periodic_refresh(self) -> None:
         """Called by the app's periodic refresh."""
