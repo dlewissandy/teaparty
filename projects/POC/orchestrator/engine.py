@@ -47,6 +47,7 @@ from projects.POC.orchestrator.interrupt_propagation import (
     is_backtrack,
 )
 from projects.POC.orchestrator.phase_config import PhaseConfig
+from projects.POC.orchestrator.cost_tracker import CostTracker
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 
 
@@ -113,6 +114,7 @@ class Orchestrator:
         intervention_queue: InterventionQueue | None = None,
         role_enforcer: RoleEnforcer | None = None,
         human_presence: HumanPresence | None = None,
+        cost_tracker: CostTracker | None = None,
     ):
         self.cfa = cfa_state
         self.config = phase_config
@@ -142,6 +144,8 @@ class Orchestrator:
         self._pending_intervention: str = ''  # Prompt to inject at next agent turn
         self._intervention_active: bool = False  # True after intervention delivery (Issue #247)
         self.human_presence = human_presence
+        self._cost_tracker = cost_tracker
+        self._cost_warning_emitted = False  # Only emit once per job
 
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
@@ -566,6 +570,14 @@ class Orchestrator:
                         failure_reason=reason,
                     )
 
+            # Accumulate cost from this turn (Issue #262)
+            turn_cost = actor_result.data.get('cost_usd', 0.0)
+            if self._cost_tracker and turn_cost:
+                self._cost_tracker.record({
+                    'type': 'result',
+                    'total_cost_usd': turn_cost,
+                })
+
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
 
@@ -576,6 +588,13 @@ class Orchestrator:
                     and self.cfa.state not in self.config.human_actor_states
                     and not is_globally_terminal(self.cfa.state)):
                 await self._deliver_intervention()
+
+            # Turn boundary: check cost budget (Issue #262).
+            # Warn at 80%, pause at 100%. Pausing means withholding the
+            # next prompt until the human responds — same mechanism as
+            # compaction triggering.
+            if self._cost_tracker and not is_globally_terminal(self.cfa.state):
+                await self._check_cost_budget()
 
     async def _invoke_actor(self, spec: 'PhaseSpec', phase_name: str,
                              phase_start_time: float = 0.0) -> ActorResult:
@@ -679,6 +698,53 @@ class Orchestrator:
             },
             session_id=self.session_id,
         ))
+
+    async def _check_cost_budget(self) -> None:
+        """Check cost budget thresholds and publish events (Issue #262).
+
+        Called at turn boundaries after each agent turn completes.
+        - At 80%: publish COST_WARNING (once per job)
+        - At 100%: publish COST_LIMIT and inject escalation prompt
+        """
+        tracker = self._cost_tracker
+        if not tracker:
+            return
+
+        # Warn at 80% (once)
+        if tracker.warning_triggered and not self._cost_warning_emitted:
+            self._cost_warning_emitted = True
+            await self.event_bus.publish(Event(
+                type=EventType.COST_WARNING,
+                data={
+                    'total_cost_usd': tracker.total_cost_usd,
+                    'job_limit_usd': tracker.job_limit,
+                    'utilization': tracker.utilization,
+                },
+                session_id=self.session_id,
+            ))
+
+        # Pause at 100%
+        if tracker.limit_reached:
+            await self.event_bus.publish(Event(
+                type=EventType.COST_LIMIT,
+                data={
+                    'total_cost_usd': tracker.total_cost_usd,
+                    'job_limit_usd': tracker.job_limit,
+                    'utilization': tracker.utilization,
+                },
+                session_id=self.session_id,
+            ))
+
+            # Inject escalation prompt for the next agent turn —
+            # same pattern as intervention delivery.
+            cost = tracker.total_cost_usd
+            limit = tracker.job_limit
+            self._pending_intervention = (
+                f'[COST BUDGET EXCEEDED] This job has used ${cost:.2f} '
+                f'of its ${limit:.2f} budget. The orchestrator is pausing '
+                f'at the budget limit. Wrap up current work and commit '
+                f'partial progress.'
+            )
 
     async def _check_interrupt_propagation(self, old_state: str) -> None:
         """Cascade intervention decisions to active child dispatches (Issue #247).

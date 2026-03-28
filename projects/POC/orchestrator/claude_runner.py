@@ -93,6 +93,7 @@ class ClaudeRunner:
         self.children_file = children_file
         self._process: asyncio.subprocess.Process | None = None
         self._extracted_session_id: str = ''
+        self._accumulated_cost: float = 0.0
         self._sm = RunnerSM()
 
     async def run(self) -> ClaudeResult:
@@ -149,6 +150,7 @@ class ClaudeRunner:
                 stream_file=self.stream_file,
                 stall_killed=stall_killed,
                 start_time=start_time,
+                cost_usd=self._accumulated_cost,
                 stderr_lines=stderr_lines,
             )
         finally:
@@ -286,6 +288,7 @@ class ClaudeRunner:
                     try:
                         event_data = json.loads(line_str)
                         self._maybe_extract_session_id(event_data)
+                        self._maybe_extract_cost(event_data)
 
                         # Classify event as lead vs child based on task_id
                         task_id = event_data.get('task_id')
@@ -580,6 +583,14 @@ class ClaudeRunner:
                 and event.get('subtype') == 'init'
                 and not self._extracted_session_id):
             self._extracted_session_id = event.get('session_id', '')
+
+    def _maybe_extract_cost(self, event: dict) -> None:
+        """Accumulate cost from result events (Issue #262)."""
+        if event.get('type') != 'result':
+            return
+        cost = event.get('total_cost_usd', 0.0)
+        if cost:
+            self._accumulated_cost += cost
 
 
 # ── 529 overload detection ───────────────────────────────────────────────────
