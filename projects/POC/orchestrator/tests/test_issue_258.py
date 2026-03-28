@@ -84,7 +84,7 @@ class TestAddProject(unittest.TestCase):
 
         self.assertEqual(len(team.teams), 1)
         self.assertEqual(team.teams[0]['name'], 'My Backend')
-        self.assertEqual(team.teams[0]['path'], proj)
+        self.assertEqual(team.teams[0]['path'], os.path.realpath(proj))
 
     def test_creates_teaparty_dir_and_project_yaml(self):
         proj = _make_existing_project()

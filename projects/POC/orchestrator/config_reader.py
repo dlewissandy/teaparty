@@ -1,15 +1,21 @@
-"""Configuration tree reader for teaparty.yaml and project.yaml.
+"""Configuration tree reader and project management for teaparty.yaml and project.yaml.
 
 Loads the two-level configuration tree:
   Level 1: ~/.teaparty/teaparty.yaml → ManagementTeam
   Level 2: {project}/.teaparty/project.yaml → ProjectTeam
   Workgroups: {level}/.teaparty/workgroups/*.yaml → Workgroup
 
+Project management operations:
+  add_project    — register an existing directory as a project
+  create_project — create a new project directory with full scaffolding
+  remove_project — unregister a project (directory untouched)
+
 See docs/proposals/team-configuration/proposal.md for the design.
 """
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -338,3 +344,161 @@ def resolve_workgroups(
                 resolved.append(load_workgroup(config_path))
 
     return resolved
+
+
+# ── YAML persistence ──────────────────────────────────────────────────────────
+
+def _save_management_yaml(
+    data: dict[str, Any],
+    teaparty_home: str,
+    config_filename: str = 'teaparty.yaml',
+) -> None:
+    """Write a management team data dict back to teaparty.yaml."""
+    home = os.path.expanduser(teaparty_home)
+    path = os.path.join(home, config_filename)
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def _load_management_yaml(
+    teaparty_home: str,
+    config_filename: str = 'teaparty.yaml',
+) -> dict[str, Any]:
+    """Load the raw YAML dict from teaparty.yaml."""
+    home = os.path.expanduser(teaparty_home)
+    path = os.path.join(home, config_filename)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f'Management team config not found: {path}')
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def _scaffold_project_yaml(name: str, project_dir: str) -> None:
+    """Create .teaparty/project.yaml with a minimal scaffold if it doesn't exist."""
+    tp_dir = os.path.join(project_dir, '.teaparty')
+    os.makedirs(tp_dir, exist_ok=True)
+    project_yaml_path = os.path.join(tp_dir, 'project.yaml')
+    if os.path.exists(project_yaml_path):
+        return
+    scaffold = {
+        'name': name,
+        'description': '',
+        'lead': '',
+        'decider': '',
+        'agents': [],
+        'humans': [],
+        'workgroups': [],
+        'skills': [],
+    }
+    with open(project_yaml_path, 'w') as f:
+        yaml.dump(scaffold, f, default_flow_style=False, sort_keys=False)
+
+
+# ── Project management operations ─────────────────────────────────────────────
+
+def add_project(
+    name: str,
+    path: str,
+    teaparty_home: str = '~/.teaparty',
+) -> ManagementTeam:
+    """Add an existing directory as a TeaParty project.
+
+    Validates that the directory contains .git/ and .claude/, creates
+    .teaparty/project.yaml if missing, and adds a teams: entry to
+    teaparty.yaml.
+
+    Raises ValueError if the path is invalid, missing required markers,
+    or a team with this name already exists.
+    """
+    path = os.path.expanduser(os.path.realpath(path))
+
+    if not os.path.isdir(path):
+        raise ValueError(f'Path does not exist or is not a directory: {path}')
+    if not os.path.isdir(os.path.join(path, '.git')):
+        raise ValueError(f'Directory missing .git/: {path}')
+    if not os.path.isdir(os.path.join(path, '.claude')):
+        raise ValueError(f'Directory missing .claude/: {path}')
+
+    data = _load_management_yaml(teaparty_home)
+    teams = data.get('teams') or []
+
+    for t in teams:
+        if t['name'] == name:
+            raise ValueError(f"Team '{name}' already exists in teaparty.yaml")
+
+    teams.append({'name': name, 'path': path})
+    data['teams'] = teams
+    _save_management_yaml(data, teaparty_home)
+
+    _scaffold_project_yaml(name, path)
+
+    return load_management_team(teaparty_home=teaparty_home)
+
+
+def create_project(
+    name: str,
+    path: str,
+    teaparty_home: str = '~/.teaparty',
+) -> ManagementTeam:
+    """Create a new project directory with full scaffolding.
+
+    Creates the directory, runs git init, creates .claude/ and
+    .teaparty/project.yaml, and adds a teams: entry to teaparty.yaml.
+
+    Raises ValueError if the directory already exists or a team with
+    this name already exists.
+    """
+    path = os.path.expanduser(os.path.realpath(path))
+
+    if os.path.exists(path):
+        raise ValueError(f'Directory already exists: {path}')
+
+    data = _load_management_yaml(teaparty_home)
+    teams = data.get('teams') or []
+
+    for t in teams:
+        if t['name'] == name:
+            raise ValueError(f"Team '{name}' already exists in teaparty.yaml")
+
+    # Create directory structure
+    os.makedirs(path)
+    os.makedirs(os.path.join(path, '.claude'))
+    subprocess.run(
+        ['git', 'init', path],
+        check=True,
+        capture_output=True,
+    )
+
+    _scaffold_project_yaml(name, path)
+
+    teams.append({'name': name, 'path': path})
+    data['teams'] = teams
+    _save_management_yaml(data, teaparty_home)
+
+    return load_management_team(teaparty_home=teaparty_home)
+
+
+def remove_project(
+    name: str,
+    teaparty_home: str = '~/.teaparty',
+) -> ManagementTeam:
+    """Remove a project from teams: in teaparty.yaml.
+
+    The project directory itself is left untouched. Only the teams:
+    entry in teaparty.yaml is removed.
+
+    Raises ValueError if no team with this name exists.
+    """
+    data = _load_management_yaml(teaparty_home)
+    teams = data.get('teams') or []
+
+    original_len = len(teams)
+    teams = [t for t in teams if t['name'] != name]
+
+    if len(teams) == original_len:
+        raise ValueError(f"Team '{name}' not found in teaparty.yaml")
+
+    data['teams'] = teams
+    _save_management_yaml(data, teaparty_home)
+
+    return load_management_team(teaparty_home=teaparty_home)
