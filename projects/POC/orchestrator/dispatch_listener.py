@@ -57,6 +57,7 @@ class DispatchListener:
         session_id: str = '',
         poc_root: str = '',
         proxy_model_path: str = '',
+        project_dir: str = '',
     ):
         self.event_bus = event_bus
         self.session_worktree = session_worktree
@@ -65,15 +66,17 @@ class DispatchListener:
         self.session_id = session_id
         self.poc_root = poc_root
         self.proxy_model_path = proxy_model_path
+        self.project_dir = project_dir
         self.socket_path = ''
         self._server: asyncio.AbstractServer | None = None
 
         # Load valid team names from config for early rejection of bad names.
+        # When project_dir is set, validates against project-scoped teams (issue #10).
         self._valid_teams: frozenset[str] = frozenset()
         if poc_root:
             try:
-                config = PhaseConfig(poc_root)
-                self._valid_teams = frozenset(config.teams)
+                config = PhaseConfig(poc_root, project_dir=project_dir or None)
+                self._valid_teams = frozenset(config.project_teams)
             except Exception:
                 _log.warning('Failed to load valid teams from PhaseConfig')
 
