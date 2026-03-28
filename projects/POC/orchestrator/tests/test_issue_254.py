@@ -153,6 +153,11 @@ class TestEscalationsCardAtAllLevels(unittest.TestCase):
         card_names = cards_for_level(DashboardLevel.JOB)
         self.assertIn('escalations', card_names)
 
+    def test_task_has_escalations_card(self):
+        """Task dashboard includes an escalations card per task-dashboard.md spec."""
+        card_names = cards_for_level(DashboardLevel.TASK)
+        self.assertIn('escalations', card_names)
+
 
 class TestProjectCardBadgeCount(unittest.TestCase):
     """Project cards on the management dashboard show numeric escalation badge counts."""

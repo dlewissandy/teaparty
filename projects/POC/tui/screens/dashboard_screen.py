@@ -509,6 +509,18 @@ class DashboardScreen(Screen):
             ('Age', _human_age(dispatch.stream_age_seconds)),
         ])
 
+        # Escalations — this task's own escalation state
+        escalation_items = []
+        if dispatch.needs_input:
+            name = dispatch.worktree_name or dispatch.team or '?'
+            escalation_items.append(CardItem(
+                icon='\u23f3',
+                label=name,
+                detail=f'[dim red]{_state_display(dispatch.cfa_phase, dispatch.cfa_state)}[/dim red]',
+                data={'session_id': session.session_id if session else '', 'dispatch': dispatch},
+            ))
+        self._set_card('escalations', escalation_items)
+
         # Artifacts (changed files)
         wt = self._dispatch_worktree(dispatch, session)
         items = []
@@ -589,7 +601,13 @@ class DashboardScreen(Screen):
                 if sid:
                     self._navigate(self._nav.drill_down(DashboardLevel.JOB, job_id=sid))
 
-        elif card_name in ('escalations', 'sessions'):
+        elif card_name == 'escalations':
+            # Escalation clicks always open the relevant chat (per spec)
+            sid = data.get('session_id', '')
+            conv = f'session:{sid}' if sid else ''
+            open_chat_window(self.app, conversation=conv)
+
+        elif card_name == 'sessions':
             # At job level, dispatch items navigate to task dashboard
             dispatch = data.get('dispatch')
             if dispatch:

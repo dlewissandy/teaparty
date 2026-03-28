@@ -282,9 +282,9 @@ class TestCardsForLevel(unittest.TestCase):
         self.assertEqual(set(card_names), expected)
 
     def test_task_cards(self):
-        """Task dashboard: artifacts + todo list."""
+        """Task dashboard: escalations + artifacts + todo list (issue #254)."""
         card_names = cards_for_level(DashboardLevel.TASK)
-        expected = {'artifacts', 'todo_list'}
+        expected = {'escalations', 'artifacts', 'todo_list'}
         self.assertEqual(set(card_names), expected)
 
 
@@ -471,11 +471,11 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertIn('artifacts', cards)
 
     def test_task_dashboard_cards(self):
-        """Task dashboard: artifacts + todo list, no separate escalations."""
+        """Task dashboard: escalations + artifacts + todo list (issue #254)."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.TASK)
-        self.assertEqual(len(cards), 2)
-        self.assertNotIn('escalations', cards)
+        self.assertEqual(len(cards), 3)
+        self.assertIn('escalations', cards)
         self.assertIn('artifacts', cards)
         self.assertIn('todo_list', cards)
 
