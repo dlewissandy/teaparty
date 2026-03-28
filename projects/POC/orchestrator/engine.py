@@ -50,6 +50,7 @@ from projects.POC.orchestrator.context_budget import ContextBudget, build_compac
 from projects.POC.orchestrator.phase_config import PhaseConfig
 from projects.POC.orchestrator.cost_tracker import CostTracker
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
+from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter
 
 
 @dataclass
@@ -148,6 +149,10 @@ class Orchestrator:
         self._cost_tracker = cost_tracker
         self._cost_warning_emitted = False  # Only emit once per job
 
+        # Scratch file lifecycle (Issue #261): working memory for context budget.
+        self._scratch_model = ScratchModel(job=task, phase='')
+        self._scratch_writer = ScratchWriter(session_worktree)
+
         # Agent runners
         self._agent_runner = AgentRunner(stall_timeout=phase_config.stall_timeout)
         self._approval_gate = ApprovalGate(
@@ -242,9 +247,14 @@ class Orchestrator:
                 },
             }
 
+        # Subscribe to stream events for scratch file extraction (Issue #261).
+        self.event_bus.subscribe(self._on_stream_event)
+
         try:
             return await self._run_loop()
         finally:
+            self.event_bus.unsubscribe(self._on_stream_event)
+            self._scratch_writer.cleanup()
             if self._escalation_listener:
                 await self._escalation_listener.stop()
             if self._dispatch_listener:
@@ -303,6 +313,7 @@ class Orchestrator:
                 if result.terminal:
                     return self._make_result(result.terminal_state)
                 if result.backtrack_to == 'intent':
+                    self._record_dead_end('planning', 'backtracked to intent', result.backtrack_feedback)
                     self._mark_false_positives('planning backtracked to intent')
                     if self.suppress_backtracks:
                         _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
@@ -339,6 +350,7 @@ class Orchestrator:
             if result.terminal:
                 return self._make_result(result.terminal_state)
             if result.backtrack_to == 'intent':
+                self._record_dead_end('execution', 'backtracked to intent', result.backtrack_feedback)
                 self._mark_false_positives('execution backtracked to intent')
                 if self.suppress_backtracks:
                     _log.info('Suppressing backtrack to intent (suppress_backtracks=True)')
@@ -346,6 +358,7 @@ class Orchestrator:
                     self.skip_intent = False
                     continue
             if result.backtrack_to == 'planning':
+                self._record_dead_end('execution', 'backtracked to planning', result.backtrack_feedback)
                 self._mark_false_positives('execution backtracked to planning')
                 if self.suppress_backtracks:
                     _log.info('Suppressing backtrack to planning (suppress_backtracks=True)')
@@ -608,6 +621,12 @@ class Orchestrator:
             if not is_globally_terminal(self.cfa.state):
                 await self._check_context_budget(actor_result, phase_name)
 
+            # Turn boundary: update scratch file (Issue #261).
+            # Serialize the in-memory model to .context/scratch.md so it
+            # exists before any compaction fires.
+            if not is_globally_terminal(self.cfa.state):
+                self._update_scratch(phase_name)
+
             # Turn boundary: check cost budget (Issue #262).
             # Warn at 80%, pause at 100%. Pausing means withholding the
             # next prompt until the human responds — same mechanism as
@@ -814,6 +833,38 @@ class Orchestrator:
                 f'at the budget limit. Wrap up current work and commit '
                 f'partial progress.'
             )
+
+    async def _on_stream_event(self, event: Event) -> None:
+        """Feed stream events into the scratch model (Issue #261).
+
+        Subscribed to the event bus in run().  Extracts human input,
+        state changes, and file modifications from STREAM_DATA events.
+        Human input is also appended to the detail file immediately.
+        """
+        if event.type != EventType.STREAM_DATA:
+            return
+        data = event.data
+        self._scratch_model.extract(data)
+
+        # Append human input to detail file as it arrives.
+        if data.get('type') == 'user':
+            msg = data.get('message', {})
+            content = msg.get('content', '') if isinstance(msg, dict) else ''
+            if content:
+                self._scratch_writer.append_human_input(content)
+
+    def _update_scratch(self, phase_name: str) -> None:
+        """Serialize the scratch model to disk at a turn boundary (Issue #261)."""
+        self._scratch_model.phase = phase_name
+        self._scratch_writer.write_scratch(self._scratch_model)
+
+    def _record_dead_end(self, phase: str, reason: str, feedback: str = '') -> None:
+        """Record a dead end from a backtrack (Issue #261)."""
+        desc = f'{phase}: {reason}'
+        if feedback:
+            desc += f' — {feedback[:200]}'
+        self._scratch_model.add_dead_end(desc)
+        self._scratch_writer.append_dead_end(desc)
 
     async def _check_interrupt_propagation(self, old_state: str) -> None:
         """Cascade intervention decisions to active child dispatches (Issue #247).
