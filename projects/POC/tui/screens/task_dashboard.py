@@ -1,6 +1,7 @@
-"""Task Dashboard — single task (dispatch) view with activity, todos, and files.
+"""Task Dashboard — single task (dispatch) view with content cards per design spec.
 
-Refactored from DispatchDrilldownScreen (issue #253). Adds breadcrumbs.
+Assignee, progress (todo completion), escalations card, artifacts card, todo list card.
+Stats: tokens, elapsed. Actions: Chat, Withdraw.
 """
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ from projects.POC.tui.platform_utils import open_file
 from projects.POC.tui.stream_watcher import StreamWatcher
 from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_streams
 from projects.POC.tui.widgets.breadcrumb_bar import BreadcrumbBar
+from projects.POC.tui.widgets.content_card import CardItem, ContentCard
+from projects.POC.tui.widgets.stats_bar import StatsBar
 
 
 def _human_age(seconds: int) -> str:
@@ -32,7 +35,7 @@ def _human_age(seconds: int) -> str:
 
 
 class TaskDashboard(Screen):
-    """Deep view into a single task (dispatch). Breadcrumbs + full dispatch functionality."""
+    """Deep view into a single task (dispatch). Content cards + stats + breadcrumbs."""
 
     BINDINGS = [
         Binding('escape', 'go_back', 'Back', show=True),
@@ -50,18 +53,19 @@ class TaskDashboard(Screen):
         self.parser = EventParser()
         self.watcher = StreamWatcher(callback=self._on_stream_event)
         self._scroll_locked = False
+        self._last_todos: list[dict] = []
 
     def compose(self) -> ComposeResult:
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield Static('', id='drilldown-header')
+        yield StatsBar(id='task-stats')
         yield Horizontal(
             RichLog(id='activity-log', highlight=True, markup=True),
             Vertical(
                 Static('', id='dispatch-meta'),
-                Static('TASKS', classes='section-title'),
-                Static('', id='tasks-panel'),
-                Static('FILES CHANGED', classes='section-title'),
-                Static('', id='files-panel'),
+                ContentCard('ESCALATIONS', 'escalations', empty_text='No escalations'),
+                ContentCard('ARTIFACTS', 'artifacts', empty_text='No files changed'),
+                ContentCard('TODO LIST', 'todo_list', empty_text='No todos'),
                 id='right-pane',
             ),
         )
@@ -70,8 +74,10 @@ class TaskDashboard(Screen):
     def on_mount(self) -> None:
         self._update_header()
         self._update_meta()
-        self._update_tasks()
-        self._update_files()
+        self._update_stats()
+        self._update_escalations()
+        self._update_artifacts()
+        self._update_todos()
 
         self.watcher.start()
         for f in self._dispatch_stream_files():
@@ -106,8 +112,8 @@ class TaskDashboard(Screen):
                 if isinstance(block, dict) and block.get('type') == 'tool_use' and block.get('name') == 'TodoWrite':
                     todos = block.get('input', {}).get('todos', [])
                     if todos:
-                        panel = self.query_one('#tasks-panel', Static)
-                        panel.update(format_todo_list(todos))
+                        self._last_todos = todos
+                        self._update_todos_from_list(todos)
 
     def _update_header(self) -> None:
         header = self.query_one('#drilldown-header', Static)
@@ -118,9 +124,11 @@ class TaskDashboard(Screen):
         team = d.team or '?'
         dispatch_ts = os.path.basename(d.infra_dir) if d.infra_dir else d.worktree_name
         phase_state = f'{d.cfa_phase} \u25b8 {d.cfa_state}' if d.cfa_state else d.status
+
+        # Assignee line (team is the closest to assignee in current data model)
         header.update(
             f'[bold]{team} dispatch {dispatch_ts}[/bold]  {phase_state}\n'
-            f'{d.task if d.task else "(no task)"}'
+            f'Assignee: {team}  |  {d.task if d.task else "(no task)"}'
         )
 
     def _update_meta(self) -> None:
@@ -133,26 +141,47 @@ class TaskDashboard(Screen):
         state = d.cfa_state or '\u2014'
         status = d.status or '\u2014'
         plan_exists = d.infra_dir and os.path.exists(os.path.join(d.infra_dir, 'plan.md'))
-        age = _human_age(d.stream_age_seconds)
+
+        # Progress from todos
+        if self._last_todos:
+            done = sum(1 for t in self._last_todos if t.get('status') == 'completed')
+            total = len(self._last_todos)
+            pct = int(done / total * 100) if total > 0 else 0
+            progress = f'{done}/{total} ({pct}%)'
+        else:
+            progress = '\u2014'
+
         lines = [
-            f'[bold]PHASE:[/bold]   {phase}',
-            f'[bold]STATE:[/bold]   {state}',
-            f'[bold]STATUS:[/bold]  {status}',
-            f'[bold]AGE:[/bold]     {age}',
-            f'[bold]Plan:[/bold]    {"plan.md" if plan_exists else "[dim](none)[/dim]"}',
+            f'[bold]PHASE:[/bold]    {phase}',
+            f'[bold]STATE:[/bold]    {state}',
+            f'[bold]STATUS:[/bold]   {status}',
+            f'[bold]Progress:[/bold] {progress}',
+            f'[bold]Plan:[/bold]     {"plan.md" if plan_exists else "[dim](none)[/dim]"}',
         ]
         meta.update('\n'.join(lines))
 
-    def _update_tasks(self) -> None:
-        panel = self.query_one('#tasks-panel', Static)
-        todos = read_todos_from_streams(self._dispatch_stream_files())
-        panel.update(format_todo_list(todos))
+    def _update_stats(self) -> None:
+        d = self._dispatch
+        if not d:
+            return
+        stats = [
+            ('Team', d.team or '?'),
+            ('Status', d.status or '\u2014'),
+            ('Age', _human_age(d.stream_age_seconds)),
+        ]
+        try:
+            self.query_one('#task-stats', StatsBar).update_stats(stats)
+        except Exception:
+            pass
 
-    def _update_files(self) -> None:
-        panel = self.query_one('#files-panel', Static)
+    def _update_escalations(self) -> None:
+        # Tasks don't have their own escalation model yet
+        self._update_card('escalations', [])
+
+    def _update_artifacts(self) -> None:
         wt = self._dispatch_worktree()
         if not wt:
-            panel.update('  [dim](no worktree)[/dim]')
+            self._update_card('artifacts', [])
             return
         try:
             result = subprocess.run(
@@ -161,12 +190,32 @@ class TaskDashboard(Screen):
                 capture_output=True, text=True, timeout=5,
             )
             files = [f for f in result.stdout.strip().split('\n') if f]
-            if files:
-                panel.update('\n'.join(f'  {f}' for f in files[:20]))
-            else:
-                panel.update('  [dim](no changes)[/dim]')
+            items = [CardItem(label=f) for f in files[:20]]
+            self._update_card('artifacts', items)
         except (subprocess.TimeoutExpired, OSError):
-            panel.update('  [dim](error reading files)[/dim]')
+            self._update_card('artifacts', [])
+
+    def _update_todos(self) -> None:
+        todos = read_todos_from_streams(self._dispatch_stream_files())
+        self._last_todos = todos
+        self._update_todos_from_list(todos)
+
+    def _update_todos_from_list(self, todos: list[dict]) -> None:
+        items = []
+        for todo in todos:
+            status = todo.get('status', 'pending')
+            icon = '\u2713' if status == 'completed' else '\u2610' if status == 'in_progress' else '\u2591'
+            items.append(CardItem(icon=icon, label=todo.get('content', '?')))
+        self._update_card('todo_list', items)
+
+    def _update_card(self, card_name: str, items: list[CardItem]) -> None:
+        try:
+            for widget in self.query(ContentCard):
+                if widget._card_name == card_name:
+                    widget.update_items(items)
+                    break
+        except Exception:
+            pass
 
     def _dispatch_stream_files(self) -> list[str]:
         if not self._dispatch or not self._dispatch.infra_dir or not os.path.isdir(self._dispatch.infra_dir):
@@ -218,7 +267,8 @@ class TaskDashboard(Screen):
                         break
         self._update_header()
         self._update_meta()
-        self._update_files()
+        self._update_stats()
+        self._update_artifacts()
         self.refresh_bindings()
 
         for f in self._dispatch_stream_files():

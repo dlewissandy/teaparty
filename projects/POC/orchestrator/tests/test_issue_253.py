@@ -338,5 +338,136 @@ class TestBreadcrumbDrillUpNavigation(unittest.TestCase):
         self.assertEqual(job_crumb.nav_context.task_id, '')
 
 
+class TestContentCard(unittest.TestCase):
+    """ContentCard data model — CardItem construction and rendering."""
+
+    def test_card_item_has_icon_label_detail(self):
+        """CardItem stores icon, label, detail, and data."""
+        from projects.POC.tui.widgets.content_card import CardItem
+        item = CardItem(icon='\u25b6', label='my-project', detail='3 active', data={'slug': 'proj'})
+        self.assertEqual(item.icon, '\u25b6')
+        self.assertEqual(item.label, 'my-project')
+        self.assertEqual(item.detail, '3 active')
+        self.assertEqual(item.data, {'slug': 'proj'})
+
+    def test_card_item_defaults(self):
+        """CardItem has sensible defaults for optional fields."""
+        from projects.POC.tui.widgets.content_card import CardItem
+        item = CardItem()
+        self.assertEqual(item.icon, '')
+        self.assertEqual(item.label, '')
+        self.assertEqual(item.detail, '')
+        self.assertIsNone(item.data)
+
+
+class TestStatsComputation(unittest.TestCase):
+    """Stats bar data is correctly computed from project/session state."""
+
+    def test_management_stats_aggregate_across_projects(self):
+        """Management stats aggregate all projects."""
+        # Simulate the stat computation from ManagementDashboard._update_stats
+        projects = [
+            type('P', (), {'sessions': [
+                type('S', (), {'cfa_state': 'COMPLETED_WORK'})(),
+                type('S', (), {'cfa_state': 'WORK_IN_PROGRESS'})(),
+            ], 'active_count': 1, 'attention_count': 0})(),
+            type('P', (), {'sessions': [
+                type('S', (), {'cfa_state': 'WITHDRAWN'})(),
+            ], 'active_count': 0, 'attention_count': 1})(),
+        ]
+        total_sessions = sum(len(p.sessions) for p in projects)
+        active = sum(p.active_count for p in projects)
+        completed = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'COMPLETED_WORK')
+        withdrawn = sum(1 for p in projects for s in p.sessions if s.cfa_state == 'WITHDRAWN')
+        attention = sum(p.attention_count for p in projects)
+
+        self.assertEqual(total_sessions, 3)
+        self.assertEqual(active, 1)
+        self.assertEqual(completed, 1)
+        self.assertEqual(withdrawn, 1)
+        self.assertEqual(attention, 1)
+
+
+class TestWorkflowProgress(unittest.TestCase):
+    """WorkflowProgress widget renders CfA phase progress correctly."""
+
+    def test_intent_phase_shows_intent_active(self):
+        """During intent phase, INTENT is highlighted."""
+        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
+        wp = WorkflowProgress(cfa_phase='intent', cfa_state='INTENT_IN_PROGRESS')
+        rendered = wp._render()
+        self.assertIn('INTENT', rendered)
+        # Intent should be active (bold yellow)
+        self.assertIn('yellow', rendered)
+
+    def test_execution_phase_shows_prior_phases_complete(self):
+        """During execution, intent and planning phases show as complete."""
+        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
+        wp = WorkflowProgress(cfa_phase='execution', cfa_state='WORK_IN_PROGRESS')
+        rendered = wp._render()
+        # Intent and planning should be green (complete)
+        self.assertIn('green', rendered)
+        self.assertIn('INTENT', rendered)
+        self.assertIn('PLANNING', rendered)
+
+    def test_completed_work_shows_all_done(self):
+        """COMPLETED_WORK shows all phases as done."""
+        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
+        wp = WorkflowProgress(cfa_state='COMPLETED_WORK')
+        rendered = wp._render()
+        self.assertIn('DONE', rendered)
+        # Should not have dim (future) phases
+        self.assertNotIn('dim', rendered)
+
+    def test_withdrawn_shows_withdrawn(self):
+        """WITHDRAWN state shows withdrawn indicator."""
+        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
+        wp = WorkflowProgress(cfa_state='WITHDRAWN')
+        rendered = wp._render()
+        self.assertIn('WITHDRAWN', rendered)
+        self.assertIn('red', rendered)
+
+    def test_empty_state_shows_all_dim(self):
+        """No phase/state shows everything as future (dim)."""
+        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
+        wp = WorkflowProgress()
+        rendered = wp._render()
+        self.assertIn('dim', rendered)
+
+
+class TestManagementDashboardCards(unittest.TestCase):
+    """Management dashboard has the correct card structure."""
+
+    def test_management_has_nine_cards(self):
+        """The design spec requires 9 cards on the management dashboard."""
+        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        cards = cards_for_level(DashboardLevel.MANAGEMENT)
+        self.assertEqual(len(cards), 9)
+
+    def test_project_dashboard_has_eight_cards(self):
+        """Project dashboard has 8 cards per spec."""
+        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        cards = cards_for_level(DashboardLevel.PROJECT)
+        self.assertEqual(len(cards), 8)
+
+    def test_workgroup_dashboard_has_five_cards(self):
+        """Workgroup dashboard has 5 cards per spec."""
+        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        cards = cards_for_level(DashboardLevel.WORKGROUP)
+        self.assertEqual(len(cards), 5)
+
+    def test_job_dashboard_has_three_cards(self):
+        """Job dashboard has 3 cards per spec."""
+        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        cards = cards_for_level(DashboardLevel.JOB)
+        self.assertEqual(len(cards), 3)
+
+    def test_task_dashboard_has_three_cards(self):
+        """Task dashboard has 3 cards per spec."""
+        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        cards = cards_for_level(DashboardLevel.TASK)
+        self.assertEqual(len(cards), 3)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -15,8 +15,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Footer, Input, OptionList, RichLog, Static, TextArea
-from textual.widgets.option_list import Option
+from textual.widgets import Footer, RichLog, Static, TextArea
 
 from projects.POC.tui.event_parser import EventParser
 from projects.POC.tui.navigation import DashboardLevel, NavigationContext
@@ -24,6 +23,9 @@ from projects.POC.tui.platform_utils import open_file
 from projects.POC.tui.stream_watcher import StreamWatcher
 from projects.POC.tui.todo_reader import format_todo_list, read_todos_from_streams
 from projects.POC.tui.widgets.breadcrumb_bar import BreadcrumbBar
+from projects.POC.tui.widgets.content_card import CardItem, ContentCard
+from projects.POC.tui.widgets.stats_bar import StatsBar
+from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
 
 
 def _handle_session_crash(infra_dir: str) -> None:
@@ -115,14 +117,15 @@ class JobDashboard(Screen):
     def compose(self) -> ComposeResult:
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield Static('', id='drilldown-header')
+        yield WorkflowProgress(id='workflow-progress')
+        yield StatsBar(id='job-stats')
         yield Horizontal(
             RichLog(id='activity-log', highlight=True, markup=True),
             Vertical(
                 Static('', id='session-meta'),
-                Static('TASKS', classes='section-title'),
-                Static('', id='tasks-panel'),
-                Static('DISPATCHES', classes='section-title'),
-                OptionList(id='dispatch-list'),
+                ContentCard('ESCALATIONS', 'escalations', empty_text='No escalations'),
+                ContentCard('ARTIFACTS', 'artifacts', empty_text='No artifacts'),
+                ContentCard('TASKS', 'job_tasks', empty_text='No dispatches'),
                 id='right-pane',
             ),
         )
@@ -144,8 +147,12 @@ class JobDashboard(Screen):
         self._chat_msg_count = 0
         self._update_header()
         self._update_meta()
-        self._update_tasks()
-        self._update_dispatches()
+        self._update_workflow_progress()
+        self._update_stats()
+        self._update_escalation_card()
+        self._update_artifacts_card()
+        self._update_tasks_card()
+        self._update_todos()
         self._update_input_area()
         self._update_chat_panel()
 
@@ -190,8 +197,6 @@ class JobDashboard(Screen):
                     todos = block.get('input', {}).get('todos', [])
                     if todos:
                         self._last_todos = todos
-                        panel = self.query_one('#tasks-panel', Static)
-                        panel.update(format_todo_list(todos))
 
     def _update_header(self) -> None:
         header = self.query_one('#drilldown-header', Static)
@@ -237,80 +242,89 @@ class JobDashboard(Screen):
             self._last_meta = content
             meta.update(content)
 
-    def _update_tasks(self) -> None:
-        panel = self.query_one('#tasks-panel', Static)
+    def _update_workflow_progress(self) -> None:
+        if self._session:
+            try:
+                self.query_one('#workflow-progress', WorkflowProgress).update_progress(
+                    self._session.cfa_phase, self._session.cfa_state,
+                )
+            except Exception:
+                pass
+
+    def _update_stats(self) -> None:
+        if not self._session:
+            return
+        dispatches = self._session.dispatches if self._session else []
+        active = sum(1 for d in dispatches if d.status == 'active')
+        complete = sum(1 for d in dispatches if d.status == 'complete')
+        stats = [
+            ('Tasks', f'{complete}/{len(dispatches)}'),
+            ('Active', str(active)),
+            ('Elapsed', _human_age(self._session.duration_seconds)),
+            ('Idle', _human_age(self._session.stream_age_seconds)),
+        ]
+        try:
+            self.query_one('#job-stats', StatsBar).update_stats(stats)
+        except Exception:
+            pass
+
+    def _update_escalation_card(self) -> None:
+        items = []
+        if self._session and self._session.needs_input:
+            items.append(CardItem(
+                icon='\u23f3',
+                label=self._session.cfa_state,
+                detail=_human_label(self._session.cfa_state),
+            ))
+        self._update_card('escalations', items)
+
+    def _update_artifacts_card(self) -> None:
+        items = []
+        for name, label in [('INTENT.md', 'Intent'), ('plan.md', 'Plan'), ('.work-summary.md', 'Work Summary')]:
+            path = self._find_doc(name)
+            if path:
+                items.append(CardItem(icon='\u2713', label=label, detail=name))
+            else:
+                items.append(CardItem(icon='\u2591', label=f'[dim]{label}[/dim]', detail=''))
+        self._update_card('artifacts', items)
+
+    def _update_tasks_card(self) -> None:
+        dispatches = self._session.dispatches if self._session else []
+        active = [d for d in dispatches if d.status == 'active']
+        items = []
+        for d in active:
+            icon = _dispatch_icon(d.status)
+            name = d.worktree_name
+            if '--' in name:
+                name = name.split('--', 1)[1][:25]
+            elif not name:
+                name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+            age = _human_age(d.stream_age_seconds)
+            items.append(CardItem(
+                icon=icon,
+                label=name,
+                detail=f'{d.team or "?"} {age}',
+                data=d,
+            ))
+        self._update_card('job_tasks', items)
+
+    def _update_card(self, card_name: str, items: list[CardItem]) -> None:
+        try:
+            for widget in self.query(ContentCard):
+                if widget._card_name == card_name:
+                    widget.update_items(items)
+                    break
+        except Exception:
+            pass
+
+    def _update_todos(self) -> None:
         stream_files = self.app.state_reader.active_stream_files(self.session_id)
         todos = read_todos_from_streams(stream_files)
         self._last_todos = todos
-        panel.update(format_todo_list(todos))
 
-    def _update_dispatches(self) -> None:
-        ol = self.query_one('#dispatch-list', OptionList)
-        active = [d for d in (self._session.dispatches if self._session else [])
-                  if d.status == 'active']
-
-        if not active:
-            if self._last_dispatch_key != '_empty_':
-                self._last_dispatch_key = '_empty_'
-                self._dispatch_map = {}
-                ol.clear_options()
-                ol.add_option(Option('(no dispatches)', disabled=True))
-            return
-
-        by_team: dict[str, list] = {}
-        for d in active:
-            by_team.setdefault(d.team or '?', []).append(d)
-
-        options = []
-        new_map = {}
-        key_parts = []
-        idx = 0
-
-        for team, dispatches in sorted(by_team.items()):
-            options.append(Option(f'\u2500\u2500 {team} \u2500\u2500', disabled=True))
-            idx += 1
-            for d in dispatches:
-                icon = _dispatch_icon(d.status)
-                name = d.worktree_name
-                if '--' in name:
-                    name = name.split('--', 1)[1][:25]
-                elif not name:
-                    name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
-                age = _human_age(d.stream_age_seconds)
-                label = f'{icon} {name:<25} {age}'
-                options.append(Option(label))
-                new_map[idx] = d
-                key_parts.append(f'{team}:{name}:{d.status}')
-                idx += 1
-
-        new_key = '|'.join(key_parts)
-        if new_key == self._last_dispatch_key:
-            for opt_idx, d in new_map.items():
-                icon = _dispatch_icon(d.status)
-                name = d.worktree_name
-                if '--' in name:
-                    name = name.split('--', 1)[1][:25]
-                elif not name:
-                    name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
-                age = _human_age(d.stream_age_seconds)
-                label = f'{icon} {name:<25} {age}'
-                try:
-                    ol.replace_option_prompt_at_index(opt_idx, label)
-                except Exception:
-                    pass
-            return
-        self._last_dispatch_key = new_key
-
-        self._dispatch_map = new_map
-        ol.clear_options()
-        for opt in options:
-            ol.add_option(opt)
-
-    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_list.id != 'dispatch-list':
-            return
-        dispatch = self._dispatch_map.get(event.option_index)
-        if dispatch:
+    def on_content_card_item_selected(self, event: ContentCard.ItemSelected) -> None:
+        if event.card_name == 'job_tasks' and event.item.data:
+            dispatch = event.item.data
             ctx = self._nav_context.drill_down(
                 DashboardLevel.TASK,
                 task_id=os.path.basename(dispatch.infra_dir) if dispatch.infra_dir else dispatch.worktree_name,
@@ -540,7 +554,11 @@ class JobDashboard(Screen):
         self._in_proc = self.app.get_in_process(self.session_id)
         self._update_header()
         self._update_meta()
-        self._update_dispatches()
+        self._update_workflow_progress()
+        self._update_stats()
+        self._update_escalation_card()
+        self._update_artifacts_card()
+        self._update_tasks_card()
         self._update_input_area()
         self._update_chat_panel()
         self.refresh_bindings()
