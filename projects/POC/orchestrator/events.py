@@ -32,6 +32,7 @@ class EventType(Enum):
     FAILURE = 'failure'
     LOG = 'log'
     API_OVERLOADED = 'api_overloaded'
+    CONTEXT_WARNING = 'context_warning'
 
 
 @dataclass
