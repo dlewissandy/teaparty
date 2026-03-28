@@ -18,13 +18,19 @@ memory stores. Implements all 10 scopes of the promote_learnings.sh pipeline:
     prospective — pre-mortem → project/tasks/<ts>-prospective.md
     in-flight   — assumption checkpoints → project/tasks/<ts>-inflight.md
     corrective  — exec stream errors → project/tasks/<ts>-corrective.md
+
+  In-flight signal generation (Issue #199):
+    write_assumption_checkpoint() — appends structured JSONL at phase transitions
+    write_premortem()             — generates .premortem.md from PLAN.md before execution
 """
 from __future__ import annotations
 
 import asyncio
+import json as _json_mod
 import logging
 import os
 import sys
+import time as _time_mod
 
 _log = logging.getLogger('orchestrator.learnings')
 
@@ -503,24 +509,32 @@ def _evaluate_promotions(*, infra_dir: str, project_dir: str) -> None:
 # ── Reinforcement tracking ────────────────────────────────────────────────────
 
 def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
-    """Increment reinforcement_count for entries retrieved at session start.
+    """Accuracy-aware reinforcement for entries retrieved at session start.
 
     Reads the .retrieved-ids.txt sidecar file (written by memory_indexer.retrieve)
-    and updates matching entries in the project's memory files.  Implements the
-    "use it or lose it" memory strengthening signal.
+    and compares each retrieved entry against the exec stream.  Entries whose
+    content aligns with what the session actually did get reinforced (count +1);
+    entries that were retrieved but show no alignment are left unchanged.
+
+    Issue #199: upgraded from blind reinforcement to accuracy-aware.
     """
     from pathlib import Path
+    from dataclasses import replace as _replace
 
     ids_path = os.path.join(infra_dir, '.retrieved-ids.txt')
     if not os.path.exists(ids_path):
         return
 
-    from projects.POC.scripts.track_reinforcement import reinforce_entries, load_ids
+    from projects.POC.scripts.track_reinforcement import load_ids
     from projects.POC.scripts.memory_entry import parse_memory_file, serialize_memory_file
 
     retrieved_ids = load_ids(ids_path)
     if not retrieved_ids:
         return
+
+    # Extract session outcome text from exec stream for alignment checking
+    exec_stream_path = os.path.join(infra_dir, '.exec-stream.jsonl')
+    session_text = _extract_session_text(exec_stream_path)
 
     # Collect memory files to scan
     memory_files = []
@@ -542,7 +556,9 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
                 memory_files.append(os.path.join(proxy_tasks_dir, f))
 
     from filelock import FileLock
+    from datetime import date as _date
 
+    today = _date.today().isoformat()
     total_reinforced = 0
     for mem_path in memory_files:
         lock = FileLock(mem_path + '.lock', timeout=30)
@@ -556,13 +572,92 @@ def _reinforce_retrieved(*, infra_dir: str, project_dir: str) -> None:
             if not entries:
                 continue
 
-            updated, count = reinforce_entries(entries, retrieved_ids)
+            updated = []
+            count = 0
+            for entry in entries:
+                if entry.id not in retrieved_ids or entry.status != 'active':
+                    updated.append(entry)
+                    continue
+
+                # Accuracy check: does the entry's content align with what
+                # the session actually did?
+                if _is_aligned(entry.content, session_text):
+                    updated.append(_replace(
+                        entry,
+                        reinforcement_count=entry.reinforcement_count + 1,
+                        last_reinforced=today,
+                    ))
+                    count += 1
+                else:
+                    # Not aligned — leave unchanged (floor at 0)
+                    updated.append(entry)
+
             if count > 0:
                 try:
                     Path(mem_path).write_text(serialize_memory_file(updated))
                     total_reinforced += count
                 except OSError:
                     pass
+
+
+def _extract_session_text(exec_stream_path: str) -> str:
+    """Extract assistant text from the exec stream for alignment comparison.
+
+    Returns a single string of all assistant text content, lowercased.
+    Returns empty string if the stream doesn't exist or is empty.
+    """
+    if not os.path.isfile(exec_stream_path):
+        return ''
+
+    parts = []
+    try:
+        with open(exec_stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = _json_mod.loads(line)
+                except (ValueError, _json_mod.JSONDecodeError):
+                    continue
+                if ev.get('type') != 'assistant':
+                    continue
+                for block in ev.get('message', {}).get('content', []):
+                    if isinstance(block, dict) and block.get('type') == 'text':
+                        text = block.get('text', '').strip()
+                        if text:
+                            parts.append(text)
+    except OSError:
+        return ''
+
+    return '\n'.join(parts).lower()
+
+
+def _is_aligned(entry_content: str, session_text: str) -> bool:
+    """Check if a learning entry's content aligns with the session's work.
+
+    Uses keyword overlap: extracts significant words (4+ chars) from the
+    entry and checks if enough of them appear in the session text.
+    A threshold of 30% keyword overlap indicates alignment.
+
+    If there's no session text (empty exec stream), returns True to
+    preserve backward compatibility (all retrieved entries reinforced).
+    """
+    if not session_text:
+        # No exec stream — can't determine alignment; reinforce all
+        return True
+
+    # Extract significant words from the entry
+    import re
+    words = set(re.findall(r'[a-z]{4,}', entry_content.lower()))
+    if not words:
+        return True  # entry has no significant words — can't judge
+
+    # Count how many appear in session text
+    matches = sum(1 for w in words if w in session_text)
+    overlap = matches / len(words)
+
+    return overlap >= 0.3
 
 
 # ── Procedural learning: skill candidate archival ────────────────────────────
@@ -1127,3 +1222,77 @@ def _compact_proxy_patterns(
     lock = FileLock(patterns_path + '.lock', timeout=30)
     with lock:
         Path(patterns_path).write_text(''.join(lines))
+
+
+# ── In-flight signal generation (Issue #199) ─────────────────────────────────
+
+def write_assumption_checkpoint(
+    *,
+    infra_dir: str,
+    phase: str,
+    cfa_state: str,
+    artifact_summary: str,
+) -> None:
+    """Append a structured assumption checkpoint to .assumptions.jsonl.
+
+    Called at CfA phase transitions to capture what the completing phase
+    assumed and produced.  The post-session ``_promote_in_flight`` pipeline
+    reads this file and promotes it into project-level task learnings.
+    """
+    entry = {
+        'phase': phase,
+        'cfa_state': cfa_state,
+        'timestamp': _time_mod.time(),
+        'artifact_summary': artifact_summary,
+    }
+
+    path = os.path.join(infra_dir, '.assumptions.jsonl')
+    with open(path, 'a') as f:
+        f.write(_json_mod.dumps(entry) + '\n')
+
+
+def write_premortem(
+    *,
+    infra_dir: str,
+    task: str,
+) -> None:
+    """Generate .premortem.md from PLAN.md content before execution begins.
+
+    The premortem captures assumptions the plan rests on and risks that
+    could cause it to fail.  The post-session ``_promote_prospective``
+    pipeline reads this file and promotes it into project-level task learnings.
+
+    Overwrites any existing .premortem.md (handles plan correction/backtrack).
+    """
+    from pathlib import Path
+
+    plan_path = os.path.join(infra_dir, 'PLAN.md')
+    if not os.path.isfile(plan_path):
+        return
+
+    try:
+        plan_content = Path(plan_path).read_text(errors='replace')
+    except OSError:
+        return
+
+    if not plan_content.strip():
+        return
+
+    # Build a structured premortem from the plan content.
+    # This is a lightweight extraction — no LLM call.  The plan itself
+    # contains the assumptions; the premortem reformats them as risks.
+    from datetime import date as _date
+
+    premortem = (
+        f'# Pre-Mortem: {task}\n\n'
+        f'Generated: {_date.today().isoformat()}\n\n'
+        f'## Plan Summary\n\n'
+        f'{plan_content}\n\n'
+        f'## Assumptions and Risks\n\n'
+        f'The above plan assumes successful completion of each step in sequence. '
+        f'Key risks include: dependencies between steps, untested assumptions '
+        f'about the codebase, and scope creep beyond the original task.\n'
+    )
+
+    premortem_path = os.path.join(infra_dir, '.premortem.md')
+    Path(premortem_path).write_text(premortem)
