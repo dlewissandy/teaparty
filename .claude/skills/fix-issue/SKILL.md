@@ -13,6 +13,11 @@ Resolve a GitHub issue with full traceability. Complete ALL phases — do not st
 - Commits: `Issue #$0: <description>` on line 1, detail below.
 - Use **Read**, **Write**, **Edit**, **Grep**, **Glob** for file ops. Reserve Bash for `git`, `gh`, `uv run pytest`, and shell commands only.
 
+**First action:** Rename this session immediately:
+```
+/rename fix-issue $0
+```
+
 ## Phase 0: Worktree
 
 NEVER work in the main checkout.
@@ -29,6 +34,7 @@ Then `cd ../teaparty-issue-$0`. Update project board to **In Progress** (see `pr
 1. `gh issue view $0` — extract acceptance criteria.
 2. Read relevant docs (`docs/overview.md` and linked design docs) and source (`projects/POC/orchestrator/`).
 3. Post issue comment: **what the issue asks for**, **what the current code does** (the gap), **done when** (testable criteria). Do not proceed until all three are clear.
+4. Write down a numbered list of acceptance criteria. These are your contract — you will verify against them in Phase 4 and Phase 6.
 
 ## Phase 2: Risk Check
 
@@ -40,14 +46,18 @@ Write specification-based tests that encode the issue's requirements. Read `test
 
 1. Write the tests.
 2. Run and confirm they fail: `uv run pytest <test_file>::<TestClass>::<test_method> --tb=short -q`
-3. Commit. Brief issue comment with what tests verify.
+3. **Failure validation:** For each failing test, confirm it fails because the feature/fix is missing — not because of a typo, import error, or wrong assertion. If the test would still fail after a correct implementation, the test is wrong. Fix it.
+4. **Coverage check:** Map each acceptance criterion from Phase 1 to at least one test. If any criterion has no test, write one.
+5. Commit. Brief issue comment with what tests verify.
 
 ## Phase 4: Fix and Verify
 
 1. Fix the issue. **Code conforms to design docs** — never edit docs to match your code. Escalate if you disagree with the design. **No historical artifacts** — don't comment about what code "used to do" or preserve old behavior in comments/docs. Git is the history.
-2. Check against Phase 1 acceptance criteria — intent, not just surface symptoms.
-3. Commit. Run specific tests, then full suite: `uv run pytest projects/POC/orchestrator/tests/ --tb=short -q`
-4. Fix regressions before proceeding.
+2. **Wiring check:** For every new function, class, or method you wrote — grep for where it is called. If nothing calls it, it is not integrated. Wire it in or delete it. Untested, unwired code is not a fix.
+3. **Acceptance gate:** Go back to your Phase 1 acceptance criteria. For each one, identify the specific file and function that satisfies it. If you cannot point to concrete code for a criterion, the work is not done — keep going.
+4. Run specific tests, then full suite: `uv run pytest projects/POC/orchestrator/tests/ --tb=short -q`
+5. Fix regressions before proceeding.
+6. Commit.
 
 ## Phase 5: Close Out
 
@@ -56,7 +66,7 @@ Close: `gh issue close $0`. Update project board to **Done** (see `project-board
 
 ## Phase 6: Self-Review
 
-Read `self-review.md` in this skill directory and execute every step. Re-read the issue and design docs. Review your diff against them. Fix problems before merging.
+Read `self-review.md` in this skill directory and execute every step. This is adversarial — your job is to find problems, not confirm you're done.
 
 ## Phase 7: Merge
 

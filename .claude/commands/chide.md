@@ -1,1 +1,1 @@
-Are you sure you have completed this work? Would I recognize it as the given issue, operationalized well and completely? Consider that if you are incorrect, this creates a permanent record of your failure.
+Are you certain that you finished this work completely and faithful to the intent of the issue? Would I recognize it as the given issue, operationalized well and completely? Consider that if you are incorrect, this creates a permanent record of your failure.
