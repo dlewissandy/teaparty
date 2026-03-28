@@ -173,8 +173,8 @@ class ScreenshotApp(App):
         return False
 
     def on_mount(self) -> None:
-        from projects.POC.tui.screens.dashboard import DashboardScreen
-        self.push_screen(DashboardScreen())
+        from projects.POC.tui.screens.management_dashboard import ManagementDashboard
+        self.push_screen(ManagementDashboard())
         # Give the screen time to render, then capture
         self.set_timer(0.5, self._capture)
 
