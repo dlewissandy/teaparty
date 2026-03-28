@@ -163,29 +163,33 @@ class DashboardScreen(Screen):
             ('Withdrawn', str(withdrawn)), ('Escalations', str(attention)),
         ])
 
-        # Escalations
-        items = []
+        # Sessions — escalations first (newest first), then rest newest first
+        all_sessions = []
         for proj in projects:
             for sess in proj.sessions:
-                if sess.needs_input:
-                    items.append(CardItem(
-                        icon='\u23f3', label=f'{proj.slug}/{sess.session_id}',
-                        detail=sess.cfa_state,
-                        data={'project': proj.slug, 'session_id': sess.session_id},
-                    ))
-        self._set_card('escalations', items)
+                all_sessions.append((proj.slug, sess))
 
-        # Sessions (active only)
+        escalations = [(slug, s) for slug, s in all_sessions if s.needs_input]
+        rest = [(slug, s) for slug, s in all_sessions if not s.needs_input]
+        escalations.sort(key=lambda t: t[1].session_id, reverse=True)
+        rest.sort(key=lambda t: t[1].session_id, reverse=True)
+
         items = []
-        for proj in projects:
-            for sess in proj.sessions:
-                if sess.status == 'active':
-                    items.append(CardItem(
-                        icon=_status_icon(sess.status, sess.needs_input, sess.is_orphaned),
-                        label=f'{proj.slug}/{sess.session_id}',
-                        detail=_state_display(sess.cfa_phase, sess.cfa_state),
-                        data={'project': proj.slug, 'session_id': sess.session_id},
-                    ))
+        for slug, s in escalations + rest:
+            icon = _status_icon(s.status, s.needs_input, s.is_orphaned)
+            state_text = _state_display(s.cfa_phase, s.cfa_state)
+            if s.needs_input:
+                detail = f'[red]{state_text}[/red]'
+            elif s.cfa_state == 'COMPLETED_WORK':
+                detail = f'[dark_green]{state_text}[/dark_green]'
+            elif s.cfa_state == 'WITHDRAWN':
+                detail = f'[grey]{state_text}[/grey]'
+            else:
+                detail = state_text
+            items.append(CardItem(
+                icon=icon, label=f'{slug}/{s.session_id}', detail=detail,
+                data={'project': slug, 'session_id': s.session_id},
+            ))
         self._set_card('sessions', items)
 
         # Projects
@@ -220,14 +224,6 @@ class DashboardScreen(Screen):
             ('Escalations', str(proj.attention_count)),
         ])
 
-        # Escalations
-        items = [
-            CardItem(icon='\u23f3', label=s.session_id, detail=s.cfa_state,
-                     data={'session_id': s.session_id})
-            for s in proj.sessions if s.needs_input
-        ]
-        self._set_card('escalations', items)
-
         # Sessions (active)
         items = [
             CardItem(
@@ -240,16 +236,29 @@ class DashboardScreen(Screen):
         ]
         self._set_card('sessions', items)
 
-        # Jobs (all sessions)
-        items = [
-            CardItem(
-                icon=_status_icon(s.status, s.needs_input, s.is_orphaned),
-                label=s.session_id,
-                detail=f'{_state_display(s.cfa_phase, s.cfa_state)}  {_human_age(s.duration_seconds)}',
+        # Jobs — escalations first (newest first), then rest newest first
+        escalations = [s for s in proj.sessions if s.needs_input]
+        rest = [s for s in proj.sessions if not s.needs_input]
+        # Sort each group newest first (session_id is a timestamp string)
+        escalations.sort(key=lambda s: s.session_id, reverse=True)
+        rest.sort(key=lambda s: s.session_id, reverse=True)
+
+        items = []
+        for s in escalations + rest:
+            icon = _status_icon(s.status, s.needs_input, s.is_orphaned)
+            state_text = _state_display(s.cfa_phase, s.cfa_state)
+            if s.needs_input:
+                detail = f'[red]{state_text}[/red]  {_human_age(s.duration_seconds)}'
+            elif s.cfa_state == 'COMPLETED_WORK':
+                detail = f'[dark_green]{state_text}[/dark_green]  {_human_age(s.duration_seconds)}'
+            elif s.cfa_state == 'WITHDRAWN':
+                detail = f'[grey]{state_text}[/grey]  {_human_age(s.duration_seconds)}'
+            else:
+                detail = f'{state_text}  {_human_age(s.duration_seconds)}'
+            items.append(CardItem(
+                icon=icon, label=s.session_id, detail=detail,
                 data={'session_id': s.session_id},
-            )
-            for s in proj.sessions
-        ]
+            ))
         self._set_card('jobs', items)
 
     def _refresh_job(self, reader, session) -> None:

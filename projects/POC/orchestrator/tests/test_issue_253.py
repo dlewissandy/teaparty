@@ -252,19 +252,19 @@ class TestCardsForLevel(unittest.TestCase):
     """Each dashboard level has the correct set of content cards."""
 
     def test_management_cards(self):
-        """Management dashboard has the cards from the design spec."""
+        """Management dashboard: escalations merged into sessions."""
         card_names = cards_for_level(DashboardLevel.MANAGEMENT)
         expected = {
-            'escalations', 'sessions', 'projects', 'workgroups',
+            'sessions', 'projects', 'workgroups',
             'humans', 'agents', 'skills', 'scheduled_tasks', 'hooks',
         }
         self.assertEqual(set(card_names), expected)
 
     def test_project_cards(self):
-        """Project dashboard has the cards from the design spec."""
+        """Project dashboard: escalations merged into jobs."""
         card_names = cards_for_level(DashboardLevel.PROJECT)
         expected = {
-            'escalations', 'sessions', 'jobs', 'workgroups',
+            'sessions', 'jobs', 'workgroups',
             'agents', 'skills', 'scheduled_tasks', 'hooks',
         }
         self.assertEqual(set(card_names), expected)
@@ -438,17 +438,21 @@ class TestWorkflowProgress(unittest.TestCase):
 class TestManagementDashboardCards(unittest.TestCase):
     """Management dashboard has the correct card structure."""
 
-    def test_management_has_nine_cards(self):
-        """The design spec requires 9 cards on the management dashboard."""
+    def test_management_cards(self):
+        """Management dashboard: escalations merged into sessions."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.MANAGEMENT)
-        self.assertEqual(len(cards), 9)
+        self.assertEqual(len(cards), 8)
+        self.assertNotIn('escalations', cards)
+        self.assertIn('sessions', cards)
 
-    def test_project_dashboard_has_eight_cards(self):
-        """Project dashboard has 8 cards per spec."""
+    def test_project_dashboard_cards(self):
+        """Project dashboard: escalations merged into jobs."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.PROJECT)
-        self.assertEqual(len(cards), 8)
+        self.assertEqual(len(cards), 7)
+        self.assertNotIn('escalations', cards)
+        self.assertIn('jobs', cards)
 
     def test_workgroup_dashboard_has_five_cards(self):
         """Workgroup dashboard has 5 cards per spec."""

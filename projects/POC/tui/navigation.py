@@ -174,7 +174,6 @@ class CardDef:
 
 _CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
     DashboardLevel.MANAGEMENT: [
-        CardDef('escalations', 'ESCALATIONS'),
         CardDef('sessions', 'SESSIONS', new_button=True),
         CardDef('projects', 'PROJECTS', new_button=True),
         CardDef('workgroups', 'WORKGROUPS', new_button=True),
@@ -185,7 +184,6 @@ _CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
         CardDef('hooks', 'HOOKS', new_button=True),
     ],
     DashboardLevel.PROJECT: [
-        CardDef('escalations', 'ESCALATIONS'),
         CardDef('sessions', 'SESSIONS', new_button=True),
         CardDef('jobs', 'JOBS', new_button=True),
         CardDef('workgroups', 'WORKGROUPS', new_button=True),
