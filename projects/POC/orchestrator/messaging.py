@@ -37,16 +37,38 @@ class Message:
     timestamp: float
 
 
+@dataclass
+class Conversation:
+    """A conversation with stable identity and lifecycle state."""
+    id: str
+    type: ConversationType
+    state: ConversationState
+    created_at: float
+
+
 class ConversationType(Enum):
-    OFFICE_MANAGER = 'office_manager'   # Deferred: depends on office manager feature
-    PROJECT_SESSION = 'project_session'  # Active: created by Session.run()
-    SUBTEAM = 'subteam'                  # Active: created by DispatchListener
+    OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
+    PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
+    SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
+    JOB = 'job'                          # One per project+job, lives with the job
+    TASK = 'task'                        # One per project+job+task, lives with the task
+    PROXY_REVIEW = 'proxy_review'        # One per decider, indefinite persistence
+    LIAISON = 'liaison'                  # Session-scoped, requester+target
+
+
+class ConversationState(Enum):
+    ACTIVE = 'active'
+    CLOSED = 'closed'
 
 
 _PREFIXES = {
     ConversationType.OFFICE_MANAGER: 'om',
     ConversationType.PROJECT_SESSION: 'session',
     ConversationType.SUBTEAM: 'team',
+    ConversationType.JOB: 'job',
+    ConversationType.TASK: 'task',
+    ConversationType.PROXY_REVIEW: 'proxy',
+    ConversationType.LIAISON: 'liaison',
 }
 
 
@@ -106,9 +128,27 @@ class SqliteMessageBus:
             'CREATE INDEX IF NOT EXISTS idx_messages_conv_ts '
             'ON messages (conversation, timestamp)'
         )
+        self._conn.execute('''
+            CREATE TABLE IF NOT EXISTS conversations (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                state TEXT NOT NULL DEFAULT 'active',
+                created_at REAL NOT NULL
+            )
+        ''')
         self._conn.commit()
 
     def send(self, conversation_id: str, sender: str, content: str) -> str:
+        # Reject writes to closed conversations
+        row = self._conn.execute(
+            'SELECT state FROM conversations WHERE id = ?',
+            (conversation_id,),
+        ).fetchone()
+        if row and row[0] == ConversationState.CLOSED.value:
+            raise ValueError(
+                f'Cannot send to closed conversation: {conversation_id}'
+            )
+
         msg_id = uuid.uuid4().hex
         ts = time.time()
         self._conn.execute(
@@ -140,6 +180,83 @@ class SqliteMessageBus:
             'SELECT DISTINCT conversation FROM messages ORDER BY conversation'
         )
         return [row[0] for row in cursor.fetchall()]
+
+    # ── Conversation management ──
+
+    def create_conversation(
+        self, conv_type: ConversationType, qualifier: str,
+    ) -> Conversation:
+        """Create a conversation or return the existing one if it already exists."""
+        cid = make_conversation_id(conv_type, qualifier)
+        existing = self.get_conversation(cid)
+        if existing is not None:
+            return existing
+
+        ts = time.time()
+        self._conn.execute(
+            'INSERT INTO conversations (id, type, state, created_at) '
+            'VALUES (?, ?, ?, ?)',
+            (cid, conv_type.value, ConversationState.ACTIVE.value, ts),
+        )
+        self._conn.commit()
+        return Conversation(
+            id=cid, type=conv_type,
+            state=ConversationState.ACTIVE, created_at=ts,
+        )
+
+    def get_conversation(self, conversation_id: str) -> Conversation | None:
+        """Retrieve conversation metadata by ID, or None if not found."""
+        row = self._conn.execute(
+            'SELECT id, type, state, created_at FROM conversations WHERE id = ?',
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return Conversation(
+            id=row[0],
+            type=ConversationType(row[1]),
+            state=ConversationState(row[2]),
+            created_at=row[3],
+        )
+
+    def close_conversation(self, conversation_id: str) -> None:
+        """Transition a conversation to CLOSED state."""
+        self._conn.execute(
+            'UPDATE conversations SET state = ? WHERE id = ?',
+            (ConversationState.CLOSED.value, conversation_id),
+        )
+        self._conn.commit()
+
+    def active_conversations(
+        self, conv_type: ConversationType | None = None,
+    ) -> list[Conversation]:
+        """List all active conversations, optionally filtered by type."""
+        if conv_type is not None:
+            cursor = self._conn.execute(
+                'SELECT id, type, state, created_at FROM conversations '
+                'WHERE state = ? AND type = ? ORDER BY created_at',
+                (ConversationState.ACTIVE.value, conv_type.value),
+            )
+        else:
+            cursor = self._conn.execute(
+                'SELECT id, type, state, created_at FROM conversations '
+                'WHERE state = ? ORDER BY created_at',
+                (ConversationState.ACTIVE.value,),
+            )
+        return [
+            Conversation(
+                id=row[0], type=ConversationType(row[1]),
+                state=ConversationState(row[2]), created_at=row[3],
+            )
+            for row in cursor.fetchall()
+        ]
+
+    def find_conversation(
+        self, conv_type: ConversationType, qualifier: str,
+    ) -> Conversation | None:
+        """Find a conversation by type and qualifier."""
+        cid = make_conversation_id(conv_type, qualifier)
+        return self.get_conversation(cid)
 
     def close(self) -> None:
         self._conn.close()
