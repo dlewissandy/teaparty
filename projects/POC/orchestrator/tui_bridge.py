@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from projects.POC.orchestrator.events import EventBus, InputRequest
+from projects.POC.orchestrator.intervention import InterventionQueue
 
 
 class TUIInputProvider:
@@ -68,3 +69,4 @@ class InProcessSession:
     run_task: asyncio.Task | None = None
     message_bus_path: str = ''
     conversation_id: str = ''
+    intervention_queue: InterventionQueue | None = None

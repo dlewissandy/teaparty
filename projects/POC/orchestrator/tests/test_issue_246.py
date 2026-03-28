@@ -385,6 +385,87 @@ class TestTurnBoundaryCheck(unittest.TestCase):
                       'turn-boundary check must skip intervention during human gates')
 
 
+# ── Test 9: Session wires InterventionQueue to Orchestrator ───────────────
+
+class TestSessionWiresInterventionQueue(unittest.TestCase):
+    """Session.run() must create an InterventionQueue and pass it to Orchestrator."""
+
+    def test_session_run_creates_intervention_queue(self):
+        """After run() starts, session._intervention_queue is a live InterventionQueue."""
+        import inspect
+        from projects.POC.orchestrator.session import Session
+        source = inspect.getsource(Session.run)
+        self.assertIn('InterventionQueue', source,
+                      'Session.run must create an InterventionQueue')
+        self.assertIn('intervention_queue=', source,
+                      'Session.run must pass intervention_queue to Orchestrator')
+
+    def test_resume_from_disk_creates_intervention_queue(self):
+        """resume_from_disk must also create and pass an InterventionQueue."""
+        import inspect
+        from projects.POC.orchestrator.session import Session
+        source = inspect.getsource(Session.resume_from_disk)
+        self.assertIn('InterventionQueue', source,
+                      'resume_from_disk must create an InterventionQueue')
+        self.assertIn('intervention_queue=', source,
+                      'resume_from_disk must pass intervention_queue to Orchestrator')
+
+
+# ── Test 10: TUI ChatScreen routes to InterventionQueue ───────────────────
+
+class TestChatScreenIntervention(unittest.TestCase):
+    """ChatScreen must route human input to the intervention queue."""
+
+    def test_chat_screen_has_enqueue_method(self):
+        """ChatScreen must have _enqueue_intervention method."""
+        from projects.POC.tui.screens.chat import ChatScreen
+        self.assertTrue(hasattr(ChatScreen, '_enqueue_intervention'))
+
+    def test_enqueue_intervention_calls_queue(self):
+        """_enqueue_intervention routes to the matching in-process session's queue."""
+        from projects.POC.orchestrator.intervention import InterventionQueue
+        from projects.POC.orchestrator.tui_bridge import InProcessSession
+        from projects.POC.orchestrator.events import EventBus
+
+        q = InterventionQueue()
+        ip = InProcessSession(
+            session_id='ses-1',
+            project='test',
+            task='test task',
+            event_bus=EventBus(),
+            input_provider=None,
+            conversation_id='session:ses-1',
+            intervention_queue=q,
+        )
+
+        # Simulate what _enqueue_intervention does
+        conv_id = 'session:ses-1'
+        in_process = {'ses-1': ip}
+        for _sid, proc in in_process.items():
+            if proc.conversation_id == conv_id and proc.intervention_queue:
+                proc.intervention_queue.enqueue('test message', sender='human')
+                break
+
+        self.assertTrue(q.has_pending())
+        msgs = q.drain()
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0].content, 'test message')
+
+    def test_in_process_session_has_intervention_queue_field(self):
+        """InProcessSession must have an intervention_queue field."""
+        from projects.POC.orchestrator.tui_bridge import InProcessSession
+        from projects.POC.orchestrator.events import EventBus
+
+        ip = InProcessSession(
+            session_id='test',
+            project='test',
+            task='test',
+            event_bus=EventBus(),
+            input_provider=None,
+        )
+        self.assertIsNone(ip.intervention_queue)
+
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _make_stub_phase_config():

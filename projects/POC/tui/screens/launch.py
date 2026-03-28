@@ -140,6 +140,9 @@ class LaunchScreen(Screen):
                 if sid:
                     in_proc.message_bus_path = event.data.get('message_bus_path', '')
                     in_proc.conversation_id = event.data.get('conversation_id', '')
+                    in_proc.intervention_queue = getattr(
+                        session, '_intervention_queue', None,
+                    )
                     self.app.register_in_process(sid, in_proc)
                 bus.unsubscribe(on_session_started)
 
