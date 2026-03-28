@@ -379,6 +379,81 @@ class TestTick(unittest.TestCase):
         self.assertIn('boom', records[0].reason)
 
 
+class TestRunNow(unittest.TestCase):
+    """run_now() triggers immediate execution bypassing the schedule."""
+
+    def test_run_now_executes_named_task(self):
+        """run_now() finds and executes a task by name."""
+        import asyncio
+        scheduler = _make_scheduler(tasks=[
+            _make_scheduled_task(name='sweep'),
+            _make_scheduled_task(name='audit', skill='audit'),
+        ])
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        record = asyncio.run(scheduler.run_now('audit', session_factory=factory))
+
+        self.assertTrue(record.success)
+        self.assertEqual(record.task_name, 'audit')
+
+    def test_run_now_raises_on_unknown_task(self):
+        """run_now() raises KeyError for a task name that doesn't exist."""
+        import asyncio
+        scheduler = _make_scheduler()
+
+        with self.assertRaises(KeyError):
+            asyncio.run(scheduler.run_now('nonexistent'))
+
+    def test_run_now_runs_disabled_task(self):
+        """run_now() executes even if the task is disabled (paused)."""
+        import asyncio
+        scheduler = _make_scheduler(tasks=[
+            _make_scheduled_task(name='paused-task', enabled=False),
+        ])
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        record = asyncio.run(scheduler.run_now('paused-task', session_factory=factory))
+
+        self.assertTrue(record.success)
+        self.assertEqual(record.task_name, 'paused-task')
+
+    def test_run_now_records_result(self):
+        """run_now() records the run in the state and log."""
+        import asyncio
+        state_dir = _make_state_dir()
+        scheduler = _make_scheduler(
+            tasks=[_make_scheduled_task(name='logged-task')],
+            state_dir=state_dir,
+        )
+        factory = _make_session_factory('COMPLETED_WORK')
+
+        asyncio.run(scheduler.run_now('logged-task', session_factory=factory))
+
+        self.assertIsNotNone(scheduler.get_last_run('logged-task'))
+        log = scheduler.get_run_log('logged-task')
+        self.assertEqual(len(log), 1)
+        self.assertTrue(log[0].success)
+
+
+class TestGetTask(unittest.TestCase):
+    """get_task() looks up tasks by name."""
+
+    def test_returns_task_by_name(self):
+        """get_task() returns the matching ScheduledTask."""
+        scheduler = _make_scheduler(tasks=[
+            _make_scheduled_task(name='alpha'),
+            _make_scheduled_task(name='beta'),
+        ])
+        task = scheduler.get_task('beta')
+        self.assertIsNotNone(task)
+        self.assertEqual(task.name, 'beta')
+
+    def test_returns_none_for_unknown(self):
+        """get_task() returns None when no task matches."""
+        scheduler = _make_scheduler()
+        self.assertIsNone(scheduler.get_task('nonexistent'))
+
+
 class TestCollectScheduledTasks(unittest.TestCase):
     """collect_scheduled_tasks gathers from management + project configs."""
 
