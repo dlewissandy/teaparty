@@ -327,6 +327,15 @@ class TestAgentCardClickRouting(unittest.TestCase):
         # The method should reference 'agents' as a handled card name
         self.assertIn("'agents'", source)
 
+    def test_workgroup_refresh_populates_agents(self):
+        """Workgroup dashboard refresh calls _refresh_workgroup, not pass."""
+        import inspect
+        from projects.POC.tui.screens.dashboard_screen import DashboardScreen
+        source = inspect.getsource(DashboardScreen._refresh_data)
+        # Should call _refresh_workgroup, not pass
+        self.assertIn('_refresh_workgroup', source)
+        self.assertNotIn("pass  # data pending", source)
+
 
 class TestBuildAgentItems(unittest.TestCase):
     """Agent card items are built from config_reader data."""

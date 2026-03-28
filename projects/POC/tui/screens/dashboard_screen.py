@@ -441,7 +441,7 @@ class DashboardScreen(Screen):
             proj = reader.find_project(self._nav.project_slug)
             self._refresh_project(reader, proj)
         elif level == DashboardLevel.WORKGROUP:
-            pass  # data pending #251
+            self._refresh_workgroup()
         elif level == DashboardLevel.JOB:
             session = reader.find_session(self._nav.job_id)
             self._refresh_job(reader, session)
@@ -513,6 +513,10 @@ class DashboardScreen(Screen):
 
         # Agents — from project config if available
         self._set_card('agents', self._load_project_agents(proj))
+
+    def _refresh_workgroup(self) -> None:
+        """Refresh the workgroup dashboard — agents card from config_reader."""
+        self._set_card('agents', self._load_workgroup_agents())
 
     def _refresh_job(self, reader, session) -> None:
         if not session:
@@ -675,6 +679,34 @@ class DashboardScreen(Screen):
             from projects.POC.orchestrator.config_reader import load_project_team
             pt = load_project_team(proj.path)
             return build_agent_items(pt.agents, search_dirs=[proj.path])
+        except Exception:
+            return []
+
+    def _load_workgroup_agents(self) -> list[CardItem]:
+        """Load agent list from workgroup YAML via config_reader.
+
+        Resolves the workgroup from the nav context's workgroup_id.
+        Workgroup agents are dicts with name, role, model.
+        """
+        try:
+            from projects.POC.orchestrator.config_reader import (
+                load_project_team,
+                resolve_workgroups,
+            )
+            project_slug = self._nav.project_slug
+            wg_id = self._nav.workgroup_id
+            if not project_slug or not wg_id:
+                return []
+            reader = self.app.state_reader
+            proj = reader.find_project(project_slug)
+            if not proj:
+                return []
+            pt = load_project_team(proj.path)
+            workgroups = resolve_workgroups(pt.workgroups, proj.path)
+            for wg in workgroups:
+                if wg.name == wg_id:
+                    return build_agent_items(wg.agents, search_dirs=[proj.path])
+            return []
         except Exception:
             return []
 
