@@ -56,8 +56,8 @@ class ManagementDashboard(Screen):
 
     BINDINGS = [
         Binding('enter', 'select_item', 'Open', show=True),
-        Binding('n', 'new_session', 'New Session', show=True),
-        Binding('p', 'new_project', 'New Project', show=True),
+        Binding('n', 'new_session', 'New Session', show=False),
+        Binding('p', 'new_project', 'New Project', show=False),
         Binding('d', 'diagnostics', 'Diagnostics', show=True),
         Binding('r', 'refresh', 'Refresh', show=True),
         Binding('q', 'quit_app', 'Quit', show=True),

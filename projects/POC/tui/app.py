@@ -31,6 +31,7 @@ class TeaPartyTUI(App):
 
     TITLE = 'TeaParty'
     CSS_PATH = 'styles.tcss'
+    ENABLE_COMMAND_PALETTE = False
 
     def __init__(self, projects_dir: str | None = None):
         super().__init__()
