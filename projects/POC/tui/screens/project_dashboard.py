@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static
 
@@ -70,24 +70,12 @@ class ProjectDashboard(Screen):
         yield Header()
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield StatsBar(id='project-stats')
-        yield Horizontal(
-            VerticalScroll(
-                ContentCard('ESCALATIONS', 'escalations', empty_text='No pending escalations'),
-                ContentCard('SESSIONS', 'sessions', show_new_button=True, empty_text='No active sessions'),
-                ContentCard('JOBS', 'jobs', show_new_button=True, empty_text='No jobs'),
-                ContentCard('WORKGROUPS', 'workgroups', show_new_button=True, empty_text='No workgroups'),
-                id='left-card-col',
-                classes='card-grid',
-            ),
-            VerticalScroll(
-                ContentCard('AGENTS', 'agents', show_new_button=True, empty_text='No agents'),
-                ContentCard('SKILLS', 'skills', show_new_button=True, empty_text='No skills'),
-                ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True, empty_text='No scheduled tasks'),
-                ContentCard('HOOKS', 'hooks', show_new_button=True, empty_text='No hooks'),
-                id='right-card-col',
-                classes='card-grid',
-            ),
-            id='top-panes',
+        yield VerticalScroll(
+            ContentCard('ESCALATIONS', 'escalations'),
+            ContentCard('SESSIONS', 'sessions', show_new_button=True),
+            ContentCard('JOBS', 'jobs', show_new_button=True),
+            id='card-col',
+            classes='card-grid',
         )
         yield Footer()
 
@@ -102,11 +90,6 @@ class ProjectDashboard(Screen):
         self._update_escalations(proj)
         self._update_sessions(proj)
         self._update_jobs(proj)
-        self._update_workgroups()
-        self._update_agents()
-        self._update_skills()
-        self._update_scheduled_tasks()
-        self._update_hooks()
 
     def _update_stats(self, proj) -> None:
         if not proj:
@@ -173,21 +156,6 @@ class ProjectDashboard(Screen):
                 data={'session_id': sess.session_id},
             ))
         self._update_card('jobs', items)
-
-    def _update_workgroups(self) -> None:
-        self._update_card('workgroups', [])
-
-    def _update_agents(self) -> None:
-        self._update_card('agents', [])
-
-    def _update_skills(self) -> None:
-        self._update_card('skills', [])
-
-    def _update_scheduled_tasks(self) -> None:
-        self._update_card('scheduled_tasks', [])
-
-    def _update_hooks(self) -> None:
-        self._update_card('hooks', [])
 
     def _update_card(self, card_name: str, items: list[CardItem]) -> None:
         try:

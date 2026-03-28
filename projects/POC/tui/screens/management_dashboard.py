@@ -74,27 +74,12 @@ class ManagementDashboard(Screen):
         yield Header()
         yield BreadcrumbBar(self._nav_context, id='breadcrumb-bar')
         yield StatsBar(id='mgmt-stats')
-        yield Horizontal(
-            # Left column: primary navigation cards
-            VerticalScroll(
-                ContentCard('ESCALATIONS', 'escalations', empty_text='No pending escalations'),
-                ContentCard('SESSIONS', 'sessions', show_new_button=True, empty_text='No active sessions'),
-                ContentCard('PROJECTS', 'projects', show_new_button=True, empty_text='No projects'),
-                ContentCard('WORKGROUPS', 'workgroups', show_new_button=True, empty_text='No workgroups'),
-                id='left-card-col',
-                classes='card-grid',
-            ),
-            # Right column: resource cards
-            VerticalScroll(
-                ContentCard('HUMANS', 'humans', empty_text='No humans configured'),
-                ContentCard('AGENTS', 'agents', show_new_button=True, empty_text='No agents'),
-                ContentCard('SKILLS', 'skills', show_new_button=True, empty_text='No skills'),
-                ContentCard('SCHEDULED TASKS', 'scheduled_tasks', show_new_button=True, empty_text='No scheduled tasks'),
-                ContentCard('HOOKS', 'hooks', show_new_button=True, empty_text='No hooks'),
-                id='right-card-col',
-                classes='card-grid',
-            ),
-            id='top-panes',
+        yield VerticalScroll(
+            ContentCard('ESCALATIONS', 'escalations'),
+            ContentCard('SESSIONS', 'sessions', show_new_button=True),
+            ContentCard('PROJECTS', 'projects', show_new_button=True),
+            id='card-col',
+            classes='card-grid',
         )
         yield Footer()
 
@@ -108,12 +93,6 @@ class ManagementDashboard(Screen):
         self._update_escalations_card(reader)
         self._update_sessions_card(reader)
         self._update_projects_card(reader)
-        self._update_workgroups_card()
-        self._update_humans_card()
-        self._update_agents_card()
-        self._update_skills_card()
-        self._update_scheduled_tasks_card()
-        self._update_hooks_card()
 
     def _update_stats(self, reader) -> None:
         total_sessions = sum(len(p.sessions) for p in reader.projects)
@@ -181,30 +160,6 @@ class ManagementDashboard(Screen):
                 data={'project': proj.slug},
             ))
         self._update_card('projects', items)
-
-    def _update_workgroups_card(self) -> None:
-        # Workgroups are not yet in the data model (pending #251)
-        self._update_card('workgroups', [])
-
-    def _update_humans_card(self) -> None:
-        # Humans are not yet in the data model (pending #251)
-        self._update_card('humans', [])
-
-    def _update_agents_card(self) -> None:
-        # Agents are not yet in the data model (pending #251)
-        self._update_card('agents', [])
-
-    def _update_skills_card(self) -> None:
-        # Skills are not yet in the data model (pending #251)
-        self._update_card('skills', [])
-
-    def _update_scheduled_tasks_card(self) -> None:
-        # Scheduled tasks are not yet in the data model (pending #195)
-        self._update_card('scheduled_tasks', [])
-
-    def _update_hooks_card(self) -> None:
-        # Hooks are not yet in the data model (pending #251)
-        self._update_card('hooks', [])
 
     def _update_card(self, card_name: str, items: list[CardItem]) -> None:
         try:

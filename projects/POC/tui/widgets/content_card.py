@@ -62,11 +62,6 @@ class ContentCard(Widget):
 
     def _compose_items(self):
         if not self._items:
-            yield Static(
-                f'  [dim]{self._empty_text}[/dim]',
-                id=f'card-{self._card_name}-empty',
-                classes='card-item',
-            )
             return
         for i, item in enumerate(self._items):
             icon = f'{item.icon} ' if item.icon else '  '
@@ -77,7 +72,18 @@ class ContentCard(Widget):
             )
 
     def update_items(self, items: list[CardItem]) -> None:
-        """Replace card items and re-render the item list."""
+        """Replace card items and re-render the item list.
+
+        Skips rebuild if items haven't changed (avoids mount/unmount flashing).
+        """
+        # Build fingerprint to detect actual changes
+        new_fp = [(it.icon, it.label, it.detail) for it in items]
+        old_fp = [(it.icon, it.label, it.detail) for it in self._items]
+        if new_fp == old_fp:
+            # Data refs may differ, update silently
+            self._items = items
+            return
+
         self._items = items
 
         # Remove old item widgets
@@ -85,21 +91,14 @@ class ContentCard(Widget):
             if child.has_class('card-item'):
                 child.remove()
 
-        # Mount new items
-        if not items:
+        # Mount new items (empty list = no items shown, no placeholder text)
+        for i, item in enumerate(items):
+            icon = f'{item.icon} ' if item.icon else '  '
+            detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
             self.mount(Static(
-                f'  [dim]{self._empty_text}[/dim]',
-                id=f'card-{self._card_name}-empty',
-                classes='card-item',
+                f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
+                classes='card-item card-item-clickable',
             ))
-        else:
-            for i, item in enumerate(items):
-                icon = f'{item.icon} ' if item.icon else '  '
-                detail = f'  [dim]{item.detail}[/dim]' if item.detail else ''
-                self.mount(Static(
-                    f'[@click=select_item({i})]{icon}{item.label}{detail}[/]',
-                    classes='card-item card-item-clickable',
-                ))
 
     def action_select_item(self, index: int) -> None:
         """Handle click on an item row."""
