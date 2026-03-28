@@ -50,7 +50,9 @@ from projects.POC.orchestrator.interrupt_propagation import (
 )
 from projects.POC.orchestrator.context_budget import ContextBudget, build_compact_prompt
 from projects.POC.orchestrator.phase_config import PhaseConfig
-from projects.POC.orchestrator.cost_tracker import CostTracker
+from projects.POC.orchestrator.cost_tracker import (
+    CostTracker, ProjectCostLedger, WARNING_THRESHOLD, LIMIT_THRESHOLD,
+)
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter, extract_text
 
@@ -153,6 +155,10 @@ class Orchestrator:
         self.human_presence = human_presence
         self._cost_tracker = cost_tracker
         self._cost_warning_emitted = False  # Only emit once per job
+        self._project_cost_warning_emitted = False
+        self._project_cost_ledger: ProjectCostLedger | None = (
+            ProjectCostLedger(project_workdir) if cost_tracker else None
+        )
 
         # Scratch file lifecycle (Issue #261): working memory for context budget.
         self._scratch_model = ScratchModel(job=task, phase='')
@@ -641,10 +647,19 @@ class Orchestrator:
             # Accumulate cost from this turn (Issue #262)
             turn_cost = actor_result.data.get('cost_usd', 0.0)
             if self._cost_tracker and turn_cost:
-                self._cost_tracker.record({
+                cost_event: dict[str, Any] = {
                     'type': 'result',
                     'total_cost_usd': turn_cost,
-                })
+                }
+                per_model = actor_result.data.get('cost_per_model')
+                if per_model:
+                    cost_event['cost_usd'] = per_model
+                self._cost_tracker.record(cost_event)
+                # Record to project-level ledger for cross-job aggregation
+                if self._project_cost_ledger:
+                    self._project_cost_ledger.record(self.session_id, turn_cost)
+                # Write running total for dashboard display
+                self._write_cost_sidecar()
 
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
@@ -832,8 +847,9 @@ class Orchestrator:
         """Check cost budget thresholds and publish events (Issue #262).
 
         Called at turn boundaries after each agent turn completes.
-        - At 80%: publish COST_WARNING (once per job)
-        - At 100%: publish COST_LIMIT and inject escalation prompt
+        - At 80%: publish COST_WARNING and escalate to human (once per job)
+        - At 100%: publish COST_LIMIT, pause the job (withhold next prompt),
+          and ask the human "Continue?"
         """
         tracker = self._cost_tracker
         if not tracker:
@@ -852,28 +868,120 @@ class Orchestrator:
                 session_id=self.session_id,
             ))
 
-        # Pause at 100%
+        # Pause at 100% — withhold the next prompt until the human responds.
         if tracker.limit_reached:
+            cost = tracker.total_cost_usd
+            limit = tracker.job_limit
             await self.event_bus.publish(Event(
                 type=EventType.COST_LIMIT,
                 data={
-                    'total_cost_usd': tracker.total_cost_usd,
-                    'job_limit_usd': tracker.job_limit,
+                    'total_cost_usd': cost,
+                    'job_limit_usd': limit,
                     'utilization': tracker.utilization,
                 },
                 session_id=self.session_id,
             ))
 
-            # Inject escalation prompt for the next agent turn —
-            # same pattern as intervention delivery.
-            cost = tracker.total_cost_usd
-            limit = tracker.job_limit
-            self._pending_intervention = (
-                f'[COST BUDGET EXCEEDED] This job has used ${cost:.2f} '
-                f'of its ${limit:.2f} budget. The orchestrator is pausing '
-                f'at the budget limit. Wrap up current work and commit '
-                f'partial progress.'
+            # Ask the human whether to continue — same pause mechanism
+            # as infrastructure failure escalation.
+            bridge_text = (
+                f'This job has used ${cost:.2f} of its ${limit:.2f} budget. '
+                f'Continue?'
             )
+            await self.event_bus.publish(Event(
+                type=EventType.INPUT_REQUESTED,
+                data={'state': 'COST_LIMIT', 'bridge_text': bridge_text},
+                session_id=self.session_id,
+            ))
+            response = await self.input_provider(InputRequest(
+                type='cost_limit',
+                state='COST_LIMIT',
+                artifact='',
+                bridge_text=bridge_text,
+            ))
+
+            # If the human says to continue, let the turn loop proceed.
+            # Otherwise inject a wrap-up prompt.
+            resp_lower = (response or '').strip().lower()
+            if resp_lower in ('no', 'n', 'stop', 'withdraw'):
+                self._pending_intervention = (
+                    f'[COST BUDGET EXCEEDED] The human declined to continue. '
+                    f'Wrap up current work and commit partial progress.'
+                )
+
+        # Project-level budget check — aggregates across all jobs.
+        await self._check_project_cost_budget()
+
+    async def _check_project_cost_budget(self) -> None:
+        """Check project-level cost budget (aggregated across jobs)."""
+        tracker = self._cost_tracker
+        ledger = self._project_cost_ledger
+        if not tracker or not ledger or not tracker.project_limit:
+            return
+
+        project_total = ledger.total_cost()
+        project_limit = tracker.project_limit
+        utilization = project_total / project_limit if project_limit else 0.0
+
+        # Warn at 80% (once)
+        if utilization >= WARNING_THRESHOLD and not self._project_cost_warning_emitted:
+            self._project_cost_warning_emitted = True
+            await self.event_bus.publish(Event(
+                type=EventType.COST_WARNING,
+                data={
+                    'total_cost_usd': project_total,
+                    'project_limit_usd': project_limit,
+                    'utilization': utilization,
+                    'scope': 'project',
+                },
+                session_id=self.session_id,
+            ))
+
+        # Pause at 100%
+        if utilization >= LIMIT_THRESHOLD:
+            await self.event_bus.publish(Event(
+                type=EventType.COST_LIMIT,
+                data={
+                    'total_cost_usd': project_total,
+                    'project_limit_usd': project_limit,
+                    'utilization': utilization,
+                    'scope': 'project',
+                },
+                session_id=self.session_id,
+            ))
+
+            bridge_text = (
+                f'Project has used ${project_total:.2f} of its '
+                f'${project_limit:.2f} budget across all jobs. Continue?'
+            )
+            await self.event_bus.publish(Event(
+                type=EventType.INPUT_REQUESTED,
+                data={'state': 'COST_LIMIT', 'bridge_text': bridge_text},
+                session_id=self.session_id,
+            ))
+            response = await self.input_provider(InputRequest(
+                type='cost_limit',
+                state='COST_LIMIT',
+                artifact='',
+                bridge_text=bridge_text,
+            ))
+            resp_lower = (response or '').strip().lower()
+            if resp_lower in ('no', 'n', 'stop', 'withdraw'):
+                self._pending_intervention = (
+                    f'[PROJECT BUDGET EXCEEDED] The human declined to continue. '
+                    f'Wrap up current work and commit partial progress.'
+                )
+
+    def _write_cost_sidecar(self) -> None:
+        """Write running cost total to infra_dir for dashboard display."""
+        if not self._cost_tracker or not self.infra_dir:
+            return
+        try:
+            path = os.path.join(self.infra_dir, '.cost')
+            with open(path, 'w') as f:
+                f.write(f'{self._cost_tracker.total_cost_usd:.6f}\n')
+        except OSError:
+            pass
 
     async def _on_scratch_event(self, event: Event) -> None:
         """Feed events into the scratch model (Issue #261).

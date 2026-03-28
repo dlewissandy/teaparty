@@ -285,6 +285,8 @@ class AgentRunner:
         # Carry cost data for budget tracking (Issue #262)
         if result.cost_usd:
             actor_result.data['cost_usd'] = result.cost_usd
+        if result.cost_per_model:
+            actor_result.data['cost_per_model'] = result.cost_per_model
 
         # Emit artifact detection for --verbose tracing
         await ctx.event_bus.publish(Event(

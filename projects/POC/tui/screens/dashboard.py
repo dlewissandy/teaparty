@@ -19,6 +19,14 @@ def _human_age(seconds: int) -> str:
     return f'{seconds // 3600}h{seconds % 3600 // 60}m'
 
 
+def _format_cost(cost_usd: float) -> str:
+    if not cost_usd:
+        return '\u2014'
+    if cost_usd < 0.01:
+        return '<$0.01'
+    return f'${cost_usd:.2f}'
+
+
 def _status_icon(status: str, needs_input: bool = False, is_orphaned: bool = False) -> str:
     if is_orphaned:
         return '\u26a0'  # warning sign
@@ -114,7 +122,7 @@ class DashboardScreen(Screen):
         # Session table
         stable = self.query_one('#session-table', DataTable)
         stable.cursor_type = 'row'
-        stable.add_columns('', 'Session', 'State', 'Idle', 'Dur')
+        stable.add_columns('', 'Session', 'State', 'Idle', 'Dur', 'Cost')
 
         self._project_slugs: list[str] = []
         self._session_ids: list[str] = []
@@ -240,11 +248,12 @@ class DashboardScreen(Screen):
             state = _state_display(sess.cfa_phase, sess.cfa_state)
             idle = _human_age(sess.stream_age_seconds)
             dur = _human_age(sess.duration_seconds)
-            stable.add_row(icon, sess.session_id, state, idle, dur)
+            cost = _format_cost(getattr(sess, 'total_cost_usd', 0.0))
+            stable.add_row(icon, sess.session_id, state, idle, dur, cost)
             self._session_ids.append(sess.session_id)
 
         if not self._session_ids:
-            stable.add_row('', '(no sessions)', '', '', '')
+            stable.add_row('', '(no sessions)', '', '', '', '')
 
         # Restore cursor
         if 0 <= old_cursor < len(self._session_ids):

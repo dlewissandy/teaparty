@@ -28,6 +28,7 @@ class ClaudeResult:
     stall_killed: bool = False
     start_time: float = 0.0
     cost_usd: float = 0.0
+    cost_per_model: dict[str, float] = field(default_factory=dict)
     stderr_lines: list[str] = field(default_factory=list)
     context_budget: ContextBudget = field(default_factory=ContextBudget)
 
@@ -96,6 +97,7 @@ class ClaudeRunner:
         self._process: asyncio.subprocess.Process | None = None
         self._extracted_session_id: str = ''
         self._accumulated_cost: float = 0.0
+        self._accumulated_model_costs: dict[str, float] = {}
         self._sm = RunnerSM()
         self._context_budget = ContextBudget()
 
@@ -154,6 +156,7 @@ class ClaudeRunner:
                 stall_killed=stall_killed,
                 start_time=start_time,
                 cost_usd=self._accumulated_cost,
+                cost_per_model=dict(self._accumulated_model_costs),
                 stderr_lines=stderr_lines,
                 context_budget=self._context_budget,
             )
@@ -598,6 +601,12 @@ class ClaudeRunner:
         cost = event.get('total_cost_usd', 0.0)
         if cost:
             self._accumulated_cost += cost
+        per_model = event.get('cost_usd', {})
+        if isinstance(per_model, dict):
+            for model, model_cost in per_model.items():
+                self._accumulated_model_costs[model] = (
+                    self._accumulated_model_costs.get(model, 0.0) + model_cost
+                )
 
 
 # ── 529 overload detection ───────────────────────────────────────────────────
