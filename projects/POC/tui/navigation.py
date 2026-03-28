@@ -164,27 +164,61 @@ def breadcrumbs_for_level(ctx: NavigationContext) -> list[Breadcrumb]:
 
 # ── Card definitions per level ──
 
-_CARDS: dict[DashboardLevel, list[str]] = {
+@dataclass
+class CardDef:
+    """Definition of a content card at a dashboard level."""
+    name: str         # internal key (e.g. 'projects', 'jobs')
+    title: str        # display title (e.g. 'PROJECTS', 'JOBS')
+    new_button: bool = False  # show "+ New" button
+
+
+_CARD_DEFS: dict[DashboardLevel, list[CardDef]] = {
     DashboardLevel.MANAGEMENT: [
-        'escalations', 'sessions', 'projects', 'workgroups',
-        'humans', 'agents', 'skills', 'scheduled_tasks', 'hooks',
+        CardDef('escalations', 'ESCALATIONS'),
+        CardDef('sessions', 'SESSIONS', new_button=True),
+        CardDef('projects', 'PROJECTS', new_button=True),
+        CardDef('workgroups', 'WORKGROUPS', new_button=True),
+        CardDef('humans', 'HUMANS'),
+        CardDef('agents', 'AGENTS', new_button=True),
+        CardDef('skills', 'SKILLS', new_button=True),
+        CardDef('scheduled_tasks', 'SCHEDULED TASKS', new_button=True),
+        CardDef('hooks', 'HOOKS', new_button=True),
     ],
     DashboardLevel.PROJECT: [
-        'escalations', 'sessions', 'jobs', 'workgroups',
-        'agents', 'skills', 'scheduled_tasks', 'hooks',
+        CardDef('escalations', 'ESCALATIONS'),
+        CardDef('sessions', 'SESSIONS', new_button=True),
+        CardDef('jobs', 'JOBS', new_button=True),
+        CardDef('workgroups', 'WORKGROUPS', new_button=True),
+        CardDef('agents', 'AGENTS', new_button=True),
+        CardDef('skills', 'SKILLS', new_button=True),
+        CardDef('scheduled_tasks', 'SCHEDULED TASKS', new_button=True),
+        CardDef('hooks', 'HOOKS', new_button=True),
     ],
     DashboardLevel.WORKGROUP: [
-        'escalations', 'sessions', 'active_tasks', 'agents', 'skills',
+        CardDef('escalations', 'ESCALATIONS'),
+        CardDef('sessions', 'SESSIONS', new_button=True),
+        CardDef('active_tasks', 'ACTIVE TASKS'),
+        CardDef('agents', 'AGENTS', new_button=True),
+        CardDef('skills', 'SKILLS', new_button=True),
     ],
     DashboardLevel.JOB: [
-        'escalations', 'artifacts', 'tasks',
+        CardDef('escalations', 'ESCALATIONS'),
+        CardDef('artifacts', 'ARTIFACTS'),
+        CardDef('tasks', 'TASKS'),
     ],
     DashboardLevel.TASK: [
-        'escalations', 'artifacts', 'todo_list',
+        CardDef('escalations', 'ESCALATIONS'),
+        CardDef('artifacts', 'ARTIFACTS'),
+        CardDef('todo_list', 'TODO LIST'),
     ],
 }
 
 
 def cards_for_level(level: DashboardLevel) -> list[str]:
     """Return the card names for a dashboard level."""
-    return list(_CARDS[level])
+    return [c.name for c in _CARD_DEFS[level]]
+
+
+def card_defs_for_level(level: DashboardLevel) -> list[CardDef]:
+    """Return full card definitions for a dashboard level."""
+    return list(_CARD_DEFS[level])

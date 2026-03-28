@@ -56,8 +56,8 @@ class TeaPartyTUI(App):
         )
 
     def on_mount(self) -> None:
-        from projects.POC.tui.screens.management_dashboard import ManagementDashboard
-        self.push_screen(ManagementDashboard())
+        from projects.POC.tui.screens.dashboard_screen import DashboardScreen
+        self.push_screen(DashboardScreen())
         self.set_interval(1.0, self._periodic_refresh)
 
     # ── In-process session registry ──
