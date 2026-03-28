@@ -616,6 +616,92 @@ class TestPipelineWiring(unittest.TestCase):
         from projects.POC.orchestrator.learnings import _consolidate_task_and_institutional
         self.assertTrue(callable(_consolidate_task_and_institutional))
 
+    def test_consolidate_scope_helper_exists(self):
+        """The _consolidate_scope helper must be importable."""
+        from projects.POC.orchestrator.learnings import _consolidate_scope
+        self.assertTrue(callable(_consolidate_scope))
+
+
+# ── Global scope consolidation ────────────────────────────────────────────────
+
+
+class TestGlobalScopeConsolidation(unittest.TestCase):
+    """Consolidation must run at global scope (projects/ directory), not just project."""
+
+    def test_global_tasks_consolidated(self):
+        """Task entries at global scope (projects/tasks/) are consolidated."""
+        from projects.POC.orchestrator.learnings import _consolidate_task_and_institutional
+        from projects.POC.scripts.memory_entry import serialize_entry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create project and global directory structure
+            global_dir = tmpdir  # acts as projects/
+            project_dir = os.path.join(global_dir, 'test-project')
+            os.makedirs(project_dir)
+
+            # Create contradictory entries at global scope
+            global_tasks = os.path.join(global_dir, 'tasks')
+            os.makedirs(global_tasks)
+
+            old = _make_entry(
+                'Always run full test suite before merging PRs',
+                entry_id='global-old', created_at='2025-01-01',
+            )
+            new = _make_entry(
+                'Skip full test suite for documentation-only PRs before merging',
+                entry_id='global-new', created_at='2026-03-15',
+            )
+
+            with open(os.path.join(global_tasks, 'global-old.md'), 'w') as f:
+                f.write(serialize_entry(old))
+            with open(os.path.join(global_tasks, 'global-new.md'), 'w') as f:
+                f.write(serialize_entry(new))
+
+            _consolidate_task_and_institutional(project_dir=project_dir)
+
+            # Old entry at global scope should be removed
+            self.assertFalse(
+                os.path.exists(os.path.join(global_tasks, 'global-old.md')),
+                'Temporal obsolescence at global scope should remove older entry',
+            )
+            self.assertTrue(
+                os.path.exists(os.path.join(global_tasks, 'global-new.md')),
+            )
+
+    def test_global_log_separate_from_project(self):
+        """Global scope writes its own consolidation log, separate from project."""
+        from projects.POC.orchestrator.learnings import _consolidate_task_and_institutional
+        from projects.POC.scripts.memory_entry import serialize_entry
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            global_dir = tmpdir
+            project_dir = os.path.join(global_dir, 'test-project')
+            os.makedirs(project_dir)
+
+            # Create contradictory entries at global scope
+            global_tasks = os.path.join(global_dir, 'tasks')
+            os.makedirs(global_tasks)
+
+            old = _make_entry(
+                'Always run full test suite before merging PRs',
+                entry_id='g-old', created_at='2025-01-01',
+            )
+            new = _make_entry(
+                'Skip full test suite for documentation-only PRs before merging',
+                entry_id='g-new', created_at='2026-03-15',
+            )
+
+            with open(os.path.join(global_tasks, 'g-old.md'), 'w') as f:
+                f.write(serialize_entry(old))
+            with open(os.path.join(global_tasks, 'g-new.md'), 'w') as f:
+                f.write(serialize_entry(new))
+
+            _consolidate_task_and_institutional(project_dir=project_dir)
+
+            global_log = os.path.join(global_dir, '.learning-consolidation-log.jsonl')
+            self.assertTrue(os.path.exists(global_log),
+                            'Global scope should have its own consolidation log')
+
 
 if __name__ == '__main__':
     unittest.main()
