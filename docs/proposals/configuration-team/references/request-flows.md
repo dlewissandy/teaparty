@@ -19,15 +19,17 @@ Single artifact, clear type → office manager routes directly to Skill Architec
 
 ## "I would like to create a new workgroup" — full team
 
-Multi-artifact request → office manager dispatches to Configuration Lead, who coordinates.
+Multi-artifact request → office manager dispatches to Configuration Lead, who coordinates. The Lead sequences work so that hard dependencies (skills before agents that reference them) are satisfied.
 
 1. Office manager recognizes this requires multiple artifact types and routes to Configuration Lead
 2. Configuration Lead decomposes the request and coordinates:
    - **Description** — Configuration Lead writes the workgroup description (the one-line summary that tells team leads when to dispatch to this workgroup)
+   - **Skills** — Skill Architect creates or assigns workgroup-scoped skills (before agents, because agents may reference skills by name)
    - **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
-   - **Skills** — Skill Architect creates or assigns workgroup-scoped skills
    - **Hooks** — Systems Engineer creates any workgroup-specific hooks
    - **Registration** — Configuration Lead writes the workgroup YAML and updates the parent team's configuration. If the workgroup is shared (org-level), it goes in `~/.teaparty/workgroups/`. If project-scoped, it goes in `{project}/.teaparty/workgroups/`
+
+**If a specialist fails** after prior steps have already succeeded, the Configuration Lead does not roll back the artifacts already created — they are independently valid. Instead, the Lead reports to the office manager exactly what was created and what failed. The human can retry the failed step through a follow-up conversation ("finish setting up the workgroup"), which the Lead routes to the specialist that failed.
 
 ---
 
