@@ -276,15 +276,15 @@ class TestCardsForLevel(unittest.TestCase):
         self.assertEqual(set(card_names), expected)
 
     def test_job_cards(self):
-        """Job dashboard has the cards from the design spec."""
+        """Job dashboard: tasks + artifacts."""
         card_names = cards_for_level(DashboardLevel.JOB)
-        expected = {'escalations', 'artifacts', 'tasks'}
+        expected = {'artifacts', 'tasks'}
         self.assertEqual(set(card_names), expected)
 
     def test_task_cards(self):
-        """Task dashboard has the cards from the design spec."""
+        """Task dashboard: artifacts + todo list."""
         card_names = cards_for_level(DashboardLevel.TASK)
-        expected = {'escalations', 'artifacts', 'todo_list'}
+        expected = {'artifacts', 'todo_list'}
         self.assertEqual(set(card_names), expected)
 
 
@@ -460,17 +460,23 @@ class TestManagementDashboardCards(unittest.TestCase):
         cards = cards_for_level(DashboardLevel.WORKGROUP)
         self.assertEqual(len(cards), 5)
 
-    def test_job_dashboard_has_three_cards(self):
-        """Job dashboard has 3 cards per spec."""
+    def test_job_dashboard_cards(self):
+        """Job dashboard: tasks + artifacts, no separate escalations."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.JOB)
-        self.assertEqual(len(cards), 3)
+        self.assertEqual(len(cards), 2)
+        self.assertNotIn('escalations', cards)
+        self.assertIn('tasks', cards)
+        self.assertIn('artifacts', cards)
 
-    def test_task_dashboard_has_three_cards(self):
-        """Task dashboard has 3 cards per spec."""
+    def test_task_dashboard_cards(self):
+        """Task dashboard: artifacts + todo list, no separate escalations."""
         from projects.POC.tui.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.TASK)
-        self.assertEqual(len(cards), 3)
+        self.assertEqual(len(cards), 2)
+        self.assertNotIn('escalations', cards)
+        self.assertIn('artifacts', cards)
+        self.assertIn('todo_list', cards)
 
 
 if __name__ == '__main__':

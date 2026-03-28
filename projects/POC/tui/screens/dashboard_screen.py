@@ -272,11 +272,29 @@ class DashboardScreen(Screen):
             ('Idle', _human_age(session.stream_age_seconds)),
         ])
 
-        # Escalations
+        # Tasks (dispatches) — same sorted/colored pattern as sessions
         items = []
-        if session.needs_input:
-            items.append(CardItem(icon='\u23f3', label=session.cfa_state))
-        self._set_card('escalations', items)
+        for d in dispatches:
+            name = d.worktree_name
+            if '--' in name:
+                name = name.split('--', 1)[1][:25]
+            elif not name:
+                name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
+            state_text = _state_display(d.cfa_phase, d.cfa_state)
+            if d.status == 'active':
+                icon = '\u25b6'
+                detail = f'{state_text}  {d.team or "?"}  {_human_age(d.stream_age_seconds)}'
+            elif d.status == 'complete':
+                icon = '\u2713'
+                detail = f'[green]{state_text}[/green]  {d.team or "?"}'
+            else:
+                icon = '\u2717'
+                detail = f'[dim]{state_text}[/dim]  {d.team or "?"}'
+            items.append(CardItem(
+                icon=icon, label=name, detail=detail,
+                data={'dispatch': d},
+            ))
+        self._set_card('tasks', items)
 
         # Artifacts
         items = []
@@ -288,22 +306,6 @@ class DashboardScreen(Screen):
                 items.append(CardItem(icon='\u2591', label=f'[dim]{label}[/dim]'))
         self._set_card('artifacts', items)
 
-        # Tasks (dispatches)
-        items = []
-        for d in dispatches:
-            if d.status == 'active':
-                name = d.worktree_name
-                if '--' in name:
-                    name = name.split('--', 1)[1][:25]
-                elif not name:
-                    name = os.path.basename(d.infra_dir) if d.infra_dir else '?'
-                items.append(CardItem(
-                    icon='\u25b6', label=name,
-                    detail=f'{d.team or "?"} {_human_age(d.stream_age_seconds)}',
-                    data={'dispatch': d},
-                ))
-        self._set_card('tasks', items)
-
     def _refresh_task(self, reader, session, dispatch) -> None:
         if not dispatch:
             return
@@ -312,9 +314,6 @@ class DashboardScreen(Screen):
             ('Status', dispatch.status or '\u2014'),
             ('Age', _human_age(dispatch.stream_age_seconds)),
         ])
-
-        # Escalations (none in current model)
-        self._set_card('escalations', [])
 
         # Artifacts (changed files)
         wt = self._dispatch_worktree(dispatch, session)
