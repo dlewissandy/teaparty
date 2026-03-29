@@ -107,6 +107,12 @@ class TestDataJsNoTokensUsed(unittest.TestCase):
         self.assertNotIn('tokensUsed', self.content,
                          'data.js must not contain tokensUsed fields — not persisted, not rendered')
 
+    def test_data_js_daily_does_not_use_tokens_field(self):
+        self.assertNotIn('"tokens":', self.content,
+                         'data.js daily entries must not use tokens field — API uses cost_usd')
+        self.assertNotIn("'tokens':", self.content,
+                         'data.js daily entries must not use tokens field — API uses cost_usd')
+
 
 # ── test_issue_304.py ─────────────────────────────────────────────────────────
 

@@ -190,13 +190,13 @@ const mockData = {
     },
     // Time series for charts
     daily: [
-      { date: "Mar 22", jobs: 2, tasks: 8, tokens: 320, escalations: 1, proxyAcc: 75 },
-      { date: "Mar 23", jobs: 3, tasks: 11, tokens: 410, escalations: 2, proxyAcc: 72 },
-      { date: "Mar 24", jobs: 1, tasks: 5, tokens: 180, escalations: 0, proxyAcc: 80 },
-      { date: "Mar 25", jobs: 4, tasks: 14, tokens: 520, escalations: 3, proxyAcc: 76 },
-      { date: "Mar 26", jobs: 3, tasks: 9, tokens: 380, escalations: 1, proxyAcc: 82 },
-      { date: "Mar 27", jobs: 2, tasks: 12, tokens: 440, escalations: 2, proxyAcc: 79 },
-      { date: "Mar 28", jobs: 3, tasks: 10, tokens: 360, escalations: 1, proxyAcc: 84 },
+      { date: "Mar 22", tasks: 8, cost_usd: 0.32, escalations: 1, proxyAcc: 75 },
+      { date: "Mar 23", tasks: 11, cost_usd: 0.41, escalations: 2, proxyAcc: 72 },
+      { date: "Mar 24", tasks: 5, cost_usd: 0.18, escalations: 0, proxyAcc: 80 },
+      { date: "Mar 25", tasks: 14, cost_usd: 0.52, escalations: 3, proxyAcc: 76 },
+      { date: "Mar 26", tasks: 9, cost_usd: 0.38, escalations: 1, proxyAcc: 82 },
+      { date: "Mar 27", tasks: 12, cost_usd: 0.44, escalations: 2, proxyAcc: 79 },
+      { date: "Mar 28", tasks: 10, cost_usd: 0.36, escalations: 1, proxyAcc: 84 },
     ],
     phaseEscalations: [
       { phase: "INTENT", count: 3 },
