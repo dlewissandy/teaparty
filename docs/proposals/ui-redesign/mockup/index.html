@@ -288,6 +288,8 @@ function connectWS() {
       } else if (event.type === 'message') {
         onMessage(event.conversation_id, event.sender);
       } else if (event.type === 'session_completed') {
+        // Session is done — its escalation no longer requires a response.
+        delete pageState.escalationConvMap[event.session_id];
         fetchAll();
       }
     } catch (err) {}
