@@ -106,9 +106,9 @@ def check_message_bus_request(
 ) -> dict | None:
     """Check if the orchestrator is waiting for input via the message bus.
 
-    Looks for the most recent 'orchestrator' message that has no subsequent
-    'human' response.  Returns a dict with 'bridge_text' (the question),
-    or None if no pending question.
+    Uses the structural awaiting_input flag set by MessageBusInputProvider
+    (issue #288).  Returns a dict with 'bridge_text' (the most recent
+    orchestrator message), or None if no input is pending.
     """
     if not os.path.exists(bus_path):
         return None
@@ -116,21 +116,15 @@ def check_message_bus_request(
         from projects.POC.orchestrator.messaging import SqliteMessageBus
         bus = SqliteMessageBus(bus_path)
         try:
+            conv = bus.get_conversation(conversation_id)
+            if conv is None or not conv.awaiting_input:
+                return None
+            # Return the most recent orchestrator message as the pending question
             messages = bus.receive(conversation_id)
-            if not messages:
-                return None
-            # Find last orchestrator message with no human response after it
-            last_orch_idx = -1
-            for i, msg in enumerate(messages):
+            for msg in reversed(messages):
                 if msg.sender == 'orchestrator':
-                    last_orch_idx = i
-            if last_orch_idx < 0:
-                return None
-            # Check if there's a human response after it
-            for msg in messages[last_orch_idx + 1:]:
-                if msg.sender == 'human':
-                    return None  # Already answered
-            return {'bridge_text': messages[last_orch_idx].content}
+                    return {'bridge_text': msg.content}
+            return None
         finally:
             bus.close()
     except Exception:

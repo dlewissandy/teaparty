@@ -104,7 +104,9 @@ CfA state transition detected.
 ```json
 {"type": "input_requested", "session_id": "...", "conversation_id": "...", "question": "..."}
 ```
-Orchestrator posted a question to the message bus. The chat page should highlight this conversation.
+Orchestrator is waiting for human input. The chat page should highlight this conversation.
+
+Source: `conversations.awaiting_input = 1` in the session's `messages.db`. `MessageBusInputProvider` sets this flag when posting a question and clears it when a human response is received. The bridge detects the event by polling `bus.conversations_awaiting_input()` — no message content inspection required (issue #288).
 
 ```json
 {"type": "message", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
@@ -134,8 +136,10 @@ The bridge does NOT implement `InputProvider`. It writes to the same SQLite mess
 ```
 1. Orchestrator's MessageBusInputProvider posts question
    → bus.send(conv_id, 'orchestrator', question)
+   → bus.set_awaiting_input(conv_id, True)
 
-2. Bridge poll detects new message
+2. Bridge poll calls bus.conversations_awaiting_input()
+   → detects conv_id has awaiting_input=1
    → pushes {"type": "input_requested", ...} via WebSocket
 
 3. Chat page shows the question (it's a message in the conversation)
@@ -146,6 +150,7 @@ The bridge does NOT implement `InputProvider`. It writes to the same SQLite mess
    → bridge calls bus.send(conv_id, 'human', response)
 
 6. Orchestrator's MessageBusInputProvider poll picks up the response
+   → clears awaiting_input flag via bus.set_awaiting_input(conv_id, False)
    → orchestrator continues
 ```
 
