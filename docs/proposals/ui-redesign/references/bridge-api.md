@@ -246,6 +246,14 @@ projects/POC/bridge/
 └── message_relay.py   # Per-session SqliteMessageBus polling, message event push
 ```
 
+### I/O model and scale assumption
+
+`SqliteMessageBus` wraps a synchronous `sqlite3.Connection`. Every read in the polling loop — `receive()`, `conversations_awaiting_input()`, `conversations()` — is a blocking I/O call. Because aiohttp runs a single-threaded event loop, each blocking call stalls the loop for its duration. All WebSocket clients are unresponsive until the call returns.
+
+At current research scale this is acceptable: local disk, WAL mode, a handful of concurrent sessions, and each poll completes in under a millisecond. The 1-second polling cadence means the event loop is blocked for a tiny fraction of each cycle.
+
+**Scale assumption:** This design is bounded to local-disk SQLite, WAL mode, single-user deployments with fewer than ~10 concurrent sessions. If any of these change — remote filesystem, many concurrent sessions, or observed WebSocket latency under load — the correct fix is `loop.run_in_executor()` to offload the blocking calls to a thread pool, or a migration to `aiosqlite`. The bridge makes no attempt to hide this constraint: it is a deliberate trade-off for implementation simplicity at research scale.
+
 ### What the bridge does NOT do
 - Run Claude agents (that's the orchestrator)
 - Implement InputProvider (it writes to the message bus instead)
