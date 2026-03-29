@@ -180,16 +180,18 @@ class OfficeManagerSession:
     session ID is created.
     """
 
-    def __init__(self, infra_dir: str, user_id: str):
-        self.infra_dir = infra_dir
+    def __init__(self, teaparty_home: str, user_id: str):
+        self.teaparty_home = teaparty_home
+        self._infra_dir = os.path.join(teaparty_home, 'om')
         self.user_id = user_id
         self.conversation_id = make_conversation_id(
             ConversationType.OFFICE_MANAGER, user_id,
         )
         self.claude_session_id: str | None = None
 
-        # Create message bus in infra directory
-        bus_path = os.path.join(infra_dir, 'om-messages.db')
+        # Message bus at the canonical OM path — same location the bridge reads.
+        bus_path = om_bus_path(teaparty_home)
+        os.makedirs(os.path.dirname(bus_path), exist_ok=True)
         self._bus = SqliteMessageBus(bus_path)
 
     def send_human_message(self, content: str) -> str:
@@ -226,7 +228,7 @@ class OfficeManagerSession:
             'user_id': self.user_id,
             'conversation_id': self.conversation_id,
         }
-        state_path = os.path.join(self.infra_dir, '.om-session-state.json')
+        state_path = os.path.join(self._infra_dir, '.om-session-state.json')
         tmp = state_path + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(state, f)
@@ -234,7 +236,7 @@ class OfficeManagerSession:
 
     def load_state(self) -> None:
         """Load session state from disk."""
-        state_path = os.path.join(self.infra_dir, '.om-session-state.json')
+        state_path = os.path.join(self._infra_dir, '.om-session-state.json')
         try:
             with open(state_path) as f:
                 state = json.load(f)

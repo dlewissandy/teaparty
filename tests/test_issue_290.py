@@ -229,6 +229,77 @@ class TestOmDatabaseIsolation(unittest.TestCase):
         self.assertEqual(convs[0].id, om_conv_id)
 
 
+# ── Write-side path contract: orchestrator writes where bridge reads ───────────
+
+class TestOmSessionWritePathContract(unittest.TestCase):
+    """OfficeManagerSession must write to om_bus_path(teaparty_home).
+
+    This is the key invariant: the orchestrator writes OM conversations to the
+    same database the bridge reads. If these diverge, the bridge returns an
+    empty list for ?type=office_manager regardless of how many conversations exist.
+    """
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_session_writes_to_canonical_om_path(self):
+        """Messages sent via OfficeManagerSession appear at om_bus_path(teaparty_home)."""
+        from projects.POC.orchestrator.office_manager import OfficeManagerSession, om_bus_path
+
+        session = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='alice')
+        session.send_human_message('Status update please')
+
+        # Bridge reads from om_bus_path — verify the message is there
+        canonical_path = om_bus_path(self.tmpdir)
+        bus = SqliteMessageBus(canonical_path)
+        msgs = bus.receive(session.conversation_id)
+        bus.close()
+
+        self.assertEqual(len(msgs), 1,
+                         'OfficeManagerSession must write to om_bus_path(teaparty_home)')
+        self.assertEqual(msgs[0].content, 'Status update please')
+
+    def test_session_db_path_equals_om_bus_path(self):
+        """The database file OfficeManagerSession creates is om_bus_path(teaparty_home)."""
+        from projects.POC.orchestrator.office_manager import OfficeManagerSession, om_bus_path
+
+        session = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='bob')
+        session.send_human_message('ping')
+        canonical_path = om_bus_path(self.tmpdir)
+
+        # Verify the message is readable at canonical_path (same DB)
+        bus = SqliteMessageBus(canonical_path)
+        msgs = bus.receive(session.conversation_id)
+        bus.close()
+        self.assertEqual(len(msgs), 1,
+                         'OfficeManagerSession._bus must be at om_bus_path(teaparty_home)')
+
+        # Verify a bus at a different path has no messages (different DB)
+        other_path = os.path.join(self.tmpdir, 'other.db')
+        other_bus = SqliteMessageBus(other_path)
+        other_msgs = other_bus.receive(session.conversation_id)
+        other_bus.close()
+        self.assertEqual(len(other_msgs), 0,
+                         'Messages must not appear in a different database file')
+
+    def test_two_sessions_for_same_home_share_same_db(self):
+        """Two OfficeManagerSessions with same teaparty_home share the same database."""
+        from projects.POC.orchestrator.office_manager import OfficeManagerSession
+
+        session1 = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='alice')
+        session2 = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='bob')
+
+        # Write via session1, verify session2 can read it (same underlying DB)
+        session1.send_human_message('hello from alice')
+        msgs = session2._bus.receive(session1.conversation_id)
+        self.assertEqual(len(msgs), 1,
+                         'Sessions for the same teaparty_home must share the same OM database')
+        self.assertEqual(msgs[0].content, 'hello from alice')
+
+
 # ── Conversation ID prefix convention ─────────────────────────────────────────
 
 class TestOmConversationIdPrefix(unittest.TestCase):
