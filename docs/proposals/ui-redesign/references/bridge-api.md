@@ -21,9 +21,10 @@ bridge.run(port=8081)
 
 1. Initialize `StateReader(poc_root, projects_dir)` for filesystem polling
 2. Open `SqliteMessageBus` per active session (`{infra_dir}/messages.db`)
-3. Load config via `load_management_team()` + `discover_projects()`
-4. Start 1-second polling loop (same cadence as the TUI)
-5. Serve static files at `/` and API routes at `/api/`
+3. Open a separate `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
+4. Load config via `load_management_team()` + `discover_projects()`
+5. Start 1-second polling loop (same cadence as the TUI)
+6. Serve static files at `/` and API routes at `/api/`
 
 ---
 
@@ -62,14 +63,27 @@ Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task
 
 `active_conversations` takes a `ConversationType` enum member, not a string. The `?type=` query parameter is a string; the bridge must convert it before calling the bus: `ConversationType[type.upper()]`. A raw string will not match any enum member and the call returns an empty list with no error — a silent failure that makes every conversation list appear empty. `receive` uses `since_timestamp` as the keyword argument name (not `since`); passing it by keyword with the wrong name raises `TypeError`.
 
-Conversation ID format:
-- `om:{human}` — office manager (persistent)
+#### Message routing
+
+The bridge maintains two distinct database connections:
+
+| Type | Database path | Scope |
+|------|--------------|-------|
+| `office_manager` | `{teaparty_home}/om/om-messages.db` | Persistent — survives sessions, one per installation |
+| All other types | `{infra_dir}/messages.db` | Session-scoped — one per active session |
+
+`?type=office_manager` queries the persistent OM database. All other `?type=` values aggregate across active session databases. This routing is mandatory: per-session databases never contain office manager conversations, so querying `?type=office_manager` against a session bus always returns an empty list.
+
+Conversation IDs encode their routing target via prefix:
+- `om:{human}` — office manager (routes to OM database)
+- `session:{timestamp}` — project session
 - `job:{project}:{job_id}` — job conversation
 - `task:{project}:{job_id}:{task_id}` — task conversation (three-part qualifier)
 - `proxy:{decider}` — proxy review
-- `session:{timestamp}` — project session
 - `team:{slug}` — subteam
 - `liaison:{requester}:{target}` — liaison
+
+`GET /api/conversations/{id}` and `POST /api/conversations/{id}` use the `om:` prefix to route to the OM database without a type lookup. The canonical OM database path is provided by `om_bus_path(teaparty_home)` in `orchestrator.office_manager`.
 
 ### Artifacts
 

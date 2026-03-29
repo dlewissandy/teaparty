@@ -27,6 +27,7 @@ from typing import Set
 from aiohttp import web
 
 from projects.POC.orchestrator.messaging import ConversationType, SqliteMessageBus
+from projects.POC.orchestrator.office_manager import om_bus_path as _om_bus_path
 from projects.POC.orchestrator.state_reader import StateReader, _heartbeat_three_state
 from projects.POC.orchestrator.config_reader import (
     load_management_team,
@@ -51,15 +52,6 @@ def _resolve_conversation_type(type_str: str) -> ConversationType:
     becomes ConversationType.PROJECT_SESSION.  Raises KeyError for unknown types.
     """
     return ConversationType[type_str.upper()]
-
-
-def _om_bus_path(teaparty_home: str) -> str:
-    """Return the path to the office manager's persistent message database.
-
-    The office manager uses a separate database at {teaparty_home}/om/om-messages.db.
-    This is distinct from per-session messages.db files.  Issue #290.
-    """
-    return os.path.join(teaparty_home, 'om', 'om-messages.db')
 
 
 def _withdrawal_socket_path(teaparty_home: str, session_id: str) -> str:

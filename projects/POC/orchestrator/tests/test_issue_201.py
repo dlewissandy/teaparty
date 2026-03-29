@@ -29,8 +29,7 @@ class TestOfficeManagerSession(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        self.infra_dir = os.path.join(self._tmp, 'infra')
-        os.makedirs(self.infra_dir)
+        self.teaparty_home = self._tmp
 
     def tearDown(self):
         shutil.rmtree(self._tmp, ignore_errors=True)
@@ -38,7 +37,7 @@ class TestOfficeManagerSession(unittest.TestCase):
     def _make_session(self, **kwargs):
         from projects.POC.orchestrator.office_manager import OfficeManagerSession
         defaults = {
-            'infra_dir': self.infra_dir,
+            'teaparty_home': self.teaparty_home,
             'user_id': 'darrell',
         }
         defaults.update(kwargs)
@@ -58,9 +57,10 @@ class TestOfficeManagerSession(unittest.TestCase):
         self.assertEqual(session.claude_session_id, 'ses_abc123')
 
     def test_session_creates_message_bus(self):
-        """Session creates a message bus in the infra directory."""
+        """Session creates a message bus at the canonical OM path."""
+        from projects.POC.orchestrator.office_manager import om_bus_path
         session = self._make_session()
-        bus_path = os.path.join(self.infra_dir, 'om-messages.db')
+        bus_path = om_bus_path(self.teaparty_home)
         self.assertTrue(os.path.exists(bus_path))
 
     def test_send_human_message(self):
@@ -536,8 +536,7 @@ class TestOfficeManagerConversationIntegration(unittest.TestCase):
 
     def setUp(self):
         self._tmp = tempfile.mkdtemp()
-        self.infra_dir = os.path.join(self._tmp, 'infra')
-        os.makedirs(self.infra_dir)
+        self.teaparty_home = self._tmp
 
     def tearDown(self):
         shutil.rmtree(self._tmp, ignore_errors=True)
@@ -545,14 +544,14 @@ class TestOfficeManagerConversationIntegration(unittest.TestCase):
     def test_conversation_id_uses_office_manager_type(self):
         """Office manager conversation uses OFFICE_MANAGER conversation type."""
         from projects.POC.orchestrator.office_manager import OfficeManagerSession
-        session = OfficeManagerSession(infra_dir=self.infra_dir, user_id='testuser')
+        session = OfficeManagerSession(teaparty_home=self.teaparty_home, user_id='testuser')
         expected_prefix = 'om:'
         self.assertTrue(session.conversation_id.startswith(expected_prefix))
 
     def test_multi_turn_conversation_history(self):
         """Multiple exchanges build up a readable conversation history."""
         from projects.POC.orchestrator.office_manager import OfficeManagerSession
-        session = OfficeManagerSession(infra_dir=self.infra_dir, user_id='testuser')
+        session = OfficeManagerSession(teaparty_home=self.teaparty_home, user_id='testuser')
 
         session.send_human_message('What is the POC status?')
         session.send_agent_message('The POC has 2 active sessions and 1 completed.')
@@ -567,7 +566,7 @@ class TestOfficeManagerConversationIntegration(unittest.TestCase):
     def test_build_context_for_agent(self):
         """build_context() returns conversation history formatted for the agent prompt."""
         from projects.POC.orchestrator.office_manager import OfficeManagerSession
-        session = OfficeManagerSession(infra_dir=self.infra_dir, user_id='testuser')
+        session = OfficeManagerSession(teaparty_home=self.teaparty_home, user_id='testuser')
         session.send_human_message('Hello')
         session.send_agent_message('Hi there')
 
