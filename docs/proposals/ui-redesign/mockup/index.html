@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .home { padding: 20px; overflow-y: auto; flex: 1; }
+  .home-title { font-size: 18px; font-weight: 600; color: var(--green); margin-bottom: 4px; }
+  .home-subtitle { font-size: 10px; color: var(--text-dim); margin-bottom: 16px; }
+
+  .org-row {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap;
+  }
+  .org-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+    padding: 10px 14px; cursor: pointer; transition: border-color 0.15s;
+    display: flex; align-items: center; gap: 8px; min-width: 140px;
+  }
+  .org-card:hover { border-color: var(--green); }
+  .org-card .oc-icon { font-size: 14px; }
+  .org-card .oc-label { font-size: 11px; font-weight: 600; }
+  .org-card .oc-meta { font-size: 9px; color: var(--text-dim); }
+
+  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .project-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+    overflow: hidden;
+  }
+  .pc-header {
+    padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--border);
+  }
+  .pc-name { font-size: 13px; font-weight: 600; }
+  .pc-status { }
+  .pc-description { padding: 6px 14px; font-size: 9px; color: var(--text-dim); font-style: italic; border-bottom: 1px solid var(--border); }
+  .pc-stats {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border);
+  }
+  .pc-stat {
+    flex: 1; padding: 6px 10px; text-align: center; border-right: 1px solid var(--border);
+  }
+  .pc-stat:last-child { border-right: none; }
+  .pc-stat-value { font-size: 14px; font-weight: 700; }
+  .pc-stat-label { font-size: 7px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+  .pc-escalations {
+    padding: 6px 14px; border-bottom: 1px solid var(--border);
+  }
+  .pc-esc-item {
+    display: flex; align-items: center; gap: 5px; padding: 3px 0;
+    font-size: 9px; color: var(--text-dim); cursor: pointer;
+  }
+  .pc-esc-item:hover { color: var(--text); }
+  .pc-actions {
+    display: flex; gap: 0;
+  }
+  .pc-action {
+    flex: 1; padding: 8px 10px; text-align: center; cursor: pointer;
+    font-size: 10px; font-family: inherit; color: var(--text-dim);
+    background: transparent; border: none; border-right: 1px solid var(--border);
+    transition: background 0.1s, color 0.1s;
+  }
+  .pc-action:last-child { border-right: none; }
+  .pc-action:hover { background: rgba(255,255,255,0.03); color: var(--text); }
+  .pc-action-icon { font-size: 12px; display: block; margin-bottom: 2px; }
+
+  .attention-badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 9px; color: var(--red); font-weight: 600;
+  }
+  .attention-dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--red);
+    animation: pulse 1.5s infinite;
+  }
+</style>
+</head>
+<body>
+
+<div class="home" id="content"></div>
+
+<script src="data.js?v=5"></script>
+<script>
+function openPage(url) { window.open(url, '_blank'); }
+
+function renderWorkflow(phases, phaseIdx, large) {
+  var cls = large ? 'workflow-bar large' : 'workflow-bar';
+  var html = '<div class="' + cls + '">';
+  for (var i = 0; i < phases.length; i++) {
+    var ph = phases[i];
+    var isGate = ph.includes('ASSERT');
+    var state = i < phaseIdx ? 'complete' : i === phaseIdx ? 'active' : '';
+    if (isGate) {
+      html += '<div class="wf-gate ' + state + '" title="' + ph + '"></div>';
+    } else {
+      html += '<div class="wf-bar ' + state + '" title="' + ph + '"></div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+
+function render() {
+  var allEsc = mockData.status.escalations;
+  var totalEsc = allEsc.length;
+
+  // Org row
+  var orgHtml = '<div class="org-row">';
+  orgHtml += '<div class="org-card" onclick="openPage(\'config.html\')">';
+  orgHtml += '<span class="oc-icon">&#9881;</span>';
+  orgHtml += '<div><div class="oc-label">Global Config</div><div class="oc-meta">Organization catalog</div></div>';
+  orgHtml += '</div>';
+
+  orgHtml += '<div class="org-card" onclick="openPage(\'stats.html\')">';
+  orgHtml += '<span class="oc-icon">&#9733;</span>';
+  orgHtml += '<div><div class="oc-label">Statistics</div><div class="oc-meta">Org-wide metrics</div></div>';
+  orgHtml += '</div>';
+
+  orgHtml += '<div class="org-card" onclick="openPage(\'artifacts.html?project=org\')">';
+  orgHtml += '<span class="oc-icon">&#128196;</span>';
+  orgHtml += '<div><div class="oc-label">Org Knowledge</div><div class="oc-meta">organization.md</div></div>';
+  orgHtml += '</div>';
+
+  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=office-manager\')">';
+  orgHtml += '<span class="oc-icon">&#9733;</span>';
+  orgHtml += '<div><div class="oc-label">Office Manager</div><div class="oc-meta">Org-level coordination</div></div>';
+  orgHtml += '</div>';
+
+  if (totalEsc > 0) {
+    orgHtml += '<div class="org-card" style="border-color:var(--red)">';
+    orgHtml += '<span class="attention-dot"></span>';
+    orgHtml += '<div><div class="oc-label" style="color:var(--red)">' + totalEsc + ' Escalations</div><div class="oc-meta">Across all projects</div></div>';
+    orgHtml += '</div>';
+  }
+
+  orgHtml += '</div>';
+
+  // Project cards
+  var projectsHtml = '<div class="project-grid">';
+
+  Object.entries(mockData.status.projects).forEach(function(entry) {
+    var id = entry[0], p = entry[1];
+    var config = mockData.config.projects[id] || {};
+    var esc = p.jobs ? p.jobs.flatMap(function(j) { return j.escalations || []; }) : [];
+
+    projectsHtml += '<div class="project-card">';
+
+    // Header
+    projectsHtml += '<div class="pc-header">';
+    projectsHtml += '<div class="pc-name">' + p.name + '</div>';
+    projectsHtml += '<span class="item-badge badge-' + p.status + '">' + p.status + '</span>';
+    projectsHtml += '</div>';
+
+    // Description
+    if (config.description) {
+      projectsHtml += '<div class="pc-description">' + config.description + '</div>';
+    }
+
+    // Stats
+    var jobCount = p.jobs ? p.jobs.length : 0;
+    var activeCount = p.jobs ? p.jobs.filter(function(j) { return j.status !== 'done'; }).length : 0;
+    projectsHtml += '<div class="pc-stats">';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value" style="color:var(--green)">' + activeCount + '</div><div class="pc-stat-label">Active Jobs</div></div>';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value' + (esc.length > 0 ? ' style="color:var(--red)"' : '') + '">' + esc.length + '</div><div class="pc-stat-label">Escalations</div></div>';
+    var wgCount = config.workgroups ? config.workgroups.length : 0;
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value">' + wgCount + '</div><div class="pc-stat-label">Workgroups</div></div>';
+    projectsHtml += '</div>';
+
+    // Active jobs with workflow bars
+    if (p.jobs && p.jobs.length > 0) {
+      projectsHtml += '<div style="border-bottom:1px solid var(--border)">';
+      p.jobs.forEach(function(j) {
+        var jobEsc = j.escalations || [];
+        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" onclick="openPage(\'chat.html?conv=' + j.id + '\')">';
+        if (jobEsc.length > 0) {
+          projectsHtml += '<span class="attention-dot"></span>';
+        } else {
+          projectsHtml += '<span style="width:6px"></span>';
+        }
+        projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + j.name + '</span>';
+        projectsHtml += '<span style="flex:1">' + renderWorkflow(j.phases, j.phaseIdx, false) + '</span>';
+        projectsHtml += '<span class="item-badge badge-' + j.status + '" style="flex-shrink:0">' + j.status + '</span>';
+        projectsHtml += '</div>';
+      });
+      projectsHtml += '</div>';
+    }
+
+    // Action buttons
+    projectsHtml += '<div class="pc-actions">';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + id + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + id + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=poc-manager\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
+    projectsHtml += '</div>';
+
+    projectsHtml += '</div>';
+  });
+
+  projectsHtml += '</div>';
+
+  document.getElementById('content').innerHTML =
+    '<div class="home-title">TeaParty</div>' +
+    '<div class="home-subtitle">Agent coordination platform</div>' +
+    orgHtml +
+    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="openPage(\'chat.html?conv=office-manager\')">+ New Project</button></div>' +
+    projectsHtml;
+}
+
+render();
+</script>
+</body>
+</html>

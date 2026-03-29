@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Chat</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  /* Markdown rendering in chat messages */
+  .msg-text h1,.msg-text h2,.msg-text h3 { color: var(--text); margin: 8px 0 4px 0; }
+  .msg-text h1 { font-size: 13px; } .msg-text h2 { font-size: 12px; } .msg-text h3 { font-size: 11px; }
+  .msg-text p { margin: 4px 0; }
+  .msg-text ul,.msg-text ol { padding-left: 16px; margin: 4px 0; }
+  .msg-text li { margin: 2px 0; }
+  .msg-text code { background: var(--surface2); padding: 1px 4px; border-radius: 2px; font-size: 10px; color: var(--green); }
+  .msg-text pre { background: var(--surface2); padding: 8px; border-radius: 4px; margin: 6px 0; overflow-x: auto; }
+  .msg-text pre code { background: none; padding: 0; }
+  .msg-text a { color: var(--green); text-decoration: underline; }
+  .msg-text img { max-width: 100%; border-radius: 4px; margin: 6px 0; border: 1px solid var(--border); }
+  .msg-text blockquote { border-left: 2px solid var(--purple); padding-left: 8px; margin: 6px 0; color: var(--text-dim); }
+  .msg-text table { border-collapse: collapse; margin: 6px 0; font-size: 10px; }
+  .msg-text th,.msg-text td { border: 1px solid var(--border); padding: 3px 6px; }
+  .msg-text th { background: var(--surface2); color: var(--text); }
+  .msg-text hr { border: none; border-top: 1px solid var(--border); margin: 8px 0; }
+</style>
+</head>
+<body>
+
+<div id="content" class="app-pane active"></div>
+
+<div id="withdraw-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:100;justify-content:center;align-items:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;width:360px;padding:16px">
+    <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--text)">Withdraw Job?</div>
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.5;margin-bottom:14px">This will cancel the job and all running tasks. Completed work will be preserved in the worktree but not merged. This action cannot be undone.</div>
+    <div style="display:flex;gap:6px;justify-content:flex-end">
+      <button onclick="closeWithdrawModal()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px">Cancel</button>
+      <button onclick="confirmWithdraw()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:4px 12px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:10px;font-weight:600">Withdraw</button>
+    </div>
+  </div>
+</div>
+
+<script src="data.js?v=2"></script>
+<script>
+function showWithdrawModal() {
+  document.getElementById('withdraw-modal').style.display = 'flex';
+}
+function closeWithdrawModal() {
+  document.getElementById('withdraw-modal').style.display = 'none';
+}
+function confirmWithdraw() {
+  closeWithdrawModal();
+  var msgs = document.querySelector('.chat-messages');
+  msgs.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--red)">SYSTEM</div><div class="msg-text" style="color:var(--red)"><p>Job withdrawn.</p></div></div>';
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function getGateReviewButton(jobId) {
+  // Find the job's current phase to determine which artifact to review
+  var gateArtifacts = {
+    'INTENT_ASSERT': { label: 'Review INTENT', file: 'INTENT.md' },
+    'PLAN_ASSERT': { label: 'Review PLAN', file: 'PLAN.md' },
+    'WORK_ASSERT': { label: 'Review WORK', file: 'WORK_ASSERT.md' },
+  };
+  // Search all projects for this job
+  for (var pid in mockData.status.projects) {
+    var p = mockData.status.projects[pid];
+    if (!p.jobs) continue;
+    for (var i = 0; i < p.jobs.length; i++) {
+      var j = p.jobs[i];
+      if (j.id === jobId && gateArtifacts[j.phase]) {
+        var ga = gateArtifacts[j.phase];
+        var artifactUrl = 'artifacts.html?project=' + pid + '&file=' + encodeURIComponent('.sessions/' + jobId + '/' + ga.file);
+        return '<button onclick="window.open(\'' + artifactUrl + '\',\'_blank\')" style="background:rgba(78,204,163,0.15);border:1px solid var(--green);color:var(--green);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">' + ga.label + '</button>';
+      }
+    }
+  }
+  return '';
+}
+
+const params = new URLSearchParams(window.location.search);
+const convId = params.get('conv') || '';
+let selectedItem = params.get('task') || params.get('session') || null;
+
+function findTask(taskId) {
+  for (const p of Object.values(mockData.status.projects)) {
+    for (const j of p.jobs) {
+      const t = j.tasks.find(t => t.id === taskId);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
+function selectItem(id) {
+  selectedItem = id;
+  render();
+}
+
+// Simple markdown to HTML
+function renderMarkdown(text) {
+  var html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    // code blocks (``` ... ```)
+    .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+      return '<pre><code>' + code.trim() + '</code></pre>';
+    })
+    // inline code
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    // images
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
+    // links
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+    // bold
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
+    // italic
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    // headings
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    // blockquote
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    // unordered list
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    // numbered list
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    // horizontal rule
+    .replace(/^---$/gm, '<hr>')
+    // paragraphs (double newline)
+    .replace(/\n\n/g, '</p><p>')
+    // single newline
+    .replace(/\n/g, '<br>');
+  // wrap loose <li> in <ul>
+  html = html.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
+  return '<p>' + html + '</p>';
+}
+
+function mockSend(ta) {
+  if (!ta.value.trim()) return;
+  var msgs = document.querySelector('.chat-messages');
+  var rendered = renderMarkdown(ta.value);
+  msgs.innerHTML += '<div class="msg"><div class="msg-sender msg-sender-human">human</div><div class="msg-text">' + rendered + '</div></div>';
+  ta.value = '';
+  ta.style.height = '24px';
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function autoGrow(ta) {
+  ta.style.height = '24px';
+  ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+}
+
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    mockSend(e.target);
+  }
+}
+
+function renderMessages(messages) {
+  return messages.map(function(m) {
+    var isHuman = m.sender === 'human';
+    var isEscalation = m.type === 'escalation';
+    var rendered = renderMarkdown(m.text);
+    return '<div class="msg ' + (isEscalation ? 'msg-escalation' : '') + '">' +
+      '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + m.sender + '</div>' +
+      '<div class="msg-text">' + rendered + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function renderJobChat(conv) {
+  let messages = conv.messages;
+  let headerTitle = conv.participant;
+  let headerScope = conv.scope;
+
+  if (selectedItem && conv.tasks[selectedItem]) {
+    messages = conv.tasks[selectedItem];
+    const taskData = findTask(selectedItem);
+    headerTitle = taskData ? taskData.name : selectedItem;
+    headerScope = conv.scope + ' > task';
+  }
+
+  document.title = 'TeaParty — ' + headerTitle;
+
+  const navHtml = `
+    <div class="chat-nav">
+      <div class="chat-nav-header">Tasks</div>
+      <div class="chat-nav-item ${!selectedItem ? 'active' : ''}" onclick="selectItem(null)">
+        <span>Job conversation</span>
+        ${conv.messages.some(m => m.type === 'escalation') ? '<span class="nav-badge"></span>' : ''}
+      </div>
+      ${Object.entries(conv.tasks).map(([tid, msgs]) => {
+        const taskData = findTask(tid);
+        const taskName = taskData ? taskData.name : tid;
+        const hasEscalation = msgs.some(m => m.type === 'escalation');
+        return `<div class="chat-nav-item ${selectedItem === tid ? 'active' : ''}" onclick="selectItem('${tid}')">
+          <span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${taskName}</span>
+          ${hasEscalation ? '<span class="nav-badge"></span>' : ''}
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  return { navHtml, messages, headerTitle, headerScope };
+}
+
+function renderParticipantChat(conv) {
+  const sessions = conv.sessions;
+  let messages = [];
+  let headerTitle = conv.participant;
+  let headerScope = 'All conversations';
+
+  if (selectedItem) {
+    const session = sessions.find(s => s.id === selectedItem);
+    if (session) {
+      messages = session.messages;
+      headerTitle = conv.participant;
+      headerScope = session.label;
+    }
+  } else if (sessions.length > 0) {
+    // Default to most recent session
+    messages = sessions[0].messages;
+    headerScope = sessions[0].label;
+    selectedItem = sessions[0].id;
+  }
+
+  document.title = 'TeaParty — ' + headerTitle;
+
+  const navHtml = `
+    <div class="chat-nav">
+      <div class="chat-nav-header">Conversations</div>
+      ${sessions.map(s => `
+        <div class="chat-nav-item ${selectedItem === s.id ? 'active' : ''}" onclick="selectItem('${s.id}')">
+          <span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.label}</span>
+          <span style="font-size:8px;color:var(--text-dim);flex-shrink:0">${s.date}</span>
+        </div>
+      `).join('')}
+    </div>`;
+
+  return { navHtml, messages, headerTitle, headerScope };
+}
+
+function render() {
+  const conv = mockData.conversations[convId];
+
+  if (!conv) {
+    document.title = 'TeaParty — Chat: ' + convId;
+    document.getElementById('content').innerHTML = `
+      <div class="chat-layout">
+        <div class="chat-main">
+          <div class="chat-header">
+            <div class="chat-header-title">${convId || 'New conversation'}</div>
+            <div class="chat-header-scope">No messages yet</div>
+          </div>
+          <div class="chat-messages"><div class="empty">Start typing to begin</div></div>
+          <div class="chat-input-area">
+            <textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>
+            <button onclick="mockSend(this.parentElement.querySelector('textarea'))">Send</button>
+          </div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  let result;
+  if (conv.type === 'job') {
+    result = renderJobChat(conv);
+  } else {
+    result = renderParticipantChat(conv);
+  }
+
+  const { navHtml, messages, headerTitle, headerScope } = result;
+
+  document.getElementById('content').innerHTML = `
+    <div class="chat-layout">
+      ${navHtml}
+      <div class="chat-main">
+        <div class="chat-header" style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="chat-header-title">${headerTitle}</div>
+            <div class="chat-header-scope">${headerScope}</div>
+          </div>
+          ${conv.type === 'job' ? '<div style="display:flex;gap:6px;align-items:center">' + getGateReviewButton(convId) + '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button></div>' : ''}
+        </div>
+        <div class="chat-filters">
+          <button class="filter-btn on" data-f="agent" onclick="this.classList.toggle('on')">agent</button>
+          <button class="filter-btn on" data-f="human" onclick="this.classList.toggle('on')">human</button>
+          <button class="filter-btn" data-f="thinking" onclick="this.classList.toggle('on')">thinking</button>
+          <button class="filter-btn" data-f="tools" onclick="this.classList.toggle('on')">tools</button>
+          <button class="filter-btn" data-f="system" onclick="this.classList.toggle('on')">system</button>
+        </div>
+        <div class="chat-messages">
+          ${messages.length > 0 ? renderMessages(messages) : '<div class="empty">No messages in this conversation</div>'}
+        </div>
+        <div class="chat-input-area">
+          <textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>
+          <button onclick="mockSend(this.parentElement.querySelector('textarea'))">Send</button>
+        </div>
+      </div>
+    </div>`;
+
+  document.querySelector('.chat-messages').scrollTop = document.querySelector('.chat-messages').scrollHeight;
+}
+
+render();
+</script>
+</body>
+</html>

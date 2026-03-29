@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Configuration</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div id="content" class="app-pane active" style="overflow-y:auto"></div>
+
+<script src="data.js?v=4"></script>
+<script>
+var urlParams = new URLSearchParams(window.location.search);
+var initProject = urlParams.get('project');
+var configLevel = initProject ? { level: 'project', projectId: initProject } : { level: 'global' };
+
+function openChat(convId) {
+  window.open('chat.html?conv=' + encodeURIComponent(convId), '_blank');
+}
+
+function configNav(level, projectId) {
+  configLevel = { level: level, projectId: projectId };
+  render();
+}
+
+function sectionCard(title, items, opts) {
+  var buttons = '';
+  if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'office-manager\')">+ New</button>';
+  if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'office-manager\')">+ Catalog</button>';
+  var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
+  return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
+}
+
+function sourceBadge(source) {
+  if (!source) return '';
+  return '<span class="source-badge source-' + source + '">' + source + '</span>';
+}
+
+function overrideBadge(overrides) {
+  if (!overrides || overrides.length === 0) return '';
+  return '<span class="override-indicator">' + overrides.join(', ') + ' overridden</span>';
+}
+
+function agentItem(a) {
+  var icon = a.role === 'Team Lead' ? '&#9733;' : '&#9672;';
+  var statusBadge = a.status ? '<span class="item-badge badge-' + a.status + '">' + a.status + '</span>' : '';
+  var src = sourceBadge(a.source);
+  return '<div class="item"><div class="item-icon icon-member">' + icon + '</div><div class="item-body"><div class="item-title">' + a.name + ' ' + src + '</div><div class="item-meta">' + a.role + ' &middot; ' + a.model + '</div></div>' + statusBadge + '</div>';
+}
+
+function render() {
+  if (configLevel.level === 'global') renderGlobal();
+  else if (configLevel.level === 'project') renderProject(configLevel.projectId);
+}
+
+function renderGlobal() {
+  var c = mockData.config;
+  var m = c.management;
+  document.title = 'TeaParty \u2014 Global Configuration';
+
+  var projectItems = Object.entries(c.projects).map(function(entry) {
+    var id = entry[0], p = entry[1];
+    var sharedCount = p.workgroups.filter(function(w) { return w.source === 'shared'; }).length;
+    var localCount = p.workgroups.filter(function(w) { return w.source === 'local'; }).length;
+    var wgDesc = [];
+    if (sharedCount) wgDesc.push(sharedCount + ' shared');
+    if (localCount) wgDesc.push(localCount + ' local');
+    return '<div class="item" onclick="configNav(\'project\',\'' + id + '\')"><div class="item-icon icon-project">&#9654;</div><div class="item-body"><div class="item-title">' + p.name + '</div><div class="item-meta">' + p.description + '</div><div class="item-meta">' + (wgDesc.join(' + ') || '0') + ' workgroups &middot; ' + p.agents.length + ' agents</div></div></div>';
+  });
+
+  var wgItems = (m.workgroups || []).map(function(w) {
+    return '<div class="item"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + w.description + '</div><div class="item-meta">' + w.lead + ' &middot; ' + w.agents + ' agents</div></div></div>';
+  });
+
+  var agentItems = m.agents.map(function(a) {
+    var icon = a.role === 'Team Lead' ? '&#9733;' : '&#9672;';
+    var statusBadge = '<span class="item-badge badge-' + a.status + '">' + a.status + '</span>';
+    return '<div class="item"><div class="item-icon icon-member">' + icon + '</div><div class="item-body"><div class="item-title">' + a.name + '</div><div class="item-meta">' + a.role + ' &middot; ' + a.model + '</div></div>' + statusBadge + '</div>';
+  });
+
+  var participantItems = ['<div class="item" onclick="openChat(\'office-manager\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">Team Lead &middot; org-level coordination</div></div><span class="item-badge badge-active">active</span></div>'];
+  m.humans.forEach(function(h) {
+    var youTag = h.self ? ' <span style="font-size:8px;background:rgba(78,204,163,0.15);color:var(--green);padding:1px 5px;border-radius:3px">you</span>' : '';
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + youTag + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+  });
+
+  var orgArtifactData = mockData.artifacts.org;
+  var orgArtifactItems = [];
+  if (orgArtifactData) {
+    orgArtifactData.index.sections.forEach(function(sec) {
+      orgArtifactItems.push('<div class="item" onclick="window.open(\'artifacts.html?project=org\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + sec.heading + '</div><div class="item-meta">' + sec.items.length + ' items</div></div></div>');
+    });
+  }
+
+  var skillItems = m.skills.map(function(s) {
+    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + s.name + '</div><div class="item-meta">' + s.files + ' files</div></div></div>';
+  });
+
+  var hookItems = m.hooks.map(function(h) {
+    return '<div class="item"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + h.event + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + h.type + '</div></div></div>';
+  });
+
+  var cronItems = m.crons.map(function(c) {
+    return '<div class="item"><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + c.status + '">' + c.status + '</span></div>';
+  });
+
+  document.getElementById('content').innerHTML =
+    '<div class="pane-title">Global Configuration</div>' +
+    '<div class="pane-description">Organization catalog. Workgroups, agents, and skills defined here can be assembled into projects.</div>' +
+    '<div class="pane-subtitle">' + Object.keys(c.projects).length + ' projects &middot; ' + (m.workgroups || []).length + ' workgroups &middot; ' + m.agents.length + ' agents</div>' +
+    '<div class="sections">' +
+      sectionCard('Projects', projectItems, { addBtn: true }) +
+      sectionCard('Workgroup Catalog', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
+      sectionCard('Agent Catalog', agentItems, { addBtn: true }) +
+      sectionCard('Participants', participantItems) +
+      sectionCard('Artifacts', orgArtifactItems, { empty: 'No organizational artifacts' }) +
+      sectionCard('Skill Catalog', skillItems, { addBtn: true }) +
+      sectionCard('Hooks', hookItems, { addBtn: true }) +
+      sectionCard('Scheduled Tasks', cronItems, { addBtn: true }) +
+    '</div>';
+}
+
+function renderProject(projectId) {
+  var p = mockData.config.projects[projectId];
+  document.title = 'TeaParty \u2014 ' + p.name + ' Configuration';
+
+  var wgItems = p.workgroups.map(function(w) {
+    var src = sourceBadge(w.source);
+    var ovr = overrideBadge(w.overrides);
+    return '<div class="item"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + w.lead + ' &middot; ' + w.agents + ' agents</div></div></div>';
+  });
+
+  var agentItems = p.agents.map(agentItem);
+
+  var humans = (mockData.status.projects[projectId] && mockData.status.projects[projectId].humans) || [];
+  var participantItems = [
+    '<div class="item" onclick="openChat(\'poc-manager\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">Project Lead &middot; operational control</div></div></div>',
+    '<div class="item" onclick="openChat(\'poc-proxy\')"><div class="item-icon icon-participant">&#9670;</div><div class="item-body"><div class="item-title">Proxy</div><div class="item-meta">project learning &middot; decision patterns</div></div></div>'
+  ];
+  humans.forEach(function(h) {
+    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+  });
+
+  var skillItems = p.skills.map(function(s) {
+    var src = sourceBadge(s.source);
+    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + s.name + ' ' + src + '</div><div class="item-meta">' + s.files + ' files</div></div></div>';
+  });
+
+  var hookItems = p.hooks.map(function(h) {
+    var src = sourceBadge(h.source);
+    return '<div class="item"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + h.event + (h.matcher ? ' [' + h.matcher + ']' : '') + ' ' + src + '</div><div class="item-meta">' + h.type + '</div></div></div>';
+  });
+
+  var cronItems = p.crons.map(function(c) {
+    var src = sourceBadge(c.source);
+    return '<div class="item"><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + ' ' + src + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + c.status + '">' + c.status + '</span></div>';
+  });
+
+  var artifactData = mockData.artifacts[projectId];
+  var artifactItems = [];
+  if (artifactData) {
+    artifactData.index.sections.forEach(function(sec) {
+      artifactItems.push('<div class="item" onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(projectId) + '\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + sec.heading + '</div><div class="item-meta">' + sec.items.length + ' items</div></div></div>');
+    });
+  }
+
+  document.getElementById('content').innerHTML =
+    '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')">Global Config</a> <span>/</span> <a>' + p.name + '</a></div>' +
+    '<div class="pane-title">' + p.name + '</div>' +
+    '<div class="pane-description">' + p.description + '</div>' +
+    '<div class="pane-subtitle">Decider: ' + p.decider + ' &middot; Lead: ' + p.lead + '</div>' +
+    '<div class="sections">' +
+      sectionCard('Workgroups', wgItems, { addBtn: true, catalogBtn: true, empty: 'No workgroups' }) +
+      sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
+      sectionCard('Participants', participantItems) +
+      sectionCard('Artifacts', artifactItems, { empty: 'No project artifacts' }) +
+      sectionCard('Skills', skillItems, { addBtn: true, catalogBtn: true, empty: 'No skills' }) +
+      sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No project-scoped hooks' }) +
+      sectionCard('Scheduled Tasks', cronItems, { addBtn: true, empty: 'No project-scoped tasks' }) +
+    '</div>';
+}
+
+render();
+</script>
+</body>
+</html>

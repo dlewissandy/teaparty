@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TeaParty — Artifacts</title>
+<link rel="stylesheet" href="styles.css">
+<style>
+  .artifact-layout { display: flex; flex: 1; min-height: 0; }
+  .artifact-nav {
+    width: 220px; background: var(--surface); border-right: 1px solid var(--border);
+    overflow-y: auto; flex-shrink: 0;
+  }
+  .artifact-nav-project {
+    padding: 10px; font-size: 15px; font-weight: 600; color: var(--green);
+    border-bottom: 1px solid var(--border); background: var(--surface2);
+  }
+  .artifact-nav-section {
+    padding: 6px 10px; font-size: 8px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.5px; color: var(--green); border-bottom: 1px solid var(--border);
+    background: rgba(78,204,163,0.03);
+  }
+  .artifact-nav-item {
+    padding: 5px 10px 5px 16px; font-size: 10px; cursor: pointer;
+    border-bottom: 1px solid var(--border); color: var(--text-dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .artifact-nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text); }
+  .artifact-nav-item.active { background: var(--surface2); color: var(--green); }
+  .artifact-main { flex: 1; overflow-y: auto; padding: 16px 24px; }
+  .artifact-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+  .artifact-path { font-size: 9px; color: var(--text-dim); margin-bottom: 12px; font-family: inherit; }
+  .artifact-path code { color: var(--green); }
+  .artifact-summary { font-size: 11px; line-height: 1.6; color: var(--text-dim); margin-bottom: 16px; }
+  .artifact-job-link {
+    display: inline-block; font-size: 9px; padding: 2px 8px; border-radius: 3px;
+    background: rgba(78,204,163,0.15); color: var(--green); cursor: pointer;
+    margin-bottom: 12px;
+  }
+  .artifact-content {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
+    padding: 16px; font-size: 11px; line-height: 1.7; color: var(--text-dim);
+  }
+  .artifact-content h3 { color: var(--text); font-size: 12px; margin: 12px 0 6px 0; }
+  .artifact-content h3:first-child { margin-top: 0; }
+  .artifact-content ul { padding-left: 16px; margin: 4px 0; }
+  .artifact-content li { margin: 3px 0; }
+  .artifact-content code { color: var(--green); font-size: 10px; }
+</style>
+</head>
+<body>
+
+<div id="content" class="app-pane active"></div>
+
+<script src="data.js?v=4"></script>
+<script>
+var params = new URLSearchParams(window.location.search);
+var currentProject = params.get('project') || 'poc';
+var selectedItem = null;
+
+function selectArtifact(sectionIdx, itemIdx) {
+  selectedItem = { section: sectionIdx, item: itemIdx };
+  render();
+}
+
+function openJobChat(jobId) {
+  window.open('chat.html?conv=' + jobId, '_blank');
+}
+
+function render() {
+  var project = mockData.artifacts[currentProject];
+  if (!project) { document.getElementById('content').innerHTML = '<div class="empty">Project not found</div>'; return; }
+  var idx = project.index;
+  document.title = 'TeaParty \u2014 ' + project.name + ' Artifacts';
+
+  // Nav
+  var navHtml = '<div class="artifact-nav">';
+  var entryFile = project.entryFile || 'project.md';
+  navHtml += '<div class="artifact-nav-project">' + project.name + '<div style="font-size:9px;color:var(--text-dim);font-weight:400;margin-top:2px">' + entryFile + '</div></div>';
+  idx.sections.forEach(function(sec, si) {
+    navHtml += '<div class="artifact-nav-section">' + sec.heading + '</div>';
+    sec.items.forEach(function(item, ii) {
+      var isActive = selectedItem && selectedItem.section === si && selectedItem.item === ii;
+      navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" onclick="selectArtifact(' + si + ',' + ii + ')">' + item.name + '</div>';
+    });
+  });
+  navHtml += '</div>';
+
+  // Main content
+  var mainHtml = '<div class="artifact-main">';
+  if (!selectedItem) {
+    // Show project overview
+    mainHtml += '<div class="artifact-title">' + idx.title + '</div>';
+    mainHtml += '<div class="artifact-summary">' + idx.description + '</div>';
+    mainHtml += '<div class="artifact-content">';
+    idx.sections.forEach(function(sec) {
+      mainHtml += '<h3>' + sec.heading + '</h3><ul>';
+      sec.items.forEach(function(item) {
+        mainHtml += '<li><strong>' + item.name + '</strong> \u2014 ' + item.summary + '<br><code>' + item.path + '</code></li>';
+      });
+      mainHtml += '</ul>';
+    });
+    mainHtml += '</div>';
+  } else {
+    var sec = idx.sections[selectedItem.section];
+    var item = sec.items[selectedItem.item];
+    mainHtml += '<div class="artifact-title">' + item.name + '</div>';
+    mainHtml += '<div class="artifact-path"><code>' + item.path + '</code></div>';
+    if (item.job) {
+      mainHtml += '<div class="artifact-job-link" onclick="openJobChat(\'' + item.job + '\')">View job conversation &#8594;</div>';
+    }
+    mainHtml += '<div class="artifact-summary">' + item.summary + '</div>';
+    mainHtml += '<div class="artifact-content">';
+    mainHtml += '<h3>Content Preview</h3>';
+    mainHtml += '<p style="color:var(--text-dim);font-style:italic">In the real application, this would render the markdown content of <code>' + item.path + '</code>. ';
+    mainHtml += 'The file would be read from disk and rendered with full markdown support including headers, lists, code blocks, and links to other artifacts.</p>';
+    if (item.job) {
+      mainHtml += '<h3>Job Context</h3>';
+      mainHtml += '<p>This artifact was produced during job <code>' + item.job + '</code>. Click the link above to see the full job conversation with task-level detail.</p>';
+    }
+    mainHtml += '</div>';
+  }
+  mainHtml += '</div>';
+
+  document.getElementById('content').innerHTML =
+    '<div class="artifact-layout">' + navHtml + mainHtml + '</div>';
+}
+
+render();
+</script>
+</body>
+</html>

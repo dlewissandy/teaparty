@@ -6,6 +6,12 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "8080", "--directory", "projects/frogger-game"],
       "port": 8080
+    },
+    {
+      "name": "ui-redesign-mockup",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "8081", "--directory", "docs/proposals/ui-redesign/mockup"],
+      "port": 8081
     }
   ]
 }
