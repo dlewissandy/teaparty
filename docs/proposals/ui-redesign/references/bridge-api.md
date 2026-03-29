@@ -2,7 +2,7 @@
 
 # Bridge API Specification
 
-The bridge is an aiohttp server that exposes TeaParty's existing data through REST endpoints and a WebSocket. It imports existing modules directly — `SqliteMessageBus`, `StateReader`, `config_reader`, `heartbeat`, `cfa_state`.
+The bridge is an aiohttp server that exposes TeaParty's existing data through REST endpoints and a WebSocket. It imports existing modules directly — `SqliteMessageBus`, `ConversationType`, `StateReader`, `config_reader`, `heartbeat`, `cfa_state`.
 
 `StateReader` is imported from `projects.POC.orchestrator.state_reader`, not from the TUI package. Session discovery logic and heartbeat liveness classification live in the orchestrator so the bridge has no dependency on the TUI it supersedes (issue #280).
 
@@ -54,11 +54,13 @@ Config resolution follows existing precedence: org < workgroup < project. Norms 
 
 | Method | Path | Returns | Source |
 |--------|------|---------|--------|
-| GET | `/api/conversations?type=TYPE` | Active conversations, filterable | `bus.active_conversations(type)` |
-| GET | `/api/conversations/{id}?since=TS` | Messages since timestamp | `bus.receive(id, since)` |
+| GET | `/api/conversations?type=TYPE` | Active conversations, filterable | `bus.active_conversations(ConversationType[type.upper()])` |
+| GET | `/api/conversations/{id}?since=TS` | Messages since timestamp | `bus.receive(id, since_timestamp=float(TS))` |
 | POST | `/api/conversations/{id}` | Send human message (interjection or response) | `bus.send(id, 'human', content)` |
 
 Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task`, `proxy_review`, `liaison`.
+
+`active_conversations` takes a `ConversationType` enum member, not a string. The `?type=` query parameter is a string; the bridge must convert it before calling the bus: `ConversationType[type.upper()]`. A raw string will not match any enum member and the call returns an empty list with no error — a silent failure that makes every conversation list appear empty. `receive` uses `since_timestamp` as the keyword argument name (not `since`); passing it by keyword with the wrong name raises `TypeError`.
 
 Conversation ID format:
 - `om:{human}` — office manager (persistent)
@@ -124,7 +126,7 @@ Source: `conversations.awaiting_input = 1` in the session's `messages.db`. `Mess
 ```json
 {"type": "message", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
 ```
-New message in any active conversation. The bridge polls each conversation's `bus.receive(id, since=last_ts)`.
+New message in any active conversation. The bridge polls each conversation's `bus.receive(id, since_timestamp=last_ts)`.
 
 ```json
 {"type": "heartbeat", "session_id": "...", "status": "alive|stale|dead"}
