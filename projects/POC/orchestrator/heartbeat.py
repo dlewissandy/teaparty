@@ -232,3 +232,46 @@ def _is_pid_alive(pid: int) -> bool:
         return True
     except (ProcessLookupError, PermissionError, OSError):
         return False
+
+
+# ── Liveness classification ───────────────────────────────────────────────────
+
+_ALIVE_THRESHOLD = 30    # Heartbeat mtime within 30s = alive (one BEAT_INTERVAL)
+_DEAD_THRESHOLD = 300    # Heartbeat mtime > 5 minutes = dead
+
+
+def _heartbeat_three_state(infra_dir: str) -> str:
+    """Return heartbeat liveness as one of 'alive', 'stale', or 'dead'.
+
+    Thresholds match claude_runner.py BEAT_INTERVAL (30s) and design spec:
+      alive: mtime within 30s (one beat interval)
+      stale: mtime 30s–300s (agent not beating, may be in extended thinking)
+      dead:  mtime > 300s or process exit
+    """
+    hb_path = os.path.join(infra_dir, '.heartbeat')
+    if os.path.exists(hb_path):
+        try:
+            data = read_heartbeat(hb_path)
+            status = data.get('status', '')
+            if status in ('completed', 'withdrawn'):
+                return 'dead'
+            age = time.time() - os.path.getmtime(hb_path)
+            if age > _DEAD_THRESHOLD:
+                return 'dead'
+            if age > _ALIVE_THRESHOLD:
+                return 'stale'
+            return 'alive'
+        except Exception:
+            return 'dead'
+
+    # Fallback to .running (legacy sentinel)
+    running_path = os.path.join(infra_dir, '.running')
+    if os.path.exists(running_path):
+        from projects.POC.orchestrator.state_reader import (
+            _running_file_is_stale,
+            _running_pid_is_dead,
+        )
+        if _running_file_is_stale(running_path) or _running_pid_is_dead(running_path):
+            return 'dead'
+        return 'alive'
+    return 'dead'

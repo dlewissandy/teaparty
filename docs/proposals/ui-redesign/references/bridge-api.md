@@ -54,7 +54,7 @@ bridge.run(port=8081)
 | GET | `/api/state` | All projects with sessions, dispatches, liveness | `StateReader.reload()` |
 | GET | `/api/state/{project}` | Single project's sessions | `StateReader.find_project(slug)` |
 | GET | `/api/cfa/{session_id}` | CfA state (phase, state, actor, history, backtrack count) | `load_state(infra_dir/.cfa-state.json)` |
-| GET | `/api/heartbeat/{session_id}` | Liveness: alive, stale, or dead | `_heartbeat_three_state()` from `orchestrator.state_reader` (30s/300s thresholds) |
+| GET | `/api/heartbeat/{session_id}` | Liveness: alive, stale, or dead | `_heartbeat_three_state()` from `orchestrator.heartbeat` (30s/300s thresholds) |
 
 `StateReader` scans `{project}/.sessions/*/` directories. Each session has `.cfa-state.json` (state), `.heartbeat` (liveness), and `messages.db` (conversations). The bridge opens a `SqliteMessageBus` connection per active session. Connections close when sessions complete.
 

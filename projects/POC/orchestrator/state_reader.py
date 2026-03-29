@@ -128,8 +128,11 @@ def _is_heartbeat_alive(infra_dir: str) -> bool:
     return False
 
 
-_ALIVE_THRESHOLD = 30    # Heartbeat mtime within 30s = alive (one BEAT_INTERVAL)
-_DEAD_THRESHOLD = 300    # Heartbeat mtime > 5 minutes = dead
+from projects.POC.orchestrator.heartbeat import (  # noqa: E402
+    _ALIVE_THRESHOLD,
+    _DEAD_THRESHOLD,
+    _heartbeat_three_state,
+)
 
 
 def _read_cost_sidecar(infra_dir: str) -> float:
@@ -142,40 +145,6 @@ def _read_cost_sidecar(infra_dir: str) -> float:
             return float(f.read().strip())
     except (FileNotFoundError, ValueError, OSError):
         return 0.0
-
-
-def _heartbeat_three_state(infra_dir: str) -> str:
-    """Return heartbeat status as one of 'alive', 'stale', or 'dead'.
-
-    Thresholds match claude_runner.py BEAT_INTERVAL (30s) and design spec:
-      alive: mtime within 30s (one beat interval)
-      stale: mtime 30s–300s (agent not beating, may be in extended thinking)
-      dead:  mtime > 300s or process exit
-    """
-    hb_path = os.path.join(infra_dir, '.heartbeat')
-    if os.path.exists(hb_path):
-        try:
-            from projects.POC.orchestrator.heartbeat import read_heartbeat
-            data = read_heartbeat(hb_path)
-            status = data.get('status', '')
-            if status in ('completed', 'withdrawn'):
-                return 'dead'
-            age = time.time() - os.path.getmtime(hb_path)
-            if age > _DEAD_THRESHOLD:
-                return 'dead'
-            if age > _ALIVE_THRESHOLD:
-                return 'stale'
-            return 'alive'
-        except Exception:
-            return 'dead'
-
-    # Fallback to .running
-    running_path = os.path.join(infra_dir, '.running')
-    if os.path.exists(running_path):
-        if _running_file_is_stale(running_path) or _running_pid_is_dead(running_path):
-            return 'dead'
-        return 'alive'
-    return 'dead'
 
 
 def _is_heartbeat_terminal(infra_dir: str) -> bool:
