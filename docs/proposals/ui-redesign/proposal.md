@@ -18,7 +18,7 @@ The TUI is the single largest maintenance burden in the project. Three problems:
 
 3. **It doesn't advance the research.** The TUI is infrastructure tax. Every hour spent on it is an hour not spent on the CfA protocol, proxy learning, or hierarchical teams.
 
-HTML solves all three. Claude knows HTML/CSS/JS cold. Browser dev tools work. Separate pages enforce separation of concerns. And because the orchestrator already has a SQLite message bus, the bridge is a thin read/write layer over existing infrastructure.
+HTML solves all three. Claude knows HTML/CSS/JS cold. Browser dev tools work. Separate pages enforce separation of concerns. And because the orchestrator already has a SQLite message bus, the bridge wraps existing infrastructure — it adds no business logic, though it is a new server component with its own implementation scope (see Bridge Server below).
 
 ---
 
