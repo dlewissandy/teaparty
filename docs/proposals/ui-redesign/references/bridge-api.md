@@ -7,7 +7,7 @@ The bridge is a new aiohttp server that wraps TeaParty's existing infrastructure
 **What the bridge implements as new code:**
 - aiohttp app with static file serving and route definitions
 - 1-second polling loop with state diffing to detect CfA transitions, input requests, heartbeat changes, and session completions
-- Per-session `SqliteMessageBus` connection lifecycle (open on session start, close on completion)
+- Per-session `SqliteMessageBus` connection lifecycle (open on first poll of a non-terminal session, close on terminal state detection)
 - WebSocket endpoint with five push-event types and broadcast-all dispatch
 - Conversation routing across multiple databases (OM database vs per-session databases)
 - Workgroup scanner (`GET /api/workgroups`) — no existing backing function in `config_reader`
