@@ -241,10 +241,10 @@ class TestWorkgroupSerialization(unittest.TestCase):
 
 # ── Config endpoint — slug on projects ────────────────────────────────────────
 
-class TestConfigEndpointProjectSlug(unittest.TestCase):
+class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
     """GET /api/config must include 'slug' on each project entry."""
 
-    def setUp(self):
+    async def asyncSetUp(self):
         self.tmpdir = _make_tmpdir()
         self.bridge = _make_bridge(self.tmpdir)
         # Create a project directory to reference
@@ -269,7 +269,7 @@ class TestConfigEndpointProjectSlug(unittest.TestCase):
         with open(os.path.join(self.tmpdir, 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f)
 
-    def tearDown(self):
+    async def asyncTearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_discover_projects_result_can_derive_slug(self):
@@ -282,20 +282,14 @@ class TestConfigEndpointProjectSlug(unittest.TestCase):
         slug = os.path.basename(projects[0]['path'])
         self.assertEqual(slug, 'myproject')
 
-    def test_config_handler_adds_slug_to_project_entries(self):
+    async def test_config_handler_adds_slug_to_project_entries(self):
         """_handle_config response must include 'slug' on each project."""
-        import asyncio
         from unittest.mock import MagicMock
-        from projects.POC.orchestrator.config_reader import load_management_team, discover_projects
-
-        team = load_management_team(teaparty_home=self.tmpdir)
-        projects = discover_projects(team)
-
-        # Simulate what the handler should do: add slug
-        for p in projects:
-            p['slug'] = os.path.basename(p['path'])
-
-        self.assertEqual(projects[0]['slug'], 'myproject')
+        resp = await self.bridge._handle_config(MagicMock())
+        data = json.loads(resp.body)
+        self.assertEqual(len(data['projects']), 1)
+        self.assertIn('slug', data['projects'][0], '_handle_config must add slug to project entries')
+        self.assertEqual(data['projects'][0]['slug'], 'myproject')
 
 
 # ── Config project endpoint — workgroup source tags ───────────────────────────
