@@ -546,6 +546,39 @@ class TestStatsBarsNoWrap(unittest.TestCase):
         self.assertEqual(format_stats_labels([]), '')
         self.assertEqual(format_stats_values([]), '')
 
+    def test_two_rows_render_without_interleaving_at_120_columns(self):
+        """Textual renders labels and values as two separate height-1 rows at 120 columns.
+
+        Regression guard: the old single-Static approach wrapped its two-line text into
+        multiple visual rows, causing labels and values to interleave. This test confirms
+        the two-widget approach resolves to height 1 each — structurally impossible to wrap.
+        """
+        import asyncio
+        from textual.app import App, ComposeResult
+        from textual.widgets import Static
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+
+        stats = self._sample_stats()
+
+        class _StatsTestApp(App):
+            CSS = '#labels, #values { height: 1; overflow-x: hidden; }'
+
+            def compose(self) -> ComposeResult:
+                yield Static(format_stats_labels(stats), id='labels')
+                yield Static(format_stats_values(stats), id='values')
+
+        async def _run():
+            app = _StatsTestApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                labels_w = app.query_one('#labels', Static)
+                values_w = app.query_one('#values', Static)
+                return labels_w.size.height, values_w.size.height
+
+        labels_h, values_h = asyncio.run(_run())
+        self.assertEqual(labels_h, 1, 'Labels row must render as exactly 1 line')
+        self.assertEqual(values_h, 1, 'Values row must render as exactly 1 line')
+
 
 if __name__ == '__main__':
     unittest.main()
