@@ -8,6 +8,7 @@ confidence path.  This issue implements them in _calibrate_confidence().
 
 import re
 import unittest
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 from datetime import date, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -36,7 +37,7 @@ class TestStalenessGuard(unittest.TestCase):
         from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
         defaults = dict(
             agent_confidence=0.95, state='PLAN_ASSERT',
-            project_slug='POC', proxy_model_path='/tmp/fake',
+            project_slug='POC', proxy_model_path=make_tmp_dir(self),
             team='alpha', _random=0.99,  # defeat exploration
         )
         defaults.update(kw)
@@ -86,7 +87,7 @@ class TestExplorationRate(unittest.TestCase):
         from projects.POC.orchestrator.proxy_agent import _calibrate_confidence
         defaults = dict(
             agent_confidence=0.95, state='PLAN_ASSERT',
-            project_slug='POC', proxy_model_path='/tmp/fake',
+            project_slug='POC', proxy_model_path=make_tmp_dir(self),
             team='alpha', accuracy=_make_accuracy(),
         )
         defaults.update(kw)
@@ -125,7 +126,7 @@ class TestGateOrdering(unittest.TestCase):
         ):
             return _calibrate_confidence(
                 agent_confidence=0.95, state='PLAN_ASSERT',
-                project_slug='POC', proxy_model_path='/tmp/fake',
+                project_slug='POC', proxy_model_path=make_tmp_dir(self),
                 team='alpha', accuracy=accuracy,
                 genuine_tension=genuine_tension, _random=random_roll,
             )

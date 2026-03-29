@@ -16,11 +16,13 @@ import tempfile
 import os
 import unittest
 
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
-def _make_bus():
+
+def _make_bus(test_case):
     from projects.POC.orchestrator.messaging import SqliteMessageBus
-    tmp = tempfile.mktemp(suffix='.db')
-    return SqliteMessageBus(tmp)
+    tmp_dir = make_tmp_dir(test_case)
+    return SqliteMessageBus(os.path.join(tmp_dir, 'messages.db'))
 
 
 def _make_stub_phase_config():
@@ -136,8 +138,8 @@ class TestMessageBusRoleEnforcement(unittest.TestCase):
     def _make_enforced_bus(self):
         from projects.POC.orchestrator.messaging import SqliteMessageBus
         from projects.POC.orchestrator.role_enforcer import RoleEnforcer
-        tmp = tempfile.mktemp(suffix='.db')
-        bus = SqliteMessageBus(tmp)
+        tmp_dir = make_tmp_dir(self)
+        bus = SqliteMessageBus(os.path.join(tmp_dir, 'messages.db'))
         enforcer = RoleEnforcer(_make_role_map())
         bus.role_enforcer = enforcer
         return bus
@@ -169,7 +171,7 @@ class TestMessageBusRoleEnforcement(unittest.TestCase):
 
     def test_no_enforcer_allows_all(self):
         """Without an enforcer, any sender works (backwards compatible)."""
-        bus = _make_bus()
+        bus = _make_bus(self)
         msg_id = bus.send('conv1', 'bob', 'hello')
         self.assertTrue(msg_id)
 
@@ -287,17 +289,18 @@ class TestOrchestratorRoleEnforcer(unittest.TestCase):
         from projects.POC.orchestrator.role_enforcer import RoleEnforcer, DAIRole
         from projects.POC.scripts.cfa_state import make_initial_state
         enforcer = RoleEnforcer({'darrell': DAIRole.DECIDER})
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             role_enforcer=enforcer,
         )
         self.assertIs(orch._role_enforcer, enforcer)
@@ -311,17 +314,18 @@ class TestOrchestratorRoleEnforcer(unittest.TestCase):
         from projects.POC.scripts.cfa_state import make_initial_state
         enforcer = RoleEnforcer({'bob': DAIRole.INFORMED})
         q = InterventionQueue()
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             role_enforcer=enforcer,
             intervention_queue=q,
         )
@@ -332,17 +336,18 @@ class TestOrchestratorRoleEnforcer(unittest.TestCase):
         from projects.POC.orchestrator.engine import Orchestrator
         from projects.POC.orchestrator.events import EventBus
         from projects.POC.scripts.cfa_state import make_initial_state
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
         )
         self.assertIsNone(orch._role_enforcer)
 

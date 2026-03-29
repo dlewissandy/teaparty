@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, patch
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from projects.POC.orchestrator.config_reader import ScheduledTask
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 from projects.POC.orchestrator.cron_scheduler import (
     CronScheduler,
     RunRecord,
@@ -53,15 +54,20 @@ def _make_scheduled_task(
 
 
 def _make_state_dir() -> str:
-    return tempfile.mkdtemp()
+    import atexit, shutil
+    tmp = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, tmp, True)
+    return tmp
 
 
 def _make_scheduler(
     tasks: list[ScheduledTask] | None = None,
     state_dir: str | None = None,
-    project_dir: str = '/tmp/fake-project',
+    project_dir: str | None = None,
     project_slug: str = 'test-project',
 ) -> CronScheduler:
+    if project_dir is None:
+        project_dir = _make_state_dir()
     if tasks is None:
         tasks = [_make_scheduled_task()]
     if state_dir is None:
