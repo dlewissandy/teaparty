@@ -189,15 +189,12 @@ function renderOverview() {
     html += '<p class="artifact-empty">No documentation found for this project.</p>';
   }
   sections.forEach(function(sec) {
-    html += '<h3>' + escHtml(sec.heading) + '</h3><ul>';
-    if (sec.items.length === 0) {
-      html += '<li class="artifact-empty">(no linked items)</li>';
+    html += '<h3>' + escHtml(sec.heading) + '</h3>';
+    if (sec.body) {
+      html += renderMarkdown(sec.body);
+    } else {
+      html += '<p class="artifact-empty">(no content)</p>';
     }
-    sec.items.forEach(function(item) {
-      html += '<li><a href="javascript:void(0)" onclick="loadFile(' + JSON.stringify(item.path) + ')">' +
-        escHtml(item.name) + '</a><br><code>' + escHtml(item.path) + '</code></li>';
-    });
-    html += '</ul>';
   });
   html += '</div>';
   return html;
@@ -271,7 +268,7 @@ async function init() {
     }
     var data = await resp.json();
     sections = Object.entries(data).map(function(entry) {
-      return {heading: entry[0], items: parseMdLinks(entry[1])};
+      return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
     });
   } catch(e) {
     loadError = 'Could not connect to bridge: ' + e.message;
