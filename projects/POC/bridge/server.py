@@ -22,7 +22,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from typing import Set
 
 from aiohttp import web
@@ -35,7 +34,6 @@ from projects.POC.orchestrator.config_reader import (
     discover_projects,
     load_management_workgroups,
     resolve_workgroups,
-    default_teaparty_home,
 )
 from projects.POC.scripts.cfa_state import load_state as _load_cfa_file
 from projects.POC.bridge.poller import StatePoller
@@ -294,8 +292,10 @@ class TeaPartyBridge:
         project_dir = os.path.join(self.projects_dir, slug)
         try:
             team = load_project_team(project_dir)
-            workgroups = resolve_workgroups(team, teaparty_home=self.teaparty_home,
-                                            project_dir=project_dir)
+            workgroups = resolve_workgroups(
+                team.workgroups, project_dir=project_dir,
+                teaparty_home=self.teaparty_home,
+            )
             return web.json_response({
                 'project': slug,
                 'team': self._serialize_project_team(team),
@@ -306,7 +306,8 @@ class TeaPartyBridge:
 
     async def _handle_workgroups(self, request: web.Request) -> web.Response:
         try:
-            workgroups = load_management_workgroups(teaparty_home=self.teaparty_home)
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            workgroups = load_management_workgroups(team, teaparty_home=self.teaparty_home)
             return web.json_response([self._serialize_workgroup(w) for w in workgroups])
         except Exception:
             return web.json_response([])
