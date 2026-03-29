@@ -11,7 +11,7 @@ Mockup: [mockup/stats.html](../mockup/stats.html)
 ## User Stories
 
 ### "How is the org performing overall?"
-Summary stats across all projects: jobs done, tasks done, active jobs, backtracks, withdrawals, escalations, action match rate, prior calibration, token usage, skills learned. One row of numbers at the top.
+Summary stats across all projects: jobs done, tasks done, active jobs, backtracks, withdrawals, escalations, action match rate, prior calibration, cost (USD), skills learned. One row of numbers at the top.
 
 ### "How well is the proxy performing?"
 Two distinct proxy metrics are displayed as aggregate bars, broken down by CfA state × task type:
@@ -23,8 +23,8 @@ High calibration with low match rate means the proxy is confidently wrong. Low c
 
 A 7-day trend view is deferred: the `proxy_accuracy` table has one row per (state, task_type) with a `last_updated` timestamp but no per-day history. The time-series variant requires adding dated accuracy snapshots to the schema (future work). *Requires: #221 (evaluation harness), #231 (confidence threshold recalibration).*
 
-### "Where are we spending the most tokens?"
-Token usage chart by day. Spikes indicate expensive jobs. Drill down by project (future: scope selector).
+### "Where are we spending the most?"
+Cost per day chart. Spikes indicate expensive jobs. Drill down by project (future: scope selector).
 
 ### "Which phases generate the most escalations?"
 Escalations by phase chart. If WORK_ASSERT dominates, the execution teams may need better self-review. If PLAN_ASSERT dominates, planning quality is the bottleneck.
@@ -61,5 +61,5 @@ All stats are derived from existing data — no new collection needed:
 | Escalations | Sessions with `needs_input=True` (CfA HUMAN_ACTOR_STATES or `.input-request.json`); historical message bus data deferred to issue #288 |
 | Action match rate (`action_match_rate`) | `proxy_accuracy` table (`posterior_correct / posterior_total` per state × task_type); requires #221, #231 |
 | Prior calibration (`prior_calibration`) | `proxy_accuracy` table (`prior_correct / prior_total` per state × task_type); requires #221, #231 |
-| Token usage | `.cost` sidecar files per session (stores USD, not tokens — see issue #285) |
+| Cost per Day | `.cost` sidecar files per session (stores USD cost to 6 decimal places) |
 | Skills learned | `{project_dir}/skills/` and `{project_dir}/teams/{name}/skills/` (see issue #294) |

@@ -200,7 +200,6 @@ def compute_stats(projects_dir: str, teaparty_home: str) -> dict:
             'phase_escalations': [{'phase': str, 'count': int}, ...],
             'limitations': {
                 'proxy_accuracy': str,  # note for issue #281
-                'token_usage': str,     # note for issue #285
             },
         }
     """
@@ -255,10 +254,6 @@ def compute_stats(projects_dir: str, teaparty_home: str) -> dict:
             'proxy_accuracy': (
                 'Issue #281: source table, time-series schema, and metric definition '
                 'are unresolved — proxy accuracy data is not available'
-            ),
-            'token_usage': (
-                'Issue #285: .cost files store USD cost, not token counts — '
-                'chart shows cost in USD'
             ),
         },
     }

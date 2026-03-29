@@ -20,7 +20,6 @@ function render(stats) {
   const maxCost   = Math.max(0.0001, ...daily.map(d => d.cost_usd));
   const maxEsc    = Math.max(1, ...(stats.phase_escalations || []).map(d => d.count));
 
-  const costNote  = limits.token_usage  ? `<span class="limit-note">${limits.token_usage}</span>`  : '';
   const proxyNote = limits.proxy_accuracy ? `<span class="limit-note">${limits.proxy_accuracy}</span>` : '';
 
   document.getElementById('content').innerHTML = `
@@ -55,7 +54,6 @@ function render(stats) {
 
       <div class="chart-card">
         <div class="chart-title">Cost per Day (USD, 7 days)</div>
-        ${costNote}
         <div class="bar-chart">
           ${daily.map(d => `
             <div class="bar-group">

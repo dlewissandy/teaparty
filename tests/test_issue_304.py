@@ -11,7 +11,7 @@ Acceptance criteria:
 8. summary.skills_learned counts from {projects_dir}/skills/ AND {projects_dir}/teams/*/skills/
 9. daily has exactly 7 entries with today as last entry
 10. summary.proxy_accuracy is None (open: issue #281)
-11. limitations has proxy_accuracy and token_usage keys (non-empty strings)
+11. limitations has proxy_accuracy key (non-empty string)
 12. stats.html fetches from /api/stats, not mockData.stats
 """
 import json
@@ -303,13 +303,6 @@ class TestOpenIssueLimitations(unittest.TestCase):
         self.assertIn('proxy_accuracy', result['limitations'])
         self.assertTrue(result['limitations']['proxy_accuracy'],
                         'proxy_accuracy limitation must be a non-empty string')
-
-    def test_limitations_has_token_usage_note(self):
-        """Token usage shows USD cost, not tokens (issue #285)."""
-        result = self._compute()
-        self.assertIn('token_usage', result['limitations'])
-        self.assertTrue(result['limitations']['token_usage'],
-                        'token_usage limitation must be a non-empty string')
 
 
 # ── Daily time series ──────────────────────────────────────────────────────────
