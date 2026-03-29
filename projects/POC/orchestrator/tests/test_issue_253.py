@@ -479,5 +479,73 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertIn('todo_list', cards)
 
 
+class TestStatsBarsNoWrap(unittest.TestCase):
+    """Stats bar format functions produce single-line strings (no newlines).
+
+    The stats bar uses two separate Static widgets (one for labels, one for values),
+    each height: 1. Each row must be a single line — no embedded newlines that would
+    cause the rows to interleave when Textual wraps the text.
+    """
+
+    def _sample_stats(self) -> list[tuple[str, str]]:
+        return [
+            ('Jobs Done', '12'),
+            ('Tasks Done', '48'),
+            ('Active', '3'),
+            ('One-shots', '7'),
+            ('Backtracks', '2'),
+            ('Withdrawals', '1'),
+            ('Escalations', '0'),
+            ('Interventions', '0'),
+            ('Proxy Acc.', '94%'),
+            ('Tokens', '2.1M'),
+            ('Skills Learned', '5'),
+            ('Uptime', '2h30m'),
+        ]
+
+    def test_labels_row_has_no_newline(self):
+        """Labels row is a single line with no embedded newlines."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        result = format_stats_labels(self._sample_stats())
+        self.assertNotIn('\n', result)
+
+    def test_values_row_has_no_newline(self):
+        """Values row is a single line with no embedded newlines."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        result = format_stats_values(self._sample_stats())
+        self.assertNotIn('\n', result)
+
+    def test_labels_contains_all_keys(self):
+        """Labels row includes every stat label."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        result = format_stats_labels(self._sample_stats())
+        for label, _ in self._sample_stats():
+            self.assertIn(label, result)
+
+    def test_values_contains_all_values(self):
+        """Values row includes every stat value."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        result = format_stats_values(self._sample_stats())
+        for _, value in self._sample_stats():
+            self.assertIn(value, result)
+
+    def test_column_widths_align_labels_and_values(self):
+        """Each column is right-padded to max(len(label), len(value)), keeping columns aligned."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        stats = [('AB', '1234'), ('LONGNAME', '9')]  # label wider than value; value narrower
+        labels = format_stats_labels(stats)
+        values = format_stats_values(stats)
+        # Strip markup: both rows have same total character width
+        import re
+        strip = lambda s: re.sub(r'\[/?[^\]]*\]', '', s)
+        self.assertEqual(len(strip(labels)), len(strip(values)))
+
+    def test_empty_stats_returns_empty_string(self):
+        """Empty stats list produces empty strings."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        self.assertEqual(format_stats_labels([]), '')
+        self.assertEqual(format_stats_values([]), '')
+
+
 if __name__ == '__main__':
     unittest.main()

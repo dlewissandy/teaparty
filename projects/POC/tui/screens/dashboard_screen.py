@@ -458,6 +458,16 @@ def format_stat_value(value) -> str:
     return str(value)
 
 
+def format_stats_labels(stats: list[tuple[str, str]]) -> str:
+    """Single-line labels row for the stats bar (no newlines)."""
+    return '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in stats)
+
+
+def format_stats_values(stats: list[tuple[str, str]]) -> str:
+    """Single-line values row for the stats bar (no newlines)."""
+    return '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in stats)
+
+
 def _uptime_str() -> str:
     """Human-readable uptime from system boot time."""
     from projects.POC.tui.state_reader import _get_cached_boot_time
@@ -740,7 +750,8 @@ class DashboardScreen(Screen):
         if self._nav.level == DashboardLevel.TASK:
             yield Static('', id='task-subtitle')
         yield Horizontal(*self._compose_breadcrumbs(), id='dash-breadcrumbs')
-        yield Static('', id='dash-stats')
+        yield Static('', id='dash-stats-labels')
+        yield Static('', id='dash-stats-values')
         # Job: workflow progress indicator
         if self._nav.level == DashboardLevel.JOB:
             yield WorkflowProgress(id='job-workflow-progress')
@@ -1272,10 +1283,9 @@ class DashboardScreen(Screen):
     # ── Card/stats helpers ──
 
     def _set_stats(self, stats: list[tuple[str, str]]) -> None:
-        values = '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in stats)
-        labels = '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in stats)
         try:
-            self.query_one('#dash-stats', Static).update(f'{values}\n{labels}')
+            self.query_one('#dash-stats-labels', Static).update(format_stats_labels(stats))
+            self.query_one('#dash-stats-values', Static).update(format_stats_values(stats))
         except Exception:
             pass
 
