@@ -27,6 +27,7 @@ from unittest.mock import call, patch, MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from projects.POC.orchestrator.state_reader import SessionState, DispatchState
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -42,9 +43,11 @@ def _make_session_state(
     cfa_phase: str = 'intent',
     status: str = 'active',
     dispatches: list | None = None,
-    worktree_path: str = '/tmp/fake-worktree',
+    worktree_path: str = '',
 ) -> SessionState:
     """Build a minimal SessionState for testing."""
+    if not worktree_path:
+        worktree_path = infra_dir
     return SessionState(
         project='test-project',
         session_id='20260316-120000',
@@ -69,7 +72,7 @@ def _make_dispatch_state(infra_dir: str, status: str = 'active') -> DispatchStat
     return DispatchState(
         team='coding',
         worktree_name='dispatch-test',
-        worktree_path='/tmp/fake-dispatch-wt',
+        worktree_path=infra_dir,
         task='dispatch task',
         status=status,
         cfa_state='TASK_IN_PROGRESS',

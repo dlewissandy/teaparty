@@ -17,6 +17,7 @@ import time
 import unittest
 
 from projects.POC.orchestrator.events import EventType
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
 
 # ── Test 1: InterventionQueue API ────────────────────────────────────────────
@@ -162,17 +163,18 @@ class TestOrchestratorInterventionDelivery(unittest.TestCase):
         cfa = make_initial_state(task_id='test')
 
         # Minimal construction — only testing attribute storage
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=cfa,
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             intervention_queue=q,
         )
         self.assertIs(orch._intervention_queue, q)
@@ -202,17 +204,18 @@ class TestInterventionEventPublication(unittest.TestCase):
 
         cfa = make_initial_state(task_id='test')
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=cfa,
             phase_config=_make_stub_phase_config(),
             event_bus=bus,
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             intervention_queue=q,
             session_id='test-session',
         )
@@ -266,17 +269,18 @@ class TestInterventionInjection(unittest.TestCase):
         q = InterventionQueue()
         q.enqueue('change course', sender='human')
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             intervention_queue=q,
         )
 
@@ -298,17 +302,18 @@ class TestInterventionInjection(unittest.TestCase):
         from projects.POC.orchestrator.events import EventBus
         from projects.POC.scripts.cfa_state import make_initial_state
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             intervention_queue=InterventionQueue(),
         )
 
@@ -323,17 +328,18 @@ class TestInterventionInjection(unittest.TestCase):
         from projects.POC.orchestrator.events import EventBus
         from projects.POC.scripts.cfa_state import make_initial_state
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
         )
 
         # Should not raise

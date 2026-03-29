@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
 from projects.POC.orchestrator.config_reader import ScheduledTask
 from projects.POC.orchestrator.cron_scheduler import CronScheduler, RunRecord
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ def _make_scheduler(
         state_dir = _make_state_dir()
     return CronScheduler(
         tasks=tasks, state_dir=state_dir,
-        project_dir='/tmp/fake-project', project_slug='test-project',
+        project_dir=_make_state_dir(), project_slug='test-project',
     )
 
 
@@ -78,7 +79,7 @@ class TestCronDriverCreation(unittest.TestCase):
         driver = CronDriver(
             tasks=tasks,
             state_dir=_make_state_dir(),
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         self.assertIsInstance(driver.scheduler, CronScheduler)
@@ -91,7 +92,7 @@ class TestCronDriverCreation(unittest.TestCase):
         driver = CronDriver(
             tasks=[],
             state_dir=_make_state_dir(),
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         self.assertEqual(len(driver.scheduler.tasks), 0)
@@ -107,7 +108,7 @@ class TestCronDriverTick(unittest.TestCase):
         driver = CronDriver(
             tasks=[_make_scheduled_task()],
             state_dir=_make_state_dir(),
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         factory = _make_session_factory('COMPLETED_WORK')
@@ -126,7 +127,7 @@ class TestCronDriverTick(unittest.TestCase):
         driver = CronDriver(
             tasks=[_make_scheduled_task()],
             state_dir=state_dir,
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         # Mark the task as recently run
@@ -151,7 +152,7 @@ class TestCronDriverReentrancyGuard(unittest.TestCase):
         driver = CronDriver(
             tasks=[_make_scheduled_task()],
             state_dir=_make_state_dir(),
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
 
@@ -196,7 +197,7 @@ class TestCronDriverFromConfig(unittest.TestCase):
         mock_collect.return_value = [_make_scheduled_task(name='config-task')]
 
         driver = CronDriver.from_config(
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         mock_collect.assert_called_once()
@@ -211,7 +212,7 @@ class TestCronDriverFromConfig(unittest.TestCase):
         mock_collect.side_effect = Exception('bad YAML')
 
         driver = CronDriver.from_config(
-            project_dir='/tmp/fake',
+            project_dir=_make_state_dir(),
             project_slug='test',
         )
         self.assertEqual(len(driver.scheduler.tasks), 0)

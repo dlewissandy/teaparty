@@ -17,6 +17,7 @@ import tempfile
 import unittest
 
 from projects.POC.orchestrator.events import EventBus, EventType
+from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
 
 # ── Test 1: cascade_withdraw_children kills active children ───────────────────
@@ -211,17 +212,18 @@ class TestInterventionActiveFlag(unittest.TestCase):
         q = InterventionQueue()
         q.enqueue('redirect', sender='human')
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
             intervention_queue=q,
         )
 
@@ -233,17 +235,18 @@ class TestInterventionActiveFlag(unittest.TestCase):
         from projects.POC.orchestrator.engine import Orchestrator
         from projects.POC.scripts.cfa_state import make_initial_state
 
+        tmp = make_tmp_dir(self)
         orch = Orchestrator(
             cfa_state=make_initial_state(task_id='test'),
             phase_config=_make_stub_phase_config(),
             event_bus=EventBus(),
             input_provider=None,
-            infra_dir='/tmp/fake',
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            infra_dir=tmp,
+            project_workdir=tmp,
+            session_worktree=tmp,
+            proxy_model_path=tmp,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=tmp,
         )
         self.assertFalse(orch._intervention_active)
 
@@ -298,11 +301,11 @@ class TestCascadeOnBacktrack(unittest.TestCase):
             event_bus=bus,
             input_provider=None,
             infra_dir=infra,
-            project_workdir='/tmp/fake',
-            session_worktree='/tmp/fake',
-            proxy_model_path='/tmp/fake',
+            project_workdir=infra,
+            session_worktree=infra,
+            proxy_model_path=infra,
             project_slug='test',
-            poc_root='/tmp/fake',
+            poc_root=infra,
             intervention_queue=InterventionQueue(),
         )
 
