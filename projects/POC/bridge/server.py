@@ -34,6 +34,8 @@ from projects.POC.orchestrator.config_reader import (
     discover_projects,
     load_management_workgroups,
     resolve_workgroups,
+    WorkgroupRef,
+    WorkgroupEntry,
 )
 from projects.POC.scripts.cfa_state import load_state as _load_cfa_file
 from projects.POC.bridge.poller import StatePoller
@@ -282,6 +284,8 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             projects = discover_projects(team)
+            for p in projects:
+                p['slug'] = os.path.basename(p['path'])
             return web.json_response({
                 'management_team': self._serialize_management_team(team),
                 'projects': projects,
@@ -294,17 +298,27 @@ class TeaPartyBridge:
         project_dir = os.path.join(self.projects_dir, slug)
         try:
             team = load_project_team(project_dir)
-            workgroups = resolve_workgroups(
-                team.workgroups, project_dir=project_dir,
-                teaparty_home=self.teaparty_home,
-            )
-            return web.json_response({
-                'project': slug,
-                'team': self._serialize_project_team(team),
-                'workgroups': [self._serialize_workgroup(w) for w in workgroups],
-            })
         except FileNotFoundError:
             return web.json_response({'error': f'project not found: {slug}'}, status=404)
+
+        workgroups = []
+        for entry in team.workgroups:
+            source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
+            try:
+                resolved = resolve_workgroups(
+                    [entry], project_dir=project_dir,
+                    teaparty_home=self.teaparty_home,
+                )
+                for w in resolved:
+                    workgroups.append(self._serialize_workgroup(w, source=source))
+            except FileNotFoundError:
+                _log.warning('Workgroup not found, skipping: %s', entry)
+
+        return web.json_response({
+            'project': slug,
+            'team': self._serialize_project_team(team),
+            'workgroups': workgroups,
+        })
 
     async def _handle_workgroups(self, request: web.Request) -> web.Response:
         try:
@@ -539,6 +553,14 @@ class TeaPartyBridge:
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
+            'agents': t.agents,
+            'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
+            'skills': t.skills,
+            'hooks': t.hooks,
+            'scheduled': [
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                for s in t.scheduled
+            ],
         }
 
     def _serialize_project_team(self, t) -> dict:
@@ -547,11 +569,21 @@ class TeaPartyBridge:
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
+            'agents': t.agents,
+            'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
+            'skills': t.skills,
+            'hooks': t.hooks,
+            'scheduled': [
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                for s in t.scheduled
+            ],
         }
 
-    def _serialize_workgroup(self, w) -> dict:
+    def _serialize_workgroup(self, w, source: str | None = None) -> dict:
         return {
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
+            'agents_count': len(w.agents),
+            'source': source,
         }
