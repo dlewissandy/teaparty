@@ -259,6 +259,8 @@ function connectWS() {
         onStateChanged(event.session_id, event.phase, event.state);
       } else if (event.type === 'input_requested') {
         onInputRequested(event.session_id);
+      } else if (event.type === 'message') {
+        onMessage(event.conversation_id, event.sender);
       }
     } catch (err) {}
   };
@@ -313,6 +315,31 @@ function onInputRequested(sessionId) {
       if (s.session_id === sessionId && !s.needs_input) {
         s.needs_input = true;
         p.attention_count = (p.attention_count || 0) + 1;
+      }
+    });
+  });
+}
+
+// Clear escalation dot and decrement badge count on human message in a session conversation.
+// A human message means the escalation question was answered, so needs_input goes false.
+function onMessage(convId, sender) {
+  if (sender !== 'human') return;
+  // session:{session_id} → extract session_id
+  if (!convId || convId.indexOf('session:') !== 0) return;
+  var sessionId = convId.slice('session:'.length);
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (row) {
+    var dotSlot = row.firstElementChild;
+    if (dotSlot && dotSlot.classList.contains('attention-dot')) {
+      dotSlot.className = '';
+      dotSlot.style.width = '6px';
+    }
+  }
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId && s.needs_input) {
+        s.needs_input = false;
+        p.attention_count = Math.max(0, (p.attention_count || 1) - 1);
       }
     });
   });

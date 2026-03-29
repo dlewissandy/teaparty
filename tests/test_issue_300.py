@@ -150,6 +150,17 @@ class TestIndexHtmlLiveDataBinding(unittest.TestCase):
         self.assertIn('state_changed', content,
                       'index.html must handle state_changed events from the WebSocket')
 
+    def test_index_html_handles_message_event(self):
+        """index.html must handle WebSocket message events to update badge counts.
+
+        When a human sends a message resolving an escalation, the badge count must
+        decrease without a page reload. The message event carries conversation_id
+        and sender fields.
+        """
+        content = _read_index()
+        self.assertIn("event.type === 'message'", content,
+                      "index.html must handle 'message' WebSocket events for badge count updates")
+
 
 class TestIndexHtmlNavigationLinks(unittest.TestCase):
     """Navigation links in index.html must use real conversation IDs."""
