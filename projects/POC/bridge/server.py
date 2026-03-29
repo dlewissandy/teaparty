@@ -238,10 +238,13 @@ class TeaPartyBridge:
         app['_poller_task'] = asyncio.create_task(poller.run())
         app['_relay_task'] = asyncio.create_task(relay.run())
 
-        # Open the office manager bus (persistent)
+        # Open the office manager bus (persistent, not session-scoped).
+        # Add to self._buses so MessageRelay polls it alongside per-session buses.
+        # The 'om' key is stable and will never collide with a session_id.
         om_path = _om_bus_path(self.teaparty_home)
         os.makedirs(os.path.dirname(om_path), exist_ok=True)
         self._om_bus = SqliteMessageBus(om_path)
+        self._buses['om'] = self._om_bus
 
     async def _on_cleanup(self, app: web.Application) -> None:
         for key in ('_poller_task', '_relay_task'):
@@ -254,8 +257,7 @@ class TeaPartyBridge:
                     pass
         for bus in self._buses.values():
             bus.close()
-        if self._om_bus is not None:
-            self._om_bus.close()
+        # self._om_bus is in self._buses['om'] and closed above
 
     # ── State handlers ────────────────────────────────────────────────────────
 
