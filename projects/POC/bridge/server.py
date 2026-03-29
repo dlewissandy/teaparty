@@ -163,6 +163,11 @@ class TeaPartyBridge:
         self._buses: dict[str, SqliteMessageBus] = {}
         # Office manager bus (persistent, not session-scoped).
         self._om_bus: SqliteMessageBus | None = None
+        # Single StateReader instance shared by the polling loop and REST handlers.
+        # poc_root is derived from projects_dir — it is the orchestrator source
+        # directory (projects_dir/POC), not teaparty_home (the runtime data dir).
+        poc_root = os.path.join(self.projects_dir, 'POC')
+        self._state_reader = StateReader(poc_root, self.projects_dir)
 
     def run(self, port: int = 8081) -> None:
         """Start the bridge server and block until interrupted."""
@@ -214,9 +219,6 @@ class TeaPartyBridge:
     # ── Lifecycle ─────────────────────────────────────────────────────────────
 
     async def _on_startup(self, app: web.Application) -> None:
-        poc_root = os.path.join(self.projects_dir, 'POC')
-        state_reader = StateReader(poc_root, self.projects_dir)
-
         async def broadcast(event: dict) -> None:
             payload = json.dumps(event)
             for ws in list(self._ws_clients):
@@ -233,7 +235,7 @@ class TeaPartyBridge:
             self._buses[os.path.basename(infra_dir)] = bus
             return bus
 
-        poller = StatePoller(state_reader, broadcast, bus_factory=bus_factory)
+        poller = StatePoller(self._state_reader, broadcast, bus_factory=bus_factory)
         relay = MessageRelay(self._buses, broadcast)
 
         app['_poller_task'] = asyncio.create_task(poller.run())
@@ -263,18 +265,14 @@ class TeaPartyBridge:
     # ── State handlers ────────────────────────────────────────────────────────
 
     async def _handle_state_all(self, request: web.Request) -> web.Response:
-        poc_root = os.path.join(self.projects_dir, 'POC')
-        reader = StateReader(poc_root, self.projects_dir)
-        projects = reader.reload()
+        projects = self._state_reader.reload()
         data = [self._serialize_project(p) for p in projects]
         return web.json_response(data)
 
     async def _handle_state_project(self, request: web.Request) -> web.Response:
         slug = request.match_info['project']
-        poc_root = os.path.join(self.projects_dir, 'POC')
-        reader = StateReader(poc_root, self.projects_dir)
-        reader.reload()
-        project = reader.find_project(slug)
+        self._state_reader.reload()
+        project = self._state_reader.find_project(slug)
         if project is None:
             return web.json_response({'error': f'project not found: {slug}'}, status=404)
         return web.json_response(self._serialize_project(project))

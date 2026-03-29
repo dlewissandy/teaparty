@@ -36,7 +36,7 @@ bridge = TeaPartyBridge(
 bridge.run(port=8081)
 ```
 
-1. Derive `poc_root = os.path.join(projects_dir, 'POC')` — the orchestrator source directory, not `teaparty_home` (the runtime data directory). Initialize `StateReader(poc_root, projects_dir)` for filesystem polling.
+1. Derive `poc_root = os.path.join(projects_dir, 'POC')` — the orchestrator source directory, not `teaparty_home` (the runtime data directory). Construct a single `StateReader(poc_root, projects_dir)` instance stored on the bridge. This instance is shared by the polling loop and all REST state handlers (`/api/state`, `/api/state/{project}`) — not recreated per request.
 2. Open a `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
 3. Load config via `load_management_team()` + `discover_projects()`
 4. Start 1-second polling loop (same cadence as the TUI)
