@@ -804,19 +804,22 @@ Session conversation:
 {conversation}
 """,
 
-    "interventions": """You are reading a log of human interventions from a live agent session. Each intervention is a moment where the human typed a message during active agent work — an unsolicited course correction.
+    "interventions": """You are analyzing human interventions from a live agent session alongside the session execution stream. Interventions are unsolicited messages the human typed during active agent work — course corrections at turn boundaries.
 
-Each entry has this shape:
+The intervention records (in the context section below) have this shape:
 {{"type": "intervention", "timestamp": "...", "content": "...", "senders": [...], "cfa_state": "...", "phase": "...", "outcome": "pending"}}
 {{"type": "intervention_outcome", "timestamp": "...", "outcome": "continue|backtrack|withdraw", "backtrack_phase": "..."}}
 
-The intervention chunk is followed by an outcome record showing how the agent responded.
+Each intervention chunk is followed by an outcome record showing how the agent responded.
+
+The execution stream (below) shows what the agent was doing immediately before the intervention — the recent agent activity the human interrupted.
 
 Extract proxy behavioral learnings: patterns that reveal what the human pays attention to, what triggers their intervention, and what the intervention tells a proxy about the human's priorities and risk tolerance.
 
 FOCUS ON:
-- What types of agent behavior prompted the human to intervene (plan quality, wrong direction, missed context, etc.)
+- What types of agent behavior prompted the human to intervene (plan quality, wrong direction, missed context, scope creep, etc.)
 - Whether the human's intervention caused the agent to backtrack, continue, or withdraw — and what that reveals about the severity of the issue
+- What the agent was doing in the execution stream when the intervention occurred (the "missed signal" the proxy should have caught)
 - Patterns in which CfA phase interventions occur (planning vs. execution suggests different monitoring needs)
 - What the human's intervention content reveals about their implicit expectations the agents failed to meet
 
@@ -830,12 +833,13 @@ Format each learning as:
 **Trigger:** <what prompted the human to intervene>
 **Phase:** <CfA phase where intervention occurred>
 **Outcome:** <how the agent responded — continue/backtrack/withdraw>
+**Missed Signal:** <what in the agent's behavior the proxy should have flagged>
 **Signal:** <what this reveals about the human's priorities or proxy calibration>
 **Proxy Action:** <how the proxy should act differently to anticipate this intervention>
 
 {context_section}
 
-Intervention log:
+Execution stream (recent agent activity):
 {conversation}
 """,
 }
@@ -1239,8 +1243,12 @@ def promote(
         proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
         os.makedirs(proxy_tasks_dir, exist_ok=True)
 
+        # Pass exec stream as the main stream so the LLM sees recent agent
+        # activity alongside the intervention records (captures the "what the
+        # agent was doing when the human intervened" context the issue requires).
+        exec_s = _exec_stream()
         summarize(
-            '',
+            exec_s,
             os.path.join(proxy_tasks_dir, f'{ts}-interventions.md'),
             [interventions_file],
             'interventions',
