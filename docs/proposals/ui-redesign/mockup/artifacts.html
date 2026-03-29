@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TeaParty — Artifacts</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css">
 <style>
   .artifact-layout { display: flex; flex: 1; min-height: 0; }
   .artifact-nav {
@@ -31,7 +32,6 @@
   .artifact-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
   .artifact-path { font-size: 9px; color: var(--text-dim); margin-bottom: 12px; font-family: inherit; }
   .artifact-path code { color: var(--green); }
-  .artifact-summary { font-size: 11px; line-height: 1.6; color: var(--text-dim); margin-bottom: 16px; }
   .artifact-job-link {
     display: inline-block; font-size: 9px; padding: 2px 8px; border-radius: 3px;
     background: rgba(78,204,163,0.15); color: var(--green); cursor: pointer;
@@ -41,92 +41,249 @@
     background: var(--surface); border: 1px solid var(--border); border-radius: 5px;
     padding: 16px; font-size: 11px; line-height: 1.7; color: var(--text-dim);
   }
+  .artifact-content h1 { color: var(--text); font-size: 14px; margin: 16px 0 8px 0; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+  .artifact-content h1:first-child { margin-top: 0; }
+  .artifact-content h2 { color: var(--text); font-size: 13px; margin: 14px 0 6px 0; }
   .artifact-content h3 { color: var(--text); font-size: 12px; margin: 12px 0 6px 0; }
   .artifact-content h3:first-child { margin-top: 0; }
-  .artifact-content ul { padding-left: 16px; margin: 4px 0; }
+  .artifact-content h4, .artifact-content h5, .artifact-content h6 { color: var(--text); font-size: 11px; margin: 10px 0 4px 0; }
+  .artifact-content p { margin: 6px 0; }
+  .artifact-content ul, .artifact-content ol { padding-left: 18px; margin: 4px 0; }
   .artifact-content li { margin: 3px 0; }
-  .artifact-content code { color: var(--green); font-size: 10px; }
+  .artifact-content a { color: var(--green); text-decoration: none; }
+  .artifact-content a:hover { text-decoration: underline; }
+  .artifact-content code { color: var(--green); font-size: 10px; background: rgba(78,204,163,0.08); padding: 1px 4px; border-radius: 2px; }
+  .artifact-content pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 12px; overflow-x: auto; margin: 8px 0; }
+  .artifact-content pre code { background: none; padding: 0; font-size: 10px; color: inherit; }
+  .artifact-content blockquote { border-left: 3px solid var(--border); margin: 8px 0; padding: 4px 12px; color: var(--text-dim); font-style: italic; }
+  .artifact-content hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+  .artifact-content table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 10px; }
+  .artifact-content th, .artifact-content td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .artifact-content th { background: var(--surface2); color: var(--text); }
+  .artifact-content img { max-width: 100%; }
+  .artifact-loading { color: var(--text-dim); font-style: italic; font-size: 11px; padding: 16px; }
+  .artifact-empty { color: var(--text-dim); font-style: italic; }
 </style>
 </head>
 <body>
 
 <div id="content" class="app-pane active"></div>
 
-<script src="data.js?v=4"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/build/highlight.min.js"></script>
 <script>
 var params = new URLSearchParams(window.location.search);
 var currentProject = params.get('project') || 'poc';
-var selectedItem = null;
+var requestedFile = params.get('file') || null;
 
-function selectArtifact(sectionIdx, itemIdx) {
-  selectedItem = { section: sectionIdx, item: itemIdx };
-  render();
+var sections = [];     // [{heading, items: [{name, path}]}]
+var selectedFile = null;
+var fileContent = null;
+var loadError = null;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function escHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
-function openJobChat(jobId) {
-  window.open('chat.html?conv=' + jobId, '_blank');
+function parseMdLinks(text) {
+  var items = [];
+  var regex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  var m;
+  while ((m = regex.exec(text)) !== null) {
+    var href = m[2];
+    if (!href.startsWith('http') && !href.startsWith('#') && !href.startsWith('mailto:')) {
+      items.push({name: m[1], path: href});
+    }
+  }
+  return items;
 }
+
+function rewriteInternalLinks(html) {
+  return html.replace(/href="([^"]+)"/g, function(match, href) {
+    if (/^(https?:\/\/|#|mailto:|javascript:)/.test(href)) return match;
+    return 'href="javascript:void(0)" onclick="loadFile(' + JSON.stringify(href) + ')"';
+  });
+}
+
+function isJobArtifact(path) {
+  return path.indexOf('.sessions/') !== -1;
+}
+
+function jobConvId(path) {
+  var m = path.match(/\.sessions\/([^/]+)\//);
+  return m ? 'job:' + currentProject + ':' + m[1] : null;
+}
+
+function renderMarkdown(content) {
+  var html = marked.parse(content);
+  return rewriteInternalLinks(html);
+}
+
+function renderCode(content, ext) {
+  var lang = ext === 'yml' ? 'yaml' : ext;
+  try {
+    if (hljs.getLanguage(lang)) {
+      return '<pre><code class="hljs language-' + escHtml(lang) + '">' +
+        hljs.highlight(content, {language: lang, ignoreIllegals: true}).value +
+        '</code></pre>';
+    }
+  } catch(e) {}
+  return '<pre><code>' + escHtml(content) + '</code></pre>';
+}
+
+// ── Rendering ─────────────────────────────────────────────────────────────────
 
 function render() {
-  var project = mockData.artifacts[currentProject];
-  if (!project) { document.getElementById('content').innerHTML = '<div class="empty">Project not found</div>'; return; }
-  var idx = project.index;
-  document.title = 'TeaParty \u2014 ' + project.name + ' Artifacts';
+  var entryFile = currentProject === 'org' ? 'organization.md' : 'project.md';
+  var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
+  document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
 
-  // Nav
   var navHtml = '<div class="artifact-nav">';
-  var entryFile = project.entryFile || 'project.md';
-  navHtml += '<div class="artifact-nav-project">' + project.name + '<div style="font-size:9px;color:var(--text-dim);font-weight:400;margin-top:2px">' + entryFile + '</div></div>';
-  idx.sections.forEach(function(sec, si) {
-    navHtml += '<div class="artifact-nav-section">' + sec.heading + '</div>';
-    sec.items.forEach(function(item, ii) {
-      var isActive = selectedItem && selectedItem.section === si && selectedItem.item === ii;
-      navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" onclick="selectArtifact(' + si + ',' + ii + ')">' + item.name + '</div>';
+  navHtml += '<div class="artifact-nav-project">' + escHtml(displayName) +
+    '<div style="font-size:9px;color:var(--text-dim);font-weight:400;margin-top:2px">' + escHtml(entryFile) + '</div></div>';
+
+  sections.forEach(function(sec) {
+    navHtml += '<div class="artifact-nav-section">' + escHtml(sec.heading) + '</div>';
+    if (sec.items.length === 0) {
+      navHtml += '<div class="artifact-nav-item" style="font-style:italic;cursor:default">(no items)</div>';
+    }
+    sec.items.forEach(function(item) {
+      var isActive = selectedFile === item.path;
+      navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') +
+        '" onclick="loadFile(' + JSON.stringify(item.path) + ')">' + escHtml(item.name) + '</div>';
     });
   });
   navHtml += '</div>';
 
-  // Main content
   var mainHtml = '<div class="artifact-main">';
-  if (!selectedItem) {
-    // Show project overview
-    mainHtml += '<div class="artifact-title">' + idx.title + '</div>';
-    mainHtml += '<div class="artifact-summary">' + idx.description + '</div>';
-    mainHtml += '<div class="artifact-content">';
-    idx.sections.forEach(function(sec) {
-      mainHtml += '<h3>' + sec.heading + '</h3><ul>';
-      sec.items.forEach(function(item) {
-        mainHtml += '<li><strong>' + item.name + '</strong> \u2014 ' + item.summary + '<br><code>' + item.path + '</code></li>';
-      });
-      mainHtml += '</ul>';
-    });
-    mainHtml += '</div>';
+  if (loadError) {
+    mainHtml += '<div class="artifact-loading">' + escHtml(loadError) + '</div>';
+  } else if (selectedFile !== null && fileContent === null) {
+    mainHtml += '<div class="artifact-loading">Loading\u2026</div>';
+  } else if (selectedFile !== null && fileContent !== null) {
+    mainHtml += renderFileView(selectedFile, fileContent);
   } else {
-    var sec = idx.sections[selectedItem.section];
-    var item = sec.items[selectedItem.item];
-    mainHtml += '<div class="artifact-title">' + item.name + '</div>';
-    mainHtml += '<div class="artifact-path"><code>' + item.path + '</code></div>';
-    if (item.job) {
-      mainHtml += '<div class="artifact-job-link" onclick="openJobChat(\'' + item.job + '\')">View job conversation &#8594;</div>';
-    }
-    mainHtml += '<div class="artifact-summary">' + item.summary + '</div>';
-    mainHtml += '<div class="artifact-content">';
-    mainHtml += '<h3>Content Preview</h3>';
-    mainHtml += '<p style="color:var(--text-dim);font-style:italic">In the real application, this would render the markdown content of <code>' + item.path + '</code>. ';
-    mainHtml += 'The file would be read from disk and rendered with full markdown support including headers, lists, code blocks, and links to other artifacts.</p>';
-    if (item.job) {
-      mainHtml += '<h3>Job Context</h3>';
-      mainHtml += '<p>This artifact was produced during job <code>' + item.job + '</code>. Click the link above to see the full job conversation with task-level detail.</p>';
-    }
-    mainHtml += '</div>';
+    mainHtml += renderOverview();
   }
   mainHtml += '</div>';
 
   document.getElementById('content').innerHTML =
     '<div class="artifact-layout">' + navHtml + mainHtml + '</div>';
+
+  document.querySelectorAll('.artifact-content pre code:not(.hljs)').forEach(function(el) {
+    hljs.highlightElement(el);
+  });
 }
 
-render();
+function renderOverview() {
+  var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
+  var html = '<div class="artifact-title">' + escHtml(displayName) + '</div>';
+  html += '<div class="artifact-content">';
+  if (sections.length === 0) {
+    html += '<p class="artifact-empty">No documentation found for this project.</p>';
+  }
+  sections.forEach(function(sec) {
+    html += '<h3>' + escHtml(sec.heading) + '</h3>';
+    if (sec.body) {
+      html += renderMarkdown(sec.body);
+    } else {
+      html += '<p class="artifact-empty">(no content)</p>';
+    }
+  });
+  html += '</div>';
+  return html;
+}
+
+function renderFileView(path, content) {
+  var filename = path.split('/').pop();
+  var ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
+  var codeExts = ['py', 'js', 'ts', 'json', 'yaml', 'yml', 'sh', 'bash', 'toml', 'cfg', 'ini', 'html', 'css'];
+
+  var html = '';
+  html += '<div class="artifact-title">' + escHtml(filename) + '</div>';
+  html += '<div class="artifact-path"><code>' + escHtml(path) + '</code></div>';
+
+  if (isJobArtifact(path)) {
+    var convId = jobConvId(path);
+    if (convId) {
+      html += '<div class="artifact-job-link" onclick="openJobChat(' + JSON.stringify(convId) + ')">View job conversation &#8594;</div>';
+    }
+  }
+
+  html += '<div class="artifact-content">';
+  if (ext === 'md') {
+    html += renderMarkdown(content);
+  } else if (codeExts.indexOf(ext) !== -1) {
+    html += renderCode(content, ext);
+  } else {
+    html += '<pre><code>' + escHtml(content) + '</code></pre>';
+  }
+  html += '</div>';
+
+  return html;
+}
+
+// ── Actions ───────────────────────────────────────────────────────────────────
+
+async function loadFile(path) {
+  selectedFile = path;
+  fileContent = null;
+  loadError = null;
+  render();
+
+  try {
+    var resp = await fetch('/api/file?path=' + encodeURIComponent(path));
+    if (!resp.ok) {
+      loadError = resp.status === 404 ? 'File not found: ' + path : 'Error loading file (' + resp.status + ')';
+    } else {
+      fileContent = await resp.text();
+    }
+  } catch(e) {
+    loadError = 'Could not load file: ' + e.message;
+  }
+  render();
+}
+
+function openJobChat(convId) {
+  window.open('chat.html?conv=' + encodeURIComponent(convId), '_blank');
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+
+async function init() {
+  try {
+    var resp = await fetch('/api/artifacts/' + encodeURIComponent(currentProject));
+    if (!resp.ok) {
+      loadError = resp.status === 404
+        ? 'No documentation found for project: ' + currentProject
+        : 'Error loading project (' + resp.status + ')';
+      render();
+      return;
+    }
+    var data = await resp.json();
+    sections = Object.entries(data).map(function(entry) {
+      return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
+    });
+  } catch(e) {
+    loadError = 'Could not connect to bridge: ' + e.message;
+    render();
+    return;
+  }
+
+  if (requestedFile) {
+    await loadFile(requestedFile);
+  } else {
+    render();
+  }
+}
+
+init();
 </script>
 </body>
 </html>
