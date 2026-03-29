@@ -694,6 +694,18 @@ class DashboardScreen(Screen):
             title += f' \u2014 {self._nav.job_id}'
         if self._nav.task_id:
             title += f' \u2014 {self._nav.task_id}'
+        # Project level: append decider if available from config
+        if self._nav.level == DashboardLevel.PROJECT and self._nav.project_slug:
+            try:
+                from projects.POC.orchestrator.config_reader import load_project_team
+                reader = self.app.state_reader
+                proj = reader.find_project(self._nav.project_slug)
+                if proj:
+                    pt = load_project_team(proj.path)
+                    if pt.decider:
+                        title += f'  (decider: {pt.decider})'
+            except Exception:
+                pass
         return f'[bold]{title}[/bold]'
 
     def _compose_breadcrumbs(self) -> ComposeResult:
@@ -718,8 +730,8 @@ class DashboardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id='dash-title')
-        # Job/Task: worktree open buttons in title bar
-        if self._nav.level in (DashboardLevel.JOB, DashboardLevel.TASK):
+        # Project/Job/Task: directory open buttons in title bar
+        if self._nav.level in (DashboardLevel.PROJECT, DashboardLevel.JOB, DashboardLevel.TASK):
             yield Horizontal(
                 Static('[bold]Open:[/bold] ', classes='open-label'),
                 Static('[link]Finder[/link]', id='btn-open-finder', classes='open-btn'),
@@ -727,6 +739,9 @@ class DashboardScreen(Screen):
                 Static('[link]Editor[/link]', id='btn-open-editor', classes='open-btn'),
                 id='title-actions',
             )
+        # Project: subtitle (description from config)
+        if self._nav.level == DashboardLevel.PROJECT:
+            yield Static('', id='project-subtitle')
         # Task: subtitle (assignee, status, workgroup link)
         if self._nav.level == DashboardLevel.TASK:
             yield Static('', id='task-subtitle')
@@ -853,6 +868,16 @@ class DashboardScreen(Screen):
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
+        # Project subtitle: description from config
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            if pt.description:
+                self.query_one('#project-subtitle', Static).update(
+                    f'[dim]{pt.description}[/dim]'
+                )
+        except Exception:
+            pass
         # Issue #273: full stat set from project-dashboard.md
         self._set_stats(format_project_stats(proj.sessions, proj.path))
 
@@ -1212,8 +1237,13 @@ class DashboardScreen(Screen):
             return []
 
     def _load_management_hooks(self) -> list[CardItem]:
-        # ManagementTeam doesn't have hooks in the config schema yet
-        return []
+        try:
+            from projects.POC.orchestrator.config_reader import load_management_team
+            team = load_management_team()
+            return _build_hook_items(team.hooks)
+        except Exception:
+            _log.warning('Failed to load management hooks', exc_info=True)
+            return []
 
     def _load_project_skills(self, proj) -> list[CardItem]:
         try:
@@ -1464,6 +1494,13 @@ class DashboardScreen(Screen):
 
     def _resolve_worktree_path(self) -> str | None:
         reader = self.app.state_reader
+        # Project level: open the project directory
+        if self._nav.level == DashboardLevel.PROJECT and self._nav.project_slug:
+            proj = reader.find_project(self._nav.project_slug)
+            if proj and proj.path and os.path.isdir(proj.path):
+                return proj.path
+            return None
+        # Job/Task level: open the session worktree
         session = reader.find_session(self._nav.job_id)
         if not session:
             return None
