@@ -31,6 +31,7 @@ from projects.POC.orchestrator.state_reader import StateReader, _heartbeat_three
 from projects.POC.orchestrator.config_reader import (
     load_management_team,
     load_project_team,
+    load_workgroup,
     discover_projects,
     load_management_workgroups,
     resolve_workgroups,
@@ -102,6 +103,26 @@ def _load_cfa_state(infra_dir: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _detect_workgroup_overrides(org_workgroup, project_workgroup) -> list[str]:
+    """Return a list of field names where the project workgroup diverges from org.
+
+    Compares norms, budget, lead, agents, and skills.  Returns names of
+    overridden categories, e.g. ['norms', 'budget'].
+    """
+    overrides: list[str] = []
+    if project_workgroup.norms != org_workgroup.norms:
+        overrides.append('norms')
+    if project_workgroup.budget != org_workgroup.budget:
+        overrides.append('budget')
+    if project_workgroup.lead != org_workgroup.lead:
+        overrides.append('lead')
+    if project_workgroup.agents != org_workgroup.agents:
+        overrides.append('agents')
+    if project_workgroup.skills != org_workgroup.skills:
+        overrides.append('skills')
+    return overrides
 
 
 def _parse_artifacts(content: str) -> dict[str, str]:
@@ -304,13 +325,31 @@ class TeaPartyBridge:
         workgroups = []
         for entry in team.workgroups:
             source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
+            overrides: list[str] = []
             try:
                 resolved = resolve_workgroups(
                     [entry], project_dir=project_dir,
                     teaparty_home=self.teaparty_home,
                 )
                 for w in resolved:
-                    workgroups.append(self._serialize_workgroup(w, source=source))
+                    if isinstance(entry, WorkgroupRef):
+                        # Check if a project-level override exists by attempting to
+                        # load the org-level definition and comparing.
+                        org_path = os.path.join(
+                            self.teaparty_home, 'workgroups', f'{entry.ref}.yaml'
+                        )
+                        project_path = os.path.join(
+                            project_dir, '.teaparty', 'workgroups', f'{entry.ref}.yaml'
+                        )
+                        if os.path.exists(project_path) and os.path.exists(org_path):
+                            try:
+                                org_wg = load_workgroup(org_path)
+                                overrides = _detect_workgroup_overrides(org_wg, w)
+                            except Exception:
+                                pass
+                    workgroups.append(
+                        self._serialize_workgroup(w, source=source, overrides=overrides)
+                    )
             except FileNotFoundError:
                 _log.warning('Workgroup not found, skipping: %s', entry)
 
@@ -579,11 +618,14 @@ class TeaPartyBridge:
             ],
         }
 
-    def _serialize_workgroup(self, w, source: str | None = None) -> dict:
+    def _serialize_workgroup(
+        self, w, source: str | None = None, overrides: list[str] | None = None
+    ) -> dict:
         return {
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
             'agents_count': len(w.agents),
             'source': source,
+            'overrides': overrides or [],
         }

@@ -432,5 +432,82 @@ class TestWorkgroupSourceDetection(unittest.TestCase):
         self.assertEqual(source, 'local')
 
 
+# ── Override detection ────────────────────────────────────────────────────────
+
+class TestWorkgroupOverrideDetection(unittest.TestCase):
+    """_detect_workgroup_overrides must identify fields that diverge from org definition."""
+
+    def _make_workgroup(self, tmpdir, name, **kwargs):
+        from projects.POC.orchestrator.config_reader import Workgroup
+        return Workgroup(name=name, **kwargs)
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_identical_workgroups_have_no_overrides(self):
+        from projects.POC.bridge.server import _detect_workgroup_overrides
+        from projects.POC.orchestrator.config_reader import Workgroup
+        org = Workgroup(name='Coding', norms={'quality': ['no shortcuts']}, lead='Dev Lead')
+        proj = Workgroup(name='Coding', norms={'quality': ['no shortcuts']}, lead='Dev Lead')
+        overrides = _detect_workgroup_overrides(org, proj)
+        self.assertEqual(overrides, [], 'Identical workgroups must have no overrides')
+
+    def test_norms_override_detected(self):
+        from projects.POC.bridge.server import _detect_workgroup_overrides
+        from projects.POC.orchestrator.config_reader import Workgroup
+        org = Workgroup(name='Coding', norms={'quality': ['no shortcuts']})
+        proj = Workgroup(name='Coding', norms={'quality': ['strict TDD']})
+        overrides = _detect_workgroup_overrides(org, proj)
+        self.assertIn('norms', overrides, 'Changed norms must appear in overrides')
+
+    def test_budget_override_detected(self):
+        from projects.POC.bridge.server import _detect_workgroup_overrides
+        from projects.POC.orchestrator.config_reader import Workgroup
+        org = Workgroup(name='Coding', budget={'job_limit_usd': 5.0})
+        proj = Workgroup(name='Coding', budget={'job_limit_usd': 20.0})
+        overrides = _detect_workgroup_overrides(org, proj)
+        self.assertIn('budget', overrides, 'Changed budget must appear in overrides')
+
+    def test_multiple_overrides_detected(self):
+        from projects.POC.bridge.server import _detect_workgroup_overrides
+        from projects.POC.orchestrator.config_reader import Workgroup
+        org = Workgroup(name='Coding', norms={'quality': ['a']}, lead='Org Lead')
+        proj = Workgroup(name='Coding', norms={'quality': ['b']}, lead='Project Lead')
+        overrides = _detect_workgroup_overrides(org, proj)
+        self.assertIn('norms', overrides)
+        self.assertIn('lead', overrides)
+
+    def test_serialize_workgroup_includes_overrides_field(self):
+        """_serialize_workgroup must always include an 'overrides' key."""
+        tmpdir = _make_tmpdir()
+        try:
+            bridge = _make_bridge(tmpdir)
+            wg_path = _make_workgroup_yaml(tmpdir, name='Coding')
+            from projects.POC.orchestrator.config_reader import load_workgroup
+            w = load_workgroup(wg_path)
+            result = bridge._serialize_workgroup(w, source='shared', overrides=['norms'])
+            self.assertIn('overrides', result)
+            self.assertEqual(result['overrides'], ['norms'])
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_serialize_workgroup_overrides_defaults_to_empty_list(self):
+        """_serialize_workgroup with no overrides arg must return overrides=[]."""
+        tmpdir = _make_tmpdir()
+        try:
+            bridge = _make_bridge(tmpdir)
+            wg_path = _make_workgroup_yaml(tmpdir, name='Coding')
+            from projects.POC.orchestrator.config_reader import load_workgroup
+            w = load_workgroup(wg_path)
+            result = bridge._serialize_workgroup(w)
+            self.assertIn('overrides', result)
+            self.assertEqual(result['overrides'], [])
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()

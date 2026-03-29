@@ -170,8 +170,9 @@ async function renderProject(slug) {
 
   var wgItems = workgroups.map(function(w) {
     var src = sourceBadge(w.source);
+    var ovr = overrideBadge(w.overrides);
     var agentInfo = w.agents_count != null ? w.agents_count + ' agents' : '';
-    return '<div class="item"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
+    return '<div class="item"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
   });
 
   var agentItems = (team.agents || []).map(function(name) {
