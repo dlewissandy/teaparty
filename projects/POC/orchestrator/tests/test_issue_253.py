@@ -479,6 +479,32 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertIn('todo_list', cards)
 
 
+class TestHookItemsDisplay(unittest.TestCase):
+    """Hooks card displays event, matcher, and handler type per management-dashboard.md spec."""
+
+    def test_hook_item_shows_event_matcher_handler(self):
+        """Hook with event + matcher + command renders all three."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        hooks = [{'event': 'PreToolUse', 'matcher': 'Bash', 'command': 'audit.sh'}]
+        items = _build_hook_items(hooks)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].label, 'PreToolUse')
+        self.assertIn('Bash', items[0].detail)
+        self.assertIn('audit.sh', items[0].detail)
+
+    def test_hook_item_without_matcher_shows_handler_only(self):
+        """Hook without matcher renders event and handler without extra separator."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        hooks = [{'event': 'PostToolUse', 'command': 'log.sh'}]
+        items = _build_hook_items(hooks)
+        self.assertEqual(items[0].detail, 'log.sh')
+
+    def test_hook_item_empty_hooks_returns_empty(self):
+        """Empty hooks list returns empty CardItem list."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        self.assertEqual(_build_hook_items([]), [])
+
+
 class TestStatsBarsNoWrap(unittest.TestCase):
     """Stats bar format functions produce single-line strings (no newlines).
 

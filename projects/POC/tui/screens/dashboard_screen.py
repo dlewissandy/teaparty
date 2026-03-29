@@ -412,12 +412,14 @@ def _build_scheduled_task_items(scheduled: list) -> list[CardItem]:
 
 
 def _build_hook_items(hooks: list[dict]) -> list[CardItem]:
-    """Build CardItems for a list of hook dicts."""
+    """Build CardItems for a list of hook dicts (event, matcher, handler type per spec)."""
     items: list[CardItem] = []
     for hook in hooks:
         event = hook.get('event', '?')
+        matcher = hook.get('matcher', '')
         handler = hook.get('handler', hook.get('command', '?'))
-        items.append(CardItem(icon='\u26a1', label=event, detail=str(handler), data=hook))
+        detail = f'{matcher}  {handler}' if matcher else str(handler)
+        items.append(CardItem(icon='\u26a1', label=event, detail=detail, data=hook))
     return items
 
 
