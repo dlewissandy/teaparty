@@ -379,18 +379,15 @@ class TestBridgeBusRouting(unittest.TestCase):
 
     def test_om_conversation_id_routes_to_om_bus(self):
         """_bus_for_conversation('om:user') returns the OM bus."""
-        from projects.POC.bridge.server import _om_bus_path
-
         om_conv_id = make_conversation_id(ConversationType.OFFICE_MANAGER, 'alice')
         self.bridge._om_bus.create_conversation(ConversationType.OFFICE_MANAGER, 'alice')
 
         bus = self.bridge._bus_for_conversation(om_conv_id)
         self.assertIsNotNone(bus, '_bus_for_conversation must return OM bus for om:* id')
 
-        om_path = _om_bus_path(self.tmpdir)
-        self.assertEqual(
-            os.path.realpath(bus._db_path),
-            os.path.realpath(om_path),
+        # Verify it's the same object as self.bridge._om_bus, not a session bus
+        self.assertIs(
+            bus, self.bridge._om_bus,
             '_bus_for_conversation(om:*) must return the OM bus, not a session bus',
         )
 
