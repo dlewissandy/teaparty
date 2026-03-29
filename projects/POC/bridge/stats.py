@@ -38,25 +38,27 @@ def _mtime_day_label(path: str, day_labels: list[str]) -> str | None:
 
 
 def _count_skills(projects_dir: str) -> int:
-    """Count skill files across project-level and team-scoped skill directories.
+    """Count .md skill files across project-level and team-scoped skill directories.
 
-    Counts subdirectory entries in:
+    Globs for *.md files in:
       {projects_dir}/skills/
       {projects_dir}/teams/{team_name}/skills/
 
-    Issue #294: the correct paths are {project_dir}/skills/ and
-    {project_dir}/teams/{name}/skills/, not .claude/skills/.
+    Issue #294: the correct paths are {project_dir}/skills/*.md and
+    {project_dir}/teams/{name}/skills/*.md.  Skills are written as individual
+    .md files by procedural_learning.py, not as directories.
     """
     count = 0
 
-    # Project-level skills
+    # Project-level skills: {projects_dir}/skills/*.md
     top_skills = os.path.join(projects_dir, 'skills')
     try:
-        count += sum(1 for e in os.scandir(top_skills) if e.is_dir())
+        count += sum(1 for e in os.scandir(top_skills)
+                     if e.is_file() and e.name.endswith('.md'))
     except OSError:
         pass
 
-    # Team-scoped skills: teams/{name}/skills/
+    # Team-scoped skills: {projects_dir}/teams/{name}/skills/*.md
     teams_dir = os.path.join(projects_dir, 'teams')
     try:
         for team_entry in os.scandir(teams_dir):
@@ -64,7 +66,8 @@ def _count_skills(projects_dir: str) -> int:
                 continue
             team_skills = os.path.join(team_entry.path, 'skills')
             try:
-                count += sum(1 for e in os.scandir(team_skills) if e.is_dir())
+                count += sum(1 for e in os.scandir(team_skills)
+                             if e.is_file() and e.name.endswith('.md'))
             except OSError:
                 pass
     except OSError:

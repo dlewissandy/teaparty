@@ -246,23 +246,32 @@ class TestSkillsLearnedCount(unittest.TestCase):
         self.assertEqual(result['summary']['skills_learned'], 0)
 
     def test_counts_project_level_skills(self):
+        # Skills are .md files written by procedural_learning.py (not directories)
         skills_dir = os.path.join(self.tmpdir, 'skills')
-        os.makedirs(os.path.join(skills_dir, 'fix-bug'))
-        os.makedirs(os.path.join(skills_dir, 'refactor'))
+        os.makedirs(skills_dir, exist_ok=True)
+        open(os.path.join(skills_dir, 'fix-bug.md'), 'w').close()
+        open(os.path.join(skills_dir, 'refactor.md'), 'w').close()
         result = self._compute()
         self.assertEqual(result['summary']['skills_learned'], 2)
 
     def test_counts_team_scoped_skills(self):
-        # {projects_dir}/teams/{name}/skills/ (issue #294)
+        # {projects_dir}/teams/{name}/skills/*.md (issue #294)
         team_skills = os.path.join(self.tmpdir, 'teams', 'coding', 'skills')
-        os.makedirs(os.path.join(team_skills, 'optimize'))
+        os.makedirs(team_skills, exist_ok=True)
+        open(os.path.join(team_skills, 'optimize.md'), 'w').close()
         result = self._compute()
         self.assertEqual(result['summary']['skills_learned'], 1)
 
     def test_counts_both_project_and_team_skills(self):
-        os.makedirs(os.path.join(self.tmpdir, 'skills', 'fix-bug'))
-        os.makedirs(os.path.join(self.tmpdir, 'teams', 'coding', 'skills', 'optimize'))
-        os.makedirs(os.path.join(self.tmpdir, 'teams', 'writing', 'skills', 'summarize'))
+        skills_dir = os.path.join(self.tmpdir, 'skills')
+        os.makedirs(skills_dir, exist_ok=True)
+        open(os.path.join(skills_dir, 'fix-bug.md'), 'w').close()
+        team1 = os.path.join(self.tmpdir, 'teams', 'coding', 'skills')
+        os.makedirs(team1, exist_ok=True)
+        open(os.path.join(team1, 'optimize.md'), 'w').close()
+        team2 = os.path.join(self.tmpdir, 'teams', 'writing', 'skills')
+        os.makedirs(team2, exist_ok=True)
+        open(os.path.join(team2, 'summarize.md'), 'w').close()
         result = self._compute()
         self.assertEqual(result['summary']['skills_learned'], 3)
 
