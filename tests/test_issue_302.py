@@ -147,6 +147,20 @@ class TestArtifactsHtmlJobConversationLink(unittest.TestCase):
         self.assertIn('chat.html?conv=', content,
                       "artifacts.html must link to 'chat.html?conv=...' for job artifacts")
 
+    def test_job_conv_id_uses_session_directory_directly(self):
+        """AC6: jobConvId must return the session directory name as-is.
+
+        chat.html constructs gate-review paths as '.sessions/{j.id}/FILE.md' where
+        j.id is the full conversation ID (e.g. 'job:poc:job-001'). jobConvId must
+        extract that directory name and return it unchanged — not prepend 'job:{project}:'
+        which would double-encode it to 'job:poc:job:poc:job-001'.
+        """
+        content = _read_html()
+        # The function must use m[1] directly, not 'job:' + currentProject + ':' + m[1]
+        self.assertNotIn("'job:' + currentProject + ':' + m[1]", content,
+                         "jobConvId must return the session directory name directly, "
+                         "not re-prefix it — chat.html already embeds the full conv ID as the directory name")
+
 
 class TestArtifactsHtmlMarkdownRendering(unittest.TestCase):
     """File content must be rendered as markdown, not displayed as raw text."""

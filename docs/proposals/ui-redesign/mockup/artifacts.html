@@ -117,7 +117,7 @@ function isJobArtifact(path) {
 
 function jobConvId(path) {
   var m = path.match(/\.sessions\/([^/]+)\//);
-  return m ? 'job:' + currentProject + ':' + m[1] : null;
+  return m ? m[1] : null;
 }
 
 function renderMarkdown(content) {
