@@ -13,8 +13,12 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock
 
-from projects.POC.bridge.server import TeaPartyBridge, _parse_artifacts, _resolve_conversation_type
+from projects.POC.bridge.server import (
+    TeaPartyBridge, _parse_artifacts, _resolve_conversation_type,
+    _withdrawal_socket_path,
+)
 from projects.POC.bridge.poller import StatePoller
+from projects.POC.bridge.message_relay import MessageRelay
 from projects.POC.orchestrator.messaging import (
     ConversationType,
     SqliteMessageBus,
@@ -959,6 +963,542 @@ class TestStatePollerEvents(unittest.TestCase):
         s1 = [_make_session('s1', cfa_state='COMPLETED_WORK')]
         self._run_polls([s1])
         self.assertEqual(self.events, [])
+
+
+# ── REST: state/{project} ─────────────────────────────────────────────────────
+
+class TestRestStateProject(unittest.TestCase):
+    """GET /api/state/{project} returns a single project or 404."""
+
+    def setUp(self):
+        self._root = tempfile.mkdtemp()
+        self._projects_dir = os.path.join(self._root, 'projects')
+        os.makedirs(self._projects_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self._root, ignore_errors=True)
+
+    def _make_session_fixture(self, project='POC', session_id='20260101-120000'):
+        sessions_dir = os.path.join(self._projects_dir, project, '.sessions', session_id)
+        os.makedirs(sessions_dir)
+        with open(os.path.join(sessions_dir, '.cfa-state.json'), 'w') as f:
+            json.dump({'phase': 'intent', 'state': 'INTENT_ASSERT', 'actor': 'human',
+                       'history': [], 'backtrack_count': 0}, f)
+        manifest = {'worktrees': [{'name': f'{project}-{session_id}', 'path': sessions_dir,
+                                    'type': 'session', 'session_id': session_id,
+                                    'task': 'Test', 'status': 'active'}]}
+        with open(os.path.join(self._root, 'worktrees.json'), 'w') as f:
+            json.dump(manifest, f)
+        return session_id
+
+    def test_state_project_returns_single_project(self):
+        """GET /api/state/{slug} returns the named project's data."""
+        self._make_session_fixture()
+        bridge = _make_bridge(self._root, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/state/POC')
+                self.assertEqual(resp.status, 200)
+                data = await resp.json()
+                self.assertEqual(data['slug'], 'POC')
+                self.assertIn('sessions', data)
+
+        _run_async(_run())
+
+    def test_state_project_unknown_slug_returns_404(self):
+        """GET /api/state/{unknown} returns HTTP 404."""
+        self._make_session_fixture()
+        bridge = _make_bridge(self._root, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/state/nonexistent')
+                self.assertEqual(resp.status, 404)
+
+        _run_async(_run())
+
+
+# ── REST: cfa/{session_id} ────────────────────────────────────────────────────
+
+class TestRestCfaState(unittest.TestCase):
+    """GET /api/cfa/{session_id} returns CfA state from .cfa-state.json."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._projects_dir = os.path.join(self._tmp, 'projects')
+        # _resolve_session_infra scans projects_dir/{slug}/.sessions/{session_id}
+        self._session_id = '20260101-130000'
+        self._infra_dir = os.path.join(self._projects_dir, 'MyProject',
+                                        '.sessions', self._session_id)
+        os.makedirs(self._infra_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_cfa_state_returns_fields_from_json(self):
+        """GET /api/cfa/{session_id} returns phase, state, actor, history, backtrack_count."""
+        with open(os.path.join(self._infra_dir, '.cfa-state.json'), 'w') as f:
+            json.dump({'phase': 'planning', 'state': 'PLAN_ASSERT', 'actor': 'human',
+                       'history': ['PLAN_ASSERT'], 'backtrack_count': 2}, f)
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/cfa/{self._session_id}')
+                self.assertEqual(resp.status, 200)
+                data = await resp.json()
+                self.assertEqual(data['phase'], 'planning')
+                self.assertEqual(data['state'], 'PLAN_ASSERT')
+                self.assertEqual(data['actor'], 'human')
+                self.assertEqual(data['backtrack_count'], 2)
+                self.assertIn('history', data)
+
+        _run_async(_run())
+
+    def test_cfa_state_unknown_session_returns_404(self):
+        """GET /api/cfa/{unknown} returns HTTP 404."""
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/cfa/99991231-999999')
+                self.assertEqual(resp.status, 404)
+
+        _run_async(_run())
+
+    def test_cfa_state_missing_file_returns_404(self):
+        """GET /api/cfa/{session_id} without .cfa-state.json returns HTTP 404."""
+        # infra_dir exists but no .cfa-state.json
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/cfa/{self._session_id}')
+                self.assertEqual(resp.status, 404)
+
+        _run_async(_run())
+
+
+# ── REST: heartbeat/{session_id} ──────────────────────────────────────────────
+
+class TestRestHeartbeat(unittest.TestCase):
+    """GET /api/heartbeat/{session_id} returns liveness status."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._projects_dir = os.path.join(self._tmp, 'projects')
+        self._session_id = '20260101-140000'
+        self._infra_dir = os.path.join(self._projects_dir, 'MyProject',
+                                        '.sessions', self._session_id)
+        os.makedirs(self._infra_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_heartbeat_returns_dead_when_no_heartbeat_file(self):
+        """Session with no .heartbeat or .running file returns status='dead'."""
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/heartbeat/{self._session_id}')
+                self.assertEqual(resp.status, 200)
+                data = await resp.json()
+                self.assertEqual(data['session_id'], self._session_id)
+                self.assertEqual(data['status'], 'dead')
+
+        _run_async(_run())
+
+    def test_heartbeat_unknown_session_returns_dead(self):
+        """Unknown session_id returns status='dead' (not 404)."""
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/heartbeat/99991231-999999')
+                self.assertEqual(resp.status, 200)
+                data = await resp.json()
+                self.assertEqual(data['status'], 'dead')
+
+        _run_async(_run())
+
+    def test_heartbeat_response_includes_session_id(self):
+        """Response object includes session_id field."""
+        bridge = _make_bridge(self._tmp, self._projects_dir)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/heartbeat/{self._session_id}')
+                data = await resp.json()
+                self.assertIn('session_id', data)
+                self.assertIn('status', data)
+
+        _run_async(_run())
+
+
+# ── REST: config/{project} ────────────────────────────────────────────────────
+
+class TestRestConfigProject(unittest.TestCase):
+    """GET /api/config/{project} returns project team structure from YAML fixture."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._teaparty_home = os.path.join(self._tmp, '.teaparty')
+        os.makedirs(self._teaparty_home)
+        with open(os.path.join(self._teaparty_home, 'teaparty.yaml'), 'w') as f:
+            f.write("name: Org\ndescription: x\nlead: lead\ndecider: d\nagents: []\n"
+                    "humans: []\nskills: []\nhooks: []\nscheduled: []\nprojects: []\n"
+                    "workgroups: []\n")
+        # Create a project with project.yaml
+        proj_dir = os.path.join(self._tmp, 'myproject')
+        teaparty_proj_dir = os.path.join(proj_dir, '.teaparty')
+        os.makedirs(teaparty_proj_dir)
+        with open(os.path.join(teaparty_proj_dir, 'project.yaml'), 'w') as f:
+            f.write("name: My Project\ndescription: A test project\nlead: proj-lead\n"
+                    "decider: darrell\nagents:\n  - proj-lead\nhumans: []\n"
+                    "skills: []\nhooks: []\nscheduled: []\nprojects: []\nworkgroups: []\n")
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_config_project_returns_team_structure(self):
+        """GET /api/config/{project} returns project, team, workgroups keys."""
+        bridge = _make_bridge(self._teaparty_home, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/config/myproject')
+                self.assertEqual(resp.status, 200)
+                data = await resp.json()
+                self.assertIn('project', data)
+                self.assertIn('team', data)
+                self.assertIn('workgroups', data)
+                self.assertEqual(data['project'], 'myproject')
+                self.assertEqual(data['team']['name'], 'My Project')
+                self.assertEqual(data['team']['lead'], 'proj-lead')
+
+        _run_async(_run())
+
+    def test_config_project_unknown_returns_404(self):
+        """GET /api/config/{nonexistent} returns HTTP 404."""
+        bridge = _make_bridge(self._teaparty_home, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/config/nonexistent')
+                self.assertEqual(resp.status, 404)
+
+        _run_async(_run())
+
+
+# ── REST: file ────────────────────────────────────────────────────────────────
+
+class TestRestFile(unittest.TestCase):
+    """GET /api/file?path=PATH returns raw file content as text."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self._file = os.path.join(self._tmp, 'sample.txt')
+        with open(self._file, 'w') as f:
+            f.write('Hello from file\nSecond line\n')
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_returns_file_content_as_plain_text(self):
+        """GET /api/file?path=... returns the file's raw content."""
+        bridge = _make_bridge(self._tmp, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/file?path={self._file}')
+                self.assertEqual(resp.status, 200)
+                text = await resp.text()
+                self.assertIn('Hello from file', text)
+                self.assertIn('Second line', text)
+
+        _run_async(_run())
+
+    def test_missing_file_returns_404(self):
+        """GET /api/file?path=... with nonexistent path returns HTTP 404."""
+        bridge = _make_bridge(self._tmp, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get(f'/api/file?path={self._tmp}/nonexistent.txt')
+                self.assertEqual(resp.status, 404)
+
+        _run_async(_run())
+
+    def test_missing_path_param_returns_400(self):
+        """GET /api/file without ?path= returns HTTP 400."""
+        bridge = _make_bridge(self._tmp, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.get('/api/file')
+                self.assertEqual(resp.status, 400)
+
+        _run_async(_run())
+
+
+# ── REST: withdraw ────────────────────────────────────────────────────────────
+
+class TestWithdrawalSocketPath(unittest.TestCase):
+    """_withdrawal_socket_path constructs the correct socket path."""
+
+    def test_socket_path_is_under_teaparty_home_sockets(self):
+        """{teaparty_home}/sockets/{session_id}.sock is the socket path."""
+        path = _withdrawal_socket_path('/home/user/.teaparty', 'sess-123')
+        self.assertEqual(path, '/home/user/.teaparty/sockets/sess-123.sock')
+
+    def test_socket_path_derived_from_session_id_alone(self):
+        """Path is constructed from session_id with no filesystem lookup."""
+        path = _withdrawal_socket_path('/some/home', '20260101-120000')
+        self.assertTrue(path.endswith('/sockets/20260101-120000.sock'))
+
+    def test_socket_path_ends_with_dot_sock(self):
+        """Socket filename ends with .sock extension."""
+        path = _withdrawal_socket_path('/home', 'abc')
+        self.assertTrue(path.endswith('.sock'))
+
+
+class TestRestWithdraw(unittest.TestCase):
+    """POST /api/withdraw/{session_id} returns 503 when socket is absent."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_withdraw_returns_503_when_socket_absent(self):
+        """POST /api/withdraw/{session_id} returns 503 if socket file does not exist."""
+        bridge = _make_bridge(self._tmp, self._tmp)
+
+        async def _run():
+            from aiohttp.test_utils import TestClient, TestServer
+            app = bridge._build_app()
+            async with TestClient(TestServer(app)) as client:
+                resp = await client.post('/api/withdraw/20260101-120000')
+                self.assertEqual(resp.status, 503)
+                data = await resp.json()
+                self.assertIn('error', data)
+
+        _run_async(_run())
+
+
+# ── MessageRelay: message and input_requested events ─────────────────────────
+
+def _make_relay_bus(tmp_dir, name='relay-test'):
+    """Create a SqliteMessageBus with a conversation for MessageRelay tests."""
+    db_path = os.path.join(tmp_dir, f'{name}.db')
+    bus = SqliteMessageBus(db_path)
+    conv = bus.create_conversation(ConversationType.PROJECT_SESSION, name)
+    return bus, conv
+
+
+class TestMessageRelayMessageEvent(unittest.TestCase):
+    """MessageRelay emits 'message' events for new messages only."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.events = []
+
+        async def broadcast(event):
+            self.events.append(event)
+
+        self.bus, self.conv = _make_relay_bus(self._tmp)
+        self.registry = {'sess1': self.bus}
+        self.relay = MessageRelay(self.registry, broadcast)
+
+    def tearDown(self):
+        self.bus.close()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_message_event_fires_for_new_message(self):
+        """'message' event emitted when a new message appears in a conversation."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Hello world')
+
+        _run_async(self.relay.poll_once())
+
+        msg_events = [e for e in self.events if e['type'] == 'message']
+        self.assertEqual(len(msg_events), 1)
+        self.assertEqual(msg_events[0]['content'], 'Hello world')
+        self.assertEqual(msg_events[0]['sender'], 'orchestrator')
+        self.assertEqual(msg_events[0]['conversation_id'], self.conv.id)
+
+    def test_message_event_not_fired_for_already_seen_messages(self):
+        """'message' events are not re-emitted for messages seen in prior polls."""
+        self.bus.send(self.conv.id, 'orchestrator', 'First')
+
+        _run_async(self.relay.poll_once())
+        first_count = len([e for e in self.events if e['type'] == 'message'])
+        self.assertEqual(first_count, 1)
+
+        # Second poll with no new messages — must not re-emit
+        _run_async(self.relay.poll_once())
+        second_count = len([e for e in self.events if e['type'] == 'message'])
+        self.assertEqual(second_count, 1, 'Already-seen message must not be re-emitted')
+
+    def test_message_event_fires_only_for_messages_since_last_poll(self):
+        """Only messages written after the last poll are emitted."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Old')
+        _run_async(self.relay.poll_once())  # sees 'Old'
+
+        self.bus.send(self.conv.id, 'human', 'New')
+        _run_async(self.relay.poll_once())  # sees only 'New'
+
+        msg_events = [e for e in self.events if e['type'] == 'message']
+        contents = [e['content'] for e in msg_events]
+        self.assertIn('Old', contents)
+        self.assertIn('New', contents)
+        # Each appears exactly once
+        self.assertEqual(contents.count('Old'), 1)
+        self.assertEqual(contents.count('New'), 1)
+
+    def test_message_event_includes_required_fields(self):
+        """'message' event includes type, conversation_id, sender, content, timestamp."""
+        self.bus.send(self.conv.id, 'human', 'Check fields')
+        _run_async(self.relay.poll_once())
+
+        msg_events = [e for e in self.events if e['type'] == 'message']
+        self.assertEqual(len(msg_events), 1)
+        evt = msg_events[0]
+        for field in ('type', 'conversation_id', 'sender', 'content', 'timestamp'):
+            self.assertIn(field, evt, f'Missing field: {field}')
+        self.assertEqual(evt['type'], 'message')
+
+    def test_no_message_events_when_conversation_is_empty(self):
+        """No 'message' events emitted for a conversation with no messages."""
+        _run_async(self.relay.poll_once())
+        msg_events = [e for e in self.events if e['type'] == 'message']
+        self.assertEqual(msg_events, [])
+
+
+class TestMessageRelayInputRequestedEvent(unittest.TestCase):
+    """MessageRelay emits 'input_requested' on awaiting_input False → True transition."""
+
+    def setUp(self):
+        self._tmp = tempfile.mkdtemp()
+        self.events = []
+
+        async def broadcast(event):
+            self.events.append(event)
+
+        self.bus, self.conv = _make_relay_bus(self._tmp, 'input-test')
+        self.registry = {'sess1': self.bus}
+        self.relay = MessageRelay(self.registry, broadcast)
+
+    def tearDown(self):
+        self.bus.close()
+        shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_input_requested_fires_when_flag_set(self):
+        """'input_requested' emitted when awaiting_input transitions to True."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Approve the plan?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+
+        _run_async(self.relay.poll_once())
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(len(ir_events), 1)
+        self.assertEqual(ir_events[0]['conversation_id'], self.conv.id)
+        self.assertEqual(ir_events[0]['session_id'], 'sess1')
+
+    def test_input_requested_includes_latest_orchestrator_question(self):
+        """'input_requested' event carries the latest orchestrator message as question."""
+        self.bus.send(self.conv.id, 'orchestrator', 'First message')
+        self.bus.send(self.conv.id, 'orchestrator', 'Approve the plan?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+
+        _run_async(self.relay.poll_once())
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(len(ir_events), 1)
+        self.assertEqual(ir_events[0]['question'], 'Approve the plan?')
+
+    def test_input_requested_not_fired_on_repeated_polls_for_same_conversation(self):
+        """'input_requested' fires once per False→True transition, not on every poll."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Question?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+
+        _run_async(self.relay.poll_once())
+        _run_async(self.relay.poll_once())  # Second poll — flag still set
+        _run_async(self.relay.poll_once())  # Third poll — flag still set
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(len(ir_events), 1,
+            'input_requested must fire once per transition, not once per poll')
+
+    def test_input_requested_not_fired_when_flag_not_set(self):
+        """No 'input_requested' event when awaiting_input is False."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Just informational')
+        # Flag not set
+
+        _run_async(self.relay.poll_once())
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(ir_events, [])
+
+    def test_input_requested_refires_after_flag_cleared_and_reset(self):
+        """'input_requested' fires again if flag goes True→False→True."""
+        self.bus.send(self.conv.id, 'orchestrator', 'First question?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+        _run_async(self.relay.poll_once())  # Fires once
+
+        # Simulate human response: flag cleared
+        self.bus.send(self.conv.id, 'human', 'Yes')
+        self.bus.set_awaiting_input(self.conv.id, False)
+        _run_async(self.relay.poll_once())  # No new input_requested
+
+        # New question
+        self.bus.send(self.conv.id, 'orchestrator', 'Second question?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+        _run_async(self.relay.poll_once())  # Fires again
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(len(ir_events), 2,
+            'input_requested must refire after flag cleared and re-set')
+
+    def test_input_requested_includes_required_fields(self):
+        """'input_requested' event includes type, session_id, conversation_id, question."""
+        self.bus.send(self.conv.id, 'orchestrator', 'Ready?')
+        self.bus.set_awaiting_input(self.conv.id, True)
+        _run_async(self.relay.poll_once())
+
+        ir_events = [e for e in self.events if e['type'] == 'input_requested']
+        self.assertEqual(len(ir_events), 1)
+        evt = ir_events[0]
+        for field in ('type', 'session_id', 'conversation_id', 'question'):
+            self.assertIn(field, evt, f'Missing field: {field}')
 
 
 if __name__ == '__main__':
