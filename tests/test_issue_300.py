@@ -165,15 +165,19 @@ class TestIndexHtmlLiveDataBinding(unittest.TestCase):
 class TestIndexHtmlNavigationLinks(unittest.TestCase):
     """Navigation links in index.html must use real conversation IDs."""
 
-    def test_index_html_uses_session_id_for_job_links(self):
-        """Job row click handlers must use session:{session_id} format, not hardcoded IDs.
+    def test_index_html_job_row_uses_job_conv_format(self):
+        """Job row click handlers must use job:{project}:{session_id} format.
 
-        The live page must construct URLs from the session_id field returned by
-        GET /api/state, not embed static job IDs.
+        Per the controls spec: "Click project job row → Opens job chat (chat.html?conv=JOB_ID)"
+        where JOB_ID = job:{project}:{job_id}. In this system job_id == session_id.
         """
         content = _read_index()
-        # The live page should build URLs like 'chat.html?conv=session:' + session.session_id
-        # It must not use hardcoded job IDs from data.js
+        self.assertIn("'job:' + p.slug + ':' + s.session_id", content,
+                      "Job row onclick must build job:{project}:{session_id} conv ID per spec")
+
+    def test_index_html_does_not_use_hardcoded_job_ids(self):
+        """index.html must not embed static job IDs from data.js."""
+        content = _read_index()
         self.assertNotIn('job:poc:job-001', content,
                          'index.html must not use hardcoded job IDs — derive from session_id')
         self.assertNotIn('job:poc:job-002', content,
@@ -417,6 +421,17 @@ class TestIndexHtmlEscalationRouting(unittest.TestCase):
         content = _read_index()
         self.assertNotIn("convId.indexOf('session:') !== 0", content,
                          "onMessage must not reject non-session: convIds — use escalationConvMap reverse lookup")
+
+    def test_session_conv_escalation_rewrites_to_job_format(self):
+        """When input_requested carries a session: conv ID, the dot must still link to job: format.
+
+        JOB is what the uberteam does. The dot must always use job:{project}:{session_id}
+        so the chat page opens the job conversation, not the raw session conversation.
+        Per spec: escalation dot → chat.html?conv=JOB_ID (or JOB_ID&task=TASK_ID).
+        """
+        content = _read_index()
+        self.assertIn("'chat.html?conv=job:' + projectSlug + ':' + sessionId", content,
+                      "onInputRequested must rewrite session: escalations to job: format for the dot URL")
 
     def test_on_input_requested_passes_conv_id(self):
         """onInputRequested must accept conversation_id from WebSocket event.

@@ -209,12 +209,12 @@ function render() {
     if (activeSessions.length > 0) {
       projectsHtml += '<div style="border-bottom:1px solid var(--border)">';
       activeSessions.forEach(function(s) {
-        var convId = 'session:' + s.session_id;
+        var convId = 'job:' + p.slug + ':' + s.session_id;
         var pIdx = phaseIndex(s.cfa_phase);
         var jobName = s.task || s.session_id;
         projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
         if (s.needs_input) {
-          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'chat.html?conv=session:' + s.session_id + '\')"></span>';
+          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'chat.html?conv=' + convId + '\')"></span>';
         } else {
           projectsHtml += '<span style="width:6px"></span>';
         }
@@ -307,7 +307,10 @@ function onStateChanged(sessionId, phase, cfaState) {
 // convId is the conversation_id from the event (e.g. task:poc:job-001:task-a).
 function onInputRequested(sessionId, convId) {
   pageState.escalationConvMap[sessionId] = convId || ('session:' + sessionId);
-  // Derive click target: task convs link to job+task, others fall back to session conv.
+  // Derive click target: all escalations navigate in job: format per spec.
+  // task: conv → job:{project}:{job_id}&task={task_id}
+  // job: conv → use as-is
+  // session: conv (uberteam requesting input directly) → rewrite as job:{slug}:{sessionId}
   var parts = convId ? convId.split(':') : [];
   var dotUrl;
   if (parts[0] === 'task' && parts.length === 4) {
@@ -315,7 +318,16 @@ function onInputRequested(sessionId, convId) {
   } else if (parts[0] === 'job') {
     dotUrl = 'chat.html?conv=' + convId;
   } else {
-    dotUrl = 'chat.html?conv=session:' + sessionId;
+    // session: type or unknown — look up project slug to build job: URL
+    var projectSlug = '';
+    pageState.projects.forEach(function(proj) {
+      (proj.sessions || []).forEach(function(s) {
+        if (s.session_id === sessionId) { projectSlug = proj.slug; }
+      });
+    });
+    dotUrl = projectSlug
+      ? 'chat.html?conv=job:' + projectSlug + ':' + sessionId
+      : 'chat.html?conv=session:' + sessionId;
   }
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {
