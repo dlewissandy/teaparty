@@ -3,8 +3,6 @@
 Produces a unified snapshot of all projects/sessions/dispatches for the
 bridge server and TUI.
 Issue #149: migrated from .running to .heartbeat with backward compat fallback.
-Issue #280: extracted from tui/ to orchestrator/ — the bridge imports from here,
-not from the TUI package it supersedes.
 """
 import json
 import os

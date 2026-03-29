@@ -1,8 +1,6 @@
 """Re-exports from projects.POC.orchestrator.state_reader.
 
-StateReader and all related types were moved to the orchestrator package
-(issue #280) so the bridge server can import them without depending on the
-TUI package it supersedes.  Import from the orchestrator directly.
+Import from projects.POC.orchestrator.state_reader directly.
 """
 from projects.POC.orchestrator.state_reader import (  # noqa: F401
     _ALIVE_THRESHOLD,
