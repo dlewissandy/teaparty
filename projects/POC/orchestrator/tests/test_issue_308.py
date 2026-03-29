@@ -1385,14 +1385,14 @@ class TestMessageRelayMessageEvent(unittest.TestCase):
         self.assertEqual(contents.count('New'), 1)
 
     def test_message_event_includes_required_fields(self):
-        """'message' event includes type, conversation_id, sender, content, timestamp."""
+        """'message' event includes type, id, conversation_id, sender, content, timestamp."""
         self.bus.send(self.conv.id, 'human', 'Check fields')
         _run_async(self.relay.poll_once())
 
         msg_events = [e for e in self.events if e['type'] == 'message']
         self.assertEqual(len(msg_events), 1)
         evt = msg_events[0]
-        for field in ('type', 'conversation_id', 'sender', 'content', 'timestamp'):
+        for field in ('type', 'id', 'conversation_id', 'sender', 'content', 'timestamp'):
             self.assertIn(field, evt, f'Missing field: {field}')
         self.assertEqual(evt['type'], 'message')
 
