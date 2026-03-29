@@ -423,11 +423,7 @@ class TestSummarizeSessionInterventionsScope(unittest.TestCase):
 
     def test_promote_interventions_scope_exists(self):
         """promote() must not return 'Unknown scope' for interventions."""
-        import sys as _sys
-        scripts_dir = str(Path(__file__).parent.parent.parent.parent / 'scripts')
-        if scripts_dir not in _sys.path:
-            _sys.path.insert(0, scripts_dir)
-        from summarize_session import promote
+        from projects.POC.scripts.summarize_session import promote
 
         with tempfile.TemporaryDirectory() as tmp_infra:
             with tempfile.TemporaryDirectory() as tmp_proj:
@@ -443,20 +439,12 @@ class TestSummarizeSessionInterventionsScope(unittest.TestCase):
 
     def test_promote_interventions_scope_has_prompt(self):
         """PROMPTS dict must contain an 'interventions' key."""
-        import sys as _sys
-        scripts_dir = str(Path(__file__).parent.parent.parent.parent / 'scripts')
-        if scripts_dir not in _sys.path:
-            _sys.path.insert(0, scripts_dir)
-        from summarize_session import PROMPTS
+        from projects.POC.scripts.summarize_session import PROMPTS
         self.assertIn('interventions', PROMPTS, "PROMPTS must have an 'interventions' key")
 
     def test_promote_interventions_writes_to_proxy_tasks(self):
         """promote(interventions) writes output to proxy-tasks/ directory."""
-        import sys as _sys
-        scripts_dir = str(Path(__file__).parent.parent.parent.parent / 'scripts')
-        if scripts_dir not in _sys.path:
-            _sys.path.insert(0, scripts_dir)
-        from summarize_session import promote
+        from projects.POC.scripts.summarize_session import promote
 
         with tempfile.TemporaryDirectory() as tmp_infra:
             with tempfile.TemporaryDirectory() as tmp_proj:
@@ -481,7 +469,7 @@ class TestSummarizeSessionInterventionsScope(unittest.TestCase):
                 )
 
                 from unittest.mock import patch
-                with patch('summarize_session.summarize') as mock_summarize:
+                with patch('projects.POC.scripts.summarize_session.summarize') as mock_summarize:
                     promote(
                         'interventions',
                         session_dir=tmp_infra,

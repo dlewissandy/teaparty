@@ -131,6 +131,13 @@ async def extract_learnings(
         infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
     )
 
+    # ── Intervention learning chunks (Issue #276) ──────────────────────────────
+
+    await _run_scope(
+        'interventions', _promote_interventions,
+        infra_dir=infra_dir, project_dir=project_dir, scripts_dir=scripts_dir,
+    )
+
     # ── Promotion evaluation (issue #217) ──────────────────────────────────────
 
     await _run_scope(
@@ -430,6 +437,33 @@ def _promote_corrective(
     _call_promote(
         scripts_dir,
         'corrective',
+        session_dir=infra_dir,
+        project_dir=project_dir,
+        output_dir='',
+    )
+
+
+def _promote_interventions(
+    *,
+    infra_dir: str,
+    project_dir: str,
+    scripts_dir: str,
+) -> None:
+    """Intervention chunks → project/proxy-tasks/<ts>-interventions.md.
+
+    Reads .interventions.jsonl written in-flight by _deliver_intervention()
+    and _check_interrupt_propagation(). Passes it as context to the
+    interventions scope prompt so the LLM can extract proxy behavioral
+    learnings about when the human intervened and what the agent did next.
+
+    Issue #276.
+    """
+    interventions_file = os.path.join(infra_dir, '.interventions.jsonl')
+    if not os.path.isfile(interventions_file) or os.path.getsize(interventions_file) == 0:
+        return
+    _call_promote(
+        scripts_dir,
+        'interventions',
         session_dir=infra_dir,
         project_dir=project_dir,
         output_dir='',
@@ -1522,3 +1556,74 @@ def write_premortem(
 
     premortem_path = os.path.join(infra_dir, '.premortem.md')
     Path(premortem_path).write_text(premortem)
+
+
+# ── Intervention learning chunk I/O (Issue #276) ──────────────────────────────
+
+def write_intervention_chunk(
+    *,
+    infra_dir: str,
+    content: str,
+    senders: list,
+    cfa_state: str,
+    phase: str,
+) -> None:
+    """Append a structured intervention chunk to .interventions.jsonl.
+
+    Called by _deliver_intervention() at turn boundaries immediately after
+    draining the intervention queue. The chunk captures the intervention
+    content plus the CfA context at the moment of delivery.
+
+    A matching outcome record is appended later by write_intervention_outcome()
+    once _check_interrupt_propagation() determines how the agent responded.
+
+    Issue #276.
+    """
+    from datetime import datetime as _dt
+
+    entry = {
+        'type': 'intervention',
+        'timestamp': _dt.now().isoformat(),
+        'content': content,
+        'senders': list(senders),
+        'cfa_state': cfa_state,
+        'phase': phase,
+        'outcome': 'pending',
+    }
+    path = os.path.join(infra_dir, '.interventions.jsonl')
+    with open(path, 'a') as f:
+        f.write(_json_mod.dumps(entry) + '\n')
+
+
+def write_intervention_outcome(
+    *,
+    infra_dir: str,
+    outcome: str,
+    backtrack_phase: str = '',
+) -> None:
+    """Append an outcome record to .interventions.jsonl.
+
+    Called by _check_interrupt_propagation() once the orchestrator has
+    determined how the agent responded to the most recently delivered
+    intervention: continue, backtrack, or withdraw.
+
+    The outcome record is paired with the preceding intervention chunk
+    by sequential ordering in the file. The post-session
+    _promote_interventions() pipeline reads both records together to
+    extract proxy behavioral learnings about human intervention signals.
+
+    Issue #276.
+    """
+    from datetime import datetime as _dt
+
+    entry: dict = {
+        'type': 'intervention_outcome',
+        'timestamp': _dt.now().isoformat(),
+        'outcome': outcome,
+    }
+    if backtrack_phase:
+        entry['backtrack_phase'] = backtrack_phase
+
+    path = os.path.join(infra_dir, '.interventions.jsonl')
+    with open(path, 'a') as f:
+        f.write(_json_mod.dumps(entry) + '\n')
