@@ -26,6 +26,19 @@ from projects.POC.orchestrator.messaging import (
 )
 
 
+# ── Path helpers ────────────────────────────────────────────────────────────
+
+def om_bus_path(teaparty_home: str) -> str:
+    """Return the canonical path to the office manager's message database.
+
+    The OM database is persistent and not session-scoped. It lives at
+    {teaparty_home}/om/om-messages.db, separate from per-session messages.db
+    files. Both the orchestrator and the bridge use this function to locate
+    the same database. Issue #290.
+    """
+    return os.path.join(teaparty_home, 'om', 'om-messages.db')
+
+
 # ── Memory chunk types ──────────────────────────────────────────────────────
 
 class MemoryChunkType(Enum):
