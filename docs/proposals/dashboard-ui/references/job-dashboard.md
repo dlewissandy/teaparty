@@ -4,11 +4,21 @@ Shows the state of a single CfA job. Reached by clicking a job on the project da
 
 ## Title Bar
 
-Job name and summary of the request being worked on. Buttons to open the job's worktree in file manager or editor.
+Job name and summary of the request being worked on.
 
-## Workflow Progress
+## CfA Status Bar
 
-Shows CfA phases (INTENT, PLAN, WORK, WORK_ASSERT, DONE) with completed/current/future state.
+Positioned below the stats bar, spanning full screen width. Shows the complete happy path:
+
+`IDEA  INTENT  INTENT ASSERT  PLAN  PLAN ASSERT  WORK  WORK ASSERT  DONE`
+
+No icons. Each phase cell fills its share of the row as a solid color block:
+
+| State | Text | Background |
+|-------|------|------------|
+| Completed | white | dim green |
+| Current | black | yellow |
+| Future | black | grey |
 
 ## Stats
 
@@ -32,7 +42,7 @@ Shows CfA phases (INTENT, PLAN, WORK, WORK_ASSERT, DONE) with completed/current/
 | Card | Content | Action |
 |------|---------|--------|
 | **Escalations** | Pending escalations for this job | Opens the job's chat |
-| **Artifacts** | CfA artifacts: INTENT.md, PLAN.md, WORK_ASSERT.md. Shows existence state. | Opens artifact in editor |
+| **Artifacts** | First item is the job worktree (opens working directory). Remaining items are CfA artifacts: INTENT.md, PLAN.md, WORK_ASSERT.md. Each item has `[Finder]` and `[Editor]` buttons on the right. | Worktree opens directory; artifacts open in editor |
 | **Tasks** | Task list with liveness indicators and status | Navigates to task dashboard |
 
 ## Navigation

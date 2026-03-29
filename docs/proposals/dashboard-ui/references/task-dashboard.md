@@ -4,7 +4,7 @@ Shows the state of a single task being performed by an agent. Reached by clickin
 
 ## Title Bar
 
-Task name and summary of the task request. Buttons to open the worktree in file manager or editor.
+Task name and summary of the task request.
 
 ## Subtitle
 
@@ -33,7 +33,7 @@ Completed/total todo items with percentage.
 | Card | Content | Action |
 |------|---------|--------|
 | **Escalations** | Pending escalations for this task | Opens the task's chat |
-| **Artifacts** | Files the agent has created or is creating | Opens in editor |
+| **Artifacts** | First item is the task worktree (opens working directory). Remaining items are files the agent has created or is creating. Each item has `[Finder]` and `[Editor]` buttons on the right. | Worktree opens directory; files open in editor |
 | **Todo List** | The agent's internal checklist. Completed items are marked. | Read-only |
 
 ## Breadcrumbs
