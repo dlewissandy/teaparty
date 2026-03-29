@@ -32,9 +32,9 @@ Tasks completed per day chart. Shows throughput trends. Combined with the backtr
 | Chart | X-Axis | Y-Axis | Color |
 |-------|--------|--------|-------|
 | Tasks Completed (7 days) | Date | Count | Green |
-| Token Usage (7 days) | Date | K tokens | Purple |
+| Cost per Day (7 days) | Date | USD cost | Purple |
 | Proxy Accuracy Trend | Date | Percentage | Green/Yellow/Red (threshold) |
-| Escalations by Phase | Phase name | Count | Red |
+| Escalations by Phase (active) | Phase name | Count | Red |
 
 All charts are bar charts in the mockup. The production implementation may use a JS charting library for interactivity (hover tooltips, click to filter).
 
@@ -50,7 +50,7 @@ All stats are derived from existing data — no new collection needed:
 | Active jobs | CfA state files (non-terminal states) |
 | Backtracks | CfA state history (backtrack_count field) |
 | Withdrawals | CfA state files (WITHDRAWN terminal state) |
-| Escalations | Message bus (orchestrator messages with input requests) |
+| Escalations | Sessions with `needs_input=True` (CfA HUMAN_ACTOR_STATES or `.input-request.json`); historical message bus data deferred to issue #288 |
 | Proxy accuracy | Proxy memory chunks (prediction vs. outcome) |
-| Token usage | `.cost` sidecar files per session |
-| Skills learned | Skill files in `.claude/skills/` |
+| Token usage | `.cost` sidecar files per session (stores USD, not tokens — see issue #285) |
+| Skills learned | `{project_dir}/skills/` and `{project_dir}/teams/{name}/skills/` (see issue #294) |
