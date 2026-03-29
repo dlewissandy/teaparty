@@ -71,32 +71,6 @@ See [references/bridge-api.md](references/bridge-api.md) for the complete REST a
 
 ---
 
-## File Structure
-
-```
-projects/POC/bridge/
-├── server.py          # aiohttp app, routes, WebSocket handler
-├── poller.py          # StateReader polling, diff detection, event push
-└── message_relay.py   # Per-session message bus polling, WebSocket push
-```
-
-```
-docs/proposals/ui-redesign/
-├── proposal.md        # This document
-├── references/
-│   └── bridge-api.md  # REST + WebSocket API specification
-└── mockup/            # Normative interactive mockup
-    ├── index.html     # Home
-    ├── config.html    # Config manager
-    ├── artifacts.html # Artifacts viewer
-    ├── stats.html     # Statistics
-    ├── chat.html      # Chat (both variants)
-    ├── data.js        # Mock data (lorem ipsum)
-    └── styles.css     # Shared styles
-```
-
----
-
 ## Relationship to Other Proposals
 
 - [dashboard-ui](../dashboard-ui/proposal.md) — Superseded entirely
