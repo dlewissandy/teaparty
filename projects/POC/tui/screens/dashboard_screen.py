@@ -684,6 +684,7 @@ class DashboardScreen(Screen):
         self._nav = nav_context or NavigationContext(level=DashboardLevel.MANAGEMENT)
         self._breadcrumb_contexts: list[NavigationContext] = []
         self._hide_done: dict[str, bool] = {'sessions': True, 'jobs': True}  # default: hide terminal
+        self._project_decider: str = ''  # set by _title_text for project level
 
     def _title_text(self) -> str:
         title = self._LEVEL_TITLES.get(self._nav.level, 'Dashboard')
@@ -694,18 +695,6 @@ class DashboardScreen(Screen):
             title += f' \u2014 {self._nav.job_id}'
         if self._nav.task_id:
             title += f' \u2014 {self._nav.task_id}'
-        # Project level: append decider if available from config
-        if self._nav.level == DashboardLevel.PROJECT and self._nav.project_slug:
-            try:
-                from projects.POC.orchestrator.config_reader import load_project_team
-                reader = self.app.state_reader
-                proj = reader.find_project(self._nav.project_slug)
-                if proj:
-                    pt = load_project_team(proj.path)
-                    if pt.decider:
-                        title += f'  (decider: {pt.decider})'
-            except Exception:
-                pass
         return f'[bold]{title}[/bold]'
 
     def _compose_breadcrumbs(self) -> ComposeResult:
@@ -739,9 +728,14 @@ class DashboardScreen(Screen):
                 Static('[link]Editor[/link]', id='btn-open-editor', classes='open-btn'),
                 id='title-actions',
             )
-        # Project: subtitle (description from config)
+        # Project: decider link + description subtitle
         if self._nav.level == DashboardLevel.PROJECT:
-            yield Static('', id='project-subtitle')
+            yield Horizontal(
+                Static('[bold]Decider:[/bold] ', classes='open-label'),
+                Static('[link]…[/link]', id='btn-decider', classes='open-btn'),
+                Static('', id='project-description', classes='open-label'),
+                id='project-subtitle',
+            )
         # Task: subtitle (assignee, status, workgroup link)
         if self._nav.level == DashboardLevel.TASK:
             yield Static('', id='task-subtitle')
@@ -868,13 +862,16 @@ class DashboardScreen(Screen):
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
-        # Project subtitle: description from config
+        # Project subtitle: decider and description from config
         try:
             from projects.POC.orchestrator.config_reader import load_project_team
             pt = load_project_team(proj.path)
+            if pt.decider:
+                self._project_decider = pt.decider
+                self.query_one('#btn-decider', Static).update(f'[link]{pt.decider}[/link]')
             if pt.description:
-                self.query_one('#project-subtitle', Static).update(
-                    f'[dim]{pt.description}[/dim]'
+                self.query_one('#project-description', Static).update(
+                    f'  \u2014 [dim]{pt.description}[/dim]'
                 )
         except Exception:
             pass
@@ -1476,6 +1473,19 @@ class DashboardScreen(Screen):
             self.action_open_chat()
         elif wid == 'btn-withdraw':
             self.action_withdraw()
+        elif wid == 'btn-decider':
+            self._open_decider_chat()
+
+    def _open_decider_chat(self) -> None:
+        """Open proxy review (self) or liaison chat (other decider)."""
+        import getpass
+        decider = self._project_decider
+        if not decider:
+            return
+        if decider == getpass.getuser():
+            open_chat_window(self.app, ensure_proxy_review=decider)
+        else:
+            open_chat_window(self.app, conversation=f'liaison:{decider}')
 
     def _open_worktree_finder(self) -> None:
         wt = self._resolve_worktree_path()
