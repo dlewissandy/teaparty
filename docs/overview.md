@@ -191,7 +191,7 @@ Each session creates a git worktree. Subteam dispatches create child worktrees b
 | Agent runtime | Claude Code CLI (`claude -p` with `stream-json`) |
 | Orchestrator | Python, POC at `projects/POC/orchestrator/` |
 | Tests | `unittest.TestCase` with `_make_*()` helpers |
-| TUI | Textual (Python), at `projects/POC/tui/` |
+| Dashboard | HTML + bridge server at `projects/POC/bridge/` (served on `localhost:8081`) |
 
 ---
 

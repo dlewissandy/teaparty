@@ -119,7 +119,7 @@ class TestTeapartyShUvPreflightCheck(unittest.TestCase):
                 "HOME": tmpdir,
                 "TERM": "dumb",
             }
-            # The script will fail at `uv run python3 -m projects.POC.tui`
+            # The script will fail at `uv run python3 -m projects.POC.bridge`
             # because fake uv doesn't actually run anything — that's fine,
             # we just want to confirm curl was NOT called.
             subprocess.run(

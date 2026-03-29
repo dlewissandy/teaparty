@@ -1,6 +1,6 @@
-# Getting Started — TeaParty POC TUI
+# Getting Started — TeaParty POC
 
-This guide walks you through running the TeaParty POC terminal UI on a fresh machine. No prior Python experience required.
+This guide walks you through running the TeaParty POC HTML dashboard on a fresh machine. No prior Python experience required.
 
 ---
 
@@ -43,11 +43,13 @@ uv sync
 
 This installs all dependencies. If Python 3.12 or later is not already on your system, uv will download and install it automatically.
 
-### 5. Run the TUI
+### 5. Run the dashboard
 
 ```shell
-./projects/POC/tui.sh
+./teaparty.sh
 ```
+
+Open http://localhost:8081 in your browser.
 
 ---
 
@@ -88,11 +90,13 @@ uv sync
 
 This installs all dependencies. If Python 3.12 or later is not already on your system, uv will download and install it automatically.
 
-### 5. Run the TUI
+### 5. Run the dashboard
 
 ```shell
-./projects/POC/tui.sh
+./teaparty.sh
 ```
+
+Open http://localhost:8081 in your browser.
 
 ---
 
@@ -100,7 +104,7 @@ This installs all dependencies. If Python 3.12 or later is not already on your s
 
 ### Primary path: WSL2 (recommended)
 
-WSL2 gives you a full Linux environment on Windows and is the easiest way to run the TUI.
+WSL2 gives you a full Linux environment on Windows and is the easiest way to run the dashboard.
 
 **1. Enable WSL2**
 
@@ -118,7 +122,7 @@ After restarting, open the **Ubuntu** app from the Start menu. The first launch 
 
 **3. Follow the Linux steps**
 
-Inside the Ubuntu terminal, follow the [Linux](#linux) instructions above from step 1 (Install Git) through step 5 (Run the TUI).
+Inside the Ubuntu terminal, follow the [Linux](#linux) instructions above from step 1 (Install Git) through step 5 (Run the dashboard).
 
 ---
 
@@ -153,17 +157,19 @@ cd teaparty
 uv sync
 ```
 
-**5. Run the TUI**
+**5. Run the dashboard**
 
 ```powershell
-uv run python3 -m projects.POC.tui
+uv run python3 -m projects.POC.bridge
 ```
+
+Open http://localhost:8081 in your browser.
 
 ---
 
 ## What to expect
 
-After running the start command, a text-based terminal dashboard appears in your terminal window. You can navigate it with your keyboard.
+After running the start command, the bridge server starts on port 8081. Open http://localhost:8081 in your browser to view the HTML dashboard.
 
 ---
 

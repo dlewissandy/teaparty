@@ -96,7 +96,7 @@ class TestWorkgroupSessionFiltering(unittest.TestCase):
 
     def test_sessions_with_matching_team_dispatches_are_included(self):
         """A session with a dispatch whose team matches the workgroup name should appear."""
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         coding_dispatch = _make_dispatch(team='coding', status='active')
         session = _make_session(dispatches=[coding_dispatch])
         result = filter_sessions_for_workgroup([session], 'Coding')
@@ -105,7 +105,7 @@ class TestWorkgroupSessionFiltering(unittest.TestCase):
 
     def test_sessions_without_matching_dispatches_are_excluded(self):
         """A session with only non-matching dispatches should not appear."""
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         research_dispatch = _make_dispatch(team='research', status='active')
         session = _make_session(dispatches=[research_dispatch])
         result = filter_sessions_for_workgroup([session], 'Coding')
@@ -113,7 +113,7 @@ class TestWorkgroupSessionFiltering(unittest.TestCase):
 
     def test_session_with_mixed_dispatches_is_included(self):
         """A session with both matching and non-matching dispatches should appear."""
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         coding = _make_dispatch(team='coding')
         research = _make_dispatch(team='research')
         session = _make_session(dispatches=[coding, research])
@@ -122,14 +122,14 @@ class TestWorkgroupSessionFiltering(unittest.TestCase):
 
     def test_case_insensitive_team_matching(self):
         """Workgroup name 'Coding' should match dispatch team 'coding'."""
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         dispatch = _make_dispatch(team='coding')
         session = _make_session(dispatches=[dispatch])
         result = filter_sessions_for_workgroup([session], 'Coding')
         self.assertEqual(len(result), 1)
 
     def test_empty_sessions_list(self):
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         result = filter_sessions_for_workgroup([], 'Coding')
         self.assertEqual(result, [])
 
@@ -139,7 +139,7 @@ class TestWorkgroupEscalations(unittest.TestCase):
 
     def test_dispatch_escalation_from_matching_team_appears(self):
         """An escalation in a dispatch whose team matches the workgroup should appear."""
-        from projects.POC.tui.screens.dashboard_screen import (
+        from projects.POC.orchestrator.dashboard_stats import (
             filter_sessions_for_workgroup,
             _build_workgroup_escalation_items,
         )
@@ -152,7 +152,7 @@ class TestWorkgroupEscalations(unittest.TestCase):
 
     def test_session_level_escalation_on_matching_session(self):
         """A session-level escalation should appear if the session has matching dispatches."""
-        from projects.POC.tui.screens.dashboard_screen import (
+        from projects.POC.orchestrator.dashboard_stats import (
             filter_sessions_for_workgroup,
             _build_workgroup_escalation_items,
         )
@@ -165,7 +165,7 @@ class TestWorkgroupEscalations(unittest.TestCase):
 
     def test_escalation_from_other_team_dispatch_excluded(self):
         """A dispatch escalation from a non-matching team should not appear."""
-        from projects.POC.tui.screens.dashboard_screen import (
+        from projects.POC.orchestrator.dashboard_stats import (
             filter_sessions_for_workgroup,
             _build_workgroup_escalation_items,
         )
@@ -183,7 +183,7 @@ class TestWorkgroupActiveTasks(unittest.TestCase):
 
     def test_active_dispatches_from_matching_team(self):
         """Active dispatches whose team matches the workgroup should appear as tasks."""
-        from projects.POC.tui.screens.dashboard_screen import build_active_task_items
+        from projects.POC.orchestrator.dashboard_stats import build_active_task_items
         active = _make_dispatch(team='coding', status='active')
         complete = _make_dispatch(team='coding', status='complete')
         other = _make_dispatch(team='research', status='active')
@@ -192,7 +192,7 @@ class TestWorkgroupActiveTasks(unittest.TestCase):
         self.assertEqual(len(items), 1)
 
     def test_no_active_dispatches_returns_empty(self):
-        from projects.POC.tui.screens.dashboard_screen import build_active_task_items
+        from projects.POC.orchestrator.dashboard_stats import build_active_task_items
         complete = _make_dispatch(team='coding', status='complete')
         session = _make_session(dispatches=[complete])
         items = build_active_task_items([session], 'Coding')
@@ -204,7 +204,7 @@ class TestWorkgroupSkills(unittest.TestCase):
 
     def test_skills_loaded_from_workgroup_config(self):
         """Skills listed in the workgroup YAML should appear as card items."""
-        from projects.POC.tui.screens.dashboard_screen import build_skill_items
+        from projects.POC.orchestrator.dashboard_stats import build_skill_items
         items = build_skill_items(['fix-issue', 'code-cleanup'])
         self.assertEqual(len(items), 2)
         labels = [item.label for item in items]
@@ -212,7 +212,7 @@ class TestWorkgroupSkills(unittest.TestCase):
         self.assertIn('code-cleanup', labels)
 
     def test_empty_skills_list(self):
-        from projects.POC.tui.screens.dashboard_screen import build_skill_items
+        from projects.POC.orchestrator.dashboard_stats import build_skill_items
         items = build_skill_items([])
         self.assertEqual(items, [])
 
@@ -222,7 +222,7 @@ class TestWorkgroupStats(unittest.TestCase):
 
     def test_stats_include_session_and_task_counts(self):
         """Stats should include sessions, active tasks, and escalation counts."""
-        from projects.POC.tui.screens.dashboard_screen import compute_workgroup_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_workgroup_stats
         active_d = _make_dispatch(team='coding', status='active')
         complete_d = _make_dispatch(team='coding', status='complete')
         escalated_d = _make_dispatch(team='coding', status='active', needs_input=True)
@@ -241,7 +241,7 @@ class TestManagementLevelWorkgroupFiltering(unittest.TestCase):
 
     def test_sessions_from_multiple_projects_are_collected(self):
         """When project_slug is empty, sessions from all projects should be considered."""
-        from projects.POC.tui.screens.dashboard_screen import filter_sessions_for_workgroup
+        from projects.POC.orchestrator.dashboard_stats import filter_sessions_for_workgroup
         d1 = _make_dispatch(team='configuration', status='active')
         d2 = _make_dispatch(team='configuration', status='complete')
         d3 = _make_dispatch(team='coding', status='active')

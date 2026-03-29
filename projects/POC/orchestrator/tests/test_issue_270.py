@@ -205,20 +205,5 @@ class TestCorrectionRecording(unittest.TestCase):
             conn.close()
 
 
-# ── 4. ChatScreen dialog history ───────────────────────────────────────────
-
-class TestChatScreenDialogHistory(unittest.TestCase):
-    """ChatScreen._run_proxy_turn passes dialog_history to run_review_turn."""
-
-    def test_run_proxy_turn_passes_dialog_history(self):
-        """_run_proxy_turn must build dialog history from prior bus messages."""
-        from projects.POC.tui.screens.chat import ChatScreen
-
-        import inspect
-        source = inspect.getsource(ChatScreen._run_proxy_turn)
-        self.assertIn('dialog_history', source,
-                      '_run_proxy_turn must pass dialog_history to run_review_turn')
-
-
 if __name__ == '__main__':
     unittest.main()

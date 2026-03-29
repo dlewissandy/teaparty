@@ -131,7 +131,7 @@ uv run mkdocs serve                                              # browse docs a
 To run a session interactively (requires Claude Code CLI and a human at the approval gates):
 
 ```bash
-./teaparty.sh                                                    # TUI dashboard
+./teaparty.sh                                                    # HTML dashboard (localhost:8081)
 uv run python -m projects.POC.orchestrator "Your task"           # CLI session
 ```
 

@@ -414,12 +414,7 @@ class TestSessionWiresInterventionQueue(unittest.TestCase):
 # ── Test 10: TUI ChatScreen routes to InterventionQueue ───────────────────
 
 class TestChatScreenIntervention(unittest.TestCase):
-    """ChatScreen must route human input to the intervention queue."""
-
-    def test_chat_screen_has_enqueue_method(self):
-        """ChatScreen must have _enqueue_intervention method."""
-        from projects.POC.tui.screens.chat import ChatScreen
-        self.assertTrue(hasattr(ChatScreen, '_enqueue_intervention'))
+    """Intervention queue wiring for in-process sessions."""
 
     def test_enqueue_intervention_calls_queue(self):
         """_enqueue_intervention routes to the matching in-process session's queue."""
