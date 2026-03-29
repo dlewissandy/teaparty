@@ -13,10 +13,10 @@ import os
 import re
 import unittest
 
-_WORKTREE = os.path.join(os.path.dirname(__file__), '..', '.worktrees', 'issue-282')
-_CHAT_HTML = os.path.join(_WORKTREE, 'docs', 'proposals', 'ui-redesign', 'mockup', 'chat.html')
-_INDEX_HTML = os.path.join(_WORKTREE, 'docs', 'proposals', 'ui-redesign', 'mockup', 'index.html')
-_BRIDGE_API = os.path.join(_WORKTREE, 'docs', 'proposals', 'ui-redesign', 'references', 'bridge-api.md')
+_REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
+_CHAT_HTML = os.path.join(_REPO_ROOT, 'docs', 'proposals', 'ui-redesign', 'mockup', 'chat.html')
+_INDEX_HTML = os.path.join(_REPO_ROOT, 'docs', 'proposals', 'ui-redesign', 'mockup', 'index.html')
+_BRIDGE_API = os.path.join(_REPO_ROOT, 'docs', 'proposals', 'ui-redesign', 'references', 'bridge-api.md')
 
 
 # ── Fake helpers (same pattern as test_issue_297.py) ─────────────────────────

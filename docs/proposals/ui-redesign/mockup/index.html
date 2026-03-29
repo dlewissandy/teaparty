@@ -131,12 +131,13 @@ function fetchAll() {
     return Promise.all(configFetches);
   }).then(function() {
     render();
-    // Pre-populate escalationConvMap from REST data so onMessage can clear
-    // dots for sessions that were already awaiting input at page load.
-    pageState.escalationConvMap = {};
+    // Merge escalation state from REST into escalationConvMap.
+    // Only ADD entries for sessions the server says need input — never remove
+    // entries established by WebSocket input_requested events. The map is
+    // the sticky source of truth; only onMessage() (human reply) clears it.
     pageState.projects.forEach(function(p) {
       (p.sessions || []).forEach(function(s) {
-        if (s.needs_input && s.input_conv_id) {
+        if (s.needs_input && s.input_conv_id && !pageState.escalationConvMap[s.session_id]) {
           pageState.escalationConvMap[s.session_id] = s.input_conv_id;
         }
       });
@@ -148,9 +149,10 @@ function fetchAll() {
 }
 
 function render() {
-  var totalEsc = pageState.projects.reduce(function(sum, p) {
-    return sum + (p.attention_count || 0);
-  }, 0);
+  // Use escalationConvMap as the sticky source of truth for escalation count.
+  // REST attention_count may lag behind or clear prematurely; the map is only
+  // cleared when the human explicitly responds (onMessage).
+  var totalEsc = Object.keys(pageState.escalationConvMap).length;
 
   // Org row
   var orgHtml = '<div class="org-row">';
@@ -210,8 +212,12 @@ function render() {
     // Stats
     projectsHtml += '<div class="pc-stats">';
     projectsHtml += '<div class="pc-stat"><div class="pc-stat-value" style="color:var(--green)">' + p.active_count + '</div><div class="pc-stat-label">Active Jobs</div></div>';
-    var escStyle = p.attention_count > 0 ? ' style="color:var(--red)"' : '';
-    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value"' + escStyle + '>' + p.attention_count + '</div><div class="pc-stat-label">Escalations</div></div>';
+    // Count sticky escalations for this project from escalationConvMap
+    var projEsc = (p.sessions || []).filter(function(s) {
+      return s.needs_input || !!pageState.escalationConvMap[s.session_id];
+    }).length;
+    var escStyle = projEsc > 0 ? ' style="color:var(--red)"' : '';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value"' + escStyle + '>' + projEsc + '</div><div class="pc-stat-label">Escalations</div></div>';
     projectsHtml += '<div class="pc-stat"><div class="pc-stat-value">' + workgroupCount + '</div><div class="pc-stat-label">Workgroups</div></div>';
     projectsHtml += '</div>';
 
@@ -223,10 +229,13 @@ function render() {
         var pIdx = phaseIndex(s.cfa_phase);
         var jobName = s.task || s.session_id;
         projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
-        if (s.needs_input) {
-          // Build task-specific escalation URL from input_conv_id if the server provided it.
+        // Show badge from escalationConvMap (sticky) OR REST needs_input (initial load).
+        var stickyConvId = pageState.escalationConvMap[s.session_id];
+        if (s.needs_input || stickyConvId) {
+          // Build task-specific escalation URL from sticky map or REST input_conv_id.
           // task: conv → job:…&task=…  |  job: conv → job:…  |  fallback → job: (no task)
-          var escParts = s.input_conv_id ? s.input_conv_id.split(':') : [];
+          var rawConvId = stickyConvId || s.input_conv_id || '';
+          var escParts = rawConvId.split(':');
           var escUrl = (escParts[0] === 'task' && escParts.length === 4)
             ? ('chat.html?conv=job:' + escParts[1] + ':' + escParts[2] + '&task=' + escParts[3])
             : ('chat.html?conv=' + convId);

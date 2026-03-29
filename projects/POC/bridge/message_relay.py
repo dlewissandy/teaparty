@@ -61,6 +61,7 @@ class MessageRelay:
             for msg in messages:
                 await self._broadcast({
                     'type': 'message',
+                    'id': msg.id,
                     'conversation_id': cid,
                     'sender': msg.sender,
                     'content': msg.content,
