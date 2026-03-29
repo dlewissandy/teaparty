@@ -60,3 +60,5 @@ refinement/
 
 # Triage scratch
 /triage/
+# Worktrees
+.worktrees/

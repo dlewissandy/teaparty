@@ -42,7 +42,7 @@ For 1:1 conversations with a specific participant. The sidebar lists **conversat
 **User stories:**
 - "I want to talk to the office manager about restructuring." → Click Office Manager on the home page. Chat opens showing past sessions in the sidebar. Click "+ New" or just start typing.
 - "I want to review what I discussed with the proxy last week." → Open proxy chat. Sidebar shows sessions by date. Click the older session.
-- "I want to give the proxy job-specific instructions." → From the job board on the home page, click the proxy participant. Chat opens scoped to that project/job.
+- "I want to give the proxy job-specific instructions." → From the job board on the home page, click the proxy participant. Chat opens with that job as the conversational context — the proxy is the same global agent, but the conversation is framed around the current work.
 
 **Sidebar contents:**
 - "CONVERSATIONS" header

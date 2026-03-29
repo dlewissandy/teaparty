@@ -82,3 +82,5 @@ Both events are recorded as memory chunks. Interventions are particularly strong
 **Backtrack depth.** When an INTERVENE causes a backtrack, the lead sends the intervention through the proxy. The proxy weighs whether escalation to the human is required, or whether the lead can handle it autonomously.
 
 **Advisor intervention weight.** Advisors can interject with advisory input. The proxy weighs whether the interjection requires escalation to the human, or whether the lead can handle it autonomously. The norms system provides guidance to the proxy, but the proxy makes the call about escalation.
+
+**WITHDRAW delivery mechanism.** `InterventionListener` binds at `~/.teaparty/sockets/{session_id}.sock` (stable, predictable path) with an unlink-before-bind on startup and cleanup in `stop()`. Session IDs are capped at a fixed length so the socket path length is provably bounded. The bridge derives the path from the session ID alone. The shared wire format is `InterventionRequest` (defined in `intervention_listener.py`), used by both the bridge and the MCP server to prevent protocol drift. See [#278](https://github.com/dlewissandy/teaparty/issues/278).

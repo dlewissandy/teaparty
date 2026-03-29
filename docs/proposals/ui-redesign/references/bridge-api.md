@@ -82,9 +82,22 @@ For org-level, project=`org` returns `organization.md`.
 
 | Method | Path | Effect | Source |
 |--------|------|--------|--------|
-| POST | `/api/withdraw/{session_id}` | Withdraw a job | JSON message to `INTERVENTION_SOCKET` |
+| POST | `/api/withdraw/{session_id}` | Withdraw a job | Write `InterventionRequest` to `~/.teaparty/sockets/{session_id}.sock` |
 
-The bridge only writes to `INTERVENTION_SOCKET` for actions. All other writes go through the message bus.
+The bridge locates a session's intervention channel via a stable, predictable Unix socket path:
+`~/.teaparty/sockets/{session_id}.sock`. The bridge constructs this path from the session ID alone —
+no file read or registry lookup required. Socket file presence is the readiness signal: if the file
+does not appear within N seconds of session start, the bridge marks intervention as unavailable and
+surfaces that to the UI. The shared serialization type is `InterventionRequest` (defined in
+`intervention_listener.py`), imported by both the bridge and the MCP server.
+
+The bridge is read-heavy, write-light. It reads state files, config, heartbeats, and messages. It
+writes only human messages to the message bus and withdrawal requests to the intervention socket.
+
+> **Decision record:** See [#278](https://github.com/dlewissandy/teaparty/issues/278) — Option B
+> chosen (stable socket path) over Option A (sentinel file). Uniform failure mode, no staleness
+> ambiguity, consistent with infra dir conventions. Socket capped to `~/.teaparty/sockets/` rather
+> than `{infra_dir}` to keep path length provably bounded.
 
 ---
 
@@ -104,7 +117,7 @@ CfA state transition detected.
 ```json
 {"type": "input_requested", "session_id": "...", "conversation_id": "...", "question": "..."}
 ```
-Orchestrator posted a question to the message bus. The chat page should highlight this conversation.
+A message with `ack_status = 'pending'` exists in this conversation. The chat page should highlight it. Detected by querying `WHERE ack_status = 'pending'` — no content inspection.
 
 ```json
 {"type": "message", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
@@ -133,9 +146,9 @@ The bridge does NOT implement `InputProvider`. It writes to the same SQLite mess
 
 ```
 1. Orchestrator's MessageBusInputProvider posts question
-   → bus.send(conv_id, 'orchestrator', question)
+   → inserts message with ack_status = 'pending'
 
-2. Bridge poll detects new message
+2. Bridge poll queries WHERE ack_status = 'pending'
    → pushes {"type": "input_requested", ...} via WebSocket
 
 3. Chat page shows the question (it's a message in the conversation)
@@ -143,7 +156,8 @@ The bridge does NOT implement `InputProvider`. It writes to the same SQLite mess
 4. Human types response, hits Enter
 
 5. Chat page POSTs to /api/conversations/{id}
-   → bridge calls bus.send(conv_id, 'human', response)
+   → bridge inserts human reply with reply_to = <question message id>
+   → bridge updates question message ack_status = 'acknowledged' (same transaction)
 
 6. Orchestrator's MessageBusInputProvider poll picks up the response
    → orchestrator continues

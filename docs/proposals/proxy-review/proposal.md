@@ -41,9 +41,9 @@ This serves two purposes.
 
 ## Scope
 
-Proxy review sessions have no project or job scope. The proxy is a global entity (one per human, shared across all projects). Learnings from a review session are global and influence the proxy's behavior everywhere.
+The proxy is a global entity — one per human, shared across all projects. Learnings are global and influence the proxy's behavior everywhere.
 
-This is intentional. The review session is about calibrating the proxy's model of the human, not about any specific piece of work.
+"Scope" here means memory and learning boundaries, not conversational context. The proxy can be addressed from a job chat window — the job frames what is being discussed, not the proxy's memory. Corrections made in that conversation still update the proxy's global model. The distinction is: where the conversation starts, and what the proxy's memory spans, are independent.
 
 ---
 
