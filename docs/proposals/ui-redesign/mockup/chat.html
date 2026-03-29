@@ -69,6 +69,15 @@ var CONV_TYPE_MAP = {
   'liaison': 'liaison',
 };
 
+// Map conv ID prefix to a human-readable participant name for the header.
+var PARTICIPANT_NAMES = {
+  'om':      'Office Manager',
+  'proxy':   'Proxy',
+  'session': 'Session Manager',
+  'team':    'Team',
+  'liaison': 'Liaison',
+};
+
 // ── Page state ────────────────────────────────────────────────────────────────
 var pageState = {
   messages: [],          // messages for the currently displayed conversation
@@ -365,16 +374,19 @@ function renderJobLayout() {
 }
 
 function renderParticipantLayout() {
-  var headerTitle = convId;
+  var headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
   var headerScope = selectedItem || 'All conversations';
   document.title = 'TeaParty — ' + headerTitle;
 
   var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Conversations</div>';
   pageState.participantConvs.forEach(function(c) {
     var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
+    // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:darrell' → 'darrell')
+    var idParts = c.id.split(':');
+    var label = idParts.length > 1 ? idParts.slice(1).join(':') : c.id;
     navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +
       '" onclick="selectItem(\'' + c.id + '\')">' +
-      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + c.id + '</span>' +
+      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +
       '<span style="font-size:8px;color:var(--text-dim);flex-shrink:0">' + date + '</span></div>';
   });
   if (!pageState.participantConvs.length) {
