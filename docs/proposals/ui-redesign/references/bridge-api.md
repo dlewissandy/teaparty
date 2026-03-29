@@ -2,7 +2,24 @@
 
 # Bridge API Specification
 
-The bridge is an aiohttp server that exposes TeaParty's existing data through REST endpoints and a WebSocket. It imports existing modules directly — `SqliteMessageBus`, `ConversationType`, `StateReader`, `config_reader`, `heartbeat`, `cfa_state`.
+The bridge is a new aiohttp server that wraps TeaParty's existing infrastructure. It adds no business logic — that stays in the orchestrator — but it is a new server component with meaningful implementation scope.
+
+**What the bridge implements as new code:**
+- aiohttp app with static file serving and route definitions
+- 1-second polling loop with state diffing to detect CfA transitions, input requests, heartbeat changes, and session completions
+- Per-session `SqliteMessageBus` connection lifecycle (open on session start, close on completion)
+- WebSocket endpoint with five push-event types and broadcast-all dispatch
+- Conversation routing across multiple databases (OM database vs per-session databases)
+- Workgroup scanner (`GET /api/workgroups`) — no existing backing function in `config_reader`
+
+**What the bridge delegates to existing infrastructure:**
+- `SqliteMessageBus` — message storage and retrieval
+- `StateReader` — filesystem polling and session discovery (#280)
+- `config_reader` — project and management team configuration
+- `heartbeat` / `cfa_state` — liveness classification and CfA state loading
+- `MessageBusInputProvider` — orchestrator polls the same database the bridge writes to
+
+Three structural gaps require separate implementation work: StateReader must be extracted to the orchestrator package (#280), the withdrawal path needs a stable socket contract (#278), and the workgroup scanner has no existing backing function. Implementers planning from this spec must account for all three.
 
 `StateReader` is imported from `projects.POC.orchestrator.state_reader`, not from the TUI package. Session discovery logic and heartbeat liveness classification live in the orchestrator so the bridge has no dependency on the TUI it supersedes (issue #280).
 

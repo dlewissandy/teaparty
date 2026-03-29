@@ -18,7 +18,7 @@ The TUI is the single largest maintenance burden in the project. Three problems:
 
 3. **It doesn't advance the research.** The TUI is infrastructure tax. Every hour spent on it is an hour not spent on the CfA protocol, proxy learning, or hierarchical teams.
 
-HTML solves all three. Claude knows HTML/CSS/JS cold. Browser dev tools work. Separate pages enforce separation of concerns. And because the orchestrator already has a SQLite message bus, the bridge is a thin read/write layer over existing infrastructure.
+HTML solves all three. Claude knows HTML/CSS/JS cold. Browser dev tools work. Separate pages enforce separation of concerns. And because the orchestrator already has a SQLite message bus, the bridge wraps existing infrastructure — it adds no business logic, though it is a new server component with its own implementation scope (see Bridge Server below).
 
 ---
 
@@ -59,7 +59,11 @@ The proxy appears as a clickable participant at project and job scope. The human
 
 ## Bridge Server
 
-The bridge is a thin async Python server (aiohttp) that reads and writes the same SQLite message bus the orchestrator already uses. It imports existing TeaParty modules directly — no reimplementation.
+The bridge is a new async Python server (aiohttp) that wraps existing TeaParty infrastructure. It adds no business logic — CfA transitions, orchestration, and agent execution remain in the orchestrator — but it is a meaningful new server component: an aiohttp app with static file serving, seven REST endpoint groups, a WebSocket with five event types, a 1-second polling loop with state diffing, per-session message bus lifecycle management, conversation routing across multiple databases, and a workgroup scanner (no existing backing function in `config_reader`). A 300–500 line implementation is the realistic floor.
+
+Three structural gaps bear on implementation planning: StateReader coupling (#280), the withdrawal path (#278), and the missing workgroup scanner. These are tracked separately but any sprint sizing must account for them.
+
+It imports existing TeaParty modules directly — `SqliteMessageBus`, `StateReader`, `config_reader`, `heartbeat`, `cfa_state` — rather than reimplementing them.
 
 **Why aiohttp:** Async needed for WebSocket push. Lightweight. No framework opinions.
 
