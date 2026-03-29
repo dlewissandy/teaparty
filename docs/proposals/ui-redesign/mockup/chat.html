@@ -84,7 +84,6 @@ var pageState = {
   taskConvs: [],         // job chat: conversation objects filtered to this job
   participantConvs: [],  // participant chat: conversation objects from ?type={type}
   cfaPhase: null,        // job chat: CfA phase string from GET /api/cfa/{session_id}
-  lastTs: 0,             // latest message timestamp seen
 };
 
 // Return the conversation ID that is currently active (job conv or selected task/session).
@@ -105,9 +104,6 @@ function fetchAll() {
       .then(function(r) { return r.json(); })
       .then(function(msgs) {
         pageState.messages = msgs || [];
-        if (msgs && msgs.length > 0) {
-          pageState.lastTs = msgs[msgs.length - 1].timestamp;
-        }
       }),
   ];
 
@@ -231,7 +227,8 @@ function refilter() {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 }
 
-// Track content of messages sent by this page so WS echoes aren't shown twice.
+// Track sent messages so WS echoes are suppressed — each entry expires after 5 s.
+// Using {content, expiry} prevents a delayed echo from suppressing a later identical send.
 var _pendingSent = [];
 
 // ── Send message ──────────────────────────────────────────────────────────────
@@ -246,7 +243,7 @@ function sendMessage(ta) {
     body: JSON.stringify({ content: text }),
   }).then(function() {
     // Optimistically show the message; record it so the WS echo is skipped.
-    _pendingSent.push(text);
+    _pendingSent.push({ content: text, expiry: Date.now() + 5000 });
     var m = { sender: 'human', content: text };
     pageState.messages.push(m);
     var msgsEl = document.querySelector('.chat-messages');
@@ -319,10 +316,19 @@ function selectJobConv() {
     .catch(function() { pageState.messages = []; render(); });
 }
 
+function selectNewConv() {
+  // Start a fresh conversation with this participant.
+  // Clearing selectedItem makes the textarea send to convId (the participant's base ID).
+  selectedItem = null;
+  pageState.messages = [];
+  render();
+}
+
 // ── Auto-grow textarea ────────────────────────────────────────────────────────
 function autoGrow(ta) {
   ta.style.height = '24px';
-  ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+  var lineH = parseInt(getComputedStyle(ta).lineHeight) || 18;
+  ta.style.height = Math.min(ta.scrollHeight, lineH * 10) + 'px';
 }
 
 function chatKeydown(e) {
@@ -364,7 +370,7 @@ function renderJobLayout() {
   });
   navHtml += '</div>';
 
-  var headerActions = '<div style="display:flex;gap:6px;align-items:center">' +
+  var headerActions = '<div class="chat-header-actions" style="display:flex;gap:6px;align-items:center">' +
     gateReviewButtonHtml() +
     '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
     'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>' +
@@ -375,10 +381,17 @@ function renderJobLayout() {
 
 function renderParticipantLayout() {
   var headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
-  var headerScope = selectedItem || 'All conversations';
+  // Derive a human-readable scope from the selected session ID (strip prefix).
+  var headerScope = 'All conversations';
+  if (selectedItem) {
+    var sParts = selectedItem.split(':');
+    headerScope = sParts.length > 1 ? sParts.slice(1).join(':') : selectedItem;
+  }
   document.title = 'TeaParty — ' + headerTitle;
 
-  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Conversations</div>';
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Conversations</div>' +
+    '<div class="chat-nav-item' + (!selectedItem ? ' active' : '') +
+    '" onclick="selectNewConv()" style="color:var(--green);font-size:9px">+ New</div>';
   pageState.participantConvs.forEach(function(c) {
     var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
     // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:darrell' → 'darrell')
@@ -389,9 +402,6 @@ function renderParticipantLayout() {
       '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +
       '<span style="font-size:8px;color:var(--text-dim);flex-shrink:0">' + date + '</span></div>';
   });
-  if (!pageState.participantConvs.length) {
-    navHtml += '<div style="padding:8px 10px;font-size:9px;color:var(--text-dim)">No conversations yet</div>';
-  }
   navHtml += '</div>';
 
   renderMainArea(navHtml, headerTitle, headerScope, '');
@@ -408,7 +418,9 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<div class="chat-layout">' + navHtml +
     '<div class="chat-main">' +
     '<div class="chat-header" style="display:flex;justify-content:space-between;align-items:center">' +
-    '<div><div class="chat-header-title">' + headerTitle + '</div>' +
+    '<div><div class="chat-header-title">' + headerTitle +
+    '<span class="session-status" style="display:none;font-size:8px;margin-left:6px;padding:1px 4px;border-radius:2px;border:1px solid currentColor"></span>' +
+    '</div>' +
     '<div class="chat-header-scope">' + headerScope + '</div></div>' +
     headerActions +
     '</div>' +
@@ -441,6 +453,8 @@ function connectWS() {
         onStateChanged(ev);
       } else if (ev.type === 'session_completed') {
         onSessionCompleted(ev);
+      } else if (ev.type === 'heartbeat') {
+        onHeartbeat(ev);
       }
     } catch (err) {}
   };
@@ -452,12 +466,16 @@ function onWsMessage(ev) {
   if (ev.conversation_id !== activeConvId()) return;
   // Skip the WS echo of messages we already showed via optimistic append.
   if (ev.sender === 'human') {
-    var idx = _pendingSent.indexOf(ev.content);
-    if (idx >= 0) { _pendingSent.splice(idx, 1); return; }
+    var now = Date.now();
+    for (var i = 0; i < _pendingSent.length; i++) {
+      if (_pendingSent[i].content === ev.content && _pendingSent[i].expiry > now) {
+        _pendingSent.splice(i, 1);
+        return;
+      }
+    }
   }
   var m = { sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
   pageState.messages.push(m);
-  if (ev.timestamp > pageState.lastTs) pageState.lastTs = ev.timestamp;
   var msgsEl = document.querySelector('.chat-messages');
   if (!msgsEl) return;
   var empty = msgsEl.querySelector('.empty');
@@ -485,11 +503,35 @@ function onInputRequested(ev) {
 
 function onStateChanged(ev) {
   if (session_id && ev.session_id !== session_id) return;
-  // Re-fetch CfA state to update the Review button visibility.
+  // Re-fetch CfA state and update only the header-actions region so any
+  // in-progress textarea draft is preserved.
   fetch('/api/cfa/' + encodeURIComponent(session_id))
     .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(cfa) { pageState.cfaPhase = cfa ? cfa.phase : null; render(); })
+    .then(function(cfa) {
+      pageState.cfaPhase = cfa ? cfa.phase : null;
+      var actionsEl = document.querySelector('.chat-header-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = gateReviewButtonHtml() +
+          '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
+          'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>';
+      } else {
+        render();
+      }
+    })
     .catch(function() {});
+}
+
+function onHeartbeat(ev) {
+  var indicator = document.querySelector('.session-status');
+  if (!indicator) return;
+  var status = ev.status || 'alive';
+  if (status === 'alive') {
+    indicator.style.display = 'none';
+  } else {
+    indicator.textContent = status;
+    indicator.style.color = status === 'dead' ? 'var(--red)' : 'var(--yellow)';
+    indicator.style.display = 'inline';
+  }
 }
 
 function onSessionCompleted(ev) {
