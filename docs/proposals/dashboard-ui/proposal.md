@@ -1,5 +1,7 @@
 [Milestone 3: Human Interaction Layer](../milestone-3.md) >
 
+> **Superseded** by [UI Redesign: HTML Dashboard](../ui-redesign/proposal.md)
+
 # Dashboard UI
 
 The human's primary interface to TeaParty is a hierarchical dashboard. Each level of the team hierarchy has its own dashboard view. Navigation is drill-down: click a project to see its dashboard, click a workgroup to see its dashboard, click a job to see its dashboard, click a task to see its dashboard. Breadcrumbs navigate back up.
