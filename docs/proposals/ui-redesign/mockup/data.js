@@ -113,7 +113,7 @@ const mockData = {
               { id: "t3", name: "Dolor sit tests", status: "pending", assignee: "Developer", heartbeat: "dead" },
               { id: "t4", name: "Amet consult integration", status: "pending", assignee: "Architect", heartbeat: "dead" },
             ],
-            stats: { tasksCompleted: 1, tasksTotal: 4, backtracks: 0, escalations: 2, tokensUsed: "84K", elapsed: "47m" },
+            stats: { tasksCompleted: 1, tasksTotal: 4, backtracks: 0, escalations: 2, elapsed: "47m" },
           },
           { id: "job:poc:job-002", name: "Ut enim ad minim veniam", workgroup: "Research", status: "reviewing",
             phase: "WORK_ASSERT", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 5,
@@ -124,7 +124,7 @@ const mockData = {
               { id: "t5", name: "Excepteur literature review", status: "done", assignee: "Researcher", heartbeat: "dead" },
               { id: "t6", name: "Cupidatat protocol spec", status: "active", assignee: "Researcher", heartbeat: "alive" },
             ],
-            stats: { tasksCompleted: 1, tasksTotal: 2, backtracks: 1, escalations: 1, tokensUsed: "62K", elapsed: "1h 12m" },
+            stats: { tasksCompleted: 1, tasksTotal: 2, backtracks: 1, escalations: 1, elapsed: "1h 12m" },
           },
           { id: "job:poc:job-003", name: "Quis nostrud exercitation", workgroup: "Writing", status: "planning",
             phase: "PLAN", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 2,
@@ -132,7 +132,7 @@ const mockData = {
             tasks: [
               { id: "t7", name: "Voluptate velit chapters", status: "active", assignee: "Writer", heartbeat: "stale" },
             ],
-            stats: { tasksCompleted: 0, tasksTotal: 1, backtracks: 0, escalations: 0, tokensUsed: "18K", elapsed: "22m" },
+            stats: { tasksCompleted: 0, tasksTotal: 1, backtracks: 0, escalations: 0, elapsed: "22m" },
           },
         ],
         humans: [
@@ -155,7 +155,7 @@ const mockData = {
               { id: "t8", name: "Tempor incididunt chapter", status: "active", assignee: "Editor", heartbeat: "alive" },
               { id: "t9", name: "Labore et dolore review", status: "pending", assignee: "Proofreader", heartbeat: "dead" },
             ],
-            stats: { tasksCompleted: 0, tasksTotal: 2, backtracks: 0, escalations: 1, tokensUsed: "34K", elapsed: "29m" },
+            stats: { tasksCompleted: 0, tasksTotal: 2, backtracks: 0, escalations: 1, elapsed: "29m" },
           },
           { id: "job:joke-book:job-005", name: "Magna aliqua veniam", workgroup: "Writing", status: "reviewing",
             phase: "WORK_ASSERT", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 5,
@@ -164,7 +164,7 @@ const mockData = {
               { id: "t10", name: "Nostrud exercitation draft", status: "done", assignee: "Writer", heartbeat: "dead" },
               { id: "t11", name: "Ullamco laboris polish", status: "done", assignee: "Writer", heartbeat: "dead" },
             ],
-            stats: { tasksCompleted: 2, tasksTotal: 2, backtracks: 0, escalations: 0, tokensUsed: "51K", elapsed: "38m" },
+            stats: { tasksCompleted: 2, tasksTotal: 2, backtracks: 0, escalations: 0, elapsed: "38m" },
           },
         ],
         humans: [
@@ -180,13 +180,13 @@ const mockData = {
       jobsCompleted: 47, tasksCompleted: 183, activeJobs: 6,
       oneShots: 31, backtracks: 12, withdrawals: 3,
       escalations: 18, interventions: 4, proxyAccuracy: 78,
-      tokensUsed: "4.2M", skillsLearned: 23, uptime: "14d 6h",
+      skillsLearned: 23, uptime: "14d 6h",
     },
     poc: {
       jobsCompleted: 34, tasksCompleted: 127, activeJobs: 3,
       oneShots: 22, backtracks: 8, withdrawals: 2,
       escalations: 11, interventions: 2, proxyAccuracy: 81,
-      tokensUsed: "2.8M", skillsLearned: 15,
+      skillsLearned: 15,
     },
     // Time series for charts
     daily: [
