@@ -135,14 +135,31 @@ function renderMarkdown(text) {
   return '<p>' + html + '</p>';
 }
 
+// Correlation ID set: tracks message IDs returned by POST /api/conversations/{id}.
+// When the bridge broadcasts a 'message' event, we skip any whose id is in this set
+// (they are echoes of messages we just sent) and remove the id to bound memory use.
+var sentIds = new Set();
+
 function mockSend(ta) {
   if (!ta.value.trim()) return;
+  var content = ta.value;
   var msgs = document.querySelector('.chat-messages');
-  var rendered = renderMarkdown(ta.value);
+  var rendered = renderMarkdown(content);
+  // Optimistic render — show immediately without waiting for bridge round-trip
   msgs.innerHTML += '<div class="msg"><div class="msg-sender msg-sender-human">human</div><div class="msg-text">' + rendered + '</div></div>';
   ta.value = '';
   ta.style.height = '24px';
   msgs.scrollTop = msgs.scrollHeight;
+  // Persist to bridge; record returned ID to filter the echo
+  if (convId) {
+    fetch('/api/conversations/' + encodeURIComponent(convId), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content }),
+    }).then(function(r) { return r.json(); }).then(function(data) {
+      if (data.id) sentIds.add(data.id);
+    }).catch(function() {});
+  }
 }
 
 function autoGrow(ta) {
@@ -303,6 +320,40 @@ function render() {
 }
 
 render();
+
+// WebSocket for real-time message delivery. Reconnects on disconnect.
+function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onmessage = function(e) {
+    try {
+      var event = JSON.parse(e.data);
+      if (event.type === 'message' && event.conversation_id === convId) {
+        // Correlation ID filter: skip echoes of messages we just sent.
+        if (event.id && sentIds.has(event.id)) {
+          sentIds.delete(event.id);
+          return;
+        }
+        var msgs = document.querySelector('.chat-messages');
+        if (!msgs) return;
+        var isHuman = event.sender === 'human';
+        var rendered = renderMarkdown(event.content || '');
+        msgs.innerHTML += '<div class="msg">' +
+          '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + event.sender + '</div>' +
+          '<div class="msg-text">' + rendered + '</div>' +
+          '</div>';
+        msgs.scrollTop = msgs.scrollHeight;
+      }
+    } catch (err) {}
+  };
+
+  ws.onclose = function() {
+    setTimeout(connectWS, 3000);
+  };
+}
+
+connectWS();
 </script>
 </body>
 </html>

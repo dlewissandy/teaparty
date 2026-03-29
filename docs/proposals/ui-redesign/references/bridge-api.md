@@ -138,9 +138,9 @@ Orchestrator is waiting for human input. The chat page should highlight this con
 Source: `conversations.awaiting_input = 1` in the session's `messages.db`. `MessageBusInputProvider` sets this flag when posting a question and clears it when a human response is received. The bridge detects the event by polling `bus.conversations_awaiting_input()` — no message content inspection required (issue #288).
 
 ```json
-{"type": "message", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
+{"type": "message", "id": "...", "conversation_id": "...", "sender": "...", "content": "...", "timestamp": 0.0}
 ```
-New message in any active conversation. The bridge polls each conversation's `bus.receive(id, since_timestamp=last_ts)`.
+New message in any active conversation. The bridge polls each conversation's `bus.receive(id, since_timestamp=last_ts)`. The `id` field is the message's database ID, used by the chat page to filter echo events (see **Duplicate-message suppression** below).
 
 ```json
 {"type": "heartbeat", "session_id": "...", "status": "alive|stale|dead"}
@@ -155,6 +155,19 @@ Session reached a terminal state.
 ### Client Subscription
 
 Clients receive all events. Filtering is client-side (e.g., a chat page only cares about messages for its conversation). This keeps the server simple — no subscription management.
+
+**Scale assumption:** This broadcast-all design is appropriate for a single user with a handful of concurrent sessions. It does not scale to multi-user deployments where clients should not see each other's messages. If TeaParty ever becomes multi-user, per-client subscription management or per-session WebSocket channels would be required.
+
+**Duplicate-message suppression (correlation ID scheme):** The chat page uses optimistic UI — it renders a message immediately when the human hits Enter, before the round-trip to the bridge. The bridge then polls the database, detects the new message, and broadcasts a `message` event to all clients including the sender. Without suppression, the sending tab would render the message twice.
+
+The fix is a client-side correlation ID set:
+1. The chat page POSTs the message to `POST /api/conversations/{id}` and receives `{"id": "<msg_id>"}` in the response.
+2. It stores `msg_id` in a local `sentIds` set.
+3. When a `message` WebSocket event arrives, if `event.id` is in `sentIds`, the event is an echo — skip it and remove the ID from the set.
+
+The server-side contract: every `message` event must include the `id` field (the message's database ID). The chat page relies on this to identify echoes.
+
+**Sticky escalation badges:** The home page tracks pending escalations in `escalationConvMap` (session_id → conversation_id). This map is the sticky source of truth: entries are added by `input_requested` WebSocket events and by REST data on page load, but are only removed when the human explicitly responds (sends a human message to the escalation conversation). `fetchAll()` merges new REST entries but never clears existing map entries — this prevents badge loss during page re-renders triggered by `session_completed` or `state_changed` events.
 
 ---
 

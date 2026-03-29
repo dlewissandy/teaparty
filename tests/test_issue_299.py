@@ -17,10 +17,11 @@ import unittest
 # ── Stubs ─────────────────────────────────────────────────────────────────────
 
 class _FakeMsg:
-    def __init__(self, sender, content, timestamp=1.0):
+    def __init__(self, sender, content, timestamp=1.0, msg_id='msg-test'):
         self.sender = sender
         self.content = content
         self.timestamp = timestamp
+        self.id = msg_id
 
 
 class _FakeConv:
