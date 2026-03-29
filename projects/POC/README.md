@@ -169,7 +169,7 @@ Open http://localhost:8081 in your browser.
 
 ## What to expect
 
-After running the start command, a text-based terminal dashboard appears in your terminal window. You can navigate it with your keyboard.
+After running the start command, the bridge server starts on port 8081. Open http://localhost:8081 in your browser to view the HTML dashboard.
 
 ---
 
