@@ -27,6 +27,8 @@ from projects.POC.orchestrator.messaging import (
     make_conversation_id,
 )
 
+_SESSION_TYPE = ConversationType.PROJECT_SESSION
+
 
 class TestSqliteMessageBus(unittest.TestCase):
     """Core message bus CRUD and contract tests."""
@@ -323,7 +325,8 @@ class TestTuiIpcMessageBus(unittest.TestCase):
         self._tmp = tempfile.mkdtemp()
         self.db_path = os.path.join(self._tmp, 'messages.db')
         self.bus = SqliteMessageBus(self.db_path)
-        self.conversation_id = 'session:ipc-test'
+        self.conversation_id = make_conversation_id(_SESSION_TYPE, 'ipc-test')
+        self.bus.create_conversation(_SESSION_TYPE, 'ipc-test')
 
     def tearDown(self):
         self.bus.close()
@@ -331,24 +334,26 @@ class TestTuiIpcMessageBus(unittest.TestCase):
         shutil.rmtree(self._tmp, ignore_errors=True)
 
     def test_no_pending_request_when_empty(self):
-        """No request when conversation has no messages."""
+        """No request when awaiting_input flag is not set."""
         from projects.POC.tui.ipc import check_message_bus_request
         result = check_message_bus_request(self.db_path, self.conversation_id)
         self.assertIsNone(result)
 
-    def test_pending_request_after_orchestrator_sends(self):
-        """Pending request detected when orchestrator sends a question."""
+    def test_pending_request_after_orchestrator_sends_and_sets_flag(self):
+        """Pending request detected via structural awaiting_input flag."""
         from projects.POC.tui.ipc import check_message_bus_request
         self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
+        self.bus.set_awaiting_input(self.conversation_id, True)
         result = check_message_bus_request(self.db_path, self.conversation_id)
         self.assertIsNotNone(result)
         self.assertEqual(result['bridge_text'], 'Approve?')
 
-    def test_no_pending_after_human_responds(self):
-        """No pending request after human has responded."""
+    def test_no_pending_after_flag_cleared(self):
+        """No pending request after awaiting_input flag is cleared."""
         from projects.POC.tui.ipc import check_message_bus_request
         self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
-        self.bus.send(self.conversation_id, 'human', 'yes')
+        self.bus.set_awaiting_input(self.conversation_id, True)
+        self.bus.set_awaiting_input(self.conversation_id, False)
         result = check_message_bus_request(self.db_path, self.conversation_id)
         self.assertIsNone(result)
 
@@ -370,7 +375,7 @@ class TestTuiIpcMessageBus(unittest.TestCase):
         self.assertIsNone(result)
 
     def test_end_to_end_bus_round_trip(self):
-        """Full round trip: orchestrator sends question → TUI sends response → orchestrator receives."""
+        """Full round trip: orchestrator sends question → TUI detects via flag → sends response → orchestrator receives."""
         from projects.POC.tui.ipc import check_message_bus_request, send_message_bus_response
         provider = MessageBusInputProvider(
             bus=self.bus,

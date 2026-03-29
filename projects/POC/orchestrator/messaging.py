@@ -13,7 +13,7 @@ Conversation types (see docs/proposals/chat-experience/references/conversation-i
   - project_session: one per active session (legacy, from issue #200)
   - subteam: one per dispatch (legacy, from issue #200)
 
-Issues #200, #263.
+Issues #200, #263, #288.
 """
 from __future__ import annotations
 
@@ -66,6 +66,7 @@ class Conversation:
     type: ConversationType
     state: ConversationState
     created_at: float
+    awaiting_input: bool = False
 
 
 _PREFIXES = {
@@ -111,6 +112,14 @@ class MessageBusAdapter(Protocol):
         """List all conversation IDs with messages."""
         ...
 
+    def set_awaiting_input(self, conversation_id: str, value: bool) -> None:
+        """Set or clear the awaiting_input flag on a conversation."""
+        ...
+
+    def conversations_awaiting_input(self) -> list['Conversation']:
+        """Return active conversations with awaiting_input=True."""
+        ...
+
 
 class SqliteMessageBus:
     """SQLite-backed message bus.
@@ -145,9 +154,17 @@ class SqliteMessageBus:
                 id TEXT PRIMARY KEY,
                 type TEXT NOT NULL,
                 state TEXT NOT NULL DEFAULT 'active',
-                created_at REAL NOT NULL
+                created_at REAL NOT NULL,
+                awaiting_input INTEGER NOT NULL DEFAULT 0
             )
         ''')
+        # Migrate existing DBs that predate the awaiting_input column (issue #288)
+        try:
+            self._conn.execute(
+                'ALTER TABLE conversations ADD COLUMN awaiting_input INTEGER NOT NULL DEFAULT 0'
+            )
+        except sqlite3.OperationalError:
+            pass  # Column already exists
         self._conn.commit()
         self.role_enforcer = None
 
@@ -224,7 +241,7 @@ class SqliteMessageBus:
     def get_conversation(self, conversation_id: str) -> Conversation | None:
         """Retrieve conversation metadata by ID, or None if not found."""
         row = self._conn.execute(
-            'SELECT id, type, state, created_at FROM conversations WHERE id = ?',
+            'SELECT id, type, state, created_at, awaiting_input FROM conversations WHERE id = ?',
             (conversation_id,),
         ).fetchone()
         if row is None:
@@ -234,6 +251,7 @@ class SqliteMessageBus:
             type=ConversationType(row[1]),
             state=ConversationState(row[2]),
             created_at=row[3],
+            awaiting_input=bool(row[4]),
         )
 
     def close_conversation(self, conversation_id: str) -> None:
@@ -244,19 +262,48 @@ class SqliteMessageBus:
         )
         self._conn.commit()
 
+    def set_awaiting_input(self, conversation_id: str, value: bool) -> None:
+        """Set or clear the awaiting_input flag on a conversation.
+
+        When True, signals that the orchestrator is blocked waiting for human
+        input in this conversation.  The bridge polls this flag to emit
+        input_requested WebSocket events (issue #288).
+        """
+        self._conn.execute(
+            'UPDATE conversations SET awaiting_input = ? WHERE id = ?',
+            (1 if value else 0, conversation_id),
+        )
+        self._conn.commit()
+
+    def conversations_awaiting_input(self) -> list[Conversation]:
+        """Return active conversations with awaiting_input=1."""
+        cursor = self._conn.execute(
+            'SELECT id, type, state, created_at, awaiting_input FROM conversations '
+            'WHERE state = ? AND awaiting_input = 1 ORDER BY created_at',
+            (ConversationState.ACTIVE.value,),
+        )
+        return [
+            Conversation(
+                id=row[0], type=ConversationType(row[1]),
+                state=ConversationState(row[2]), created_at=row[3],
+                awaiting_input=bool(row[4]),
+            )
+            for row in cursor.fetchall()
+        ]
+
     def active_conversations(
         self, conv_type: ConversationType | None = None,
     ) -> list[Conversation]:
         """List all active conversations, optionally filtered by type."""
         if conv_type is not None:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at FROM conversations '
+                'SELECT id, type, state, created_at, awaiting_input FROM conversations '
                 'WHERE state = ? AND type = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value, conv_type.value),
             )
         else:
             cursor = self._conn.execute(
-                'SELECT id, type, state, created_at FROM conversations '
+                'SELECT id, type, state, created_at, awaiting_input FROM conversations '
                 'WHERE state = ? ORDER BY created_at',
                 (ConversationState.ACTIVE.value,),
             )
@@ -264,6 +311,7 @@ class SqliteMessageBus:
             Conversation(
                 id=row[0], type=ConversationType(row[1]),
                 state=ConversationState(row[2]), created_at=row[3],
+                awaiting_input=bool(row[4]),
             )
             for row in cursor.fetchall()
         ]
@@ -323,6 +371,8 @@ class MessageBusInputProvider:
                 'orchestrator',
                 request.bridge_text,
             )
+            # Structural signal for the bridge (issue #288)
+            self.bus.set_awaiting_input(self.conversation_id, True)
 
             # Poll for human response
             since = time.time()
@@ -333,5 +383,6 @@ class MessageBusInputProvider:
                         return msg.content
                 await asyncio.sleep(self.poll_interval)
         finally:
+            self.bus.set_awaiting_input(self.conversation_id, False)
             self._waiting = False
             self._current_request = None

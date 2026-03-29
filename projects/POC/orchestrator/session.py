@@ -207,6 +207,9 @@ class Session:
         self._conversation_id = make_conversation_id(
             ConversationType.PROJECT_SESSION, self.session_id,
         )
+        self._message_bus.create_conversation(
+            ConversationType.PROJECT_SESSION, self.session_id,
+        )
         if self.input_provider is not None:
             self._bus_input_provider = MessageBusInputProvider(
                 bus=self._message_bus,
@@ -726,6 +729,7 @@ class Session:
         conversation_id = make_conversation_id(
             ConversationType.PROJECT_SESSION, session_id,
         )
+        message_bus.create_conversation(ConversationType.PROJECT_SESSION, session_id)
         if input_provider is not None:
             bus_input_provider = MessageBusInputProvider(
                 bus=message_bus,
