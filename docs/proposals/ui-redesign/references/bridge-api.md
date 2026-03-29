@@ -19,9 +19,9 @@ The bridge is a new aiohttp server that wraps TeaParty's existing infrastructure
 - `heartbeat` / `cfa_state` — liveness classification and CfA state loading
 - `MessageBusInputProvider` — orchestrator polls the same database the bridge writes to
 
-Three structural gaps require separate implementation work: StateReader must be extracted to the orchestrator package (#280), the withdrawal path needs a stable socket contract (#278), and the workgroup scanner has no existing backing function. Implementers planning from this spec must account for all three.
+Two structural gaps require separate implementation work: the withdrawal path needs a stable socket contract (#278), and the workgroup scanner has no existing backing function. StateReader extraction (#280) is complete. Implementers planning from this spec must account for the two remaining gaps.
 
-`StateReader` is imported from `projects.POC.orchestrator.state_reader`, not from the TUI package. Session discovery logic and heartbeat liveness classification live in the orchestrator so the bridge has no dependency on the TUI it supersedes (issue #280).
+`StateReader` is imported from `projects.POC.orchestrator.state_reader`, not from the TUI package. Session discovery logic and heartbeat liveness classification live in the orchestrator so the bridge has no dependency on the TUI it supersedes.
 
 ---
 
@@ -31,12 +31,12 @@ Three structural gaps require separate implementation work: StateReader must be 
 bridge = TeaPartyBridge(
     teaparty_home='~/.teaparty',
     projects_dir='/path/to/projects',
-    static_dir='docs/proposals/ui-redesign/mockup',
+    static_dir='projects/POC/bridge/static',
 )
 bridge.run(port=8081)
 ```
 
-1. Initialize `StateReader(poc_root, projects_dir)` for filesystem polling
+1. Derive `poc_root = os.path.join(projects_dir, 'POC')` — the orchestrator source directory, not `teaparty_home` (the runtime data directory). Initialize `StateReader(poc_root, projects_dir)` for filesystem polling.
 2. Open `SqliteMessageBus` per active session (`{infra_dir}/messages.db`)
 3. Open a separate `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
 4. Load config via `load_management_team()` + `discover_projects()`
