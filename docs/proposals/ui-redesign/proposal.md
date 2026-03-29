@@ -2,7 +2,7 @@
 
 Supersedes: [dashboard-ui](../dashboard-ui/proposal.md)
 
-Replace the 65k-line Textual TUI with HTML/JS pages served by a Python bridge over SQLite. No servers wrapping Claude. No Anthropic TOS concerns. Claude can build and verify these with browser dev tools.
+Replace the ~7,000-line Textual TUI with HTML/JS pages served by a Python bridge over SQLite. No servers wrapping Claude. No Anthropic TOS concerns. Claude can build and verify these with browser dev tools.
 
 Interactive mockup (normative for navigation and controls): [mockup/index.html](mockup/index.html)
 
@@ -14,7 +14,7 @@ The TUI is the single largest maintenance burden in the project. Three problems:
 
 1. **Claude can't modify it.** Textual's TCSS is close enough to CSS that Claude confuses them, and it can't run the TUI to verify changes. Every iteration burns tokens with no convergence.
 
-2. **It does too many things.** Configuration, monitoring, messaging, statistics, and five levels of hierarchical navigation are tangled into one 65k-line app. Changes in one area break others.
+2. **It does too many things.** Configuration, monitoring, messaging, statistics, and five levels of hierarchical navigation are tangled into one ~7,000-line app. Changes in one area break others.
 
 3. **It doesn't advance the research.** The TUI is infrastructure tax. Every hour spent on it is an hour not spent on the CfA protocol, proxy learning, or hierarchical teams.
 
