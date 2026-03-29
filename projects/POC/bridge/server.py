@@ -209,7 +209,9 @@ class TeaPartyBridge:
         def bus_factory(infra_dir: str) -> SqliteMessageBus:
             db_path = os.path.join(infra_dir, 'messages.db')
             bus = SqliteMessageBus(db_path)
-            self._buses[infra_dir] = bus
+            # Key by session_id (last path component) so MessageRelay emits the
+            # correct session_id in WebSocket events, not a filesystem path.
+            self._buses[os.path.basename(infra_dir)] = bus
             return bus
 
         poller = StatePoller(state_reader, broadcast, bus_factory=bus_factory)

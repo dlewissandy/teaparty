@@ -393,5 +393,152 @@ class TestBridgePathExpansion(unittest.TestCase):
             shutil.rmtree(tmpdir)
 
 
+# ── MessageRelay event contract ───────────────────────────────────────────────
+
+class _FakeBus:
+    """Minimal bus stub for MessageRelay tests."""
+
+    def __init__(self, conv_ids=None, messages=None, awaiting=None):
+        self._conv_ids = conv_ids or []
+        self._messages = messages or {}   # {cid: [Message-like]}
+        self._awaiting = awaiting or []
+
+    def conversations(self):
+        return list(self._conv_ids)
+
+    def receive(self, cid, since_timestamp=0.0):
+        return [m for m in self._messages.get(cid, []) if m.timestamp > since_timestamp]
+
+    def conversations_awaiting_input(self):
+        return self._awaiting
+
+
+class _FakeMsg:
+    def __init__(self, sender, content, timestamp=1.0):
+        self.sender = sender
+        self.content = content
+        self.timestamp = timestamp
+        self.id = 'msg-1'
+        self.conversation = 'conv-1'
+
+
+class _FakeConv:
+    def __init__(self, cid):
+        self.id = cid
+
+
+class TestMessageRelaySessionId(unittest.TestCase):
+    """input_requested event must carry session_id, not infra_dir path."""
+
+    def test_session_id_is_registry_key_not_path(self):
+        """When bus_registry is keyed by session_id, the event session_id must match."""
+        import asyncio
+        from projects.POC.bridge.message_relay import MessageRelay
+
+        events = []
+
+        async def broadcast(event):
+            events.append(event)
+
+        cid = 'task:proj:job1:t1'
+        bus = _FakeBus(
+            conv_ids=[cid],
+            messages={cid: [_FakeMsg('orchestrator', 'What should I do?', 1.0)]},
+            awaiting=[_FakeConv(cid)],
+        )
+
+        registry = {'session-20250101-120000': bus}
+        relay = MessageRelay(registry, broadcast)
+
+        asyncio.run(relay.poll_once())
+
+        input_events = [e for e in events if e['type'] == 'input_requested']
+        self.assertEqual(len(input_events), 1)
+        self.assertEqual(input_events[0]['session_id'], 'session-20250101-120000',
+                         'session_id must be the registry key, not a filesystem path')
+
+
+class TestMessageRelayQuestionField(unittest.TestCase):
+    """input_requested event must include the question field."""
+
+    def test_question_field_present(self):
+        """input_requested event must include a 'question' field."""
+        import asyncio
+        from projects.POC.bridge.message_relay import MessageRelay
+
+        events = []
+
+        async def broadcast(event):
+            events.append(event)
+
+        cid = 'task:proj:job1:t1'
+        bus = _FakeBus(
+            conv_ids=[cid],
+            messages={cid: [_FakeMsg('orchestrator', 'What is the plan?', 1.0)]},
+            awaiting=[_FakeConv(cid)],
+        )
+
+        relay = MessageRelay({'session-abc': bus}, broadcast)
+        import asyncio
+        asyncio.run(relay.poll_once())
+
+        input_events = [e for e in events if e['type'] == 'input_requested']
+        self.assertEqual(len(input_events), 1)
+        self.assertIn('question', input_events[0],
+                      "input_requested event must have a 'question' field")
+
+    def test_question_is_latest_orchestrator_message(self):
+        """question field must be the most recent orchestrator message."""
+        import asyncio
+        from projects.POC.bridge.message_relay import MessageRelay
+
+        events = []
+
+        async def broadcast(event):
+            events.append(event)
+
+        cid = 'task:proj:job1:t1'
+        bus = _FakeBus(
+            conv_ids=[cid],
+            messages={cid: [
+                _FakeMsg('orchestrator', 'First question', 1.0),
+                _FakeMsg('human', 'Answer', 2.0),
+                _FakeMsg('orchestrator', 'Second question', 3.0),
+            ]},
+            awaiting=[_FakeConv(cid)],
+        )
+
+        relay = MessageRelay({'session-abc': bus}, broadcast)
+        asyncio.run(relay.poll_once())
+
+        input_events = [e for e in events if e['type'] == 'input_requested']
+        self.assertEqual(len(input_events), 1)
+        self.assertEqual(input_events[0]['question'], 'Second question')
+
+    def test_question_empty_when_no_orchestrator_message(self):
+        """question field is empty string if no orchestrator message exists."""
+        import asyncio
+        from projects.POC.bridge.message_relay import MessageRelay
+
+        events = []
+
+        async def broadcast(event):
+            events.append(event)
+
+        cid = 'task:proj:job1:t1'
+        bus = _FakeBus(
+            conv_ids=[cid],
+            messages={cid: [_FakeMsg('human', 'Hello', 1.0)]},
+            awaiting=[_FakeConv(cid)],
+        )
+
+        relay = MessageRelay({'session-abc': bus}, broadcast)
+        asyncio.run(relay.poll_once())
+
+        input_events = [e for e in events if e['type'] == 'input_requested']
+        self.assertEqual(len(input_events), 1)
+        self.assertEqual(input_events[0]['question'], '')
+
+
 if __name__ == '__main__':
     unittest.main()

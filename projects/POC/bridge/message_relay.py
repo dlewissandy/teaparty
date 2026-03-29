@@ -78,10 +78,21 @@ class MessageRelay:
 
         waiting_ids = {c.id for c in waiting}
         for cid in waiting_ids - self._awaiting:
+            # Fetch the question — the latest orchestrator message in this conversation.
+            question = ''
+            try:
+                all_msgs = bus.receive(cid, since_timestamp=0.0)
+                for msg in reversed(all_msgs):
+                    if msg.sender == 'orchestrator':
+                        question = msg.content
+                        break
+            except Exception:
+                pass
             await self._broadcast({
                 'type': 'input_requested',
                 'session_id': session_id,
                 'conversation_id': cid,
+                'question': question,
             })
         self._awaiting = (self._awaiting - set(conv_ids)) | waiting_ids
 
