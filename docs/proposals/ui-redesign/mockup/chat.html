@@ -502,6 +502,7 @@ function onInputRequested(ev) {
 }
 
 function onStateChanged(ev) {
+  if (!isJobChat) return;
   if (session_id && ev.session_id !== session_id) return;
   // Re-fetch CfA state and update only the header-actions region so any
   // in-progress textarea draft is preserved.
