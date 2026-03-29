@@ -132,32 +132,35 @@ class TestNoUnsupportedTimeSeries(unittest.TestCase):
                 )
 
 
-class TestPrerequisiteAnnotations(unittest.TestCase):
-    """Proxy accuracy metrics must be marked as dependent on open prerequisites."""
+class TestNoSpuriousPrerequisites(unittest.TestCase):
+    """Proxy accuracy metrics must not be falsely gated on closed or irrelevant issues.
 
-    def test_issue_231_referenced_in_proxy_accuracy_section(self):
-        """#231 (confidence threshold recalibration) must be mentioned near proxy accuracy.
+    Issue #221 (evaluation harness) is closed — proxy_metrics.py is its implementation.
+    The metrics are available now and must not be marked as requiring future work.
+    """
 
-        Consumers of this spec need to know the accuracy metrics require #231 before
-        interpreting thresholds as meaningful.
+    def test_action_match_rate_not_marked_as_requiring_closed_issue(self):
+        """action_match_rate must not be annotated as requiring #221 (closed).
+
+        #221 delivered proxy_metrics.py. The metric is available. Marking it as a
+        prerequisite is factually wrong and misleads implementors.
         """
         content = _read_stats_doc()
-        self.assertIn(
-            '#231',
-            content,
-            "stats.md must reference #231 (proxy confidence threshold recalibration) "
-            "as a prerequisite for the accuracy metrics.",
-        )
+        lines = content.splitlines()
+        for line in lines:
+            if 'action_match_rate' in line.lower() and '#221' in line:
+                self.fail(
+                    f"stats.md annotates action_match_rate as requiring #221, "
+                    f"but #221 is closed: {line!r}. Remove the annotation.",
+                )
 
-    def test_issue_221_referenced_in_proxy_accuracy_section(self):
-        """#221 (evaluation harness) must be mentioned near proxy accuracy.
-
-        The accuracy metrics are not meaningful until the evaluation harness is built.
-        """
+    def test_prior_calibration_not_marked_as_requiring_closed_issue(self):
+        """prior_calibration must not be annotated as requiring #221 (closed)."""
         content = _read_stats_doc()
-        self.assertIn(
-            '#221',
-            content,
-            "stats.md must reference #221 (evaluation harness) as a prerequisite "
-            "for the proxy accuracy metrics.",
-        )
+        lines = content.splitlines()
+        for line in lines:
+            if 'prior_calibration' in line.lower() and '#221' in line:
+                self.fail(
+                    f"stats.md annotates prior_calibration as requiring #221, "
+                    f"but #221 is closed: {line!r}. Remove the annotation.",
+                )

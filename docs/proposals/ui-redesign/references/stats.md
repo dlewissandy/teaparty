@@ -21,7 +21,7 @@ Two distinct proxy metrics are displayed as aggregate bars, broken down by CfA s
 
 High calibration with low match rate means the proxy is confidently wrong. Low calibration with high match rate means the proxy self-corrected. These are scientifically distinct and must not be collapsed.
 
-A 7-day trend view is deferred: the `proxy_accuracy` table has one row per (state, task_type) with a `last_updated` timestamp but no per-day history. The time-series variant requires adding dated accuracy snapshots to the schema (future work). *Requires: #221 (evaluation harness), #231 (confidence threshold recalibration).*
+A 7-day trend view is deferred: the `proxy_accuracy` table has one row per (state, task_type) with a `last_updated` timestamp but no per-day history. The time-series variant requires adding dated accuracy snapshots to the schema (future work).
 
 ### "Where are we spending the most?"
 Cost per day chart. Spikes indicate expensive jobs. Drill down by project (future: scope selector).
@@ -59,7 +59,7 @@ All stats are derived from existing data — no new collection needed:
 | Backtracks | CfA state history (backtrack_count field) |
 | Withdrawals | CfA state files (WITHDRAWN terminal state) |
 | Escalations | Sessions with `needs_input=True` (CfA HUMAN_ACTOR_STATES or `.input-request.json`); historical message bus data deferred to issue #288 |
-| Action match rate (`action_match_rate`) | `proxy_accuracy` table (`posterior_correct / posterior_total` per state × task_type); requires #221, #231 |
-| Prior calibration (`prior_calibration`) | `proxy_accuracy` table (`prior_correct / prior_total` per state × task_type); requires #221, #231 |
+| Action match rate (`action_match_rate`) | `proxy_accuracy` table (`posterior_correct / posterior_total` per state × task_type) |
+| Prior calibration (`prior_calibration`) | `proxy_accuracy` table (`prior_correct / prior_total` per state × task_type) |
 | Cost per Day | `.cost` sidecar files per session (stores USD cost to 6 decimal places) |
 | Skills learned | `{project_dir}/skills/` and `{project_dir}/teams/{name}/skills/` (see issue #294) |
