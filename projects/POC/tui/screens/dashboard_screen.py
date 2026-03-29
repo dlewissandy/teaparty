@@ -472,7 +472,7 @@ def format_stats_values(stats: list[tuple[str, str]]) -> str:
 
 def _uptime_str() -> str:
     """Human-readable uptime from system boot time."""
-    from projects.POC.tui.state_reader import _get_cached_boot_time
+    from projects.POC.orchestrator.state_reader import _get_cached_boot_time
     import time as _time
     boot = _get_cached_boot_time()
     if boot is None:

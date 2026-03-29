@@ -17,7 +17,7 @@ import tempfile
 import time
 import unittest
 
-from projects.POC.tui.state_reader import (
+from projects.POC.orchestrator.state_reader import (
     DispatchState,
     SessionState,
     ProjectState,

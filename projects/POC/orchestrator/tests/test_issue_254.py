@@ -20,7 +20,7 @@ from projects.POC.tui.navigation import DashboardLevel, cards_for_level
 
 def _make_dispatch_state(**kwargs):
     """Create a DispatchState with optional overrides."""
-    from projects.POC.tui.state_reader import DispatchState
+    from projects.POC.orchestrator.state_reader import DispatchState
     defaults = dict(
         team='coding',
         worktree_name='wt-001',
@@ -39,7 +39,7 @@ def _make_dispatch_state(**kwargs):
 
 def _make_session_state(**kwargs):
     """Create a SessionState with optional overrides."""
-    from projects.POC.tui.state_reader import SessionState
+    from projects.POC.orchestrator.state_reader import SessionState
     defaults = dict(
         project='test-proj',
         session_id='20260328-120000',
@@ -63,7 +63,7 @@ def _make_session_state(**kwargs):
 
 def _make_project_state(**kwargs):
     """Create a ProjectState with optional overrides."""
-    from projects.POC.tui.state_reader import ProjectState
+    from projects.POC.orchestrator.state_reader import ProjectState
     defaults = dict(
         slug='test-proj',
         path='/tmp/proj',
@@ -264,7 +264,7 @@ class TestStateReaderDispatchNeedsInput(unittest.TestCase):
 
     def test_dispatch_with_human_actor_state_has_needs_input(self):
         """A dispatch in a HUMAN_ACTOR_STATE has needs_input=True."""
-        from projects.POC.tui.state_reader import HUMAN_ACTOR_STATES
+        from projects.POC.orchestrator.state_reader import HUMAN_ACTOR_STATES
         # Verify the constant exists and has the expected states
         self.assertIn('INTENT_ASSERT', HUMAN_ACTOR_STATES)
         self.assertIn('PLAN_ASSERT', HUMAN_ACTOR_STATES)
@@ -278,7 +278,7 @@ class TestStateReaderDispatchNeedsInput(unittest.TestCase):
             with open(cfa_path, 'w') as f:
                 json.dump({'phase': 'intent', 'state': 'INTENT_ASSERT', 'actor': 'human'}, f)
 
-            from projects.POC.tui.state_reader import StateReader
+            from projects.POC.orchestrator.state_reader import StateReader
             reader = StateReader(poc_root=tmpdir)
             entry = {
                 'name': 'test-dispatch',
@@ -299,7 +299,7 @@ class TestStateReaderDispatchNeedsInput(unittest.TestCase):
             with open(cfa_path, 'w') as f:
                 json.dump({'phase': 'execution', 'state': 'WORK_IN_PROGRESS', 'actor': 'uber_team'}, f)
 
-            from projects.POC.tui.state_reader import StateReader
+            from projects.POC.orchestrator.state_reader import StateReader
             reader = StateReader(poc_root=tmpdir)
             entry = {
                 'name': 'test-dispatch',
@@ -324,7 +324,7 @@ class TestHeartbeatThreeStateThresholds(unittest.TestCase):
             with open(hb_path, 'w') as f:
                 json.dump({'pid': os.getpid(), 'status': 'running'}, f)
             # mtime is now (< 30s ago)
-            from projects.POC.tui.state_reader import _heartbeat_three_state
+            from projects.POC.orchestrator.state_reader import _heartbeat_three_state
             self.assertEqual(_heartbeat_three_state(tmpdir), 'alive')
 
     def test_heartbeat_older_than_30s_is_stale(self):
@@ -336,7 +336,7 @@ class TestHeartbeatThreeStateThresholds(unittest.TestCase):
             # Backdate mtime to 60s ago
             old_time = time.time() - 60
             os.utime(hb_path, (old_time, old_time))
-            from projects.POC.tui.state_reader import _heartbeat_three_state
+            from projects.POC.orchestrator.state_reader import _heartbeat_three_state
             self.assertEqual(_heartbeat_three_state(tmpdir), 'stale')
 
     def test_heartbeat_older_than_300s_is_dead(self):
@@ -348,7 +348,7 @@ class TestHeartbeatThreeStateThresholds(unittest.TestCase):
             # Backdate mtime to 600s ago
             old_time = time.time() - 600
             os.utime(hb_path, (old_time, old_time))
-            from projects.POC.tui.state_reader import _heartbeat_three_state
+            from projects.POC.orchestrator.state_reader import _heartbeat_three_state
             self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
 
     def test_terminal_heartbeat_is_dead(self):
@@ -357,23 +357,23 @@ class TestHeartbeatThreeStateThresholds(unittest.TestCase):
             hb_path = os.path.join(tmpdir, '.heartbeat')
             with open(hb_path, 'w') as f:
                 json.dump({'pid': os.getpid(), 'status': 'completed'}, f)
-            from projects.POC.tui.state_reader import _heartbeat_three_state
+            from projects.POC.orchestrator.state_reader import _heartbeat_three_state
             self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
 
     def test_no_heartbeat_file_is_dead(self):
         """Missing heartbeat file reports 'dead'."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            from projects.POC.tui.state_reader import _heartbeat_three_state
+            from projects.POC.orchestrator.state_reader import _heartbeat_three_state
             self.assertEqual(_heartbeat_three_state(tmpdir), 'dead')
 
     def test_alive_threshold_matches_beat_interval(self):
         """The alive threshold (30s) matches claude_runner.py BEAT_INTERVAL."""
-        from projects.POC.tui.state_reader import _ALIVE_THRESHOLD
+        from projects.POC.orchestrator.state_reader import _ALIVE_THRESHOLD
         self.assertEqual(_ALIVE_THRESHOLD, 30)
 
     def test_dead_threshold_is_five_minutes(self):
         """The dead threshold (300s) matches the design spec's 5-minute boundary."""
-        from projects.POC.tui.state_reader import _DEAD_THRESHOLD
+        from projects.POC.orchestrator.state_reader import _DEAD_THRESHOLD
         self.assertEqual(_DEAD_THRESHOLD, 300)
 
 

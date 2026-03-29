@@ -204,7 +204,7 @@ class TestNoHardcodedTeamLists(unittest.TestCase):
 
     def test_state_reader_no_hardcoded_teams(self):
         """state_reader.py must not contain a hardcoded team tuple."""
-        import projects.POC.tui.state_reader as sr
+        import projects.POC.orchestrator.state_reader as sr
         source = open(sr.__file__).read()
         self.assertNotIn("'art', 'writing', 'editorial', 'research', 'coding'", source,
                          'state_reader.py still has hardcoded team list')

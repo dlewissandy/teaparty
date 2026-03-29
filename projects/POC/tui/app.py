@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from textual.app import App
 
 from projects.POC.orchestrator.cron_driver import CronDriver
-from projects.POC.tui.state_reader import StateReader
+from projects.POC.orchestrator.state_reader import StateReader
 
 _log = logging.getLogger('orchestrator')
 

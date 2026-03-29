@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from projects.POC.tui.state_reader import SessionState, DispatchState
+from projects.POC.orchestrator.state_reader import SessionState, DispatchState
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

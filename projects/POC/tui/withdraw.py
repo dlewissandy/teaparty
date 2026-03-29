@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from projects.POC.tui.state_reader import SessionState
+    from projects.POC.orchestrator.state_reader import SessionState
     from projects.POC.orchestrator.events import EventBus
 
 
