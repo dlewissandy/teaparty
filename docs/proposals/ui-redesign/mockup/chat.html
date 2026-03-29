@@ -39,8 +39,224 @@
   </div>
 </div>
 
-<script src="data.js?v=2"></script>
 <script>
+// ── URL params ────────────────────────────────────────────────────────────────
+var params = new URLSearchParams(window.location.search);
+var convId = params.get('conv') || '';
+var selectedItem = params.get('task') || params.get('session') || null;
+
+// ── Determine chat type from conv ID prefix ───────────────────────────────────
+// job:{project}:{session_id}               → job chat (task sidebar)
+// om:{human}, proxy:{decider}, etc.        → participant chat (conversation history)
+var convPrefix = convId.split(':')[0];
+var isJobChat = (convPrefix === 'job');
+
+// Parse project and session_id from job conv ID: job:{project}:{session_id}
+var convProject = '';
+var session_id = '';
+if (isJobChat) {
+  var jobParts = convId.split(':');
+  convProject = jobParts[1] || '';
+  session_id  = jobParts[2] || '';
+}
+
+// Map conv ID prefix to the API ?type= parameter for participant chat.
+var CONV_TYPE_MAP = {
+  'om':      'office_manager',
+  'proxy':   'proxy_review',
+  'session': 'project_session',
+  'team':    'subteam',
+  'liaison': 'liaison',
+};
+
+// Map conv ID prefix to a human-readable participant name for the header.
+var PARTICIPANT_NAMES = {
+  'om':      'Office Manager',
+  'proxy':   'Proxy',
+  'session': 'Session Manager',
+  'team':    'Team',
+  'liaison': 'Liaison',
+};
+
+// ── Page state ────────────────────────────────────────────────────────────────
+var pageState = {
+  messages: [],          // messages for the currently displayed conversation
+  taskConvs: [],         // job chat: conversation objects filtered to this job
+  participantConvs: [],  // participant chat: conversation objects from ?type={type}
+  cfaPhase: null,        // job chat: CfA phase string from GET /api/cfa/{session_id}
+};
+
+// Return the conversation ID that is currently active (job conv or selected task/session).
+function activeConvId() {
+  if (isJobChat && selectedItem) {
+    return 'task:' + convProject + ':' + session_id + ':' + selectedItem;
+  }
+  if (!isJobChat && selectedItem) {
+    return selectedItem;
+  }
+  return convId;
+}
+
+// ── Fetch all data and render ─────────────────────────────────────────────────
+function fetchAll() {
+  var fetches = [
+    fetch('/api/conversations/' + encodeURIComponent(activeConvId()))
+      .then(function(r) { return r.json(); })
+      .then(function(msgs) {
+        pageState.messages = msgs || [];
+      }),
+  ];
+
+  if (isJobChat) {
+    // Discover task sub-conversations for this job's sidebar.
+    fetches.push(
+      fetch('/api/conversations?type=task')
+        .then(function(r) { return r.json(); })
+        .then(function(convs) {
+          var jobPrefix = 'task:' + convProject + ':' + session_id + ':';
+          pageState.taskConvs = (convs || []).filter(function(c) {
+            return c.id.startsWith(jobPrefix);
+          });
+        })
+        .catch(function() { pageState.taskConvs = []; })
+    );
+
+    // Load CfA state to determine whether the Review button should be shown.
+    fetches.push(
+      fetch('/api/cfa/' + encodeURIComponent(session_id))
+        .then(function(r) { return r.ok ? r.json() : null; })
+        .then(function(cfa) { pageState.cfaPhase = cfa ? cfa.phase : null; })
+        .catch(function() { pageState.cfaPhase = null; })
+    );
+  } else {
+    // Participant chat: load conversation list for the sidebar.
+    var convType = CONV_TYPE_MAP[convPrefix] || null;
+    if (convType) {
+      fetches.push(
+        fetch('/api/conversations?type=' + convType)
+          .then(function(r) { return r.json(); })
+          .then(function(convs) {
+            pageState.participantConvs = convs || [];
+            if (!selectedItem && pageState.participantConvs.length > 0) {
+              selectedItem = pageState.participantConvs[0].id;
+              return fetch('/api/conversations/' + encodeURIComponent(selectedItem))
+                .then(function(r) { return r.json(); })
+                .then(function(msgs) { pageState.messages = msgs || []; });
+            }
+          })
+          .catch(function() { pageState.participantConvs = []; })
+      );
+    }
+  }
+
+  return Promise.all(fetches)
+    .then(function() { render(); })
+    .catch(function() {
+      document.getElementById('content').innerHTML =
+        '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
+    });
+}
+
+// ── Markdown to HTML ──────────────────────────────────────────────────────────
+function renderMarkdown(text) {
+  var html = text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
+      return '<pre><code>' + code.trim() + '</code></pre>';
+    })
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+  html = html.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
+  return '<p>' + html + '</p>';
+}
+
+// ── Message filters ───────────────────────────────────────────────────────────
+// Predicate per filter name, applied to message objects {sender, content}.
+var FILTER_TESTS = {
+  'agent':    function(m) { var s = m.sender || ''; return s !== 'human' && s !== 'system'; },
+  'human':    function(m) { return (m.sender || '') === 'human'; },
+  'thinking': function(m) { var s = m.sender || ''; return s === 'thinking' || s.indexOf('thinking') >= 0; },
+  'tools':    function(m) { var s = m.sender || ''; return s === 'tool' || s === 'tool_result' || s.indexOf('tool') >= 0; },
+  'system':   function(m) { return (m.sender || '') === 'system'; },
+};
+
+function filterMessages(messages) {
+  var btns = document.querySelectorAll('.filter-btn');
+  if (!btns.length) return messages;
+  var on = {};
+  btns.forEach(function(b) { if (b.classList.contains('on')) on[b.dataset.f] = true; });
+  return messages.filter(function(m) {
+    for (var f in FILTER_TESTS) {
+      if (on[f] && FILTER_TESTS[f](m)) return true;
+    }
+    return false;
+  });
+}
+
+function renderMessages(messages) {
+  var filtered = filterMessages(messages);
+  return filtered.map(function(m) {
+    var isHuman = (m.sender || '') === 'human';
+    var rendered = renderMarkdown(m.content || m.text || '');
+    return '<div class="msg">' +
+      '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + (m.sender || '') + '</div>' +
+      '<div class="msg-text">' + rendered + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+// Re-apply filters to the already-loaded message list without a fetch.
+function refilter() {
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  msgsEl.innerHTML = pageState.messages.length > 0
+    ? renderMessages(pageState.messages)
+    : '<div class="empty">No messages in this conversation</div>';
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+// Track sent messages so WS echoes are suppressed — each entry expires after 5 s.
+// Using {content, expiry} prevents a delayed echo from suppressing a later identical send.
+var _pendingSent = [];
+
+// ── Send message ──────────────────────────────────────────────────────────────
+function sendMessage(ta) {
+  if (!ta.value.trim()) return;
+  var text = ta.value;
+  ta.value = '';
+  ta.style.height = '24px';
+  fetch('/api/conversations/' + encodeURIComponent(activeConvId()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: text }),
+  }).then(function() {
+    // Optimistically show the message; record it so the WS echo is skipped.
+    _pendingSent.push({ content: text, expiry: Date.now() + 5000 });
+    var m = { sender: 'human', content: text };
+    pageState.messages.push(m);
+    var msgsEl = document.querySelector('.chat-messages');
+    if (msgsEl) {
+      var empty = msgsEl.querySelector('.empty');
+      if (empty) empty.remove();
+      var rendered = renderMessages([m]);
+      if (rendered) { msgsEl.innerHTML += rendered; msgsEl.scrollTop = msgsEl.scrollHeight; }
+    }
+  }).catch(function() { ta.value = text; });
+}
+
+// ── Withdraw ──────────────────────────────────────────────────────────────────
 function showWithdrawModal() {
   document.getElementById('withdraw-modal').style.display = 'flex';
 }
@@ -49,310 +265,288 @@ function closeWithdrawModal() {
 }
 function confirmWithdraw() {
   closeWithdrawModal();
-  var msgs = document.querySelector('.chat-messages');
-  msgs.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--red)">SYSTEM</div><div class="msg-text" style="color:var(--red)"><p>Job withdrawn.</p></div></div>';
-  msgs.scrollTop = msgs.scrollHeight;
+  if (!session_id) return;
+  fetch('/api/withdraw/' + encodeURIComponent(session_id), { method: 'POST' })
+    .then(function(r) {
+      var msgsEl = document.querySelector('.chat-messages');
+      if (!msgsEl) return;
+      var text  = r.ok ? 'Job withdrawn.' : 'Withdrawal unavailable for this session.';
+      var color = r.ok ? 'var(--red)' : 'var(--text-dim)';
+      msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--red)">SYSTEM</div>' +
+        '<div class="msg-text" style="color:' + color + '"><p>' + text + '</p></div></div>';
+      msgsEl.scrollTop = msgsEl.scrollHeight;
+    });
 }
 
-function getGateReviewButton(jobId) {
-  // Find the job's current phase to determine which artifact to review
-  var gateArtifacts = {
-    'INTENT_ASSERT': { label: 'Review INTENT', file: 'INTENT.md' },
-    'PLAN_ASSERT': { label: 'Review PLAN', file: 'PLAN.md' },
-    'WORK_ASSERT': { label: 'Review WORK', file: 'WORK_ASSERT.md' },
-  };
-  // Search all projects for this job
-  for (var pid in mockData.status.projects) {
-    var p = mockData.status.projects[pid];
-    if (!p.jobs) continue;
-    for (var i = 0; i < p.jobs.length; i++) {
-      var j = p.jobs[i];
-      if (j.id === jobId && gateArtifacts[j.phase]) {
-        var ga = gateArtifacts[j.phase];
-        var artifactUrl = 'artifacts.html?project=' + pid + '&file=' + encodeURIComponent('.sessions/' + jobId + '/' + ga.file);
-        return '<button onclick="window.open(\'' + artifactUrl + '\',\'_blank\')" style="background:rgba(78,204,163,0.15);border:1px solid var(--green);color:var(--green);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">' + ga.label + '</button>';
-      }
-    }
-  }
-  return '';
+// ── Gate Review button (shown only at assertion phases) ───────────────────────
+var GATE_ARTIFACTS = {
+  'INTENT_ASSERT': { label: 'Review INTENT', file: 'INTENT.md' },
+  'PLAN_ASSERT':   { label: 'Review PLAN',   file: 'PLAN.md'   },
+  'WORK_ASSERT':   { label: 'Review WORK',   file: 'WORK_ASSERT.md' },
+};
+
+function gateReviewButtonHtml() {
+  if (!pageState.cfaPhase || !GATE_ARTIFACTS[pageState.cfaPhase]) return '';
+  var ga = GATE_ARTIFACTS[pageState.cfaPhase];
+  var artifactUrl = 'artifacts.html?project=' + encodeURIComponent(convProject) +
+    '&file=' + encodeURIComponent('.sessions/' + session_id + '/' + ga.file);
+  return '<button onclick="window.open(\'' + artifactUrl + '\',\'_blank\')" ' +
+    'style="background:rgba(78,204,163,0.15);border:1px solid var(--green);color:var(--green);' +
+    'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">' +
+    ga.label + '</button>';
 }
 
-const params = new URLSearchParams(window.location.search);
-const convId = params.get('conv') || '';
-let selectedItem = params.get('task') || params.get('session') || null;
-
-function findTask(taskId) {
-  for (const p of Object.values(mockData.status.projects)) {
-    for (const j of p.jobs) {
-      const t = j.tasks.find(t => t.id === taskId);
-      if (t) return t;
-    }
-  }
-  return null;
-}
-
+// ── Select sidebar item ───────────────────────────────────────────────────────
 function selectItem(id) {
   selectedItem = id;
+  var convTarget = isJobChat
+    ? 'task:' + convProject + ':' + session_id + ':' + id
+    : id;
+  fetch('/api/conversations/' + encodeURIComponent(convTarget))
+    .then(function(r) { return r.json(); })
+    .then(function(msgs) { pageState.messages = msgs || []; render(); })
+    .catch(function() { pageState.messages = []; render(); });
+}
+
+function selectJobConv() {
+  selectedItem = null;
+  fetch('/api/conversations/' + encodeURIComponent(convId))
+    .then(function(r) { return r.json(); })
+    .then(function(msgs) { pageState.messages = msgs || []; render(); })
+    .catch(function() { pageState.messages = []; render(); });
+}
+
+function selectNewConv() {
+  // Start a fresh conversation with this participant.
+  // Clearing selectedItem makes the textarea send to convId (the participant's base ID).
+  selectedItem = null;
+  pageState.messages = [];
   render();
 }
 
-// Simple markdown to HTML
-function renderMarkdown(text) {
-  var html = text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    // code blocks (``` ... ```)
-    .replace(/```(\w*)\n([\s\S]*?)```/g, function(m, lang, code) {
-      return '<pre><code>' + code.trim() + '</code></pre>';
-    })
-    // inline code
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    // images
-    .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1">')
-    // links
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-    // bold
-    .replace(/\*\*([^*]+)\*\*/g, '<strong style="color:var(--text)">$1</strong>')
-    // italic
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    // headings
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-    // blockquote
-    .replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>')
-    // unordered list
-    .replace(/^- (.+)$/gm, '<li>$1</li>')
-    // numbered list
-    .replace(/^\d+\. (.+)$/gm, '<li>$1</li>')
-    // horizontal rule
-    .replace(/^---$/gm, '<hr>')
-    // paragraphs (double newline)
-    .replace(/\n\n/g, '</p><p>')
-    // single newline
-    .replace(/\n/g, '<br>');
-  // wrap loose <li> in <ul>
-  html = html.replace(/((?:<li>.*<\/li>\s*)+)/g, '<ul>$1</ul>');
-  return '<p>' + html + '</p>';
-}
-
-// Correlation ID set: tracks message IDs returned by POST /api/conversations/{id}.
-// When the bridge broadcasts a 'message' event, we skip any whose id is in this set
-// (they are echoes of messages we just sent) and remove the id to bound memory use.
-var sentIds = new Set();
-
-function mockSend(ta) {
-  if (!ta.value.trim()) return;
-  var content = ta.value;
-  var msgs = document.querySelector('.chat-messages');
-  var rendered = renderMarkdown(content);
-  // Optimistic render — show immediately without waiting for bridge round-trip
-  msgs.innerHTML += '<div class="msg"><div class="msg-sender msg-sender-human">human</div><div class="msg-text">' + rendered + '</div></div>';
-  ta.value = '';
-  ta.style.height = '24px';
-  msgs.scrollTop = msgs.scrollHeight;
-  // Persist to bridge; record returned ID to filter the echo
-  if (convId) {
-    fetch('/api/conversations/' + encodeURIComponent(convId), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: content }),
-    }).then(function(r) { return r.json(); }).then(function(data) {
-      if (data.id) sentIds.add(data.id);
-    }).catch(function() {});
-  }
-}
-
+// ── Auto-grow textarea ────────────────────────────────────────────────────────
 function autoGrow(ta) {
   ta.style.height = '24px';
-  ta.style.height = Math.min(ta.scrollHeight, 180) + 'px';
+  var lineH = parseInt(getComputedStyle(ta).lineHeight) || 18;
+  ta.style.height = Math.min(ta.scrollHeight, lineH * 10) + 'px';
 }
 
 function chatKeydown(e) {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
-    mockSend(e.target);
+    sendMessage(e.target);
   }
 }
 
-function renderMessages(messages) {
-  return messages.map(function(m) {
-    var isHuman = m.sender === 'human';
-    var isEscalation = m.type === 'escalation';
-    var rendered = renderMarkdown(m.text);
-    return '<div class="msg ' + (isEscalation ? 'msg-escalation' : '') + '">' +
-      '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + m.sender + '</div>' +
-      '<div class="msg-text">' + rendered + '</div>' +
-    '</div>';
-  }).join('');
-}
-
-function renderJobChat(conv) {
-  let messages = conv.messages;
-  let headerTitle = conv.participant;
-  let headerScope = conv.scope;
-
-  if (selectedItem && conv.tasks[selectedItem]) {
-    messages = conv.tasks[selectedItem];
-    const taskData = findTask(selectedItem);
-    headerTitle = taskData ? taskData.name : selectedItem;
-    headerScope = conv.scope + ' > task';
-  }
-
-  document.title = 'TeaParty — ' + headerTitle;
-
-  const navHtml = `
-    <div class="chat-nav">
-      <div class="chat-nav-header">Tasks</div>
-      <div class="chat-nav-item ${!selectedItem ? 'active' : ''}" onclick="selectItem(null)">
-        <span>Job conversation</span>
-        ${conv.messages.some(m => m.type === 'escalation') ? '<span class="nav-badge"></span>' : ''}
-      </div>
-      ${Object.entries(conv.tasks).map(([tid, msgs]) => {
-        const taskData = findTask(tid);
-        const taskName = taskData ? taskData.name : tid;
-        const hasEscalation = msgs.some(m => m.type === 'escalation');
-        return `<div class="chat-nav-item ${selectedItem === tid ? 'active' : ''}" onclick="selectItem('${tid}')">
-          <span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${taskName}</span>
-          ${hasEscalation ? '<span class="nav-badge"></span>' : ''}
-        </div>`;
-      }).join('')}
-    </div>`;
-
-  return { navHtml, messages, headerTitle, headerScope };
-}
-
-function renderParticipantChat(conv) {
-  const sessions = conv.sessions;
-  let messages = [];
-  let headerTitle = conv.participant;
-  let headerScope = 'All conversations';
-
-  if (selectedItem) {
-    const session = sessions.find(s => s.id === selectedItem);
-    if (session) {
-      messages = session.messages;
-      headerTitle = conv.participant;
-      headerScope = session.label;
-    }
-  } else if (sessions.length > 0) {
-    // Default to most recent session
-    messages = sessions[0].messages;
-    headerScope = sessions[0].label;
-    selectedItem = sessions[0].id;
-  }
-
-  document.title = 'TeaParty — ' + headerTitle;
-
-  const navHtml = `
-    <div class="chat-nav">
-      <div class="chat-nav-header">Conversations</div>
-      ${sessions.map(s => `
-        <div class="chat-nav-item ${selectedItem === s.id ? 'active' : ''}" onclick="selectItem('${s.id}')">
-          <span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.label}</span>
-          <span style="font-size:8px;color:var(--text-dim);flex-shrink:0">${s.date}</span>
-        </div>
-      `).join('')}
-    </div>`;
-
-  return { navHtml, messages, headerTitle, headerScope };
-}
-
+// ── Render ────────────────────────────────────────────────────────────────────
 function render() {
-  const conv = mockData.conversations[convId];
-
-  if (!conv) {
-    document.title = 'TeaParty — Chat: ' + convId;
-    document.getElementById('content').innerHTML = `
-      <div class="chat-layout">
-        <div class="chat-main">
-          <div class="chat-header">
-            <div class="chat-header-title">${convId || 'New conversation'}</div>
-            <div class="chat-header-scope">No messages yet</div>
-          </div>
-          <div class="chat-messages"><div class="empty">Start typing to begin</div></div>
-          <div class="chat-input-area">
-            <textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>
-            <button onclick="mockSend(this.parentElement.querySelector('textarea'))">Send</button>
-          </div>
-        </div>
-      </div>`;
-    return;
-  }
-
-  let result;
-  if (conv.type === 'job') {
-    result = renderJobChat(conv);
+  if (isJobChat) {
+    renderJobLayout();
   } else {
-    result = renderParticipantChat(conv);
+    renderParticipantLayout();
   }
-
-  const { navHtml, messages, headerTitle, headerScope } = result;
-
-  document.getElementById('content').innerHTML = `
-    <div class="chat-layout">
-      ${navHtml}
-      <div class="chat-main">
-        <div class="chat-header" style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <div class="chat-header-title">${headerTitle}</div>
-            <div class="chat-header-scope">${headerScope}</div>
-          </div>
-          ${conv.type === 'job' ? '<div style="display:flex;gap:6px;align-items:center">' + getGateReviewButton(convId) + '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button></div>' : ''}
-        </div>
-        <div class="chat-filters">
-          <button class="filter-btn on" data-f="agent" onclick="this.classList.toggle('on')">agent</button>
-          <button class="filter-btn on" data-f="human" onclick="this.classList.toggle('on')">human</button>
-          <button class="filter-btn" data-f="thinking" onclick="this.classList.toggle('on')">thinking</button>
-          <button class="filter-btn" data-f="tools" onclick="this.classList.toggle('on')">tools</button>
-          <button class="filter-btn" data-f="system" onclick="this.classList.toggle('on')">system</button>
-        </div>
-        <div class="chat-messages">
-          ${messages.length > 0 ? renderMessages(messages) : '<div class="empty">No messages in this conversation</div>'}
-        </div>
-        <div class="chat-input-area">
-          <textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>
-          <button onclick="mockSend(this.parentElement.querySelector('textarea'))">Send</button>
-        </div>
-      </div>
-    </div>`;
-
-  document.querySelector('.chat-messages').scrollTop = document.querySelector('.chat-messages').scrollHeight;
 }
 
-render();
+function renderJobLayout() {
+  var headerTitle = convId;
+  var headerScope = 'job';
+  if (selectedItem) {
+    headerTitle = session_id + ' / ' + selectedItem;
+    headerScope = convId + ' > task';
+  }
+  document.title = 'TeaParty — ' + headerTitle;
 
-// WebSocket for real-time message delivery. Reconnects on disconnect.
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Tasks</div>' +
+    '<div class="chat-nav-item ' + (!selectedItem ? 'active' : '') + '" onclick="selectJobConv()">' +
+    '<span>Job conversation</span></div>';
+
+  pageState.taskConvs.forEach(function(tc) {
+    var taskId = tc.id.split(':').slice(3).join(':');
+    navHtml += '<div class="chat-nav-item ' + (selectedItem === taskId ? 'active' : '') +
+      '" onclick="selectItem(\'' + taskId + '\')">' +
+      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + taskId + '</span>' +
+      (tc.awaiting_input ? '<span class="nav-badge"></span>' : '') +
+      '</div>';
+  });
+  navHtml += '</div>';
+
+  var headerActions = '<div class="chat-header-actions" style="display:flex;gap:6px;align-items:center">' +
+    gateReviewButtonHtml() +
+    '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
+    'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>' +
+    '</div>';
+
+  renderMainArea(navHtml, headerTitle, headerScope, headerActions);
+}
+
+function renderParticipantLayout() {
+  var headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
+  // Derive a human-readable scope from the selected session ID (strip prefix).
+  var headerScope = 'All conversations';
+  if (selectedItem) {
+    var sParts = selectedItem.split(':');
+    headerScope = sParts.length > 1 ? sParts.slice(1).join(':') : selectedItem;
+  }
+  document.title = 'TeaParty — ' + headerTitle;
+
+  var navHtml = '<div class="chat-nav"><div class="chat-nav-header">Conversations</div>' +
+    '<div class="chat-nav-item' + (!selectedItem ? ' active' : '') +
+    '" onclick="selectNewConv()" style="color:var(--green);font-size:9px">+ New</div>';
+  pageState.participantConvs.forEach(function(c) {
+    var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
+    // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:darrell' → 'darrell')
+    var idParts = c.id.split(':');
+    var label = idParts.length > 1 ? idParts.slice(1).join(':') : c.id;
+    navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +
+      '" onclick="selectItem(\'' + c.id + '\')">' +
+      '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +
+      '<span style="font-size:8px;color:var(--text-dim);flex-shrink:0">' + date + '</span></div>';
+  });
+  navHtml += '</div>';
+
+  renderMainArea(navHtml, headerTitle, headerScope, '');
+}
+
+function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
+  var filterRow = ['agent', 'human', 'thinking', 'tools', 'system'].map(function(f) {
+    var on = (f === 'agent' || f === 'human') ? ' on' : '';
+    return '<button class="filter-btn' + on + '" data-f="' + f +
+      '" onclick="this.classList.toggle(\'on\');refilter()">' + f + '</button>';
+  }).join('');
+
+  document.getElementById('content').innerHTML =
+    '<div class="chat-layout">' + navHtml +
+    '<div class="chat-main">' +
+    '<div class="chat-header" style="display:flex;justify-content:space-between;align-items:center">' +
+    '<div><div class="chat-header-title">' + headerTitle +
+    '<span class="session-status" style="display:none;font-size:8px;margin-left:6px;padding:1px 4px;border-radius:2px;border:1px solid currentColor"></span>' +
+    '</div>' +
+    '<div class="chat-header-scope">' + headerScope + '</div></div>' +
+    headerActions +
+    '</div>' +
+    '<div class="chat-filters">' + filterRow + '</div>' +
+    '<div class="chat-messages">' +
+    (pageState.messages.length > 0 ? renderMessages(pageState.messages) : '<div class="empty">No messages in this conversation</div>') +
+    '</div>' +
+    '<div class="chat-input-area">' +
+    '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
+    '<button onclick="sendMessage(this.parentElement.querySelector(\'textarea\'))">Send</button>' +
+    '</div></div></div>';
+
+  var msgsEl = document.querySelector('.chat-messages');
+  if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 function connectWS() {
   var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   var ws = new WebSocket(proto + '//' + location.host + '/ws');
 
   ws.onmessage = function(e) {
     try {
-      var event = JSON.parse(e.data);
-      if (event.type === 'message' && event.conversation_id === convId) {
-        // Correlation ID filter: skip echoes of messages we just sent.
-        if (event.id && sentIds.has(event.id)) {
-          sentIds.delete(event.id);
-          return;
-        }
-        var msgs = document.querySelector('.chat-messages');
-        if (!msgs) return;
-        var isHuman = event.sender === 'human';
-        var rendered = renderMarkdown(event.content || '');
-        msgs.innerHTML += '<div class="msg">' +
-          '<div class="msg-sender ' + (isHuman ? 'msg-sender-human' : 'msg-sender-agent') + '">' + event.sender + '</div>' +
-          '<div class="msg-text">' + rendered + '</div>' +
-          '</div>';
-        msgs.scrollTop = msgs.scrollHeight;
+      var ev = JSON.parse(e.data);
+      if (ev.type === 'message') {
+        onWsMessage(ev);
+      } else if (ev.type === 'input_requested') {
+        onInputRequested(ev);
+      } else if (ev.type === 'state_changed') {
+        onStateChanged(ev);
+      } else if (ev.type === 'session_completed') {
+        onSessionCompleted(ev);
+      } else if (ev.type === 'heartbeat') {
+        onHeartbeat(ev);
       }
     } catch (err) {}
   };
 
-  ws.onclose = function() {
-    setTimeout(connectWS, 3000);
-  };
+  ws.onclose = function() { setTimeout(connectWS, 3000); };
 }
 
+function onWsMessage(ev) {
+  if (ev.conversation_id !== activeConvId()) return;
+  // Skip the WS echo of messages we already showed via optimistic append.
+  if (ev.sender === 'human') {
+    var now = Date.now();
+    for (var i = 0; i < _pendingSent.length; i++) {
+      if (_pendingSent[i].content === ev.content && _pendingSent[i].expiry > now) {
+        _pendingSent.splice(i, 1);
+        return;
+      }
+    }
+  }
+  var m = { sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
+  pageState.messages.push(m);
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  var empty = msgsEl.querySelector('.empty');
+  if (empty) empty.remove();
+  var rendered = renderMessages([m]);
+  if (rendered) { msgsEl.innerHTML += rendered; msgsEl.scrollTop = msgsEl.scrollHeight; }
+}
+
+function onInputRequested(ev) {
+  // Show escalation dot on the relevant task nav item.
+  if (session_id && ev.session_id !== session_id) return;
+  var parts = (ev.conversation_id || '').split(':');
+  if (parts[0] === 'task' && parts.length >= 4) {
+    var taskId = parts.slice(3).join(':');
+    pageState.taskConvs.forEach(function(tc) {
+      if (tc.id.endsWith(':' + taskId)) tc.awaiting_input = true;
+    });
+    document.querySelectorAll('.chat-nav-item').forEach(function(item) {
+      if (item.textContent.trim().startsWith(taskId) && !item.querySelector('.nav-badge')) {
+        item.innerHTML += '<span class="nav-badge"></span>';
+      }
+    });
+  }
+}
+
+function onStateChanged(ev) {
+  if (!isJobChat) return;
+  if (session_id && ev.session_id !== session_id) return;
+  // Re-fetch CfA state and update only the header-actions region so any
+  // in-progress textarea draft is preserved.
+  fetch('/api/cfa/' + encodeURIComponent(session_id))
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(cfa) {
+      pageState.cfaPhase = cfa ? cfa.phase : null;
+      var actionsEl = document.querySelector('.chat-header-actions');
+      if (actionsEl) {
+        actionsEl.innerHTML = gateReviewButtonHtml() +
+          '<button onclick="showWithdrawModal()" style="background:transparent;border:1px solid var(--red);' +
+          'color:var(--red);padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Withdraw</button>';
+      } else {
+        render();
+      }
+    })
+    .catch(function() {});
+}
+
+function onHeartbeat(ev) {
+  var indicator = document.querySelector('.session-status');
+  if (!indicator) return;
+  var status = ev.status || 'alive';
+  if (status === 'alive') {
+    indicator.style.display = 'none';
+  } else {
+    indicator.textContent = status;
+    indicator.style.color = status === 'dead' ? 'var(--red)' : 'var(--yellow)';
+    indicator.style.display = 'inline';
+  }
+}
+
+function onSessionCompleted(ev) {
+  if (session_id && ev.session_id !== session_id) return;
+  var msgsEl = document.querySelector('.chat-messages');
+  if (!msgsEl) return;
+  msgsEl.innerHTML += '<div class="msg"><div class="msg-sender" style="color:var(--text-dim)">SYSTEM</div>' +
+    '<div class="msg-text" style="color:var(--text-dim)"><p>Session completed: ' +
+    (ev.terminal_state || 'DONE') + '</p></div></div>';
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+fetchAll();
 connectWS();
 </script>
 </body>
