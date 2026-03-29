@@ -11,7 +11,7 @@ Mockup: [mockup/stats.html](../mockup/stats.html)
 ## User Stories
 
 ### "How is the org performing overall?"
-Summary stats across all projects: jobs done, tasks done, active jobs, backtracks, withdrawals, escalations, proxy accuracy, token usage, skills learned. One row of numbers at the top.
+Summary stats across all projects: jobs done, tasks done, active jobs, backtracks, withdrawals, escalations, action match rate, prior calibration, token usage, skills learned. One row of numbers at the top.
 
 ### "How well is the proxy performing?"
 Two distinct proxy metrics are displayed as aggregate bars, broken down by CfA state × task type:
