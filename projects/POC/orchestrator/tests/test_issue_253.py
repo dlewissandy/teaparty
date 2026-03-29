@@ -479,5 +479,132 @@ class TestManagementDashboardCards(unittest.TestCase):
         self.assertIn('todo_list', cards)
 
 
+class TestHookItemsDisplay(unittest.TestCase):
+    """Hooks card displays event, matcher, and handler type per management-dashboard.md spec."""
+
+    def test_hook_item_shows_event_matcher_handler(self):
+        """Hook with event + matcher + command renders all three."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        hooks = [{'event': 'PreToolUse', 'matcher': 'Bash', 'command': 'audit.sh'}]
+        items = _build_hook_items(hooks)
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].label, 'PreToolUse')
+        self.assertIn('Bash', items[0].detail)
+        self.assertIn('audit.sh', items[0].detail)
+
+    def test_hook_item_without_matcher_shows_handler_only(self):
+        """Hook without matcher renders event and handler without extra separator."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        hooks = [{'event': 'PostToolUse', 'command': 'log.sh'}]
+        items = _build_hook_items(hooks)
+        self.assertEqual(items[0].detail, 'log.sh')
+
+    def test_hook_item_empty_hooks_returns_empty(self):
+        """Empty hooks list returns empty CardItem list."""
+        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        self.assertEqual(_build_hook_items([]), [])
+
+
+class TestStatsBarsNoWrap(unittest.TestCase):
+    """Stats bar format functions produce single-line strings (no newlines).
+
+    The stats bar uses two separate Static widgets (one for labels, one for values),
+    each height: 1. Each row must be a single line — no embedded newlines that would
+    cause the rows to interleave when Textual wraps the text.
+    """
+
+    def _sample_stats(self) -> list[tuple[str, str]]:
+        return [
+            ('Jobs Done', '12'),
+            ('Tasks Done', '48'),
+            ('Active', '3'),
+            ('One-shots', '7'),
+            ('Backtracks', '2'),
+            ('Withdrawals', '1'),
+            ('Escalations', '0'),
+            ('Interventions', '0'),
+            ('Proxy Acc.', '94%'),
+            ('Tokens', '2.1M'),
+            ('Skills Learned', '5'),
+            ('Uptime', '2h30m'),
+        ]
+
+    def test_labels_row_has_no_newline(self):
+        """Labels row is a single line with no embedded newlines."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        result = format_stats_labels(self._sample_stats())
+        self.assertNotIn('\n', result)
+
+    def test_values_row_has_no_newline(self):
+        """Values row is a single line with no embedded newlines."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        result = format_stats_values(self._sample_stats())
+        self.assertNotIn('\n', result)
+
+    def test_labels_contains_all_keys(self):
+        """Labels row includes every stat label."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        result = format_stats_labels(self._sample_stats())
+        for label, _ in self._sample_stats():
+            self.assertIn(label, result)
+
+    def test_values_contains_all_values(self):
+        """Values row includes every stat value."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        result = format_stats_values(self._sample_stats())
+        for _, value in self._sample_stats():
+            self.assertIn(value, result)
+
+    def test_column_widths_align_labels_and_values(self):
+        """Each column is right-padded to max(len(label), len(value)), keeping columns aligned."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        stats = [('AB', '1234'), ('LONGNAME', '9')]  # label wider than value; value narrower
+        labels = format_stats_labels(stats)
+        values = format_stats_values(stats)
+        # Strip markup: both rows have same total character width
+        import re
+        strip = lambda s: re.sub(r'\[/?[^\]]*\]', '', s)
+        self.assertEqual(len(strip(labels)), len(strip(values)))
+
+    def test_empty_stats_returns_empty_string(self):
+        """Empty stats list produces empty strings."""
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        self.assertEqual(format_stats_labels([]), '')
+        self.assertEqual(format_stats_values([]), '')
+
+    def test_two_rows_render_without_interleaving_at_120_columns(self):
+        """Textual renders labels and values as two separate height-1 rows at 120 columns.
+
+        Regression guard: the old single-Static approach wrapped its two-line text into
+        multiple visual rows, causing labels and values to interleave. This test confirms
+        the two-widget approach resolves to height 1 each — structurally impossible to wrap.
+        """
+        import asyncio
+        from textual.app import App, ComposeResult
+        from textual.widgets import Static
+        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+
+        stats = self._sample_stats()
+
+        class _StatsTestApp(App):
+            CSS = '#labels, #values { height: 1; overflow-x: hidden; }'
+
+            def compose(self) -> ComposeResult:
+                yield Static(format_stats_labels(stats), id='labels')
+                yield Static(format_stats_values(stats), id='values')
+
+        async def _run():
+            app = _StatsTestApp()
+            async with app.run_test(size=(120, 24)) as pilot:
+                await pilot.pause()
+                labels_w = app.query_one('#labels', Static)
+                values_w = app.query_one('#values', Static)
+                return labels_w.size.height, values_w.size.height
+
+        labels_h, values_h = asyncio.run(_run())
+        self.assertEqual(labels_h, 1, 'Labels row must render as exactly 1 line')
+        self.assertEqual(values_h, 1, 'Values row must render as exactly 1 line')
+
+
 if __name__ == '__main__':
     unittest.main()

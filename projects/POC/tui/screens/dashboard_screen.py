@@ -412,12 +412,14 @@ def _build_scheduled_task_items(scheduled: list) -> list[CardItem]:
 
 
 def _build_hook_items(hooks: list[dict]) -> list[CardItem]:
-    """Build CardItems for a list of hook dicts."""
+    """Build CardItems for a list of hook dicts (event, matcher, handler type per spec)."""
     items: list[CardItem] = []
     for hook in hooks:
         event = hook.get('event', '?')
+        matcher = hook.get('matcher', '')
         handler = hook.get('handler', hook.get('command', '?'))
-        items.append(CardItem(icon='\u26a1', label=event, detail=str(handler), data=hook))
+        detail = f'{matcher}  {handler}' if matcher else str(handler)
+        items.append(CardItem(icon='\u26a1', label=event, detail=detail, data=hook))
     return items
 
 
@@ -456,6 +458,16 @@ def format_stat_value(value) -> str:
     if value is None:
         return '\u2014'
     return str(value)
+
+
+def format_stats_labels(stats: list[tuple[str, str]]) -> str:
+    """Single-line labels row for the stats bar (no newlines)."""
+    return '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in stats)
+
+
+def format_stats_values(stats: list[tuple[str, str]]) -> str:
+    """Single-line values row for the stats bar (no newlines)."""
+    return '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in stats)
 
 
 def _uptime_str() -> str:
@@ -684,6 +696,7 @@ class DashboardScreen(Screen):
         self._nav = nav_context or NavigationContext(level=DashboardLevel.MANAGEMENT)
         self._breadcrumb_contexts: list[NavigationContext] = []
         self._hide_done: dict[str, bool] = {'sessions': True, 'jobs': True}  # default: hide terminal
+        self._project_decider: str = ''  # set by _title_text for project level
 
     def _title_text(self) -> str:
         title = self._LEVEL_TITLES.get(self._nav.level, 'Dashboard')
@@ -718,8 +731,8 @@ class DashboardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Static(self._title_text(), id='dash-title')
-        # Job/Task: worktree open buttons in title bar
-        if self._nav.level in (DashboardLevel.JOB, DashboardLevel.TASK):
+        # Project/Job/Task: directory open buttons in title bar
+        if self._nav.level in (DashboardLevel.PROJECT, DashboardLevel.JOB, DashboardLevel.TASK):
             yield Horizontal(
                 Static('[bold]Open:[/bold] ', classes='open-label'),
                 Static('[link]Finder[/link]', id='btn-open-finder', classes='open-btn'),
@@ -727,11 +740,20 @@ class DashboardScreen(Screen):
                 Static('[link]Editor[/link]', id='btn-open-editor', classes='open-btn'),
                 id='title-actions',
             )
+        # Project: decider link + description subtitle
+        if self._nav.level == DashboardLevel.PROJECT:
+            yield Horizontal(
+                Static('[bold]Decider:[/bold] ', classes='open-label'),
+                Static('[link]…[/link]', id='btn-decider', classes='open-btn'),
+                Static('', id='project-description', classes='open-label'),
+                id='project-subtitle',
+            )
         # Task: subtitle (assignee, status, workgroup link)
         if self._nav.level == DashboardLevel.TASK:
             yield Static('', id='task-subtitle')
         yield Horizontal(*self._compose_breadcrumbs(), id='dash-breadcrumbs')
-        yield Static('', id='dash-stats')
+        yield Static('', id='dash-stats-labels')
+        yield Static('', id='dash-stats-values')
         # Job: workflow progress indicator
         if self._nav.level == DashboardLevel.JOB:
             yield WorkflowProgress(id='job-workflow-progress')
@@ -853,6 +875,19 @@ class DashboardScreen(Screen):
     def _refresh_project(self, reader, proj) -> None:
         if not proj:
             return
+        # Project subtitle: decider and description from config
+        try:
+            from projects.POC.orchestrator.config_reader import load_project_team
+            pt = load_project_team(proj.path)
+            if pt.decider:
+                self._project_decider = pt.decider
+                self.query_one('#btn-decider', Static).update(f'[link]{pt.decider}[/link]')
+            if pt.description:
+                self.query_one('#project-description', Static).update(
+                    f'  \u2014 [dim]{pt.description}[/dim]'
+                )
+        except Exception:
+            pass
         # Issue #273: full stat set from project-dashboard.md
         self._set_stats(format_project_stats(proj.sessions, proj.path))
 
@@ -1212,8 +1247,13 @@ class DashboardScreen(Screen):
             return []
 
     def _load_management_hooks(self) -> list[CardItem]:
-        # ManagementTeam doesn't have hooks in the config schema yet
-        return []
+        try:
+            from projects.POC.orchestrator.config_reader import load_management_team
+            team = load_management_team()
+            return _build_hook_items(team.hooks)
+        except Exception:
+            _log.warning('Failed to load management hooks', exc_info=True)
+            return []
 
     def _load_project_skills(self, proj) -> list[CardItem]:
         try:
@@ -1245,10 +1285,9 @@ class DashboardScreen(Screen):
     # ── Card/stats helpers ──
 
     def _set_stats(self, stats: list[tuple[str, str]]) -> None:
-        values = '  '.join(f'[bold]{v:>{max(len(k), len(v))}}[/bold]' for k, v in stats)
-        labels = '  '.join(f'[dim]{k:>{max(len(k), len(v))}}[/dim]' for k, v in stats)
         try:
-            self.query_one('#dash-stats', Static).update(f'{values}\n{labels}')
+            self.query_one('#dash-stats-labels', Static).update(format_stats_labels(stats))
+            self.query_one('#dash-stats-values', Static).update(format_stats_values(stats))
         except Exception:
             pass
 
@@ -1446,6 +1485,19 @@ class DashboardScreen(Screen):
             self.action_open_chat()
         elif wid == 'btn-withdraw':
             self.action_withdraw()
+        elif wid == 'btn-decider':
+            self._open_decider_chat()
+
+    def _open_decider_chat(self) -> None:
+        """Open proxy review (self) or liaison chat (other decider)."""
+        import getpass
+        decider = self._project_decider
+        if not decider:
+            return
+        if decider == getpass.getuser():
+            open_chat_window(self.app, ensure_proxy_review=decider)
+        else:
+            open_chat_window(self.app, conversation=f'liaison:{decider}')
 
     def _open_worktree_finder(self) -> None:
         wt = self._resolve_worktree_path()
@@ -1464,6 +1516,13 @@ class DashboardScreen(Screen):
 
     def _resolve_worktree_path(self) -> str | None:
         reader = self.app.state_reader
+        # Project level: open the project directory
+        if self._nav.level == DashboardLevel.PROJECT and self._nav.project_slug:
+            proj = reader.find_project(self._nav.project_slug)
+            if proj and proj.path and os.path.isdir(proj.path):
+                return proj.path
+            return None
+        # Job/Task level: open the session worktree
         session = reader.find_session(self._nav.job_id)
         if not session:
             return None

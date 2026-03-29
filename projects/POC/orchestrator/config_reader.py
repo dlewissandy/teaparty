@@ -99,6 +99,7 @@ class ManagementTeam:
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
     skills: list[str] = field(default_factory=list)
     scheduled: list[ScheduledTask] = field(default_factory=list)
+    hooks: list[dict[str, str]] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
@@ -214,6 +215,7 @@ def load_management_team(
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         skills=data.get('skills', []),
         scheduled=_parse_scheduled(data.get('scheduled')),
+        hooks=data.get('hooks', []),
         norms=data.get('norms', {}),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
