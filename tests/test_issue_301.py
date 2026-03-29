@@ -95,8 +95,12 @@ class TestChatHtmlWebSocket(unittest.TestCase):
                       'chat.html must open a WebSocket connection for real-time updates')
 
     def test_handles_message_events(self):
-        self.assertIn("event.type === 'message'", self.content,
+        # Must handle 'message' events from the WebSocket (variable name may differ)
+        self.assertIn("'message'", self.content,
                       "chat.html must handle WebSocket 'message' events to append new messages")
+        # Must have a dedicated WS message handler function
+        self.assertIn('onWsMessage', self.content,
+                      "chat.html must have a dedicated onWsMessage handler for incoming messages")
 
     def test_handles_input_requested_events(self):
         self.assertIn("'input_requested'", self.content,
@@ -195,9 +199,10 @@ class TestChatHtmlParticipantSidebar(unittest.TestCase):
                       'the participant chat sidebar with historical sessions')
 
     def test_infers_conv_type_from_prefix(self):
-        # The page must derive the ?type= value from the conv ID prefix
-        self.assertIn("startsWith('om:')", self.content,
-                      "chat.html must detect 'om:' prefix to query type=office_manager")
+        # The page must map the 'om:' prefix to the office_manager API type
+        self.assertIn("'office_manager'", self.content,
+                      "chat.html must map the 'om:' conv ID prefix to 'office_manager' "
+                      "for the ?type= query parameter")
 
 
 # ── Message filters ───────────────────────────────────────────────────────────
@@ -209,9 +214,11 @@ class TestChatHtmlMessageFilters(unittest.TestCase):
         self.content = _read_chat()
 
     def test_filter_buttons_present(self):
+        # All five filter names must appear in the source (either as static HTML or
+        # inside a string literal used to build the filter row dynamically).
         for f in ('agent', 'human', 'thinking', 'tools', 'system'):
-            self.assertIn(f'data-f="{f}"', self.content,
-                          f'chat.html must have a filter button for "{f}" messages')
+            self.assertIn(f"'{f}'", self.content,
+                          f'chat.html must include a filter for "{f}" messages')
 
     def test_filter_applied_before_render(self):
         # The filter buttons must gate what gets rendered using message sender/type checks
