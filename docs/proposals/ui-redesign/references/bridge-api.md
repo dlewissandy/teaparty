@@ -4,6 +4,8 @@
 
 The bridge is an aiohttp server that exposes TeaParty's existing data through REST endpoints and a WebSocket. It imports existing modules directly — `SqliteMessageBus`, `StateReader`, `config_reader`, `heartbeat`, `cfa_state`.
 
+`StateReader` is imported from `projects.POC.orchestrator.state_reader`, not from the TUI package. Session discovery logic and heartbeat liveness classification live in the orchestrator so the bridge has no dependency on the TUI it supersedes (issue #280).
+
 ---
 
 ## Startup
@@ -34,7 +36,7 @@ bridge.run(port=8081)
 | GET | `/api/state` | All projects with sessions, dispatches, liveness | `StateReader.reload()` |
 | GET | `/api/state/{project}` | Single project's sessions | `StateReader.find_project(slug)` |
 | GET | `/api/cfa/{session_id}` | CfA state (phase, state, actor, history, backtrack count) | `load_state(infra_dir/.cfa-state.json)` |
-| GET | `/api/heartbeat/{session_id}` | Liveness: alive, stale, or dead | `read_heartbeat()` with TUI thresholds (30s/300s) |
+| GET | `/api/heartbeat/{session_id}` | Liveness: alive, stale, or dead | `_heartbeat_three_state()` from `orchestrator.state_reader` (30s/300s thresholds) |
 
 `StateReader` scans `{project}/.sessions/*/` directories. Each session has `.cfa-state.json` (state), `.heartbeat` (liveness), and `messages.db` (conversations). The bridge opens a `SqliteMessageBus` connection per active session. Connections close when sessions complete.
 
