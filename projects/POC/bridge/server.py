@@ -9,7 +9,7 @@ Usage::
     bridge = TeaPartyBridge(
         teaparty_home='~/.teaparty',
         projects_dir='/path/to/projects',
-        static_dir='docs/proposals/ui-redesign/mockup',
+        static_dir='projects/POC/bridge/static',
     )
     bridge.run(port=8081)
 
