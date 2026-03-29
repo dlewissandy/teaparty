@@ -271,6 +271,33 @@ class TestBridgeSessionSerializationContract(unittest.TestCase):
         self.assertIn('project', result)
         self.assertEqual(result['project'], 'poc')
 
+    def test_input_conv_id_present_in_serialized_session(self):
+        """input_conv_id must be present — used to build task-specific escalation URL at render time.
+
+        When a session has needs_input=True, the home page needs the conversation_id that
+        is awaiting input so it can construct the correct chat.html?conv=JOB_ID&task=TASK_ID
+        URL for the escalation dot at initial page load (not just via WebSocket).
+        When no bus is available (needs_input=False or bus not found), it must be empty string.
+        """
+        session = _make_session(needs_input=False)
+        result = self.bridge._serialize_session(session)
+        self.assertIn('input_conv_id', result)
+        self.assertEqual(result['input_conv_id'], '',
+                         'input_conv_id must be empty string when needs_input is False')
+
+    def test_input_conv_id_empty_when_no_bus(self):
+        """input_conv_id must be empty string when no message bus is registered for the session.
+
+        The bridge uses self._buses to look up the session bus. When needs_input=True
+        but no bus is registered (e.g. orphaned session), input_conv_id must degrade
+        gracefully to an empty string — not raise.
+        """
+        session = _make_session(needs_input=True)
+        result = self.bridge._serialize_session(session)
+        self.assertIn('input_conv_id', result)
+        self.assertEqual(result['input_conv_id'], '',
+                         'input_conv_id must be empty string when no bus is registered')
+
 
 class TestBridgeProjectSerializationContract(unittest.TestCase):
     """_serialize_project must include all fields the home page needs."""
@@ -465,6 +492,32 @@ class TestIndexHtmlEscalationRouting(unittest.TestCase):
                       "onInputRequested must detect task: conversation IDs and extract task ID for &task= routing")
         self.assertIn("'&task=' + parts[3]", content,
                       "onInputRequested must append &task=<task_id> for task: conversation IDs")
+
+    def test_render_time_escalation_uses_input_conv_id(self):
+        """render() must use s.input_conv_id (from REST) to build the escalation dot URL.
+
+        Escalation dots on sessions that were already awaiting input at page load
+        must navigate to the correct task-specific URL, not a generic job URL.
+        The REST /api/state response includes input_conv_id when needs_input is true.
+        """
+        content = _read_index()
+        self.assertIn('s.input_conv_id', content,
+                      'render() must use s.input_conv_id to build escalation dot URL at page load')
+        self.assertIn('escParts', content,
+                      'render() must parse input_conv_id to extract task routing parts')
+
+    def test_fetchall_prepopulates_escalation_conv_map(self):
+        """fetchAll() must populate escalationConvMap from REST data after render.
+
+        Pre-existing escalations (present at page load) need their conv IDs stored
+        in escalationConvMap so onMessage can clear their dots when the human replies.
+        Without this, dots from pre-load escalations never clear via WebSocket.
+        """
+        content = _read_index()
+        self.assertIn('s.input_conv_id', content,
+                      'fetchAll() must store input_conv_id in escalationConvMap after render')
+        self.assertIn('escalationConvMap[s.session_id] = s.input_conv_id', content,
+                      'escalationConvMap must be populated per session from input_conv_id')
 
 
 if __name__ == '__main__':

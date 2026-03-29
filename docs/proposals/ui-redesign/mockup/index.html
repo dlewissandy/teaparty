@@ -131,6 +131,16 @@ function fetchAll() {
     return Promise.all(configFetches);
   }).then(function() {
     render();
+    // Pre-populate escalationConvMap from REST data so onMessage can clear
+    // dots for sessions that were already awaiting input at page load.
+    pageState.escalationConvMap = {};
+    pageState.projects.forEach(function(p) {
+      (p.sessions || []).forEach(function(s) {
+        if (s.needs_input && s.input_conv_id) {
+          pageState.escalationConvMap[s.session_id] = s.input_conv_id;
+        }
+      });
+    });
   }).catch(function() {
     document.getElementById('content').innerHTML =
       '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
@@ -214,7 +224,13 @@ function render() {
         var jobName = s.task || s.session_id;
         projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
         if (s.needs_input) {
-          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'chat.html?conv=' + convId + '\')"></span>';
+          // Build task-specific escalation URL from input_conv_id if the server provided it.
+          // task: conv → job:…&task=…  |  job: conv → job:…  |  fallback → job: (no task)
+          var escParts = s.input_conv_id ? s.input_conv_id.split(':') : [];
+          var escUrl = (escParts[0] === 'task' && escParts.length === 4)
+            ? ('chat.html?conv=job:' + escParts[1] + ':' + escParts[2] + '&task=' + escParts[3])
+            : ('chat.html?conv=' + convId);
+          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'' + escUrl + '\')"></span>';
         } else {
           projectsHtml += '<span style="width:6px"></span>';
         }
