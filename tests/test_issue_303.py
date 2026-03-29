@@ -15,6 +15,7 @@ Acceptance criteria:
 12. Org skills tagged 'shared'; project-only skills 'local'
 13. Override data does not bleed from one workgroup to the next
 """
+import json
 import os
 import shutil
 import tempfile
@@ -663,6 +664,110 @@ class TestWorkgroupOverrideScope(unittest.TestCase):
         self.assertIn('norms', results[0]['overrides'])
         self.assertEqual(results[1]['overrides'], [],
                          'Beta must not carry overrides from Alpha')
+
+
+# ── Handler end-to-end ────────────────────────────────────────────────────────
+
+class TestConfigProjectHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
+    """_handle_config_project must return correct JSON shape with source-tagged agents/skills."""
+
+    async def asyncSetUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+        _make_management_team(self.tmpdir, agents=['Org Agent'], skills=['org-skill'])
+        self.project_dir = os.path.join(self.tmpdir, 'poc')
+        os.makedirs(self.project_dir)
+        _make_project_team(
+            self.project_dir,
+            agents=['Project Lead', 'Org Agent'],
+            skills=['org-skill', 'local-skill'],
+        )
+
+    async def asyncTearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _call(self):
+        from unittest.mock import MagicMock
+        req = MagicMock()
+        req.match_info = {'project': 'poc'}
+        return req
+
+    async def test_handle_config_project_returns_team_and_workgroups(self):
+        """Handler response must include 'team' and 'workgroups' keys."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        self.assertIn('team', data)
+        self.assertIn('workgroups', data)
+
+    async def test_handle_config_project_agents_have_source(self):
+        """All agents in the handler response must include a 'source' field."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        agents = data['team']['agents']
+        self.assertTrue(len(agents) > 0, 'Expected at least one agent')
+        for agent in agents:
+            self.assertIn('source', agent, f'Agent {agent.get("name")} missing source')
+
+    async def test_handle_config_project_lead_tagged_generated(self):
+        """Handler must tag the project lead agent as source='generated'."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        by_name = {a['name']: a['source'] for a in data['team']['agents']}
+        self.assertEqual(by_name.get('Project Lead'), 'generated')
+
+    async def test_handle_config_project_org_agent_tagged_shared(self):
+        """Handler must tag org-catalog agents as source='shared'."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        by_name = {a['name']: a['source'] for a in data['team']['agents']}
+        self.assertEqual(by_name.get('Org Agent'), 'shared')
+
+    async def test_handle_config_project_skills_have_source(self):
+        """All skills in the handler response must include a 'source' field."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        skills = data['team']['skills']
+        self.assertTrue(len(skills) > 0, 'Expected at least one skill')
+        for skill in skills:
+            self.assertIn('source', skill, f'Skill {skill.get("name")} missing source')
+
+    async def test_handle_config_project_org_skill_tagged_shared(self):
+        """Handler must tag org skills as 'shared' and project-only skills as 'local'."""
+        resp = await self.bridge._handle_config_project(self._call())
+        data = json.loads(resp.body)
+        by_name = {s['name']: s['source'] for s in data['team']['skills']}
+        self.assertEqual(by_name.get('org-skill'), 'shared')
+        self.assertEqual(by_name.get('local-skill'), 'local')
+
+
+class TestConfigHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
+    """_handle_config must return management team with all required fields."""
+
+    async def asyncSetUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+        _make_management_team(self.tmpdir)
+
+    async def asyncTearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    async def test_handle_config_returns_management_team_fields(self):
+        """Handler response must include management_team with agents/humans/skills/hooks/scheduled."""
+        from unittest.mock import MagicMock
+        resp = await self.bridge._handle_config(MagicMock())
+        data = json.loads(resp.body)
+        self.assertIn('management_team', data)
+        mt = data['management_team']
+        for field in ('agents', 'humans', 'skills', 'hooks', 'scheduled'):
+            self.assertIn(field, mt, f'management_team must include {field}')
+
+    async def test_handle_config_returns_projects(self):
+        """Handler response must include 'projects' key."""
+        from unittest.mock import MagicMock
+        resp = await self.bridge._handle_config(MagicMock())
+        data = json.loads(resp.body)
+        self.assertIn('projects', data)
+        self.assertIsInstance(data['projects'], list)
 
 
 if __name__ == '__main__':
