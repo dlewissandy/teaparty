@@ -28,7 +28,8 @@ from aiohttp import web
 
 from projects.POC.orchestrator.messaging import ConversationType, SqliteMessageBus
 from projects.POC.orchestrator.office_manager import om_bus_path as _om_bus_path
-from projects.POC.orchestrator.state_reader import StateReader, _heartbeat_three_state
+from projects.POC.orchestrator.state_reader import StateReader
+from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
 from projects.POC.orchestrator.config_reader import (
     load_management_team,
     load_project_team,
@@ -70,7 +71,7 @@ def _withdrawal_socket_path(teaparty_home: str, session_id: str) -> str:
 def _classify_heartbeat(infra_dir: str) -> str:
     """Return heartbeat liveness as 'alive', 'stale', or 'dead'.
 
-    Delegates to _heartbeat_three_state() from orchestrator.state_reader.
+    Delegates to _heartbeat_three_state() from orchestrator.heartbeat.
     """
     return _heartbeat_three_state(infra_dir)
 
