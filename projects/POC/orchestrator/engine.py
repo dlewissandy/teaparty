@@ -55,6 +55,10 @@ from projects.POC.orchestrator.cost_tracker import (
 )
 from projects.POC.orchestrator.role_enforcer import RoleEnforcer
 from projects.POC.orchestrator.scratch import ScratchModel, ScratchWriter, extract_text
+from projects.POC.orchestrator.learnings import (
+    write_intervention_chunk,
+    write_intervention_outcome,
+)
 
 
 @dataclass
@@ -783,6 +787,22 @@ class Orchestrator:
         self._pending_intervention = prompt
         self._intervention_active = True  # Issue #247: track for cascade
 
+        # Determine current phase name for the learning chunk context.
+        try:
+            current_phase = phase_for_state(self.cfa.state)
+        except ValueError:
+            current_phase = 'unknown'
+
+        # Record as a learning-system chunk for post-session proxy extraction.
+        # Issue #276.
+        write_intervention_chunk(
+            infra_dir=self.infra_dir,
+            content=prompt,
+            senders=[m.sender for m in messages],
+            cfa_state=self.cfa.state,
+            phase=current_phase,
+        )
+
         await self.event_bus.publish(Event(
             type=EventType.INTERVENE,
             data={
@@ -1046,6 +1066,10 @@ class Orchestrator:
         if new_state == 'WITHDRAWN':
             withdrawn = cascade_withdraw_children(self.infra_dir, self.cfa.phase)
             self._intervention_active = False
+            write_intervention_outcome(  # Issue #276
+                infra_dir=self.infra_dir,
+                outcome='withdraw',
+            )
             if withdrawn:
                 await self.event_bus.publish(Event(
                     type=EventType.LOG,
@@ -1067,11 +1091,20 @@ class Orchestrator:
             new_phase = phase_for_state(new_state)
         except ValueError:
             self._intervention_active = False
+            write_intervention_outcome(  # Issue #276
+                infra_dir=self.infra_dir,
+                outcome='continue',
+            )
             return
 
         if is_backtrack(old_phase, new_phase):
             withdrawn = cascade_withdraw_children(self.infra_dir, new_phase)
             self._intervention_active = False
+            write_intervention_outcome(  # Issue #276
+                infra_dir=self.infra_dir,
+                outcome='backtrack',
+                backtrack_phase=new_phase,
+            )
             if withdrawn:
                 await self.event_bus.publish(Event(
                     type=EventType.LOG,
@@ -1094,6 +1127,10 @@ class Orchestrator:
         # The lead processed the intervention and chose to continue.
         # Dispatches keep running.
         self._intervention_active = False
+        write_intervention_outcome(  # Issue #276
+            infra_dir=self.infra_dir,
+            outcome='continue',
+        )
 
     async def _transition(self, action: str, actor_result: ActorResult) -> None:
         """Apply a CfA transition and persist state."""

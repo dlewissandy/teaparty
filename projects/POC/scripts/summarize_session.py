@@ -51,6 +51,7 @@ _SCOPE_IMPORTANCE = {
     "prospective": 0.5,
     "in-flight": 0.5,
     "corrective": 0.8,
+    "interventions": 0.8,  # Strong signal: direct human correction during live session
 }
 
 # Domain by scope — 'team' for coordination learnings, 'task' for project-specific
@@ -74,6 +75,7 @@ _SCOPE_DOMAIN = {
     "prospective": "task",
     "in-flight": "task",
     "corrective": "task",
+    "interventions": "task",
 }
 
 
@@ -801,6 +803,45 @@ Format each learning as:
 Session conversation:
 {conversation}
 """,
+
+    "interventions": """You are analyzing human interventions from a live agent session alongside the session execution stream. Interventions are unsolicited messages the human typed during active agent work — course corrections at turn boundaries.
+
+The intervention records (in the context section below) have this shape:
+{{"type": "intervention", "timestamp": "...", "content": "...", "senders": [...], "cfa_state": "...", "phase": "...", "outcome": "pending"}}
+{{"type": "intervention_outcome", "timestamp": "...", "outcome": "continue|backtrack|withdraw", "backtrack_phase": "..."}}
+
+Each intervention chunk is followed by an outcome record showing how the agent responded.
+
+The execution stream (below) shows what the agent was doing immediately before the intervention — the recent agent activity the human interrupted.
+
+Extract proxy behavioral learnings: patterns that reveal what the human pays attention to, what triggers their intervention, and what the intervention tells a proxy about the human's priorities and risk tolerance.
+
+FOCUS ON:
+- What types of agent behavior prompted the human to intervene (plan quality, wrong direction, missed context, scope creep, etc.)
+- Whether the human's intervention caused the agent to backtrack, continue, or withdraw — and what that reveals about the severity of the issue
+- What the agent was doing in the execution stream when the intervention occurred (the "missed signal" the proxy should have caught)
+- Patterns in which CfA phase interventions occur (planning vs. execution suggests different monitoring needs)
+- What the human's intervention content reveals about their implicit expectations the agents failed to meet
+
+QUALITY BAR: Only extract signals specific enough to inform future proxy decisions. "The human sometimes intervenes" does not qualify. "The human intervenes when agents proceed to execution without validating the core assumption in the plan" is actionable.
+
+If no qualifying signals are present, output nothing. Silence is correct.
+
+Format each learning as:
+
+## [{date}] Intervention Signal
+**Trigger:** <what prompted the human to intervene>
+**Phase:** <CfA phase where intervention occurred>
+**Outcome:** <how the agent responded — continue/backtrack/withdraw>
+**Missed Signal:** <what in the agent's behavior the proxy should have flagged>
+**Signal:** <what this reveals about the human's priorities or proxy calibration>
+**Proxy Action:** <how the proxy should act differently to anticipate this intervention>
+
+{context_section}
+
+Execution stream (recent agent activity):
+{conversation}
+""",
 }
 
 # These scopes use the intent stream and need human-turn extraction
@@ -1184,6 +1225,33 @@ def promote(
             os.path.join(tasks_dir, f'{ts}-corrective.md'),
             [],
             'corrective',
+        )
+        return 0
+
+    elif scope == 'interventions':
+        # Intervention chunks → project/proxy-tasks/<ts>-interventions.md
+        # Issue #276.
+        if not session_dir or not project_dir:
+            print("[promote] session_dir or project_dir not set, skipping interventions.", file=sys.stderr)
+            return 1
+
+        interventions_file = os.path.join(session_dir, '.interventions.jsonl')
+        if not os.path.isfile(interventions_file) or os.path.getsize(interventions_file) == 0:
+            print("[promote] No .interventions.jsonl found, skipping interventions.", file=sys.stderr)
+            return 0
+
+        proxy_tasks_dir = os.path.join(project_dir, 'proxy-tasks')
+        os.makedirs(proxy_tasks_dir, exist_ok=True)
+
+        # Pass exec stream as the main stream so the LLM sees recent agent
+        # activity alongside the intervention records (captures the "what the
+        # agent was doing when the human intervened" context the issue requires).
+        exec_s = _exec_stream()
+        summarize(
+            exec_s,
+            os.path.join(proxy_tasks_dir, f'{ts}-interventions.md'),
+            [interventions_file],
+            'interventions',
         )
         return 0
 
