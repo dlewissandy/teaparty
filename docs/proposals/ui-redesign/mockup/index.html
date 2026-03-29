@@ -121,7 +121,7 @@ function render() {
   orgHtml += '<div><div class="oc-label">Org Knowledge</div><div class="oc-meta">organization.md</div></div>';
   orgHtml += '</div>';
 
-  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=office-manager\')">';
+  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=om:darrell\')">';
   orgHtml += '<span class="oc-icon">&#9733;</span>';
   orgHtml += '<div><div class="oc-label">Office Manager</div><div class="oc-meta">Org-level coordination</div></div>';
   orgHtml += '</div>';
@@ -189,7 +189,7 @@ function render() {
     projectsHtml += '<div class="pc-actions">';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + id + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + id + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=poc-manager\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=session:poc-20260325-143000\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';
@@ -201,7 +201,7 @@ function render() {
     '<div class="home-title">TeaParty</div>' +
     '<div class="home-subtitle">Agent coordination platform</div>' +
     orgHtml +
-    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="openPage(\'chat.html?conv=office-manager\')">+ New Project</button></div>' +
+    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="openPage(\'chat.html?conv=om:darrell\')">+ New Project</button></div>' +
     projectsHtml;
 }
 

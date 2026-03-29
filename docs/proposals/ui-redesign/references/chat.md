@@ -23,7 +23,7 @@ For job-scoped work. The sidebar lists **tasks** within the job.
 - "I want to review the gate artifact." → Green "Review INTENT/PLAN/WORK" button in the header. Opens the [Artifacts viewer](artifacts.md) with the relevant document.
 - "I want to cancel this job." → Red "Withdraw" button in the header. Confirmation modal: "This will cancel the job and all running tasks. Completed work will be preserved in the worktree but not merged." Cancel or Withdraw.
 
-**Deep linking:** `chat.html?conv=j1&task=t2` opens the job chat with task t2 selected in the sidebar. Used by escalation clicks on the home page.
+**Deep linking:** `chat.html?conv=job:poc:job-001&task=t2` opens the job chat with task t2 selected in the sidebar. Used by escalation clicks on the home page.
 
 **Sidebar contents:**
 - "Job conversation" entry (the main thread with the project lead)
@@ -35,7 +35,7 @@ For job-scoped work. The sidebar lists **tasks** within the job.
 - "Review" button (green, only shown at gates — INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT)
 - "Withdraw" button (red, always shown)
 
-### Participant Chat (`chat.html?conv=office-manager`)
+### Participant Chat (`chat.html?conv=om:darrell`)
 
 For 1:1 conversations with a specific participant. The sidebar lists **conversation history** with that participant.
 

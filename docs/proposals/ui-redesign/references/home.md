@@ -17,7 +17,7 @@ The home page shows every project with active job counts, escalation counts, and
 The org row shows a red escalation badge with total count across all projects. Each project card shows escalations inline — phase, summary, age. Click any escalation to open the job chat with the relevant task conversation selected.
 
 ### "I want to respond to an escalation."
-Click the job row (or the escalation within the card). A new browser tab opens with `chat.html?conv=j1&task=t2`. The chat shows the conversation, the sidebar highlights the task, and the human types a response. The orchestrator picks it up from the message bus.
+Click the job row (or the escalation within the card). A new browser tab opens with `chat.html?conv=job:poc:job-001&task=t2`. The chat shows the conversation, the sidebar highlights the task, and the human types a response. The orchestrator picks it up from the message bus.
 
 ### "I want to start a new job."
 Click "Manager" on the project card. A participant chat opens with the project manager. The human describes the work. The manager creates the job.
@@ -72,5 +72,5 @@ Task escalations during a work phase: the work bar is yellow, the escalation dot
 | Click escalation within card | Opens job chat at the escalated task (`chat.html?conv=JOB_ID&task=TASK_ID`) |
 | Click "Config" button | Opens project config (`config.html?project=ID`) |
 | Click "Artifacts" button | Opens project artifacts (`artifacts.html?project=ID`) |
-| Click "Manager" button | Opens manager chat (`chat.html?conv=poc-manager`) |
-| Click "+ New Project" | Opens office manager chat (`chat.html?conv=office-manager`) |
+| Click "Manager" button | Opens manager chat (`chat.html?conv=session:poc-20260325-143000`) |
+| Click "+ New Project" | Opens office manager chat (`chat.html?conv=om:darrell`) |

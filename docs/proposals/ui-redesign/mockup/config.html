@@ -27,8 +27,8 @@ function configNav(level, projectId) {
 
 function sectionCard(title, items, opts) {
   var buttons = '';
-  if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'office-manager\')">+ New</button>';
-  if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'office-manager\')">+ Catalog</button>';
+  if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'om:darrell\')">+ New</button>';
+  if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'om:darrell\')">+ Catalog</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
 }
@@ -80,7 +80,7 @@ function renderGlobal() {
     return '<div class="item"><div class="item-icon icon-member">' + icon + '</div><div class="item-body"><div class="item-title">' + a.name + '</div><div class="item-meta">' + a.role + ' &middot; ' + a.model + '</div></div>' + statusBadge + '</div>';
   });
 
-  var participantItems = ['<div class="item" onclick="openChat(\'office-manager\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">Team Lead &middot; org-level coordination</div></div><span class="item-badge badge-active">active</span></div>'];
+  var participantItems = ['<div class="item" onclick="openChat(\'om:darrell\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">Team Lead &middot; org-level coordination</div></div><span class="item-badge badge-active">active</span></div>'];
   m.humans.forEach(function(h) {
     var youTag = h.self ? ' <span style="font-size:8px;background:rgba(78,204,163,0.15);color:var(--green);padding:1px 5px;border-radius:3px">you</span>' : '';
     participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + youTag + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
@@ -136,8 +136,8 @@ function renderProject(projectId) {
 
   var humans = (mockData.status.projects[projectId] && mockData.status.projects[projectId].humans) || [];
   var participantItems = [
-    '<div class="item" onclick="openChat(\'poc-manager\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">Project Lead &middot; operational control</div></div></div>',
-    '<div class="item" onclick="openChat(\'poc-proxy\')"><div class="item-icon icon-participant">&#9670;</div><div class="item-body"><div class="item-title">Proxy</div><div class="item-meta">project learning &middot; decision patterns</div></div></div>'
+    '<div class="item" onclick="openChat(\'session:poc-20260325-143000\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">Project Lead &middot; operational control</div></div></div>',
+    '<div class="item" onclick="openChat(\'proxy:darrell\')"><div class="item-icon icon-participant">&#9670;</div><div class="item-body"><div class="item-title">Proxy</div><div class="item-meta">project learning &middot; decision patterns</div></div></div>'
   ];
   humans.forEach(function(h) {
     participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');

@@ -89,10 +89,10 @@ const mockData = {
   // ── Status / operational ──────────────────────
   status: {
     escalations: [
-      { id: "e1", project: "POC", jobId: "j1", jobName: "Lorem ipsum dolor sit", phase: "WORK_ASSERT", summary: "Consectetur adipiscing elit — sed do eiusmod tempor incididunt", time: "12m", taskId: null },
-      { id: "e1b", project: "POC", jobId: "j1", jobName: "Lorem ipsum dolor sit", phase: "WORK", summary: "Ipsum decay — neque porro quisquam est qui dolorem", time: "5m", taskId: "t2", source: "task" },
-      { id: "e2", project: "POC", jobId: "j2", jobName: "Ut enim ad minim veniam", phase: "WORK_ASSERT", summary: "Duis aute irure dolor in reprehenderit in voluptate", time: "3m", taskId: null },
-      { id: "e3", project: "Joke-book", jobId: "j4", jobName: "Consectetur adipiscing elit", phase: "WORK", summary: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur", time: "8m", taskId: "t8" },
+      { id: "e1", project: "POC", jobId: "job:poc:job-001", jobName: "Lorem ipsum dolor sit", phase: "WORK_ASSERT", summary: "Consectetur adipiscing elit — sed do eiusmod tempor incididunt", time: "12m", taskId: null },
+      { id: "e1b", project: "POC", jobId: "job:poc:job-001", jobName: "Lorem ipsum dolor sit", phase: "WORK", summary: "Ipsum decay — neque porro quisquam est qui dolorem", time: "5m", taskId: "t2", source: "task" },
+      { id: "e2", project: "POC", jobId: "job:poc:job-002", jobName: "Ut enim ad minim veniam", phase: "WORK_ASSERT", summary: "Duis aute irure dolor in reprehenderit in voluptate", time: "3m", taskId: null },
+      { id: "e3", project: "Joke-book", jobId: "job:joke-book:job-004", jobName: "Consectetur adipiscing elit", phase: "WORK", summary: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur", time: "8m", taskId: "t8" },
     ],
     projects: {
       poc: {
@@ -101,7 +101,7 @@ const mockData = {
         escalations: 3,
         status: "active",
         jobs: [
-          { id: "j1", name: "Lorem ipsum dolor sit", workgroup: "Coding", status: "reviewing",
+          { id: "job:poc:job-001", name: "Lorem ipsum dolor sit", workgroup: "Coding", status: "reviewing",
             phase: "WORK_ASSERT", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 5,
             escalations: [
               { id: "e1", phase: "WORK_ASSERT", summary: "Consectetur adipiscing elit — sed do eiusmod tempor", time: "12m", taskId: null },
@@ -115,7 +115,7 @@ const mockData = {
             ],
             stats: { tasksCompleted: 1, tasksTotal: 4, backtracks: 0, escalations: 2, tokensUsed: "84K", elapsed: "47m" },
           },
-          { id: "j2", name: "Ut enim ad minim veniam", workgroup: "Research", status: "reviewing",
+          { id: "job:poc:job-002", name: "Ut enim ad minim veniam", workgroup: "Research", status: "reviewing",
             phase: "WORK_ASSERT", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 5,
             escalations: [
               { id: "e2", phase: "WORK_ASSERT", summary: "Duis aute irure dolor in reprehenderit", time: "3m", taskId: null },
@@ -126,7 +126,7 @@ const mockData = {
             ],
             stats: { tasksCompleted: 1, tasksTotal: 2, backtracks: 1, escalations: 1, tokensUsed: "62K", elapsed: "1h 12m" },
           },
-          { id: "j3", name: "Quis nostrud exercitation", workgroup: "Writing", status: "planning",
+          { id: "job:poc:job-003", name: "Quis nostrud exercitation", workgroup: "Writing", status: "planning",
             phase: "PLAN", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 2,
             escalations: [],
             tasks: [
@@ -146,7 +146,7 @@ const mockData = {
         escalations: 1,
         status: "active",
         jobs: [
-          { id: "j4", name: "Consectetur adipiscing elit", workgroup: "Editorial", status: "working",
+          { id: "job:joke-book:job-004", name: "Consectetur adipiscing elit", workgroup: "Editorial", status: "working",
             phase: "WORK", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 4,
             escalations: [
               { id: "e3", phase: "WORK", summary: "Nemo enim ipsam voluptatem quia voluptas sit aspernatur", time: "8m", taskId: "t8" },
@@ -157,7 +157,7 @@ const mockData = {
             ],
             stats: { tasksCompleted: 0, tasksTotal: 2, backtracks: 0, escalations: 1, tokensUsed: "34K", elapsed: "29m" },
           },
-          { id: "j5", name: "Magna aliqua veniam", workgroup: "Writing", status: "reviewing",
+          { id: "job:joke-book:job-005", name: "Magna aliqua veniam", workgroup: "Writing", status: "reviewing",
             phase: "WORK_ASSERT", phases: ["INTENT","INTENT_ASSERT","PLAN","PLAN_ASSERT","WORK","WORK_ASSERT","DONE"], phaseIdx: 5,
             escalations: [],
             tasks: [
@@ -260,11 +260,11 @@ const mockData = {
             { name: "Actors Amet", path: "projects/POC/orchestrator/actors.py", summary: "Ut enim ad minima veniam, quis nostrum exercitationem ullam corporis" },
           ]},
           { heading: "Active Job Artifacts", items: [
-            { name: "Job Alpha — INTENT", path: ".sessions/j1/INTENT.md", summary: "Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse", job: "j1" },
-            { name: "Job Alpha — PLAN", path: ".sessions/j1/PLAN.md", summary: "At vero eos et accusamus et iusto odio dignissimos ducimus qui", job: "j1" },
-            { name: "Job Alpha — WORK_ASSERT", path: ".sessions/j1/WORK_ASSERT.md", summary: "Work summary with diffs, changed files, and test results for review", job: "j1", gateReview: true },
-            { name: "Job Beta — INTENT", path: ".sessions/j2/INTENT.md", summary: "Nam libero tempore, cum soluta nobis est eligendi optio cumque", job: "j2" },
-            { name: "Job Beta — PLAN", path: ".sessions/j2/PLAN.md", summary: "Temporibus autem quibusdam et aut officiis debitis aut rerum", job: "j2" },
+            { name: "Job Alpha — INTENT", path: ".sessions/poc-job-001/INTENT.md", summary: "Quis autem vel eum iure reprehenderit qui in ea voluptate velit esse", job: "job:poc:job-001" },
+            { name: "Job Alpha — PLAN", path: ".sessions/poc-job-001/PLAN.md", summary: "At vero eos et accusamus et iusto odio dignissimos ducimus qui", job: "job:poc:job-001" },
+            { name: "Job Alpha — WORK_ASSERT", path: ".sessions/poc-job-001/WORK_ASSERT.md", summary: "Work summary with diffs, changed files, and test results for review", job: "job:poc:job-001", gateReview: true },
+            { name: "Job Beta — INTENT", path: ".sessions/poc-job-002/INTENT.md", summary: "Nam libero tempore, cum soluta nobis est eligendi optio cumque", job: "job:poc:job-002" },
+            { name: "Job Beta — PLAN", path: ".sessions/poc-job-002/PLAN.md", summary: "Temporibus autem quibusdam et aut officiis debitis aut rerum", job: "job:poc:job-002" },
           ]},
           { heading: "Learnings", items: [
             { name: "Institutional", path: ".teaparty/learnings/institutional.md", summary: "Itaque earum rerum hic tenetur a sapiente delectus, ut aut reiciendis voluptatibus maiores" },
@@ -299,7 +299,7 @@ const mockData = {
   //   "participant" type: navigator shows all conversations with that participant across scopes
   conversations: {
     // ── Participant chats (navigator = conversation history) ──
-    "office-manager": {
+    "om:darrell": {
       type: "participant",
       participant: "Office Manager",
       sessions: [
@@ -321,7 +321,7 @@ const mockData = {
         ]},
       ],
     },
-    "poc-manager": {
+    "session:poc-20260325-143000": {
       type: "participant",
       participant: "Manager",
       sessions: [
@@ -338,7 +338,7 @@ const mockData = {
         ]},
       ],
     },
-    "poc-proxy": {
+    "proxy:darrell": {
       type: "participant",
       participant: "Proxy",
       sessions: [
@@ -359,7 +359,7 @@ const mockData = {
     },
 
     // ── Job chats (navigator = task sub-conversations) ──
-    "j1": {
+    "job:poc:job-001": {
       type: "job",
       participant: "Project Lead",
       scope: "Lorem > Job Alpha",
@@ -385,7 +385,7 @@ const mockData = {
         t4: [],
       },
     },
-    "j4": {
+    "job:joke-book:job-004": {
       type: "job",
       participant: "Project Lead",
       scope: "Joke-book > Consectetur",
@@ -403,7 +403,7 @@ const mockData = {
         t9: [],
       },
     },
-    "j5": {
+    "job:joke-book:job-005": {
       type: "job",
       participant: "Project Lead",
       scope: "Joke-book > Magna aliqua",

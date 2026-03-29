@@ -62,12 +62,12 @@ Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task
 
 Conversation ID format:
 - `om:{human}` — office manager (persistent)
-- `job:{project}+{job_id}` — job conversation
-- `task:{project}+{task_id}` — task conversation
+- `job:{project}:{job_id}` — job conversation
+- `task:{project}:{job_id}:{task_id}` — task conversation (three-part qualifier)
 - `proxy:{decider}` — proxy review
 - `session:{timestamp}` — project session
 - `team:{slug}` — subteam
-- `liaison:{requester}+{target}` — liaison
+- `liaison:{requester}:{target}` — liaison
 
 ### Artifacts
 
