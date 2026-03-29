@@ -228,7 +228,7 @@ class TestEscalationCounting(unittest.TestCase):
 # ── Skills learned ─────────────────────────────────────────────────────────────
 
 class TestSkillsLearnedCount(unittest.TestCase):
-    """Skills count must include both project-level and team-scoped skill files."""
+    """Skills count must scan per-project directories, not the top-level projects_dir."""
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
@@ -246,8 +246,9 @@ class TestSkillsLearnedCount(unittest.TestCase):
         self.assertEqual(result['summary']['skills_learned'], 0)
 
     def test_counts_project_level_skills(self):
-        # Skills are .md files written by procedural_learning.py (not directories)
-        skills_dir = os.path.join(self.tmpdir, 'skills')
+        # Skills live inside each project directory: {projects_dir}/{slug}/skills/*.md
+        # procedural_learning.py writes to {project_dir}/skills/, not {projects_dir}/skills/
+        skills_dir = os.path.join(self.tmpdir, 'POC', 'skills')
         os.makedirs(skills_dir, exist_ok=True)
         open(os.path.join(skills_dir, 'fix-bug.md'), 'w').close()
         open(os.path.join(skills_dir, 'refactor.md'), 'w').close()
@@ -255,21 +256,21 @@ class TestSkillsLearnedCount(unittest.TestCase):
         self.assertEqual(result['summary']['skills_learned'], 2)
 
     def test_counts_team_scoped_skills(self):
-        # {projects_dir}/teams/{name}/skills/*.md (issue #294)
-        team_skills = os.path.join(self.tmpdir, 'teams', 'coding', 'skills')
+        # {project_dir}/teams/{name}/skills/*.md (issue #294)
+        team_skills = os.path.join(self.tmpdir, 'POC', 'teams', 'coding', 'skills')
         os.makedirs(team_skills, exist_ok=True)
         open(os.path.join(team_skills, 'optimize.md'), 'w').close()
         result = self._compute()
         self.assertEqual(result['summary']['skills_learned'], 1)
 
     def test_counts_both_project_and_team_skills(self):
-        skills_dir = os.path.join(self.tmpdir, 'skills')
+        skills_dir = os.path.join(self.tmpdir, 'POC', 'skills')
         os.makedirs(skills_dir, exist_ok=True)
         open(os.path.join(skills_dir, 'fix-bug.md'), 'w').close()
-        team1 = os.path.join(self.tmpdir, 'teams', 'coding', 'skills')
+        team1 = os.path.join(self.tmpdir, 'POC', 'teams', 'coding', 'skills')
         os.makedirs(team1, exist_ok=True)
         open(os.path.join(team1, 'optimize.md'), 'w').close()
-        team2 = os.path.join(self.tmpdir, 'teams', 'writing', 'skills')
+        team2 = os.path.join(self.tmpdir, 'POC', 'teams', 'writing', 'skills')
         os.makedirs(team2, exist_ok=True)
         open(os.path.join(team2, 'summarize.md'), 'w').close()
         result = self._compute()
@@ -347,6 +348,32 @@ class TestDailyTimeSeries(unittest.TestCase):
         result = self._compute()
         for entry in result['daily']:
             self.assertIsNone(entry['proxy_acc'])
+
+    def test_daily_tasks_counts_task_completions_from_cfa_history(self):
+        """Daily tasks chart counts TASK_ASSERT→approve transitions, not completed jobs.
+
+        A session with 2 task completions today must contribute 2, not 1.
+        """
+        today = datetime.date.today()
+        ts = today.isoformat() + 'T12:00:00+00:00'
+        sess_dir = os.path.join(self.tmpdir, 'POC', '.sessions', '20260101-120000')
+        os.makedirs(sess_dir, exist_ok=True)
+        cfa_data = {
+            'phase': 'execution', 'state': 'COMPLETED_WORK', 'actor': 'system',
+            'history': [
+                {'state': 'TASK_ASSERT', 'action': 'approve', 'actor': 'human', 'timestamp': ts},
+                {'state': 'TASK_ASSERT', 'action': 'approve', 'actor': 'human', 'timestamp': ts},
+            ],
+            'backtrack_count': 0, 'task_id': '', 'parent_id': '', 'team_id': '', 'depth': 0,
+        }
+        with open(os.path.join(sess_dir, '.cfa-state.json'), 'w') as f:
+            json.dump(cfa_data, f)
+
+        result = self._compute()
+        today_label = today.strftime('%b %-d')
+        today_entry = next(e for e in result['daily'] if e['date'] == today_label)
+        self.assertEqual(today_entry['tasks'], 2,
+                         'Two TASK_ASSERT→approve transitions must yield tasks=2 for today')
 
 
 # ── Phase escalations ──────────────────────────────────────────────────────────

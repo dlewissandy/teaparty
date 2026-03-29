@@ -38,36 +38,42 @@ def _mtime_day_label(path: str, day_labels: list[str]) -> str | None:
 
 
 def _count_skills(projects_dir: str) -> int:
-    """Count .md skill files across project-level and team-scoped skill directories.
+    """Count .md skill files across all project skill directories.
 
-    Globs for *.md files in:
-      {projects_dir}/skills/
-      {projects_dir}/teams/{team_name}/skills/
+    Iterates over every project subdirectory in projects_dir and counts
+    *.md files in:
+      {project_dir}/skills/
+      {project_dir}/teams/{team_name}/skills/
 
-    Issue #294: the correct paths are {project_dir}/skills/*.md and
-    {project_dir}/teams/{name}/skills/*.md.  Skills are written as individual
-    .md files by procedural_learning.py, not as directories.
+    Issue #294: skills are written to per-project directories by
+    procedural_learning.py, not to a top-level {projects_dir}/skills/.
     """
     count = 0
-
-    # Project-level skills: {projects_dir}/skills/*.md
-    top_skills = os.path.join(projects_dir, 'skills')
     try:
-        count += sum(1 for e in os.scandir(top_skills)
-                     if e.is_file() and e.name.endswith('.md'))
-    except OSError:
-        pass
-
-    # Team-scoped skills: {projects_dir}/teams/{name}/skills/*.md
-    teams_dir = os.path.join(projects_dir, 'teams')
-    try:
-        for team_entry in os.scandir(teams_dir):
-            if not team_entry.is_dir():
+        for project_entry in os.scandir(projects_dir):
+            if not project_entry.is_dir() or project_entry.name.startswith('.'):
                 continue
-            team_skills = os.path.join(team_entry.path, 'skills')
+            project_dir = project_entry.path
+
+            # {project_dir}/skills/*.md
             try:
-                count += sum(1 for e in os.scandir(team_skills)
+                count += sum(1 for e in os.scandir(os.path.join(project_dir, 'skills'))
                              if e.is_file() and e.name.endswith('.md'))
+            except OSError:
+                pass
+
+            # {project_dir}/teams/{name}/skills/*.md
+            try:
+                for team_entry in os.scandir(os.path.join(project_dir, 'teams')):
+                    if not team_entry.is_dir():
+                        continue
+                    try:
+                        count += sum(
+                            1 for e in os.scandir(os.path.join(team_entry.path, 'skills'))
+                            if e.is_file() and e.name.endswith('.md')
+                        )
+                    except OSError:
+                        pass
             except OSError:
                 pass
     except OSError:
@@ -102,18 +108,37 @@ def _count_completed_tasks(sessions: list) -> int:
 
 
 def _tasks_by_day(sessions: list, day_labels: list[str]) -> dict[str, int]:
-    """Map day label → count of sessions that reached COMPLETED_WORK on that day.
+    """Count COMPLETED_TASK transitions (TASK_ASSERT→approve) per day.
 
-    Uses the mtime of the .cfa-state.json file as a proxy for completion time.
+    Uses the timestamp recorded in each CfA history entry, matching the
+    same transitions counted by _count_completed_tasks() for the summary
+    scalar.  This ensures the daily chart and summary use the same unit:
+    individual tasks, not jobs.
     """
     counts: dict[str, int] = {}
     for session in sessions:
-        if session.cfa_state != 'COMPLETED_WORK' or not session.infra_dir:
+        if not session.infra_dir:
             continue
         cfa_path = os.path.join(session.infra_dir, '.cfa-state.json')
-        day = _mtime_day_label(cfa_path, day_labels)
-        if day:
-            counts[day] = counts.get(day, 0) + 1
+        if not os.path.exists(cfa_path):
+            continue
+        try:
+            with open(cfa_path) as f:
+                data = json.load(f)
+            for entry in data.get('history', []):
+                if entry.get('state') == 'TASK_ASSERT' and entry.get('action') == 'approve':
+                    ts = entry.get('timestamp', '')
+                    if not ts:
+                        continue
+                    try:
+                        dt = datetime.datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        label = _day_label(dt.date())
+                        if label in day_labels:
+                            counts[label] = counts.get(label, 0) + 1
+                    except (ValueError, AttributeError):
+                        pass
+        except (OSError, ValueError):
+            pass
     return counts
 
 
