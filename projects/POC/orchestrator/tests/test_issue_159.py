@@ -86,7 +86,7 @@ class TestSelfKillGuard(unittest.TestCase):
 
     def test_kill_pid_skips_own_pid(self):
         """_kill_pid() must not send signals when pid == os.getpid()."""
-        from projects.POC.tui.withdraw import _kill_pid
+        from projects.POC.orchestrator.withdraw import _kill_pid
 
         own_pid = os.getpid()
         with patch('os.killpg') as mock_killpg, \
@@ -101,7 +101,7 @@ class TestSelfKillGuard(unittest.TestCase):
         When a child process shares our process group, killpg on its pgid
         would still kill us.
         """
-        from projects.POC.tui.withdraw import _kill_pid
+        from projects.POC.orchestrator.withdraw import _kill_pid
 
         own_pgid = os.getpgid(os.getpid())
         fake_child_pid = 99999
@@ -140,7 +140,7 @@ class TestWithdrawSelfKillPrevention(unittest.TestCase):
     def test_withdraw_with_own_pid_in_running(self):
         """When .running contains our own PID, withdraw must not kill it but
         must still set WITHDRAWN state and clean up sentinels."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Write our own PID to .running (simulates in-process session)
         running_path = os.path.join(self.infra_dir, '.running')
@@ -170,7 +170,7 @@ class TestWithdrawSelfKillPrevention(unittest.TestCase):
 
     def test_withdraw_with_own_pid_in_dispatch_running(self):
         """When dispatch .running contains our own PID, withdraw must skip it."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Session .running with our PID
         running_path = os.path.join(self.infra_dir, '.running')

@@ -12,7 +12,7 @@ Verifies:
 """
 import unittest
 
-from projects.POC.tui.navigation import DashboardLevel, NavigationContext
+from projects.POC.orchestrator.navigation import DashboardLevel, NavigationContext
 
 
 def _make_nav_context(**kwargs):
@@ -33,42 +33,42 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_agents_card_at_management_level(self):
         """Agents card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('agents', nav)
         self.assertEqual(msg, 'I would like to create a new agent')
 
     def test_skills_card_at_management_level(self):
         """Skills card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('skills', nav)
         self.assertEqual(msg, 'I would like to create a new skill')
 
     def test_hooks_card_at_management_level(self):
         """Hooks card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('hooks', nav)
         self.assertEqual(msg, 'I would like to create a new hook')
 
     def test_scheduled_tasks_card_at_management_level(self):
         """Scheduled tasks card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('scheduled_tasks', nav)
         self.assertEqual(msg, 'I would like to create a new scheduled task')
 
     def test_workgroups_card_at_management_level(self):
         """Workgroups card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('workgroups', nav)
         self.assertEqual(msg, 'I would like to create a new shared workgroup')
 
     def test_agents_card_at_project_level(self):
         """Agents card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -78,7 +78,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_skills_card_at_project_level(self):
         """Skills card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -88,7 +88,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_scheduled_tasks_card_at_project_level(self):
         """Scheduled tasks card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -98,7 +98,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_workgroups_card_at_project_level(self):
         """Workgroups card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -108,7 +108,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_hooks_card_at_project_level(self):
         """Hooks card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -118,7 +118,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_skills_card_at_workgroup_level(self):
         """Skills card at workgroup level includes workgroup name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.WORKGROUP,
             project_slug='POC Project',
@@ -129,7 +129,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_agents_card_at_workgroup_level(self):
         """Agents card at workgroup level includes workgroup name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.WORKGROUP,
             project_slug='POC Project',
@@ -140,21 +140,21 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_sessions_card_returns_none(self):
         """Sessions card returns None — handled by LaunchScreen, not pre-seed."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('sessions', nav)
         self.assertIsNone(msg)
 
     def test_projects_card_at_management_level(self):
         """Projects card at management level produces generic message per spec."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('projects', nav)
         self.assertEqual(msg, 'I would like to create a new project')
 
     def test_jobs_card_at_project_level(self):
         """Jobs card at project level includes project name."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(
             level=DashboardLevel.PROJECT,
             project_slug='POC Project',
@@ -164,7 +164,7 @@ class TestPreSeededMessageGeneration(unittest.TestCase):
 
     def test_jobs_card_at_management_level(self):
         """Jobs card at management level produces generic message."""
-        from projects.POC.tui.screens.dashboard_screen import pre_seeded_message
+        from projects.POC.orchestrator.dashboard_stats import pre_seeded_message
         nav = _make_nav_context(level=DashboardLevel.MANAGEMENT)
         msg = pre_seeded_message('jobs', nav)
         self.assertEqual(msg, 'I would like to create a new job')

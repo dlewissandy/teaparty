@@ -113,7 +113,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_sets_state_to_withdrawn(self):
         """withdraw_session() must set CfA state to WITHDRAWN."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(
             self.infra_dir, worktree_path=self.worktree_dir,
@@ -126,18 +126,18 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_kills_session_subprocess(self):
         """withdraw_session() must kill the PID in .running."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(
             self.infra_dir, worktree_path=self.worktree_dir,
         )
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             mock_kill.assert_any_call(99999)
 
     def test_kills_dispatch_subprocesses(self):
         """withdraw_session() must kill PIDs from dispatch .running files."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Create a dispatch infra dir with its own .running
         dispatch_infra = os.path.join(self.tmpdir, 'dispatch-infra')
@@ -151,7 +151,7 @@ class TestWithdrawSession(unittest.TestCase):
             dispatches=[dispatch],
             worktree_path=self.worktree_dir,
         )
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             # Should kill both session PID and dispatch PID
             killed_pids = [call.args[0] for call in mock_kill.call_args_list]
@@ -160,7 +160,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_cleans_up_sentinel_files(self):
         """withdraw_session() must remove .running and .input-request.json."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Create .input-request.json
         req_path = os.path.join(self.infra_dir, '.input-request.json')
@@ -177,7 +177,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_leaves_worktree_intact(self):
         """withdraw_session() must NOT delete the worktree directory."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Put a file in the worktree to verify it survives
         marker = os.path.join(self.worktree_dir, 'INTENT.md')
@@ -194,7 +194,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_emits_session_completed_event(self):
         """withdraw_session() must emit SESSION_COMPLETED with terminal_state=WITHDRAWN."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventBus, EventType
 
         bus = MagicMock(spec=EventBus)
@@ -217,7 +217,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_noop_on_terminal_state(self):
         """withdraw_session() on an already-terminal session is a no-op."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         # Set CfA to COMPLETED_WORK
         with open(self.cfa_path, 'w') as f:
@@ -243,7 +243,7 @@ class TestWithdrawSession(unittest.TestCase):
 
     def test_cancels_in_process_task(self):
         """withdraw_session() must cancel the in-process run_task if provided."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         mock_task = MagicMock()
         mock_task.done.return_value = False
