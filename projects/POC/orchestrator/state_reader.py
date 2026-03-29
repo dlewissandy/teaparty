@@ -17,6 +17,8 @@ from projects.POC.orchestrator.heartbeat import (
     _heartbeat_three_state,
     _running_file_is_stale,
     _running_pid_is_dead,
+    is_heartbeat_stale,
+    read_heartbeat,
 )
 
 
@@ -51,7 +53,6 @@ def _is_heartbeat_alive(infra_dir: str) -> bool:
     hb_path = os.path.join(infra_dir, '.heartbeat')
     if os.path.exists(hb_path):
         try:
-            from projects.POC.orchestrator.heartbeat import read_heartbeat, is_heartbeat_stale
             data = read_heartbeat(hb_path)
             status = data.get('status', '')
             if status in ('completed', 'withdrawn'):
@@ -87,7 +88,6 @@ def _is_heartbeat_terminal(infra_dir: str) -> bool:
     hb_path = os.path.join(infra_dir, '.heartbeat')
     if os.path.exists(hb_path):
         try:
-            from projects.POC.orchestrator.heartbeat import read_heartbeat
             data = read_heartbeat(hb_path)
             return data.get('status', '') in ('completed', 'withdrawn')
         except Exception:
@@ -390,7 +390,6 @@ class StateReader:
                     running_path = os.path.join(infra_dir, '.running')
                     if os.path.exists(hb_path):
                         try:
-                            from projects.POC.orchestrator.heartbeat import read_heartbeat
                             running_pid = read_heartbeat(hb_path).get('pid', -1)
                         except Exception:
                             pass
