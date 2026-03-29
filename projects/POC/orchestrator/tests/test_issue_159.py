@@ -226,28 +226,5 @@ class TestClaudeRunnerSubprocessCleanup(unittest.TestCase):
         self.assertIn('_kill_subprocess', source,
                        'ClaudeRunner.run() must call _kill_subprocess in finally block')
 
-
-class TestDrilldownWithdrawNavigation(unittest.TestCase):
-    """Drilldown _do_withdraw must pop the screen to return to dashboard."""
-
-    def test_do_withdraw_pops_screen(self):
-        """_do_withdraw must call app.pop_screen() to return to dashboard."""
-        import inspect
-        from projects.POC.tui.screens.drilldown import DrilldownScreen
-
-        source = inspect.getsource(DrilldownScreen._do_withdraw)
-        self.assertIn('pop_screen', source,
-                       '_do_withdraw must call pop_screen to return to dashboard')
-
-    def test_do_withdraw_does_not_log_to_activity(self):
-        """_do_withdraw must NOT write to activity log (screen is being popped)."""
-        import inspect
-        from projects.POC.tui.screens.drilldown import DrilldownScreen
-
-        source = inspect.getsource(DrilldownScreen._do_withdraw)
-        self.assertNotIn('activity-log', source,
-                         '_do_withdraw must not write to activity log when popping screen')
-
-
 if __name__ == '__main__':
     unittest.main()

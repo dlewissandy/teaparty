@@ -257,51 +257,5 @@ class TestWithdrawSession(unittest.TestCase):
         mock_task.cancel.assert_called_once()
 
 
-class TestWithdrawBindings(unittest.TestCase):
-    """Tests that TUI screens have 'w' bindings for withdraw."""
-
-    def test_dashboard_has_withdraw_binding(self):
-        """DashboardScreen must have a 'w' binding."""
-        from projects.POC.tui.screens.dashboard import DashboardScreen
-        keys = [b.key for b in DashboardScreen.BINDINGS]
-        self.assertIn('w', keys)
-
-    def test_drilldown_has_withdraw_binding(self):
-        """DrilldownScreen must have an 'f6' binding for withdraw (not 'w', which conflicts with Input)."""
-        from projects.POC.tui.screens.drilldown import DrilldownScreen
-        keys = [b.key for b in DrilldownScreen.BINDINGS]
-        self.assertIn('f6', keys)
-
-    def test_dashboard_withdraw_binding_label(self):
-        """Dashboard 'w' binding must be labeled 'Withdraw'."""
-        from projects.POC.tui.screens.dashboard import DashboardScreen
-        for b in DashboardScreen.BINDINGS:
-            if b.key == 'w':
-                self.assertEqual(b.description, 'Withdraw')
-                break
-        else:
-            self.fail("No 'w' binding found on DashboardScreen")
-
-    def test_drilldown_withdraw_binding_label(self):
-        """Drilldown 'f6' binding must be labeled 'Withdraw'."""
-        from projects.POC.tui.screens.drilldown import DrilldownScreen
-        for b in DrilldownScreen.BINDINGS:
-            if b.key == 'f6':
-                self.assertEqual(b.description, 'Withdraw')
-                break
-        else:
-            self.fail("No 'f6' binding found on DrilldownScreen")
-
-    def test_drilldown_withdraw_binding_has_priority(self):
-        """Drilldown withdraw binding must have priority=True to show over Input widget."""
-        from projects.POC.tui.screens.drilldown import DrilldownScreen
-        for b in DrilldownScreen.BINDINGS:
-            if b.key == 'f6' and b.action == 'withdraw':
-                self.assertTrue(b.priority, "Withdraw binding must have priority=True")
-                break
-        else:
-            self.fail("No 'f6' withdraw binding found on DrilldownScreen")
-
-
 if __name__ == '__main__':
     unittest.main()

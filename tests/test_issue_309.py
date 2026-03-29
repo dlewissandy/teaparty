@@ -33,18 +33,6 @@ class TestWithdrawImportedFromOrchestrator(unittest.TestCase):
         from projects.POC.orchestrator.withdraw import withdraw_session
         self.assertTrue(callable(withdraw_session))
 
-    def test_tui_withdraw_reexports_kill_pid(self):
-        """tui.withdraw must re-export _kill_pid for backward compatibility."""
-        from projects.POC.tui.withdraw import _kill_pid
-        from projects.POC.orchestrator.withdraw import _kill_pid as orch_kill_pid
-        self.assertIs(_kill_pid, orch_kill_pid)
-
-    def test_tui_withdraw_reexports_withdraw_session(self):
-        """tui.withdraw must re-export withdraw_session for backward compatibility."""
-        from projects.POC.tui.withdraw import withdraw_session
-        from projects.POC.orchestrator.withdraw import withdraw_session as orch_ws
-        self.assertIs(withdraw_session, orch_ws)
-
     def test_kill_pid_skips_self(self):
         """_kill_pid in orchestrator behaves identically to the TUI version."""
         from projects.POC.orchestrator.withdraw import _kill_pid
@@ -88,18 +76,6 @@ class TestNavigationImportedFromOrchestrator(unittest.TestCase):
         ctx = NavigationContext(level=DashboardLevel.MANAGEMENT)
         crumbs = breadcrumbs_for_level(ctx)
         self.assertEqual(len(crumbs), 1)
-
-    def test_tui_navigation_reexports_dashboard_level(self):
-        """tui.navigation must re-export DashboardLevel for backward compatibility."""
-        from projects.POC.tui.navigation import DashboardLevel as tui_DL
-        from projects.POC.orchestrator.navigation import DashboardLevel as orch_DL
-        self.assertIs(tui_DL, orch_DL)
-
-    def test_tui_navigation_reexports_cards_for_level(self):
-        """tui.navigation must re-export cards_for_level for backward compatibility."""
-        from projects.POC.tui.navigation import cards_for_level as tui_cfl
-        from projects.POC.orchestrator.navigation import cards_for_level as orch_cfl
-        self.assertIs(tui_cfl, orch_cfl)
 
 
 # ── 3. orchestrator.dashboard_stats ──────────────────────────────────────────
@@ -256,18 +232,6 @@ class TestIpcFunctionsInOrchestrator(unittest.TestCase):
     def test_send_message_bus_response_importable(self):
         from projects.POC.orchestrator.messaging import send_message_bus_response
         self.assertTrue(callable(send_message_bus_response))
-
-    def test_tui_ipc_reexports_check_request(self):
-        """tui.ipc must re-export check_message_bus_request for backward compatibility."""
-        from projects.POC.tui.ipc import check_message_bus_request as tui_fn
-        from projects.POC.orchestrator.messaging import check_message_bus_request as orch_fn
-        self.assertIs(tui_fn, orch_fn)
-
-    def test_tui_ipc_reexports_send_response(self):
-        """tui.ipc must re-export send_message_bus_response for backward compatibility."""
-        from projects.POC.tui.ipc import send_message_bus_response as tui_fn
-        from projects.POC.orchestrator.messaging import send_message_bus_response as orch_fn
-        self.assertIs(tui_fn, orch_fn)
 
     def test_check_returns_none_for_missing_db(self):
         """check_message_bus_request returns None for missing DB."""

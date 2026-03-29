@@ -60,20 +60,5 @@ class TestWorkEscalationStates(unittest.TestCase):
         )
 
 
-class TestTuiStateLabelsCoverage(unittest.TestCase):
-    """TUI state labels should only reference valid states."""
-
-    def test_no_stale_state_labels(self):
-        """Every key in _STATE_LABELS must exist in the CfA state machine."""
-        from projects.POC.tui.screens.drilldown import _STATE_LABELS
-        valid_states = _load_state_machine_states()
-        for state in _STATE_LABELS:
-            self.assertIn(
-                state, valid_states,
-                f'{state!r} is in _STATE_LABELS but does not exist '
-                f'in the CfA state machine',
-            )
-
-
 if __name__ == '__main__':
     unittest.main()

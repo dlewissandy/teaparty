@@ -6,7 +6,7 @@ A research platform for durable, scalable agent coordination.
 
 ```bash
 uv sync
-./teaparty.sh                                                    # TUI dashboard
+./teaparty.sh                                                    # HTML dashboard (bridge server, localhost:8081)
 uv run python -m projects.POC.orchestrator "Your task"           # CLI session
 uv run pytest projects/POC/orchestrator/tests/ --tb=short -q     # tests
 uv run mkdocs serve                                              # docs at localhost:8000
@@ -32,7 +32,7 @@ The active code is the POC orchestrator at `projects/POC/orchestrator/`. Key fil
 - `learnings.py` -- Post-session learning extraction
 - `phase_config.py` -- Per-phase Claude Code configuration
 
-TUI: `projects/POC/tui/`
+Dashboard: `projects/POC/bridge/` (HTML dashboard + bridge server)
 Tests: `projects/POC/orchestrator/tests/`
 
 ## Docs

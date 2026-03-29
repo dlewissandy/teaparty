@@ -265,7 +265,7 @@ class TestIpcUsesStructuralFlag(unittest.TestCase):
 
     def test_no_pending_request_when_flag_not_set(self):
         """check_message_bus_request returns None when awaiting_input=0."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         # Even with orchestrator message, no flag means not awaiting
         self.bus.send(self.conv_id, 'orchestrator', 'A question')
         result = check_message_bus_request(self.db_path, self.conv_id)
@@ -273,7 +273,7 @@ class TestIpcUsesStructuralFlag(unittest.TestCase):
 
     def test_pending_request_when_flag_is_set(self):
         """check_message_bus_request returns request when awaiting_input=1."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         self.bus.send(self.conv_id, 'orchestrator', 'Approve?')
         self.bus.set_awaiting_input(self.conv_id, True)
         result = check_message_bus_request(self.db_path, self.conv_id)
@@ -282,7 +282,7 @@ class TestIpcUsesStructuralFlag(unittest.TestCase):
 
     def test_no_pending_request_after_flag_cleared(self):
         """check_message_bus_request returns None after flag is cleared."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         self.bus.send(self.conv_id, 'orchestrator', 'Approve?')
         self.bus.set_awaiting_input(self.conv_id, True)
         self.bus.set_awaiting_input(self.conv_id, False)
@@ -296,7 +296,7 @@ class TestIpcUsesStructuralFlag(unittest.TestCase):
         This test fails under the old heuristic (which would detect the trailing
         orchestrator message as pending) but passes when the structural flag is used.
         """
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         # Exchange where human already answered the pending question
         self.bus.send(self.conv_id, 'orchestrator', 'First question')
         self.bus.send(self.conv_id, 'human', 'My answer')

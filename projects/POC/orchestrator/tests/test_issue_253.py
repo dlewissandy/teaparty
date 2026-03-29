@@ -14,7 +14,7 @@ Verifies:
 """
 import unittest
 
-from projects.POC.tui.navigation import (
+from projects.POC.orchestrator.navigation import (
     Breadcrumb,
     DashboardLevel,
     NavigationContext,
@@ -343,7 +343,7 @@ class TestContentCard(unittest.TestCase):
 
     def test_card_item_has_icon_label_detail(self):
         """CardItem stores icon, label, detail, and data."""
-        from projects.POC.tui.widgets.content_card import CardItem
+        from projects.POC.orchestrator.dashboard_stats import CardItem
         item = CardItem(icon='\u25b6', label='my-project', detail='3 active', data={'slug': 'proj'})
         self.assertEqual(item.icon, '\u25b6')
         self.assertEqual(item.label, 'my-project')
@@ -352,7 +352,7 @@ class TestContentCard(unittest.TestCase):
 
     def test_card_item_defaults(self):
         """CardItem has sensible defaults for optional fields."""
-        from projects.POC.tui.widgets.content_card import CardItem
+        from projects.POC.orchestrator.dashboard_stats import CardItem
         item = CardItem()
         self.assertEqual(item.icon, '')
         self.assertEqual(item.label, '')
@@ -388,59 +388,12 @@ class TestStatsComputation(unittest.TestCase):
         self.assertEqual(attention, 1)
 
 
-class TestWorkflowProgress(unittest.TestCase):
-    """WorkflowProgress widget renders CfA phase progress correctly."""
-
-    def test_intent_phase_shows_intent_active(self):
-        """During intent phase, INTENT is highlighted."""
-        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
-        wp = WorkflowProgress(cfa_phase='intent', cfa_state='INTENT_IN_PROGRESS')
-        rendered = wp._format_text()
-        self.assertIn('INTENT', rendered)
-        # Intent should be active (bold yellow)
-        self.assertIn('yellow', rendered)
-
-    def test_execution_phase_shows_prior_phases_complete(self):
-        """During work, intent and plan phases show as complete."""
-        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
-        wp = WorkflowProgress(cfa_phase='execution', cfa_state='WORK_IN_PROGRESS')
-        rendered = wp._format_text()
-        # Intent and plan should be green (complete)
-        self.assertIn('green', rendered)
-        self.assertIn('INTENT', rendered)
-        self.assertIn('PLAN', rendered)
-
-    def test_completed_work_shows_all_done(self):
-        """COMPLETED_WORK shows all phases as done."""
-        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
-        wp = WorkflowProgress(cfa_state='COMPLETED_WORK')
-        rendered = wp._format_text()
-        self.assertIn('DONE', rendered)
-        # Should not have dim (future) phases
-        self.assertNotIn('dim', rendered)
-
-    def test_withdrawn_shows_withdrawn(self):
-        """WITHDRAWN state shows withdrawn indicator."""
-        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
-        wp = WorkflowProgress(cfa_state='WITHDRAWN')
-        rendered = wp._format_text()
-        self.assertIn('WITHDRAWN', rendered)
-        self.assertIn('red', rendered)
-
-    def test_empty_state_shows_all_dim(self):
-        """No phase/state shows everything as future (dim)."""
-        from projects.POC.tui.widgets.workflow_progress import WorkflowProgress
-        wp = WorkflowProgress()
-        rendered = wp._format_text()
-        self.assertIn('dim', rendered)
-
-
 class TestManagementDashboardCards(unittest.TestCase):
     """Management dashboard has the correct card structure."""
 
     def test_management_cards(self):
         """Management dashboard: includes escalations card (issue #254)."""
-        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.MANAGEMENT)
         self.assertEqual(len(cards), 9)
         self.assertIn('escalations', cards)
@@ -448,7 +401,7 @@ class TestManagementDashboardCards(unittest.TestCase):
 
     def test_project_dashboard_cards(self):
         """Project dashboard: includes escalations card (issue #254)."""
-        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.PROJECT)
         self.assertEqual(len(cards), 8)
         self.assertIn('escalations', cards)
@@ -456,13 +409,13 @@ class TestManagementDashboardCards(unittest.TestCase):
 
     def test_workgroup_dashboard_has_five_cards(self):
         """Workgroup dashboard has 5 cards per spec."""
-        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.WORKGROUP)
         self.assertEqual(len(cards), 5)
 
     def test_job_dashboard_cards(self):
         """Job dashboard: escalations + artifacts + tasks per spec."""
-        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.JOB)
         self.assertEqual(len(cards), 3)
         self.assertIn('escalations', cards)
@@ -471,7 +424,7 @@ class TestManagementDashboardCards(unittest.TestCase):
 
     def test_task_dashboard_cards(self):
         """Task dashboard: escalations + artifacts + todo list (issue #254)."""
-        from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+        from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
         cards = cards_for_level(DashboardLevel.TASK)
         self.assertEqual(len(cards), 3)
         self.assertIn('escalations', cards)
@@ -484,7 +437,7 @@ class TestHookItemsDisplay(unittest.TestCase):
 
     def test_hook_item_shows_event_matcher_handler(self):
         """Hook with event + matcher + command renders all three."""
-        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        from projects.POC.orchestrator.dashboard_stats import _build_hook_items
         hooks = [{'event': 'PreToolUse', 'matcher': 'Bash', 'command': 'audit.sh'}]
         items = _build_hook_items(hooks)
         self.assertEqual(len(items), 1)
@@ -494,14 +447,14 @@ class TestHookItemsDisplay(unittest.TestCase):
 
     def test_hook_item_without_matcher_shows_handler_only(self):
         """Hook without matcher renders event and handler without extra separator."""
-        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        from projects.POC.orchestrator.dashboard_stats import _build_hook_items
         hooks = [{'event': 'PostToolUse', 'command': 'log.sh'}]
         items = _build_hook_items(hooks)
         self.assertEqual(items[0].detail, 'log.sh')
 
     def test_hook_item_empty_hooks_returns_empty(self):
         """Empty hooks list returns empty CardItem list."""
-        from projects.POC.tui.screens.dashboard_screen import _build_hook_items
+        from projects.POC.orchestrator.dashboard_stats import _build_hook_items
         self.assertEqual(_build_hook_items([]), [])
 
 
@@ -531,33 +484,33 @@ class TestStatsBarsNoWrap(unittest.TestCase):
 
     def test_labels_row_has_no_newline(self):
         """Labels row is a single line with no embedded newlines."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        from projects.POC.orchestrator.dashboard_stats import format_stats_labels
         result = format_stats_labels(self._sample_stats())
         self.assertNotIn('\n', result)
 
     def test_values_row_has_no_newline(self):
         """Values row is a single line with no embedded newlines."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        from projects.POC.orchestrator.dashboard_stats import format_stats_values
         result = format_stats_values(self._sample_stats())
         self.assertNotIn('\n', result)
 
     def test_labels_contains_all_keys(self):
         """Labels row includes every stat label."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_labels
+        from projects.POC.orchestrator.dashboard_stats import format_stats_labels
         result = format_stats_labels(self._sample_stats())
         for label, _ in self._sample_stats():
             self.assertIn(label, result)
 
     def test_values_contains_all_values(self):
         """Values row includes every stat value."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_values
+        from projects.POC.orchestrator.dashboard_stats import format_stats_values
         result = format_stats_values(self._sample_stats())
         for _, value in self._sample_stats():
             self.assertIn(value, result)
 
     def test_column_widths_align_labels_and_values(self):
         """Each column is right-padded to max(len(label), len(value)), keeping columns aligned."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        from projects.POC.orchestrator.dashboard_stats import format_stats_labels, format_stats_values
         stats = [('AB', '1234'), ('LONGNAME', '9')]  # label wider than value; value narrower
         labels = format_stats_labels(stats)
         values = format_stats_values(stats)
@@ -568,42 +521,9 @@ class TestStatsBarsNoWrap(unittest.TestCase):
 
     def test_empty_stats_returns_empty_string(self):
         """Empty stats list produces empty strings."""
-        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
+        from projects.POC.orchestrator.dashboard_stats import format_stats_labels, format_stats_values
         self.assertEqual(format_stats_labels([]), '')
         self.assertEqual(format_stats_values([]), '')
-
-    def test_two_rows_render_without_interleaving_at_120_columns(self):
-        """Textual renders labels and values as two separate height-1 rows at 120 columns.
-
-        Regression guard: the old single-Static approach wrapped its two-line text into
-        multiple visual rows, causing labels and values to interleave. This test confirms
-        the two-widget approach resolves to height 1 each — structurally impossible to wrap.
-        """
-        import asyncio
-        from textual.app import App, ComposeResult
-        from textual.widgets import Static
-        from projects.POC.tui.screens.dashboard_screen import format_stats_labels, format_stats_values
-
-        stats = self._sample_stats()
-
-        class _StatsTestApp(App):
-            CSS = '#labels, #values { height: 1; overflow-x: hidden; }'
-
-            def compose(self) -> ComposeResult:
-                yield Static(format_stats_labels(stats), id='labels')
-                yield Static(format_stats_values(stats), id='values')
-
-        async def _run():
-            app = _StatsTestApp()
-            async with app.run_test(size=(120, 24)) as pilot:
-                await pilot.pause()
-                labels_w = app.query_one('#labels', Static)
-                values_w = app.query_one('#values', Static)
-                return labels_w.size.height, values_w.size.height
-
-        labels_h, values_h = asyncio.run(_run())
-        self.assertEqual(labels_h, 1, 'Labels row must render as exactly 1 line')
-        self.assertEqual(values_h, 1, 'Values row must render as exactly 1 line')
 
 
 if __name__ == '__main__':
