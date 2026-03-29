@@ -32,9 +32,12 @@ from projects.POC.orchestrator.state_reader import StateReader, _heartbeat_three
 from projects.POC.orchestrator.config_reader import (
     load_management_team,
     load_project_team,
+    load_workgroup,
     discover_projects,
     load_management_workgroups,
     resolve_workgroups,
+    WorkgroupRef,
+    WorkgroupEntry,
 )
 from projects.POC.scripts.cfa_state import load_state as _load_cfa_file
 from projects.POC.bridge.poller import StatePoller
@@ -92,6 +95,26 @@ def _load_cfa_state(infra_dir: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _detect_workgroup_overrides(org_workgroup, project_workgroup) -> list[str]:
+    """Return a list of field names where the project workgroup diverges from org.
+
+    Compares norms, budget, lead, agents, and skills.  Returns names of
+    overridden categories, e.g. ['norms', 'budget'].
+    """
+    overrides: list[str] = []
+    if project_workgroup.norms != org_workgroup.norms:
+        overrides.append('norms')
+    if project_workgroup.budget != org_workgroup.budget:
+        overrides.append('budget')
+    if project_workgroup.lead != org_workgroup.lead:
+        overrides.append('lead')
+    if project_workgroup.agents != org_workgroup.agents:
+        overrides.append('agents')
+    if project_workgroup.skills != org_workgroup.skills:
+        overrides.append('skills')
+    return overrides
 
 
 def _parse_artifacts(content: str) -> dict[str, str]:
@@ -282,6 +305,8 @@ class TeaPartyBridge:
         try:
             team = load_management_team(teaparty_home=self.teaparty_home)
             projects = discover_projects(team)
+            for p in projects:
+                p['slug'] = os.path.basename(p['path'])
             return web.json_response({
                 'management_team': self._serialize_management_team(team),
                 'projects': projects,
@@ -294,17 +319,53 @@ class TeaPartyBridge:
         project_dir = os.path.join(self.projects_dir, slug)
         try:
             team = load_project_team(project_dir)
-            workgroups = resolve_workgroups(
-                team.workgroups, project_dir=project_dir,
-                teaparty_home=self.teaparty_home,
-            )
-            return web.json_response({
-                'project': slug,
-                'team': self._serialize_project_team(team),
-                'workgroups': [self._serialize_workgroup(w) for w in workgroups],
-            })
         except FileNotFoundError:
             return web.json_response({'error': f'project not found: {slug}'}, status=404)
+
+        try:
+            mgmt = load_management_team(teaparty_home=self.teaparty_home)
+            org_agents: list[str] = mgmt.agents
+            org_skills: list[str] = mgmt.skills
+        except FileNotFoundError:
+            org_agents = []
+            org_skills = []
+
+        workgroups = []
+        for entry in team.workgroups:
+            source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
+            try:
+                resolved = resolve_workgroups(
+                    [entry], project_dir=project_dir,
+                    teaparty_home=self.teaparty_home,
+                )
+                for w in resolved:
+                    overrides: list[str] = []
+                    if isinstance(entry, WorkgroupRef):
+                        org_path = os.path.join(
+                            self.teaparty_home, 'workgroups', f'{entry.ref}.yaml'
+                        )
+                        project_path = os.path.join(
+                            project_dir, '.teaparty', 'workgroups', f'{entry.ref}.yaml'
+                        )
+                        if os.path.exists(project_path) and os.path.exists(org_path):
+                            try:
+                                org_wg = load_workgroup(org_path)
+                                overrides = _detect_workgroup_overrides(org_wg, w)
+                            except Exception:
+                                pass
+                    workgroups.append(
+                        self._serialize_workgroup(w, source=source, overrides=overrides)
+                    )
+            except FileNotFoundError:
+                _log.warning('Workgroup not found, skipping: %s', entry)
+
+        return web.json_response({
+            'project': slug,
+            'team': self._serialize_project_team(
+                team, org_agents=org_agents, org_skills=org_skills,
+            ),
+            'workgroups': workgroups,
+        })
 
     async def _handle_workgroups(self, request: web.Request) -> web.Response:
         try:
@@ -540,19 +601,55 @@ class TeaPartyBridge:
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
+            'agents': t.agents,
+            'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
+            'skills': t.skills,
+            'hooks': t.hooks,
+            'scheduled': [
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                for s in t.scheduled
+            ],
         }
 
-    def _serialize_project_team(self, t) -> dict:
+    def _serialize_project_team(
+        self, t,
+        org_agents: list[str] | None = None,
+        org_skills: list[str] | None = None,
+    ) -> dict:
+        org_agents_set = set(org_agents or [])
+        org_skills_set = set(org_skills or [])
+
+        def _agent_source(name: str) -> str:
+            if name == t.lead:
+                return 'generated'
+            return 'shared' if name in org_agents_set else 'local'
+
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
+            'agents': [{'name': n, 'source': _agent_source(n)} for n in t.agents],
+            'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
+            'skills': [
+                {'name': n, 'source': 'shared' if n in org_skills_set else 'local'}
+                for n in t.skills
+            ],
+            'hooks': t.hooks,
+            'scheduled': [
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                for s in t.scheduled
+            ],
         }
 
-    def _serialize_workgroup(self, w) -> dict:
+    def _serialize_workgroup(
+        self, w, source: str | None = None, overrides: list[str] | None = None
+    ) -> dict:
         return {
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
+            'agents_count': len(w.agents),
+            'source': source,
+            'overrides': overrides or [],
         }
