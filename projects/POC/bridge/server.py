@@ -163,6 +163,9 @@ class TeaPartyBridge:
         app.router.add_get('/api/cfa/{session_id}', self._handle_cfa_state)
         app.router.add_get('/api/heartbeat/{session_id}', self._handle_heartbeat)
 
+        # ── Stats endpoint ────────────────────────────────────────────────────
+        app.router.add_get('/api/stats', self._handle_stats)
+
         # ── Config endpoints ──────────────────────────────────────────────────
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_get('/api/config/{project}', self._handle_config_project)
@@ -275,6 +278,11 @@ class TeaPartyBridge:
             return web.json_response({'status': 'dead'})
         status = _classify_heartbeat(infra_dir)
         return web.json_response({'session_id': session_id, 'status': status})
+
+    async def _handle_stats(self, request: web.Request) -> web.Response:
+        from projects.POC.bridge.stats import compute_stats
+        data = compute_stats(self.projects_dir, self.teaparty_home)
+        return web.json_response(data)
 
     # ── Config handlers ───────────────────────────────────────────────────────
 

@@ -10,36 +10,40 @@
 
 <div id="content" class="app-pane active" style="overflow-y:auto"></div>
 
-<script src="data.js"></script>
 <script>
-function render() {
-  const s = mockData.stats;
-  const m = s.management;
-  const maxTasks = Math.max(...s.daily.map(d => d.tasks));
-  const maxTokens = Math.max(...s.daily.map(d => d.tokens));
-  const maxEsc = Math.max(...s.phaseEscalations.map(d => d.count));
+function render(stats) {
+  const m = stats.summary;
+  const daily = stats.daily;
+  const limits = stats.limitations || {};
+
+  const maxTasks  = Math.max(1, ...daily.map(d => d.tasks));
+  const maxCost   = Math.max(0.0001, ...daily.map(d => d.cost_usd));
+  const maxEsc    = Math.max(1, ...(stats.phase_escalations || []).map(d => d.count));
+
+  const costNote  = limits.token_usage  ? `<span class="limit-note">${limits.token_usage}</span>`  : '';
+  const proxyNote = limits.proxy_accuracy ? `<span class="limit-note">${limits.proxy_accuracy}</span>` : '';
 
   document.getElementById('content').innerHTML = `
     <div class="pane-title">Statistics</div>
     <div class="pane-subtitle">Organization-wide metrics</div>
 
     <div class="summary-stats">
-      <div class="stat"><div class="stat-value stat-green">${m.jobsCompleted}</div><div class="stat-label">Jobs Done</div></div>
-      <div class="stat"><div class="stat-value stat-green">${m.tasksCompleted}</div><div class="stat-label">Tasks Done</div></div>
-      <div class="stat"><div class="stat-value">${m.activeJobs}</div><div class="stat-label">Active</div></div>
+      <div class="stat"><div class="stat-value stat-green">${m.jobs_done}</div><div class="stat-label">Jobs Done</div></div>
+      <div class="stat"><div class="stat-value stat-green">${m.tasks_done}</div><div class="stat-label">Tasks Done</div></div>
+      <div class="stat"><div class="stat-value">${m.active_jobs}</div><div class="stat-label">Active</div></div>
       <div class="stat"><div class="stat-value stat-yellow">${m.backtracks}</div><div class="stat-label">Backtracks</div></div>
       <div class="stat"><div class="stat-value stat-red">${m.withdrawals}</div><div class="stat-label">Withdrawals</div></div>
       <div class="stat"><div class="stat-value stat-purple">${m.escalations}</div><div class="stat-label">Escalations</div></div>
-      <div class="stat"><div class="stat-value stat-green">${m.proxyAccuracy}%</div><div class="stat-label">Proxy Acc.</div></div>
-      <div class="stat"><div class="stat-value stat-dim">${m.tokensUsed}</div><div class="stat-label">Tokens</div></div>
-      <div class="stat"><div class="stat-value stat-green">${m.skillsLearned}</div><div class="stat-label">Skills</div></div>
+      <div class="stat"><div class="stat-value stat-dim">${m.proxy_accuracy !== null ? m.proxy_accuracy + '%' : '—'}</div><div class="stat-label">Proxy Acc.</div></div>
+      <div class="stat"><div class="stat-value stat-dim">$${m.total_cost_usd.toFixed(2)}</div><div class="stat-label">Cost (USD)</div></div>
+      <div class="stat"><div class="stat-value stat-green">${m.skills_learned}</div><div class="stat-label">Skills</div></div>
     </div>
 
     <div class="chart-grid">
       <div class="chart-card">
         <div class="chart-title">Tasks Completed (7 days)</div>
         <div class="bar-chart">
-          ${s.daily.map(d => `
+          ${daily.map(d => `
             <div class="bar-group">
               <div class="bar-value">${d.tasks}</div>
               <div class="bar" style="height:${(d.tasks/maxTasks)*100}%;background:var(--green)"></div>
@@ -50,12 +54,13 @@ function render() {
       </div>
 
       <div class="chart-card">
-        <div class="chart-title">Token Usage (K, 7 days)</div>
+        <div class="chart-title">Cost per Day (USD, 7 days)</div>
+        ${costNote}
         <div class="bar-chart">
-          ${s.daily.map(d => `
+          ${daily.map(d => `
             <div class="bar-group">
-              <div class="bar-value">${d.tokens}K</div>
-              <div class="bar" style="height:${(d.tokens/maxTokens)*100}%;background:var(--purple)"></div>
+              <div class="bar-value">$${d.cost_usd.toFixed(2)}</div>
+              <div class="bar" style="height:${(d.cost_usd/maxCost)*100}%;background:var(--purple)"></div>
               <div class="bar-label">${d.date.split(' ')[1]}</div>
             </div>
           `).join('')}
@@ -64,34 +69,40 @@ function render() {
 
       <div class="chart-card">
         <div class="chart-title">Proxy Accuracy Trend (%)</div>
-        <div class="bar-chart">
-          ${s.daily.map(d => `
-            <div class="bar-group">
-              <div class="bar-value">${d.proxyAcc}%</div>
-              <div class="bar" style="height:${d.proxyAcc}%;background:${d.proxyAcc >= 80 ? 'var(--green)' : d.proxyAcc >= 70 ? 'var(--yellow)' : 'var(--red)'}"></div>
-              <div class="bar-label">${d.date.split(' ')[1]}</div>
-            </div>
-          `).join('')}
+        ${proxyNote}
+        <div class="bar-chart" style="align-items:flex-end;justify-content:center;color:var(--text-dim);font-size:9px">
+          No data — proxy accuracy metric requires issue #281 resolution
         </div>
       </div>
 
       <div class="chart-card">
-        <div class="chart-title">Escalations by Phase</div>
+        <div class="chart-title">Escalations by Phase (active)</div>
         <div class="bar-chart">
-          ${s.phaseEscalations.map(d => `
-            <div class="bar-group">
-              <div class="bar-value">${d.count}</div>
-              <div class="bar" style="height:${(d.count/maxEsc)*100}%;background:var(--red)"></div>
-              <div class="bar-label">${d.phase.replace('_',' ')}</div>
-            </div>
-          `).join('')}
+          ${(stats.phase_escalations || []).length === 0
+            ? '<div style="color:var(--text-dim);font-size:9px;align-self:flex-end">No active escalations</div>'
+            : (stats.phase_escalations || []).map(d => `
+              <div class="bar-group">
+                <div class="bar-value">${d.count}</div>
+                <div class="bar" style="height:${(d.count/maxEsc)*100}%;background:var(--red)"></div>
+                <div class="bar-label">${d.phase.replace('_',' ')}</div>
+              </div>
+            `).join('')}
         </div>
       </div>
     </div>
   `;
 }
 
-render();
+function renderError(msg) {
+  document.getElementById('content').innerHTML =
+    `<div class="pane-title">Statistics</div>
+     <div style="color:var(--red);font-size:11px;padding:16px">${msg}</div>`;
+}
+
+fetch('/api/stats')
+  .then(r => r.ok ? r.json() : Promise.reject(r.status))
+  .then(render)
+  .catch(err => renderError('Failed to load stats: ' + err));
 </script>
 </body>
 </html>

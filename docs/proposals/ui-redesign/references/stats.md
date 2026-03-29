@@ -52,5 +52,5 @@ All stats are derived from existing data — no new collection needed:
 | Withdrawals | CfA state files (WITHDRAWN terminal state) |
 | Escalations | Message bus (orchestrator messages with input requests) |
 | Proxy accuracy | Proxy memory chunks (prediction vs. outcome) |
-| Token usage | `.cost` sidecar files per session |
-| Skills learned | Skill files in `.claude/skills/` |
+| Token usage | `.cost` sidecar files per session (stores USD, not tokens — see issue #285) |
+| Skills learned | `{project_dir}/skills/` and `{project_dir}/teams/{name}/skills/` (see issue #294) |
