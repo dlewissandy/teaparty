@@ -28,7 +28,7 @@ from projects.POC.orchestrator.worktree import (
     create_dispatch_worktree,
     _register_worktree,
 )
-from projects.POC.tui.state_reader import StateReader, SessionState, DispatchState
+from projects.POC.orchestrator.state_reader import StateReader, SessionState, DispatchState
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import tempfile
 import unittest
 import yaml
 
-from projects.POC.tui.state_reader import DispatchState, SessionState, ProjectState
+from projects.POC.orchestrator.state_reader import DispatchState, SessionState, ProjectState
 
 
 def _make_dispatch(**kwargs):

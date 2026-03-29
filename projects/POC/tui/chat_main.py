@@ -15,7 +15,7 @@ if project_root not in sys.path:
 
 from textual.app import App, ComposeResult
 
-from projects.POC.tui.state_reader import StateReader
+from projects.POC.orchestrator.state_reader import StateReader
 
 
 def _pid_dir(projects_dir: str) -> str:
