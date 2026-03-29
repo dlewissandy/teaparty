@@ -1,10 +1,16 @@
 """Tests for issue #292: Bridge framing must accurately characterize implementation scope.
 
+The issue names seven specific new components that the bridge adds. Tests verify
+that each one is present by name in the relevant characterization sections — not
+just that some qualifying language exists somewhere nearby.
+
 Acceptance criteria:
-1. proposal.md Bridge Server section does not use "thin" without qualification
-2. proposal.md Bridge Server section cross-references the known structural gaps
-3. bridge-api.md introduction enumerates what is new vs delegated
-4. bridge-api.md introduction surfaces all three known structural gaps
+1. proposal.md Bridge Server section names all seven new components individually
+2. proposal.md Bridge Server section names all three structural gaps by issue number
+3. proposal.md Bridge Server section gives a concrete size estimate
+4. proposal.md does not use "thin" in any unqualified context
+5. bridge-api.md introduction new-code list names all six components
+6. bridge-api.md introduction names all three structural gaps
 """
 import os
 import re
@@ -37,171 +43,181 @@ def _extract_intro(text: str) -> str:
     return parts[0] if parts else text
 
 
+# The seven new components enumerated in issue #292.
+# Each tuple: (canonical phrase to search, human-readable label for error messages).
+PROPOSAL_NEW_COMPONENTS = [
+    ('static file serving',                     'static file serving'),
+    ('seven REST',                               'seven REST endpoint groups'),
+    ('WebSocket with five event types',          'WebSocket with five event types'),
+    ('polling loop',                             'polling loop'),
+    ('state diff',                               'state diffing'),
+    ('per-session',                              'per-session message bus lifecycle'),
+    ('workgroup scanner',                        'workgroup scanner'),
+    ('conversation routing',                     'conversation routing across multiple databases'),
+]
+
+# Size floor mentioned in the issue ("300–500 line bridge").
+SIZE_INDICATORS = ['300', '500']
+
+# The three structural gaps the issue says the framing obscures.
+STRUCTURAL_GAPS = [
+    ('#280', 'StateReader coupling (#280)'),
+    ('#278', 'withdrawal path (#278)'),
+    ('workgroup scanner', 'workgroup scanner (missing backing function)'),
+]
+
+# The six components in the bridge-api.md "new code" bulleted list.
+BRIDGE_API_NEW_COMPONENTS = [
+    ('static file serving',              'static file serving'),
+    ('polling loop',                     'polling loop with state diffing'),
+    ('state diff',                       'state diffing'),
+    ('per-session',                      'per-session connection lifecycle'),
+    ('five push-event',                  'WebSocket with five push-event types'),
+    ('conversation routing',             'conversation routing across multiple databases'),
+    ('workgroup scanner',                'workgroup scanner'),
+]
+
+
 class TestProposalBridgeServerFraming(unittest.TestCase):
-    """proposal.md Bridge Server section must characterize scope accurately."""
+    """proposal.md Bridge Server section must enumerate all new components by name."""
 
-    def _bridge_section(self) -> str:
+    def _section(self) -> str:
         content = _read_doc('docs/proposals/ui-redesign/proposal.md')
-        return _extract_bridge_server_section(content)
+        s = _extract_bridge_server_section(content)
+        self.assertNotEqual(s, '', "Bridge Server section not found in proposal.md")
+        return s
 
-    def test_thin_is_qualified_or_absent_in_bridge_server_section(self):
-        """If 'thin' appears in the Bridge Server section it must be scoped to mean
-        'no business logic duplication', not 'small implementation effort'.
+    def test_all_new_components_named_individually(self):
+        """Every new component enumerated in issue #292 must appear by name in the
+        Bridge Server section.
 
-        The text 'thin async Python server' sets incorrect expectations for sprint
-        sizing (see issue #292). If retained, 'thin' must be explicitly qualified.
+        The issue lists: static file serving, seven REST endpoint groups, WebSocket
+        with five event types, polling loop with state diffing, per-session message
+        bus lifecycle management, conversation routing across multiple databases, and
+        workgroup scanner.  A characterization that omits any of these leaves the
+        implementer without a complete scope picture.
         """
-        section = self._bridge_section()
-        self.assertNotEqual(section, '', "Bridge Server section not found in proposal.md")
-
-        if 'thin' not in section.lower():
-            # Removed entirely — criterion satisfied.
-            return
-
-        # If 'thin' is present it must be scoped.  Qualifying phrases signal that
-        # the author has explained what 'thin' means.
-        qualification_phrases = [
-            'no business logic',
-            'business logic',
-            'implementation effort',
-            'sprint',
-            'new server',
-            'new component',
-            'not small',
+        section = self._section().lower()
+        missing = [
+            label for phrase, label in PROPOSAL_NEW_COMPONENTS
+            if phrase.lower() not in section
         ]
-        found = any(phrase in section.lower() for phrase in qualification_phrases)
+        self.assertFalse(
+            missing,
+            "Bridge Server section is missing these new components:\n  "
+            + '\n  '.join(missing),
+        )
+
+    def test_size_estimate_present(self):
+        """Bridge Server section must give a concrete line-count estimate so planners
+        have a floor for sprint sizing.  The issue cites 300–500 lines.
+        """
+        section = self._section()
+        found = any(indicator in section for indicator in SIZE_INDICATORS)
         self.assertTrue(
             found,
-            "Bridge Server section uses 'thin' without qualifying what it means. "
-            "Must clarify that 'thin' refers to no business logic duplication, not "
-            "small implementation effort. Current section:\n" + section,
+            "Bridge Server section has no size estimate. "
+            "Must include the 300–500 line floor from the issue so planners can size.",
         )
 
-    def test_bridge_server_section_cross_references_structural_gaps(self):
-        """Bridge Server section must reference the known structural gaps so that
-        implementers reading the proposal see them before diving into the full spec.
-
-        Gaps to surface: StateReader coupling (#280), withdrawal path (#278), and
-        the missing workgroup scanner.  These were obscured by the 'thin' framing.
+    def test_all_three_structural_gaps_named(self):
+        """Bridge Server section must name all three structural gaps by issue number
+        or exact description so planners see them without reading further.
         """
-        section = self._bridge_section()
-        self.assertNotEqual(section, '', "Bridge Server section not found in proposal.md")
-
-        # Require at least two of the three gaps to be visible in this section.
-        gaps_found = sum([
-            '#280' in section,
-            '#278' in section,
-            'workgroup scanner' in section.lower() or 'workgroup' in section.lower(),
-        ])
-        self.assertGreaterEqual(
-            gaps_found, 2,
-            "Bridge Server section cross-references fewer than 2 of the 3 known "
-            "structural gaps (#278 withdrawal, #280 StateReader coupling, workgroup "
-            "scanner).  All three should be visible here so planners don't miss them.",
-        )
-
-    def test_bridge_server_section_does_not_claim_no_reimplementation_without_scope(self):
-        """'no reimplementation' is misleading if it is the only scope signal.
-
-        The phrase 'no reimplementation' means the bridge doesn't duplicate business
-        logic — but the bridge IS new server code (aiohttp server, polling loop,
-        state diffing, session lifecycle, workgroup scanner, WebSocket multiplexing,
-        conversation routing).  The section must not leave the reader with the
-        impression that the bridge requires essentially no new code.
-        """
-        section = self._bridge_section()
-        self.assertNotEqual(section, '', "Bridge Server section not found in proposal.md")
-
-        has_no_reimplementation = 'no reimplementation' in section.lower()
-        if not has_no_reimplementation:
-            # Phrase removed — criterion satisfied.
-            return
-
-        # If the phrase is still present, the section must also describe what IS new.
-        new_work_indicators = [
-            'new server',
-            'new component',
-            'polling loop',
-            'state diff',
-            'workgroup scanner',
-            'session lifecycle',
-            'new code',
-            '300',
-            '500',
+        section = self._section()
+        missing = [
+            label for phrase, label in STRUCTURAL_GAPS
+            if phrase not in section and phrase.lower() not in section.lower()
         ]
-        also_describes_new_work = any(p in section.lower() for p in new_work_indicators)
-        self.assertTrue(
-            also_describes_new_work,
-            "Bridge Server section says 'no reimplementation' without also describing "
-            "what IS new (aiohttp server, polling loop, state diffing, session lifecycle, "
-            "workgroup scanner).  This leaves an incorrect impression of minimal effort.",
+        self.assertFalse(
+            missing,
+            "Bridge Server section is missing these structural gap references:\n  "
+            + '\n  '.join(missing),
+        )
+
+    def test_thin_absent_from_entire_proposal(self):
+        """'thin' must not appear anywhere in proposal.md as an unqualified scope
+        signal for the bridge.
+
+        Any occurrence of 'thin' describing the bridge sets incorrect expectations.
+        The word may still appear in unrelated contexts (e.g. 'thin client') but
+        must not be used to characterize the bridge's implementation size.
+        """
+        content = _read_doc('docs/proposals/ui-redesign/proposal.md')
+        # Find every line containing 'thin' (case-insensitive).
+        lines_with_thin = [
+            (i + 1, line.rstrip())
+            for i, line in enumerate(content.splitlines())
+            if 'thin' in line.lower()
+        ]
+        bridge_thin_lines = [
+            f"  line {lineno}: {line}"
+            for lineno, line in lines_with_thin
+            # 'within' contains 'thin' as a substring — skip it.
+            if re.search(r'\bthin\b', line, re.IGNORECASE)
+        ]
+        self.assertFalse(
+            bridge_thin_lines,
+            "proposal.md still contains 'thin' as a standalone word:\n"
+            + '\n'.join(bridge_thin_lines)
+            + "\nRemove or replace — 'thin' sets incorrect implementation-effort expectations.",
         )
 
 
 class TestBridgeAPIIntroFraming(unittest.TestCase):
-    """bridge-api.md introduction must characterize scope accurately."""
+    """bridge-api.md introduction must enumerate all new components and all three gaps."""
 
     def _intro(self) -> str:
         content = _read_doc('docs/proposals/ui-redesign/references/bridge-api.md')
         return _extract_intro(content)
 
-    def test_intro_describes_what_is_new_not_only_what_is_delegated(self):
-        """The bridge-api.md introduction must describe new implementation work, not
-        only say the bridge 'exposes existing data' or 'imports existing modules'.
+    def test_all_new_components_named_in_intro(self):
+        """The bridge-api.md introduction new-code list must name every component
+        that the bridge implements as new code.
 
-        The current text leads only with delegation ('exposes TeaParty's existing
-        data', 'imports existing modules directly') and does not mention: the aiohttp
-        server, the 1-second polling loop with state diffing, per-session message bus
-        lifecycle management, the workgroup scanner, WebSocket event multiplexing, or
-        conversation routing across multiple databases.
+        The list (from the spec): aiohttp app with static file serving, polling loop
+        with state diffing, per-session connection lifecycle, WebSocket with five
+        push-event types, conversation routing across multiple databases, and workgroup
+        scanner.  A future edit that silently drops a component from the list would
+        otherwise pass the tests.
         """
-        intro = self._intro()
-
-        # These are the NEW components that the introduction must describe.
-        new_components = [
-            'polling loop',
-            'state diff',
-            'lifecycle',
-            'workgroup scanner',
-            'new server',
-            'new component',
-            'new code',
-            'message relay',
-            'per-session',
+        intro = self._intro().lower()
+        missing = [
+            label for phrase, label in BRIDGE_API_NEW_COMPONENTS
+            if phrase.lower() not in intro
         ]
-        found = any(p in intro.lower() for p in new_components)
-        self.assertTrue(
-            found,
-            "bridge-api.md introduction does not describe any new implementation "
-            "components.  Must enumerate what the bridge adds (polling loop, state "
-            "diffing, session lifecycle management, workgroup scanner) alongside what "
-            "it delegates to existing infrastructure.",
-        )
-
-    def test_intro_surfaces_all_three_structural_gaps(self):
-        """The bridge-api.md introduction must make all three structural gaps visible.
-
-        Currently the intro references #280 (StateReader) but omits #278 (withdrawal)
-        and the workgroup scanner.  A reader who only reads the introduction should
-        know all three gaps exist before diving into the per-endpoint specification.
-        """
-        intro = self._intro()
-
-        has_280 = '#280' in intro
-        has_278 = '#278' in intro
-        has_workgroup_scanner = 'workgroup scanner' in intro.lower()
-
-        missing = []
-        if not has_280:
-            missing.append('#280 (StateReader coupling)')
-        if not has_278:
-            missing.append('#278 (withdrawal path)')
-        if not has_workgroup_scanner:
-            missing.append('workgroup scanner (no existing backing function)')
-
         self.assertFalse(
             missing,
-            "bridge-api.md introduction is missing structural gap references: "
-            + ', '.join(missing) + ".  All three must be visible in the introduction "
-            "so implementers planning from the intro alone see the full scope.",
+            "bridge-api.md introduction is missing these new-code components:\n  "
+            + '\n  '.join(missing),
+        )
+
+    def test_all_three_structural_gaps_in_intro(self):
+        """bridge-api.md introduction must name all three structural gaps so a reader
+        who stops after the intro has a complete picture of what is not yet built.
+        """
+        intro = self._intro()
+        missing = [
+            label for phrase, label in STRUCTURAL_GAPS
+            if phrase not in intro and phrase.lower() not in intro.lower()
+        ]
+        self.assertFalse(
+            missing,
+            "bridge-api.md introduction is missing these structural gap references:\n  "
+            + '\n  '.join(missing),
+        )
+
+    def test_delegated_infrastructure_listed(self):
+        """bridge-api.md introduction must also list what the bridge delegates to
+        existing infrastructure, so the new-vs-delegated distinction is explicit.
+
+        Required delegated items: SqliteMessageBus, StateReader, config_reader.
+        """
+        intro = self._intro()
+        required = ['SqliteMessageBus', 'StateReader', 'config_reader']
+        missing = [name for name in required if name not in intro]
+        self.assertFalse(
+            missing,
+            "bridge-api.md introduction is missing these delegated-infrastructure "
+            "entries:\n  " + '\n  '.join(missing),
         )
