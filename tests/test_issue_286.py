@@ -55,24 +55,22 @@ class TestBridgeApiSpecStartup(unittest.TestCase):
         )
 
     def test_spec_startup_clarifies_poc_root_derivation(self):
-        """Startup section must show that poc_root is derived from projects_dir.
+        """Startup section must explicitly derive poc_root from projects_dir, not teaparty_home.
 
         An implementer reading only the constructor example saw teaparty_home and
         projects_dir — with no poc_root arg — but step 1 referenced poc_root without
         explaining where it came from.  The spec must make the derivation explicit:
-        poc_root = os.path.join(projects_dir, 'POC').
+        poc_root = os.path.join(projects_dir, 'POC').  Naming poc_root alone is not
+        enough — the spec must show the computation and contrast it with teaparty_home.
         """
         spec = _read_spec()
-        # The spec must mention the derivation so implementers know poc_root ≠ teaparty_home
+        # Must show the actual derivation expression so implementers can't confuse it
+        # with teaparty_home.  The original spec just said 'StateReader(poc_root, ...)'
+        # without showing where poc_root came from.
         self.assertIn(
-            'poc_root',
+            "os.path.join(projects_dir, 'POC')",
             spec,
-            'Startup section must reference poc_root',
-        )
-        # Must explain the join, not just name poc_root in passing
-        self.assertTrue(
-            'projects_dir' in spec and 'POC' in spec,
-            'Startup section must show poc_root is derived from projects_dir/POC',
+            "Startup section must show poc_root = os.path.join(projects_dir, 'POC') explicitly",
         )
 
 
