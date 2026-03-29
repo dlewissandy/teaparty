@@ -2,328 +2,98 @@
 
 Supersedes: [dashboard-ui](../dashboard-ui/proposal.md)
 
-Replace the 65k-line Textual TUI with five HTML/JS pages served by a thin Python bridge over SQLite. No servers wrapping Claude. No Anthropic TOS concerns. Claude can build and verify these with browser dev tools.
+Replace the 65k-line Textual TUI with HTML/JS pages served by a Python bridge over SQLite. No servers wrapping Claude. No Anthropic TOS concerns. Claude can build and verify these with browser dev tools.
 
-Interactive mockup: [mockup/index.html](mockup/index.html)
+Interactive mockup (normative for navigation and controls): [mockup/index.html](mockup/index.html)
+
+---
+
+## Why
+
+The TUI is the single largest maintenance burden in the project. Three problems:
+
+1. **Claude can't modify it.** Textual's TCSS is close enough to CSS that Claude confuses them, and it can't run the TUI to verify changes. Every iteration burns tokens with no convergence.
+
+2. **It does too many things.** Configuration, monitoring, messaging, statistics, and five levels of hierarchical navigation are tangled into one 65k-line app. Changes in one area break others.
+
+3. **It doesn't advance the research.** The TUI is infrastructure tax. Every hour spent on it is an hour not spent on the CfA protocol, proxy learning, or hierarchical teams.
+
+HTML solves all three. Claude knows HTML/CSS/JS cold. Browser dev tools work. Separate pages enforce separation of concerns. And because the orchestrator already has a SQLite message bus, the bridge is a thin read/write layer over existing infrastructure.
 
 ---
 
 ## Pages
 
-| Page | Purpose | Entry |
-|------|---------|-------|
-| [Home](#home) | Project dashboard, escalation triage | `index.html` |
-| [Config](#config-manager) | Org catalog + project assembly | `config.html` |
-| [Artifacts](#artifacts) | Browsable docs, gate review | `artifacts.html` |
-| [Stats](#stats) | Charts and metrics | `stats.html` |
-| [Chat](#chat) | Async messaging, interjections | `chat.html` |
+The mockup defines five pages. Each opens in its own browser tab.
+
+| Page | File | Purpose | Reference |
+|------|------|---------|-----------|
+| Home | `index.html` | Project cards with job workflow bars, escalation triage | [references/home.md](references/home.md) |
+| Config | `config.html?project=ID` | Org catalog and project assembly | [references/config.md](references/config.md) |
+| Artifacts | `artifacts.html?project=ID` | Browsable docs, gate review | [references/artifacts.md](references/artifacts.md) |
+| Stats | `stats.html` | Charts and metrics | [references/stats.md](references/stats.md) |
+| Chat | `chat.html?conv=ID` | Job chat + participant chat | [references/chat.md](references/chat.md) |
+
+The mockup is normative for navigation flows and visual design. The reference docs describe user stories and interaction details.
 
 ---
 
-## Home
+## Key Design Decisions
 
-The landing page. One card per project showing jobs with [workflow progress bars](#workflow-progress-bars), escalation indicators, and action buttons.
+### The home page IS the status dashboard
+The home page shows every project, every active job with workflow progress bars, and every pending escalation. Clicking a job opens its chat. This eliminated three separate dashboard levels (management, project, job status) because the home card contains everything the human needs to decide where to go.
 
-**Org row:** Global Config, Statistics, Org Knowledge, Office Manager, escalation count badge.
+### Config uses a catalog/assembly model
+Global config defines an org catalog of workgroups, agents, and skills. Projects assemble from the catalog, tagged `shared`/`local`/`generated`, with per-project overrides. Like git's global/local config — one source of truth per definition. This avoids deep-copy drift and makes project setup a conversation with the office manager ("use Editorial, Writing, and Research workgroups") rather than manual YAML editing.
 
-**Project cards:**
-- Status badge, description, stats (active jobs, escalations, workgroups)
-- Active jobs with workflow bars — click any job to open its [Job Chat](#job-chat)
-- Action buttons: Config, Artifacts, Manager
-- "+ New Project" opens Office Manager chat
+### Artifacts viewer for gate reviews
+At approval gates, the human clicks "Review" in the chat header and the artifact opens in a markdown viewer. All gate artifacts (INTENT, PLAN, WORK_ASSERT) use progressive disclosure — summary first, then links to deeper content (diffs, files, tests). The human never needs to find a worktree path.
 
-This page eliminated three separate dashboard levels (management, project, job status).
+### Two chat variants, same page
+Job chats navigate by tasks (sidebar lists task sub-conversations). Participant chats navigate by history (sidebar lists past sessions with that person). Same rendering engine, different sidebar content. Chat renders markdown natively because agents produce it.
 
----
-
-## Config Manager
-
-Two levels: global catalog and project assembly.
-
-### Global Config
-
-The org catalog. Defines workgroups, agents, and skills that projects can pull in.
-
-- **Workgroup Catalog, Agent Catalog, Skill Catalog** — org-level definitions
-- **Participants** — Office Manager + humans (D-A-I roles)
-- **Artifacts** — links to [organization.md](#org-artifacts)
-- **Hooks, Scheduled Tasks** — org-level
-
-### Project Config
-
-Projects assemble from the catalog. Each item is tagged by source:
-
-| Tag | Meaning |
-|-----|---------|
-| `shared` | From org catalog, possibly with overrides |
-| `local` | Defined only in this project |
-| `generated` | Project lead, created from template |
-
-Override indicators show where a project diverges from the org definition (e.g., "norms overridden" on a shared workgroup).
-
-"+ New" creates locally. "+ Catalog" pulls from the org catalog. Breadcrumb links back to Global Config.
-
-See [Assembly Model](#assembly-model) for details.
+### Proxy is directly queryable
+The proxy appears as a clickable participant at project and job scope. The human can query its learning, challenge assumptions, or give job-specific instructions before gates happen — not just react to escalations.
 
 ---
 
-## Artifacts
+## Bridge Server
 
-Browsable project documentation. Each project has a `project.md` entry file; the org has `organization.md`.
+The bridge is a thin async Python server (aiohttp) that reads and writes the same SQLite message bus the orchestrator already uses. It imports existing TeaParty modules directly — no reimplementation.
 
-**Layout:** Sidebar navigator (sections from entry file) + main pane (rendered markdown or index).
+**Why aiohttp:** Async needed for WebSocket push. Lightweight. No framework opinions.
 
-**Content:** Architecture, design docs, implementation, active job artifacts (INTENT/PLAN/WORK_ASSERT from running jobs), learnings.
+**Why not a new protocol:** The orchestrator's `MessageBusInputProvider` already polls the message bus for human responses. The bridge writes to the same database. Human types in chat → bridge writes to SQLite → orchestrator picks it up. No new IPC.
 
-**Gate review:** At any approval gate, the [Job Chat](#job-chat) header shows a "Review" button that opens the relevant artifact here. All gate artifacts use progressive disclosure — summary, then links to diffs, files, tests, research. The human never needs to find a worktree path.
+**Why polling (not event subscription):** The TUI already polls `StateReader` at 1-second intervals. The bridge does the same. This avoids coupling the bridge to the orchestrator's in-process `EventBus`, which would require running in the same process. The bridge is a separate process by design.
 
-See [Gate Review Flow](#gate-review-flow) for details.
-
-### Org Artifacts
-
-`organization.md` — rolled-up organizational memory: institutional learnings, procedural skills, proxy knowledge, strategic decisions. Accessible from the Global Config artifacts card and the Home org row.
+See [references/bridge-api.md](references/bridge-api.md) for the complete REST and WebSocket API specification.
 
 ---
 
-## Stats
-
-Summary metrics + charts: tasks completed over time, token usage, proxy accuracy trend, escalations by phase. All derived from SQLite queries.
-
----
-
-## Chat
-
-One browser tab per conversation. Two variants sharing the same page.
-
-### Job Chat
-
-For job-scoped work. Sidebar navigator shows **tasks**:
-- Job conversation (with project lead)
-- Each task sub-conversation (with assigned agent)
-- Red dots on conversations with escalations
-
-**Header:** Participant name, scope, gate "Review" button (at gates, see [Gate Review Flow](#gate-review-flow)), "Withdraw" button (with [confirmation modal](#withdraw-confirmation)).
-
-### Participant Chat
-
-For 1:1 conversations. Sidebar navigator shows **conversation history**:
-- All sessions with that participant, sorted by date
-- Used for: Office Manager, Manager, Proxy, Humans
-
-### Shared Features
-
-- **Markdown rendering** — bold, lists, links, images, code blocks, blockquotes, tables. Agents produce markdown naturally.
-- **Filters** — toggleable: agent, human, thinking, tools, system
-- **Multiline input** — shift+enter for newlines, auto-grows up to 10 rows, then scrollbar
-- **Interjections** — human can type into any conversation at any time
-
----
-
-## Design Details
-
-### Participant Model
-
-| Scope | Agents | Proxy | Humans |
-|-------|--------|-------|--------|
-| Org (home) | Office Manager | -- | -- |
-| Project (config/home) | Manager | Proxy (project learning) | Decider, Advisors |
-| Job (chat) | Project Lead | Proxy (job instructions) | Decider, Advisors |
-
-Every scope has the same three categories. What changes is the conversation scope.
-
-### Assembly Model
-
-Projects are assembled, not constructed:
-
-1. Pick workgroups from the org catalog
-2. Pick agents from the org catalog
-3. Project lead generated from template
-4. Assign participants (humans with D-A-I roles)
-5. Customize — override norms, agent settings, bring in skills
-
-Like git's global/local config. Global defines, project references and overrides. No copying — one source of truth per definition, with per-project deltas.
-
-### Workflow Progress Bars
-
-Phases render as bars (work), circles (gates):
-```
-━━━━━━━●━━━━━━━●━━━━━━━●━━━━━━
-INTENT      PLAN      WORK      DONE
-         ^         ^         ^
-      INTENT_   PLAN_    WORK_
-      ASSERT    ASSERT   ASSERT
-```
-
-- **Bars:** green (complete), yellow (in progress), dim (not reached)
-- **Circles:** green (passed), red + pulse (at this gate), dim (not reached)
-
-Task escalations during a work phase: bar is yellow, escalation dot is red. Gate escalations: preceding bar is green, gate circle is red.
-
-### Gate Review Flow
-
-At any approval gate (INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT):
-
-1. Proxy escalates in the [Job Chat](#job-chat)
-2. Chat header shows green "Review INTENT/PLAN/WORK" button
-3. Button opens [Artifacts](#artifacts) viewer with the gate document
-4. Gate document uses progressive disclosure — summary first, then links to deeper content
-5. Human reviews, returns to chat, responds to the escalation
-
-The human never needs to find a worktree path.
-
-### Withdraw Confirmation
-
-The "Withdraw" button on job chats opens a modal: "This will cancel the job and all running tasks. Completed work will be preserved in the worktree but not merged. This action cannot be undone." Cancel or Withdraw.
-
----
-
-## Technical Implementation
-
-### Page Structure
-
-Separate HTML files, each in its own browser tab:
-
-| File | Query Params | Purpose |
-|------|-------------|---------|
-| `index.html` | — | Home dashboard |
-| `config.html` | `?project=ID` (optional) | Global config or project config |
-| `artifacts.html` | `?project=ID` (`org` for org-level) | Artifacts viewer |
-| `stats.html` | — | Statistics |
-| `chat.html` | `?conv=ID` | Job chat (task navigator) |
-| `chat.html` | `?conv=ID&task=TASK_ID` | Job chat, deep-link to task |
-| `chat.html` | `?conv=office-manager` | Participant chat (session navigator) |
-
-Cross-app navigation uses `window.open()` with query params. The mockup is normative for all navigation flows and control behavior.
-
-### Python Bridge
-
-An async Python server (aiohttp) that bridges the HTML pages to TeaParty's existing infrastructure. No Claude involvement. No Anthropic API calls. Reuses existing modules directly via import.
-
-#### Dependencies
-
-- `aiohttp` — HTTP server + WebSocket
-- Existing TeaParty modules imported directly:
-  - `orchestrator.messaging.SqliteMessageBus`
-  - `orchestrator.config_reader.*`
-  - `orchestrator.heartbeat.*`
-  - `tui.state_reader.StateReader`
-  - `scripts.cfa_state.*`
-
-#### Startup
-
-```python
-bridge = TeaPartyBridge(
-    teaparty_home='~/.teaparty',
-    projects_dir='/path/to/projects',
-    static_dir='docs/proposals/ui-redesign/mockup',
-)
-bridge.run(port=8081)
-```
-
-On startup:
-1. Initialize `StateReader(poc_root, projects_dir)` for filesystem polling
-2. Open `SqliteMessageBus` connections per active session (`{infra_dir}/messages.db`)
-3. Load config via `load_management_team()` and `discover_projects()`
-4. Start 1-second polling loop (same cadence as the TUI's `set_interval`)
-5. Serve static files + API routes
-
-#### REST API
-
-**State & Status**
-
-| Method | Path | Returns | Source |
-|--------|------|---------|--------|
-| GET | `/api/state` | All projects, sessions, dispatches | `StateReader.reload()` |
-| GET | `/api/state/{project}` | Single project sessions | `StateReader.find_project(slug)` |
-| GET | `/api/cfa/{session_id}` | CfA state for session | `load_state(infra_dir/.cfa-state.json)` |
-| GET | `/api/heartbeat/{session_id}` | Liveness: alive/stale/dead | `read_heartbeat()` |
-
-**Config**
-
-| Method | Path | Returns | Source |
-|--------|------|---------|--------|
-| GET | `/api/config` | Management team + project list | `load_management_team()` + `discover_projects()` |
-| GET | `/api/config/{project}` | Project team + resolved workgroups | `load_project_team()` + `resolve_workgroups()` |
-| GET | `/api/workgroups` | Org-level workgroup catalog | Scan `{teaparty_home}/workgroups/*.yaml` |
-
-**Messages**
-
-| Method | Path | Returns | Source |
-|--------|------|---------|--------|
-| GET | `/api/conversations` | Conversations, filterable by type | `bus.active_conversations(type)` |
-| GET | `/api/conversations/{id}?since=TS` | Messages since timestamp | `bus.receive(id, since)` |
-| POST | `/api/conversations/{id}` | Send human message | `bus.send(id, 'human', content)` |
-
-**Artifacts**
-
-| Method | Path | Returns | Source |
-|--------|------|---------|--------|
-| GET | `/api/artifacts/{project}` | Entry file sections | Parse `project.md` headings |
-| GET | `/api/file?path=...` | Raw file content | Read from worktree |
-
-**Actions**
-
-| Method | Path | Effect | Source |
-|--------|------|--------|--------|
-| POST | `/api/withdraw/{session_id}` | Withdraw a job | Write to `INTERVENTION_SOCKET` |
-
-#### WebSocket
-
-Single endpoint: `ws://localhost:8081/ws`
-
-The bridge polls `StateReader` every second. On change, it pushes to connected clients:
-
-```json
-{"type": "state_changed", "session_id": "...", "phase": "...", "state": "..."}
-{"type": "input_requested", "session_id": "...", "conversation_id": "...", "question": "..."}
-{"type": "message", "conversation_id": "...", "sender": "...", "content": "..."}
-{"type": "heartbeat", "session_id": "...", "status": "alive|stale|dead"}
-{"type": "session_completed", "session_id": "...", "terminal_state": "..."}
-```
-
-Polling diffs previous state against current. Only changes produce events. For messages, the bridge polls each active conversation's `bus.receive(id, since=last_ts)` and pushes new messages immediately.
-
-#### Human Input Flow
-
-The bridge does not implement `InputProvider`. It writes to the same SQLite message bus that the orchestrator's `MessageBusInputProvider` already polls.
-
-1. Orchestrator's `MessageBusInputProvider` posts question as `orchestrator` sender
-2. Bridge poll detects new message, pushes `input_requested` via WebSocket
-3. Chat page shows the question (it's a message in the conversation)
-4. Human types response in chat textarea
-5. Chat page POSTs to `/api/conversations/{id}` with `sender: human`
-6. Bridge calls `bus.send(id, 'human', content)`
-7. Orchestrator's `MessageBusInputProvider` poll picks up the response
-8. Orchestrator continues
-
-No new protocol. The bridge reads and writes the same database the orchestrator uses.
-
-#### Escalation Routing
-
-Agent escalations (via `AskQuestion` MCP tool) flow through the existing path: escalation listener → proxy → message bus. The bridge reads the result from the message bus. No socket integration needed for reading — escalations appear as messages.
-
-The bridge only needs socket integration for **interventions** (withdraw) which write to `INTERVENTION_SOCKET`.
-
-#### Session Discovery
-
-Same as the TUI:
-
-1. `StateReader.reload()` scans `{project}/.sessions/*/` directories
-2. Each session has `.cfa-state.json`, `.heartbeat`, `messages.db`
-3. Bridge opens `SqliteMessageBus` per active session's `messages.db`
-4. When sessions complete, bridge closes the connection
-
-#### File Structure
+## File Structure
 
 ```
 projects/POC/bridge/
-├── __init__.py
 ├── server.py          # aiohttp app, routes, WebSocket handler
-├── poller.py          # StateReader polling loop, diff detection, event push
+├── poller.py          # StateReader polling, diff detection, event push
 └── message_relay.py   # Per-session message bus polling, WebSocket push
 ```
 
-Imports from existing modules — no reimplementation.
+```
+docs/proposals/ui-redesign/
+├── proposal.md        # This document
+├── references/
+│   └── bridge-api.md  # REST + WebSocket API specification
+└── mockup/            # Normative interactive mockup
+    ├── index.html     # Home
+    ├── config.html    # Config manager
+    ├── artifacts.html # Artifacts viewer
+    ├── stats.html     # Statistics
+    ├── chat.html      # Chat (both variants)
+    ├── data.js        # Mock data (lorem ipsum)
+    └── styles.css     # Shared styles
+```
 
 ---
 
@@ -331,5 +101,5 @@ Imports from existing modules — no reimplementation.
 
 - [dashboard-ui](../dashboard-ui/proposal.md) — Superseded entirely
 - [chat-experience](../chat-experience/proposal.md) — Chat page implements its interaction model
-- [messaging](../messaging/proposal.md) — All pages read/write its SQLite message bus; bridge uses `SqliteMessageBus` directly
+- [messaging](../messaging/proposal.md) — Bridge reads/writes its SQLite message bus via `SqliteMessageBus`
 - [office-manager](../office-manager/proposal.md) — Config and home delegate to it
