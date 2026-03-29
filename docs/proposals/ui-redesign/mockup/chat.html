@@ -222,6 +222,9 @@ function refilter() {
   msgsEl.scrollTop = msgsEl.scrollHeight;
 }
 
+// Track content of messages sent by this page so WS echoes aren't shown twice.
+var _pendingSent = [];
+
 // ── Send message ──────────────────────────────────────────────────────────────
 function sendMessage(ta) {
   if (!ta.value.trim()) return;
@@ -233,7 +236,8 @@ function sendMessage(ta) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content: text }),
   }).then(function() {
-    // Optimistically append — the WS will echo it to other open pages.
+    // Optimistically show the message; record it so the WS echo is skipped.
+    _pendingSent.push(text);
     var m = { sender: 'human', content: text };
     pageState.messages.push(m);
     var msgsEl = document.querySelector('.chat-messages');
@@ -434,8 +438,11 @@ function connectWS() {
 
 function onWsMessage(ev) {
   if (ev.conversation_id !== activeConvId()) return;
-  // Skip echoed human messages (already appended optimistically by sendMessage).
-  if (ev.sender === 'human' && ev.timestamp <= pageState.lastTs) return;
+  // Skip the WS echo of messages we already showed via optimistic append.
+  if (ev.sender === 'human') {
+    var idx = _pendingSent.indexOf(ev.content);
+    if (idx >= 0) { _pendingSent.splice(idx, 1); return; }
+  }
   var m = { sender: ev.sender, content: ev.content, timestamp: ev.timestamp };
   pageState.messages.push(m);
   if (ev.timestamp > pageState.lastTs) pageState.lastTs = ev.timestamp;
