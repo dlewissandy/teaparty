@@ -19,10 +19,10 @@ import unittest
 from projects.POC.orchestrator.tests.test_helpers import make_tmp_dir
 
 
-def _make_bus():
+def _make_bus(test_case):
     from projects.POC.orchestrator.messaging import SqliteMessageBus
-    tmp = tempfile.mktemp(suffix='.db')
-    return SqliteMessageBus(tmp)
+    tmp_dir = make_tmp_dir(test_case)
+    return SqliteMessageBus(os.path.join(tmp_dir, 'messages.db'))
 
 
 def _make_stub_phase_config():
@@ -138,8 +138,8 @@ class TestMessageBusRoleEnforcement(unittest.TestCase):
     def _make_enforced_bus(self):
         from projects.POC.orchestrator.messaging import SqliteMessageBus
         from projects.POC.orchestrator.role_enforcer import RoleEnforcer
-        tmp = tempfile.mktemp(suffix='.db')
-        bus = SqliteMessageBus(tmp)
+        tmp_dir = make_tmp_dir(self)
+        bus = SqliteMessageBus(os.path.join(tmp_dir, 'messages.db'))
         enforcer = RoleEnforcer(_make_role_map())
         bus.role_enforcer = enforcer
         return bus
@@ -171,7 +171,7 @@ class TestMessageBusRoleEnforcement(unittest.TestCase):
 
     def test_no_enforcer_allows_all(self):
         """Without an enforcer, any sender works (backwards compatible)."""
-        bus = _make_bus()
+        bus = _make_bus(self)
         msg_id = bus.send('conv1', 'bob', 'hello')
         self.assertTrue(msg_id)
 

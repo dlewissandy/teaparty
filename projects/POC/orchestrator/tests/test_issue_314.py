@@ -180,7 +180,45 @@ class TestIssue252NoFakePaths(unittest.TestCase):
         self.assertNotIn("infra_dir='/tmp/fake'", self._source())
 
 
-# ── Test 7: test_helpers module exposes make_tmp_dir ─────────────────────────
+# ── Tests 7–9: remaining migrated files must not use /tmp/fake paths ─────────
+
+def _read_test_source(filename):
+    path = os.path.join(os.path.dirname(__file__), filename)
+    with open(path) as f:
+        return f.read()
+
+
+class TestRemainingFilesNoFakePaths(unittest.TestCase):
+    """All migrated test files must not use hardcoded /tmp/fake paths."""
+
+    def test_issue_135_no_fake_worktree_path(self):
+        """test_issue_135.py must not use /tmp/fake-worktree as a default."""
+        self.assertNotIn("'/tmp/fake-worktree'", _read_test_source('test_issue_135.py'))
+
+    def test_issue_159_no_fake_worktree_path(self):
+        """test_issue_159.py must not use /tmp/fake-worktree as a default."""
+        self.assertNotIn("'/tmp/fake-worktree'", _read_test_source('test_issue_159.py'))
+
+    def test_issue_248_no_fake_worktree_path(self):
+        """test_issue_248.py must not use /tmp/fake-worktree as a default."""
+        self.assertNotIn("'/tmp/fake-worktree'", _read_test_source('test_issue_248.py'))
+
+    def test_issue_237_no_fake_proxy_model_path(self):
+        """test_issue_237.py must not use /tmp/fake for proxy_model_path."""
+        self.assertNotIn("proxy_model_path='/tmp/fake'", _read_test_source('test_issue_237.py'))
+
+    def test_issue_195_no_fake_project_dir(self):
+        """test_issue_195.py must not use /tmp/fake-project as a default."""
+        self.assertNotIn("'/tmp/fake-project'", _read_test_source('test_issue_195.py'))
+
+    def test_issue_274_no_fake_project_dir(self):
+        """test_issue_274.py must not use /tmp/fake or /tmp/fake-project."""
+        src = _read_test_source('test_issue_274.py')
+        self.assertNotIn("'/tmp/fake'", src)
+        self.assertNotIn("'/tmp/fake-project'", src)
+
+
+# ── Test N: test_helpers module exposes make_tmp_dir ─────────────────────────
 
 class TestHelpersModuleExposed(unittest.TestCase):
     """test_helpers must export a callable make_tmp_dir(test_case)."""

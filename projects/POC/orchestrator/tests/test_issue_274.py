@@ -39,7 +39,10 @@ def _make_scheduled_task(
 
 
 def _make_state_dir() -> str:
-    return tempfile.mkdtemp()
+    import atexit, shutil
+    tmp = tempfile.mkdtemp()
+    atexit.register(shutil.rmtree, tmp, True)
+    return tmp
 
 
 def _make_scheduler(
