@@ -509,6 +509,7 @@ class TeaPartyBridge:
             'cfa_state': s.cfa_state,
             'cfa_actor': s.cfa_actor,
             'needs_input': s.needs_input,
+            'task': s.task,
             'heartbeat_status': s.heartbeat_status,
             'total_cost_usd': s.total_cost_usd,
             'backtrack_count': s.backtrack_count,
