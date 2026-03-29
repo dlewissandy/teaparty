@@ -211,10 +211,10 @@ class TestNoHardcodedTeamLists(unittest.TestCase):
 
     def test_withdraw_no_hardcoded_teams(self):
         """withdraw.py must not contain a hardcoded team tuple."""
-        import projects.POC.tui.withdraw as wd
+        import projects.POC.orchestrator.withdraw as wd
         source = open(wd.__file__).read()
         self.assertNotIn("'art', 'writing', 'editorial', 'research', 'coding'", source,
-                         'withdraw.py still has hardcoded team list')
+                         'orchestrator/withdraw.py still has hardcoded team list')
 
 
 if __name__ == '__main__':

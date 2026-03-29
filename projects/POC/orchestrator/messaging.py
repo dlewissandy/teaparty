@@ -386,3 +386,55 @@ class MessageBusInputProvider:
             self.bus.set_awaiting_input(self.conversation_id, False)
             self._waiting = False
             self._current_request = None
+
+
+# ── IPC helpers for bridge / external clients ────────────────────────────────
+
+def check_message_bus_request(
+    bus_path: str, conversation_id: str,
+) -> dict | None:
+    """Check if the orchestrator is waiting for input via the message bus.
+
+    Uses the structural awaiting_input flag set by MessageBusInputProvider
+    (issue #288).  Returns a dict with 'bridge_text' (the most recent
+    orchestrator message), or None if no input is pending.
+    """
+    import os
+    if not os.path.exists(bus_path):
+        return None
+    try:
+        bus = SqliteMessageBus(bus_path)
+        try:
+            conv = bus.get_conversation(conversation_id)
+            if conv is None or not conv.awaiting_input:
+                return None
+            messages = bus.receive(conversation_id)
+            for msg in reversed(messages):
+                if msg.sender == 'orchestrator':
+                    return {'bridge_text': msg.content}
+            return None
+        finally:
+            bus.close()
+    except Exception:
+        return None
+
+
+def send_message_bus_response(
+    bus_path: str, conversation_id: str, response: str,
+) -> bool:
+    """Send a human response to the message bus.
+
+    The orchestrator's MessageBusInputProvider polls for 'human' messages
+    and will pick this up.
+
+    Returns True on success, False on failure.
+    """
+    try:
+        bus = SqliteMessageBus(bus_path)
+        try:
+            bus.send(conversation_id, 'human', response)
+            return True
+        finally:
+            bus.close()
+    except Exception:
+        return False

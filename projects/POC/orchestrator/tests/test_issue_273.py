@@ -198,7 +198,7 @@ class TestManagementDashboardStats(unittest.TestCase):
 
     def test_management_stats_include_all_spec_keys(self):
         """Stats bar should contain all 12 keys from management-dashboard.md."""
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         completed = _make_session(
             session_id='20260328-100000',
             cfa_state='COMPLETED_WORK', status='complete',
@@ -231,14 +231,14 @@ class TestManagementDashboardStats(unittest.TestCase):
         self.assertEqual(set(stats.keys()), expected_keys)
 
     def test_jobs_done_counts_completed_work(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         done = _make_session(cfa_state='COMPLETED_WORK')
         active = _make_session(session_id='20260328-130000', cfa_state='WORK_IN_PROGRESS')
         stats = compute_management_stats([_make_project(sessions=[done, active])])
         self.assertEqual(stats['jobs_done'], 1)
 
     def test_tasks_done_counts_completed_dispatches(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         d1 = _make_dispatch(status='complete')
         d2 = _make_dispatch(status='active')
         s = _make_session(dispatches=[d1, d2])
@@ -246,7 +246,7 @@ class TestManagementDashboardStats(unittest.TestCase):
         self.assertEqual(stats['tasks_done'], 1)
 
     def test_one_shots_counts_completed_with_zero_backtracks(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         oneshot = _make_session(
             session_id='20260328-100000',
             cfa_state='COMPLETED_WORK', backtrack_count=0,
@@ -259,7 +259,7 @@ class TestManagementDashboardStats(unittest.TestCase):
         self.assertEqual(stats['one_shots'], 1)
 
     def test_backtracks_sums_backtrack_counts(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         s1 = _make_session(session_id='20260328-100000', backtrack_count=2)
         s2 = _make_session(session_id='20260328-110000', backtrack_count=3)
         stats = compute_management_stats([_make_project(sessions=[s1, s2])])
@@ -267,7 +267,7 @@ class TestManagementDashboardStats(unittest.TestCase):
 
     def test_unavailable_stats_are_none(self):
         """Stats that depend on optional subsystems should be None when unavailable."""
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         stats = compute_management_stats([_make_project(sessions=[])])
         self.assertIsNone(stats['tokens'])
         self.assertIsNone(stats['proxy_accuracy'])
@@ -287,7 +287,7 @@ class TestProxyStatsFromDB(unittest.TestCase):
 
     def test_proxy_accuracy_computed_from_db(self):
         """When proxy_memory.db exists with accuracy data, proxy_accuracy should be a percentage string."""
-        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        from projects.POC.orchestrator.dashboard_stats import _proxy_stats
         _make_proxy_db(self.proj_path, n_chunks=10, n_matched=7)
         # Also populate proxy_accuracy table
         db_path = os.path.join(self.proj_path, '.proxy-memory.db')
@@ -309,21 +309,21 @@ class TestProxyStatsFromDB(unittest.TestCase):
 
     def test_skills_learned_from_chunk_count(self):
         """Skills learned should equal non-deleted chunk count."""
-        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        from projects.POC.orchestrator.dashboard_stats import _proxy_stats
         _make_proxy_db(self.proj_path, n_chunks=8, n_matched=5)
         _, chunks = _proxy_stats([self.proj_path])
         self.assertEqual(chunks, 8)
 
     def test_no_db_returns_none(self):
         """When no proxy_memory.db exists, return None for both."""
-        from projects.POC.tui.screens.dashboard_screen import _proxy_stats
+        from projects.POC.orchestrator.dashboard_stats import _proxy_stats
         accuracy, chunks = _proxy_stats([self.proj_path])
         self.assertIsNone(accuracy)
         self.assertIsNone(chunks)
 
     def test_management_stats_wire_proxy_data(self):
         """compute_management_stats should pass project paths to _proxy_stats."""
-        from projects.POC.tui.screens.dashboard_screen import compute_management_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_management_stats
         _make_proxy_db(self.proj_path, n_chunks=5, n_matched=3)
         proj = _make_project(slug='test-proj', path=self.proj_path,
                              sessions=[_make_session()])
@@ -337,12 +337,12 @@ class TestProjectDashboardStats(unittest.TestCase):
     """Project dashboard stats: same as management minus Uptime."""
 
     def test_project_stats_exclude_uptime(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_project_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_project_stats
         stats = compute_project_stats([])
         self.assertNotIn('uptime', stats)
 
     def test_project_stats_include_core_keys(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_project_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_project_stats
         s = _make_session(cfa_state='COMPLETED_WORK', backtrack_count=0)
         stats = compute_project_stats([s])
         for key in ('jobs_done', 'tasks_done', 'active', 'one_shots',
@@ -356,7 +356,7 @@ class TestJobDashboardStats(unittest.TestCase):
     """Job dashboard: Tasks, Backtracks, Escalations, Tokens, Elapsed."""
 
     def test_job_stats_include_spec_keys(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_job_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_job_stats
         d1 = _make_dispatch(status='complete')
         d2 = _make_dispatch(status='active')
         s = _make_session(dispatches=[d1, d2], backtrack_count=3, duration_seconds=600)
@@ -368,7 +368,7 @@ class TestJobDashboardStats(unittest.TestCase):
         self.assertIn('elapsed', stats)
 
     def test_job_backtracks_from_session(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_job_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_job_stats
         s = _make_session(backtrack_count=4)
         stats = compute_job_stats(s)
         self.assertEqual(stats['backtracks'], 4)
@@ -380,7 +380,7 @@ class TestTaskDashboardStats(unittest.TestCase):
     """Task dashboard: Tokens, Elapsed."""
 
     def test_task_stats_include_spec_keys(self):
-        from projects.POC.tui.screens.dashboard_screen import compute_task_stats
+        from projects.POC.orchestrator.dashboard_stats import compute_task_stats
         d = _make_dispatch(stream_age_seconds=120)
         stats = compute_task_stats(d)
         self.assertIn('tokens', stats)
@@ -394,7 +394,7 @@ class TestDashboardStatsRendering(unittest.TestCase):
 
     def test_management_stats_bar_has_twelve_entries(self):
         """Management stats bar should have 12 stat entries."""
-        from projects.POC.tui.screens.dashboard_screen import format_management_stats
+        from projects.POC.orchestrator.dashboard_stats import format_management_stats
         completed = _make_session(
             session_id='20260328-100000',
             cfa_state='COMPLETED_WORK', backtrack_count=0,
@@ -405,7 +405,7 @@ class TestDashboardStatsRendering(unittest.TestCase):
 
     def test_job_stats_bar_has_five_entries(self):
         """Job stats bar should have 5 stat entries per spec."""
-        from projects.POC.tui.screens.dashboard_screen import format_job_stats
+        from projects.POC.orchestrator.dashboard_stats import format_job_stats
         s = _make_session(
             dispatches=[_make_dispatch(status='complete')],
             backtrack_count=1, duration_seconds=600,
@@ -415,7 +415,7 @@ class TestDashboardStatsRendering(unittest.TestCase):
 
     def test_task_stats_bar_has_two_entries(self):
         """Task stats bar should have 2 stat entries per spec."""
-        from projects.POC.tui.screens.dashboard_screen import format_task_stats
+        from projects.POC.orchestrator.dashboard_stats import format_task_stats
         d = _make_dispatch(stream_age_seconds=120)
         pairs = format_task_stats(d)
         self.assertEqual(len(pairs), 2)
@@ -427,15 +427,15 @@ class TestGracefulDegradation(unittest.TestCase):
     """Stats that depend on optional subsystems show '—' when unavailable."""
 
     def test_none_stats_format_as_dash(self):
-        from projects.POC.tui.screens.dashboard_screen import format_stat_value
+        from projects.POC.orchestrator.dashboard_stats import format_stat_value
         self.assertEqual(format_stat_value(None), '\u2014')
 
     def test_numeric_stats_format_normally(self):
-        from projects.POC.tui.screens.dashboard_screen import format_stat_value
+        from projects.POC.orchestrator.dashboard_stats import format_stat_value
         self.assertEqual(format_stat_value(42), '42')
 
     def test_string_stats_pass_through(self):
-        from projects.POC.tui.screens.dashboard_screen import format_stat_value
+        from projects.POC.orchestrator.dashboard_stats import format_stat_value
         self.assertEqual(format_stat_value('5m'), '5m')
 
 

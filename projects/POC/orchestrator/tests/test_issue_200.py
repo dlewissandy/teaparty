@@ -335,13 +335,13 @@ class TestTuiIpcMessageBus(unittest.TestCase):
 
     def test_no_pending_request_when_empty(self):
         """No request when awaiting_input flag is not set."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         result = check_message_bus_request(self.db_path, self.conversation_id)
         self.assertIsNone(result)
 
     def test_pending_request_after_orchestrator_sends_and_sets_flag(self):
         """Pending request detected via structural awaiting_input flag."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
         self.bus.set_awaiting_input(self.conversation_id, True)
         result = check_message_bus_request(self.db_path, self.conversation_id)
@@ -350,7 +350,7 @@ class TestTuiIpcMessageBus(unittest.TestCase):
 
     def test_no_pending_after_flag_cleared(self):
         """No pending request after awaiting_input flag is cleared."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         self.bus.send(self.conversation_id, 'orchestrator', 'Approve?')
         self.bus.set_awaiting_input(self.conversation_id, True)
         self.bus.set_awaiting_input(self.conversation_id, False)
@@ -359,7 +359,7 @@ class TestTuiIpcMessageBus(unittest.TestCase):
 
     def test_send_message_bus_response(self):
         """send_message_bus_response writes a human message to the bus."""
-        from projects.POC.tui.ipc import send_message_bus_response
+        from projects.POC.orchestrator.messaging import send_message_bus_response
         self.bus.send(self.conversation_id, 'orchestrator', 'Color?')
         ok = send_message_bus_response(self.db_path, self.conversation_id, 'blue')
         self.assertTrue(ok)
@@ -370,13 +370,13 @@ class TestTuiIpcMessageBus(unittest.TestCase):
 
     def test_nonexistent_db_returns_none(self):
         """check_message_bus_request returns None for missing DB."""
-        from projects.POC.tui.ipc import check_message_bus_request
+        from projects.POC.orchestrator.messaging import check_message_bus_request
         result = check_message_bus_request('/nonexistent/path.db', 'conv')
         self.assertIsNone(result)
 
     def test_end_to_end_bus_round_trip(self):
         """Full round trip: orchestrator sends question → TUI detects via flag → sends response → orchestrator receives."""
-        from projects.POC.tui.ipc import check_message_bus_request, send_message_bus_response
+        from projects.POC.orchestrator.messaging import check_message_bus_request, send_message_bus_response
         provider = MessageBusInputProvider(
             bus=self.bus,
             conversation_id=self.conversation_id,

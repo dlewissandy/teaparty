@@ -15,7 +15,7 @@ import tempfile
 import time
 import unittest
 
-from projects.POC.tui.navigation import DashboardLevel, cards_for_level
+from projects.POC.orchestrator.navigation import DashboardLevel, cards_for_level
 
 
 def _make_dispatch_state(**kwargs):
@@ -164,7 +164,7 @@ class TestProjectCardBadgeCount(unittest.TestCase):
 
     def test_project_card_detail_shows_numeric_escalation_count(self):
         """Project card detail includes the numeric escalation count, not just a boolean icon."""
-        from projects.POC.tui.screens.dashboard_screen import _build_project_items
+        from projects.POC.orchestrator.dashboard_stats import _build_project_items
         d1 = _make_dispatch_state(needs_input=True)
         d2 = _make_dispatch_state(needs_input=True)
         d3 = _make_dispatch_state(needs_input=True)
@@ -214,20 +214,20 @@ class TestHeartbeatStatusIcon(unittest.TestCase):
 
     def test_alive_gets_distinct_icon(self):
         """Alive heartbeat produces a visual indicator."""
-        from projects.POC.tui.screens.dashboard_screen import _heartbeat_icon
+        from projects.POC.orchestrator.dashboard_stats import _heartbeat_icon
         icon = _heartbeat_icon('alive')
         self.assertTrue(len(icon) > 0)
 
     def test_stale_gets_distinct_icon(self):
         """Stale heartbeat produces a different indicator from alive."""
-        from projects.POC.tui.screens.dashboard_screen import _heartbeat_icon
+        from projects.POC.orchestrator.dashboard_stats import _heartbeat_icon
         alive = _heartbeat_icon('alive')
         stale = _heartbeat_icon('stale')
         self.assertNotEqual(alive, stale)
 
     def test_dead_gets_distinct_icon(self):
         """Dead heartbeat produces a different indicator from alive and stale."""
-        from projects.POC.tui.screens.dashboard_screen import _heartbeat_icon
+        from projects.POC.orchestrator.dashboard_stats import _heartbeat_icon
         alive = _heartbeat_icon('alive')
         stale = _heartbeat_icon('stale')
         dead = _heartbeat_icon('dead')
@@ -240,7 +240,7 @@ class TestBuildEscalationItems(unittest.TestCase):
 
     def test_build_escalation_items_from_sessions(self):
         """Escalation items include sessions with needs_input."""
-        from projects.POC.tui.screens.dashboard_screen import _build_escalation_items
+        from projects.POC.orchestrator.dashboard_stats import _build_escalation_items
         s1 = _make_session_state(session_id='s1', needs_input=True)
         s2 = _make_session_state(session_id='s2', needs_input=False)
         items = _build_escalation_items([('proj', s1), ('proj', s2)])
@@ -250,7 +250,7 @@ class TestBuildEscalationItems(unittest.TestCase):
 
     def test_build_escalation_items_includes_dispatch_escalations(self):
         """Escalation items include dispatches with needs_input within sessions."""
-        from projects.POC.tui.screens.dashboard_screen import _build_escalation_items
+        from projects.POC.orchestrator.dashboard_stats import _build_escalation_items
         d1 = _make_dispatch_state(needs_input=True, team='coding', worktree_name='d1')
         d2 = _make_dispatch_state(needs_input=False, team='writing', worktree_name='d2')
         s = _make_session_state(session_id='s1', needs_input=False, dispatches=[d1, d2])

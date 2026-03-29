@@ -220,7 +220,7 @@ class TestWithdrawEventPublishing(unittest.TestCase):
 
     def test_publishes_withdraw_event(self):
         """withdraw_session() must publish a WITHDRAW event on the EventBus."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         bus = _mock_bus()
@@ -232,7 +232,7 @@ class TestWithdrawEventPublishing(unittest.TestCase):
 
     def test_event_ordering_withdraw_before_log_before_completed(self):
         """Strict ordering: WITHDRAW → LOG → SESSION_COMPLETED."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         bus = _mock_bus()
@@ -250,7 +250,7 @@ class TestWithdrawEventPublishing(unittest.TestCase):
 
     def test_withdraw_event_before_kill(self):
         """WITHDRAW event must be published before _kill_pid is called."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         call_order = []
@@ -267,7 +267,7 @@ class TestWithdrawEventPublishing(unittest.TestCase):
             call_order.append(('kill', pid))
 
         session = _make_session_state(self.infra_dir)
-        with patch('projects.POC.tui.withdraw._kill_pid', side_effect=tracking_kill):
+        with patch('projects.POC.orchestrator.withdraw._kill_pid', side_effect=tracking_kill):
             _run(withdraw_session(session, event_bus=bus))
 
         # WITHDRAW event must appear before any kill
@@ -280,7 +280,7 @@ class TestWithdrawEventPublishing(unittest.TestCase):
 
     def test_withdraw_event_carries_context(self):
         """WITHDRAW event must include session_id, phase, state, and task."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         bus = _mock_bus()
@@ -309,30 +309,30 @@ class TestCascadingProcessTermination(unittest.TestCase):
 
     def test_kills_session_pid(self):
         """Session's own PID must be killed."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(self.infra_dir)
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             self.assertIn(99999, killed)
 
     def test_kills_direct_dispatch_pid(self):
         """Direct dispatch PIDs must be killed."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-1', pid=11111)
         dispatch = _make_dispatch_state(d1)
         session = _make_session_state(self.infra_dir, dispatches=[dispatch])
 
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             self.assertIn(11111, killed, 'Direct dispatch PID not killed')
 
     def test_kills_nested_l2_dispatch_pid(self):
         """Nested dispatch PIDs (L2 under L1) must be killed recursively."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         _make_nested_dispatch_dir(d1, 'coding', '20260327-130100', pid=22222)
@@ -340,14 +340,14 @@ class TestCascadingProcessTermination(unittest.TestCase):
         dispatch = _make_dispatch_state(d1)
         session = _make_session_state(self.infra_dir, dispatches=[dispatch])
 
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             self.assertIn(22222, killed, 'L2 nested dispatch PID not killed')
 
     def test_kills_three_level_hierarchy(self):
         """Full 3-level cascade: session → L1 dispatch → L2 nested → L3 nested."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         l2_dir = _make_nested_dispatch_dir(d1, 'coding', '20260327-130100', pid=22222)
@@ -356,7 +356,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
         dispatch = _make_dispatch_state(d1)
         session = _make_session_state(self.infra_dir, dispatches=[dispatch])
 
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             self.assertIn(99999, killed, 'Session PID not killed')
@@ -366,7 +366,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
 
     def test_kills_multiple_teams_at_same_level(self):
         """Multiple team dispatches at the same level must all be killed."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         _make_nested_dispatch_dir(d1, 'coding', '20260327-130100', pid=22222)
@@ -376,7 +376,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
         dispatch = _make_dispatch_state(d1)
         session = _make_session_state(self.infra_dir, dispatches=[dispatch])
 
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             self.assertIn(22222, killed, 'coding team PID not killed')
@@ -385,7 +385,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
 
     def test_ignores_non_dispatch_entries(self):
         """Files and non-timestamp dirs under team dirs must be ignored."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         # Real dispatch
@@ -400,7 +400,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
         dispatch = _make_dispatch_state(d1)
         session = _make_session_state(self.infra_dir, dispatches=[dispatch])
 
-        with patch('projects.POC.tui.withdraw._kill_pid') as mock_kill:
+        with patch('projects.POC.orchestrator.withdraw._kill_pid') as mock_kill:
             _run(withdraw_session(session))
             killed = [c.args[0] for c in mock_kill.call_args_list]
             # Should kill session, dispatch-l1, and the real nested dispatch
@@ -410,7 +410,7 @@ class TestCascadingProcessTermination(unittest.TestCase):
     def test_sigkill_fallback(self):
         """Spec: "sends SIGTERM ... falling back to SIGKILL". If process survives
         SIGTERM, _kill_pid must send SIGKILL."""
-        from projects.POC.tui.withdraw import _kill_pid
+        from projects.POC.orchestrator.withdraw import _kill_pid
 
         fake_pid = 55555
         my_pgid = os.getpgid(os.getpid())  # Capture before patching
@@ -454,7 +454,7 @@ class TestStateCascade(unittest.TestCase):
 
     def test_session_state_set_to_withdrawn(self):
         """Session .cfa-state.json must be WITHDRAWN."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(self.infra_dir)
         _run(withdraw_session(session))
@@ -464,7 +464,7 @@ class TestStateCascade(unittest.TestCase):
 
     def test_l1_dispatch_state_set_to_withdrawn(self):
         """L1 dispatch .cfa-state.json must be WITHDRAWN."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         dispatch = _make_dispatch_state(d1)
@@ -477,7 +477,7 @@ class TestStateCascade(unittest.TestCase):
 
     def test_l2_nested_dispatch_state_set_to_withdrawn(self):
         """L2 nested dispatch .cfa-state.json must be WITHDRAWN."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         l2_dir = _make_nested_dispatch_dir(d1, 'coding', '20260327-130100', pid=22222)
@@ -492,7 +492,7 @@ class TestStateCascade(unittest.TestCase):
 
     def test_history_entry_appended(self):
         """history[] must have a withdraw entry with actor='tui-withdraw'."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(self.infra_dir)
         _run(withdraw_session(session))
@@ -506,7 +506,7 @@ class TestStateCascade(unittest.TestCase):
 
     def test_sentinels_cleaned_at_nested_levels(self):
         """.running files must be removed at nested dispatch levels."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         d1 = _make_infra_dir(self.tmpdir, 'dispatch-l1', pid=11111)
         l2_dir = _make_nested_dispatch_dir(d1, 'coding', '20260327-130100', pid=22222)
@@ -538,7 +538,7 @@ class TestLearningSignal(unittest.TestCase):
 
     def test_log_event_emitted(self):
         """LOG event with withdrawal context must be emitted."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         bus = _mock_bus()
@@ -553,7 +553,7 @@ class TestLearningSignal(unittest.TestCase):
 
     def test_log_event_includes_phase_and_task(self):
         """LOG event must name the phase and task for learning extraction."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.events import EventType
 
         bus = _mock_bus()
@@ -568,7 +568,7 @@ class TestLearningSignal(unittest.TestCase):
 
     def test_memory_chunk_stored(self):
         """A 'withdrawal' chunk must be stored in proxy_memory.db."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.proxy_memory import open_proxy_db
 
         session = _make_session_state(self.infra_dir, task='build widget',
@@ -595,7 +595,7 @@ class TestLearningSignal(unittest.TestCase):
 
     def test_memory_chunk_with_different_phase(self):
         """Memory chunk content must reflect the actual phase at withdrawal."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
         from projects.POC.orchestrator.proxy_memory import open_proxy_db
 
         session = _make_session_state(self.infra_dir, task='write docs',
@@ -614,7 +614,7 @@ class TestLearningSignal(unittest.TestCase):
 
     def test_no_crash_when_db_missing(self):
         """Withdrawal must succeed gracefully when proxy DB doesn't exist."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         os.unlink(self.db_path)
         session = _make_session_state(self.infra_dir)
@@ -634,7 +634,7 @@ class TestGuardRails(unittest.TestCase):
 
     def test_noop_on_completed_work(self):
         """Withdrawing a COMPLETED_WORK session must return False and change nothing."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         infra = _make_infra_dir(self.tmpdir, cfa_state='COMPLETED_WORK')
         session = _make_session_state(infra, cfa_state='COMPLETED_WORK')
@@ -645,7 +645,7 @@ class TestGuardRails(unittest.TestCase):
 
     def test_noop_on_already_withdrawn(self):
         """Withdrawing an already-WITHDRAWN session must return False."""
-        from projects.POC.tui.withdraw import withdraw_session
+        from projects.POC.orchestrator.withdraw import withdraw_session
 
         infra = _make_infra_dir(self.tmpdir, cfa_state='WITHDRAWN')
         session = _make_session_state(infra, cfa_state='WITHDRAWN')
@@ -654,7 +654,7 @@ class TestGuardRails(unittest.TestCase):
 
     def test_depth_bounded_recursion(self):
         """_kill_nested_dispatches must stop at depth 10 to prevent runaway traversal."""
-        from projects.POC.tui.withdraw import _kill_nested_dispatches
+        from projects.POC.orchestrator.withdraw import _kill_nested_dispatches
 
         # Build a chain 12 levels deep — only 11 should be visited (0..10)
         base = os.path.join(self.tmpdir, 'deep')
@@ -667,7 +667,7 @@ class TestGuardRails(unittest.TestCase):
             pids_written.append(10000 + i)
 
         killed = []
-        with patch('projects.POC.tui.withdraw._kill_pid', side_effect=lambda pid: killed.append(pid)):
+        with patch('projects.POC.orchestrator.withdraw._kill_pid', side_effect=lambda pid: killed.append(pid)):
             _kill_nested_dispatches(base)
 
         # Depth 0 through 10 = 11 levels, but the 12th (depth=11) should be skipped
