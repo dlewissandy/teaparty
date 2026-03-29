@@ -562,6 +562,18 @@ class TeaPartyBridge:
         }
 
     def _serialize_session(self, s) -> dict:
+        # Resolve the conversation_id that is currently awaiting human input,
+        # so the home page can build the correct escalation click URL at render time.
+        input_conv_id = ''
+        if s.needs_input:
+            bus = self._buses.get(s.session_id)
+            if bus is not None:
+                try:
+                    waiting = bus.conversations_awaiting_input()
+                    if waiting:
+                        input_conv_id = waiting[0].id
+                except Exception:
+                    pass
         return {
             'session_id': s.session_id,
             'project': s.project,
@@ -570,6 +582,7 @@ class TeaPartyBridge:
             'cfa_state': s.cfa_state,
             'cfa_actor': s.cfa_actor,
             'needs_input': s.needs_input,
+            'input_conv_id': input_conv_id,
             'task': s.task,
             'heartbeat_status': s.heartbeat_status,
             'total_cost_usd': s.total_cost_usd,
