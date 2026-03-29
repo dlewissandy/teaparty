@@ -9,6 +9,11 @@ Acceptance criteria:
 6. Unresolvable workgroups are skipped, not raised as 404
 7. _serialize_workgroup includes agents_count
 8. _serialize_project_team includes agents, humans, skills, hooks, scheduled
+9. _serialize_project_team returns agents as {name, source} objects
+10. Lead agent is tagged source='generated'; org agents 'shared'; others 'local'
+11. _serialize_project_team returns skills as {name, source} objects
+12. Org skills tagged 'shared'; project-only skills 'local'
+13. Override data does not bleed from one workgroup to the next
 """
 import os
 import shutil
@@ -173,7 +178,8 @@ class TestProjectTeamSerialization(unittest.TestCase):
 
     def test_serialized_project_team_agents_contains_names(self):
         result = self.bridge._serialize_project_team(self.team)
-        self.assertIn('Project Lead', result['agents'])
+        names = [a['name'] for a in result['agents']]
+        self.assertIn('Project Lead', names)
 
     def test_serialized_project_team_includes_humans(self):
         result = self.bridge._serialize_project_team(self.team)
@@ -184,7 +190,8 @@ class TestProjectTeamSerialization(unittest.TestCase):
     def test_serialized_project_team_includes_skills(self):
         result = self.bridge._serialize_project_team(self.team)
         self.assertIn('skills', result)
-        self.assertIn('fix-issue', result['skills'])
+        names = [s['name'] for s in result['skills']]
+        self.assertIn('fix-issue', names)
 
     def test_serialized_project_team_includes_hooks(self):
         result = self.bridge._serialize_project_team(self.team)
@@ -507,6 +514,155 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
             self.assertEqual(result['overrides'], [])
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Agent source tags ─────────────────────────────────────────────────────────
+
+class TestAgentSourceTags(unittest.TestCase):
+    """_serialize_project_team must tag agents generated/shared/local."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+        self.project_dir = os.path.join(self.tmpdir, 'proj')
+        os.makedirs(self.project_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_lead_agent_tagged_generated(self):
+        """Agent whose name equals team.lead must be tagged source='generated'."""
+        team = _make_project_team(
+            self.project_dir, agents=['Project Lead', 'Reviewer'], skills=[],
+        )
+        result = self.bridge._serialize_project_team(team)
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['Project Lead'], 'generated')
+
+    def test_org_agent_tagged_shared(self):
+        """Agent present in org agents list (but not the lead) must be tagged 'shared'."""
+        _make_management_team(self.tmpdir, agents=['Shared Reviewer', 'Other'])
+        team = _make_project_team(
+            self.project_dir, agents=['Project Lead', 'Shared Reviewer'], skills=[],
+        )
+        result = self.bridge._serialize_project_team(team, org_agents=['Shared Reviewer', 'Other'])
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['Shared Reviewer'], 'shared')
+
+    def test_project_only_agent_tagged_local(self):
+        """Agent not in org agents and not the lead must be tagged 'local'."""
+        team = _make_project_team(
+            self.project_dir, agents=['Project Lead', 'Local Bot'], skills=[],
+        )
+        result = self.bridge._serialize_project_team(team, org_agents=['Office Manager'])
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['Local Bot'], 'local')
+
+    def test_generated_takes_priority_over_shared(self):
+        """If the lead also appears in org agents, source is still 'generated'."""
+        team = _make_project_team(
+            self.project_dir, agents=['Project Lead'], skills=[],
+        )
+        result = self.bridge._serialize_project_team(team, org_agents=['Project Lead'])
+        by_name = {a['name']: a['source'] for a in result['agents']}
+        self.assertEqual(by_name['Project Lead'], 'generated')
+
+    def test_agents_returned_as_objects(self):
+        """Each agent entry must be a dict with 'name' and 'source' keys."""
+        team = _make_project_team(self.project_dir, agents=['Bot'], skills=[])
+        result = self.bridge._serialize_project_team(team)
+        self.assertIsInstance(result['agents'], list)
+        self.assertTrue(len(result['agents']) > 0)
+        agent = result['agents'][0]
+        self.assertIn('name', agent)
+        self.assertIn('source', agent)
+
+
+# ── Skill source tags ─────────────────────────────────────────────────────────
+
+class TestSkillSourceTags(unittest.TestCase):
+    """_serialize_project_team must tag skills shared/local."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+        self.project_dir = os.path.join(self.tmpdir, 'proj')
+        os.makedirs(self.project_dir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_org_skill_tagged_shared(self):
+        """Skill present in org skills must be tagged 'shared'."""
+        team = _make_project_team(self.project_dir, agents=[], skills=['audit', 'local-skill'])
+        result = self.bridge._serialize_project_team(team, org_skills=['audit'])
+        by_name = {s['name']: s['source'] for s in result['skills']}
+        self.assertEqual(by_name['audit'], 'shared')
+
+    def test_project_only_skill_tagged_local(self):
+        """Skill not in org skills must be tagged 'local'."""
+        team = _make_project_team(self.project_dir, agents=[], skills=['project-skill'])
+        result = self.bridge._serialize_project_team(team, org_skills=['org-skill'])
+        by_name = {s['name']: s['source'] for s in result['skills']}
+        self.assertEqual(by_name['project-skill'], 'local')
+
+    def test_skills_returned_as_objects(self):
+        """Each skill entry must be a dict with 'name' and 'source' keys."""
+        team = _make_project_team(self.project_dir, agents=[], skills=['fix-issue'])
+        result = self.bridge._serialize_project_team(team)
+        self.assertIsInstance(result['skills'], list)
+        skill = result['skills'][0]
+        self.assertIn('name', skill)
+        self.assertIn('source', skill)
+
+    def test_no_org_skills_all_tagged_local(self):
+        """When no org_skills provided, all project skills must be 'local'."""
+        team = _make_project_team(self.project_dir, agents=[], skills=['skill-a', 'skill-b'])
+        result = self.bridge._serialize_project_team(team)
+        sources = {s['source'] for s in result['skills']}
+        self.assertEqual(sources, {'local'})
+
+
+# ── Override variable scope ───────────────────────────────────────────────────
+
+class TestWorkgroupOverrideScope(unittest.TestCase):
+    """Override data must not bleed from one workgroup to the next."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_overrides_reset_per_workgroup(self):
+        """Second workgroup with no override file must show overrides=[]."""
+        from projects.POC.bridge.server import _detect_workgroup_overrides
+        from projects.POC.orchestrator.config_reader import Workgroup
+
+        org_a = Workgroup(name='Alpha', norms={'quality': ['strict']})
+        proj_a = Workgroup(name='Alpha', norms={'quality': ['relaxed']})
+        org_b = Workgroup(name='Beta', norms={'quality': ['strict']})
+        proj_b = Workgroup(name='Beta', norms={'quality': ['strict']})
+
+        overrides_a = _detect_workgroup_overrides(org_a, proj_a)
+        # Alpha has an override: 'norms'
+        self.assertIn('norms', overrides_a)
+
+        # Beta is identical to its org definition — overrides must be empty
+        overrides_b = _detect_workgroup_overrides(org_b, proj_b)
+        self.assertEqual(overrides_b, [])
+
+        # Simulate handler serialization: each w gets its own fresh overrides
+        results = []
+        for (org, proj) in [(org_a, proj_a), (org_b, proj_b)]:
+            overrides: list[str] = []
+            overrides = _detect_workgroup_overrides(org, proj)
+            results.append(self.bridge._serialize_workgroup(proj, source='shared', overrides=overrides))
+
+        self.assertIn('norms', results[0]['overrides'])
+        self.assertEqual(results[1]['overrides'], [],
+                         'Beta must not carry overrides from Alpha')
 
 
 if __name__ == '__main__':

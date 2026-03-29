@@ -322,19 +322,25 @@ class TeaPartyBridge:
         except FileNotFoundError:
             return web.json_response({'error': f'project not found: {slug}'}, status=404)
 
+        try:
+            mgmt = load_management_team(teaparty_home=self.teaparty_home)
+            org_agents: list[str] = mgmt.agents
+            org_skills: list[str] = mgmt.skills
+        except FileNotFoundError:
+            org_agents = []
+            org_skills = []
+
         workgroups = []
         for entry in team.workgroups:
             source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
-            overrides: list[str] = []
             try:
                 resolved = resolve_workgroups(
                     [entry], project_dir=project_dir,
                     teaparty_home=self.teaparty_home,
                 )
                 for w in resolved:
+                    overrides: list[str] = []
                     if isinstance(entry, WorkgroupRef):
-                        # Check if a project-level override exists by attempting to
-                        # load the org-level definition and comparing.
                         org_path = os.path.join(
                             self.teaparty_home, 'workgroups', f'{entry.ref}.yaml'
                         )
@@ -355,7 +361,9 @@ class TeaPartyBridge:
 
         return web.json_response({
             'project': slug,
-            'team': self._serialize_project_team(team),
+            'team': self._serialize_project_team(
+                team, org_agents=org_agents, org_skills=org_skills,
+            ),
             'workgroups': workgroups,
         })
 
@@ -602,15 +610,30 @@ class TeaPartyBridge:
             ],
         }
 
-    def _serialize_project_team(self, t) -> dict:
+    def _serialize_project_team(
+        self, t,
+        org_agents: list[str] | None = None,
+        org_skills: list[str] | None = None,
+    ) -> dict:
+        org_agents_set = set(org_agents or [])
+        org_skills_set = set(org_skills or [])
+
+        def _agent_source(name: str) -> str:
+            if name == t.lead:
+                return 'generated'
+            return 'shared' if name in org_agents_set else 'local'
+
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
-            'agents': t.agents,
+            'agents': [{'name': n, 'source': _agent_source(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': t.skills,
+            'skills': [
+                {'name': n, 'source': 'shared' if n in org_skills_set else 'local'}
+                for n in t.skills
+            ],
             'hooks': t.hooks,
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}

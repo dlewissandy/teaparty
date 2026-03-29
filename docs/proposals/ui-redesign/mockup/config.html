@@ -175,28 +175,33 @@ async function renderProject(slug) {
     return '<div class="item"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + ' ' + src + ' ' + ovr + '</div><div class="item-meta">' + (w.lead || '') + (agentInfo ? ' &middot; ' + agentInfo : '') + '</div></div></div>';
   });
 
-  var agentItems = (team.agents || []).map(function(name) {
-    var generated = team.lead && name === team.lead;
-    var src = generated ? sourceBadge('generated') : '';
+  var agentItems = (team.agents || []).map(function(a) {
+    var name = typeof a === 'object' ? a.name : a;
+    var source = typeof a === 'object' ? a.source : null;
+    var src = sourceBadge(source);
     return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var participantItems = [];
+  var managerConvId = team.decider ? 'manager:' + team.decider : 'manager:unknown';
   if (team.lead) {
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">' + team.lead + ' &middot; operational control</div></div></div>');
+    participantItems.push('<div class="item" onclick="openChat(\'' + managerConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Manager</div><div class="item-meta">' + team.lead + ' &middot; operational control</div></div></div>');
   }
   var proxyConvId = team.decider ? 'proxy:' + team.decider : 'proxy:unknown';
   participantItems.push('<div class="item" onclick="openChat(\'' + proxyConvId + '\')"><div class="item-icon icon-participant">&#9670;</div><div class="item-body"><div class="item-title">Proxy</div><div class="item-meta">project learning &middot; decision patterns</div></div></div>');
   (team.humans || []).forEach(function(h) {
-    participantItems.push('<div class="item"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
+    participantItems.push('<div class="item" onclick="openChat(omConvId)"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');
   });
 
   var artifactItems = Object.keys(artifactsData).map(function(heading) {
     return '<div class="item" onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
   });
 
-  var skillItems = (team.skills || []).map(function(name) {
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+  var skillItems = (team.skills || []).map(function(s) {
+    var name = typeof s === 'object' ? s.name : s;
+    var source = typeof s === 'object' ? s.source : null;
+    var src = sourceBadge(source);
+    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
