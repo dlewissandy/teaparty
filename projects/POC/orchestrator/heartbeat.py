@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import time
 
 
@@ -236,6 +237,76 @@ def _is_pid_alive(pid: int) -> bool:
 
 # ── Liveness classification ───────────────────────────────────────────────────
 
+# Module-level boot time cache for _running_file_is_stale
+_SENTINEL = object()
+_BOOT_TIME: float | None = _SENTINEL  # type: ignore[assignment]
+
+
+def _get_cached_boot_time() -> float | None:
+    """Return system boot time as a Unix timestamp, or None if unavailable.
+
+    Tries macOS sysctl first, then Linux /proc/uptime.  Result is cached
+    after the first successful call.
+    """
+    global _BOOT_TIME
+    if _BOOT_TIME is not _SENTINEL:
+        return _BOOT_TIME  # type: ignore[return-value]
+
+    # macOS: sysctl -n kern.boottime  → "{ sec = 1234567890, usec = 0 } ..."
+    try:
+        out = subprocess.check_output(
+            ['sysctl', '-n', 'kern.boottime'],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).decode()
+        for part in out.split(','):
+            part = part.strip()
+            if part.startswith('sec = ') or part.startswith('{ sec = '):
+                sec_str = part.split('=', 1)[1].strip().rstrip('}').strip()
+                _BOOT_TIME = float(sec_str)
+                return _BOOT_TIME
+    except Exception:
+        pass
+
+    # Linux: /proc/uptime  → "12345.67 23456.78"
+    try:
+        with open('/proc/uptime') as f:
+            uptime_seconds = float(f.read().split()[0])
+        _BOOT_TIME = time.time() - uptime_seconds
+        return _BOOT_TIME
+    except Exception:
+        pass
+
+    _BOOT_TIME = None
+    return None
+
+
+def _running_file_is_stale(path: str) -> bool:
+    """Return True if the .running file predates the last system boot."""
+    boot_time = _get_cached_boot_time()
+    if boot_time is None:
+        return False
+    try:
+        return os.path.getmtime(path) < boot_time
+    except OSError:
+        return False
+
+
+def _running_pid_is_dead(path: str) -> bool:
+    """Return True if the PID recorded in .running is no longer alive."""
+    try:
+        with open(path) as f:
+            pid = int(f.read().strip())
+        os.kill(pid, 0)  # signal 0 = existence check
+        return False  # process is alive
+    except ProcessLookupError:
+        return True   # process doesn't exist
+    except PermissionError:
+        return False  # process exists, we just can't signal it
+    except (ValueError, OSError):
+        return True   # can't read or parse PID file
+
+
 _ALIVE_THRESHOLD = 30    # Heartbeat mtime within 30s = alive (one BEAT_INTERVAL)
 _DEAD_THRESHOLD = 300    # Heartbeat mtime > 5 minutes = dead
 
@@ -267,10 +338,6 @@ def _heartbeat_three_state(infra_dir: str) -> str:
     # Fallback to .running (legacy sentinel)
     running_path = os.path.join(infra_dir, '.running')
     if os.path.exists(running_path):
-        from projects.POC.orchestrator.state_reader import (
-            _running_file_is_stale,
-            _running_pid_is_dead,
-        )
         if _running_file_is_stale(running_path) or _running_pid_is_dead(running_path):
             return 'dead'
         return 'alive'
