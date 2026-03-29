@@ -7,7 +7,7 @@ The bridge is a new aiohttp server that wraps TeaParty's existing infrastructure
 **What the bridge implements as new code:**
 - aiohttp app with static file serving and route definitions
 - 1-second polling loop with state diffing to detect CfA transitions, input requests, heartbeat changes, and session completions
-- Per-session `SqliteMessageBus` connection lifecycle (open on session start, close on completion)
+- Per-session `SqliteMessageBus` connection lifecycle (open on first poll of a non-terminal session, close on terminal state detection)
 - WebSocket endpoint with five push-event types and broadcast-all dispatch
 - Conversation routing across multiple databases (OM database vs per-session databases)
 - Workgroup scanner (`GET /api/workgroups`) — no existing backing function in `config_reader`
@@ -37,11 +37,16 @@ bridge.run(port=8081)
 ```
 
 1. Derive `poc_root = os.path.join(projects_dir, 'POC')` — the orchestrator source directory, not `teaparty_home` (the runtime data directory). Initialize `StateReader(poc_root, projects_dir)` for filesystem polling.
-2. Open `SqliteMessageBus` per active session (`{infra_dir}/messages.db`)
-3. Open a separate `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
-4. Load config via `load_management_team()` + `discover_projects()`
-5. Start 1-second polling loop (same cadence as the TUI)
-6. Serve static files at `/` and API routes at `/api/`
+2. Open a `SqliteMessageBus` for the office manager at `{teaparty_home}/om/om-messages.db` (persistent, not session-scoped — see [Message routing](#message-routing) below)
+3. Load config via `load_management_team()` + `discover_projects()`
+4. Start 1-second polling loop (same cadence as the TUI)
+5. Serve static files at `/` and API routes at `/api/`
+
+**Per-session connection lifecycle (managed by the polling loop):**
+
+- **Open:** On the first poll that encounters a session not in a terminal state, the poller opens a `SqliteMessageBus` connection at `{infra_dir}/messages.db` via a `bus_factory` callable. One connection per session; subsequent polls reuse it.
+- **Close:** When the poller detects a session has transitioned to a terminal CfA state (`COMPLETED_WORK` or `WITHDRAWN`), it calls `bus.close()` and removes the connection from its registry. The close is triggered by the poller's state diff, not by the session process itself.
+- **Terminal sessions on first poll:** A session already in a terminal state when the bridge starts is never opened — the poller skips `bus_factory` for sessions that are terminal on first encounter.
 
 ---
 
@@ -56,7 +61,7 @@ bridge.run(port=8081)
 | GET | `/api/cfa/{session_id}` | CfA state (phase, state, actor, history, backtrack count) | `load_state(infra_dir/.cfa-state.json)` |
 | GET | `/api/heartbeat/{session_id}` | Liveness: alive, stale, or dead | `_heartbeat_three_state()` from `orchestrator.heartbeat` (30s/300s thresholds) |
 
-`StateReader` scans `{project}/.sessions/*/` directories. Each session has `.cfa-state.json` (state), `.heartbeat` (liveness), and `messages.db` (conversations). The bridge opens a `SqliteMessageBus` connection per active session. Connections close when sessions complete.
+`StateReader` scans `{project}/.sessions/*/` directories. Each session has `.cfa-state.json` (state), `.heartbeat` (liveness), and `messages.db` (conversations). Per-session `SqliteMessageBus` connections are managed by the polling loop — see **Per-session connection lifecycle** in [Startup](#startup).
 
 ### Config
 
