@@ -79,16 +79,24 @@
 
 <div class="home" id="content"></div>
 
-<script src="data.js?v=5"></script>
 <script>
 function openPage(url) { window.open(url, '_blank'); }
 
-function renderWorkflow(phases, phaseIdx, large) {
+// Standard CfA phase sequence for workflow bar rendering.
+// Bars: INTENT, PLAN, WORK, DONE. Gates (circles): INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT.
+var PHASES = ['INTENT', 'INTENT_ASSERT', 'PLAN', 'PLAN_ASSERT', 'WORK', 'WORK_ASSERT', 'DONE'];
+
+function phaseIndex(phase) {
+  var idx = PHASES.indexOf(phase);
+  return idx >= 0 ? idx : 0;
+}
+
+function renderWorkflow(phaseIdx, large) {
   var cls = large ? 'workflow-bar large' : 'workflow-bar';
   var html = '<div class="' + cls + '">';
-  for (var i = 0; i < phases.length; i++) {
-    var ph = phases[i];
-    var isGate = ph.includes('ASSERT');
+  for (var i = 0; i < PHASES.length; i++) {
+    var ph = PHASES[i];
+    var isGate = ph.indexOf('ASSERT') !== -1;
     var state = i < phaseIdx ? 'complete' : i === phaseIdx ? 'active' : '';
     if (isGate) {
       html += '<div class="wf-gate ' + state + '" title="' + ph + '"></div>';
@@ -100,9 +108,39 @@ function renderWorkflow(phases, phaseIdx, large) {
   return html;
 }
 
+// Page state: updated by fetchAll() and WebSocket events.
+// escalationConvMap: session_id → conversation_id from input_requested events.
+var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', escalationConvMap: {} };
+
+function fetchAll() {
+  Promise.all([
+    fetch('/api/state').then(function(r) { return r.json(); }),
+    fetch('/api/conversations?type=office_manager').then(function(r) { return r.json(); })
+  ]).then(function(results) {
+    pageState.projects = results[0] || [];
+    var omConvs = results[1] || [];
+    if (omConvs.length > 0) {
+      pageState.omConvId = omConvs[0].id;
+    }
+    var configFetches = pageState.projects.map(function(p) {
+      return fetch('/api/config/' + encodeURIComponent(p.slug))
+        .then(function(r) { return r.json(); })
+        .then(function(cfg) { pageState.configs[p.slug] = cfg; })
+        .catch(function() {});
+    });
+    return Promise.all(configFetches);
+  }).then(function() {
+    render();
+  }).catch(function() {
+    document.getElementById('content').innerHTML =
+      '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
+  });
+}
+
 function render() {
-  var allEsc = mockData.status.escalations;
-  var totalEsc = allEsc.length;
+  var totalEsc = pageState.projects.reduce(function(sum, p) {
+    return sum + (p.attention_count || 0);
+  }, 0);
 
   // Org row
   var orgHtml = '<div class="org-row">';
@@ -121,7 +159,7 @@ function render() {
   orgHtml += '<div><div class="oc-label">Org Knowledge</div><div class="oc-meta">organization.md</div></div>';
   orgHtml += '</div>';
 
-  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=om:darrell\')">';
+  orgHtml += '<div class="org-card" onclick="openPage(\'chat.html?conv=' + pageState.omConvId + '\')">';
   orgHtml += '<span class="oc-icon">&#9733;</span>';
   orgHtml += '<div><div class="oc-label">Office Manager</div><div class="oc-meta">Org-level coordination</div></div>';
   orgHtml += '</div>';
@@ -138,58 +176,63 @@ function render() {
   // Project cards
   var projectsHtml = '<div class="project-grid">';
 
-  Object.entries(mockData.status.projects).forEach(function(entry) {
-    var id = entry[0], p = entry[1];
-    var config = mockData.config.projects[id] || {};
-    var esc = p.jobs ? p.jobs.flatMap(function(j) { return j.escalations || []; }) : [];
+  pageState.projects.forEach(function(p) {
+    var cfg = pageState.configs[p.slug] || {};
+    var team = cfg.team || {};
+    var description = team.description || '';
+    var workgroupCount = (cfg.workgroups || []).length;
+    var activeSessions = (p.sessions || []).filter(function(s) { return s.status === 'active'; });
+    var status = p.active_count > 0 ? 'active' : 'idle';
 
     projectsHtml += '<div class="project-card">';
 
     // Header
     projectsHtml += '<div class="pc-header">';
-    projectsHtml += '<div class="pc-name">' + p.name + '</div>';
-    projectsHtml += '<span class="item-badge badge-' + p.status + '">' + p.status + '</span>';
+    projectsHtml += '<div class="pc-name">' + p.slug + '</div>';
+    projectsHtml += '<span class="item-badge badge-' + status + '">' + status.toUpperCase() + '</span>';
     projectsHtml += '</div>';
 
-    // Description
-    if (config.description) {
-      projectsHtml += '<div class="pc-description">' + config.description + '</div>';
+    // Description (only shown when config provides one)
+    if (description) {
+      projectsHtml += '<div class="pc-description">' + description + '</div>';
     }
 
     // Stats
-    var jobCount = p.jobs ? p.jobs.length : 0;
-    var activeCount = p.jobs ? p.jobs.filter(function(j) { return j.status !== 'done'; }).length : 0;
     projectsHtml += '<div class="pc-stats">';
-    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value" style="color:var(--green)">' + activeCount + '</div><div class="pc-stat-label">Active Jobs</div></div>';
-    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value' + (esc.length > 0 ? ' style="color:var(--red)"' : '') + '">' + esc.length + '</div><div class="pc-stat-label">Escalations</div></div>';
-    var wgCount = config.workgroups ? config.workgroups.length : 0;
-    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value">' + wgCount + '</div><div class="pc-stat-label">Workgroups</div></div>';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value" style="color:var(--green)">' + p.active_count + '</div><div class="pc-stat-label">Active Jobs</div></div>';
+    var escStyle = p.attention_count > 0 ? ' style="color:var(--red)"' : '';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value"' + escStyle + '>' + p.attention_count + '</div><div class="pc-stat-label">Escalations</div></div>';
+    projectsHtml += '<div class="pc-stat"><div class="pc-stat-value">' + workgroupCount + '</div><div class="pc-stat-label">Workgroups</div></div>';
     projectsHtml += '</div>';
 
-    // Active jobs with workflow bars
-    if (p.jobs && p.jobs.length > 0) {
+    // Active session rows (job rows) — omitted when idle (zero active sessions)
+    if (activeSessions.length > 0) {
       projectsHtml += '<div style="border-bottom:1px solid var(--border)">';
-      p.jobs.forEach(function(j) {
-        var jobEsc = j.escalations || [];
-        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" onclick="openPage(\'chat.html?conv=' + j.id + '\')">';
-        if (jobEsc.length > 0) {
-          projectsHtml += '<span class="attention-dot"></span>';
+      activeSessions.forEach(function(s) {
+        var convId = 'session:' + s.session_id;
+        var pIdx = phaseIndex(s.cfa_phase);
+        var jobName = s.task || s.session_id;
+        projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
+        if (s.needs_input) {
+          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'chat.html?conv=session:' + s.session_id + '\')"></span>';
         } else {
           projectsHtml += '<span style="width:6px"></span>';
         }
-        projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + j.name + '</span>';
-        projectsHtml += '<span style="flex:1">' + renderWorkflow(j.phases, j.phaseIdx, false) + '</span>';
-        projectsHtml += '<span class="item-badge badge-' + j.status + '" style="flex-shrink:0">' + j.status + '</span>';
+        projectsHtml += '<span style="flex-shrink:0;width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px;color:var(--text)">' + jobName + '</span>';
+        projectsHtml += '<span style="flex:1">' + renderWorkflow(pIdx, false) + '</span>';
+        projectsHtml += '<span class="item-badge badge-' + s.status + '" style="flex-shrink:0">' + s.status + '</span>';
         projectsHtml += '</div>';
       });
       projectsHtml += '</div>';
     }
 
-    // Action buttons
+    // Action buttons — Manager links to most recent session conversation
+    var managerSession = activeSessions[0] || (p.sessions || [])[0];
+    var managerConv = managerSession ? 'session:' + managerSession.session_id : 'om:darrell';
     projectsHtml += '<div class="pc-actions">';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + id + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + id + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=session:poc-20260325-143000\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=' + managerConv + '\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';
@@ -201,11 +244,134 @@ function render() {
     '<div class="home-title">TeaParty</div>' +
     '<div class="home-subtitle">Agent coordination platform</div>' +
     orgHtml +
-    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="openPage(\'chat.html?conv=om:darrell\')">+ New Project</button></div>' +
+    '<div style="display:flex;align-items:center;margin-bottom:8px"><span style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px">Projects</span><span style="flex:1"></span><button style="background:var(--accent2);color:var(--text);border:none;padding:4px 10px;border-radius:3px;font-size:9px;font-family:inherit;cursor:pointer" onclick="openPage(\'chat.html?conv=' + pageState.omConvId + '\')">+ New Project</button></div>' +
     projectsHtml;
 }
 
-render();
+// WebSocket for real-time updates. Reconnects on disconnect with 3s delay.
+function connectWS() {
+  var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  var ws = new WebSocket(proto + '//' + location.host + '/ws');
+
+  ws.onmessage = function(e) {
+    try {
+      var event = JSON.parse(e.data);
+      if (event.type === 'state_changed') {
+        onStateChanged(event.session_id, event.phase, event.state);
+      } else if (event.type === 'input_requested') {
+        onInputRequested(event.session_id, event.conversation_id);
+      } else if (event.type === 'message') {
+        onMessage(event.conversation_id, event.sender);
+      } else if (event.type === 'session_completed') {
+        fetchAll();
+      }
+    } catch (err) {}
+  };
+
+  ws.onclose = function() {
+    setTimeout(connectWS, 3000);
+  };
+}
+
+// Update a session row's workflow bar and status badge in-place on state_changed.
+function onStateChanged(sessionId, phase, cfaState) {
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (!row) { fetchAll(); return; }
+  // Update workflow bar in-place
+  var barEl = row.querySelector('.workflow-bar');
+  if (barEl) {
+    var tmp = document.createElement('div');
+    tmp.innerHTML = renderWorkflow(phaseIndex(phase), false);
+    var newBar = tmp.firstChild;
+    if (newBar) barEl.parentNode.replaceChild(newBar, barEl);
+  }
+  // Update status badge in-place
+  var badge = row.querySelector('.item-badge');
+  if (badge) {
+    var newStatus = (cfaState === 'COMPLETED_WORK' || cfaState === 'WITHDRAWN') ? 'complete' : 'active';
+    badge.className = 'item-badge badge-' + newStatus;
+    badge.textContent = newStatus;
+  }
+  // Keep page state in sync
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId) {
+        s.cfa_phase = phase;
+        s.cfa_state = cfaState;
+      }
+    });
+  });
+}
+
+// Add escalation dot to a session row on input_requested.
+// convId is the conversation_id from the event (e.g. task:poc:job-001:task-a).
+function onInputRequested(sessionId, convId) {
+  pageState.escalationConvMap[sessionId] = convId || ('session:' + sessionId);
+  // Derive click target: task convs link to job+task, others fall back to session conv.
+  var parts = convId ? convId.split(':') : [];
+  var dotUrl;
+  if (parts[0] === 'task' && parts.length === 4) {
+    dotUrl = 'chat.html?conv=job:' + parts[1] + ':' + parts[2] + '&task=' + parts[3];
+  } else if (parts[0] === 'job') {
+    dotUrl = 'chat.html?conv=' + convId;
+  } else {
+    dotUrl = 'chat.html?conv=session:' + sessionId;
+  }
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (row) {
+    var dotSlot = row.firstElementChild;
+    if (dotSlot && !dotSlot.classList.contains('attention-dot')) {
+      dotSlot.className = 'attention-dot';
+    }
+    if (dotSlot) {
+      var url = dotUrl;
+      dotSlot.onclick = function(e) { e.stopPropagation(); openPage(url); };
+    }
+  }
+  // Keep page state in sync so re-renders preserve the escalation dot
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId && !s.needs_input) {
+        s.needs_input = true;
+        p.attention_count = (p.attention_count || 0) + 1;
+      }
+    });
+  });
+}
+
+// Clear escalation dot and decrement badge count when the human replies.
+// Looks up the session by reverse-mapping the conversation_id from escalationConvMap,
+// so job: and task: conversation IDs are handled correctly (not just session: ones).
+function onMessage(convId, sender) {
+  if (sender !== 'human' || !convId) return;
+  // Reverse lookup: find the session whose escalation conversation matches convId.
+  var sessionId = null;
+  Object.keys(pageState.escalationConvMap).forEach(function(sid) {
+    if (pageState.escalationConvMap[sid] === convId) { sessionId = sid; }
+  });
+  if (!sessionId) return;
+  delete pageState.escalationConvMap[sessionId];
+  var row = document.querySelector('[data-session="' + sessionId + '"]');
+  if (row) {
+    var dotSlot = row.firstElementChild;
+    if (dotSlot && dotSlot.classList.contains('attention-dot')) {
+      dotSlot.className = '';
+      dotSlot.style.width = '6px';
+      dotSlot.onclick = null;
+    }
+  }
+  pageState.projects.forEach(function(p) {
+    (p.sessions || []).forEach(function(s) {
+      if (s.session_id === sessionId && s.needs_input) {
+        s.needs_input = false;
+        p.attention_count = Math.max(0, (p.attention_count || 1) - 1);
+      }
+    });
+  });
+}
+
+fetchAll();
+connectWS();
 </script>
 </body>
 </html>
