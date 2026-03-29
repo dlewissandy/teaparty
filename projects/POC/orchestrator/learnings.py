@@ -1591,6 +1591,7 @@ def write_intervention_chunk(
         'outcome': 'pending',
     }
     path = os.path.join(infra_dir, '.interventions.jsonl')
+    os.makedirs(infra_dir, exist_ok=True)
     with open(path, 'a') as f:
         f.write(_json_mod.dumps(entry) + '\n')
 
@@ -1625,5 +1626,6 @@ def write_intervention_outcome(
         entry['backtrack_phase'] = backtrack_phase
 
     path = os.path.join(infra_dir, '.interventions.jsonl')
+    os.makedirs(infra_dir, exist_ok=True)
     with open(path, 'a') as f:
         f.write(_json_mod.dumps(entry) + '\n')
