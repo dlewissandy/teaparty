@@ -109,7 +109,8 @@ function renderWorkflow(phaseIdx, large) {
 }
 
 // Page state: updated by fetchAll() and WebSocket events.
-var pageState = { projects: [], configs: {}, omConvId: 'om:darrell' };
+// escalationConvMap: session_id → conversation_id from input_requested events.
+var pageState = { projects: [], configs: {}, omConvId: 'om:darrell', escalationConvMap: {} };
 
 function fetchAll() {
   Promise.all([
@@ -213,7 +214,7 @@ function render() {
         var jobName = s.task || s.session_id;
         projectsHtml += '<div class="pc-esc-item" style="padding:5px 14px;gap:6px" data-session="' + s.session_id + '" onclick="openPage(\'chat.html?conv=' + convId + '\')">';
         if (s.needs_input) {
-          projectsHtml += '<span class="attention-dot"></span>';
+          projectsHtml += '<span class="attention-dot" onclick="event.stopPropagation();openPage(\'chat.html?conv=session:' + s.session_id + '\')"></span>';
         } else {
           projectsHtml += '<span style="width:6px"></span>';
         }
@@ -258,9 +259,11 @@ function connectWS() {
       if (event.type === 'state_changed') {
         onStateChanged(event.session_id, event.phase, event.state);
       } else if (event.type === 'input_requested') {
-        onInputRequested(event.session_id);
+        onInputRequested(event.session_id, event.conversation_id);
       } else if (event.type === 'message') {
         onMessage(event.conversation_id, event.sender);
+      } else if (event.type === 'session_completed') {
+        fetchAll();
       }
     } catch (err) {}
   };
@@ -301,12 +304,28 @@ function onStateChanged(sessionId, phase, cfaState) {
 }
 
 // Add escalation dot to a session row on input_requested.
-function onInputRequested(sessionId) {
+// convId is the conversation_id from the event (e.g. task:poc:job-001:task-a).
+function onInputRequested(sessionId, convId) {
+  pageState.escalationConvMap[sessionId] = convId || ('session:' + sessionId);
+  // Derive click target: task convs link to job+task, others fall back to session conv.
+  var parts = convId ? convId.split(':') : [];
+  var dotUrl;
+  if (parts[0] === 'task' && parts.length === 4) {
+    dotUrl = 'chat.html?conv=job:' + parts[1] + ':' + parts[2] + '&task=' + parts[3];
+  } else if (parts[0] === 'job') {
+    dotUrl = 'chat.html?conv=' + convId;
+  } else {
+    dotUrl = 'chat.html?conv=session:' + sessionId;
+  }
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {
     var dotSlot = row.firstElementChild;
     if (dotSlot && !dotSlot.classList.contains('attention-dot')) {
       dotSlot.className = 'attention-dot';
+    }
+    if (dotSlot) {
+      var url = dotUrl;
+      dotSlot.onclick = function(e) { e.stopPropagation(); openPage(url); };
     }
   }
   // Keep page state in sync so re-renders preserve the escalation dot
@@ -320,19 +339,25 @@ function onInputRequested(sessionId) {
   });
 }
 
-// Clear escalation dot and decrement badge count on human message in a session conversation.
-// A human message means the escalation question was answered, so needs_input goes false.
+// Clear escalation dot and decrement badge count when the human replies.
+// Looks up the session by reverse-mapping the conversation_id from escalationConvMap,
+// so job: and task: conversation IDs are handled correctly (not just session: ones).
 function onMessage(convId, sender) {
-  if (sender !== 'human') return;
-  // session:{session_id} → extract session_id
-  if (!convId || convId.indexOf('session:') !== 0) return;
-  var sessionId = convId.slice('session:'.length);
+  if (sender !== 'human' || !convId) return;
+  // Reverse lookup: find the session whose escalation conversation matches convId.
+  var sessionId = null;
+  Object.keys(pageState.escalationConvMap).forEach(function(sid) {
+    if (pageState.escalationConvMap[sid] === convId) { sessionId = sid; }
+  });
+  if (!sessionId) return;
+  delete pageState.escalationConvMap[sessionId];
   var row = document.querySelector('[data-session="' + sessionId + '"]');
   if (row) {
     var dotSlot = row.firstElementChild;
     if (dotSlot && dotSlot.classList.contains('attention-dot')) {
       dotSlot.className = '';
       dotSlot.style.width = '6px';
+      dotSlot.onclick = null;
     }
   }
   pageState.projects.forEach(function(p) {

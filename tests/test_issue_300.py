@@ -385,5 +385,72 @@ class TestCfaPhaseToWorkflowBarMapping(unittest.TestCase):
                              f'Phase name {phase!r} must be uppercase to match StateReader output')
 
 
+class TestIndexHtmlEscalationRouting(unittest.TestCase):
+    """Escalation dots must route to the correct conversation and clear on human reply."""
+
+    def test_session_completed_event_is_handled(self):
+        """index.html must handle session_completed WebSocket events.
+
+        When a session completes, the bridge emits session_completed. The page
+        must handle this event — if unhandled, completed sessions stay visible.
+        """
+        content = _read_index()
+        self.assertIn("session_completed", content,
+                      "index.html must handle session_completed events to refresh session list")
+
+    def test_escalation_conv_map_in_page_state(self):
+        """pageState must include escalationConvMap to track input_requested conversation IDs.
+
+        onMessage must use a reverse lookup on this map — not a session: prefix check —
+        so that job: and task: conversation IDs clear escalation dots correctly.
+        """
+        content = _read_index()
+        self.assertIn('escalationConvMap', content,
+                      'pageState must have escalationConvMap for conv_id → session_id reverse lookup')
+
+    def test_on_message_does_not_use_session_prefix_guard(self):
+        """onMessage must not guard on session: prefix — human replies use job:/task: conv IDs.
+
+        The original implementation returned early for any convId not starting with 'session:',
+        which permanently blocked escalation dots from clearing for job/task conversations.
+        """
+        content = _read_index()
+        self.assertNotIn("convId.indexOf('session:') !== 0", content,
+                         "onMessage must not reject non-session: convIds — use escalationConvMap reverse lookup")
+
+    def test_on_input_requested_passes_conv_id(self):
+        """onInputRequested must accept conversation_id from WebSocket event.
+
+        The conversation_id is needed to: (a) populate escalationConvMap for reverse
+        lookup, and (b) construct the task-specific escalation click URL.
+        """
+        content = _read_index()
+        self.assertIn('onInputRequested(event.session_id, event.conversation_id)', content,
+                      'WebSocket handler must pass conversation_id to onInputRequested')
+
+    def test_escalation_dot_has_stop_propagation(self):
+        """Escalation dot must stop event propagation so it navigates independently of the row.
+
+        Without stopPropagation, clicking the dot triggers both the dot's task URL
+        and the row's session URL, causing a double navigation.
+        """
+        content = _read_index()
+        self.assertIn('stopPropagation', content,
+                      'Escalation dot onclick must call event.stopPropagation()')
+
+    def test_task_conversation_id_routes_to_task(self):
+        """A task: conversation_id in input_requested must produce &task= in the escalation URL.
+
+        When input_requested carries conversation_id=task:poc:job-001:task-a, clicking
+        the escalation dot must open chat.html?conv=job:poc:job-001&task=task-a.
+        """
+        content = _read_index()
+        # The routing logic must extract task ID from task: conv IDs
+        self.assertIn("parts[0] === 'task'", content,
+                      "onInputRequested must detect task: conversation IDs and extract task ID for &task= routing")
+        self.assertIn("'&task=' + parts[3]", content,
+                      "onInputRequested must append &task=<task_id> for task: conversation IDs")
+
+
 if __name__ == '__main__':
     unittest.main()
