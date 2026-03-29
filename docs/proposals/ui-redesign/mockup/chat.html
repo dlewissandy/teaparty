@@ -83,7 +83,7 @@ var pageState = {
   messages: [],          // messages for the currently displayed conversation
   taskConvs: [],         // job chat: conversation objects filtered to this job
   participantConvs: [],  // participant chat: conversation objects from ?type={type}
-  cfaPhase: null,        // job chat: CfA phase string from GET /api/cfa/{session_id}
+  cfaState: null,        // job chat: CfA state string from GET /api/cfa/{session_id}
 };
 
 // Return the conversation ID that is currently active (job conv or selected task/session).
@@ -125,8 +125,8 @@ function fetchAll() {
     fetches.push(
       fetch('/api/cfa/' + encodeURIComponent(session_id))
         .then(function(r) { return r.ok ? r.json() : null; })
-        .then(function(cfa) { pageState.cfaPhase = cfa ? cfa.phase : null; })
-        .catch(function() { pageState.cfaPhase = null; })
+        .then(function(cfa) { pageState.cfaState = cfa ? cfa.state : null; })
+        .catch(function() { pageState.cfaState = null; })
     );
   } else {
     // Participant chat: load conversation list for the sidebar.
@@ -286,8 +286,8 @@ var GATE_ARTIFACTS = {
 };
 
 function gateReviewButtonHtml() {
-  if (!pageState.cfaPhase || !GATE_ARTIFACTS[pageState.cfaPhase]) return '';
-  var ga = GATE_ARTIFACTS[pageState.cfaPhase];
+  if (!pageState.cfaState || !GATE_ARTIFACTS[pageState.cfaState]) return '';
+  var ga = GATE_ARTIFACTS[pageState.cfaState];
   var artifactUrl = 'artifacts.html?project=' + encodeURIComponent(convProject) +
     '&file=' + encodeURIComponent('.sessions/' + session_id + '/' + ga.file);
   return '<button onclick="window.open(\'' + artifactUrl + '\',\'_blank\')" ' +
@@ -509,7 +509,7 @@ function onStateChanged(ev) {
   fetch('/api/cfa/' + encodeURIComponent(session_id))
     .then(function(r) { return r.ok ? r.json() : null; })
     .then(function(cfa) {
-      pageState.cfaPhase = cfa ? cfa.phase : null;
+      pageState.cfaState = cfa ? cfa.state : null;
       var actionsEl = document.querySelector('.chat-header-actions');
       if (actionsEl) {
         actionsEl.innerHTML = gateReviewButtonHtml() +
