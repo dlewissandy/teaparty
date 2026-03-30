@@ -329,8 +329,19 @@ class OfficeManagerSession:
 
             if response_text:
                 self.send_agent_message(response_text)
+            else:
+                # Runner completed but produced no assistant text. Clear the
+                # saved session so the next invocation starts fresh rather than
+                # silently producing nothing again on --resume.
+                self.claude_session_id = None
+                self.save_state()
+                self.send_agent_message(
+                    'I was unable to produce a response (the session may have '
+                    'expired). Please send your message again to start a fresh '
+                    'session.'
+                )
 
-            if result.session_id:
+            if response_text and result.session_id:
                 self.claude_session_id = result.session_id
                 self.save_state()
 
