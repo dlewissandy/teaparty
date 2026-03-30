@@ -82,40 +82,74 @@
 <script>
 function openPage(url) { window.open(url, '_blank'); }
 
-// Project onboarding: pick a folder and register it via /api/projects/add or /api/projects/create
-async function pickAndCreateProject() {
-  var path = prompt('Enter path for new project directory:');
-  if (!path) return;
-  var name = prompt('Project name:', path.split('/').filter(Boolean).pop() || 'new-project');
-  if (!name) return;
-  try {
-    var resp = await fetch('/api/projects/create', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, path: path}),
-    });
-    var data = await resp.json();
-    if (!resp.ok) { alert('Error: ' + (data.error || resp.status)); return; }
-    loadData();
-  } catch(e) { alert('Error: ' + e.message); }
+// Show a modal dialog for project onboarding (add or create).
+// title: dialog heading; endpoint: '/api/projects/add' or '/api/projects/create'
+function showProjectModal(title, endpoint) {
+  var overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;' +
+    'background:rgba(0,0,0,0.7);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border:1px solid var(--border);border-radius:6px;' +
+      'padding:20px;width:380px;font-family:inherit;">' +
+      '<div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:16px;">' + title + '</div>' +
+      '<label style="display:block;font-size:10px;color:var(--text-dim);margin-bottom:4px;">Directory path</label>' +
+      '<input id="om-path" type="text" placeholder="/path/to/project" ' +
+        'style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);' +
+        'padding:6px 8px;font-size:11px;font-family:inherit;border-radius:3px;margin-bottom:12px;box-sizing:border-box;" />' +
+      '<label style="display:block;font-size:10px;color:var(--text-dim);margin-bottom:4px;">Project name</label>' +
+      '<input id="om-name" type="text" placeholder="my-project" ' +
+        'style="width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);' +
+        'padding:6px 8px;font-size:11px;font-family:inherit;border-radius:3px;margin-bottom:6px;box-sizing:border-box;" />' +
+      '<div id="om-error" style="font-size:10px;color:var(--red);min-height:16px;margin-bottom:10px;"></div>' +
+      '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+        '<button id="om-cancel" style="background:transparent;border:1px solid var(--border);' +
+          'color:var(--text-dim);padding:6px 14px;border-radius:3px;font-size:11px;font-family:inherit;cursor:pointer;">' +
+          'Cancel</button>' +
+        '<button id="om-confirm" style="background:var(--accent2);border:none;color:var(--text);' +
+          'padding:6px 14px;border-radius:3px;font-size:11px;font-family:inherit;cursor:pointer;">' +
+          'Confirm</button>' +
+      '</div>' +
+    '</div>';
+  document.body.appendChild(overlay);
+
+  var pathInput = document.getElementById('om-path');
+  var nameInput = document.getElementById('om-name');
+  var errorEl = document.getElementById('om-error');
+
+  // Auto-fill name from the last path segment as the user types.
+  pathInput.addEventListener('input', function() {
+    var parts = pathInput.value.split('/').filter(Boolean);
+    if (parts.length) nameInput.value = parts[parts.length - 1];
+  });
+
+  function close() { document.body.removeChild(overlay); }
+
+  document.getElementById('om-cancel').addEventListener('click', close);
+
+  document.getElementById('om-confirm').addEventListener('click', async function() {
+    var path = pathInput.value.trim();
+    var name = nameInput.value.trim();
+    errorEl.textContent = '';
+    if (!path) { errorEl.textContent = 'Directory path is required.'; return; }
+    if (!name) { errorEl.textContent = 'Project name is required.'; return; }
+    try {
+      var resp = await fetch(endpoint, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: name, path: path}),
+      });
+      var data = await resp.json();
+      if (!resp.ok) { errorEl.textContent = data.error || 'Request failed (' + resp.status + ').'; return; }
+      close();
+      loadData();
+    } catch(e) { errorEl.textContent = e.message; }
+  });
+
+  pathInput.focus();
 }
 
-async function pickAndAddProject() {
-  var path = prompt('Enter path to existing project directory:');
-  if (!path) return;
-  var name = prompt('Project name:', path.split('/').filter(Boolean).pop() || 'my-project');
-  if (!name) return;
-  try {
-    var resp = await fetch('/api/projects/add', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({name: name, path: path}),
-    });
-    var data = await resp.json();
-    if (!resp.ok) { alert('Error: ' + (data.error || resp.status)); return; }
-    loadData();
-  } catch(e) { alert('Error: ' + e.message); }
-}
+function pickAndCreateProject() { showProjectModal('New Project', '/api/projects/create'); }
+function pickAndAddProject() { showProjectModal('Add Project', '/api/projects/add'); }
 
 // Standard CfA phase sequence for workflow bar rendering.
 // Bars: INTENT, PLAN, WORK, DONE. Gates (circles): INTENT_ASSERT, PLAN_ASSERT, WORK_ASSERT.
