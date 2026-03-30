@@ -1197,7 +1197,7 @@ class TestRestConfigProject(unittest.TestCase):
                     "workgroups: []\n")
         # Create a project with project.yaml
         proj_dir = os.path.join(self._tmp, 'myproject')
-        teaparty_proj_dir = os.path.join(proj_dir, '.teaparty')
+        teaparty_proj_dir = os.path.join(proj_dir, '.teaparty.local')
         os.makedirs(teaparty_proj_dir)
         with open(os.path.join(teaparty_proj_dir, 'project.yaml'), 'w') as f:
             f.write("name: My Project\ndescription: A test project\nlead: proj-lead\n"

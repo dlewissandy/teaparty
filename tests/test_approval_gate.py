@@ -23,7 +23,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-sys.path.insert(0, str(Path(__file__).parent.parent / 'scripts'))
 from scripts.approval_gate import (
     COLD_START_THRESHOLD,
     EXPLORE_RATE,

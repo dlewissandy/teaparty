@@ -870,10 +870,14 @@ class TestCompactFileWiring(unittest.TestCase):
         self.scripts_dir = str(
             Path(__file__).parent.parent / 'scripts'
         )
+        self._sys_path_before = sys.path[:]
 
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmpdir, ignore_errors=True)
+        # Restore sys.path exactly to the state before this test ran.
+        # _load_summarize_session adds scripts_dir; this undoes only what was added.
+        sys.path[:] = self._sys_path_before
 
     def _load_summarize_session(self):
         """Get the summarize_session module that _call_promote will use.
@@ -1051,11 +1055,14 @@ class TestCallPromoteImportPath(unittest.TestCase):
                     )
 
     def test_call_promote_cleans_up_sys_path(self):
-        """After _call_promote returns, scripts_dir is removed from sys.path."""
+        """_call_promote must not leave scripts_dir permanently added to sys.path."""
         from orchestrator.learnings import _call_promote
+        before_count = sys.path.count(self.scripts_dir)
         with patch('scripts.summarize_session.summarize', return_value=0):
             _call_promote(self.scripts_dir, 'team', session_dir='', project_dir='', output_dir='')
-        self.assertNotIn(self.scripts_dir, sys.path)
+        after_count = sys.path.count(self.scripts_dir)
+        self.assertEqual(after_count, before_count,
+                         "_call_promote must not net-add scripts_dir to sys.path")
 
 
 # ── _run_summarize() direct-call behavior (issue #115 fixes) ─────────────────

@@ -92,13 +92,22 @@ def _wrap_learnings_with_frontmatter(
     Includes session_id and session_task from environment when available,
     so entries are structurally tied to their originating session.
     """
+    import sys as _sys
+    from pathlib import Path as _Path
+    _scripts_dir = str(_Path(__file__).parent)
+    _added_to_path = _scripts_dir not in _sys.path
+    if _added_to_path:
+        _sys.path.insert(0, _scripts_dir)
     try:
-        import sys as _sys
-        from pathlib import Path as _Path
-        _sys.path.insert(0, str(_Path(__file__).parent))
         from memory_entry import make_entry, serialize_entry
     except ImportError:
         return learnings  # graceful degradation
+    finally:
+        if _added_to_path:
+            try:
+                _sys.path.remove(_scripts_dir)
+            except ValueError:
+                pass
 
     importance = _SCOPE_IMPORTANCE.get(scope, 0.5)
     effective_domain = domain or _SCOPE_DOMAIN.get(scope, "team")
@@ -1265,9 +1274,19 @@ def _try_compact(path: str) -> None:
     try:
         from pathlib import Path as _Path
         import sys as _sys
-        _sys.path.insert(0, str(_Path(__file__).parent))
-        from compact_memory import compact_file
-        compact_file(path)
+        scripts_dir = str(_Path(__file__).parent)
+        _added = scripts_dir not in _sys.path
+        if _added:
+            _sys.path.insert(0, scripts_dir)
+        try:
+            from compact_memory import compact_file
+            compact_file(path)
+        finally:
+            if _added:
+                try:
+                    _sys.path.remove(scripts_dir)
+                except ValueError:
+                    pass
     except Exception:
         pass
 
