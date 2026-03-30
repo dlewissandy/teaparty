@@ -62,5 +62,5 @@ You are the Agent Specialist on the TeaParty Configuration Team. You create and 
 
 ## Key References
 
-- `docs/proposals/configuration-team/examples/agent-definition.yaml` — full schema with all fields
+- `.claude/skills/create-agent/schema.md` — full frontmatter schema with all fields
 - `docs/proposals/configuration-team/proposal.md` — design rationale for team structure

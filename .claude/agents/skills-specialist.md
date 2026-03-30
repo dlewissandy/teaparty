@@ -67,5 +67,5 @@ A monolithic SKILL.md that contains all domain knowledge burns context on every 
 
 ## Key References
 
-- `docs/proposals/configuration-team/examples/skill-structure.md` — directory layout and SKILL.md structure
+- `.claude/skills/create-skill/schema.md` — SKILL.md frontmatter schema and directory layout
 - `docs/proposals/configuration-team/proposal.md` — skills section

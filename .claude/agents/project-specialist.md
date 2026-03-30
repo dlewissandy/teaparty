@@ -35,5 +35,5 @@ Before reporting a project configuration done:
 
 ## Key References
 
-- `docs/proposals/team-configuration/examples/project.yaml` — project config schema
-- `docs/proposals/team-configuration/examples/teaparty.yaml` — global registry schema
+- `.teaparty.local/project.yaml` — live project config
+- `.teaparty/teaparty.yaml` — live global registry

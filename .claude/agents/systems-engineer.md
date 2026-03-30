@@ -71,6 +71,5 @@ The workflow for creating a new scheduled task:
 
 ## Key References
 
-- `docs/proposals/configuration-team/examples/hook-definition.json` — hook schema
-- `docs/proposals/configuration-team/examples/scheduled-task.yaml` — scheduled task schema
-- `docs/proposals/configuration-team/examples/mcp-server.json` — MCP server schema
+- `.claude/skills/create-hook/schema.md` — hook configuration schema
+- `.claude/skills/create-scheduled-task/schema.md` — scheduled task schema

@@ -44,5 +44,4 @@ A workgroup definition has:
 
 ## Key References
 
-- `docs/proposals/team-configuration/examples/workgroup-coding.yaml` — workgroup schema
-- `.teaparty/workgroups/configuration.yaml` — live example
+- `.teaparty/workgroups/configuration.yaml` — live workgroup definition
