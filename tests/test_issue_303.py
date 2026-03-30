@@ -141,7 +141,7 @@ class TestManagementTeamSerialization(unittest.TestCase):
         self.assertIn('role', human)
 
     def test_serialized_team_includes_skills(self):
-        result = self.bridge._serialize_management_team(self.team)
+        result = self.bridge._serialize_management_team(self.team, discovered_skills=['sprint-plan'])
         self.assertIn('skills', result, '_serialize_management_team must include skills')
         self.assertIn('sprint-plan', result['skills'])
 

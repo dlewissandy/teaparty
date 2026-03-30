@@ -32,10 +32,10 @@ workgroups:
     status: active
 
 skills:
-  # Catalog registration: names here are promoted to the org-level skill catalog.
-  # This is a subset of what is installed at {teaparty_home}/.claude/skills/.
-  # Skills installed on disk but not listed here are discovered and shown in the
-  # Skill Catalog but are not explicitly promoted via this YAML.
+  # Agent allowlist: controls which org skills agents are permitted to invoke.
+  # This is NOT the org catalog — the catalog is derived entirely from the filesystem
+  # ({teaparty_home}/.claude/skills/). Every installed skill appears in the catalog
+  # regardless of whether it is listed here.
   - sprint-plan                                 # each name → .claude/skills/{name}/
   - audit
   - close-milestone

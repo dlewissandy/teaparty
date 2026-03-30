@@ -785,7 +785,7 @@ class TeaPartyBridge:
             'decider': t.decider,
             'agents': t.agents,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': discovered_skills if discovered_skills is not None else t.skills,
+            'skills': discovered_skills or [],
             'hooks': t.hooks,
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
