@@ -262,7 +262,7 @@ class TestWorkgroupConfigurationYaml(unittest.TestCase):
             'create-project', 'edit-project', 'remove-project',
             'create-workgroup', 'edit-workgroup', 'remove-workgroup',
             'create-agent', 'edit-agent', 'remove-agent',
-            'create-skill', 'edit-skill', 'remove-skill',
+            'create-skill', 'edit-skill', 'remove-skill', 'optimize-skill',
             'create-hook', 'edit-hook', 'remove-hook',
             'create-scheduled-task', 'edit-scheduled-task', 'remove-scheduled-task',
         ]
@@ -330,6 +330,78 @@ class TestLiveConfigurationWorkgroup(unittest.TestCase):
         skills = self.data.get('skills', [])
         for skill in ('create-scheduled-task', 'edit-scheduled-task', 'remove-scheduled-task'):
             self.assertIn(skill, skills, f'live config must include {skill!r}')
+
+
+# ── Criterion: existing .claude/agents/ definitions ──────────────────────────
+
+class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
+    """The issue requires updating any existing agent definitions that should have
+    a skills allowlist. The management team agents (auditor, researcher, strategist,
+    office-manager) do not auto-invoke skills — they are invoked BY skills, or they
+    dispatch via tools (AskTeam), not via the skills mechanism. Per the spec, omitting
+    skills: means no auto-invocable skills. These agents are correctly left without
+    the field.
+
+    These tests encode that decision explicitly so the audit trail shows it was made
+    deliberately, not by omission.
+    """
+
+    _AGENTS_DIR = _REPO_ROOT / '.claude/agents'
+
+    def _get_frontmatter(self, name):
+        return _parse_frontmatter(self._AGENTS_DIR / f'{name}.md')
+
+    def test_auditor_has_no_skills_field(self):
+        """The auditor agent must not have a skills: field.
+
+        The auditor is the target of audit-issue skill invocations — it does not
+        itself invoke skills. Omitting skills: is the correct declaration that it
+        has no auto-invocable skills.
+        """
+        fm = self._get_frontmatter('auditor')
+        self.assertNotIn(
+            'skills', fm,
+            'auditor.md must not have a skills: field — it is invoked by skills, '
+            'not an invoker of skills. Omitting skills: correctly declares no skill access.',
+        )
+
+    def test_researcher_has_no_skills_field(self):
+        """The researcher agent must not have a skills: field.
+
+        The researcher is a read-only specialist invoked via the research skill.
+        It does not invoke skills itself.
+        """
+        fm = self._get_frontmatter('researcher')
+        self.assertNotIn(
+            'skills', fm,
+            'researcher.md must not have a skills: field — it is a read-only specialist '
+            'that does not auto-invoke skills.',
+        )
+
+    def test_strategist_has_no_skills_field(self):
+        """The strategist agent must not have a skills: field.
+
+        The strategist is a read-only specialist. It does not auto-invoke skills.
+        """
+        fm = self._get_frontmatter('strategist')
+        self.assertNotIn(
+            'skills', fm,
+            'strategist.md must not have a skills: field — it is a read-only specialist '
+            'that does not auto-invoke skills.',
+        )
+
+    def test_office_manager_has_no_skills_field(self):
+        """The office-manager agent must not have a skills: field.
+
+        The office manager dispatches to the Configuration Team via the AskTeam tool,
+        not via the skills mechanism. It does not auto-invoke CRUD skills.
+        """
+        fm = self._get_frontmatter('office-manager')
+        self.assertNotIn(
+            'skills', fm,
+            'office-manager.md must not have a skills: field — it dispatches via AskTeam '
+            'tool, not via skills. Omitting skills: correctly declares no skill access.',
+        )
 
 
 if __name__ == '__main__':
