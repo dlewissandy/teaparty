@@ -8,7 +8,7 @@ When the human wants to create a new agent, skill, hook, or workgroup, they desc
 
 ## Why a Team, Not a Skill
 
-The four specialists use different models and different tool sets. The Skill Architect and Agent Designer use opus for prompt engineering and have Write access. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. The Systems Engineer uses sonnet with Write for hooks and settings. A single agent cannot simultaneously be an opus agent with Write tools for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
+The four specialists use different models and different tool sets. The Skills Specialist and Agent Specialist use opus for prompt engineering and have Write access. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. The Systems Engineer uses sonnet with Write for hooks and settings. A single agent cannot simultaneously be an opus agent with Write tools for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
 
 Whether the coordination overhead is worth it at the current POC scale is a prioritization decision. The design is sound; the question is when to build it. For simple single-artifact requests, the office manager routes directly to the specialist — the team structure activates only when its coordination value justifies the overhead (see [Request Triage](#request-triage)).
 
@@ -24,8 +24,10 @@ Management Team
 +-- Human (decider)
 +-- Configuration Team (workgroup)
 |   +-- Configuration Lead (team lead)
-|   +-- Skill Architect (specialist)
-|   +-- Agent Designer (specialist)
+|   +-- Project Specialist (specialist)
+|   +-- Workgroup Specialist (specialist)
+|   +-- Agent Specialist (specialist)
+|   +-- Skills Specialist (specialist)
 |   +-- Systems Engineer (specialist)
 |
 +-- Project Team: POC (liaison)
@@ -39,18 +41,32 @@ Routes requests from the office manager to the right specialist. Understands the
 **Model:** sonnet
 **Tools:** Read, Glob, Grep, Bash, AskTeam
 
-### Skill Architect
+### Project Specialist
+
+Creates and manages project registrations. Understands project onboarding, the `.teaparty/projects/` hierarchy, and how projects are wired into the management team structure.
+
+**Model:** sonnet
+**Tools:** Read, Glob, Grep, Write, Edit, Bash
+
+### Workgroup Specialist
+
+Creates and modifies workgroup definitions. Understands workgroup YAML structure, agent rosters, skills catalogs, norms, and delegation rules.
+
+**Model:** sonnet
+**Tools:** Read, Glob, Grep, Write, Edit, Bash
+
+### Agent Specialist
+
+Creates agent definitions. Understands tool scoping, model selection, permission modes, MCP server assignment, the `skills:` allowlist field, and prompt design for agent roles.
+
+**Model:** opus
+**Tools:** Read, Glob, Grep, Write, Edit, Bash
+
+### Skills Specialist
 
 Creates and optimizes skills. Understands progressive disclosure, `!`command`` injection, supporting file decomposition, and frontmatter fields.
 
 **Model:** opus (skill design requires careful prompt engineering)
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
-
-### Agent Designer
-
-Creates agent definitions. Understands tool scoping, model selection, permission modes, MCP server assignment, and prompt design for agent roles.
-
-**Model:** opus
 **Tools:** Read, Glob, Grep, Write, Edit, Bash
 
 ### Systems Engineer
@@ -70,7 +86,7 @@ Creates and modifies hooks, MCP server configurations, scheduled tasks, and sett
 
 See [agent-definition.yaml](examples/agent-definition.yaml) for a complete example.
 
-**Design decisions the Agent Designer makes:**
+**Design decisions the Agent Specialist makes:**
 - Model selection (opus for complex reasoning, sonnet for routine work, haiku for simple checks)
 - Tool scoping (read-only agents should not have Write/Edit)
 - Permission mode (plan mode for high-stakes agents, acceptEdits for trusted ones)
@@ -86,7 +102,7 @@ See [agent-definition.yaml](examples/agent-definition.yaml) for a complete examp
 
 See [skill-structure.md](examples/skill-structure.md) for the directory layout and SKILL.md structure example.
 
-**Design decisions the Skill Architect makes:**
+**Design decisions the Skills Specialist makes:**
 - Decomposition: what belongs in SKILL.md vs. supporting files
 - Progressive disclosure: what loads upfront vs. on demand
 - Dynamic context: where to use `!`command`` for live data injection
@@ -97,7 +113,7 @@ See [skill-structure.md](examples/skill-structure.md) for the directory layout a
 
 ### Optimizing Existing Skills for Progressive Disclosure
 
-Given a monolithic skill (single large SKILL.md), the Skill Architect analyzes its structure, identifies what is needed upfront versus on demand, extracts supporting content into named files, updates SKILL.md references, adds dynamic context where appropriate, and validates the description for auto-invocation.
+Given a monolithic skill (single large SKILL.md), the Skills Specialist analyzes its structure, identifies what is needed upfront versus on demand, extracts supporting content into named files, updates SKILL.md references, adds dynamic context where appropriate, and validates the description for auto-invocation.
 
 **Example optimization:** The `audit` skill currently has 9 role files (role-architect.md, role-specialist.md, etc.) that are loaded by subagents on demand. This is already well-structured. A monolithic audit skill would have all role definitions inline, burning context on every invocation even when only 2-3 roles are needed.
 
@@ -124,12 +140,12 @@ See [mcp-server.json](examples/mcp-server.json) for a complete example.
 
 **Mechanism:** Claude Code's `/schedule` feature for persistent scheduled triggers.
 
-A scheduled task **must** reference a skill. No raw prompts. The skill is the contract for what the task does. If the skill does not exist, the Skill Architect creates it first.
+A scheduled task **must** reference a skill. No raw prompts. The skill is the contract for what the task does. If the skill does not exist, the Skills Specialist creates it first.
 
 See [scheduled-task.yaml](examples/scheduled-task.yaml) for a complete example.
 
 **The workflow for "create a new scheduled task":**
-1. Does the skill exist? If not, Skill Architect creates it
+1. Does the skill exist? If not, Skills Specialist creates it
 2. Systems Engineer adds the `scheduled` entry to the appropriate YAML
 3. Systems Engineer creates the `/schedule` trigger pointing to the skill
 
@@ -145,7 +161,7 @@ Not every configuration request justifies the full team hierarchy. The delegatio
 - Clear requirements (the human stated what they want without ambiguity)
 - No cross-artifact coordination needed
 
-The office manager already knows which specialist handles which artifact type (skills → Skill Architect, hooks → Systems Engineer, agents → Agent Designer). For a request like "create a skill called deploy that runs validation and deployment," the office manager routes directly to the Skill Architect. The specialist does its work and reports completion back to the office manager. Three hops: human → office manager → specialist → office manager confirmation.
+The office manager already knows which specialist handles which artifact type (skills → Skills Specialist, hooks → Systems Engineer, agents → Agent Specialist). For a request like "create a skill called deploy that runs validation and deployment," the office manager routes directly to the Skills Specialist. The specialist does its work and reports completion back to the office manager. Three hops: human → office manager → specialist → office manager confirmation.
 
 **Complex request** — the office manager dispatches to the Configuration Lead, who coordinates the full team:
 
@@ -184,8 +200,8 @@ Not all cross-artifact dependencies are equal. Some artifact pairs must co-exist
 
 **Hard dependencies** — the referencing artifact is broken without the referenced one:
 
-- Agent definitions that name specific skills in their tool scoping or prompt. An agent configured to invoke a skill that doesn't exist will fail at runtime. The Agent Designer must not reference skills by name until the Skill Architect confirms they exist.
-- Scheduled tasks that reference a skill. A scheduled trigger pointing to a nonexistent skill will fail on every invocation. The Skill Architect must create the skill before the Systems Engineer creates the trigger.
+- Agent definitions that name specific skills in their tool scoping or prompt. An agent configured to invoke a skill that doesn't exist will fail at runtime. The Agent Specialist must not reference skills by name until the Skills Specialist confirms they exist.
+- Scheduled tasks that reference a skill. A scheduled trigger pointing to a nonexistent skill will fail on every invocation. The Skills Specialist must create the skill before the Systems Engineer creates the trigger.
 
 **Soft dependencies** — the artifact is useful on its own, completable later:
 
@@ -218,11 +234,23 @@ See [request-flows.md](references/request-flows.md) for five detailed scenarios.
 
 ## Progressive Disclosure Applied to the Team Itself
 
-Each specialist has skills that guide its work, loaded on demand rather than burned into the agent's system prompt:
+Each specialist has skills that guide its work, loaded on demand rather than burned into the agent's system prompt. These skills are **private to the specialist** — they are registered on the specialist's agent definition via the `skills:` allowlist field and cannot be invoked by any other agent.
 
-- **Skill Architect** has a `create-skill` skill with the SKILL.md template, frontmatter reference, and progressive disclosure guidelines
-- **Agent Designer** has a `create-agent` skill with the agent frontmatter reference and tool scoping guidelines
-- **Systems Engineer** has a `create-hook` skill with the event catalog, matcher syntax reference, and handler type comparison
+Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. An agent with no `skills:` field has access to no skills. A specialist's SOP skills live in `.claude/skills/` like any other skill, but are only accessible to the agent that declares them.
+
+**Enforcement:** This field is convention with explicit contract — Claude Code does not natively enforce it. The TeaParty dispatch layer is the intended enforcer: when dispatching an agent, the dispatch system configures the available skills from the `skills:` allowlist in the agent's definition. This field controls auto-invocation by the model only. User-triggered slash commands (e.g., `/create-workgroup`) are not restricted by this field — they require explicit human intent.
+
+Each specialist owns the full CRUD surface for its domain:
+
+- **Project Specialist** — `create-project`, `edit-project`, `remove-project`
+- **Workgroup Specialist** — `create-workgroup`, `edit-workgroup`, `remove-workgroup`
+- **Agent Specialist** — `create-agent`, `edit-agent`, `remove-agent`
+- **Skills Specialist** — `create-skill`, `edit-skill`, `remove-skill`, `optimize-skill` (optimize is structural refactoring, not editing — distinct operation)
+- **Systems Engineer** — `create-hook`, `edit-hook`, `remove-hook`, `create-scheduled-task`, `edit-scheduled-task`, `remove-scheduled-task`
+
+Note: **human participant management is out of scope** (licensing constraints).
+
+See [#315](https://github.com/dlewissandy/teaparty/issues/315) for the agent definition `skills:` field specification.
 
 ---
 
