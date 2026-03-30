@@ -7,8 +7,8 @@ A research platform for durable, scalable agent coordination.
 ```bash
 uv sync
 ./teaparty.sh                                                    # HTML dashboard (bridge server, localhost:8081)
-uv run python -m projects.POC.orchestrator "Your task"           # CLI session
-uv run pytest projects/POC/orchestrator/tests/ --tb=short -q     # tests
+uv run python -m orchestrator "Your task"                        # CLI session
+uv run pytest tests/ --tb=short -q                               # tests
 uv run mkdocs serve                                              # docs at localhost:8000
 ```
 
@@ -22,18 +22,23 @@ uv run mkdocs serve                                              # docs at local
 
 ## Codebase
 
-The active code is the POC orchestrator at `projects/POC/orchestrator/`. Key files:
+Key packages at repo root:
 
-- `session.py` -- Session lifecycle, worktree creation, phase orchestration
-- `engine.py` -- CfA state machine execution, approval gates
-- `actors.py` -- Actor definitions (human, proxy, intent team, uber team)
-- `claude_runner.py` -- Claude Code CLI integration, stream-json parsing
-- `dispatch_cli.py` -- Hierarchical dispatch to subteams via worktrees
-- `learnings.py` -- Post-session learning extraction
-- `phase_config.py` -- Per-phase Claude Code configuration
+- `orchestrator/` -- CfA engine, actors, session lifecycle
+  - `session.py` -- Session lifecycle, worktree creation, phase orchestration
+  - `engine.py` -- CfA state machine execution, approval gates
+  - `actors.py` -- Actor definitions (human, proxy, intent team, uber team)
+  - `claude_runner.py` -- Claude Code CLI integration, stream-json parsing
+  - `dispatch_cli.py` -- Hierarchical dispatch to subteams via worktrees
+  - `learnings.py` -- Post-session learning extraction
+  - `phase_config.py` -- Per-phase Claude Code configuration
+- `bridge/` -- HTML dashboard + bridge server
+- `scripts/` -- CfA state machine, proxy model, learning utilities
+- `agents/` -- Team and workgroup definitions
+- `cfa-state-machine.json` -- State machine definition
 
-Dashboard: `projects/POC/bridge/` (HTML dashboard + bridge server)
-Tests: `projects/POC/orchestrator/tests/`
+Dashboard: `bridge/` (HTML dashboard + bridge server)
+Tests: `tests/`
 
 ## Docs
 

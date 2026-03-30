@@ -1,44 +1,38 @@
 # Folder Structure
 
-This document describes the POC's actual directory layout on disk: where projects live, how memory is scoped, how worktrees isolate concurrent work, and how the dogfooding setup works.
+This document describes TeaParty's directory layout on disk: where packages live, how memory is scoped, how worktrees isolate concurrent work, and how the dogfooding setup works.
 
 ---
 
-## POC Directory Layout
+## Repo Layout
 
 ```
-projects/
-├── MEMORY.md                           # global learnings (cross-project)
-├── POC/                                # proof-of-concept (uses parent repo)
-│   ├── agents/                         # team definitions
-│   │   ├── uber-team.json              # strategic coordination team
-│   │   ├── coding-team.json            # coding workgroup
-│   │   ├── configuration-team.json     # configuration workgroup
-│   │   ├── writing-team.json           # writing workgroup
-│   │   ├── art-team.json               # art workgroup
-│   │   ├── research-team.json          # research workgroup
-│   │   ├── editorial-team.json         # editorial workgroup
-│   │   ├── intent-team.json            # intent gathering team
-│   │   ├── flat-team.json              # flat-mode project team
-│   │   └── uber-team.json              # project team (project-lead + qa-reviewer)
-│   ├── orchestrator/                   # CfA engine, actors, session lifecycle
-│   ├── scripts/                        # CfA state machine, proxy model, learning
-│   ├── tui/                            # terminal UI dashboard
-│   ├── docs/                           # project-specific documentation
-│   ├── .sessions/                      # session history
-│   │   └── <timestamp>/                # one directory per session
-│   │       ├── MEMORY.md               # session-level learnings
-│   │       └── <team>/                 # team-level state
-│   │           └── MEMORY.md           # team-level learnings
-│   ├── .worktrees/                     # git worktrees for session isolation
-│   ├── cfa-state-machine.json          # state machine definition
-│   └── MEMORY.md                       # project-level learnings
-├── hierarchical-memory-paper/          # research paper (separate git repo)
-├── agentic-cfa-publication/            # research paper (separate git repo)
+teaparty/                               # repo root
+├── orchestrator/                       # CfA engine, actors, session lifecycle
+│   ├── engine.py                       # CfA state machine execution
+│   ├── session.py                      # session lifecycle
+│   ├── actors.py                       # actor definitions
+│   ├── phase-config.json               # per-phase Claude Code config
+│   └── ...
+├── bridge/                             # HTML dashboard + bridge server
+│   ├── server.py                       # aiohttp bridge server
+│   └── ...
+├── scripts/                            # CfA state machine, proxy model, learning
+│   ├── cfa_state.py                    # state machine operations
+│   ├── approval_gate.py                # confidence-based proxy model
+│   └── ...
+├── agents/                             # team and workgroup definitions
+│   ├── uber-team.json
+│   ├── coding-team.json
+│   └── ...
+├── hooks/                              # Claude Code hook scripts
+├── tests/                              # all tests (flat, no sub-packages)
+├── cfa-state-machine.json              # state machine definition
+├── teaparty.sh                         # launcher script
 └── ...
 ```
 
-Each project in `projects/` is a separate git repository with its own history, branches, and deliverables. The root `.gitignore` excludes project contents by default (`projects/*`) since each project manages its own git history. The POC is the exception — it is explicitly tracked by the parent repository for dogfooding (see below).
+Projects are discovered from the registry (`~/.teaparty/teaparty.yaml`) — they can live anywhere on disk and are not co-located with the TeaParty codebase. Each project has its own `.teaparty/` config directory and `.sessions/` directory for session history.
 
 ---
 
@@ -47,11 +41,11 @@ Each project in `projects/` is a separate git repository with its own history, b
 Memory files are scoped to the hierarchy level where the learning occurred. The [promotion chain](../conceptual-design/learning-system.md) moves validated learnings upward:
 
 ```
-projects/MEMORY.md                                          # global scope
-projects/<project>/MEMORY.md                                # project scope
-projects/<project>/.sessions/<ts>/MEMORY.md                 # session scope
-projects/<project>/.sessions/<ts>/<team>/MEMORY.md          # team scope
-projects/<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md  # dispatch scope
+~/.teaparty/MEMORY.md                                          # global scope
+<project>/.sessions/MEMORY.md                                  # project scope
+<project>/.sessions/<ts>/MEMORY.md                             # session scope
+<project>/.sessions/<ts>/<team>/MEMORY.md                      # team scope
+<project>/.sessions/<ts>/<team>/<dispatch>/MEMORY.md           # dispatch scope
 ```
 
 Each scope level also has typed memory stores — `institutional.md` (always loaded) and task-based stores (fuzzy-retrieved). See [Learning System](../conceptual-design/learning-system.md) for the full design.
@@ -72,7 +66,7 @@ Completed sessions merge their worktree back into the parent branch.
 
 ## Dogfooding
 
-TeaParty uses itself. The POC project (`projects/POC/`) is tracked by the parent repository rather than having its own `.git`. A `.linked-repo` file signals this arrangement: session worktrees are created from the parent repo, allowing agents to modify the TeaParty codebase directly.
+TeaParty uses itself. The TeaParty repo is registered in `~/.teaparty/teaparty.yaml` as its own managed project. Session worktrees are created from the repo, allowing agents to modify the TeaParty codebase directly.
 
 The uber team (`uber-team.json`) coordinates strategy — a project lead delegates to liaison agents, each bridging to a subteam. Subteams (`coding-team.json`, `writing-team.json`, etc.) execute tactical work. Each subteam runs as a separate Claude Code CLI process with its own agent pool and context window. Results flow back through the liaison to the uber team.
 
