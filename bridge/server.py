@@ -576,9 +576,14 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        discovered_skills = discover_skills(
+            os.path.join(self.teaparty_home, '.claude', 'skills')
+        )
         return web.json_response({
             'ok': True,
-            'management_team': self._serialize_management_team(team),
+            'management_team': self._serialize_management_team(
+                team, discovered_skills=discovered_skills,
+            ),
         })
 
     async def _handle_projects_create(self, request: web.Request) -> web.Response:
@@ -614,9 +619,14 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        discovered_skills = discover_skills(
+            os.path.join(self.teaparty_home, '.claude', 'skills')
+        )
         return web.json_response({
             'ok': True,
-            'management_team': self._serialize_management_team(team),
+            'management_team': self._serialize_management_team(
+                team, discovered_skills=discovered_skills,
+            ),
         })
 
     # ── Action handlers ───────────────────────────────────────────────────────
