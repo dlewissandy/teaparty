@@ -312,5 +312,20 @@ class TestNoProjectsPOCImportsInSource(unittest.TestCase):
         )
 
 
+# ── Issue #320: projects/ directory must be removed ──────────────────────────
+
+class TestProjectsDirectoryRemoved(unittest.TestCase):
+    """projects/ directory must not exist at repo root (cleanup from #310 flattening)."""
+
+    def test_projects_poc_directory_removed(self):
+        """projects/POC must not exist at repo root after the flattening in #310."""
+        projects_dir = _REPO_ROOT / 'projects'
+        self.assertFalse(
+            projects_dir.exists(),
+            f'projects/ directory still exists at {projects_dir}; '
+            'it should have been deleted as part of issue #310 repo flattening',
+        )
+
+
 if __name__ == '__main__':
     unittest.main()
