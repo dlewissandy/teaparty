@@ -2,10 +2,11 @@
 """Tests for Issue #258: Team discovery — add, create, and remove projects.
 
 Covers:
- 1. add_project: validate existing dir, create .teaparty/project.yaml, update teams:
- 2. create_project: new dir with git init, .claude/, .teaparty/, update teams:
+ 1. add_project: validate existing dir, create .teaparty.local/project.yaml, update teams:
+ 2. create_project: new dir with git init, .claude/, .teaparty.local/, update teams:
  3. remove_project: remove from teams:, leave project untouched
- 4. Validation: missing markers, duplicate names, nonexistent paths
+ 4. Validation: duplicate names, nonexistent paths
+    Note: .git/ and .claude/ prereqs removed by #322 — OM handles bootstrapping.
  5. YAML persistence: changes written to disk and reloadable
 """
 import os
@@ -123,25 +124,25 @@ class TestAddProject(unittest.TestCase):
         self.assertEqual(len(reloaded.teams), 1)
         self.assertEqual(reloaded.teams[0]['name'], 'My Backend')
 
-    def test_rejects_missing_git_dir(self):
+    def test_succeeds_without_git_dir(self):
+        """add_project() must succeed without .git/ — OM handles git init (#322)."""
         d = tempfile.mkdtemp()
-        os.makedirs(os.path.join(d, '.claude'))
-        # No .git/
+        # No .git/, no .claude/
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
+        team = add_project('No Git', d, teaparty_home=tp_home)
+        self.assertEqual(len(team.teams), 1)
+        self.assertEqual(team.teams[0]['name'], 'No Git')
 
-        with self.assertRaises(ValueError):
-            add_project('Bad Project', d, teaparty_home=tp_home)
-
-    def test_rejects_missing_claude_dir(self):
+    def test_succeeds_without_claude_dir(self):
+        """add_project() must succeed without .claude/ — OM handles scaffolding (#322)."""
         d = tempfile.mkdtemp()
-        os.makedirs(os.path.join(d, '.git'))
-        # No .claude/
+        # No .claude/, no .git/
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
-
-        with self.assertRaises(ValueError):
-            add_project('Bad Project', d, teaparty_home=tp_home)
+        team = add_project('No Claude', d, teaparty_home=tp_home)
+        self.assertEqual(len(team.teams), 1)
+        self.assertEqual(team.teams[0]['name'], 'No Claude')
 
     def test_rejects_nonexistent_path(self):
         home = _make_teaparty_home(MINIMAL_YAML)
