@@ -104,7 +104,7 @@ class TestEventBusPublishWarning(unittest.TestCase):
         bus.subscribe(bad_subscriber)
 
         with self.assertLogs('orchestrator.events', level='WARNING') as cm:
-            asyncio.get_event_loop().run_until_complete(bus.publish(event))
+            asyncio.run(bus.publish(event))
 
         self.assertTrue(
             any('WARNING' in line for line in cm.output),
@@ -130,7 +130,7 @@ class TestEventBusPublishWarning(unittest.TestCase):
 
         # We expect a warning log; use assertLogs to capture it
         with self.assertLogs('orchestrator.events', level='WARNING'):
-            asyncio.get_event_loop().run_until_complete(bus.publish(event))
+            asyncio.run(bus.publish(event))
 
         self.assertEqual(len(called), 1, "Good subscriber should still be called")
 
