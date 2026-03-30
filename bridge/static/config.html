@@ -97,6 +97,7 @@ async function renderGlobal() {
   var m = configData.management_team || {};
   var projects = configData.projects || [];
   omConvId = m.decider ? 'om:' + m.decider : 'om:unknown';
+  var proxyConvIdGlobal = m.decider ? 'proxy:' + m.decider : 'proxy:unknown';
 
   document.title = 'TeaParty \u2014 Global Configuration';
 
@@ -119,6 +120,9 @@ async function renderGlobal() {
   var participantItems = [];
   if (m.lead) {
     participantItems.push('<div class="item" onclick="openChat(\'' + omConvId + '\')"><div class="item-icon icon-member">&#9733;</div><div class="item-body"><div class="item-title">Office Manager</div><div class="item-meta">' + m.lead + ' &middot; org-level coordination</div></div></div>');
+  }
+  if (m.decider) {
+    participantItems.push('<div class="item" onclick="openChat(\'' + proxyConvIdGlobal + '\')"><div class="item-icon icon-participant">&#9670;</div><div class="item-body"><div class="item-title">Proxy</div><div class="item-meta">global learning &middot; decision patterns</div></div></div>');
   }
   (m.humans || []).forEach(function(h) {
     participantItems.push('<div class="item" onclick="openChat(omConvId)"><div class="item-icon icon-member">&#9786;</div><div class="item-body"><div class="item-title">' + h.name + '</div></div><span style="font-size:9px;color:var(--text-dim)">' + h.role + '</span></div>');

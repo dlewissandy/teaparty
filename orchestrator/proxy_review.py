@@ -11,12 +11,14 @@ predictions.
 
 Design: docs/proposals/proxy-review/proposal.md
 Chat pattern: docs/proposals/chat-experience/proposal.md (Pattern 3)
-Issue #259.
+Issue #259, #331.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import re
 import subprocess
 import uuid
@@ -26,6 +28,7 @@ from typing import Any
 from orchestrator.messaging import (
     ConversationType,
     SqliteMessageBus,
+    make_conversation_id,
 )
 from orchestrator.proxy_memory import (
     MemoryChunk,
@@ -409,3 +412,367 @@ async def _invoke_review_agent(prompt: str) -> str:
         raise ReviewAgentError('review agent returned empty output')
 
     return result.stdout.strip()
+
+
+# ── Path helpers (bridge-facing) ─────────────────────────────────────────────
+
+def proxy_bus_path(teaparty_home: str) -> str:
+    """Return the canonical path to the proxy review message database.
+
+    The proxy database is persistent and not session-scoped.  It lives at
+    {teaparty_home}/proxy/proxy-messages.db, separate from per-session
+    messages.db files.  Both the bridge and the orchestrator use this
+    function to locate the same database.  Issue #331.
+    """
+    return os.path.join(teaparty_home, 'proxy', 'proxy-messages.db')
+
+
+def proxy_memory_path(teaparty_home: str) -> str:
+    """Return the canonical path to the global proxy ACT-R memory database.
+
+    Used by the bridge-invoked proxy review chat to read and write the same
+    ACT-R memory that consult_proxy reads at approval gates.  Issue #331.
+    """
+    return os.path.join(teaparty_home, 'proxy', '.proxy-memory.db')
+
+
+# ── Stream helpers ───────────────────────────────────────────────────────────
+
+def _extract_assistant_text_from_stream(stream_path: str) -> str:
+    """Extract concatenated assistant text blocks from a stream-json JSONL file."""
+    parts = []
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if ev.get('type') != 'assistant':
+                    continue
+                for block in ev.get('message', {}).get('content', []):
+                    if isinstance(block, dict) and block.get('type') == 'text':
+                        text = block.get('text', '').strip()
+                        if text:
+                            parts.append(text)
+    except OSError:
+        pass
+    return '\n'.join(parts)
+
+
+def _extract_slug_from_stream(stream_path: str, session_id: str, cwd: str) -> str:
+    """Extract the conversation slug from a stream JSONL or Claude history file."""
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                slug = ev.get('slug', '')
+                if slug:
+                    return slug
+    except OSError:
+        pass
+
+    if session_id and cwd:
+        project_hash = cwd.replace('/', '-')
+        history_path = os.path.join(
+            os.path.expanduser('~'), '.claude', 'projects',
+            project_hash, f'{session_id}.jsonl',
+        )
+        try:
+            with open(history_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    slug = ev.get('slug', '')
+                    if slug:
+                        return slug
+        except OSError:
+            pass
+
+    return ''
+
+
+# ── ProxyReviewSession ────────────────────────────────────────────────────────
+
+class ProxyReviewSession:
+    """Multi-turn proxy review conversation session.
+
+    Each invocation runs the proxy-review agent via ClaudeRunner.  ACT-R
+    memory context is built fresh on each turn so that corrections from the
+    previous turn are reflected immediately.  Session ID is persisted via
+    save_state/load_state for --resume support.
+
+    Issue #331.
+    """
+
+    def __init__(self, teaparty_home: str, decider: str):
+        self.teaparty_home = os.path.expanduser(teaparty_home)
+        self._infra_dir = os.path.join(self.teaparty_home, 'proxy')
+        self.decider = decider
+        self.conversation_id = make_conversation_id(
+            ConversationType.PROXY_REVIEW, decider,
+        )
+        self.claude_session_id: str | None = None
+        self.conversation_title: str | None = None
+
+        bus_path = proxy_bus_path(self.teaparty_home)
+        os.makedirs(os.path.dirname(bus_path), exist_ok=True)
+        self._bus = SqliteMessageBus(bus_path)
+
+    def send_human_message(self, content: str) -> str:
+        """Record a human message in the conversation. Returns message ID."""
+        return self._bus.send(self.conversation_id, 'human', content)
+
+    def send_agent_message(self, content: str) -> str:
+        """Record a proxy message in the conversation. Returns message ID."""
+        return self._bus.send(self.conversation_id, 'proxy', content)
+
+    def get_messages(self, since_timestamp: float = 0.0):
+        """Retrieve conversation messages, optionally since a timestamp."""
+        return self._bus.receive(self.conversation_id, since_timestamp=since_timestamp)
+
+    def build_context(self) -> str:
+        """Build ACT-R memory context for the proxy agent prompt.
+
+        Returns a string combining the conversation history, current ACT-R
+        memory introspection, and prediction accuracy summary.
+        """
+        import sqlite3
+        from orchestrator.proxy_memory import (
+            open_proxy_db,
+            get_interaction_counter,
+        )
+
+        mem_path = proxy_memory_path(self.teaparty_home)
+        if os.path.exists(mem_path):
+            conn = open_proxy_db(mem_path)
+            try:
+                current = get_interaction_counter(conn)
+                entries = introspect_chunks(conn, current_interaction=current)
+                memory_context = format_introspection(entries)
+                accuracy_context = summarize_accuracy(conn)
+            finally:
+                conn.close()
+        else:
+            memory_context = 'No memories yet.'
+            accuracy_context = 'No prediction accuracy data yet.'
+
+        messages = self.get_messages()
+        dialog_history = ''
+        if messages:
+            lines = []
+            for msg in messages:
+                label = 'Human' if msg.sender != 'proxy' else 'Proxy'
+                lines.append(f'{label}: {msg.content}')
+            dialog_history = '\n'.join(lines) + '\n'
+
+        return build_review_prompt(
+            '',
+            memory_context=memory_context,
+            accuracy_context=accuracy_context,
+            dialog_history=dialog_history,
+        )
+
+    def _state_path(self) -> str:
+        safe_id = self.decider.replace('/', '-').replace(':', '-').replace(' ', '-')
+        return os.path.join(self._infra_dir, f'.proxy-session-{safe_id}.json')
+
+    def save_state(self) -> None:
+        """Persist session state to disk."""
+        state = {
+            'claude_session_id': self.claude_session_id,
+            'decider': self.decider,
+            'conversation_id': self.conversation_id,
+            'conversation_title': self.conversation_title,
+        }
+        state_path = self._state_path()
+        os.makedirs(os.path.dirname(state_path), exist_ok=True)
+        tmp = state_path + '.tmp'
+        with open(tmp, 'w') as f:
+            json.dump(state, f)
+        os.replace(tmp, state_path)
+
+    def load_state(self) -> None:
+        """Load session state from disk."""
+        state_path = self._state_path()
+        try:
+            with open(state_path) as f:
+                state = json.load(f)
+            self.claude_session_id = state.get('claude_session_id')
+            self.conversation_title = state.get('conversation_title') or None
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+    def _latest_human_message(self) -> str:
+        messages = self.get_messages()
+        for msg in reversed(messages):
+            if msg.sender == 'human':
+                return msg.content
+        return ''
+
+    def _build_memory_context_prompt(self) -> str:
+        """Build just the memory + accuracy context (no history, no human message)."""
+        from orchestrator.proxy_memory import (
+            open_proxy_db,
+            get_interaction_counter,
+        )
+
+        mem_path = proxy_memory_path(self.teaparty_home)
+        if os.path.exists(mem_path):
+            conn = open_proxy_db(mem_path)
+            try:
+                current = get_interaction_counter(conn)
+                entries = introspect_chunks(conn, current_interaction=current)
+                memory_context = format_introspection(entries)
+                accuracy_context = summarize_accuracy(conn)
+            finally:
+                conn.close()
+        else:
+            memory_context = 'No memories yet.'
+            accuracy_context = 'No prediction accuracy data yet.'
+
+        return f'{memory_context}\n\n{accuracy_context}'
+
+    async def invoke(self, *, cwd: str) -> str:
+        """Invoke the proxy-review agent to respond to the current conversation.
+
+        Fresh session: sends full review prompt with history and memory context.
+        Resumed session: sends fresh memory context + latest human message,
+        so corrections from the previous turn are reflected immediately.
+
+        Parses [CORRECTION:...] and [REINFORCE:...] signals from the response
+        and stores them in the ACT-R memory DB before writing to the bus.
+
+        Returns the agent's response text, or '' if invocation fails.
+        """
+        import tempfile
+        from orchestrator.claude_runner import ClaudeRunner
+
+        self.load_state()
+        is_fresh_session = self.claude_session_id is None
+
+        latest_human = self._latest_human_message()
+        if not latest_human:
+            return ''
+
+        if self.claude_session_id:
+            # Resumed: provide fresh memory context so corrections surface immediately.
+            mem_ctx = self._build_memory_context_prompt()
+            prompt = f'{mem_ctx}\n\nHuman: {latest_human}'
+        else:
+            # Fresh: full review prompt including all conversation history.
+            messages = self.get_messages()
+            dialog_history = ''
+            if messages:
+                lines = [
+                    f'{"Human" if m.sender != "proxy" else "Proxy"}: {m.content}'
+                    for m in messages
+                ]
+                dialog_history = '\n'.join(lines) + '\n'
+            from orchestrator.proxy_memory import (
+                open_proxy_db,
+                get_interaction_counter,
+            )
+            mem_path = proxy_memory_path(self.teaparty_home)
+            if os.path.exists(mem_path):
+                conn = open_proxy_db(mem_path)
+                try:
+                    current = get_interaction_counter(conn)
+                    entries = introspect_chunks(conn, current_interaction=current)
+                    memory_context = format_introspection(entries)
+                    accuracy_context = summarize_accuracy(conn)
+                finally:
+                    conn.close()
+            else:
+                memory_context = 'No memories yet.'
+                accuracy_context = 'No prediction accuracy data yet.'
+            prompt = build_review_prompt(
+                latest_human,
+                memory_context=memory_context,
+                accuracy_context=accuracy_context,
+                dialog_history=dialog_history,
+            )
+
+        stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='proxy-stream-')
+        os.close(stream_fd)
+
+        try:
+            runner = ClaudeRunner(
+                prompt=prompt,
+                cwd=cwd,
+                stream_file=stream_path,
+                lead='proxy-review',
+                permission_mode='default',
+                resume_session=self.claude_session_id,
+            )
+            result = await runner.run()
+
+            response_text = _extract_assistant_text_from_stream(stream_path)
+
+            if response_text:
+                # Process correction/reinforce signals before writing to bus
+                mem_path = proxy_memory_path(self.teaparty_home)
+                os.makedirs(os.path.dirname(mem_path), exist_ok=True)
+                from orchestrator.proxy_memory import open_proxy_db
+                conn = open_proxy_db(mem_path)
+                try:
+                    _process_response_signals(response_text, conn=conn, session=ReviewSession(
+                        conversation_id=self.conversation_id,
+                        human_name=self.decider,
+                        memory_db_path=mem_path,
+                    ))
+                finally:
+                    conn.close()
+                self.send_agent_message(response_text)
+            else:
+                self.claude_session_id = None
+                self.save_state()
+                self.send_agent_message(
+                    'I was unable to produce a response (the session may have '
+                    'expired). Please send your message again to start a fresh '
+                    'session.'
+                )
+
+            if response_text and result.session_id:
+                self.claude_session_id = result.session_id
+                if is_fresh_session and not self.conversation_title:
+                    slug = _extract_slug_from_stream(stream_path, result.session_id, cwd)
+                    if slug:
+                        self.conversation_title = slug
+                self.save_state()
+
+            return response_text
+        finally:
+            try:
+                os.unlink(stream_path)
+            except OSError:
+                pass
+
+
+def read_proxy_session_title(teaparty_home: str, decider: str) -> str | None:
+    """Read the conversation title from a saved proxy session state file.
+
+    Returns None if no title is stored or the file doesn't exist.
+    """
+    safe_id = decider.replace('/', '-').replace(':', '-').replace(' ', '-')
+    state_path = os.path.join(teaparty_home, 'proxy', f'.proxy-session-{safe_id}.json')
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+        return state.get('conversation_title') or None
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
