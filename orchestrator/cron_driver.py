@@ -1,7 +1,7 @@
 """Runtime driver for the cron scheduler.
 
 Wraps CronScheduler with a re-entrancy guard and a factory that builds
-from project config.  The TUI (or any other runtime) calls tick()
+from project config.  The bridge (or any other runtime) calls tick()
 periodically; the driver handles the rest.
 
 Issue #274.

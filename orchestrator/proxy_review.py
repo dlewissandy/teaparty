@@ -342,7 +342,7 @@ async def run_review_turn(
     3. Records both messages on the message bus
     4. Returns the proxy's response text
 
-    The caller (TUI or CLI) is responsible for the conversation loop.
+    The caller (bridge or CLI) is responsible for the conversation loop.
     """
     # Build dialog history from prior bus messages if not provided
     if not dialog_history:

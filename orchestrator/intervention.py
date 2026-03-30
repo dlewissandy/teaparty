@@ -30,7 +30,7 @@ class InterventionMessage:
 class InterventionQueue:
     """Thread-safe queue for pending human interventions.
 
-    The TUI (or messaging bus) calls ``enqueue()`` from any thread.
+    The bridge (or messaging bus) calls ``enqueue()`` from any thread.
     The orchestrator calls ``has_pending()`` and ``drain()`` from the
     async event loop at turn boundaries.
 

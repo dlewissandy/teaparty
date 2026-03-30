@@ -1,7 +1,7 @@
-"""Async event bus for orchestrator ↔ TUI communication.
+"""Async event bus for orchestrator ↔ bridge communication.
 
-The orchestrator publishes events; the TUI (or CLI) subscribes.
-Replaces filesystem polling for sessions the TUI starts in-process.
+The orchestrator publishes events; the bridge (or CLI) subscribes.
+Replaces filesystem polling for sessions started in-process.
 """
 from __future__ import annotations
 

@@ -4,7 +4,8 @@ Acceptance criteria:
 1. projects/POC/tui/ directory does not exist in the repository
 2. No production source in orchestrator/ or bridge/ contains stale TUI actor names
 3. No production source in orchestrator/ or bridge/ imports from projects.POC.tui
-4. uv run pytest passes after deletion
+4. No orchestrator source (outside tui_bridge.py) describes current consumers as TUI
+5. uv run pytest passes after deletion
 """
 import unittest
 from pathlib import Path
@@ -68,6 +69,49 @@ class TestNoStaleTUIReferencesInOrchestrator(unittest.TestCase):
         self.assertEqual(
             violations, [],
             f'bridge imports from retired projects.POC.tui: {violations}',
+        )
+
+    def test_orchestrator_source_does_not_describe_tui_as_current_consumer(self):
+        """orchestrator/ source (excluding tui_bridge.py) must not describe TUI as current consumer.
+
+        Stale comments like 'the TUI reads this' or 'TUI subscribes' describe a
+        retired system and must be updated to reference the bridge.
+        Allowed: tui_bridge.py (legitimately named), 'the retired TUI' (accurate history).
+        """
+        files = [
+            p for p in (REPO_ROOT / 'orchestrator').rglob('*.py')
+            if '__pycache__' not in str(p) and p.name != 'tui_bridge.py'
+        ]
+        # Patterns that indicate TUI is described as a current (not retired) consumer
+        stale_patterns = [
+            'the TUI (',
+            'the TUI can',
+            'the TUI doesn',
+            'the TUI shows',
+            'for TUI status',
+            'for TUI observability',
+            'for TUI compatibility',
+            '↔ TUI',
+            'TUI) subscribes',
+            'TUI (or CLI)',
+            'TUI (or any',
+            'TUI (or messaging',
+            '(TUI)',
+            'via the input_provider (TUI',
+            'Used by TUI',
+            'bridge server and TUI',
+            "TUI's own PID",
+            'crash the TUI',
+        ]
+        violations = []
+        for path in files:
+            source = path.read_text(errors='replace')
+            for pattern in stale_patterns:
+                if pattern in source:
+                    violations.append(f'{path.relative_to(REPO_ROOT)}: {pattern!r}')
+        self.assertEqual(
+            violations, [],
+            f'orchestrator source describes TUI as current consumer: {violations}',
         )
 
 

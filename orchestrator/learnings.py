@@ -48,7 +48,7 @@ async def extract_learnings(
 
     Each extraction step calls synchronous code that blocks on subprocess.run()
     (claude CLI invocations).  We run each step via asyncio.to_thread() so the
-    event loop stays responsive — the TUI can render, process input, and show
+    event loop stays responsive — the bridge can render, process input, and show
     progress while extraction proceeds in background threads.
 
     If event_bus is provided, per-scope results and a summary diagnostic are
