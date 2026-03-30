@@ -283,6 +283,24 @@ def load_workgroup(path: str) -> Workgroup:
 
 # ── Discovery & resolution ──────────────────────────────────────────────────
 
+def discover_skills(skills_dir: str) -> list[str]:
+    """Scan a .claude/skills/ directory and return skill names.
+
+    A skill is a subdirectory that contains a SKILL.md file.
+    Returns an empty list if the directory does not exist.
+
+    Args:
+        skills_dir: Absolute path to a .claude/skills/ directory.
+    """
+    if not os.path.isdir(skills_dir):
+        return []
+    names = []
+    for entry in sorted(os.scandir(skills_dir), key=lambda e: e.name):
+        if entry.is_dir() and os.path.exists(os.path.join(entry.path, 'SKILL.md')):
+            names.append(entry.name)
+    return names
+
+
 def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
     """Walk teams: entries and check which paths are valid TeaParty projects.
 

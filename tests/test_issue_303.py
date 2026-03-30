@@ -194,7 +194,14 @@ class TestProjectTeamSerialization(unittest.TestCase):
         self.assertEqual(result['humans'][0]['role'], 'advisor')
 
     def test_serialized_project_team_includes_skills(self):
-        result = self.bridge._serialize_project_team(self.team)
+        # Issue #327: skills come from filesystem discovery, not t.skills alone.
+        # Pass fix-issue as a local skill to verify it appears in the output.
+        result = self.bridge._serialize_project_team(
+            self.team,
+            local_skills=['fix-issue'],
+            registered_org_skills=[],
+            org_catalog_skills=[],
+        )
         self.assertIn('skills', result)
         names = [s['name'] for s in result['skills']]
         self.assertIn('fix-issue', names)
@@ -593,32 +600,56 @@ class TestSkillSourceTags(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_org_skill_tagged_shared(self):
-        """Skill present in org skills must be tagged 'shared'."""
-        team = _make_project_team(self.project_dir, agents=[], skills=['audit', 'local-skill'])
-        result = self.bridge._serialize_project_team(team, org_skills=['audit'])
+        """Skill in both registered_org_skills and org_catalog_skills must be tagged 'shared'."""
+        # Issue #327: source is now filesystem-backed; pass explicit params.
+        team = _make_project_team(self.project_dir, agents=[], skills=['audit'])
+        result = self.bridge._serialize_project_team(
+            team,
+            local_skills=[],
+            registered_org_skills=['audit'],
+            org_catalog_skills=['audit'],
+        )
         by_name = {s['name']: s['source'] for s in result['skills']}
         self.assertEqual(by_name['audit'], 'shared')
 
     def test_project_only_skill_tagged_local(self):
-        """Skill not in org skills must be tagged 'local'."""
-        team = _make_project_team(self.project_dir, agents=[], skills=['project-skill'])
-        result = self.bridge._serialize_project_team(team, org_skills=['org-skill'])
+        """Skill discovered from the project's .claude/skills/ must be tagged 'local'."""
+        # Issue #327: local skills are filesystem-discovered; pass via local_skills param.
+        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        result = self.bridge._serialize_project_team(
+            team,
+            local_skills=['project-skill'],
+            registered_org_skills=[],
+            org_catalog_skills=[],
+        )
         by_name = {s['name']: s['source'] for s in result['skills']}
         self.assertEqual(by_name['project-skill'], 'local')
 
     def test_skills_returned_as_objects(self):
         """Each skill entry must be a dict with 'name' and 'source' keys."""
-        team = _make_project_team(self.project_dir, agents=[], skills=['fix-issue'])
-        result = self.bridge._serialize_project_team(team)
+        # Issue #327: pass skill via local_skills so it appears in the output.
+        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        result = self.bridge._serialize_project_team(
+            team,
+            local_skills=['fix-issue'],
+            registered_org_skills=[],
+            org_catalog_skills=[],
+        )
         self.assertIsInstance(result['skills'], list)
         skill = result['skills'][0]
         self.assertIn('name', skill)
         self.assertIn('source', skill)
 
     def test_no_org_skills_all_tagged_local(self):
-        """When no org_skills provided, all project skills must be 'local'."""
-        team = _make_project_team(self.project_dir, agents=[], skills=['skill-a', 'skill-b'])
-        result = self.bridge._serialize_project_team(team)
+        """When skills are only locally installed (no org catalog), all must be 'local'."""
+        # Issue #327: local_skills are filesystem-discovered; pass them directly.
+        team = _make_project_team(self.project_dir, agents=[], skills=[])
+        result = self.bridge._serialize_project_team(
+            team,
+            local_skills=['skill-a', 'skill-b'],
+            registered_org_skills=[],
+            org_catalog_skills=[],
+        )
         sources = {s['source'] for s in result['skills']}
         self.assertEqual(sources, {'local'})
 
@@ -681,6 +712,16 @@ class TestConfigProjectHandlerEndToEnd(unittest.IsolatedAsyncioTestCase):
             agents=['Project Lead', 'Org Agent'],
             skills=['org-skill', 'local-skill'],
         )
+        # Issue #327: install org-skill in org catalog and local-skill in project.
+        # The handler uses filesystem discovery to determine source tags.
+        org_skill_dir = os.path.join(self.tmpdir, '.claude', 'skills', 'org-skill')
+        os.makedirs(org_skill_dir, exist_ok=True)
+        with open(os.path.join(org_skill_dir, 'SKILL.md'), 'w') as f:
+            f.write('# org-skill\n')
+        local_skill_dir = os.path.join(self.project_dir, '.claude', 'skills', 'local-skill')
+        os.makedirs(local_skill_dir, exist_ok=True)
+        with open(os.path.join(local_skill_dir, 'SKILL.md'), 'w') as f:
+            f.write('# local-skill\n')
 
     async def asyncTearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)

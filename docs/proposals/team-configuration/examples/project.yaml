@@ -33,7 +33,12 @@ workgroups:
     status: idle
 
 skills:
-  - fix-issue                                   # project-scoped skills
+  # Org skill registration: names here are org skills pulled into this project.
+  # These must be installed in {teaparty_home}/.claude/skills/; unresolvable names
+  # are flagged as 'missing' in the dashboard rather than silently omitted.
+  # Local skills in {project_dir}/.claude/skills/ are discovered automatically
+  # and take precedence over org skills with the same name.
+  - fix-issue
 
 scheduled:
   - name: health-check
