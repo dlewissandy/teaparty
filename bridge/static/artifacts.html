@@ -107,7 +107,7 @@ function parseMdLinks(text) {
 function rewriteInternalLinks(html) {
   return html.replace(/href="([^"]+)"/g, function(match, href) {
     if (/^(https?:\/\/|#|mailto:|javascript:)/.test(href)) return match;
-    return 'href="javascript:void(0)" onclick="loadFile(' + JSON.stringify(href) + ')"';
+    return 'href="javascript:void(0)" onclick="loadFile(\'' + href + '\')"';
   });
 }
 
@@ -166,7 +166,7 @@ function render() {
     sec.items.forEach(function(item) {
       var isActive = selectedFile === item.path;
       navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') +
-        '" onclick="loadFile(' + JSON.stringify(item.path) + ')">' + escHtml(item.name) + '</div>';
+        '" onclick="loadFile(\'' + item.path + '\')">' + escHtml(item.name) + '</div>';
     });
   });
   navHtml += '</div>';
