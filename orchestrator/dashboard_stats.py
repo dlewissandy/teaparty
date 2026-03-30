@@ -1,7 +1,7 @@
 """Dashboard statistics, item builders, and display utilities.
 
 Pure computation over state objects — no Textual dependencies.
-Extracted from tui/screens/dashboard_screen.py for bridge and test compatibility.
+Extracted from the retired TUI for bridge and test compatibility.
 """
 from __future__ import annotations
 
