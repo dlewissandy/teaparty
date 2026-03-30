@@ -34,6 +34,7 @@ from orchestrator.config_reader import (
     load_project_team,
     load_workgroup,
     discover_projects,
+    discover_skills,
     load_management_workgroups,
     resolve_workgroups,
     WorkgroupRef,
@@ -319,8 +320,12 @@ class TeaPartyBridge:
             projects = discover_projects(team)
             for p in projects:
                 p['slug'] = os.path.basename(p['path'])
+            org_skills_dir = os.path.join(self.teaparty_home, '.claude', 'skills')
+            discovered_skills = discover_skills(org_skills_dir)
             return web.json_response({
-                'management_team': self._serialize_management_team(team),
+                'management_team': self._serialize_management_team(
+                    team, discovered_skills=discovered_skills,
+                ),
                 'projects': projects,
             })
         except FileNotFoundError:
@@ -339,10 +344,16 @@ class TeaPartyBridge:
         try:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
             org_agents: list[str] = mgmt.agents
-            org_skills: list[str] = mgmt.skills
+            org_catalog_skills: list[str] = discover_skills(
+                os.path.join(self.teaparty_home, '.claude', 'skills')
+            )
         except FileNotFoundError:
             org_agents = []
-            org_skills = []
+            org_catalog_skills = []
+
+        local_skills: list[str] = discover_skills(
+            os.path.join(project_dir, '.claude', 'skills')
+        )
 
         workgroups = []
         for entry in team.workgroups:
@@ -376,7 +387,11 @@ class TeaPartyBridge:
         return web.json_response({
             'project': slug,
             'team': self._serialize_project_team(
-                team, org_agents=org_agents, org_skills=org_skills,
+                team,
+                org_agents=org_agents,
+                local_skills=local_skills,
+                registered_org_skills=team.skills,
+                org_catalog_skills=org_catalog_skills,
             ),
             'workgroups': workgroups,
         })
@@ -702,7 +717,9 @@ class TeaPartyBridge:
             'timestamp': m.timestamp,
         }
 
-    def _serialize_management_team(self, t) -> dict:
+    def _serialize_management_team(
+        self, t, discovered_skills: list[str] | None = None
+    ) -> dict:
         return {
             'name': t.name,
             'description': t.description,
@@ -710,7 +727,7 @@ class TeaPartyBridge:
             'decider': t.decider,
             'agents': t.agents,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': t.skills,
+            'skills': discovered_skills if discovered_skills is not None else t.skills,
             'hooks': t.hooks,
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
@@ -721,15 +738,29 @@ class TeaPartyBridge:
     def _serialize_project_team(
         self, t,
         org_agents: list[str] | None = None,
-        org_skills: list[str] | None = None,
+        local_skills: list[str] | None = None,
+        registered_org_skills: list[str] | None = None,
+        org_catalog_skills: list[str] | None = None,
     ) -> dict:
         org_agents_set = set(org_agents or [])
-        org_skills_set = set(org_skills or [])
+        local_skills_set = set(local_skills or [])
+        org_catalog_set = set(org_catalog_skills or [])
 
         def _agent_source(name: str) -> str:
             if name == t.lead:
                 return 'generated'
             return 'shared' if name in org_agents_set else 'local'
+
+        # Build merged skill list: local first, then registered org skills.
+        # Local takes precedence on name collision.
+        # Registered org skills absent from the org catalog are flagged as 'missing'.
+        skills_result = []
+        for name in sorted(local_skills or []):
+            skills_result.append({'name': name, 'source': 'local'})
+        for name in (registered_org_skills or []):
+            if name not in local_skills_set:
+                source = 'shared' if name in org_catalog_set else 'missing'
+                skills_result.append({'name': name, 'source': source})
 
         return {
             'name': t.name,
@@ -738,10 +769,7 @@ class TeaPartyBridge:
             'decider': t.decider,
             'agents': [{'name': n, 'source': _agent_source(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': [
-                {'name': n, 'source': 'shared' if n in org_skills_set else 'local'}
-                for n in t.skills
-            ],
+            'skills': skills_result,
             'hooks': t.hooks,
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}

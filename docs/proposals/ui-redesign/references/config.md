@@ -75,6 +75,7 @@ Every item in the project config is tagged by source:
 | `shared` | From org catalog | Green badge |
 | `local` | Defined only in this project | Purple badge |
 | `generated` | Auto-created from template (project lead) | Yellow badge |
+| `missing` | Declared in `project.yaml skills:` but not installed in org catalog | Red badge |
 
 Shared items may have **override indicators** (e.g., "norms overridden") showing where the project diverges from the org definition.
 

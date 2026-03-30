@@ -86,6 +86,24 @@ A directory is a TeaParty project if it contains `.git/`, `.claude/`, and `.teap
 
 ---
 
+## Skill Discovery and Precedence
+
+Skills are resolved from the filesystem, not from YAML declarations alone.
+
+**Org-level skills** are discovered from `{teaparty_home}/.claude/skills/`. A directory is a skill if it contains `SKILL.md`. The `skills:` list in `teaparty.yaml` is the catalog registration — a human-curated subset of installed skills promoted to the org catalog. Skills installed on disk but not listed in YAML are still discovered and shown in the Global Config Skill Catalog.
+
+**Project-level skills** come from two sources, merged with local taking precedence:
+1. **Local skills** — discovered from `{project_dir}/.claude/skills/`. Displayed as `local`.
+2. **Registered org skills** — listed in `project.yaml skills:`, resolved against the org catalog. Displayed as `shared` if found in the catalog, `missing` if not installed.
+
+If a local skill and a registered org skill share the same name, the local version is shown (source `local`) and the org version is suppressed.
+
+A skill in `project.yaml skills:` that cannot be found in `{teaparty_home}/.claude/skills/` is flagged with source `missing` — it is not silently omitted.
+
+The workgroup-level `skills:` field is a catalog/dispatch declaration (not an access control list) and is loaded from YAML unchanged. It is not affected by filesystem discovery.
+
+---
+
 ## Relationship to Other Proposals
 
 - [configuration-team](../configuration-team/proposal.md) — the team that creates and modifies these files

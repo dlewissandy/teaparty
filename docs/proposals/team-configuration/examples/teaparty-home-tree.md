@@ -5,6 +5,12 @@ This shows the directory layout for TeaParty's management level and example proj
 ```
 ~/.teaparty/                                   <- TeaParty home (management level)
 ├── teaparty.yaml                              <- management team config (includes teams: with paths)
+├── .claude/
+│   └── skills/                               <- org-level skill installations (discovered by bridge)
+│       ├── sprint-plan/
+│       │   └── SKILL.md
+│       └── audit/
+│           └── SKILL.md
 ├── workgroups/                                <- org-level shared workgroups
 │   ├── configuration.yaml
 │   ├── coding.yaml
