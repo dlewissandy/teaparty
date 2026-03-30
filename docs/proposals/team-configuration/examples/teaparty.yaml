@@ -32,10 +32,6 @@ workgroups:
     status: active
 
 skills:
-  # Agent allowlist: controls which org skills agents are permitted to invoke.
-  # This is NOT the org catalog — the catalog is derived entirely from the filesystem
-  # ({teaparty_home}/.claude/skills/). Every installed skill appears in the catalog
-  # regardless of whether it is listed here.
   - sprint-plan                                 # each name → .claude/skills/{name}/
   - audit
   - close-milestone

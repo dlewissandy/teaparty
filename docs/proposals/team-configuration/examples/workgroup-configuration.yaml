@@ -13,60 +13,29 @@ agents:
   - name: Configuration Lead
     role: team-lead
     model: claude-sonnet-4
-  - name: Project Specialist
-    role: specialist
-    model: claude-sonnet-4
-  - name: Workgroup Specialist
-    role: specialist
-    model: claude-sonnet-4
-  - name: Agent Specialist
+  - name: Skill Architect
     role: specialist
     model: claude-opus-4
-  - name: Skills Specialist
+  - name: Agent Designer
     role: specialist
     model: claude-opus-4
   - name: Systems Engineer
     role: specialist
     model: claude-sonnet-4
 
-# Workgroup-level skills: skills associated with this workgroup for catalog and
-# dispatch context. This is NOT an access control list — individual specialist
-# agents declare their own skills: allowlist in their agent definitions.
-# Each specialist owns the full CRUD surface for its domain; see
-# docs/proposals/configuration-team/proposal.md for the complete list.
 skills:
-  - create-project
-  - edit-project
-  - remove-project
-  - create-workgroup
-  - edit-workgroup
-  - remove-workgroup
-  - create-agent
-  - edit-agent
-  - remove-agent
   - create-skill
-  - edit-skill
-  - remove-skill
-  - optimize-skill
+  - create-agent
   - create-hook
-  - edit-hook
-  - remove-hook
-  - create-scheduled-task
-  - edit-scheduled-task
-  - remove-scheduled-task
 
 norms:
   quality:
     - Created artifacts must be validated before reporting completion
     - Skills must use progressive disclosure — no monolithic SKILL.md files
   delegation:
-    - Project Specialist handles project creation, registration, and onboarding
-    - Workgroup Specialist handles workgroup creation and modification
-    - Agent Specialist handles agent definition creation and modification
-    - Skills Specialist handles skill creation, editing, and optimization
+    - Skill Architect handles skills, Agent Designer handles agents
     - Systems Engineer handles hooks, MCP servers, and scheduled tasks
     - Configuration Lead coordinates multi-artifact requests
-    - Human participant management is out of scope
 
 stats:
   storage: ~/.teaparty/stats/configuration.json

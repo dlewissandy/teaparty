@@ -257,6 +257,12 @@ function openJobChat(convId) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
+  // File-direct mode: ?file= without ?project= — skip project nav, load file immediately.
+  if (requestedFile && !params.get('project')) {
+    await loadFile(requestedFile);
+    return;
+  }
+
   try {
     var resp = await fetch('/api/artifacts/' + encodeURIComponent(currentProject));
     if (!resp.ok) {

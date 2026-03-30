@@ -27,10 +27,6 @@ agents:
     role: specialist
     model: claude-sonnet-4
 
-# Workgroup-level skills: skills associated with this workgroup for catalog and
-# dispatch context. This is NOT an access control list — it describes what skills
-# this workgroup makes available. Per-agent skill access is controlled by the
-# skills: allowlist in each agent's definition (.claude/agents/{name}.md).
 skills:
   - fix-issue
   - code-cleanup
