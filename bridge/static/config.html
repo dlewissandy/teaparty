@@ -266,11 +266,14 @@ async function renderWorkgroup(name, projectSlug) {
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
   var agentItems = (wgData.agents || []).map(function(a) {
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + (a.name || a) + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
+    var src = sourceBadge(a.source);
+    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + (a.name || a) + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
   });
 
   var skillItems = (wgData.skills || []).map(function(s) {
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + s + '</div></div></div>';
+    var name = typeof s === 'object' ? s.name : s;
+    var src = typeof s === 'object' ? sourceBadge(s.source) : '';
+    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var normItems = [];

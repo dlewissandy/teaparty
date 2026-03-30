@@ -446,9 +446,25 @@ class TeaPartyBridge:
         except FileNotFoundError as exc:
             return web.json_response({'error': str(exc)}, status=404)
 
+        try:
+            mgmt = load_management_team(teaparty_home=self.teaparty_home)
+            org_agents: set[str] = set(mgmt.agents)
+            org_skills: list[str] = discover_skills(
+                os.path.join(self.teaparty_home, '.claude', 'skills')
+            )
+        except FileNotFoundError:
+            org_agents = set()
+            org_skills = []
+
         for w in workgroups:
             if w.name == name:
-                return web.json_response(self._serialize_workgroup(w, detail=True))
+                return web.json_response(
+                    self._serialize_workgroup(
+                        w, detail=True,
+                        org_agents=org_agents,
+                        org_catalog_skills=org_skills,
+                    )
+                )
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
 
     # ── Message handlers ──────────────────────────────────────────────────────
@@ -862,6 +878,8 @@ class TeaPartyBridge:
     def _serialize_workgroup(
         self, w, source: str | None = None, overrides: list[str] | None = None,
         detail: bool = False,
+        org_agents: set[str] | None = None,
+        org_catalog_skills: list[str] | None = None,
     ) -> dict:
         result = {
             'name': w.name,
@@ -872,8 +890,16 @@ class TeaPartyBridge:
             'overrides': overrides or [],
         }
         if detail:
-            result['agents'] = list(w.agents)
-            result['skills'] = list(w.skills)
+            org_agents_set = org_agents or set()
+            org_skills_set = set(org_catalog_skills or [])
+            result['agents'] = [
+                {**agent, 'source': 'shared' if agent.get('name', '') in org_agents_set else 'local'}
+                for agent in w.agents
+            ]
+            result['skills'] = [
+                {'name': s, 'source': 'shared' if s in org_skills_set else 'local'}
+                for s in w.skills
+            ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)
         return result

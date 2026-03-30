@@ -92,14 +92,74 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
         self.assertEqual(agent['role'], 'specialist')
         self.assertEqual(agent['model'], 'claude-opus-4')
 
+    def test_agent_includes_source_badge(self):
+        """Each agent entry in detail mode must have a source field for source badge rendering."""
+        wg = _make_workgroup(agents=[
+            {'name': 'Developer', 'role': 'specialist', 'model': 'claude-sonnet-4'},
+        ])
+        result = self.bridge._serialize_workgroup(wg, detail=True)
+        self.assertIn('source', result['agents'][0],
+            'Each agent dict must include a source field for source badge rendering')
+
+    def test_agent_source_is_shared_when_in_org_catalog(self):
+        """Agent with name in org catalog must have source='shared'."""
+        wg = _make_workgroup(agents=[
+            {'name': 'office-manager', 'role': 'lead', 'model': 'claude-opus-4'},
+        ])
+        result = self.bridge._serialize_workgroup(
+            wg, detail=True, org_agents={'office-manager', 'auditor'}
+        )
+        self.assertEqual(result['agents'][0]['source'], 'shared',
+            "Agent in org catalog must have source='shared'")
+
+    def test_agent_source_is_local_when_not_in_org_catalog(self):
+        """Agent with name not in org catalog must have source='local'."""
+        wg = _make_workgroup(agents=[
+            {'name': 'Coding Lead', 'role': 'team-lead', 'model': 'claude-sonnet-4'},
+        ])
+        result = self.bridge._serialize_workgroup(
+            wg, detail=True, org_agents={'office-manager', 'auditor'}
+        )
+        self.assertEqual(result['agents'][0]['source'], 'local',
+            "Agent not in org catalog must have source='local'")
+
     def test_skills_are_included_in_serialized_workgroup(self):
-        """_serialize_workgroup(detail=True) must include the skills list."""
+        """_serialize_workgroup(detail=True) must include skills as objects with source."""
         wg = _make_workgroup(skills=['fix-issue', 'code-cleanup'])
         result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('skills', result,
             '_serialize_workgroup(detail=True) must include skills; got: ' + str(list(result.keys())))
-        self.assertIn('fix-issue', result['skills'])
-        self.assertIn('code-cleanup', result['skills'])
+        names = [s['name'] for s in result['skills']]
+        self.assertIn('fix-issue', names)
+        self.assertIn('code-cleanup', names)
+
+    def test_skill_includes_source_badge(self):
+        """Each skill entry in detail mode must be an object with name and source fields."""
+        wg = _make_workgroup(skills=['fix-issue'])
+        result = self.bridge._serialize_workgroup(wg, detail=True)
+        skill = result['skills'][0]
+        self.assertIn('name', skill, 'Skill entry must have name field')
+        self.assertIn('source', skill, 'Skill entry must have source field for source badge')
+
+    def test_skill_source_is_shared_when_in_org_catalog(self):
+        """Skill in org catalog must have source='shared'."""
+        wg = _make_workgroup(skills=['fix-issue'])
+        result = self.bridge._serialize_workgroup(
+            wg, detail=True, org_catalog_skills=['fix-issue', 'audit']
+        )
+        skill_map = {s['name']: s['source'] for s in result['skills']}
+        self.assertEqual(skill_map['fix-issue'], 'shared',
+            "Skill in org catalog must have source='shared'")
+
+    def test_skill_source_is_local_when_not_in_org_catalog(self):
+        """Skill not in org catalog must have source='local'."""
+        wg = _make_workgroup(skills=['bespoke-skill'])
+        result = self.bridge._serialize_workgroup(
+            wg, detail=True, org_catalog_skills=['fix-issue', 'audit']
+        )
+        skill_map = {s['name']: s['source'] for s in result['skills']}
+        self.assertEqual(skill_map['bespoke-skill'], 'local',
+            "Skill not in org catalog must have source='local'")
 
     def test_norms_are_included_in_serialized_workgroup(self):
         """_serialize_workgroup(detail=True) must include the norms dict."""
@@ -220,7 +280,7 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
         self.assertEqual(body['agents'][0]['name'], 'Developer')
 
     def test_get_workgroup_detail_returns_skills(self):
-        """GET /api/workgroups/{name} body must include skills list."""
+        """GET /api/workgroups/{name} body must include skills list with name and source."""
         from aiohttp.test_utils import TestClient, TestServer
 
         bridge = self._make_bridge_with_workgroup('coding', {
@@ -237,7 +297,9 @@ class TestWorkgroupDetailEndpointReturnsFullData(unittest.TestCase):
         body = _run(run())
         self.assertIn('skills', body,
             'GET /api/workgroups/{name} response must include skills')
-        self.assertIn('fix-issue', body['skills'])
+        skill_names = [s['name'] for s in body['skills']]
+        self.assertIn('fix-issue', skill_names,
+            "Skills must include 'fix-issue' by name")
 
     def test_get_workgroup_detail_returns_norms(self):
         """GET /api/workgroups/{name} body must include norms dict."""
@@ -423,35 +485,45 @@ class TestWorkgroupDetailBreadcrumb(unittest.TestCase):
 # ── Criterion 3 & 5: renderWorkgroup renders Agents with source badges ────────
 
 class TestRenderWorkgroupRendersAgentsAndSkills(unittest.TestCase):
-    """renderWorkgroup must render Agents and Skills cards with + New and + Catalog buttons."""
+    """renderWorkgroup must render Agents and Skills cards with source badges, + New, + Catalog."""
 
     def _get_config_html(self) -> str:
         return (_REPO_ROOT / 'bridge' / 'static' / 'config.html').read_text()
 
-    def test_renderWorkgroup_renders_agents_section(self):
-        """renderWorkgroup must include an Agents section card."""
+    def _get_renderWorkgroup_body(self) -> str:
+        """Extract the renderWorkgroup function body from config.html."""
         source = self._get_config_html()
-        # renderWorkgroup must call sectionCard('Agents', ...) or similar
-        self.assertIn("'Agents'", source,
-            "renderWorkgroup must render an 'Agents' section card")
-
-    def test_renderWorkgroup_renders_skills_section(self):
-        """renderWorkgroup must include a Skills section card."""
-        source = self._get_config_html()
-        self.assertIn("'Skills'", source,
-            "renderWorkgroup must render a 'Skills' section card")
+        start = source.find('async function renderWorkgroup(')
+        self.assertNotEqual(start, -1, 'renderWorkgroup function not found in config.html')
+        # Find the next top-level function or end of script to bound the body
+        end = source.find('\nasync function ', start + 1)
+        if end == -1:
+            end = source.find('\nvar urlParams', start)
+        return source[start:end] if end != -1 else source[start:]
 
     def test_renderWorkgroup_renders_norms_section(self):
         """renderWorkgroup must include a Norms section card."""
-        source = self._get_config_html()
+        source = self._get_renderWorkgroup_body()
         self.assertIn("'Norms'", source,
             "renderWorkgroup must render a 'Norms' section card")
 
     def test_renderWorkgroup_renders_budget_section(self):
         """renderWorkgroup must include a Budget section card."""
-        source = self._get_config_html()
+        source = self._get_renderWorkgroup_body()
         self.assertIn("'Budget'", source,
             "renderWorkgroup must render a 'Budget' section card")
+
+    def test_renderWorkgroup_renders_agents_with_source_badge(self):
+        """renderWorkgroup must call sourceBadge for agent source."""
+        source = self._get_renderWorkgroup_body()
+        self.assertIn('sourceBadge(a.source)', source,
+            "renderWorkgroup must call sourceBadge(a.source) for agent source badge (SC#3)")
+
+    def test_renderWorkgroup_renders_skills_with_source_badge(self):
+        """renderWorkgroup must call sourceBadge for skill source."""
+        source = self._get_renderWorkgroup_body()
+        self.assertIn('sourceBadge(s.source)', source,
+            "renderWorkgroup must call sourceBadge(s.source) for skill source badge (SC#3)")
 
 
 if __name__ == '__main__':
