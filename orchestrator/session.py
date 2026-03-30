@@ -473,9 +473,9 @@ class Session:
     def _resolve_norms(self, project_dir: str) -> str:
         """Load and resolve norms from the configuration tree.
 
-        Reads org-level norms from ~/.teaparty/teaparty.yaml, workgroup
+        Reads org-level norms from .teaparty/teaparty.yaml, workgroup
         norms from the project's workgroup definitions, and project-level
-        norms from {project_dir}/.teaparty/project.yaml.
+        norms from {project_dir}/.teaparty.local/project.yaml.
         Applies precedence (org < workgroup < project) and returns
         formatted text.  Returns empty string if no config tree exists.
         """

@@ -55,17 +55,18 @@ def _make_teaparty_home(teaparty_yaml: str, workgroup_files: dict[str, str] | No
 
 
 def _make_project_dir(project_yaml: str, workgroup_files: dict[str, str] | None = None) -> str:
-    """Create a temp project dir with .teaparty/project.yaml and optional workgroups."""
+    """Create a temp project dir with .teaparty.local/project.yaml and optional workgroups."""
     proj = tempfile.mkdtemp()
-    tp_dir = os.path.join(proj, '.teaparty')
-    os.makedirs(tp_dir)
-    with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+    tp_local = os.path.join(proj, '.teaparty.local')
+    os.makedirs(tp_local)
+    with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
         f.write(project_yaml)
-    # Also create .git/ and .claude/ so it looks like a valid project
+    # Also create .git/ and .claude/ and .teaparty/ so it looks like a valid project
     os.makedirs(os.path.join(proj, '.git'))
     os.makedirs(os.path.join(proj, '.claude'))
+    os.makedirs(os.path.join(proj, '.teaparty'))
     if workgroup_files:
-        wg_dir = os.path.join(tp_dir, 'workgroups')
+        wg_dir = os.path.join(tp_local, 'workgroups')
         os.makedirs(wg_dir, exist_ok=True)
         for name, content in workgroup_files.items():
             with open(os.path.join(wg_dir, name), 'w') as f:

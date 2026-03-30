@@ -69,8 +69,8 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
 def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
     """Write a project.yaml and return a loaded ProjectTeam."""
     from orchestrator.config_reader import load_project_team
-    tp_dir = os.path.join(project_dir, '.teaparty')
-    os.makedirs(tp_dir, exist_ok=True)
+    tp_local = os.path.join(project_dir, '.teaparty.local')
+    os.makedirs(tp_local, exist_ok=True)
     data = {
         'name': 'Test Project',
         'description': 'A test project',
@@ -83,7 +83,7 @@ def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks
         'scheduled': scheduled or [{'name': 'health', 'schedule': '*/30 * * * *', 'skill': 'audit', 'enabled': True}],
         'workgroups': workgroups or [],
     }
-    with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+    with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
         yaml.dump(data, f)
     return load_project_team(project_dir)
 
@@ -313,11 +313,11 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
         # Create project directory with shared + local workgroups
         self.project_dir = os.path.join(self.tmpdir, 'poc')
         os.makedirs(self.project_dir)
-        proj_tp_dir = os.path.join(self.project_dir, '.teaparty')
-        os.makedirs(proj_tp_dir)
+        proj_tp_local = os.path.join(self.project_dir, '.teaparty.local')
+        os.makedirs(proj_tp_local)
 
         # Create local workgroup YAML for this project
-        local_wg_dir = os.path.join(proj_tp_dir, 'workgroups')
+        local_wg_dir = os.path.join(proj_tp_local, 'workgroups')
         _make_workgroup_yaml(local_wg_dir, name='Research')
 
         # Project config with one shared (ref) and one local (entry) workgroup
@@ -336,7 +336,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
                 {'name': 'Research', 'config': 'workgroups/research.yaml'},  # WorkgroupEntry → source: local
             ],
         }
-        with open(os.path.join(proj_tp_dir, 'project.yaml'), 'w') as f:
+        with open(os.path.join(proj_tp_local, 'project.yaml'), 'w') as f:
             yaml.dump(project_data, f)
 
     def tearDown(self):
