@@ -230,21 +230,22 @@ class StateReader:
         # Collect (slug, proj_path) pairs from registry or directory scan
         project_paths: list[tuple[str, str]] = []
         if self.teaparty_home:
-            # Registry-based: load projects from teaparty.yaml
-            try:
-                from orchestrator.config_reader import load_management_team, discover_projects
-                team = load_management_team(teaparty_home=self.teaparty_home)
-                for entry in discover_projects(team):
-                    slug = os.path.basename(entry['path'].rstrip('/'))
-                    project_paths.append((slug, entry['path']))
-                project_paths.sort(key=lambda t: t[0])
-            except Exception:
-                pass
+            # Registry-based: all registered projects, regardless of session state.
+            from orchestrator.config_reader import load_management_team, discover_projects
+            team = load_management_team(teaparty_home=self.teaparty_home)
+            for entry in discover_projects(team):
+                slug = os.path.basename(entry['path'].rstrip('/'))
+                project_paths.append((slug, entry['path']))
+            project_paths.sort(key=lambda t: t[0])
         elif self.projects_dir is not None:
-            # Directory scan (used in tests and legacy contexts)
+            # Directory scan (used in tests and legacy contexts).
+            # Only include dirs that have a .sessions/ subdirectory — that is
+            # the signal that a directory is an active project in scan mode.
             try:
                 for slug in sorted(os.listdir(self.projects_dir)):
-                    project_paths.append((slug, os.path.join(self.projects_dir, slug)))
+                    proj_path = os.path.join(self.projects_dir, slug)
+                    if os.path.isdir(os.path.join(proj_path, '.sessions')):
+                        project_paths.append((slug, proj_path))
             except OSError:
                 pass
         else:
@@ -256,8 +257,6 @@ class StateReader:
         projects = []
         for slug, proj_path in project_paths:
             sessions_dir = os.path.join(proj_path, '.sessions')
-            if not os.path.isdir(sessions_dir):
-                continue
 
             # Projects with their own .git write worktrees.json locally —
             # merge those entries so the bridge can resolve worktree paths.
