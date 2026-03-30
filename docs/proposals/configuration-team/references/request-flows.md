@@ -6,13 +6,13 @@ These five scenarios show how the Configuration Team handles common requests. Si
 
 ## "I would like to create a new skill" — fast path
 
-Single artifact, clear type → office manager routes directly to Skill Architect.
+Single artifact, clear type → office manager routes directly to Skills Specialist.
 
 1. Human types in office manager chat (or clicks "+ New" on Skills card, which pre-seeds the message)
 2. Office manager recognizes this as a single-artifact configuration request for a skill
-3. Office manager routes directly to Skill Architect via AskTeam
-4. Skill Architect asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
-5. Skill Architect designs the skill structure, writes files to `.claude/skills/{name}/`
+3. Office manager routes directly to Skills Specialist via AskTeam
+4. Skills Specialist asks clarifying questions back through the office manager if needed (what should the skill do? what tools does it need? is it user-invocable?)
+5. Skills Specialist designs the skill structure, writes files to `.claude/skills/{name}/`
 6. Office manager confirms to the human: "Created skill `deploy` with 4 files"
 
 ---
@@ -24,8 +24,8 @@ Multi-artifact request → office manager dispatches to Configuration Lead, who 
 1. Office manager recognizes this requires multiple artifact types and routes to Configuration Lead
 2. Configuration Lead decomposes the request and coordinates:
    - **Description** — Configuration Lead writes the workgroup description (the one-line summary that tells team leads when to dispatch to this workgroup)
-   - **Skills** — Skill Architect creates or assigns workgroup-scoped skills (before agents, because agents may reference skills by name)
-   - **Agent definitions** — Agent Designer creates the workgroup lead agent and any specialist agents
+   - **Skills** — Skills Specialist creates or assigns workgroup-scoped skills (before agents, because agents may reference skills by name)
+   - **Agent definitions** — Agent Specialist creates the workgroup lead agent and any specialist agents
    - **Hooks** — Systems Engineer creates any workgroup-specific hooks
    - **Registration** — Configuration Lead writes the workgroup YAML and updates the parent team's configuration. If the workgroup is shared (org-level), it goes in `~/.teaparty/workgroups/`. If project-scoped, it goes in `{project}/.teaparty/workgroups/`
 
@@ -35,10 +35,10 @@ Multi-artifact request → office manager dispatches to Configuration Lead, who 
 
 ## "Optimize the audit skill for progressive disclosure" — fast path
 
-Single artifact, clear type → office manager routes directly to Skill Architect.
+Single artifact, clear type → office manager routes directly to Skills Specialist.
 
-1. Office manager routes to Skill Architect
-2. Skill Architect reads the current skill structure
+1. Office manager routes to Skills Specialist
+2. Skills Specialist reads the current skill structure
 3. Analyzes which content is loaded upfront vs. could be deferred
 4. Decomposes monolithic content into supporting files
 5. Updates SKILL.md to reference supporting files instead of including them inline
@@ -63,7 +63,7 @@ Single artifact, clear type → office manager routes directly to Systems Engine
 
 May require multiple artifacts (skill + scheduled task) → office manager dispatches to Configuration Lead.
 
-1. Configuration Lead checks: does a `test-sweep` skill exist? If not → routes to Skill Architect first
-2. Skill Architect creates `.claude/skills/test-sweep/SKILL.md` (if needed)
+1. Configuration Lead checks: does a `test-sweep` skill exist? If not → routes to Skills Specialist first
+2. Skills Specialist creates `.claude/skills/test-sweep/SKILL.md` (if needed)
 3. Systems Engineer adds the scheduled entry to the appropriate YAML (`teaparty.yaml` for cross-project, `project.yaml` for project-scoped)
 4. Systems Engineer creates the `/schedule` trigger via Claude Code
