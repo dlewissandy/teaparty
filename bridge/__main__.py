@@ -24,4 +24,5 @@ bridge = TeaPartyBridge(
     teaparty_home=os.path.expanduser('~/.teaparty'),
     static_dir=os.path.join(project_root, 'docs', 'proposals', 'ui-redesign', 'mockup'),
 )
+print(f'Dashboard:  http://localhost:{args.port}')
 bridge.run(port=args.port)
