@@ -4,7 +4,7 @@ The office manager's conversation is a `claude -p` session. Unlike single-turn a
 
 ## Invocation
 
-A human presses a key in the TUI. The TUI invokes `claude -p` with the office manager's team agent definition, tools, ACT-R memory, and a platform state summary.
+A human sends a message via the dashboard chat. The bridge server receives the POST to `/api/conversations/om:{qualifier}`, writes the human message to the OM bus, and fires an async task that invokes `claude -p` with the office manager agent definition, tools, ACT-R memory, and a platform state summary. The TUI was retired in issue #305; the bridge is the invocation path (issue #328).
 
 ## Multi-Turn
 
