@@ -208,8 +208,11 @@ class TeaPartyBridge:
         app.router.add_get('/ws', self._handle_websocket)
 
         # ── Static files ──────────────────────────────────────────────────────
-        if os.path.isdir(self.static_dir):
-            app.router.add_static('/', self.static_dir)
+        if not os.path.isdir(self.static_dir):
+            raise FileNotFoundError(
+                f'static_dir does not exist: {self.static_dir}'
+            )
+        app.router.add_static('/', self.static_dir)
 
         app.on_startup.append(self._on_startup)
         app.on_cleanup.append(self._on_cleanup)

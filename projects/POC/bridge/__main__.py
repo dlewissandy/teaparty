@@ -40,6 +40,6 @@ else:
 bridge = TeaPartyBridge(
     teaparty_home=os.path.expanduser('~/.teaparty'),
     projects_dir=projects_dir or '',
-    static_dir=os.path.join(project_root, 'docs', 'proposals', 'ui-redesign', 'mockup'),
+    static_dir=os.path.join(project_root, 'projects', 'POC', 'bridge', 'static'),
 )
 bridge.run(port=args.port)
