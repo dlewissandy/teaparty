@@ -30,7 +30,10 @@ def _make_tmpdir():
 
 
 def _make_bridge(tmpdir):
+    """Create a bridge rooted at tmpdir/.teaparty (mirrors production layout)."""
     from bridge.server import TeaPartyBridge
+    teaparty_home = os.path.join(tmpdir, '.teaparty')
+    os.makedirs(teaparty_home, exist_ok=True)
     static_dir = os.path.join(tmpdir, 'static')
     os.makedirs(static_dir, exist_ok=True)
 
@@ -40,14 +43,16 @@ def _make_bridge(tmpdir):
             return path if os.path.isdir(path) else None
 
     return _TestBridge(
-        teaparty_home=tmpdir,
+        teaparty_home=teaparty_home,
         static_dir=static_dir,
     )
 
 
 def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
-    """Write a teaparty.yaml and return a loaded ManagementTeam."""
+    """Write teaparty.yaml into tmpdir/.teaparty/ and return a loaded ManagementTeam."""
     from orchestrator.config_reader import load_management_team
+    teaparty_home = os.path.join(tmpdir, '.teaparty')
+    os.makedirs(teaparty_home, exist_ok=True)
     data = {
         'name': 'Management Team',
         'description': 'Test org',
@@ -61,9 +66,9 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
         'workgroups': workgroups or [],
         'teams': [],
     }
-    with open(os.path.join(tmpdir, 'teaparty.yaml'), 'w') as f:
+    with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f)
-    return load_management_team(teaparty_home=tmpdir)
+    return load_management_team(teaparty_home=teaparty_home)
 
 
 def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
@@ -280,7 +285,9 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
             'workgroups': [],
             'teams': [{'name': 'My Project', 'path': project_path}],
         }
-        with open(os.path.join(self.tmpdir, 'teaparty.yaml'), 'w') as f:
+        teaparty_home = os.path.join(self.tmpdir, '.teaparty')
+        os.makedirs(teaparty_home, exist_ok=True)
+        with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
             yaml.dump(data, f)
 
     async def asyncTearDown(self):
@@ -289,7 +296,7 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
     def test_discover_projects_result_can_derive_slug(self):
         """Each project entry from discover_projects must have a derivable slug."""
         from orchestrator.config_reader import load_management_team, discover_projects
-        team = load_management_team(teaparty_home=self.tmpdir)
+        team = load_management_team(teaparty_home=os.path.join(self.tmpdir, '.teaparty'))
         projects = discover_projects(team)
         self.assertEqual(len(projects), 1)
         # Slug should be derivable as basename of path

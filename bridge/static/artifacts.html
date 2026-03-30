@@ -257,8 +257,10 @@ function openJobChat(convId) {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  // File-direct mode: ?file= without ?project= — skip project nav, load file immediately.
+  // File-direct mode: ?file= without ?project= — populate a synthetic nav entry and load immediately.
   if (requestedFile && !params.get('project')) {
+    var filename = requestedFile.split('/').pop();
+    sections = [{heading: 'File', items: [{name: filename, path: requestedFile}]}];
     await loadFile(requestedFile);
     return;
   }

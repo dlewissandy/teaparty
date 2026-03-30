@@ -18,15 +18,21 @@ import yaml
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _make_bridge(teaparty_home: str) -> object:
+def _make_bridge(tmpdir: str) -> object:
+    """Create a bridge rooted at tmpdir/.teaparty (mirrors production layout)."""
     from bridge.server import TeaPartyBridge
-    static_dir = os.path.join(teaparty_home, 'static')
+    teaparty_home = os.path.join(tmpdir, '.teaparty')
+    os.makedirs(teaparty_home, exist_ok=True)
+    static_dir = os.path.join(tmpdir, 'static')
     os.makedirs(static_dir, exist_ok=True)
     return TeaPartyBridge(teaparty_home=teaparty_home, static_dir=static_dir)
 
 
-def _make_management_team(teaparty_home: str, agents=None, hooks=None, scheduled=None):
+def _make_management_team(tmpdir: str, agents=None, hooks=None, scheduled=None):
+    """Write teaparty.yaml into tmpdir/.teaparty/ and load the management team."""
     from orchestrator.config_reader import load_management_team
+    teaparty_home = os.path.join(tmpdir, '.teaparty')
+    os.makedirs(teaparty_home, exist_ok=True)
     data = {
         'name': 'Management Team',
         'description': 'Test org',
@@ -87,13 +93,14 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.team = _make_management_team(self.tmp, agents=['office-manager', 'auditor'])
 
     def test_agent_entries_are_dicts_not_strings(self):
         """After #330, agents must be objects with 'name' and 'file', not plain strings."""
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=[], teaparty_home=self.tmp
+            self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         agents = result['agents']
         self.assertTrue(len(agents) > 0)
@@ -103,7 +110,7 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
     def test_agent_entry_has_name_field(self):
         """Each agent entry must have a 'name' key."""
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=[], teaparty_home=self.tmp
+            self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         for a in result['agents']:
             self.assertIn('name', a)
@@ -111,15 +118,15 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
     def test_agent_entry_has_file_field(self):
         """Each agent entry must have a 'file' key."""
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=[], teaparty_home=self.tmp
+            self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         for a in result['agents']:
             self.assertIn('file', a, f'Agent entry missing "file": {a}')
 
     def test_agent_file_points_to_agents_md(self):
-        """Agent 'file' must be absolute path to .claude/agents/{name}.md in teaparty_home."""
+        """Agent 'file' must be absolute path to .claude/agents/{name}.md at repo root."""
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=[], teaparty_home=self.tmp
+            self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         for a in result['agents']:
             expected = os.path.join(self.tmp, '.claude', 'agents', f'{a["name"]}.md')
@@ -129,7 +136,7 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
     def test_agent_file_is_absolute_path(self):
         """Agent file path must be absolute."""
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=[], teaparty_home=self.tmp
+            self.team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         for a in result['agents']:
             self.assertTrue(os.path.isabs(a['file']),
@@ -143,6 +150,7 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.project_dir = os.path.join(self.tmp, 'my-project')
         os.makedirs(self.project_dir)
@@ -159,7 +167,7 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
             self.team,
             org_agents=self.org_agents,
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         for a in result['agents']:
@@ -171,7 +179,7 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
             self.team,
             org_agents=['auditor'],  # project-lead is local
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         agent = next(a for a in result['agents'] if a['name'] == 'project-lead')
@@ -179,12 +187,12 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
         self.assertEqual(agent['file'], expected)
 
     def test_shared_agent_file_resolves_from_teaparty_home(self):
-        """A shared (org) agent's 'file' resolves under teaparty_home/.claude/agents/."""
+        """A shared (org) agent's 'file' resolves under the repo-root .claude/agents/."""
         result = self.bridge._serialize_project_team(
             self.team,
             org_agents=['auditor'],  # auditor is shared
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         agent = next(a for a in result['agents'] if a['name'] == 'auditor')
@@ -197,7 +205,7 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
             self.team,
             org_agents=['auditor'],
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         lead_agent = next(a for a in result['agents'] if a['name'] == self.team.lead)
@@ -212,9 +220,10 @@ class TestManagementTeamSkillsHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.team = _make_management_team(self.tmp)
-        # Create a real skill on disk
+        # Create real skills at repo-root .claude/skills/ (sibling of .teaparty/)
         org_skills_dir = os.path.join(self.tmp, '.claude', 'skills')
         _make_skill(org_skills_dir, 'audit')
         _make_skill(org_skills_dir, 'sprint-plan')
@@ -225,7 +234,7 @@ class TestManagementTeamSkillsHaveFilePath(unittest.TestCase):
         from orchestrator.config_reader import discover_skills
         discovered = discover_skills(org_skills_dir)
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=discovered, teaparty_home=self.tmp
+            self.team, discovered_skills=discovered, teaparty_home=self.teaparty_home
         )
         for s in result['skills']:
             self.assertIsInstance(s, dict, f'Skill entry must be a dict: {s}')
@@ -236,18 +245,18 @@ class TestManagementTeamSkillsHaveFilePath(unittest.TestCase):
         from orchestrator.config_reader import discover_skills
         discovered = discover_skills(org_skills_dir)
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=discovered, teaparty_home=self.tmp
+            self.team, discovered_skills=discovered, teaparty_home=self.teaparty_home
         )
         for s in result['skills']:
             self.assertIn('file', s, f'Skill entry missing "file": {s}')
 
     def test_skill_file_points_to_skill_md(self):
-        """Skill 'file' must be absolute path to .claude/skills/{name}/SKILL.md."""
+        """Skill 'file' must be absolute path to repo-root .claude/skills/{name}/SKILL.md."""
         org_skills_dir = os.path.join(self.tmp, '.claude', 'skills')
         from orchestrator.config_reader import discover_skills
         discovered = discover_skills(org_skills_dir)
         result = self.bridge._serialize_management_team(
-            self.team, discovered_skills=discovered, teaparty_home=self.tmp
+            self.team, discovered_skills=discovered, teaparty_home=self.teaparty_home
         )
         for s in result['skills']:
             expected = os.path.join(self.tmp, '.claude', 'skills', s['name'], 'SKILL.md')
@@ -262,13 +271,14 @@ class TestProjectTeamSkillsHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.project_dir = os.path.join(self.tmp, 'my-project')
         os.makedirs(self.project_dir)
         # Create local skill
         local_skills_dir = os.path.join(self.project_dir, '.claude', 'skills')
         _make_skill(local_skills_dir, 'local-skill')
-        # Create org skill
+        # Create org skill at repo-root .claude/skills/ (sibling of .teaparty/)
         org_skills_dir = os.path.join(self.tmp, '.claude', 'skills')
         _make_skill(org_skills_dir, 'audit')
         self.team = _make_project_team(self.project_dir, skills=['audit'])
@@ -281,7 +291,7 @@ class TestProjectTeamSkillsHaveFilePath(unittest.TestCase):
             local_skills=['local-skill'],
             registered_org_skills=['audit'],
             org_catalog_skills=['audit'],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         skill = next(s for s in result['skills'] if s['name'] == 'local-skill')
@@ -289,14 +299,14 @@ class TestProjectTeamSkillsHaveFilePath(unittest.TestCase):
         self.assertEqual(skill['file'], expected)
 
     def test_shared_skill_file_resolves_from_teaparty_home(self):
-        """A shared (org) skill's 'file' resolves under teaparty_home/.claude/skills/{name}/SKILL.md."""
+        """A shared (org) skill's 'file' resolves under repo-root .claude/skills/{name}/SKILL.md."""
         result = self.bridge._serialize_project_team(
             self.team,
             org_agents=[],
             local_skills=['local-skill'],
             registered_org_skills=['audit'],
             org_catalog_skills=['audit'],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         skill = next(s for s in result['skills'] if s['name'] == 'audit')
@@ -311,7 +321,7 @@ class TestProjectTeamSkillsHaveFilePath(unittest.TestCase):
             local_skills=[],
             registered_org_skills=['nonexistent-skill'],
             org_catalog_skills=[],  # not in catalog
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         skill = next((s for s in result['skills'] if s['name'] == 'nonexistent-skill'), None)
@@ -326,18 +336,19 @@ class TestManagementTeamHooksHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
 
     def test_hook_without_command_falls_back_to_teaparty_yaml(self):
-        """A hook with no command field gets file = teaparty.yaml."""
+        """A hook with no command field gets file = teaparty.yaml (inside teaparty_home)."""
         hooks = [{'event': 'PreToolUse', 'matcher': 'Bash', 'type': 'command'}]
         team = _make_management_team(self.tmp, hooks=hooks)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         h = result['hooks'][0]
         self.assertIn('file', h, 'Hook entry must have a "file" key')
-        expected = os.path.join(self.tmp, 'teaparty.yaml')
+        expected = os.path.join(self.teaparty_home, 'teaparty.yaml')
         self.assertEqual(h['file'], expected)
 
     def test_hook_with_nonfile_command_falls_back_to_teaparty_yaml(self):
@@ -346,10 +357,10 @@ class TestManagementTeamHooksHaveFilePath(unittest.TestCase):
                   'command': 'echo hello'}]
         team = _make_management_team(self.tmp, hooks=hooks)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         h = result['hooks'][0]
-        expected = os.path.join(self.tmp, 'teaparty.yaml')
+        expected = os.path.join(self.teaparty_home, 'teaparty.yaml')
         self.assertEqual(h['file'], expected)
 
     def test_hook_with_script_file_command_resolves_to_script(self):
@@ -362,7 +373,7 @@ class TestManagementTeamHooksHaveFilePath(unittest.TestCase):
                   'command': script}]
         team = _make_management_team(self.tmp, hooks=hooks)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         h = result['hooks'][0]
         self.assertEqual(h['file'], script)
@@ -375,6 +386,7 @@ class TestProjectTeamHooksHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.project_dir = os.path.join(self.tmp, 'my-project')
         os.makedirs(self.project_dir)
@@ -387,7 +399,7 @@ class TestProjectTeamHooksHaveFilePath(unittest.TestCase):
             team,
             org_agents=[],
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         h = result['hooks'][0]
@@ -406,7 +418,7 @@ class TestProjectTeamHooksHaveFilePath(unittest.TestCase):
             team,
             org_agents=[],
             local_skills=[],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         h = result['hooks'][0]
@@ -420,6 +432,7 @@ class TestManagementTeamScheduledTasksHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         org_skills_dir = os.path.join(self.tmp, '.claude', 'skills')
         _make_skill(org_skills_dir, 'audit')
@@ -429,17 +442,17 @@ class TestManagementTeamScheduledTasksHaveFilePath(unittest.TestCase):
         scheduled = [{'name': 'nightly', 'schedule': '0 2 * * *', 'skill': 'audit', 'enabled': True}]
         team = _make_management_team(self.tmp, scheduled=scheduled)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         task = result['scheduled'][0]
         self.assertIn('file', task, 'Scheduled task entry must have a "file" key')
 
     def test_scheduled_task_file_points_to_skill_md(self):
-        """Scheduled task 'file' must point to the skill's SKILL.md in teaparty_home."""
+        """Scheduled task 'file' must point to the skill's SKILL.md at repo-root .claude/skills/."""
         scheduled = [{'name': 'nightly', 'schedule': '0 2 * * *', 'skill': 'audit', 'enabled': True}]
         team = _make_management_team(self.tmp, scheduled=scheduled)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         task = result['scheduled'][0]
         expected = os.path.join(self.tmp, '.claude', 'skills', 'audit', 'SKILL.md')
@@ -450,7 +463,7 @@ class TestManagementTeamScheduledTasksHaveFilePath(unittest.TestCase):
         scheduled = [{'name': 'unknown', 'schedule': '0 2 * * *', 'skill': 'nonexistent', 'enabled': True}]
         team = _make_management_team(self.tmp, scheduled=scheduled)
         result = self.bridge._serialize_management_team(
-            team, discovered_skills=[], teaparty_home=self.tmp
+            team, discovered_skills=[], teaparty_home=self.teaparty_home
         )
         task = result['scheduled'][0]
         self.assertIsNone(task['file'],
@@ -464,6 +477,7 @@ class TestProjectTeamScheduledTasksHaveFilePath(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
         self.bridge = _make_bridge(self.tmp)
         self.project_dir = os.path.join(self.tmp, 'my-project')
         os.makedirs(self.project_dir)
@@ -480,7 +494,7 @@ class TestProjectTeamScheduledTasksHaveFilePath(unittest.TestCase):
             local_skills=[],
             registered_org_skills=['audit'],
             org_catalog_skills=['audit'],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         task = result['scheduled'][0]
@@ -498,7 +512,7 @@ class TestProjectTeamScheduledTasksHaveFilePath(unittest.TestCase):
             team,
             org_agents=[],
             local_skills=['local-audit'],
-            teaparty_home=self.tmp,
+            teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
         task = result['scheduled'][0]

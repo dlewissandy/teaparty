@@ -349,7 +349,7 @@ class TeaPartyBridge:
             projects = discover_projects(team)
             for p in projects:
                 p['slug'] = os.path.basename(p['path'])
-            org_skills_dir = os.path.join(self.teaparty_home, '.claude', 'skills')
+            org_skills_dir = os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
             discovered_skills = discover_skills(org_skills_dir)
             return web.json_response({
                 'management_team': self._serialize_management_team(
@@ -374,7 +374,7 @@ class TeaPartyBridge:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
             org_agents: list[str] = mgmt.agents
             org_catalog_skills: list[str] = discover_skills(
-                os.path.join(self.teaparty_home, '.claude', 'skills')
+                os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
             )
         except FileNotFoundError:
             org_agents = []
@@ -457,7 +457,7 @@ class TeaPartyBridge:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
             org_agents: set[str] = set(mgmt.agents)
             org_skills: list[str] = discover_skills(
-                os.path.join(self.teaparty_home, '.claude', 'skills')
+                os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
             )
         except FileNotFoundError:
             org_agents = set()
@@ -669,7 +669,7 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=409)
 
         discovered_skills = discover_skills(
-            os.path.join(self.teaparty_home, '.claude', 'skills')
+            os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
         )
         return web.json_response({
             'ok': True,
@@ -712,7 +712,7 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=409)
 
         discovered_skills = discover_skills(
-            os.path.join(self.teaparty_home, '.claude', 'skills')
+            os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
         )
         return web.json_response({
             'ok': True,
@@ -882,8 +882,9 @@ class TeaPartyBridge:
         teaparty_home: str | None = None,
     ) -> dict:
         home = teaparty_home or self.teaparty_home
-        agents_dir = os.path.join(home, '.claude', 'agents')
-        skills_dir = os.path.join(home, '.claude', 'skills')
+        claude_base = os.path.dirname(home)  # .teaparty/ parent = repo root
+        agents_dir = os.path.join(claude_base, '.claude', 'agents')
+        skills_dir = os.path.join(claude_base, '.claude', 'skills')
         config_yaml = os.path.join(home, 'teaparty.yaml')
 
         def _agent_file(name: str) -> str:
@@ -931,11 +932,12 @@ class TeaPartyBridge:
         local_skills_set = set(local_skills or [])
         org_catalog_set = set(org_catalog_skills or [])
         home = teaparty_home or self.teaparty_home
+        claude_base = os.path.dirname(home)  # .teaparty/ parent = repo root
         proj = project_dir or ''
 
-        org_agents_dir = os.path.join(home, '.claude', 'agents')
+        org_agents_dir = os.path.join(claude_base, '.claude', 'agents')
         proj_agents_dir = os.path.join(proj, '.claude', 'agents') if proj else ''
-        org_skills_dir = os.path.join(home, '.claude', 'skills')
+        org_skills_dir = os.path.join(claude_base, '.claude', 'skills')
         proj_skills_dir = os.path.join(proj, '.claude', 'skills') if proj else ''
         proj_config = os.path.join(proj, '.teaparty.local', 'project.yaml') if proj else ''
 
