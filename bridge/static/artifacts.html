@@ -168,14 +168,24 @@ function renderMarkdown(content) {
   return html;
 }
 
+var LANG_ALIASES = {
+  yml: 'yaml', sh: 'bash', zsh: 'bash', bash: 'bash',
+  js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript',
+  rb: 'ruby', rs: 'rust', cpp: 'cpp', h: 'c', hpp: 'cpp',
+  cfg: 'ini', txt: 'plaintext',
+};
+
 function renderCode(content, ext) {
-  var lang = ext === 'yml' ? 'yaml' : ext;
+  var lang = LANG_ALIASES[ext] || ext;
   try {
     if (hljs.getLanguage(lang)) {
       return '<pre><code class="hljs language-' + escHtml(lang) + '">' +
         hljs.highlight(content, {language: lang, ignoreIllegals: true}).value +
         '</code></pre>';
     }
+    // Language not in this build — let hljs detect it.
+    var result = hljs.highlightAuto(content);
+    return '<pre><code class="hljs">' + result.value + '</code></pre>';
   } catch(e) {}
   return '<pre><code>' + escHtml(content) + '</code></pre>';
 }
