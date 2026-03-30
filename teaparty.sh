@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # TeaParty HTML dashboard (bridge server)
-# Usage: ./teaparty.sh [--project-dir DIR] [--port PORT]
+# Usage: ./teaparty.sh [--port PORT]
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
@@ -22,4 +22,4 @@ if ! command -v uv >/dev/null 2>&1; then
     echo "uv installed successfully."
 fi
 
-exec uv run python3 -m projects.POC.bridge "$@"
+exec uv run python3 -m bridge "$@"

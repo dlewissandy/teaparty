@@ -21,8 +21,8 @@ from typing import Any
 from experiments.collector import EventCollector
 from experiments.config import ExperimentConfig
 from experiments.input_providers import make_provider
-from projects.POC.orchestrator.events import EventBus
-from projects.POC.orchestrator.session import Session, SessionResult
+from orchestrator.events import EventBus
+from orchestrator.session import Session, SessionResult
 
 _log = logging.getLogger('experiments.runner')
 
@@ -73,7 +73,7 @@ class ExperimentRunner:
 
         # 3. Optional: verbose event printer for debugging
         if self.verbose:
-            from projects.POC.orchestrator.__main__ import CLIEventPrinter
+            from orchestrator.__main__ import CLIEventPrinter
             printer = CLIEventPrinter(verbose=True)
             event_bus.subscribe(printer)
 
@@ -200,7 +200,7 @@ class ExperimentRunner:
 
         # Override REGRET_WEIGHT in approval_gate module
         if config.regret_weight is not None:
-            import projects.POC.scripts.approval_gate as ag
+            import scripts.approval_gate as ag
             self._original_regret_weight = ag.REGRET_WEIGHT
             ag.REGRET_WEIGHT = config.regret_weight
             _log.info('Override REGRET_WEIGHT: %d → %d',
@@ -209,7 +209,7 @@ class ExperimentRunner:
     def _restore_overrides(self) -> None:
         """Restore original values after the run."""
         if self._original_regret_weight is not None:
-            import projects.POC.scripts.approval_gate as ag
+            import scripts.approval_gate as ag
             ag.REGRET_WEIGHT = self._original_regret_weight
             self._original_regret_weight = None
 

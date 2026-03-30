@@ -22,7 +22,7 @@ import shutil
 import tempfile
 import unittest
 
-from projects.POC.orchestrator.messaging import (
+from orchestrator.messaging import (
     ConversationType,
     SqliteMessageBus,
     make_conversation_id,
@@ -42,7 +42,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_exists_in_office_manager(self):
         """office_manager module must export om_bus_path(teaparty_home) function."""
-        from projects.POC.orchestrator import office_manager
+        from orchestrator import office_manager
         self.assertTrue(
             callable(getattr(office_manager, 'om_bus_path', None)),
             'office_manager must export om_bus_path(teaparty_home)',
@@ -55,7 +55,7 @@ class TestOmBusPathContract(unittest.TestCase):
         at the same filesystem path. If they diverge, the bridge will open
         a different (empty) database than the one the orchestrator writes to.
         """
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         home = '/home/user/.teaparty'
         orchestrator_path = om_bus_path(home)
@@ -73,7 +73,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_is_under_teaparty_home(self):
         """om_bus_path() must be inside teaparty_home."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         home = '/home/user/.teaparty'
         path = om_bus_path(home)
@@ -84,7 +84,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_ends_with_om_messages_db(self):
         """om_bus_path() must end with om-messages.db."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         path = om_bus_path('/home/user/.teaparty')
         self.assertTrue(
@@ -94,7 +94,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_is_not_session_messages_db(self):
         """om_bus_path() must not return the per-session messages.db filename."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         path = om_bus_path('/home/user/.teaparty')
         self.assertNotEqual(
@@ -104,7 +104,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_is_stable_and_deterministic(self):
         """Same teaparty_home must always produce the same OM bus path."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         home = '/home/user/.teaparty'
         p1 = om_bus_path(home)
@@ -113,7 +113,7 @@ class TestOmBusPathContract(unittest.TestCase):
 
     def test_om_bus_path_differs_per_teaparty_home(self):
         """Different teaparty_home values must produce different OM bus paths."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         p1 = om_bus_path('/home/alice/.teaparty')
         p2 = om_bus_path('/home/bob/.teaparty')
@@ -138,7 +138,7 @@ class TestOmDatabaseIsolation(unittest.TestCase):
 
     def test_om_db_path_differs_from_session_db_path(self):
         """om_bus_path(home) must differ from a session's messages.db path."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         session_dir = os.path.join(self.tmpdir, 'proj', '.sessions', 'sess-1')
         session_db = os.path.join(session_dir, 'messages.db')
@@ -152,7 +152,7 @@ class TestOmDatabaseIsolation(unittest.TestCase):
 
     def test_om_conversations_not_in_session_db(self):
         """OM conversations written to om_bus_path are not in a session messages.db."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         om_path = om_bus_path(self.tmpdir)
         os.makedirs(os.path.dirname(om_path), exist_ok=True)
@@ -186,7 +186,7 @@ class TestOmDatabaseIsolation(unittest.TestCase):
 
     def test_session_conversations_not_in_om_db(self):
         """Session conversations written to a session bus are not in om_bus_path."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         om_path = om_bus_path(self.tmpdir)
         os.makedirs(os.path.dirname(om_path), exist_ok=True)
@@ -213,7 +213,7 @@ class TestOmDatabaseIsolation(unittest.TestCase):
 
     def test_om_conversation_visible_from_om_db_only(self):
         """An OM conversation written to om_bus_path appears only there."""
-        from projects.POC.orchestrator.office_manager import om_bus_path
+        from orchestrator.office_manager import om_bus_path
 
         om_path = om_bus_path(self.tmpdir)
         os.makedirs(os.path.dirname(om_path), exist_ok=True)
@@ -247,7 +247,7 @@ class TestOmSessionWritePathContract(unittest.TestCase):
 
     def test_session_writes_to_canonical_om_path(self):
         """Messages sent via OfficeManagerSession appear at om_bus_path(teaparty_home)."""
-        from projects.POC.orchestrator.office_manager import OfficeManagerSession, om_bus_path
+        from orchestrator.office_manager import OfficeManagerSession, om_bus_path
 
         session = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='alice')
         session.send_human_message('Status update please')
@@ -264,7 +264,7 @@ class TestOmSessionWritePathContract(unittest.TestCase):
 
     def test_session_db_path_equals_om_bus_path(self):
         """The database file OfficeManagerSession creates is om_bus_path(teaparty_home)."""
-        from projects.POC.orchestrator.office_manager import OfficeManagerSession, om_bus_path
+        from orchestrator.office_manager import OfficeManagerSession, om_bus_path
 
         session = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='bob')
         session.send_human_message('ping')
@@ -287,7 +287,7 @@ class TestOmSessionWritePathContract(unittest.TestCase):
 
     def test_two_sessions_for_same_home_share_same_db(self):
         """Two OfficeManagerSessions with same teaparty_home share the same database."""
-        from projects.POC.orchestrator.office_manager import OfficeManagerSession
+        from orchestrator.office_manager import OfficeManagerSession
 
         session1 = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='alice')
         session2 = OfficeManagerSession(teaparty_home=self.tmpdir, user_id='bob')
@@ -357,12 +357,11 @@ class TestBridgeBusRouting(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
-        from projects.POC.bridge.server import TeaPartyBridge, _om_bus_path
+        from bridge.server import TeaPartyBridge, _om_bus_path
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir, exist_ok=True)
         self.bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
         # Initialize OM bus (normally done in on_startup)

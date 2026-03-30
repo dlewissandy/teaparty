@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import random
 
-from projects.POC.orchestrator.events import InputRequest
+from orchestrator.events import InputRequest
 
 _log = logging.getLogger('experiments.input_providers')
 

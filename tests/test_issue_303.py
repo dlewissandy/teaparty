@@ -30,19 +30,24 @@ def _make_tmpdir():
 
 
 def _make_bridge(tmpdir):
-    from projects.POC.bridge.server import TeaPartyBridge
+    from bridge.server import TeaPartyBridge
     static_dir = os.path.join(tmpdir, 'static')
     os.makedirs(static_dir, exist_ok=True)
-    return TeaPartyBridge(
+
+    class _TestBridge(TeaPartyBridge):
+        def _lookup_project_path(self, slug):
+            path = os.path.join(tmpdir, slug)
+            return path if os.path.isdir(path) else None
+
+    return _TestBridge(
         teaparty_home=tmpdir,
-        projects_dir=tmpdir,
         static_dir=static_dir,
     )
 
 
 def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
     """Write a teaparty.yaml and return a loaded ManagementTeam."""
-    from projects.POC.orchestrator.config_reader import load_management_team
+    from orchestrator.config_reader import load_management_team
     data = {
         'name': 'Management Team',
         'description': 'Test org',
@@ -63,7 +68,7 @@ def _make_management_team(tmpdir, agents=None, humans=None, skills=None, hooks=N
 
 def _make_project_team(project_dir, agents=None, humans=None, skills=None, hooks=None, scheduled=None, workgroups=None):
     """Write a project.yaml and return a loaded ProjectTeam."""
-    from projects.POC.orchestrator.config_reader import load_project_team
+    from orchestrator.config_reader import load_project_team
     tp_dir = os.path.join(project_dir, '.teaparty')
     os.makedirs(tp_dir, exist_ok=True)
     data = {
@@ -218,7 +223,7 @@ class TestWorkgroupSerialization(unittest.TestCase):
             {'name': 'Dev1', 'role': 'Specialist'},
             {'name': 'Dev2', 'role': 'Specialist'},
         ])
-        from projects.POC.orchestrator.config_reader import load_workgroup
+        from orchestrator.config_reader import load_workgroup
         self.workgroup = load_workgroup(wg_path)
 
     def tearDown(self):
@@ -274,7 +279,7 @@ class TestConfigEndpointProjectSlug(unittest.IsolatedAsyncioTestCase):
 
     def test_discover_projects_result_can_derive_slug(self):
         """Each project entry from discover_projects must have a derivable slug."""
-        from projects.POC.orchestrator.config_reader import load_management_team, discover_projects
+        from orchestrator.config_reader import load_management_team, discover_projects
         team = load_management_team(teaparty_home=self.tmpdir)
         projects = discover_projects(team)
         self.assertEqual(len(projects), 1)
@@ -339,7 +344,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
 
     def test_workgroup_ref_tagged_as_shared(self):
         """A WorkgroupRef in the project config must produce source='shared'."""
-        from projects.POC.orchestrator.config_reader import (
+        from orchestrator.config_reader import (
             load_project_team, WorkgroupRef, WorkgroupEntry,
         )
         team = load_project_team(self.project_dir)
@@ -353,7 +358,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
 
     def test_workgroup_entry_tagged_as_local(self):
         """A WorkgroupEntry in the project config must produce source='local'."""
-        from projects.POC.orchestrator.config_reader import (
+        from orchestrator.config_reader import (
             load_project_team, WorkgroupRef, WorkgroupEntry,
         )
         team = load_project_team(self.project_dir)
@@ -365,7 +370,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
 
     def test_resolved_workgroups_include_source_tags(self):
         """Resolved workgroups in the API response must carry source tags."""
-        from projects.POC.orchestrator.config_reader import (
+        from orchestrator.config_reader import (
             load_project_team, WorkgroupRef, WorkgroupEntry, resolve_workgroups,
         )
         team = load_project_team(self.project_dir)
@@ -392,7 +397,7 @@ class TestConfigProjectWorkgroupSourceTags(unittest.TestCase):
 
     def test_unresolvable_workgroup_skipped_not_raised(self):
         """A workgroup with a missing YAML file must be skipped, not cause a 500."""
-        from projects.POC.orchestrator.config_reader import (
+        from orchestrator.config_reader import (
             WorkgroupRef, WorkgroupEntry, resolve_workgroups,
         )
         # Create an unresolvable ref
@@ -422,13 +427,13 @@ class TestWorkgroupSourceDetection(unittest.TestCase):
     """WorkgroupRef → 'shared', WorkgroupEntry → 'local', per spec."""
 
     def test_workgroup_ref_is_source_shared(self):
-        from projects.POC.orchestrator.config_reader import WorkgroupRef
+        from orchestrator.config_reader import WorkgroupRef
         entry = WorkgroupRef(ref='coding')
         source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
         self.assertEqual(source, 'shared')
 
     def test_workgroup_entry_is_source_local(self):
-        from projects.POC.orchestrator.config_reader import WorkgroupRef, WorkgroupEntry
+        from orchestrator.config_reader import WorkgroupRef, WorkgroupEntry
         entry = WorkgroupEntry(name='Custom', config='workgroups/custom.yaml')
         source = 'shared' if isinstance(entry, WorkgroupRef) else 'local'
         self.assertEqual(source, 'local')
@@ -440,7 +445,7 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
     """_detect_workgroup_overrides must identify fields that diverge from org definition."""
 
     def _make_workgroup(self, tmpdir, name, **kwargs):
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from orchestrator.config_reader import Workgroup
         return Workgroup(name=name, **kwargs)
 
     def setUp(self):
@@ -450,32 +455,32 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_identical_workgroups_have_no_overrides(self):
-        from projects.POC.bridge.server import _detect_workgroup_overrides
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from bridge.server import _detect_workgroup_overrides
+        from orchestrator.config_reader import Workgroup
         org = Workgroup(name='Coding', norms={'quality': ['no shortcuts']}, lead='Dev Lead')
         proj = Workgroup(name='Coding', norms={'quality': ['no shortcuts']}, lead='Dev Lead')
         overrides = _detect_workgroup_overrides(org, proj)
         self.assertEqual(overrides, [], 'Identical workgroups must have no overrides')
 
     def test_norms_override_detected(self):
-        from projects.POC.bridge.server import _detect_workgroup_overrides
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from bridge.server import _detect_workgroup_overrides
+        from orchestrator.config_reader import Workgroup
         org = Workgroup(name='Coding', norms={'quality': ['no shortcuts']})
         proj = Workgroup(name='Coding', norms={'quality': ['strict TDD']})
         overrides = _detect_workgroup_overrides(org, proj)
         self.assertIn('norms', overrides, 'Changed norms must appear in overrides')
 
     def test_budget_override_detected(self):
-        from projects.POC.bridge.server import _detect_workgroup_overrides
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from bridge.server import _detect_workgroup_overrides
+        from orchestrator.config_reader import Workgroup
         org = Workgroup(name='Coding', budget={'job_limit_usd': 5.0})
         proj = Workgroup(name='Coding', budget={'job_limit_usd': 20.0})
         overrides = _detect_workgroup_overrides(org, proj)
         self.assertIn('budget', overrides, 'Changed budget must appear in overrides')
 
     def test_multiple_overrides_detected(self):
-        from projects.POC.bridge.server import _detect_workgroup_overrides
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from bridge.server import _detect_workgroup_overrides
+        from orchestrator.config_reader import Workgroup
         org = Workgroup(name='Coding', norms={'quality': ['a']}, lead='Org Lead')
         proj = Workgroup(name='Coding', norms={'quality': ['b']}, lead='Project Lead')
         overrides = _detect_workgroup_overrides(org, proj)
@@ -488,7 +493,7 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
         try:
             bridge = _make_bridge(tmpdir)
             wg_path = _make_workgroup_yaml(tmpdir, name='Coding')
-            from projects.POC.orchestrator.config_reader import load_workgroup
+            from orchestrator.config_reader import load_workgroup
             w = load_workgroup(wg_path)
             result = bridge._serialize_workgroup(w, source='shared', overrides=['norms'])
             self.assertIn('overrides', result)
@@ -502,7 +507,7 @@ class TestWorkgroupOverrideDetection(unittest.TestCase):
         try:
             bridge = _make_bridge(tmpdir)
             wg_path = _make_workgroup_yaml(tmpdir, name='Coding')
-            from projects.POC.orchestrator.config_reader import load_workgroup
+            from orchestrator.config_reader import load_workgroup
             w = load_workgroup(wg_path)
             result = bridge._serialize_workgroup(w)
             self.assertIn('overrides', result)
@@ -632,8 +637,8 @@ class TestWorkgroupOverrideScope(unittest.TestCase):
 
     def test_overrides_reset_per_workgroup(self):
         """Second workgroup with no override file must show overrides=[]."""
-        from projects.POC.bridge.server import _detect_workgroup_overrides
-        from projects.POC.orchestrator.config_reader import Workgroup
+        from bridge.server import _detect_workgroup_overrides
+        from orchestrator.config_reader import Workgroup
 
         org_a = Workgroup(name='Alpha', norms={'quality': ['strict']})
         proj_a = Workgroup(name='Alpha', norms={'quality': ['relaxed']})

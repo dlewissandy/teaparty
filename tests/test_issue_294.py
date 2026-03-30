@@ -57,8 +57,8 @@ class TestCountSkillsCorrectPaths(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _count(self):
-        from projects.POC.bridge.stats import _count_skills
-        return _count_skills(self.tmpdir)
+        from bridge.stats import _count_skills
+        return _count_skills([os.path.join(self.tmpdir, 'POC')])
 
     def test_dot_claude_skills_not_counted(self):
         # Place files in .claude/skills/ (the old wrong path) — should not be counted

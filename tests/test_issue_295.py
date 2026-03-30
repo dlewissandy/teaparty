@@ -19,24 +19,24 @@ class TestHeartbeatLivenessInHeartbeatModule(unittest.TestCase):
 
     def test_heartbeat_three_state_importable_from_heartbeat(self):
         """_heartbeat_three_state must be importable from orchestrator.heartbeat."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state  # noqa: F401
+        from orchestrator.heartbeat import _heartbeat_three_state  # noqa: F401
 
     def test_alive_threshold_importable_from_heartbeat(self):
         """_ALIVE_THRESHOLD must be importable from orchestrator.heartbeat."""
-        from projects.POC.orchestrator.heartbeat import _ALIVE_THRESHOLD  # noqa: F401
+        from orchestrator.heartbeat import _ALIVE_THRESHOLD  # noqa: F401
 
     def test_dead_threshold_importable_from_heartbeat(self):
         """_DEAD_THRESHOLD must be importable from orchestrator.heartbeat."""
-        from projects.POC.orchestrator.heartbeat import _DEAD_THRESHOLD  # noqa: F401
+        from orchestrator.heartbeat import _DEAD_THRESHOLD  # noqa: F401
 
     def test_alive_threshold_is_30_seconds(self):
         """_ALIVE_THRESHOLD must be 30 seconds (one BEAT_INTERVAL)."""
-        from projects.POC.orchestrator.heartbeat import _ALIVE_THRESHOLD
+        from orchestrator.heartbeat import _ALIVE_THRESHOLD
         self.assertEqual(_ALIVE_THRESHOLD, 30)
 
     def test_dead_threshold_is_300_seconds(self):
         """_DEAD_THRESHOLD must be 300 seconds (5 minutes)."""
-        from projects.POC.orchestrator.heartbeat import _DEAD_THRESHOLD
+        from orchestrator.heartbeat import _DEAD_THRESHOLD
         self.assertEqual(_DEAD_THRESHOLD, 300)
 
 
@@ -54,7 +54,7 @@ class TestHeartbeatThreeStateClassification(unittest.TestCase):
 
     def test_fresh_heartbeat_is_alive(self):
         """Heartbeat with mtime < 30s returns 'alive'."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
+        from orchestrator.heartbeat import _heartbeat_three_state
         with tempfile.TemporaryDirectory() as tmpdir:
             self._make_heartbeat_file(tmpdir)
             result = _heartbeat_three_state(tmpdir)
@@ -62,7 +62,7 @@ class TestHeartbeatThreeStateClassification(unittest.TestCase):
 
     def test_heartbeat_older_than_30s_is_stale(self):
         """Heartbeat with mtime between 30s and 300s returns 'stale'."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
+        from orchestrator.heartbeat import _heartbeat_three_state
         with tempfile.TemporaryDirectory() as tmpdir:
             self._make_heartbeat_file(tmpdir)
             hb_path = os.path.join(tmpdir, '.heartbeat')
@@ -74,7 +74,7 @@ class TestHeartbeatThreeStateClassification(unittest.TestCase):
 
     def test_heartbeat_older_than_300s_is_dead(self):
         """Heartbeat with mtime > 300s returns 'dead'."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
+        from orchestrator.heartbeat import _heartbeat_three_state
         with tempfile.TemporaryDirectory() as tmpdir:
             self._make_heartbeat_file(tmpdir)
             hb_path = os.path.join(tmpdir, '.heartbeat')
@@ -86,7 +86,7 @@ class TestHeartbeatThreeStateClassification(unittest.TestCase):
 
     def test_terminal_heartbeat_is_dead(self):
         """Heartbeat with terminal status (completed/withdrawn) returns 'dead'."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
+        from orchestrator.heartbeat import _heartbeat_three_state
         for terminal_status in ('completed', 'withdrawn'):
             with self.subTest(status=terminal_status):
                 with tempfile.TemporaryDirectory() as tmpdir:
@@ -97,7 +97,7 @@ class TestHeartbeatThreeStateClassification(unittest.TestCase):
 
     def test_missing_heartbeat_file_is_dead(self):
         """Missing .heartbeat file returns 'dead'."""
-        from projects.POC.orchestrator.heartbeat import _heartbeat_three_state
+        from orchestrator.heartbeat import _heartbeat_three_state
         with tempfile.TemporaryDirectory() as tmpdir:
             result = _heartbeat_three_state(tmpdir)
             self.assertEqual(result, 'dead')
@@ -109,7 +109,7 @@ class TestBridgeServerImportsFromHeartbeat(unittest.TestCase):
     def _get_server_source(self) -> str:
         """Return the source of bridge/server.py as a string."""
         server_path = os.path.join(
-            os.path.dirname(__file__), '..', 'projects', 'POC', 'bridge', 'server.py'
+            os.path.dirname(__file__), '..', 'bridge', 'server.py'
         )
         server_path = os.path.normpath(server_path)
         with open(server_path) as f:

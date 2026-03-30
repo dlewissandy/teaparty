@@ -63,7 +63,7 @@ class TestMessageEventIncludesId(unittest.TestCase):
 
     def test_message_event_has_id_field(self):
         """message events must include an 'id' field equal to msg.id."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -84,7 +84,7 @@ class TestMessageEventIncludesId(unittest.TestCase):
 
     def test_message_event_id_matches_msg_id(self):
         """The 'id' in the message event must be the message's actual DB id."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -105,7 +105,7 @@ class TestMessageEventIncludesId(unittest.TestCase):
 
     def test_multiple_messages_each_have_distinct_ids(self):
         """Each message event must carry that specific message's id."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -161,6 +161,7 @@ class TestChatHtmlSendViaPost(unittest.TestCase):
             or 'sentMessageIds' in self._src
             or '_sent' in self._src
             or 'pendingIds' in self._src
+            or '_pendingSent' in self._src
         )
         self.assertTrue(has_tracking,
                         "chat.html must track sent message IDs (e.g., sentIds set) to filter WS echoes")

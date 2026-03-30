@@ -67,8 +67,8 @@ class TestBridgeStatsLimitations(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_limitations_does_not_have_token_usage_key(self):
         result = self._compute()

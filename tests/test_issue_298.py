@@ -2,7 +2,7 @@
 WebSocket event push.
 
 Acceptance criteria:
-1. StatePoller is importable from projects.POC.bridge.poller
+1. StatePoller is importable from bridge.poller
 2. CfA state transition → state_changed event emitted
 3. Heartbeat status change → heartbeat event emitted; no event when status unchanged
 4. Session reaches COMPLETED_WORK or WITHDRAWN → session_completed emitted + bus closed
@@ -76,20 +76,20 @@ async def _collect_events(poller, n_polls: int) -> list[dict]:
 # ── Import test ───────────────────────────────────────────────────────────────
 
 class TestStatePollerImport(unittest.TestCase):
-    """StatePoller must be importable from projects.POC.bridge.poller."""
+    """StatePoller must be importable from bridge.poller."""
 
     def test_state_poller_is_importable(self):
-        from projects.POC.bridge.poller import StatePoller  # noqa: F401
+        from bridge.poller import StatePoller  # noqa: F401
 
     def test_state_poller_has_poll_once_method(self):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         self.assertTrue(
             callable(getattr(StatePoller, 'poll_once', None)),
             'StatePoller must expose a poll_once() coroutine method',
         )
 
     def test_state_poller_has_run_method(self):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         self.assertTrue(
             callable(getattr(StatePoller, 'run', None)),
             'StatePoller must expose a run() coroutine method',
@@ -102,7 +102,7 @@ class TestCfaStateTransitionEvents(unittest.TestCase):
     """state_changed events emitted on CfA state or phase transitions."""
 
     def _make_poller(self, reader):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         return StatePoller(reader, noop)
 
@@ -174,7 +174,7 @@ class TestHeartbeatTransitionEvents(unittest.TestCase):
     """heartbeat events emitted only on alive/stale/dead status transitions."""
 
     def _make_poller(self, reader):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         return StatePoller(reader, noop)
 
@@ -260,7 +260,7 @@ class TestSessionCompletedEvents(unittest.TestCase):
     """session_completed events emitted when sessions reach terminal CfA state."""
 
     def _make_poller(self, reader, bus_factory=None):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         return StatePoller(reader, noop, bus_factory=bus_factory)
 
@@ -338,7 +338,7 @@ class TestBusConnectionLifecycle(unittest.TestCase):
     """SqliteMessageBus connections opened per active session, closed on completion."""
 
     def _make_poller(self, reader, bus_factory):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         return StatePoller(reader, noop, bus_factory=bus_factory)
 
@@ -436,7 +436,7 @@ class TestBusConnectionLifecycle(unittest.TestCase):
         s = _make_session(session_id='s1', cfa_state='PLAN_EXEC', infra_dir='/fake/s1')
         reader = _make_reader([_FakeProject(sessions=[s])])
 
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         poller = StatePoller(reader, noop)  # no bus_factory
 
@@ -450,7 +450,7 @@ class TestNoSpuriousEvents(unittest.TestCase):
     """No events emitted when state is stable across polls."""
 
     def _make_poller(self, reader):
-        from projects.POC.bridge.poller import StatePoller
+        from bridge.poller import StatePoller
         async def noop(event): pass
         return StatePoller(reader, noop)
 

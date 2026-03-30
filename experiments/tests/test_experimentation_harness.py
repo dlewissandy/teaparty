@@ -50,7 +50,7 @@ from experiments.analyze import (
 )
 from experiments.report import markdown_table, format_stats
 
-from projects.POC.orchestrator.events import Event, EventBus, EventType, InputRequest
+from orchestrator.events import Event, EventBus, EventType, InputRequest
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1257,9 +1257,9 @@ class TestSuppressBacktracks(unittest.TestCase):
     """
 
     def _make_orchestrator(self, suppress_backtracks=False, **kwargs):
-        from projects.POC.orchestrator.engine import Orchestrator
-        from projects.POC.orchestrator.phase_config import PhaseSpec
-        from projects.POC.scripts.cfa_state import CfaState
+        from orchestrator.engine import Orchestrator
+        from orchestrator.phase_config import PhaseSpec
+        from scripts.cfa_state import CfaState
 
         cfa = CfaState(
             state='PROPOSAL',
@@ -1327,7 +1327,7 @@ class TestSuppressBacktracks(unittest.TestCase):
         With suppress_backtracks=True, after step 3 the engine should NOT loop
         back to planning. Instead it should fall through.
         """
-        from projects.POC.orchestrator.engine import Orchestrator, PhaseResult
+        from orchestrator.engine import Orchestrator, PhaseResult
 
         orch = self._make_orchestrator(suppress_backtracks=True)
 
@@ -1369,10 +1369,10 @@ class TestProxyEnabled(unittest.TestCase):
     """proxy_enabled toggle for no-proxy baseline condition."""
 
     def _make_orchestrator(self, proxy_enabled=True, **kwargs):
-        from projects.POC.orchestrator.engine import Orchestrator
-        from projects.POC.orchestrator.phase_config import PhaseSpec
+        from orchestrator.engine import Orchestrator
+        from orchestrator.phase_config import PhaseSpec
 
-        from projects.POC.scripts.cfa_state import CfaState
+        from scripts.cfa_state import CfaState
 
         cfa = CfaState(
             state='PROPOSAL',

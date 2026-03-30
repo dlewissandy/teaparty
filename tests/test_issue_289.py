@@ -49,7 +49,7 @@ class TestLoadCfaStateReturnsStateField(unittest.TestCase):
 
     def test_state_field_present_for_gate_assertion(self):
         """state field must be included in the result for assertion-phase states."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         _write_cfa_state(self.tmpdir, state='INTENT_ASSERT', phase='intent', actor='human')
         result = _load_cfa_state(self.tmpdir)
         self.assertIsNotNone(result)
@@ -58,7 +58,7 @@ class TestLoadCfaStateReturnsStateField(unittest.TestCase):
 
     def test_state_field_distinct_from_phase(self):
         """state and phase must be separate fields — they carry different values."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         _write_cfa_state(self.tmpdir, state='PLAN_ASSERT', phase='planning', actor='human')
         result = _load_cfa_state(self.tmpdir)
         self.assertIn('phase', result)
@@ -70,14 +70,14 @@ class TestLoadCfaStateReturnsStateField(unittest.TestCase):
 
     def test_state_field_present_for_work_assert(self):
         """WORK_ASSERT must appear in the state field for the final gate."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         _write_cfa_state(self.tmpdir, state='WORK_ASSERT', phase='execution', actor='human')
         result = _load_cfa_state(self.tmpdir)
         self.assertEqual(result['state'], 'WORK_ASSERT')
 
     def test_state_field_present_for_non_gate_state(self):
         """Non-gate states must also be present in the state field."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         _write_cfa_state(self.tmpdir, state='WORK_EXEC', phase='execution', actor='agent')
         result = _load_cfa_state(self.tmpdir)
         self.assertIn('state', result)
@@ -96,12 +96,21 @@ class TestResolveSessionInfra(unittest.TestCase):
         shutil.rmtree(self.projects_dir, ignore_errors=True)
 
     def _make_bridge(self):
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
+        projects_dir = self.projects_dir
         static_dir = os.path.join(self.projects_dir, 'static')
         os.makedirs(static_dir, exist_ok=True)
-        return TeaPartyBridge(
+
+        class _TestBridge(TeaPartyBridge):
+            def _resolve_session_infra(self, session_id):
+                for slug in os.listdir(projects_dir):
+                    candidate = os.path.join(projects_dir, slug, '.sessions', session_id)
+                    if os.path.isdir(candidate):
+                        return candidate
+                return None
+
+        return _TestBridge(
             teaparty_home=self.projects_dir,
-            projects_dir=self.projects_dir,
             static_dir=static_dir,
         )
 

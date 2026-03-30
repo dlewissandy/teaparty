@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 def _make_approval_gate():
     """Build a minimal ApprovalGate with proxy_model_path set."""
-    from projects.POC.orchestrator.actors import ApprovalGate
+    from orchestrator.actors import ApprovalGate
     gate = ApprovalGate.__new__(ApprovalGate)
     gate.proxy_model_path = '/tmp/test_proxy_model.json'
     gate._last_proxy_result = None
@@ -29,7 +29,7 @@ def _make_approval_gate():
 
 def _make_event():
     """Build a minimal Event."""
-    from projects.POC.orchestrator.events import Event, EventType
+    from orchestrator.events import Event, EventType
     return Event(type=EventType.LOG, data={'msg': 'test'})
 
 
@@ -43,7 +43,7 @@ class TestActorsEmaWarning(unittest.TestCase):
 
         # Patch resolve_team_model_path to raise so EMA block fails immediately
         with patch(
-            'projects.POC.orchestrator.actors.resolve_team_model_path',
+            'orchestrator.actors.resolve_team_model_path',
             side_effect=RuntimeError('model path exploded'),
         ):
             with self.assertLogs('orchestrator.actors', level='WARNING') as cm:
@@ -66,13 +66,13 @@ class TestProxyMemoryEmbedWarning(unittest.TestCase):
     def test_default_embed_logs_warning_on_import_failure(self):
         """_default_embed must log a WARNING when memory_indexer is unavailable."""
         import sqlite3
-        from projects.POC.orchestrator import proxy_memory
+        from orchestrator import proxy_memory
 
         conn = sqlite3.connect(':memory:')
 
         with patch.dict(
             'sys.modules',
-            {'projects.POC.scripts.memory_indexer': None},
+            {'scripts.memory_indexer': None},
         ):
             with self.assertLogs('orchestrator.proxy_memory', level='WARNING') as cm:
                 embed_fn = proxy_memory._default_embed(conn)
@@ -93,7 +93,7 @@ class TestEventBusPublishWarning(unittest.TestCase):
 
     def test_publish_logs_warning_when_subscriber_raises(self):
         """EventBus.publish must log a WARNING when a subscriber raises."""
-        from projects.POC.orchestrator.events import EventBus
+        from orchestrator.events import EventBus
 
         bus = EventBus()
         event = _make_event()
@@ -113,7 +113,7 @@ class TestEventBusPublishWarning(unittest.TestCase):
 
     def test_publish_continues_after_bad_subscriber(self):
         """EventBus.publish must call subsequent subscribers even when one raises."""
-        from projects.POC.orchestrator.events import EventBus
+        from orchestrator.events import EventBus
 
         bus = EventBus()
         event = _make_event()

@@ -33,10 +33,9 @@ def _make_tmpdir():
 
 
 def _make_bridge(tmpdir):
-    from projects.POC.bridge.server import TeaPartyBridge
+    from bridge.server import TeaPartyBridge
     return TeaPartyBridge(
         teaparty_home=os.path.join(tmpdir, '.teaparty'),
-        projects_dir=os.path.join(tmpdir, 'projects'),
         static_dir=os.path.join(tmpdir, 'static'),
     )
 
@@ -64,20 +63,18 @@ class TestBridgeApiSpecStartup(unittest.TestCase):
             'bridge-api.md must not reference the proposal mockup directory as static_dir',
         )
 
-    def test_spec_startup_clarifies_poc_root_derivation(self):
-        """Startup section must explicitly derive poc_root from projects_dir, not teaparty_home.
+    def test_spec_startup_documents_registry_based_discovery(self):
+        """Startup section must document registry-based project discovery via teaparty_home.
 
-        An implementer reading only the constructor example saw teaparty_home and
-        projects_dir — with no poc_root arg — but step 1 referenced poc_root without
-        explaining where it came from.  The spec must make the derivation explicit:
-        poc_root = os.path.join(projects_dir, 'POC').  Naming poc_root alone is not
-        enough — the spec must show the computation and contrast it with teaparty_home.
+        Issue #310 replaced projects_dir with registry-based discovery.
+        The spec must show that projects come from teaparty_home/teaparty.yaml,
+        not from a projects_dir argument.
         """
         spec = _read_spec()
-        self.assertIn(
-            "os.path.join(projects_dir, 'POC')",
+        self.assertNotIn(
+            'projects_dir',
             spec,
-            "Startup section must show poc_root = os.path.join(projects_dir, 'POC') explicitly",
+            "bridge-api.md must not reference projects_dir — registry-based discovery is used",
         )
 
     def test_spec_startup_documents_shared_state_reader_instance(self):
@@ -106,7 +103,7 @@ class TestBridgeServerDocstring(unittest.TestCase):
         The docstring is the first thing an implementer reads; it must show a
         correct, deployable static_dir.
         """
-        from projects.POC.bridge import server
+        from bridge import server
         doc = server.__doc__ or ''
         self.assertNotIn(
             'docs/proposals/ui-redesign/mockup',
@@ -118,13 +115,13 @@ class TestBridgeServerDocstring(unittest.TestCase):
 # ── Behavioral: single StateReader with correct poc_root ─────────────────────
 
 class TestBridgeStateReaderInitialization(unittest.TestCase):
-    """TeaPartyBridge must create exactly one StateReader with poc_root = projects_dir/POC.
+    """TeaPartyBridge must create exactly one StateReader using registry-based discovery.
 
     Issue #286: An implementer following the old spec would pass teaparty_home
     (~/.teaparty) as poc_root.  StateReader would then scan ~/.teaparty for
     worktrees.json and project sessions — the wrong location — producing silently
-    empty state.  The bridge must derive poc_root = os.path.join(projects_dir, 'POC')
-    and share that instance rather than recreating it per request.
+    empty state.  Issue #310 removed projects_dir entirely: the bridge now uses
+    registry-based discovery via teaparty_home, with a single shared StateReader.
     """
 
     def setUp(self):
@@ -133,28 +130,22 @@ class TestBridgeStateReaderInitialization(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_bridge_has_state_reader_with_poc_root_from_projects_dir(self):
-        """Bridge must store a StateReader with poc_root = projects_dir/POC."""
+    def test_bridge_has_state_reader_attribute(self):
+        """Bridge must store a single _state_reader attribute."""
         bridge = _make_bridge(self.tmpdir)
-        expected_poc_root = os.path.join(bridge.projects_dir, 'POC')
-
         self.assertTrue(hasattr(bridge, '_state_reader'),
                         'Bridge must have a _state_reader attribute')
-        self.assertEqual(
-            bridge._state_reader.poc_root, expected_poc_root,
-            f'_state_reader.poc_root must be projects_dir/POC ({expected_poc_root!r})',
-        )
 
-    def test_poc_root_is_not_teaparty_home(self):
-        """poc_root (projects_dir/POC) must not be teaparty_home (~/.teaparty).
+    def test_state_reader_repo_root_is_not_teaparty_home(self):
+        """StateReader.repo_root must differ from teaparty_home.
 
-        StateReader takes the orchestrator source directory, not the runtime data dir.
+        repo_root is the repo checkout; teaparty_home is the runtime config dir.
         Confusing the two produces silently empty state — no sessions, no conversations.
         """
         bridge = _make_bridge(self.tmpdir)
         self.assertNotEqual(
-            bridge._state_reader.poc_root, bridge.teaparty_home,
-            'poc_root must differ from teaparty_home',
+            bridge._state_reader.repo_root, bridge.teaparty_home,
+            'StateReader.repo_root must differ from teaparty_home',
         )
 
     def test_state_all_handler_uses_shared_state_reader(self):
