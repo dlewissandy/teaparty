@@ -576,9 +576,14 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        discovered_skills = discover_skills(
+            os.path.join(self.teaparty_home, '.claude', 'skills')
+        )
         return web.json_response({
             'ok': True,
-            'management_team': self._serialize_management_team(team),
+            'management_team': self._serialize_management_team(
+                team, discovered_skills=discovered_skills,
+            ),
         })
 
     async def _handle_projects_create(self, request: web.Request) -> web.Response:
@@ -614,9 +619,14 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        discovered_skills = discover_skills(
+            os.path.join(self.teaparty_home, '.claude', 'skills')
+        )
         return web.json_response({
             'ok': True,
-            'management_team': self._serialize_management_team(team),
+            'management_team': self._serialize_management_team(
+                team, discovered_skills=discovered_skills,
+            ),
         })
 
     # ── Action handlers ───────────────────────────────────────────────────────
@@ -785,7 +795,7 @@ class TeaPartyBridge:
             'decider': t.decider,
             'agents': t.agents,
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': discovered_skills if discovered_skills is not None else t.skills,
+            'skills': discovered_skills or [],
             'hooks': t.hooks,
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}

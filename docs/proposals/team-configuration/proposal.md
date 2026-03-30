@@ -90,7 +90,7 @@ For discovery purposes (`discover_projects()`), a directory is considered a vali
 
 Skills are resolved from the filesystem, not from YAML declarations alone.
 
-**Org-level skills** are discovered from `{teaparty_home}/.claude/skills/`. A directory is a skill if it contains `SKILL.md`. The `skills:` list in `teaparty.yaml` is the catalog registration — a human-curated subset of installed skills promoted to the org catalog. Skills installed on disk but not listed in YAML are still discovered and shown in the Global Config Skill Catalog.
+**Org-level skills** are discovered from `{teaparty_home}/.claude/skills/`. A directory is a skill if it contains `SKILL.md`. The org catalog is filesystem-only — no YAML registration step is required. The `skills:` list in `teaparty.yaml` is an agent allowlist controlling which skills agents are permitted to invoke; it does not affect catalog display.
 
 **Project-level skills** come from two sources, merged with local taking precedence:
 1. **Local skills** — discovered from `{project_dir}/.claude/skills/`. Displayed as `local`.
