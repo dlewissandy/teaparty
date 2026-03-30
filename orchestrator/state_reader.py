@@ -1,7 +1,7 @@
 """Reads project dirs, session state files, and .heartbeat/.running sentinels.
 
 Produces a unified snapshot of all projects/sessions/dispatches for the
-bridge server and TUI.
+bridge server.
 Issue #149: migrated from .running to .heartbeat with backward compat fallback.
 """
 import json
@@ -260,7 +260,7 @@ class StateReader:
                 continue
 
             # Projects with their own .git write worktrees.json locally —
-            # merge those entries so the TUI can resolve worktree paths.
+            # merge those entries so the bridge can resolve worktree paths.
             proj_manifest_path = os.path.join(proj_path, 'worktrees.json')
             if proj_manifest_path != self.manifest_path:
                 try:

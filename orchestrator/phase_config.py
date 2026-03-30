@@ -287,7 +287,7 @@ _team_names_cache: tuple[str, ...] | None = None
 def get_team_names(poc_root: str | None = None) -> tuple[str, ...]:
     """Return team names from phase-config.json, cached after first load.
 
-    Used by TUI and orchestrator code that needs to scan dispatch
+    Used by bridge and orchestrator code that needs to scan dispatch
     directories without constructing a full PhaseConfig.
     """
     global _team_names_cache

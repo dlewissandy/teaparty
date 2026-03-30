@@ -1589,7 +1589,7 @@ class Orchestrator:
         if count > self._MAX_OVERLOAD_RETRIES:
             return 'escalate'
 
-        # Emit event for TUI observability
+        # Emit event for bridge observability
         await self.event_bus.publish(Event(
             type=EventType.API_OVERLOADED,
             data={

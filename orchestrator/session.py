@@ -766,7 +766,7 @@ class Session:
         # 8b. Clean up stale dispatch .running sentinels.
         # All dispatches from the previous process are dead — their PIDs
         # are gone and Claude's in-memory task handles are lost.  Remove
-        # the .running files so the TUI doesn't show them as active.
+        # the .running files so the bridge doesn't show them as active.
         _cleanup_stale_dispatch_sentinels(infra_dir)
 
         # 9. Derive skip_intent — True if we're past the intent phase
@@ -1208,7 +1208,7 @@ def _cleanup_stale_dispatch_sentinels(infra_dir: str) -> int:
 
     On resume, dispatches from the previous process are dead.  Their
     heartbeats (or .running files) are stale.  Finalize heartbeats as
-    'withdrawn' so the TUI shows them as complete.  For legacy .running
+    'withdrawn' so the bridge shows them as complete.  For legacy .running
     files, delete them.
 
     Returns the number of sentinels cleaned up.

@@ -1,6 +1,6 @@
 """Filesystem state persistence for crash recovery and external monitoring.
 
-Subscribes to the EventBus and writes state files that the TUI's
+Subscribes to the EventBus and writes state files that the bridge's
 StateReader can poll for sessions it didn't start in-process.
 
 Note: .cfa-state.json is written by engine._transition() via cfa_state.save_state(),
@@ -103,7 +103,7 @@ class StateWriter:
             pass
 
     def _write_overload_sentinel(self, data: dict) -> None:
-        """Write .api-overloaded sentinel for TUI status display."""
+        """Write .api-overloaded sentinel for bridge status display."""
         import json
         path = os.path.join(self.infra_dir, '.api-overloaded')
         try:

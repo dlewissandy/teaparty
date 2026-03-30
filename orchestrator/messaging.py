@@ -334,8 +334,8 @@ class MessageBusInputProvider:
     'orchestrator' message, then polls for a 'human' response.  This
     preserves the full exchange as an audit trail in the message bus.
 
-    Exposes ``is_waiting`` and ``current_request`` for TUI compatibility
-    with the older TUIInputProvider interface.
+    Exposes ``is_waiting`` and ``current_request`` for compatibility
+    with the InputProvider interface.
     """
 
     def __init__(

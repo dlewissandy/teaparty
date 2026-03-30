@@ -217,7 +217,7 @@ class EscalationListener:
         return human_answer
 
     async def _ask_human(self, question: str) -> str:
-        """Surface a question to the human via the input_provider (TUI)."""
+        """Surface a question to the human via the input_provider."""
         await self.event_bus.publish(Event(
             type=EventType.INPUT_REQUESTED,
             data={
