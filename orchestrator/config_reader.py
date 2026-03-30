@@ -178,13 +178,16 @@ def _parse_management_workgroups(raw: list[dict] | None) -> list[WorkgroupEntry]
     ]
 
 
-def _parse_teams(raw: list[dict] | None) -> list[dict[str, str]]:
+def _parse_teams(raw: list[dict] | None, repo_root: str | None = None) -> list[dict[str, str]]:
     if not raw:
         return []
-    return [
-        {'name': t['name'], 'path': os.path.expanduser(t['path'])}
-        for t in raw
-    ]
+    result = []
+    for t in raw:
+        path = os.path.expanduser(t['path'])
+        if not os.path.isabs(path) and repo_root:
+            path = os.path.normpath(os.path.join(repo_root, path))
+        result.append({'name': t['name'], 'path': path})
+    return result
 
 
 # ── Loaders ──────────────────────────────────────────────────────────────────
@@ -200,6 +203,7 @@ def load_management_team(
         config_filename: Name of the config file within teaparty_home.
     """
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
+    repo_root = os.path.dirname(home)
     path = os.path.join(home, config_filename)
     if not os.path.exists(path):
         raise FileNotFoundError(f'Management team config not found: {path}')
@@ -214,7 +218,7 @@ def load_management_team(
         decider=data.get('decider', ''),
         agents=data.get('agents', []),
         humans=_parse_humans(data.get('humans')),
-        teams=_parse_teams(data.get('teams')),
+        teams=_parse_teams(data.get('teams'), repo_root=repo_root),
         workgroups=_parse_management_workgroups(data.get('workgroups')),
         skills=data.get('skills', []),
         scheduled=_parse_scheduled(data.get('scheduled')),
@@ -238,7 +242,7 @@ def load_project_team(
     if config_path:
         path = config_path
     else:
-        path = os.path.join(project_dir, '.teaparty', 'project.yaml')
+        path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
 
     if not os.path.exists(path):
         raise FileNotFoundError(f'Project config not found: {path}')
@@ -349,8 +353,8 @@ def resolve_workgroups(
 
     for entry in entries:
         if isinstance(entry, WorkgroupRef):
-            # Try project-level first, then org-level
-            project_path = os.path.join(project_dir, '.teaparty', 'workgroups', f'{entry.ref}.yaml')
+            # Try project-level first (.teaparty.local/), then org-level
+            project_path = os.path.join(project_dir, '.teaparty.local', 'workgroups', f'{entry.ref}.yaml')
             org_path = os.path.join(home, 'workgroups', f'{entry.ref}.yaml')
 
             if os.path.exists(project_path):
@@ -363,8 +367,8 @@ def resolve_workgroups(
                     f"{project_path} or {org_path}"
                 )
         elif isinstance(entry, WorkgroupEntry):
-            # config path is relative to the project's .teaparty/ dir
-            config_path = os.path.join(project_dir, '.teaparty', entry.config)
+            # config path is relative to the project's .teaparty.local/ dir
+            config_path = os.path.join(project_dir, '.teaparty.local', entry.config)
             if os.path.exists(config_path):
                 resolved.append(load_workgroup(config_path))
             else:
@@ -490,8 +494,8 @@ def _load_management_yaml(
 
 
 def _scaffold_project_yaml(name: str, project_dir: str) -> None:
-    """Create .teaparty/project.yaml with a minimal scaffold if it doesn't exist."""
-    tp_dir = os.path.join(project_dir, '.teaparty')
+    """Create .teaparty.local/project.yaml with a minimal scaffold if it doesn't exist."""
+    tp_dir = os.path.join(project_dir, '.teaparty.local')
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
     if os.path.exists(project_yaml_path):

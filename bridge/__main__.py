@@ -18,10 +18,16 @@ parser.add_argument(
     metavar='PORT',
     help='Port to listen on (default: 8081)',
 )
+parser.add_argument(
+    '--teaparty-home',
+    default=os.path.join(project_root, '.teaparty'),
+    metavar='DIR',
+    help='Path to .teaparty/ config directory (default: <repo root>/.teaparty)',
+)
 args = parser.parse_args()
 
 bridge = TeaPartyBridge(
-    teaparty_home=os.path.expanduser('~/.teaparty'),
+    teaparty_home=args.teaparty_home,
     static_dir=os.path.join(project_root, 'bridge', 'static'),
 )
 print(f'Dashboard:  http://localhost:{args.port}')

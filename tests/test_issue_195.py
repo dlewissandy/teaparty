@@ -472,8 +472,8 @@ class TestCollectScheduledTasks(unittest.TestCase):
 
     def _make_project_dir(self, yaml_content: str) -> str:
         d = tempfile.mkdtemp()
-        os.makedirs(os.path.join(d, '.teaparty'))
-        with open(os.path.join(d, '.teaparty', 'project.yaml'), 'w') as f:
+        os.makedirs(os.path.join(d, '.teaparty.local'))
+        with open(os.path.join(d, '.teaparty.local', 'project.yaml'), 'w') as f:
             f.write(yaml_content)
         return d
 

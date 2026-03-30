@@ -18,8 +18,8 @@ humans:
     role: decider
 
 teams:
-  - name: POC
-    path: projects/POC
+  - name: TeaParty
+    path: .
 
 workgroups:
   - name: Configuration

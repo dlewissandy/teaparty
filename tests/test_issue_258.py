@@ -86,29 +86,29 @@ class TestAddProject(unittest.TestCase):
         self.assertEqual(team.teams[0]['name'], 'My Backend')
         self.assertEqual(team.teams[0]['path'], os.path.realpath(proj))
 
-    def test_creates_teaparty_dir_and_project_yaml(self):
+    def test_creates_teaparty_local_dir_and_project_yaml(self):
         proj = _make_existing_project()
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
 
         add_project('My Backend', proj, teaparty_home=tp_home)
 
-        project_yaml = os.path.join(proj, '.teaparty', 'project.yaml')
+        project_yaml = os.path.join(proj, '.teaparty.local', 'project.yaml')
         self.assertTrue(os.path.exists(project_yaml))
 
     def test_does_not_overwrite_existing_project_yaml(self):
         proj = _make_existing_project()
-        tp_dir = os.path.join(proj, '.teaparty')
-        os.makedirs(tp_dir)
+        tp_local = os.path.join(proj, '.teaparty.local')
+        os.makedirs(tp_local)
         existing_content = 'name: Already Here\n'
-        with open(os.path.join(tp_dir, 'project.yaml'), 'w') as f:
+        with open(os.path.join(tp_local, 'project.yaml'), 'w') as f:
             f.write(existing_content)
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
 
         add_project('Already Here', proj, teaparty_home=tp_home)
 
-        with open(os.path.join(tp_dir, 'project.yaml')) as f:
+        with open(os.path.join(tp_local, 'project.yaml')) as f:
             self.assertEqual(f.read(), existing_content)
 
     def test_persists_to_yaml_file(self):
@@ -183,8 +183,7 @@ class TestCreateProject(unittest.TestCase):
 
         self.assertTrue(os.path.isdir(os.path.join(new_dir, '.git')))
         self.assertTrue(os.path.isdir(os.path.join(new_dir, '.claude')))
-        self.assertTrue(os.path.isdir(os.path.join(new_dir, '.teaparty')))
-        self.assertTrue(os.path.isfile(os.path.join(new_dir, '.teaparty', 'project.yaml')))
+        self.assertTrue(os.path.isfile(os.path.join(new_dir, '.teaparty.local', 'project.yaml')))
 
     def test_adds_to_teams(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -215,7 +214,7 @@ class TestCreateProject(unittest.TestCase):
         create_project('New Project', new_dir, teaparty_home=tp_home)
 
         import yaml
-        with open(os.path.join(new_dir, '.teaparty', 'project.yaml')) as f:
+        with open(os.path.join(new_dir, '.teaparty.local', 'project.yaml')) as f:
             data = yaml.safe_load(f)
         self.assertEqual(data['name'], 'New Project')
 
