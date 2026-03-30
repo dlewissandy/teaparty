@@ -17,7 +17,7 @@ A scheduled task **must** reference a skill. No raw prompts — the skill is the
 
 ## Execution
 
-The execution mechanism is Claude Code's `/schedule` feature (persistent scheduled triggers). Each run creates a fresh session, clones the repo, and invokes the skill. The skill defines the behavior; the schedule defines when.
+The execution mechanism is a local `croniter`-based scheduler (`CronScheduler` / `CronDriver` in the orchestrator). On each tick, it evaluates cron expressions against the last-run timestamp and dispatches due tasks as `Session` objects scoped to the project's worktree. State (last-run timestamps, run log) is persisted in `.cron-state.json` and `.cron-log.jsonl` under the project's `.sessions/` directory. The scheduler lives in the orchestrator process; if the process is not running, tasks do not fire.
 
 ## Lifecycle
 
