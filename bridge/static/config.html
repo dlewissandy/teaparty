@@ -17,6 +17,12 @@ function openChat(convId) {
   window.location.href = 'chat.html?conv=' + encodeURIComponent(convId);
 }
 
+function openChatWithSeed(convId, seed) {
+  var url = 'chat.html?conv=' + encodeURIComponent(convId);
+  if (seed) url += '&seed=' + encodeURIComponent(seed);
+  window.location.href = url;
+}
+
 function configNav(level, projectSlug) {
   if (level === 'global') {
     history.pushState({}, '', 'config.html');
@@ -30,8 +36,8 @@ function configNav(level, projectSlug) {
 function sectionCard(title, items, opts) {
   var buttons = '';
   if (opts && opts.addProjectBtn) {
-    buttons += '<button class="action-btn" onclick="openChat(\'om:add-project\')">+ Add</button>';
-    buttons += '<button class="action-btn" onclick="openChat(\'om:new-project\')">+ New</button>';
+    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:add-project\', \'I would like to add an existing project to TeaParty.\')">+ Add</button>';
+    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:new-project\', \'I would like to create a new project.\')">+ New</button>';
   } else {
     if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
   }

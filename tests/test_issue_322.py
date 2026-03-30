@@ -130,6 +130,50 @@ class TestConfigHtmlProjectButtons(unittest.TestCase):
             "config.html must have a '+ New' button for the create-new-project flow",
         )
 
+    def test_add_button_passes_seed_message(self):
+        """config.html + Add button must pass a pre-seeded intent message for add flow."""
+        html = self._get_config_html()
+        # The add-project conversation should be opened with a seed intent message
+        self.assertIn(
+            'openChatWithSeed', html,
+            'config.html must use openChatWithSeed() for project buttons to pre-seed intent',
+        )
+        self.assertIn(
+            'add an existing project', html.lower(),
+            "config.html '+ Add' seed message must mention adding an existing project",
+        )
+
+    def test_new_button_passes_seed_message(self):
+        """config.html + New button must pass a pre-seeded intent message for create flow."""
+        html = self._get_config_html()
+        self.assertIn(
+            'create a new project', html.lower(),
+            "config.html '+ New' seed message must mention creating a new project",
+        )
+
+    def test_chat_html_reads_seed_param(self):
+        """chat.html must read a 'seed' URL parameter to pre-seed the OM conversation."""
+        path = _REPO_ROOT / 'bridge' / 'static' / 'chat.html'
+        html = path.read_text()
+        self.assertIn(
+            'seed', html,
+            "chat.html must read a 'seed' URL parameter for pre-seeded OM messages",
+        )
+        self.assertIn(
+            'seedMessage', html,
+            "chat.html must have a seedMessage variable from the seed URL parameter",
+        )
+
+    def test_chat_html_posts_seed_when_conversation_empty(self):
+        """chat.html must POST the seed message when the conversation has no messages."""
+        path = _REPO_ROOT / 'bridge' / 'static' / 'chat.html'
+        html = path.read_text()
+        # Must check that messages are empty before posting the seed
+        self.assertIn(
+            'messages.length === 0', html,
+            "chat.html must only post seed when conversation is empty",
+        )
+
 
 # ── AC3: /api/fs/list route and helper ───────────────────────────────────────
 

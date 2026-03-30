@@ -115,6 +115,25 @@ Conversation IDs encode their routing target via prefix:
 
 For org-level, project=`org` returns `organization.md`.
 
+### Filesystem Navigation
+
+| Method | Path | Returns | Source |
+|--------|------|---------|--------|
+| GET | `/api/fs/list?path=PATH` | `{entries: [{name, path, is_dir}]}` — directory listing | `_list_directory(path)` |
+
+`PATH` is expanded via `os.path.expanduser` so `~` works. Returns 400 if `path` is missing, 404 if the path does not exist or is not a directory. Used by the OM agent to navigate the filesystem during project onboarding.
+
+### Project Management
+
+| Method | Path | Body | Returns | Source |
+|--------|------|------|---------|--------|
+| POST | `/api/projects/add` | `{name, path, description?, lead?, decider?, agents?, humans?, workgroups?, skills?}` | `{ok: true, management_team}` | `add_project()` |
+| POST | `/api/projects/create` | `{name, path, description?, lead?, decider?, agents?, humans?, workgroups?, skills?}` | `{ok: true, management_team}` | `create_project()` |
+
+`/api/projects/add` registers an existing directory and creates `.teaparty.local/project.yaml` with the provided frontmatter. No `.git/` or `.claude/` prerequisites. Returns 409 if the name conflicts or the path does not exist.
+
+`/api/projects/create` scaffolds a new project directory (`mkdir`, `git init`, `.claude/`), writes `.teaparty.local/project.yaml`, and adds to `teams:`. Returns 409 if the directory already exists or the name conflicts.
+
 ### Actions
 
 | Method | Path | Effect | Source |

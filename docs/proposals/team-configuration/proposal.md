@@ -78,11 +78,11 @@ Every team has exactly one decider. The decider is shown in the dashboard title 
 
 Projects can live anywhere on disk. They are listed under `teams:` in `teaparty.yaml` with a `path:`.
 
-**Add existing project:** Configuration Team checks `.git` and `.claude` exist, creates `.teaparty/project.yaml`, adds to `teams:`.
-**Create new project:** Configuration Team creates directory, `git init`, `.claude/`, `.teaparty/project.yaml`, adds to `teams:`.
+**Add existing project:** OM navigates the filesystem to locate the directory, performs agentic discovery (reads `pyproject.toml`, `README`, existing `.teaparty.local/project.yaml`), dialogs with the user to confirm frontmatter, then calls `POST /api/projects/add` with complete frontmatter. The backend registers the path and creates `.teaparty.local/project.yaml`. `.git/` and `.claude/` are not required at registration time — the OM bootstraps them before or after as needed.
+**Create new project:** OM collects name, description, and other frontmatter through dialog, then calls `POST /api/projects/create`. The backend creates the directory, runs `git init`, creates `.claude/`, writes `.teaparty.local/project.yaml`, and adds to `teams:`.
 **Remove project:** Remove from `teams:`. Project itself is untouched.
 
-A directory is a TeaParty project if it contains `.git/`, `.claude/`, and `.teaparty/`.
+For discovery purposes (`discover_projects()`), a directory is considered a valid TeaParty project if it contains `.git/`, `.claude/`, and `.teaparty/`. Projects registered without these markers appear with `valid: false` until the OM bootstraps them.
 
 ---
 

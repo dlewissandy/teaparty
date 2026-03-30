@@ -44,6 +44,7 @@
 var params = new URLSearchParams(window.location.search);
 var convId = params.get('conv') || '';
 var selectedItem = params.get('task') || params.get('session') || null;
+var seedMessage = params.get('seed') || '';
 
 // ── Determine chat type from conv ID prefix ───────────────────────────────────
 // job:{project}:{session_id}               → job chat (task sidebar)
@@ -150,7 +151,21 @@ function fetchAll() {
   }
 
   return Promise.all(fetches)
-    .then(function() { render(); })
+    .then(function() {
+      // If a seed message was provided and the conversation is empty, post it once.
+      if (seedMessage && !isJobChat && pageState.messages.length === 0) {
+        var target = activeConvId();
+        return fetch('/api/conversations/' + encodeURIComponent(target), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: seedMessage }),
+        }).then(function() {
+          pageState.messages.push({ sender: 'human', content: seedMessage });
+          render();
+        }).catch(function() { render(); });
+      }
+      render();
+    })
     .catch(function() {
       document.getElementById('content').innerHTML =
         '<p style="color:var(--red);padding:20px">Bridge not reachable. Start the bridge server first.</p>';
