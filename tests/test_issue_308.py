@@ -69,10 +69,12 @@ class _TestBridge(TeaPartyBridge):
 
 
 def _make_bridge(teaparty_home, projects_dir):
+    static_dir = os.path.join(teaparty_home, 'static')
+    os.makedirs(static_dir, exist_ok=True)
     return _TestBridge(
         teaparty_home=teaparty_home,
         projects_dir=projects_dir,
-        static_dir=os.path.join(teaparty_home, 'static'),
+        static_dir=static_dir,
     )
 
 

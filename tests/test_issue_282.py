@@ -167,16 +167,19 @@ class TestChatHtmlSendViaPost(unittest.TestCase):
                         "chat.html must track sent message IDs (e.g., sentIds set) to filter WS echoes")
 
     def test_echo_filtering_on_message_event(self):
-        """chat.html must skip message events whose id is in the sent set."""
-        # Look for code that checks an id against the sent set before appending
+        """chat.html must skip WebSocket echoes of messages already shown."""
+        # Accepts either ID-based dedup (sentIds.has) or content-based dedup
+        # (_pendingSent.indexOf / splice), both of which satisfy the requirement.
         has_filter = (
             'sentIds.has(' in self._src
             or 'sentIds.delete(' in self._src
             or 'has(event.id)' in self._src
             or 'has(msg.id)' in self._src
+            or '_pendingSent.indexOf(' in self._src
+            or '_pendingSent.splice(' in self._src
         )
         self.assertTrue(has_filter,
-                        "chat.html must filter WebSocket message events whose 'id' was already sent")
+                        "chat.html must filter WebSocket echoes of already-shown messages")
 
 
 # ── AC 4: index.html fetchAll() must not clear WS-established badges ──────────
