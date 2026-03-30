@@ -332,7 +332,7 @@ function closeFile(path) {
 }
 
 async function refresh() {
-  if (requestedFile && !params.get('project')) {
+  if (requestedFile) {
     if (selectedFile) loadFile(selectedFile);
     return;
   }
@@ -361,8 +361,9 @@ async function refresh() {
 // ── Init ──────────────────────────────────────────────────────────────────────
 
 async function init() {
-  // File-direct mode: ?file= without ?project= — populate a synthetic nav entry and load immediately.
-  if (requestedFile && !params.get('project')) {
+  // File-direct mode: ?file= — populate a synthetic nav entry and load immediately.
+  // ?project= sets the title but does not trigger artifact list fetch; the file is what matters.
+  if (requestedFile) {
     var filename = requestedFile.split('/').pop();
     sections = [{heading: 'File', items: [{name: filename, path: requestedFile}]}];
     await loadFile(requestedFile);
