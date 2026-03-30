@@ -187,8 +187,11 @@ class TeaPartyBridge:
         self._buses: dict[str, SqliteMessageBus] = {}
         # Office manager bus (persistent, not session-scoped).
         self._om_bus: SqliteMessageBus | None = None
-        # In-flight OM invocation qualifiers (prevents concurrent invocations per conversation).
-        self._om_in_flight: set[str] = set()
+        # Per-qualifier asyncio locks: queues concurrent OM invocations rather than dropping them.
+        self._om_locks: dict[str, asyncio.Lock] = {}
+        # Per-qualifier OM session cache: keeps the OfficeManagerSession alive across invocations
+        # so the --resume session ID is available in memory between turns.
+        self._om_sessions: dict[str, OfficeManagerSession] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -527,6 +530,12 @@ class TeaPartyBridge:
         if bus is None:
             return web.json_response({'error': f'conversation not found: {conv_id}'}, status=404)
 
+        # Auto-create the OM conversation on first POST so it appears in active_conversations()
+        # (sidebar) and the human doesn't need to reload the page.
+        if conv_id.startswith('om:'):
+            qualifier = conv_id[len('om:'):]
+            bus.create_conversation(ConversationType.OFFICE_MANAGER, qualifier)
+
         try:
             msg_id = bus.send(conv_id, 'human', content)
         except ValueError as exc:
@@ -535,7 +544,6 @@ class TeaPartyBridge:
         # Invoke the OM agent asynchronously for any om: conversation.
         # The response will appear in the bus and be broadcast by MessageRelay.
         if conv_id.startswith('om:'):
-            qualifier = conv_id[len('om:'):]
             asyncio.create_task(self._invoke_om(qualifier))
 
         return web.json_response({'id': msg_id})
@@ -547,19 +555,32 @@ class TeaPartyBridge:
         history, responds, and writes its reply to the OM bus. MessageRelay picks
         up the reply and broadcasts it to WebSocket clients.
 
-        If an invocation is already in flight for this qualifier, this call is a
-        no-op to prevent concurrent invocations against the same conversation.
+        Concurrent invocations for the same qualifier queue via an asyncio.Lock —
+        the second message begins only after the first completes, ensuring the
+        --resume session ID from the first turn is available to the second.
+
+        On runner failure, writes an error message to the bus so the human sees
+        feedback rather than silence.
         """
-        if qualifier in self._om_in_flight:
-            return
-        self._om_in_flight.add(qualifier)
-        try:
-            session = OfficeManagerSession(self.teaparty_home, qualifier)
-            await session.invoke(cwd=self._repo_root)
-        except Exception:
-            _log.exception('OM invocation failed for qualifier %r', qualifier)
-        finally:
-            self._om_in_flight.discard(qualifier)
+        if qualifier not in self._om_locks:
+            self._om_locks[qualifier] = asyncio.Lock()
+        lock = self._om_locks[qualifier]
+
+        async with lock:
+            if qualifier not in self._om_sessions:
+                self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier)
+            session = self._om_sessions[qualifier]
+            try:
+                await session.invoke(cwd=self._repo_root)
+            except Exception:
+                _log.exception('OM invocation failed for qualifier %r', qualifier)
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception('Failed to write error message to OM bus for %r', qualifier)
 
     # ── Artifact handlers ─────────────────────────────────────────────────────
 
