@@ -8,7 +8,7 @@ When the human wants to create a new agent, skill, hook, or workgroup, they desc
 
 ## Why a Team, Not a Skill
 
-The four specialists use different models and different tool sets. The Skills Specialist and Agent Specialist use opus for prompt engineering and have Write access. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. The Systems Engineer uses sonnet with Write for hooks and settings. A single agent cannot simultaneously be an opus agent with Write tools for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
+The five specialists use different models and different tool sets. The Agent Specialist and Skills Specialist use opus for prompt engineering and have Write access. The Project Specialist, Workgroup Specialist, and Systems Engineer use sonnet and have Write access for configuration artifacts. The Configuration Lead uses sonnet and has AskTeam for routing but not Write. A single agent cannot simultaneously be an opus agent for prompt engineering and a sonnet agent with AskTeam for routing. The team structure maps to genuinely different capability profiles, not just sequential steps.
 
 Whether the coordination overhead is worth it at the current POC scale is a prioritization decision. The design is sound; the question is when to build it. For simple single-artifact requests, the office manager routes directly to the specialist — the team structure activates only when its coordination value justifies the overhead (see [Request Triage](#request-triage)).
 
