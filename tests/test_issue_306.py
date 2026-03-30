@@ -94,13 +94,13 @@ class TestBridgeMainPrintsLocalURL(unittest.TestCase):
         )
 
     def test_url_uses_args_port_not_hardcoded(self):
-        """The URL print must embed args.port, not a hardcoded port number."""
+        """The URL print must embed args.port on the same line as localhost."""
         source = self._get_main_source()
-        # The print must reference args.port so custom --port values are reflected
-        self.assertIn(
-            'args.port',
-            source,
-            'bridge/__main__.py must embed args.port in the URL print, not a hardcoded value',
+        localhost_lines = [l for l in source.splitlines() if 'localhost' in l]
+        self.assertTrue(
+            any('args.port' in l for l in localhost_lines),
+            'The localhost URL print must use args.port (not a hardcoded port number) '
+            'so that custom --port values are reflected',
         )
 
     def test_url_print_appears_before_bridge_run(self):
