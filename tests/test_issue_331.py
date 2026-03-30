@@ -638,3 +638,57 @@ class TestProxyConcurrentQueueing(unittest.TestCase):
             len(proxy_msgs) > 0,
             '_invoke_proxy must write an error message to the bus on runner failure',
         )
+
+
+# ── AC4 (path alignment): corrections reach gate memory ─────────────────────
+
+class TestProxyMemoryPathAlignment(unittest.TestCase):
+    """Review-session memory path and gate memory path must be the same file.
+
+    Design constraint (human-proxies.md): 'One learning infrastructure, all
+    channels. There is no separation between chat proxy and gate proxy — they
+    are the same agent, the same memory, the same learning system.'
+    """
+
+    def test_review_memory_path_matches_gate_memory_path(self):
+        """proxy_memory_path(teaparty_home) must equal resolve_memory_db_path when
+        proxy_model_path is derived from {poc_root}/.teaparty/proxy/ (as session.py
+        sets it).  This verifies the single-database guarantee — corrections written
+        during a proxy review conversation land in the same DB that consult_proxy
+        reads at approval gates."""
+        from orchestrator.proxy_review import proxy_memory_path
+        from orchestrator.proxy_memory import resolve_memory_db_path
+
+        teaparty_home = '/tmp/test-teaparty-home'
+        # Derive proxy_model_path the same way session.py does
+        poc_root = os.path.dirname(teaparty_home)  # analogous: teaparty_home = poc_root/.teaparty
+        proxy_model_path = os.path.join(teaparty_home, 'proxy', '.proxy-confidence.json')
+
+        review_db = proxy_memory_path(teaparty_home)
+        gate_db = resolve_memory_db_path(proxy_model_path)
+
+        self.assertEqual(
+            review_db,
+            gate_db,
+            f'Review memory DB ({review_db!r}) and gate memory DB ({gate_db!r}) must be the same file. '
+            'Corrections written during proxy chat must reach the approval gate.',
+        )
+
+    def test_session_proxy_model_path_is_under_teaparty_proxy_dir(self):
+        """session.py must derive proxy_model_path from {poc_root}/.teaparty/proxy/
+        so that resolve_memory_db_path returns {teaparty_home}/proxy/.proxy-memory.db."""
+        import inspect
+        from orchestrator.session import Session
+        source = inspect.getsource(Session.run)
+        self.assertIn(
+            '.teaparty',
+            source,
+            'Session.run must derive proxy_model_path from {poc_root}/.teaparty/proxy/ — '
+            'found no .teaparty reference, so gate memory is not aligned with review session memory',
+        )
+        self.assertNotIn(
+            "os.path.join(project_dir, '.proxy-confidence.json')",
+            source,
+            'Session.run must not use project_dir for proxy_model_path — '
+            'gate memory must be global (per-human), not per-project',
+        )
