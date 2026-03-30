@@ -621,7 +621,8 @@ workgroups: []
                 self.assertEqual(mt['name'], 'Test Org')
                 self.assertEqual(mt['lead'], 'lead-agent')
                 self.assertIsInstance(mt['agents'], list)
-                self.assertIn('lead-agent', mt['agents'])
+                agent_names = [a['name'] if isinstance(a, dict) else a for a in mt['agents']]
+                self.assertIn('lead-agent', agent_names)
 
         _run_async(_run())
 

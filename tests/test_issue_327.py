@@ -109,8 +109,9 @@ class TestManagementTeamSerializerUsesDiscoveredSkills(unittest.TestCase):
         team = self._make_management_team(yaml_skills=['yaml-only-skill'])
         discovered = ['filesystem-skill-a', 'filesystem-skill-b']
         result = bridge._serialize_management_team(team, discovered_skills=discovered)
+        result_names = [s['name'] if isinstance(s, dict) else s for s in result['skills']]
         self.assertEqual(
-            result['skills'], discovered,
+            result_names, discovered,
             'management team skills must be the filesystem-discovered list, not the YAML list',
         )
 
@@ -122,8 +123,9 @@ class TestManagementTeamSerializerUsesDiscoveredSkills(unittest.TestCase):
         # installed-but-not-registered appears on disk but not in YAML
         discovered = ['registered-skill', 'installed-but-not-registered']
         result = bridge._serialize_management_team(team, discovered_skills=discovered)
+        result_names = [s['name'] if isinstance(s, dict) else s for s in result['skills']]
         self.assertIn(
-            'installed-but-not-registered', result['skills'],
+            'installed-but-not-registered', result_names,
             'Skills installed on disk but not in YAML must appear in the catalog',
         )
 
