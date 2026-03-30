@@ -64,10 +64,9 @@ class TestBridgeMainTeapartyHome(unittest.TestCase):
             'bridge/__main__.py must pass args.teaparty_home to TeaPartyBridge',
         )
 
-    def test_default_points_to_repo_local_teaparty(self):
-        """Default teaparty_home must be repo-local .teaparty/, not user home."""
+    def test_default_is_cwd_based(self):
+        """Default teaparty_home must be cwd/.teaparty, not hardcoded or user-home based."""
         source = self._get_main_source()
-        # Must use project_root-based default, not expanduser('~/.teaparty')
         self.assertNotIn(
             "expanduser('~/.teaparty')",
             source,
@@ -77,6 +76,21 @@ class TestBridgeMainTeapartyHome(unittest.TestCase):
             'expanduser("~/.teaparty")',
             source,
             'bridge/__main__.py must not use expanduser for ~/.teaparty default',
+        )
+        self.assertIn(
+            'os.getcwd()',
+            source,
+            'bridge/__main__.py default teaparty_home must use os.getcwd()',
+        )
+
+    def test_fails_if_teaparty_home_missing(self):
+        """bridge/__main__.py must fail if the teaparty_home directory does not exist."""
+        source = self._get_main_source()
+        # Must have an existence check before constructing the bridge
+        self.assertIn(
+            'os.path.isdir(args.teaparty_home)',
+            source,
+            'bridge/__main__.py must check teaparty_home exists and fail if not',
         )
 
 

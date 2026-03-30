@@ -25,21 +25,9 @@ import yaml
 
 # ── Default paths ────────────────────────────────────────────────────────────
 
-_cached_teaparty_home: str | None = None
-
-
 def default_teaparty_home() -> str:
-    """Return the repo-level .teaparty/ directory, cached after first call.
-
-    config_reader.py lives in orchestrator/, which is at repo root.
-    So dirname(__file__) = orchestrator/ and dirname(dirname(__file__)) = repo root.
-    """
-    global _cached_teaparty_home
-    if _cached_teaparty_home is None:
-        _orchestrator_dir = os.path.dirname(os.path.abspath(__file__))
-        repo_root = os.path.dirname(_orchestrator_dir)
-        _cached_teaparty_home = os.path.join(repo_root, '.teaparty')
-    return _cached_teaparty_home
+    """Return .teaparty/ under the current working directory."""
+    return os.path.join(os.getcwd(), '.teaparty')
 
 
 # ── Data classes ─────────────────────────────────────────────────────────────
