@@ -215,6 +215,7 @@ class TeaPartyBridge:
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_get('/api/config/{project}', self._handle_config_project)
         app.router.add_get('/api/workgroups', self._handle_workgroups)
+        app.router.add_get('/api/workgroups/{name}', self._handle_workgroup_detail)
 
         # ── Message endpoints ─────────────────────────────────────────────────
         app.router.add_get('/api/conversations', self._handle_conversations_list)
@@ -426,6 +427,45 @@ class TeaPartyBridge:
             return web.json_response([self._serialize_workgroup(w) for w in workgroups])
         except Exception:
             return web.json_response([])
+
+    async def _handle_workgroup_detail(self, request: web.Request) -> web.Response:
+        name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        try:
+            if project_slug:
+                project_dir = self._lookup_project_path(project_slug)
+                if project_dir is None:
+                    return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+                team = load_project_team(project_dir)
+                workgroups = resolve_workgroups(
+                    team.workgroups, project_dir=project_dir, teaparty_home=self.teaparty_home
+                )
+            else:
+                mgmt_team = load_management_team(teaparty_home=self.teaparty_home)
+                workgroups = load_management_workgroups(mgmt_team, teaparty_home=self.teaparty_home)
+        except FileNotFoundError as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+
+        try:
+            mgmt = load_management_team(teaparty_home=self.teaparty_home)
+            org_agents: set[str] = set(mgmt.agents)
+            org_skills: list[str] = discover_skills(
+                os.path.join(self.teaparty_home, '.claude', 'skills')
+            )
+        except FileNotFoundError:
+            org_agents = set()
+            org_skills = []
+
+        for w in workgroups:
+            if w.name == name:
+                return web.json_response(
+                    self._serialize_workgroup(
+                        w, detail=True,
+                        org_agents=org_agents,
+                        org_catalog_skills=org_skills,
+                    )
+                )
+        return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
 
     # ── Message handlers ──────────────────────────────────────────────────────
 
@@ -846,9 +886,12 @@ class TeaPartyBridge:
         }
 
     def _serialize_workgroup(
-        self, w, source: str | None = None, overrides: list[str] | None = None
+        self, w, source: str | None = None, overrides: list[str] | None = None,
+        detail: bool = False,
+        org_agents: set[str] | None = None,
+        org_catalog_skills: list[str] | None = None,
     ) -> dict:
-        return {
+        result = {
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
@@ -856,3 +899,17 @@ class TeaPartyBridge:
             'source': source,
             'overrides': overrides or [],
         }
+        if detail:
+            org_agents_set = org_agents or set()
+            org_skills_set = set(org_catalog_skills or [])
+            result['agents'] = [
+                {**agent, 'source': 'shared' if agent.get('name', '') in org_agents_set else 'local'}
+                for agent in w.agents
+            ]
+            result['skills'] = [
+                {'name': s, 'source': 'shared' if s in org_skills_set else 'local'}
+                for s in w.skills
+            ]
+            result['norms'] = dict(w.norms)
+            result['budget'] = dict(w.budget)
+        return result

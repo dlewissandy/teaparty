@@ -49,6 +49,21 @@ The org catalog. Everything defined here is available for projects to reference.
 
 All "+ New" buttons open an Office Manager chat.
 
+## Workgroup Config
+
+Three-level navigation: Global Config → [Project →] Workgroup Name. Clicking a workgroup item in either the global catalog or a project's workgroup list drills into the workgroup detail view.
+
+**Cards:**
+- **Agents** — list with name, role, model; "+ New" and "+ Catalog" open OM chat
+- **Skills** — list with name; "+ New" and "+ Catalog" open OM chat
+- **Norms** — read-only; rules grouped by category heading; no add button (OM-driven)
+- **Budget** — read-only key/value display; card hidden if budget is empty (OM-driven)
+
+Breadcrumb links back to the parent level (Global Config or Project Config).
+
+Org-level workgroups: Global Config → Workgroup.
+Project-scoped workgroups: Global Config → Project → Workgroup.
+
 ## Project Config
 
 Assembled from the catalog, customized locally.
@@ -86,8 +101,10 @@ Shared items may have **override indicators** (e.g., "norms overridden") showing
 | Control | Action |
 |---------|--------|
 | Click project in Projects card | Drill down to project config |
+| Click workgroup item | Drill down to workgroup detail (agents, skills, norms, budget) |
 | Click "+ New" | Opens Office Manager chat for creation |
 | Click "+ Catalog" | Opens Office Manager chat for catalog selection |
 | Click participant | Opens participant chat |
 | Click artifact section | Opens Artifacts viewer for this project |
 | Click breadcrumb "Global Config" | Returns to global config |
+| Click breadcrumb project name | Returns to project config (from workgroup detail) |
