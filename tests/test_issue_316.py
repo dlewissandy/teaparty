@@ -4,18 +4,17 @@ Acceptance criteria:
 1. _build_app() raises FileNotFoundError if static_dir does not exist.
 2. _build_app() registers the static '/' route when static_dir exists.
 3. server.py docstring does not reference the stale placeholder path
-   'projects/POC/bridge/static'.
+   'projects/POC/bridge/static' — static files live at bridge/static/.
 """
 import os
 import tempfile
 import unittest
 
 
-def _make_bridge(teaparty_home, projects_dir, static_dir):
-    from projects.POC.bridge.server import TeaPartyBridge
+def _make_bridge(teaparty_home, static_dir):
+    from bridge.server import TeaPartyBridge
     return TeaPartyBridge(
         teaparty_home=teaparty_home,
-        projects_dir=projects_dir,
         static_dir=static_dir,
     )
 
@@ -31,7 +30,7 @@ class TestMissingStaticDirRaises(unittest.TestCase):
     def test_build_app_raises_when_static_dir_missing(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             missing = os.path.join(tmpdir, 'does_not_exist')
-            bridge = _make_bridge(tmpdir, tmpdir, missing)
+            bridge = _make_bridge(tmpdir, missing)
             with self.assertRaises(FileNotFoundError):
                 bridge._build_app()
 
@@ -39,7 +38,7 @@ class TestMissingStaticDirRaises(unittest.TestCase):
         """The FileNotFoundError message should include the missing path."""
         with tempfile.TemporaryDirectory() as tmpdir:
             missing = os.path.join(tmpdir, 'no_such_static')
-            bridge = _make_bridge(tmpdir, tmpdir, missing)
+            bridge = _make_bridge(tmpdir, missing)
             with self.assertRaises(FileNotFoundError) as ctx:
                 bridge._build_app()
             self.assertIn('no_such_static', str(ctx.exception))
@@ -52,7 +51,7 @@ class TestStaticRouteRegistered(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = os.path.join(tmpdir, 'static')
             os.makedirs(static_dir)
-            bridge = _make_bridge(tmpdir, tmpdir, static_dir)
+            bridge = _make_bridge(tmpdir, static_dir)
             app = bridge._build_app()
             # aiohttp uses StaticResource; its canonical is '' (empty string)
             # for add_static('/', ...).  Count resources before and after to
@@ -79,7 +78,7 @@ class TestStaticRouteRegistered(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             static_dir = os.path.join(tmpdir, 'static')
             os.makedirs(static_dir)
-            bridge = _make_bridge(tmpdir, tmpdir, static_dir)
+            bridge = _make_bridge(tmpdir, static_dir)
             app = bridge._build_app()
             from aiohttp.web_urldispatcher import StaticResource
             static_resources = [
@@ -99,17 +98,17 @@ class TestStaticRouteRegistered(unittest.TestCase):
 
 
 class TestStaticDirExists(unittest.TestCase):
-    """projects/POC/bridge/static/ must exist and contain the required HTML pages."""
+    """bridge/static/ must exist and contain the required HTML pages."""
 
     def _static_dir(self):
         repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.join(repo_root, 'projects', 'POC', 'bridge', 'static')
+        return os.path.join(repo_root, 'bridge', 'static')
 
     def test_static_directory_exists(self):
         d = self._static_dir()
         self.assertTrue(
             os.path.isdir(d),
-            f'projects/POC/bridge/static/ does not exist: {d}',
+            f'bridge/static/ does not exist: {d}',
         )
 
     def test_required_html_pages_present(self):
@@ -118,7 +117,7 @@ class TestStaticDirExists(unittest.TestCase):
         for name in required:
             self.assertTrue(
                 os.path.isfile(os.path.join(d, name)),
-                f'projects/POC/bridge/static/{name} is missing',
+                f'bridge/static/{name} is missing',
             )
 
     def test_html_pages_use_real_api_not_data_js(self):
