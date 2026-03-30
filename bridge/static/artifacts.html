@@ -84,6 +84,13 @@
   .artifact-content img { max-width: 100%; }
   .artifact-loading { color: var(--text-dim); font-style: italic; font-size: 11px; padding: 16px; }
   .artifact-empty { color: var(--text-dim); font-style: italic; }
+  .artifact-frontmatter {
+    background: rgba(78,204,163,0.06); border: 1px solid rgba(78,204,163,0.25);
+    border-radius: 5px; padding: 8px 12px; margin-bottom: 10px;
+    font-size: 10px; font-family: monospace; line-height: 1.8;
+  }
+  .artifact-frontmatter-key { color: var(--green); }
+  .artifact-frontmatter-val { color: var(--text); }
 </style>
 </head>
 <body>
@@ -96,6 +103,11 @@
 var params = new URLSearchParams(window.location.search);
 var currentProject = params.get('project') || 'poc';
 var requestedFile = params.get('file') || null;
+var hookMeta = params.get('hook_event') ? {
+  event: params.get('hook_event') || '',
+  matcher: params.get('hook_matcher') || '',
+  type: params.get('hook_type') || '',
+} : null;
 
 var sections = [];     // [{heading, items: [{name, path}]}]
 var selectedFile = null;
@@ -253,6 +265,14 @@ function renderFileView(path, content) {
     if (convId) {
       html += '<div class="artifact-job-link" onclick="openJobChat(' + JSON.stringify(convId) + ')">View job conversation &#8594;</div>';
     }
+  }
+
+  if (hookMeta) {
+    html += '<div class="artifact-frontmatter">';
+    if (hookMeta.event) html += '<div><span class="artifact-frontmatter-key">event: </span><span class="artifact-frontmatter-val">' + escHtml(hookMeta.event) + '</span></div>';
+    if (hookMeta.matcher) html += '<div><span class="artifact-frontmatter-key">matcher: </span><span class="artifact-frontmatter-val">' + escHtml(hookMeta.matcher) + '</span></div>';
+    if (hookMeta.type) html += '<div><span class="artifact-frontmatter-key">type: </span><span class="artifact-frontmatter-val">' + escHtml(hookMeta.type) + '</span></div>';
+    html += '</div>';
   }
 
   var isCode = codeExts.indexOf(ext) !== -1;
