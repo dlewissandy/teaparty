@@ -558,3 +558,259 @@ class TestProjectsApiPassesFrontmatterToConfigReader(unittest.TestCase):
             has_frontmatter,
             '_handle_projects_create must pass frontmatter kwargs to create_project()',
         )
+
+
+# ── AC9: OM agent invocation pathway ─────────────────────────────────────────
+
+class TestOfficeManagerSessionInvokeExists(unittest.TestCase):
+    """OfficeManagerSession must have an async invoke() method."""
+
+    def test_invoke_method_exists(self):
+        """OfficeManagerSession must have an invoke() method."""
+        from orchestrator.office_manager import OfficeManagerSession
+        self.assertTrue(
+            hasattr(OfficeManagerSession, 'invoke'),
+            'OfficeManagerSession must have an invoke() method',
+        )
+
+    def test_invoke_is_coroutine(self):
+        """OfficeManagerSession.invoke() must be an async (coroutine) method."""
+        import asyncio
+        import inspect
+        from orchestrator.office_manager import OfficeManagerSession
+        self.assertTrue(
+            asyncio.iscoroutinefunction(OfficeManagerSession.invoke),
+            'OfficeManagerSession.invoke() must be async',
+        )
+
+    def test_invoke_accepts_cwd(self):
+        """OfficeManagerSession.invoke() must accept a cwd keyword argument."""
+        import inspect
+        from orchestrator.office_manager import OfficeManagerSession
+        sig = inspect.signature(OfficeManagerSession.invoke)
+        self.assertIn(
+            'cwd', sig.parameters,
+            'OfficeManagerSession.invoke() must accept a cwd keyword argument',
+        )
+
+
+class TestOfficeManagerStatePerConversation(unittest.TestCase):
+    """save_state/load_state must be keyed per user_id so multiple OM threads don't collide."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.teaparty_home = _make_teaparty_home(self.tmpdir)
+        os.makedirs(os.path.join(self.teaparty_home, 'om'), exist_ok=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_save_state_uses_per_conversation_file(self):
+        """save_state() must write to a file distinct to this user_id, not a shared file."""
+        from orchestrator.office_manager import OfficeManagerSession
+        session_add = OfficeManagerSession(self.teaparty_home, 'add-project')
+        session_add.claude_session_id = 'session-add-abc'
+        session_add.save_state()
+
+        session_new = OfficeManagerSession(self.teaparty_home, 'new-project')
+        session_new.claude_session_id = 'session-new-xyz'
+        session_new.save_state()
+
+        # Load them back — each must recover its own session ID
+        fresh_add = OfficeManagerSession(self.teaparty_home, 'add-project')
+        fresh_add.load_state()
+        fresh_new = OfficeManagerSession(self.teaparty_home, 'new-project')
+        fresh_new.load_state()
+
+        self.assertEqual(
+            fresh_add.claude_session_id, 'session-add-abc',
+            'add-project session must load its own state, not new-project state',
+        )
+        self.assertEqual(
+            fresh_new.claude_session_id, 'session-new-xyz',
+            'new-project session must load its own state, not add-project state',
+        )
+
+    def test_state_files_are_distinct(self):
+        """The state files for different user_ids must be at different filesystem paths."""
+        import inspect
+        from orchestrator.office_manager import OfficeManagerSession
+        # The path logic may live in a helper (_state_path) or inline in save_state.
+        # Check all relevant methods for a dynamic path keyed by user_id/qualifier.
+        sources = []
+        for method in ('save_state', '_state_path'):
+            fn = getattr(OfficeManagerSession, method, None)
+            if fn is not None:
+                sources.append(inspect.getsource(fn))
+        combined = '\n'.join(sources)
+        has_dynamic_path = (
+            'safe_id' in combined
+            or 'qualifier' in combined
+            or ('{' in combined and ('user_id' in combined or 'conversation_id' in combined)
+                and '.json' in combined)
+        )
+        self.assertTrue(
+            has_dynamic_path,
+            'save_state() or _state_path() must build a state file path that varies '
+            'by user_id/qualifier, not use a fixed shared filename',
+        )
+
+
+class TestOfficeManagerInvokeWritesToBus(unittest.TestCase):
+    """invoke() must write the agent response to the OM message bus."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.teaparty_home = _make_teaparty_home(self.tmpdir)
+        om_dir = os.path.join(self.teaparty_home, 'om')
+        os.makedirs(om_dir, exist_ok=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _make_stream_jsonl(self, text: str, session_id: str = 'test-session-123') -> str:
+        """Write a minimal stream-json file with one assistant text block."""
+        import json
+        import tempfile
+        fd, path = tempfile.mkstemp(suffix='.jsonl')
+        with os.fdopen(fd, 'w') as f:
+            f.write(json.dumps({
+                'type': 'system',
+                'subtype': 'init',
+                'session_id': session_id,
+            }) + '\n')
+            f.write(json.dumps({
+                'type': 'assistant',
+                'message': {
+                    'content': [{'type': 'text', 'text': text}],
+                },
+            }) + '\n')
+        return path
+
+    def test_invoke_writes_response_to_bus(self):
+        """invoke() must write the OM agent response to the OM bus as sender='office-manager'."""
+        import asyncio
+        import json
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from orchestrator.office_manager import OfficeManagerSession
+        from orchestrator.messaging import SqliteMessageBus
+
+        session = OfficeManagerSession(self.teaparty_home, 'add-project')
+        # Seed a human message so build_context() returns non-empty
+        session.send_human_message('I would like to add an existing project.')
+
+        stream_path = self._make_stream_jsonl('I can help you add a project. What is the path?')
+
+        try:
+            mock_result = MagicMock()
+            mock_result.session_id = 'new-session-id'
+
+            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
+                instance = MagicMock()
+                instance.run = AsyncMock(return_value=mock_result)
+                instance.stream_file = stream_path
+                MockRunner.return_value = instance
+
+                # Patch tempfile so invoke() uses our prepared stream file
+                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
+                    with patch('os.close'):
+                        with patch('os.unlink'):
+                            asyncio.run(session.invoke(cwd='/tmp'))
+
+            # Check the bus has an office-manager response
+            messages = session.get_messages()
+            agent_msgs = [m for m in messages if m.sender == 'office-manager']
+            self.assertTrue(
+                len(agent_msgs) > 0,
+                'invoke() must write the OM agent response to the bus as sender=office-manager',
+            )
+            self.assertIn(
+                'add a project', agent_msgs[0].content,
+                'The response written to the bus must match the stream output',
+            )
+        finally:
+            try:
+                os.unlink(stream_path)
+            except OSError:
+                pass
+
+    def test_invoke_saves_session_id_after_run(self):
+        """invoke() must save the claude_session_id returned by ClaudeRunner for --resume."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from orchestrator.office_manager import OfficeManagerSession
+
+        session = OfficeManagerSession(self.teaparty_home, 'add-project')
+        session.send_human_message('I would like to add an existing project.')
+
+        stream_path = self._make_stream_jsonl('Sure, let me navigate the filesystem.', 'returned-sid-456')
+
+        try:
+            mock_result = MagicMock()
+            mock_result.session_id = 'returned-sid-456'
+
+            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
+                instance = MagicMock()
+                instance.run = AsyncMock(return_value=mock_result)
+                instance.stream_file = stream_path
+                MockRunner.return_value = instance
+
+                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
+                    with patch('os.close'):
+                        with patch('os.unlink'):
+                            asyncio.run(session.invoke(cwd='/tmp'))
+
+            self.assertEqual(
+                session.claude_session_id, 'returned-sid-456',
+                'invoke() must set claude_session_id from the ClaudeRunner result',
+            )
+        finally:
+            try:
+                os.unlink(stream_path)
+            except OSError:
+                pass
+
+
+class TestBridgeInvokesOMAfterPost(unittest.TestCase):
+    """_handle_conversation_post must trigger OM invocation for om: conversations."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+        self.bridge = _make_bridge(self.tmpdir)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_bridge_has_invoke_om_method(self):
+        """TeaPartyBridge must have a _invoke_om() method for the OM invocation task."""
+        self.assertTrue(
+            hasattr(self.bridge, '_invoke_om'),
+            'TeaPartyBridge must have a _invoke_om() method',
+        )
+
+    def test_invoke_om_is_coroutine(self):
+        """TeaPartyBridge._invoke_om() must be an async method."""
+        import asyncio
+        self.assertTrue(
+            asyncio.iscoroutinefunction(self.bridge._invoke_om),
+            'TeaPartyBridge._invoke_om() must be async',
+        )
+
+    def test_handle_conversation_post_creates_task_for_om(self):
+        """_handle_conversation_post source must create an asyncio task for om: conversations."""
+        import inspect
+        source = inspect.getsource(self.bridge._handle_conversation_post)
+        self.assertTrue(
+            'create_task' in source or '_invoke_om' in source,
+            '_handle_conversation_post must schedule OM invocation (create_task or _invoke_om) '
+            'for om: conversations',
+        )
+
+    def test_handle_conversation_post_checks_om_prefix(self):
+        """_handle_conversation_post must check for om: prefix before invoking OM."""
+        import inspect
+        source = inspect.getsource(self.bridge._handle_conversation_post)
+        self.assertIn(
+            'om:', source,
+            "_handle_conversation_post must check for 'om:' prefix to gate OM invocation",
+        )

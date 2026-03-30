@@ -278,10 +278,11 @@ At current research scale this is acceptable: local disk, WAL mode, a handful of
 **Scale assumption:** This design is bounded to local-disk SQLite, WAL mode, single-user deployments with fewer than ~10 concurrent sessions. If any of these change — remote filesystem, many concurrent sessions, or observed WebSocket latency under load — the correct fix is `loop.run_in_executor()` to offload the blocking calls to a thread pool, or a migration to `aiosqlite`. The bridge makes no attempt to hide this constraint: it is a deliberate trade-off for implementation simplicity at research scale.
 
 ### What the bridge does NOT do
-- Run Claude agents (that's the orchestrator)
 - Implement InputProvider (it writes to the message bus instead)
 - Connect to MCP sockets (escalations flow through the orchestrator)
 - Manage worktrees (that's the orchestrator)
 - Parse or execute CfA transitions (it reads state, doesn't drive it)
 
-The bridge is read-heavy, write-light. It reads state files, config, heartbeats, and messages. It writes only human messages to the message bus and withdrawal requests to the intervention socket.
+The bridge is primarily read-heavy, write-light. It reads state files, config, heartbeats, and messages. It writes human messages to the message bus and withdrawal requests to the intervention socket.
+
+**Exception: OM agent invocation.** The bridge invokes the office manager agent (`claude -p --agent office-manager`) directly when a human posts to an `om:` conversation thread (issue #322). This is the only agent execution the bridge performs; all CfA-phase orchestration and worktree dispatch remain in the orchestrator. The OM invocation fires as a fire-and-forget `asyncio.create_task` — the response arrives on the OM bus and is broadcast to WebSocket clients by `MessageRelay`.
