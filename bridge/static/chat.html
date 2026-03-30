@@ -138,11 +138,17 @@ function fetchAll() {
           .then(function(r) { return r.json(); })
           .then(function(convs) {
             pageState.participantConvs = convs || [];
-            if (!selectedItem && pageState.participantConvs.length > 0) {
-              selectedItem = pageState.participantConvs[0].id;
-              return fetch('/api/conversations/' + encodeURIComponent(selectedItem))
-                .then(function(r) { return r.json(); })
-                .then(function(msgs) { pageState.messages = msgs || []; });
+            // Auto-select only if convId from the URL is already in the list.
+            // If convId is a new/unseeded conversation (not yet in the DB),
+            // leave selectedItem null so messages go to convId, not a different conv.
+            if (!selectedItem) {
+              var match = pageState.participantConvs.filter(function(c) { return c.id === convId; })[0];
+              if (match) {
+                selectedItem = match.id;
+                return fetch('/api/conversations/' + encodeURIComponent(selectedItem))
+                  .then(function(r) { return r.json(); })
+                  .then(function(msgs) { pageState.messages = msgs || []; });
+              }
             }
           })
           .catch(function() { pageState.participantConvs = []; })
