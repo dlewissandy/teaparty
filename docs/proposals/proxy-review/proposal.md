@@ -1,8 +1,10 @@
 [Milestone 3: Human Interaction Layer](../milestone-3.md) >
 
-# Proxy Review Sessions
+# Direct Proxy Conversation
 
-The human can talk directly to the proxy that models their decision-making, inspecting what it has learned, correcting patterns that are wrong, and reinforcing ones that matter. In the future, they can also query other team members' proxies for status and context.
+The proxy is the human's disciple — an agent that has learned to think the way the human thinks and participates in all conversations with agent teams on their behalf. The dashboard gives the human a direct channel to their proxy: to converse with it, inspect what it has absorbed, correct it where it is wrong, and reinforce what it has underweighted.
+
+This is not a special review mode. It is ordinary conversation with the agent that represents you. The same agent, the same memory, the same learning infrastructure that operates at gates and in intake dialog is accessible here. Corrections made in this conversation immediately influence the proxy's behavior everywhere — there is no separation between the "chat proxy" and the "gate proxy."
 
 ---
 
@@ -10,9 +12,9 @@ The human can talk directly to the proxy that models their decision-making, insp
 
 The proxy serves two roles depending on who is talking to it:
 
-### Self-Review (your own proxy)
+### Direct Conversation (your own proxy)
 
-When you open a chat with your own proxy, you get full transparency into its model of you. This is a calibration session:
+When you open a chat with your own proxy, you get full transparency into its model of you:
 
 - **Inspect**: "What patterns have you picked up about my review preferences?"
 - **Correct**: "Stop flagging missing rollback strategies -- we decided that's not needed for internal tools"
