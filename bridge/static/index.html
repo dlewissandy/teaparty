@@ -23,10 +23,10 @@
   .org-card .oc-label { font-size: 11px; font-weight: 600; }
   .org-card .oc-meta { font-size: 9px; color: var(--text-dim); }
 
-  .project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+  .project-grid { columns: 2 320px; column-gap: 12px; }
   .project-card {
     background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
-    overflow: hidden;
+    overflow: hidden; break-inside: avoid; margin-bottom: 12px;
   }
   .pc-header {
     padding: 10px 14px; display: flex; justify-content: space-between; align-items: center;
