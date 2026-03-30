@@ -215,6 +215,7 @@ class TeaPartyBridge:
         app.router.add_get('/api/config', self._handle_config)
         app.router.add_get('/api/config/{project}', self._handle_config_project)
         app.router.add_get('/api/workgroups', self._handle_workgroups)
+        app.router.add_get('/api/workgroups/{name}', self._handle_workgroup_detail)
 
         # ── Message endpoints ─────────────────────────────────────────────────
         app.router.add_get('/api/conversations', self._handle_conversations_list)
@@ -426,6 +427,29 @@ class TeaPartyBridge:
             return web.json_response([self._serialize_workgroup(w) for w in workgroups])
         except Exception:
             return web.json_response([])
+
+    async def _handle_workgroup_detail(self, request: web.Request) -> web.Response:
+        name = request.match_info['name']
+        project_slug = request.rel_url.query.get('project')
+        try:
+            if project_slug:
+                project_dir = self._lookup_project_path(project_slug)
+                if project_dir is None:
+                    return web.json_response({'error': f'project not found: {project_slug}'}, status=404)
+                team = load_project_team(project_dir)
+                workgroups = resolve_workgroups(
+                    team.workgroups, project_dir=project_dir, teaparty_home=self.teaparty_home
+                )
+            else:
+                mgmt_team = load_management_team(teaparty_home=self.teaparty_home)
+                workgroups = load_management_workgroups(mgmt_team, teaparty_home=self.teaparty_home)
+        except FileNotFoundError as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+
+        for w in workgroups:
+            if w.name == name:
+                return web.json_response(self._serialize_workgroup(w))
+        return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
 
     # ── Message handlers ──────────────────────────────────────────────────────
 
@@ -843,6 +867,10 @@ class TeaPartyBridge:
             'description': w.description,
             'lead': w.lead,
             'agents_count': len(w.agents),
+            'agents': list(w.agents),
+            'skills': list(w.skills),
+            'norms': dict(w.norms),
+            'budget': dict(w.budget),
             'source': source,
             'overrides': overrides or [],
         }

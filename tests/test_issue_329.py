@@ -313,8 +313,11 @@ class TestConfigHtmlWorkgroupItemsHaveOnclick(unittest.TestCase):
     def test_global_workgroup_items_have_workgroup_onclick(self):
         """Workgroup items in the global catalog must have onclick to navigate to workgroup detail."""
         source = self._get_config_html()
-        self.assertIn("configNav('workgroup'", source,
-            "config.html must have configNav('workgroup', ...) for workgroup navigation")
+        # In the JS template string, single quotes are backslash-escaped: configNav(\'workgroup\'
+        self.assertTrue(
+            "configNav('workgroup'" in source or "configNav(\\'workgroup\\'" in source,
+            "config.html must have configNav('workgroup', ...) for workgroup navigation",
+        )
 
     def test_configNav_handles_workgroup_level(self):
         """configNav must handle level === 'workgroup' in its switch/if logic."""
