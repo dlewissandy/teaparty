@@ -159,7 +159,7 @@ def resolve_infra_dir(session_ref: str, poc_root: str, projects_dir: str) -> str
     """Resolve a session reference to an absolute infra_dir path.
 
     session_ref can be:
-      - An absolute path to an infra_dir (e.g., /path/to/projects/POC/.sessions/20260312-101816)
+      - An absolute path to an infra_dir (e.g., /path/to/project/.sessions/20260312-101816)
       - A session ID (e.g., 20260312-101816) — searches all projects
     """
     # If it's an absolute path that exists, use it directly

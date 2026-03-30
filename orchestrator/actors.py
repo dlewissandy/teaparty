@@ -204,7 +204,7 @@ class AgentRunner:
         # Path is relative to cwd (the worktree), which is a full repo checkout.
         jail_hook = {
             'type': 'command',
-            'command': 'python3 projects/POC/orchestrator/worktree_hook.py',
+            'command': 'python3 orchestrator/worktree_hook.py',
         }
         hooks = settings.setdefault('hooks', [])
         for tool in ('Read', 'Edit', 'Write', 'Glob', 'Grep'):

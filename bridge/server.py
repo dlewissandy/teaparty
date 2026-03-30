@@ -8,8 +8,7 @@ Usage::
 
     bridge = TeaPartyBridge(
         teaparty_home='~/.teaparty',
-        projects_dir='/path/to/projects',
-        static_dir='projects/POC/bridge/static',
+        static_dir='bridge/static',
     )
     bridge.run(port=8081)
 

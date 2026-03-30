@@ -278,6 +278,39 @@ class TestNoProjectsPOCImportsInSource(unittest.TestCase):
             '\n'.join(violations[:10]),
         )
 
+    def _find_poc_path_strings_in_dir(self, dir_name: str) -> list[str]:
+        """Return violations where 'projects/POC' appears as a string literal (not comment)."""
+        violations = []
+        root = _REPO_ROOT / dir_name
+        if not root.exists():
+            return [f'directory {dir_name}/ does not exist']
+        for path in root.rglob('*.py'):
+            if '__pycache__' in str(path):
+                continue
+            for i, line in enumerate(path.read_text().splitlines(), 1):
+                stripped = line.strip()
+                if 'projects/POC' in line and not stripped.startswith('#'):
+                    violations.append(f'{path.relative_to(_REPO_ROOT)}:{i}: {stripped}')
+        return violations
+
+    def test_orchestrator_has_no_projects_poc_paths(self):
+        """orchestrator/ must not contain 'projects/POC' string literals."""
+        violations = self._find_poc_path_strings_in_dir('orchestrator')
+        self.assertEqual(
+            violations, [],
+            'orchestrator/ contains projects/POC path strings:\n' +
+            '\n'.join(violations[:10]),
+        )
+
+    def test_bridge_has_no_projects_poc_paths(self):
+        """bridge/ must not contain 'projects/POC' string literals."""
+        violations = self._find_poc_path_strings_in_dir('bridge')
+        self.assertEqual(
+            violations, [],
+            'bridge/ contains projects/POC path strings:\n' +
+            '\n'.join(violations[:10]),
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
