@@ -35,6 +35,7 @@ from orchestrator.config_reader import (
     load_workgroup,
     discover_projects,
     discover_skills,
+    discover_hooks,
     load_management_workgroups,
     resolve_workgroups,
     WorkgroupRef,
@@ -923,13 +924,21 @@ class TeaPartyBridge:
 
         def _hook_file(hook: dict) -> str:
             cmd = hook.get('command', '')
-            if cmd and os.path.isfile(cmd):
+            if cmd and os.path.isabs(cmd) and os.path.isfile(cmd):
                 return cmd
+            # Resolve relative command paths against the claude_base directory.
+            if cmd:
+                resolved = os.path.join(claude_base, cmd)
+                if os.path.isfile(resolved):
+                    return resolved
             return config_yaml
 
         def _task_file(skill_name: str) -> str | None:
             path = os.path.join(skills_dir, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
+
+        settings_hooks = discover_hooks(os.path.join(claude_base, '.claude', 'settings.json'))
+        all_hooks = t.hooks + settings_hooks
 
         return {
             'name': t.name,
@@ -939,7 +948,7 @@ class TeaPartyBridge:
             'agents': [{'name': n, 'file': _agent_file(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': [{'name': n, 'file': _skill_file(n)} for n in (discovered_skills or [])],
-            'hooks': [{**h, 'file': _hook_file(h)} for h in t.hooks],
+            'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
                  'file': _task_file(s.skill)}
@@ -989,8 +998,13 @@ class TeaPartyBridge:
 
         def _hook_file(hook: dict) -> str:
             cmd = hook.get('command', '')
-            if cmd and os.path.isfile(cmd):
+            if cmd and os.path.isabs(cmd) and os.path.isfile(cmd):
                 return cmd
+            # Resolve relative command paths against the project's .claude/ directory.
+            if cmd and proj:
+                resolved = os.path.join(proj, cmd)
+                if os.path.isfile(resolved):
+                    return resolved
             return proj_config
 
         def _task_file(skill_name: str) -> str | None:
@@ -1013,6 +1027,10 @@ class TeaPartyBridge:
                 source = 'shared' if name in org_catalog_set else 'missing'
                 skills_result.append({'name': name, 'source': source, 'file': _skill_file(name, source)})
 
+        proj_settings = os.path.join(proj, '.claude', 'settings.json') if proj else ''
+        settings_hooks = discover_hooks(proj_settings) if proj_settings else []
+        all_hooks = t.hooks + settings_hooks
+
         return {
             'name': t.name,
             'description': t.description,
@@ -1021,7 +1039,7 @@ class TeaPartyBridge:
             'agents': [{'name': n, 'source': _agent_source(n), 'file': _agent_file(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': skills_result,
-            'hooks': [{**h, 'file': _hook_file(h)} for h in t.hooks],
+            'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
             'scheduled': [
                 {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
                  'file': _task_file(s.skill)}

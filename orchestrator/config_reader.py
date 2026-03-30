@@ -15,6 +15,7 @@ See docs/proposals/team-configuration/proposal.md for the design.
 """
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -299,6 +300,46 @@ def discover_skills(skills_dir: str) -> list[str]:
         if entry.is_dir() and os.path.exists(os.path.join(entry.path, 'SKILL.md')):
             names.append(entry.name)
     return names
+
+
+def discover_hooks(settings_json_path: str) -> list[dict[str, str]]:
+    """Read Claude Code hooks from a .claude/settings.json file.
+
+    Returns a flat list of hook dicts with keys: event, matcher, type, command.
+    The format mirrors what config_reader loads from YAML hooks: entries.
+    Returns an empty list if the file does not exist or has no hooks.
+
+    Args:
+        settings_json_path: Absolute path to a .claude/settings.json file.
+    """
+    if not os.path.isfile(settings_json_path):
+        return []
+    try:
+        with open(settings_json_path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return []
+    hooks_section = data.get('hooks', {})
+    if not isinstance(hooks_section, dict):
+        return []
+    result: list[dict[str, str]] = []
+    for event, matchers in hooks_section.items():
+        if not isinstance(matchers, list):
+            continue
+        for entry in matchers:
+            if not isinstance(entry, dict):
+                continue
+            matcher = entry.get('matcher', '')
+            for hook in entry.get('hooks', []):
+                if not isinstance(hook, dict):
+                    continue
+                result.append({
+                    'event': event,
+                    'matcher': matcher,
+                    'type': hook.get('type', ''),
+                    'command': hook.get('command', ''),
+                })
+    return result
 
 
 def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
