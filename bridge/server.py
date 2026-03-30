@@ -26,7 +26,7 @@ from typing import Set
 from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
-from orchestrator.office_manager import om_bus_path as _om_bus_path
+from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession
 from orchestrator.state_reader import StateReader
 from orchestrator.heartbeat import _heartbeat_three_state
 from orchestrator.config_reader import (
@@ -187,6 +187,8 @@ class TeaPartyBridge:
         self._buses: dict[str, SqliteMessageBus] = {}
         # Office manager bus (persistent, not session-scoped).
         self._om_bus: SqliteMessageBus | None = None
+        # In-flight OM invocation qualifiers (prevents concurrent invocations per conversation).
+        self._om_in_flight: set[str] = set()
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -490,7 +492,34 @@ class TeaPartyBridge:
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
+        # Invoke the OM agent asynchronously for any om: conversation.
+        # The response will appear in the bus and be broadcast by MessageRelay.
+        if conv_id.startswith('om:'):
+            qualifier = conv_id[len('om:'):]
+            asyncio.create_task(self._invoke_om(qualifier))
+
         return web.json_response({'id': msg_id})
+
+    async def _invoke_om(self, qualifier: str) -> None:
+        """Invoke the office manager agent for the given conversation qualifier.
+
+        Runs as a fire-and-forget asyncio task. The OM agent reads the conversation
+        history, responds, and writes its reply to the OM bus. MessageRelay picks
+        up the reply and broadcasts it to WebSocket clients.
+
+        If an invocation is already in flight for this qualifier, this call is a
+        no-op to prevent concurrent invocations against the same conversation.
+        """
+        if qualifier in self._om_in_flight:
+            return
+        self._om_in_flight.add(qualifier)
+        try:
+            session = OfficeManagerSession(self.teaparty_home, qualifier)
+            await session.invoke(cwd=self._repo_root)
+        except Exception:
+            _log.exception('OM invocation failed for qualifier %r', qualifier)
+        finally:
+            self._om_in_flight.discard(qualifier)
 
     # ── Artifact handlers ─────────────────────────────────────────────────────
 

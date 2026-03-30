@@ -164,6 +164,33 @@ class MemoryStore:
         self._conn.close()
 
 
+# ── Stream parsing ──────────────────────────────────────────────────────────
+
+def _extract_assistant_text(stream_path: str) -> str:
+    """Extract concatenated assistant text blocks from a stream-json JSONL file."""
+    parts = []
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                if ev.get('type') != 'assistant':
+                    continue
+                for block in ev.get('message', {}).get('content', []):
+                    if isinstance(block, dict) and block.get('type') == 'text':
+                        text = block.get('text', '').strip()
+                        if text:
+                            parts.append(text)
+    except OSError:
+        pass
+    return '\n'.join(parts)
+
+
 # ── Office manager session ──────────────────────────────────────────────────
 
 class OfficeManagerSession:
@@ -221,6 +248,11 @@ class OfficeManagerSession:
             lines.append(f'{role}: {msg.content}')
         return '\n\n'.join(lines)
 
+    def _state_path(self) -> str:
+        """Return the state file path, keyed by user_id so concurrent OM threads don't collide."""
+        safe_id = self.user_id.replace('/', '-').replace(':', '-').replace(' ', '-')
+        return os.path.join(self._infra_dir, f'.om-session-{safe_id}.json')
+
     def save_state(self) -> None:
         """Persist session state (Claude session ID) to disk."""
         state = {
@@ -228,7 +260,7 @@ class OfficeManagerSession:
             'user_id': self.user_id,
             'conversation_id': self.conversation_id,
         }
-        state_path = os.path.join(self._infra_dir, '.om-session-state.json')
+        state_path = self._state_path()
         tmp = state_path + '.tmp'
         with open(tmp, 'w') as f:
             json.dump(state, f)
@@ -236,10 +268,75 @@ class OfficeManagerSession:
 
     def load_state(self) -> None:
         """Load session state from disk."""
-        state_path = os.path.join(self._infra_dir, '.om-session-state.json')
+        state_path = self._state_path()
         try:
             with open(state_path) as f:
                 state = json.load(f)
             self.claude_session_id = state.get('claude_session_id')
         except (FileNotFoundError, json.JSONDecodeError):
             pass
+
+    def _latest_human_message(self) -> str:
+        """Return the content of the most recent human message in this conversation."""
+        messages = self.get_messages()
+        for msg in reversed(messages):
+            if msg.sender == 'human':
+                return msg.content
+        return ''
+
+    async def invoke(self, *, cwd: str) -> str:
+        """Invoke the office manager agent to respond to the current conversation.
+
+        Loads session state (for --resume), runs claude -p as the office-manager
+        sub-agent, extracts the response text from the stream, writes it to the
+        OM bus, and saves the updated session ID for the next --resume.
+
+        Returns the agent's response text, or '' if invocation fails or produces
+        no text.
+        """
+        import asyncio
+        import tempfile
+        from orchestrator.claude_runner import ClaudeRunner
+
+        self.load_state()
+
+        # For resuming sessions, pass only the latest human message; the prior
+        # context lives in the Claude session. For fresh sessions, pass the full
+        # conversation history so the agent understands what it's responding to.
+        if self.claude_session_id:
+            prompt = self._latest_human_message()
+        else:
+            prompt = self.build_context()
+
+        if not prompt:
+            return ''
+
+        stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
+        os.close(stream_fd)
+
+        try:
+            runner = ClaudeRunner(
+                prompt=prompt,
+                cwd=cwd,
+                stream_file=stream_path,
+                lead='office-manager',
+                permission_mode='default',
+                resume_session=self.claude_session_id,
+            )
+            result = await runner.run()
+
+            response_text = _extract_assistant_text(stream_path)
+
+            if response_text:
+                self.send_agent_message(response_text)
+
+            if result.session_id:
+                self.claude_session_id = result.session_id
+                self.save_state()
+
+            return response_text
+        finally:
+            try:
+                os.unlink(stream_path)
+            except OSError:
+                pass

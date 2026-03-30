@@ -635,20 +635,24 @@ class TestOfficeManagerStatePerConversation(unittest.TestCase):
         """The state files for different user_ids must be at different filesystem paths."""
         import inspect
         from orchestrator.office_manager import OfficeManagerSession
-        source = inspect.getsource(OfficeManagerSession.save_state)
-        # The state file name must vary by user_id / conversation qualifier.
-        # Look for f-string or format call that includes user_id/qualifier in the PATH, not just in the JSON dict.
-        # A fixed filename like '.om-session-state.json' does not qualify.
+        # The path logic may live in a helper (_state_path) or inline in save_state.
+        # Check all relevant methods for a dynamic path keyed by user_id/qualifier.
+        sources = []
+        for method in ('save_state', '_state_path'):
+            fn = getattr(OfficeManagerSession, method, None)
+            if fn is not None:
+                sources.append(inspect.getsource(fn))
+        combined = '\n'.join(sources)
         has_dynamic_path = (
-            'safe_id' in source
-            or 'qualifier' in source
-            or ('{' in source and ('user_id' in source or 'conversation_id' in source)
-                and '.json' in source and 'state_path' in source)
+            'safe_id' in combined
+            or 'qualifier' in combined
+            or ('{' in combined and ('user_id' in combined or 'conversation_id' in combined)
+                and '.json' in combined)
         )
         self.assertTrue(
             has_dynamic_path,
-            'save_state() must build a state file path that varies by user_id/qualifier, '
-            'not use a fixed shared filename',
+            'save_state() or _state_path() must build a state file path that varies '
+            'by user_id/qualifier, not use a fixed shared filename',
         )
 
 
