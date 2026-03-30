@@ -274,15 +274,19 @@ function sendMessage(ta) {
       var rendered = renderMessages([m]);
       if (rendered) { msgsEl.innerHTML += rendered; msgsEl.scrollTop = msgsEl.scrollHeight; }
     }
-    // If this is a participant chat, ensure the conversation appears in the nav.
+    // If this is a participant chat, ensure the conversation appears in the nav and is selected.
     if (!isJobChat) {
       var cid = activeConvId();
       var alreadyListed = pageState.participantConvs.some(function(c) { return c.id === cid; });
       if (!alreadyListed) {
         pageState.participantConvs.push({ id: cid, created_at: Math.floor(Date.now() / 1000) });
-        var navEl = document.querySelector('.chat-nav');
-        if (navEl) navEl.outerHTML = buildParticipantNavHtml();
       }
+      // Select this conv so the nav highlights it and subsequent WS messages route correctly.
+      if (selectedItem !== cid) {
+        selectedItem = cid;
+      }
+      var navEl = document.querySelector('.chat-nav');
+      if (navEl) navEl.outerHTML = buildParticipantNavHtml();
     }
   }).catch(function() { ta.value = text; });
 }
@@ -348,9 +352,13 @@ function selectJobConv() {
 }
 
 function selectNewConv() {
-  // Start a fresh conversation with this participant.
-  // Clearing selectedItem makes the textarea send to convId (the participant's base ID).
-  selectedItem = null;
+  // Generate a unique ID for this new conversation so it is distinct from any existing one.
+  // Clearing selectedItem would route to convId (from the URL), which already exists.
+  var prefix = convId.split(':')[0];
+  var qualifier = convId.split(':').slice(1).join(':') || 'user';
+  var newConvId = prefix + ':' + qualifier + '-' + Date.now().toString(36);
+  pageState.participantConvs.push({ id: newConvId, created_at: Math.floor(Date.now() / 1000) });
+  selectedItem = newConvId;
   pageState.messages = [];
   render();
 }
@@ -416,9 +424,10 @@ function buildParticipantNavHtml() {
     '" onclick="selectNewConv()" style="color:var(--green);font-size:9px">+ New</div>';
   pageState.participantConvs.forEach(function(c) {
     var date = c.created_at ? new Date(c.created_at * 1000).toLocaleDateString() : '';
-    // Derive a label from the conv ID: use the part after the prefix (e.g., 'om:darrell' → 'darrell')
+    // Use Claude's auto-generated conversation slug if available, otherwise fall
+    // back to the qualifier portion of the ID (e.g. 'om:darrell' → 'darrell').
     var idParts = c.id.split(':');
-    var label = idParts.length > 1 ? idParts.slice(1).join(':') : c.id;
+    var label = c.title || (idParts.length > 1 ? idParts.slice(1).join(':') : c.id);
     navHtml += '<div class="chat-nav-item ' + (selectedItem === c.id ? 'active' : '') +
       '" onclick="selectItem(\'' + c.id + '\')">' +
       '<span style="font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>' +

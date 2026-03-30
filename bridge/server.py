@@ -26,7 +26,7 @@ from typing import Set
 from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
-from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession
+from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession, read_om_session_title
 from orchestrator.state_reader import StateReader
 from orchestrator.heartbeat import _heartbeat_three_state
 from orchestrator.config_reader import (
@@ -491,14 +491,28 @@ class TeaPartyBridge:
         if conv_type == ConversationType.OFFICE_MANAGER:
             bus = self._get_om_bus()
             convs = bus.active_conversations(conv_type)
-        else:
-            # Aggregate across all active session buses
-            convs = []
-            for bus in self._buses.values():
-                try:
-                    convs.extend(bus.active_conversations(conv_type))
-                except Exception:
-                    pass
+            result = []
+            for c in convs:
+                d = self._serialize_conversation(c)
+                qualifier = c.id[len('om:'):] if c.id.startswith('om:') else ''
+                if qualifier:
+                    session = self._om_sessions.get(qualifier)
+                    title = (
+                        (session.conversation_title if session else None)
+                        or read_om_session_title(self.teaparty_home, qualifier)
+                    )
+                    if title:
+                        d['title'] = title
+                result.append(d)
+            return web.json_response(result)
+
+        # Aggregate across all active session buses
+        convs = []
+        for bus in self._buses.values():
+            try:
+                convs.extend(bus.active_conversations(conv_type))
+            except Exception:
+                pass
 
         return web.json_response([self._serialize_conversation(c) for c in convs])
 
@@ -606,19 +620,33 @@ class TeaPartyBridge:
         sections = _parse_artifacts(content)
         return web.json_response(sections)
 
+    _BINARY_CONTENT_TYPES = {
+        '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.png': 'image/png', '.gif': 'image/gif',
+        '.svg': 'image/svg+xml', '.webp': 'image/webp',
+        '.pdf': 'application/pdf',
+    }
+
     async def _handle_file(self, request: web.Request) -> web.Response:
         path = request.rel_url.query.get('path', '')
         if not path:
             return web.json_response({'error': 'path parameter required'}, status=400)
         path = os.path.expanduser(path)
+        ext = os.path.splitext(path)[1].lower()
+        binary_ct = self._BINARY_CONTENT_TYPES.get(ext)
         try:
-            with open(path) as f:
-                content = f.read()
+            if binary_ct:
+                with open(path, 'rb') as f:
+                    body = f.read()
+                return web.Response(body=body, content_type=binary_ct)
+            else:
+                with open(path) as f:
+                    content = f.read()
+                return web.Response(text=content, content_type='text/plain')
         except FileNotFoundError:
             return web.json_response({'error': f'file not found: {path}'}, status=404)
         except PermissionError:
             return web.json_response({'error': 'permission denied'}, status=403)
-        return web.Response(text=content, content_type='text/plain')
 
     # ── Filesystem navigation handler ─────────────────────────────────────────
 

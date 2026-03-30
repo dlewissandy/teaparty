@@ -166,6 +166,56 @@ class MemoryStore:
 
 # ── Stream parsing ──────────────────────────────────────────────────────────
 
+def _extract_slug(stream_path: str, session_id: str, cwd: str) -> str:
+    """Extract the conversation slug Claude auto-generates for this session.
+
+    Tries the stream JSONL first (any event with a 'slug' field), then falls
+    back to Claude's history file (~/.claude/projects/{hash}/{session_id}.jsonl).
+    Returns '' if not found.
+    """
+    # Try stream file
+    try:
+        with open(stream_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except (ValueError, json.JSONDecodeError):
+                    continue
+                slug = ev.get('slug', '')
+                if slug:
+                    return slug
+    except OSError:
+        pass
+
+    # Fall back to Claude's history JSONL
+    if session_id and cwd:
+        project_hash = cwd.replace('/', '-')
+        history_path = os.path.join(
+            os.path.expanduser('~'), '.claude', 'projects',
+            project_hash, f'{session_id}.jsonl',
+        )
+        try:
+            with open(history_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        ev = json.loads(line)
+                    except (ValueError, json.JSONDecodeError):
+                        continue
+                    slug = ev.get('slug', '')
+                    if slug:
+                        return slug
+        except OSError:
+            pass
+
+    return ''
+
+
 def _extract_assistant_text(stream_path: str) -> str:
     """Extract concatenated assistant text blocks from a stream-json JSONL file."""
     parts = []
@@ -215,6 +265,7 @@ class OfficeManagerSession:
             ConversationType.OFFICE_MANAGER, user_id,
         )
         self.claude_session_id: str | None = None
+        self.conversation_title: str | None = None
 
         # Message bus at the canonical OM path — same location the bridge reads.
         bus_path = om_bus_path(teaparty_home)
@@ -254,11 +305,12 @@ class OfficeManagerSession:
         return os.path.join(self._infra_dir, f'.om-session-{safe_id}.json')
 
     def save_state(self) -> None:
-        """Persist session state (Claude session ID) to disk."""
+        """Persist session state (Claude session ID and conversation title) to disk."""
         state = {
             'claude_session_id': self.claude_session_id,
             'user_id': self.user_id,
             'conversation_id': self.conversation_id,
+            'conversation_title': self.conversation_title,
         }
         state_path = self._state_path()
         tmp = state_path + '.tmp'
@@ -273,6 +325,7 @@ class OfficeManagerSession:
             with open(state_path) as f:
                 state = json.load(f)
             self.claude_session_id = state.get('claude_session_id')
+            self.conversation_title = state.get('conversation_title') or None
         except (FileNotFoundError, json.JSONDecodeError):
             pass
 
@@ -299,6 +352,7 @@ class OfficeManagerSession:
         from orchestrator.claude_runner import ClaudeRunner
 
         self.load_state()
+        is_fresh_session = self.claude_session_id is None
 
         # For resuming sessions, pass only the latest human message; the prior
         # context lives in the Claude session. For fresh sessions, pass the full
@@ -343,6 +397,12 @@ class OfficeManagerSession:
 
             if response_text and result.session_id:
                 self.claude_session_id = result.session_id
+                # On the first turn, capture the slug Claude auto-generates for
+                # this conversation so the UI can show a descriptive nav label.
+                if is_fresh_session and not self.conversation_title:
+                    slug = _extract_slug(stream_path, result.session_id, cwd)
+                    if slug:
+                        self.conversation_title = slug
                 self.save_state()
 
             return response_text
@@ -351,3 +411,18 @@ class OfficeManagerSession:
                 os.unlink(stream_path)
             except OSError:
                 pass
+
+
+def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:
+    """Read the conversation title from a saved OM session state file.
+
+    Returns None if no title is stored or the file doesn't exist.
+    """
+    safe_id = qualifier.replace('/', '-').replace(':', '-').replace(' ', '-')
+    state_path = os.path.join(teaparty_home, 'om', f'.om-session-{safe_id}.json')
+    try:
+        with open(state_path) as f:
+            state = json.load(f)
+        return state.get('conversation_title') or None
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
