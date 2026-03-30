@@ -64,20 +64,20 @@ def _make_workgroup(**kwargs):
 # ── Criterion 7: _serialize_workgroup exposes full data model ─────────────────
 
 class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
-    """_serialize_workgroup must return agents, skills, norms, and budget — not just the summary."""
+    """_serialize_workgroup(detail=True) must return agents, skills, norms, budget."""
 
     def setUp(self):
         self.tp_dir = _make_teaparty_home()
         self.bridge = _make_bridge(self.tp_dir)
 
     def test_agents_are_included_in_serialized_workgroup(self):
-        """_serialize_workgroup must include the agents list."""
+        """_serialize_workgroup(detail=True) must include the agents list."""
         wg = _make_workgroup(agents=[
             {'name': 'Developer', 'role': 'specialist', 'model': 'claude-sonnet-4'},
         ])
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('agents', result,
-            '_serialize_workgroup must include agents; got: ' + str(list(result.keys())))
+            '_serialize_workgroup(detail=True) must include agents; got: ' + str(list(result.keys())))
         self.assertEqual(len(result['agents']), 1)
         self.assertEqual(result['agents'][0]['name'], 'Developer')
 
@@ -86,42 +86,42 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
         wg = _make_workgroup(agents=[
             {'name': 'Architect', 'role': 'specialist', 'model': 'claude-opus-4'},
         ])
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         agent = result['agents'][0]
         self.assertEqual(agent['name'], 'Architect')
         self.assertEqual(agent['role'], 'specialist')
         self.assertEqual(agent['model'], 'claude-opus-4')
 
     def test_skills_are_included_in_serialized_workgroup(self):
-        """_serialize_workgroup must include the skills list."""
+        """_serialize_workgroup(detail=True) must include the skills list."""
         wg = _make_workgroup(skills=['fix-issue', 'code-cleanup'])
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('skills', result,
-            '_serialize_workgroup must include skills; got: ' + str(list(result.keys())))
+            '_serialize_workgroup(detail=True) must include skills; got: ' + str(list(result.keys())))
         self.assertIn('fix-issue', result['skills'])
         self.assertIn('code-cleanup', result['skills'])
 
     def test_norms_are_included_in_serialized_workgroup(self):
-        """_serialize_workgroup must include the norms dict."""
+        """_serialize_workgroup(detail=True) must include the norms dict."""
         norms = {'quality': ['Code review required'], 'tools': ['No WebSearch']}
         wg = _make_workgroup(norms=norms)
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('norms', result,
-            '_serialize_workgroup must include norms; got: ' + str(list(result.keys())))
+            '_serialize_workgroup(detail=True) must include norms; got: ' + str(list(result.keys())))
         self.assertIn('quality', result['norms'])
         self.assertIn('Code review required', result['norms']['quality'])
 
     def test_budget_is_included_in_serialized_workgroup(self):
-        """_serialize_workgroup must include the budget dict."""
+        """_serialize_workgroup(detail=True) must include the budget dict."""
         budget = {'daily_tokens': 1000.0, 'max_cost_usd': 5.0}
         wg = _make_workgroup(budget=budget)
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('budget', result,
-            '_serialize_workgroup must include budget; got: ' + str(list(result.keys())))
+            '_serialize_workgroup(detail=True) must include budget; got: ' + str(list(result.keys())))
         self.assertAlmostEqual(result['budget']['daily_tokens'], 1000.0)
 
     def test_summary_fields_still_present(self):
-        """Existing summary fields (name, description, lead, agents_count) must remain."""
+        """Summary fields (name, description, lead, agents_count) present in both modes."""
         wg = _make_workgroup(
             name='Editorial',
             description='Editorial team',
@@ -134,12 +134,30 @@ class TestSerializeWorkgroupExposesFullDataModel(unittest.TestCase):
         self.assertEqual(result['lead'], 'editor')
         self.assertEqual(result['agents_count'], 1)
 
-    def test_empty_budget_is_included_not_omitted(self):
-        """budget: {} must appear in the result (UI hides it; serializer must not omit)."""
+    def test_empty_budget_is_included_not_omitted_in_detail_mode(self):
+        """budget: {} must appear in detail=True result (UI hides it; serializer must not omit)."""
         wg = _make_workgroup(budget={})
-        result = self.bridge._serialize_workgroup(wg)
+        result = self.bridge._serialize_workgroup(wg, detail=True)
         self.assertIn('budget', result,
             'budget must be present even when empty; UI decides whether to hide it')
+
+    def test_list_mode_omits_detail_fields(self):
+        """Default (detail=False) must not include agents, skills, norms, budget."""
+        wg = _make_workgroup(
+            agents=[{'name': 'Dev', 'role': 'specialist', 'model': 'claude-sonnet-4'}],
+            skills=['fix-issue'],
+            norms={'quality': ['Review required']},
+            budget={'daily_tokens': 500.0},
+        )
+        result = self.bridge._serialize_workgroup(wg)
+        self.assertNotIn('agents', result,
+            'List mode must omit agents — use detail=True for the detail endpoint')
+        self.assertNotIn('skills', result,
+            'List mode must omit skills — use detail=True for the detail endpoint')
+        self.assertNotIn('norms', result,
+            'List mode must omit norms — use detail=True for the detail endpoint')
+        self.assertNotIn('budget', result,
+            'List mode must omit budget — use detail=True for the detail endpoint')
 
 
 # ── Criterion 7: GET /api/workgroups/{name} endpoint ─────────────────────────

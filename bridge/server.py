@@ -448,7 +448,7 @@ class TeaPartyBridge:
 
         for w in workgroups:
             if w.name == name:
-                return web.json_response(self._serialize_workgroup(w))
+                return web.json_response(self._serialize_workgroup(w, detail=True))
         return web.json_response({'error': f'workgroup not found: {name}'}, status=404)
 
     # ── Message handlers ──────────────────────────────────────────────────────
@@ -860,17 +860,20 @@ class TeaPartyBridge:
         }
 
     def _serialize_workgroup(
-        self, w, source: str | None = None, overrides: list[str] | None = None
+        self, w, source: str | None = None, overrides: list[str] | None = None,
+        detail: bool = False,
     ) -> dict:
-        return {
+        result = {
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
             'agents_count': len(w.agents),
-            'agents': list(w.agents),
-            'skills': list(w.skills),
-            'norms': dict(w.norms),
-            'budget': dict(w.budget),
             'source': source,
             'overrides': overrides or [],
         }
+        if detail:
+            result['agents'] = list(w.agents)
+            result['skills'] = list(w.skills)
+            result['norms'] = dict(w.norms)
+            result['budget'] = dict(w.budget)
+        return result
