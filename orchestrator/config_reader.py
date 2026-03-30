@@ -2,8 +2,9 @@
 
 Loads the two-level configuration tree:
   Level 1: {repo_root}/.teaparty/teaparty.yaml → ManagementTeam
-  Level 2: {project}/.teaparty/project.yaml → ProjectTeam
-  Workgroups: {level}/.teaparty/workgroups/*.yaml → Workgroup
+  Level 2: {project}/.teaparty.local/project.yaml → ProjectTeam
+  Org workgroups: {teaparty_home}/workgroups/*.yaml → Workgroup
+  Project workgroup overrides: {project}/.teaparty.local/workgroups/*.yaml → Workgroup
 
 Project management operations:
   add_project    — register an existing directory as a project
@@ -110,7 +111,7 @@ class ManagementTeam:
 
 @dataclass
 class ProjectTeam:
-    """A project team from {project}/.teaparty/project.yaml."""
+    """A project team from {project}/.teaparty.local/project.yaml."""
     name: str
     description: str = ''
     lead: str = ''
@@ -233,7 +234,7 @@ def load_project_team(
     project_dir: str,
     config_path: str | None = None,
 ) -> ProjectTeam:
-    """Load a project team from {project}/.teaparty/project.yaml.
+    """Load a project team from {project}/.teaparty.local/project.yaml.
 
     Args:
         project_dir: Path to the project root directory.
@@ -341,12 +342,12 @@ def resolve_workgroups(
     """Resolve workgroup entries to fully loaded Workgroup objects.
 
     Resolution order for ref: entries:
-      1. Project-level: {project_dir}/.teaparty/workgroups/{ref}.yaml
+      1. Project-level: {project_dir}/.teaparty.local/workgroups/{ref}.yaml
       2. Org-level: {teaparty_home}/workgroups/{ref}.yaml
     Project-level overrides org-level (same precedence as .claude/ settings).
 
     WorkgroupEntry entries are loaded from their config path relative to
-    the project or teaparty home directory.
+    the project's .teaparty.local/ directory or the teaparty home directory.
     """
     home = os.path.expanduser(teaparty_home or default_teaparty_home())
     resolved: list[Workgroup] = []
@@ -524,7 +525,7 @@ def add_project(
     """Add an existing directory as a TeaParty project.
 
     Validates that the directory contains .git/ and .claude/, creates
-    .teaparty/project.yaml if missing, and adds a teams: entry to
+    .teaparty.local/project.yaml if missing, and adds a teams: entry to
     teaparty.yaml.
 
     Raises ValueError if the path is invalid, missing required markers,
@@ -563,7 +564,7 @@ def create_project(
     """Create a new project directory with full scaffolding.
 
     Creates the directory, runs git init, creates .claude/ and
-    .teaparty/project.yaml, and adds a teams: entry to teaparty.yaml.
+    .teaparty.local/project.yaml, and adds a teams: entry to teaparty.yaml.
 
     Raises ValueError if the directory already exists or a team with
     this name already exists.

@@ -3,7 +3,8 @@
 # Usage: ./teaparty.sh [--port PORT]
 set -euo pipefail
 
-cd "$(dirname "${BASH_SOURCE[0]}")"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_ROOT"
 
 if ! command -v uv >/dev/null 2>&1; then
     echo "uv not found — installing via astral.sh..."
@@ -22,4 +23,4 @@ if ! command -v uv >/dev/null 2>&1; then
     echo "uv installed successfully."
 fi
 
-exec uv run python3 -m bridge --teaparty-home "$(dirname "${BASH_SOURCE[0]}")/.teaparty" "$@"
+exec uv run python3 -m bridge --teaparty-home "$REPO_ROOT/.teaparty" "$@"
