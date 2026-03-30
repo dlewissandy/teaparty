@@ -79,7 +79,8 @@ class TestManagementTeamSerializerUsesDiscoveredList(unittest.TestCase):
         result = self.bridge._serialize_management_team(
             team, discovered_skills=['fs-skill-a', 'fs-skill-b']
         )
-        self.assertEqual(result['skills'], ['fs-skill-a', 'fs-skill-b'])
+        result_names = [s['name'] if isinstance(s, dict) else s for s in result['skills']]
+        self.assertEqual(result_names, ['fs-skill-a', 'fs-skill-b'])
 
     def test_discovered_empty_list_returns_empty_not_yaml(self):
         """An explicit empty discovered list means no skills — not a fallback to YAML."""

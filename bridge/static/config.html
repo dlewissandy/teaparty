@@ -109,8 +109,11 @@ async function renderGlobal() {
     return '<div class="item" onclick="configNav(\'workgroup\',\'' + w.name + '\')"><div class="item-icon icon-workgroup">&#9670;</div><div class="item-body"><div class="item-title">' + w.name + '</div><div class="item-meta">' + (w.description || '') + '</div><div class="item-meta">' + (w.lead || '') + (w.agents_count != null ? ' &middot; ' + w.agents_count + ' agents' : '') + '</div></div></div>';
   });
 
-  var agentItems = (m.agents || []).map(function(name) {
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+  var agentItems = (m.agents || []).map(function(a) {
+    var name = typeof a === 'object' ? a.name : a;
+    var file = typeof a === 'object' ? a.file : null;
+    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -125,17 +128,22 @@ async function renderGlobal() {
     return '<div class="item" onclick="window.open(\'artifacts.html?project=org\',\'_blank\')" style="background:rgba(78,204,163,0.03)"><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">&#9654;</div><div class="item-body"><div class="item-title">' + heading + '</div></div></div>';
   });
 
-  var skillItems = (m.skills || []).map(function(name) {
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
+  var skillItems = (m.skills || []).map(function(s) {
+    var name = typeof s === 'object' ? s.name : s;
+    var file = typeof s === 'object' ? s.file : null;
+    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + '</div></div></div>';
   });
 
   var hookItems = (m.hooks || []).map(function(h) {
-    return '<div class="item"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
     var badge = c.enabled ? 'active' : 'idle';
-    return '<div class="item"><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
+    var click = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
   });
 
   var subtitle = projects.length + ' projects &middot; ' + (workgroupsData || []).length + ' workgroups &middot; ' + (m.agents || []).length + ' agents';
@@ -195,8 +203,10 @@ async function renderProject(slug) {
   var agentItems = (team.agents || []).map(function(a) {
     var name = typeof a === 'object' ? a.name : a;
     var source = typeof a === 'object' ? a.source : null;
+    var file = typeof a === 'object' ? a.file : null;
     var src = sourceBadge(source);
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var participantItems = [];
@@ -217,17 +227,21 @@ async function renderProject(slug) {
   var skillItems = (team.skills || []).map(function(s) {
     var name = typeof s === 'object' ? s.name : s;
     var source = typeof s === 'object' ? s.source : null;
+    var file = typeof s === 'object' ? s.file : null;
     var src = sourceBadge(source);
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var click = file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
   });
 
   var hookItems = (team.hooks || []).map(function(h) {
-    return '<div class="item"><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
     var badge = c.enabled ? 'active' : 'idle';
-    return '<div class="item"><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
+    var click = c.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + c.file + '\'),\'_blank\')" style="cursor:pointer"' : '';
+    return '<div class="item"' + click + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
   });
 
   document.getElementById('content').innerHTML =

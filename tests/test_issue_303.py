@@ -126,8 +126,9 @@ class TestManagementTeamSerialization(unittest.TestCase):
 
     def test_serialized_team_includes_agent_names(self):
         result = self.bridge._serialize_management_team(self.team)
-        self.assertIn('Office Manager', result['agents'])
-        self.assertIn('Auditor', result['agents'])
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in result['agents']]
+        self.assertIn('Office Manager', agent_names)
+        self.assertIn('Auditor', agent_names)
 
     def test_serialized_team_includes_humans(self):
         result = self.bridge._serialize_management_team(self.team)
@@ -143,7 +144,8 @@ class TestManagementTeamSerialization(unittest.TestCase):
     def test_serialized_team_includes_skills(self):
         result = self.bridge._serialize_management_team(self.team, discovered_skills=['sprint-plan'])
         self.assertIn('skills', result, '_serialize_management_team must include skills')
-        self.assertIn('sprint-plan', result['skills'])
+        skill_names = [s['name'] if isinstance(s, dict) else s for s in result['skills']]
+        self.assertIn('sprint-plan', skill_names)
 
     def test_serialized_team_includes_hooks(self):
         result = self.bridge._serialize_management_team(self.team)

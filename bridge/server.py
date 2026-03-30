@@ -418,6 +418,8 @@ class TeaPartyBridge:
                 local_skills=local_skills,
                 registered_org_skills=team.skills,
                 org_catalog_skills=org_catalog_skills,
+                teaparty_home=self.teaparty_home,
+                project_dir=project_dir,
             ),
             'workgroups': workgroups,
         })
@@ -855,19 +857,42 @@ class TeaPartyBridge:
         }
 
     def _serialize_management_team(
-        self, t, discovered_skills: list[str] | None = None
+        self, t, discovered_skills: list[str] | None = None,
+        teaparty_home: str | None = None,
     ) -> dict:
+        home = teaparty_home or self.teaparty_home
+        agents_dir = os.path.join(home, '.claude', 'agents')
+        skills_dir = os.path.join(home, '.claude', 'skills')
+        config_yaml = os.path.join(home, 'teaparty.yaml')
+
+        def _agent_file(name: str) -> str:
+            return os.path.join(agents_dir, f'{name}.md')
+
+        def _skill_file(name: str) -> str:
+            return os.path.join(skills_dir, name, 'SKILL.md')
+
+        def _hook_file(hook: dict) -> str:
+            cmd = hook.get('command', '')
+            if cmd and os.path.isfile(cmd):
+                return cmd
+            return config_yaml
+
+        def _task_file(skill_name: str) -> str | None:
+            path = os.path.join(skills_dir, skill_name, 'SKILL.md')
+            return path if os.path.isfile(path) else None
+
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
-            'agents': t.agents,
+            'agents': [{'name': n, 'file': _agent_file(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
-            'skills': discovered_skills or [],
-            'hooks': t.hooks,
+            'skills': [{'name': n, 'file': _skill_file(n)} for n in (discovered_skills or [])],
+            'hooks': [{**h, 'file': _hook_file(h)} for h in t.hooks],
             'scheduled': [
-                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
+                 'file': _task_file(s.skill)}
                 for s in t.scheduled
             ],
         }
@@ -878,38 +903,77 @@ class TeaPartyBridge:
         local_skills: list[str] | None = None,
         registered_org_skills: list[str] | None = None,
         org_catalog_skills: list[str] | None = None,
+        teaparty_home: str | None = None,
+        project_dir: str | None = None,
     ) -> dict:
         org_agents_set = set(org_agents or [])
         local_skills_set = set(local_skills or [])
         org_catalog_set = set(org_catalog_skills or [])
+        home = teaparty_home or self.teaparty_home
+        proj = project_dir or ''
+
+        org_agents_dir = os.path.join(home, '.claude', 'agents')
+        proj_agents_dir = os.path.join(proj, '.claude', 'agents') if proj else ''
+        org_skills_dir = os.path.join(home, '.claude', 'skills')
+        proj_skills_dir = os.path.join(proj, '.claude', 'skills') if proj else ''
+        proj_config = os.path.join(proj, '.teaparty.local', 'project.yaml') if proj else ''
 
         def _agent_source(name: str) -> str:
             if name == t.lead:
                 return 'generated'
             return 'shared' if name in org_agents_set else 'local'
 
+        def _agent_file(name: str) -> str:
+            source = _agent_source(name)
+            if source == 'shared':
+                return os.path.join(org_agents_dir, f'{name}.md')
+            return os.path.join(proj_agents_dir, f'{name}.md') if proj_agents_dir else ''
+
+        def _skill_file(name: str, source: str) -> str | None:
+            if source == 'local':
+                return os.path.join(proj_skills_dir, name, 'SKILL.md') if proj_skills_dir else None
+            if source == 'shared':
+                return os.path.join(org_skills_dir, name, 'SKILL.md')
+            return None  # missing
+
+        def _hook_file(hook: dict) -> str:
+            cmd = hook.get('command', '')
+            if cmd and os.path.isfile(cmd):
+                return cmd
+            return proj_config
+
+        def _task_file(skill_name: str) -> str | None:
+            # Local skills take precedence over org skills.
+            if proj_skills_dir and skill_name in local_skills_set:
+                path = os.path.join(proj_skills_dir, skill_name, 'SKILL.md')
+                return path if os.path.isfile(path) else None
+            path = os.path.join(org_skills_dir, skill_name, 'SKILL.md')
+            return path if os.path.isfile(path) else None
+
         # Build merged skill list: local first, then registered org skills.
         # Local takes precedence on name collision.
         # Registered org skills absent from the org catalog are flagged as 'missing'.
         skills_result = []
         for name in sorted(local_skills or []):
-            skills_result.append({'name': name, 'source': 'local'})
+            source = 'local'
+            skills_result.append({'name': name, 'source': source, 'file': _skill_file(name, source)})
         for name in (registered_org_skills or []):
             if name not in local_skills_set:
                 source = 'shared' if name in org_catalog_set else 'missing'
-                skills_result.append({'name': name, 'source': source})
+                skills_result.append({'name': name, 'source': source, 'file': _skill_file(name, source)})
 
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
             'decider': t.decider,
-            'agents': [{'name': n, 'source': _agent_source(n)} for n in t.agents],
+            'agents': [{'name': n, 'source': _agent_source(n), 'file': _agent_file(n)} for n in t.agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': skills_result,
-            'hooks': t.hooks,
+            'hooks': [{**h, 'file': _hook_file(h)} for h in t.hooks],
             'scheduled': [
-                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled}
+                {'name': s.name, 'schedule': s.schedule, 'enabled': s.enabled,
+                 'file': _task_file(s.skill)}
                 for s in t.scheduled
             ],
         }
