@@ -268,6 +268,7 @@ body {
 .source-shared { background: rgba(78,204,163,0.15); color: var(--green); }
 .source-local { background: rgba(83,52,131,0.15); color: var(--purple); }
 .source-generated { background: rgba(240,192,64,0.15); color: var(--yellow); }
+.source-missing { background: rgba(233,69,96,0.15); color: var(--red); }
 .override-indicator {
   font-size: 7px; padding: 1px 4px; border-radius: 3px;
   background: rgba(224,112,32,0.15); color: var(--orange);
