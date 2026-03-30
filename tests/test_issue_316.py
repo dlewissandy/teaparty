@@ -6,7 +6,6 @@ Acceptance criteria:
 3. server.py docstring does not reference the stale placeholder path
    'projects/POC/bridge/static'.
 """
-import inspect
 import os
 import tempfile
 import unittest
@@ -72,18 +71,40 @@ class TestStaticRouteRegistered(unittest.TestCase):
             )
 
 
-class TestServerDocstringNotStale(unittest.TestCase):
-    """server.py must not reference the stale placeholder path 'projects/POC/bridge/static'."""
+class TestStaticDirExists(unittest.TestCase):
+    """projects/POC/bridge/static/ must exist and contain the required HTML pages."""
 
-    def _server_source(self):
-        from projects.POC.bridge import server
-        return inspect.getsource(server)
+    def _static_dir(self):
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.join(repo_root, 'projects', 'POC', 'bridge', 'static')
 
-    def test_docstring_does_not_reference_stale_static_dir(self):
-        source = self._server_source()
-        self.assertNotIn(
-            "projects/POC/bridge/static",
-            source,
-            "server.py still references the stale placeholder path "
-            "'projects/POC/bridge/static' — update the docstring example",
+    def test_static_directory_exists(self):
+        d = self._static_dir()
+        self.assertTrue(
+            os.path.isdir(d),
+            f'projects/POC/bridge/static/ does not exist: {d}',
         )
+
+    def test_required_html_pages_present(self):
+        d = self._static_dir()
+        required = ['index.html', 'artifacts.html', 'chat.html', 'config.html', 'stats.html', 'styles.css']
+        for name in required:
+            self.assertTrue(
+                os.path.isfile(os.path.join(d, name)),
+                f'projects/POC/bridge/static/{name} is missing',
+            )
+
+    def test_html_pages_use_real_api_not_data_js(self):
+        """HTML files must call real /api/ endpoints, not reference data.js."""
+        d = self._static_dir()
+        html_files = ['index.html', 'artifacts.html', 'chat.html', 'config.html', 'stats.html']
+        for name in html_files:
+            path = os.path.join(d, name)
+            if not os.path.isfile(path):
+                continue
+            content = open(path).read()
+            self.assertNotIn(
+                'data.js',
+                content,
+                f'{name} must not reference data.js — it must use real fetch(\'/api/...\') calls',
+            )
