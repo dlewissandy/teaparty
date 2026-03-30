@@ -109,6 +109,39 @@ class TestProposalDocumentsEnforcement(unittest.TestCase):
                 f'proposal.md must reference {specialist!r} and its skill assignments',
             )
 
+    def test_proposal_documents_enforcement_model(self):
+        """proposal.md must state how the skills: field is enforced.
+
+        The issue explicitly asks to document whether enforcement is Claude Code
+        native, TeaParty dispatch layer, or convention with explicit contract.
+        """
+        # Must explain enforcement mechanism
+        has_enforcement = (
+            'dispatch' in self.content.lower() and
+            ('enforc' in self.content.lower() or 'convention' in self.content.lower())
+        )
+        self.assertTrue(
+            has_enforcement,
+            'proposal.md must document the enforcement model for skills: — '
+            'whether it is Claude Code native, TeaParty dispatch layer, or convention. '
+            'The issue explicitly requires this to be documented.',
+        )
+
+    def test_proposal_resolves_default_when_skills_field_is_omitted(self):
+        """proposal.md must resolve the 'to be decided' question: what does omitting
+        skills: mean? The issue leaves this open; the proposal must decide."""
+        # Must state what happens when skills: is absent
+        has_default = (
+            'no skills' in self.content.lower() or
+            'no `skills:` field' in self.content or
+            'no skills: field' in self.content
+        )
+        self.assertTrue(
+            has_default,
+            'proposal.md must state what omitting the skills: field means — '
+            'the issue leaves it as "to be decided" and the proposal must resolve it.',
+        )
+
     def test_proposal_documents_human_participant_management_is_out_of_scope(self):
         """proposal.md must note human participant management is out of scope."""
         self.assertIn(

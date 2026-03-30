@@ -236,7 +236,9 @@ See [request-flows.md](references/request-flows.md) for five detailed scenarios.
 
 Each specialist has skills that guide its work, loaded on demand rather than burned into the agent's system prompt. These skills are **private to the specialist** — they are registered on the specialist's agent definition via the `skills:` allowlist field and cannot be invoked by any other agent.
 
-Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. A specialist's SOP skills live in `.claude/skills/` like any other skill, but are only accessible to the agent that declares them.
+Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. An agent with no `skills:` field has access to no skills. A specialist's SOP skills live in `.claude/skills/` like any other skill, but are only accessible to the agent that declares them.
+
+**Enforcement:** This field is convention with explicit contract — Claude Code does not natively enforce it. The TeaParty dispatch layer is the intended enforcer: when dispatching an agent, the dispatch system configures the available skills from the `skills:` allowlist in the agent's definition. This field controls auto-invocation by the model only. User-triggered slash commands (e.g., `/create-workgroup`) are not restricted by this field — they require explicit human intent.
 
 Each specialist owns the full CRUD surface for its domain:
 
