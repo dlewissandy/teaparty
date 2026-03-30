@@ -7,14 +7,22 @@
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css">
 <style>
+  #content.app-pane { display: flex; flex-direction: column; }
   .artifact-layout { display: flex; flex: 1; min-height: 0; }
+  .artifact-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 7px 14px; background: var(--surface2); border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .artifact-header-title { font-size: 13px; font-weight: 600; color: var(--text); }
+  .artifact-header-btn {
+    font-size: 11px; color: var(--text-dim); cursor: pointer; padding: 2px 6px;
+    border-radius: 3px; background: none; border: 1px solid var(--border);
+  }
+  .artifact-header-btn:hover { color: var(--text); border-color: var(--text-dim); }
   .artifact-nav {
     width: 220px; background: var(--surface); border-right: 1px solid var(--border);
     overflow-y: auto; flex-shrink: 0;
-  }
-  .artifact-nav-project {
-    padding: 10px; font-size: 15px; font-weight: 600; color: var(--green);
-    border-bottom: 1px solid var(--border); background: var(--surface2);
   }
   .artifact-nav-section {
     padding: 6px 10px; font-size: 8px; font-weight: 600; text-transform: uppercase;
@@ -22,10 +30,18 @@
     background: rgba(78,204,163,0.03);
   }
   .artifact-nav-item {
-    padding: 5px 10px 5px 16px; font-size: 10px; cursor: pointer;
+    padding: 5px 6px 5px 16px; font-size: 10px; cursor: pointer;
     border-bottom: 1px solid var(--border); color: var(--text-dim);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; align-items: center; gap: 4px;
   }
+  .artifact-nav-item-label {
+    flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .artifact-nav-close {
+    flex-shrink: 0; font-size: 11px; line-height: 1; padding: 0 2px;
+    color: var(--text-dim); opacity: 0.5;
+  }
+  .artifact-nav-close:hover { opacity: 1; color: var(--text); }
   .artifact-nav-item:hover { background: rgba(255,255,255,0.03); color: var(--text); }
   .artifact-nav-item.active { background: var(--surface2); color: var(--green); }
   .artifact-main { flex: 1; overflow-y: auto; padding: 16px 24px; }
@@ -150,14 +166,15 @@ function renderCode(content, ext) {
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 function render() {
-  var entryFile = currentProject === 'org' ? 'organization.md' : 'project.md';
   var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
   document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
 
-  var navHtml = '<div class="artifact-nav">';
-  navHtml += '<div class="artifact-nav-project">' + escHtml(displayName) +
-    '<div style="font-size:9px;color:var(--text-dim);font-weight:400;margin-top:2px">' + escHtml(entryFile) + '</div></div>';
+  var headerHtml = '<div class="artifact-header">' +
+    '<span class="artifact-header-title">' + escHtml(displayName) + ' Artifacts</span>' +
+    '<button class="artifact-header-btn" onclick="refresh()" title="Reload from store">\u21ba Refresh</button>' +
+    '</div>';
 
+  var navHtml = '<div class="artifact-nav">';
   sections.forEach(function(sec) {
     navHtml += '<div class="artifact-nav-section">' + escHtml(sec.heading) + '</div>';
     if (sec.items.length === 0) {
@@ -165,8 +182,10 @@ function render() {
     }
     sec.items.forEach(function(item) {
       var isActive = selectedFile === item.path;
-      navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') +
-        '" onclick="loadFile(\'' + item.path + '\')">' + escHtml(item.name) + '</div>';
+      navHtml += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '">' +
+        '<span class="artifact-nav-item-label" onclick="loadFile(\'' + item.path + '\')">' + escHtml(item.name) + '</span>' +
+        '<span class="artifact-nav-close" onclick="closeFile(\'' + item.path + '\')" title="Close">&times;</span>' +
+        '</div>';
     });
   });
   navHtml += '</div>';
@@ -184,7 +203,7 @@ function render() {
   mainHtml += '</div>';
 
   document.getElementById('content').innerHTML =
-    '<div class="artifact-layout">' + navHtml + mainHtml + '</div>';
+    headerHtml + '<div class="artifact-layout">' + navHtml + mainHtml + '</div>';
 
   document.querySelectorAll('.artifact-content pre code:not(.hljs)').forEach(function(el) {
     hljs.highlightElement(el);
@@ -210,10 +229,13 @@ function renderOverview() {
   return html;
 }
 
+var IMAGE_EXTS = ['jpg', 'jpeg', 'png', 'gif', 'svg', 'webp'];
+
 function renderFileView(path, content) {
   var filename = path.split('/').pop();
   var ext = filename.includes('.') ? filename.split('.').pop().toLowerCase() : '';
   var codeExts = ['py', 'js', 'ts', 'json', 'yaml', 'yml', 'sh', 'bash', 'toml', 'cfg', 'ini', 'html', 'css'];
+  var fileUrl = '/api/file?path=' + encodeURIComponent(path);
 
   var html = '';
   html += '<div class="artifact-title">' + escHtml(filename) + '</div>';
@@ -229,6 +251,10 @@ function renderFileView(path, content) {
   html += '<div class="artifact-content">';
   if (ext === 'md') {
     html += renderMarkdown(content);
+  } else if (IMAGE_EXTS.indexOf(ext) !== -1) {
+    html += '<img src="' + fileUrl + '" style="max-width:100%;height:auto;display:block">';
+  } else if (ext === 'pdf') {
+    html += '<iframe src="' + fileUrl + '" style="width:100%;height:80vh;border:none"></iframe>';
   } else if (codeExts.indexOf(ext) !== -1) {
     html += renderCode(content, ext);
   } else {
@@ -264,6 +290,14 @@ async function loadFile(path) {
     }
   }
 
+  // Binary files (images, PDFs) are rendered directly from URL — no text fetch needed.
+  var ext = path.split('.').pop().toLowerCase();
+  if (IMAGE_EXTS.indexOf(ext) !== -1 || ext === 'pdf') {
+    fileContent = '';  // non-null sentinel: renderFileView uses URL, ignores content
+    render();
+    return;
+  }
+
   render();
 
   try {
@@ -281,6 +315,47 @@ async function loadFile(path) {
 
 function openJobChat(convId) {
   window.open('chat.html?conv=' + encodeURIComponent(convId), '_blank');
+}
+
+function closeFile(path) {
+  sections = sections.map(function(s) {
+    return {heading: s.heading, items: s.items.filter(function(i) { return i.path !== path; }), body: s.body};
+  }).filter(function(s) { return s.items.length > 0; });
+  if (selectedFile === path) {
+    selectedFile = null;
+    fileContent = null;
+    loadError = null;
+    var first = sections.length > 0 && sections[0].items.length > 0 ? sections[0].items[0] : null;
+    if (first) { loadFile(first.path); return; }
+  }
+  render();
+}
+
+async function refresh() {
+  if (requestedFile && !params.get('project')) {
+    if (selectedFile) loadFile(selectedFile);
+    return;
+  }
+  loadError = null;
+  try {
+    var resp = await fetch('/api/artifacts/' + encodeURIComponent(currentProject));
+    if (!resp.ok) {
+      loadError = resp.status === 404
+        ? 'No documentation found for project: ' + currentProject
+        : 'Error loading project (' + resp.status + ')';
+      render();
+      return;
+    }
+    var data = await resp.json();
+    sections = Object.entries(data).map(function(entry) {
+      return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
+    });
+  } catch(e) {
+    loadError = 'Could not connect to bridge: ' + e.message;
+    render();
+    return;
+  }
+  if (selectedFile) { fileContent = null; loadFile(selectedFile); } else { render(); }
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
