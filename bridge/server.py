@@ -117,6 +117,26 @@ def _detect_workgroup_overrides(org_workgroup, project_workgroup) -> list[str]:
     return overrides
 
 
+def _list_directory(path: str) -> list[dict]:
+    """Return a list of entries in the given directory.
+
+    Each entry has: name (str), path (str, absolute), is_dir (bool).
+    Raises FileNotFoundError if the path does not exist or is not a directory.
+    """
+    path = os.path.expanduser(path)
+    if not os.path.isdir(path):
+        raise FileNotFoundError(f'Directory not found: {path}')
+    entries = []
+    for name in sorted(os.listdir(path)):
+        full = os.path.join(path, name)
+        entries.append({
+            'name': name,
+            'path': os.path.abspath(full),
+            'is_dir': os.path.isdir(full),
+        })
+    return entries
+
+
 def _parse_artifacts(content: str) -> dict[str, str]:
     """Parse markdown headings into a section dict.
 
@@ -206,6 +226,9 @@ class TeaPartyBridge:
 
         # ── Action endpoints ──────────────────────────────────────────────────
         app.router.add_post('/api/withdraw/{session_id}', self._handle_withdraw)
+
+        # ── Filesystem navigation endpoint ────────────────────────────────────
+        app.router.add_get('/api/fs/list', self._handle_fs_list)
 
         # ── Project management endpoints ──────────────────────────────────────
         app.router.add_post('/api/projects/add', self._handle_projects_add)
@@ -490,12 +513,26 @@ class TeaPartyBridge:
             return web.json_response({'error': 'permission denied'}, status=403)
         return web.Response(text=content, content_type='text/plain')
 
+    # ── Filesystem navigation handler ─────────────────────────────────────────
+
+    async def _handle_fs_list(self, request: web.Request) -> web.Response:
+        """GET /api/fs/list?path=<p> — list directory contents for OM filesystem navigation."""
+        path = request.rel_url.query.get('path', '')
+        if not path:
+            return web.json_response({'error': 'path parameter required'}, status=400)
+        try:
+            entries = _list_directory(path)
+        except FileNotFoundError as exc:
+            return web.json_response({'error': str(exc)}, status=404)
+        return web.json_response({'entries': entries})
+
     # ── Project management handlers ───────────────────────────────────────────
 
     async def _handle_projects_add(self, request: web.Request) -> web.Response:
         """POST /api/projects/add — register an existing directory as a project.
 
-        Body: {"name": str, "path": str}
+        Body: {"name": str, "path": str, "description": str, "lead": str,
+               "decider": str, "agents": list, "humans": list, "skills": list}
         Response: updated management team serialization.
         """
         from orchestrator.config_reader import add_project
@@ -510,7 +547,17 @@ class TeaPartyBridge:
             return web.json_response({'error': 'name and path are required'}, status=400)
 
         try:
-            team = add_project(name, path, teaparty_home=self.teaparty_home)
+            team = add_project(
+                name, path,
+                teaparty_home=self.teaparty_home,
+                description=body.get('description', ''),
+                lead=body.get('lead', ''),
+                decider=body.get('decider', ''),
+                agents=body.get('agents') or [],
+                humans=body.get('humans') or [],
+                workgroups=body.get('workgroups') or [],
+                skills=body.get('skills') or [],
+            )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
@@ -522,7 +569,8 @@ class TeaPartyBridge:
     async def _handle_projects_create(self, request: web.Request) -> web.Response:
         """POST /api/projects/create — scaffold a new project directory and register it.
 
-        Body: {"name": str, "path": str}
+        Body: {"name": str, "path": str, "description": str, "lead": str,
+               "decider": str, "agents": list, "humans": list, "skills": list}
         Response: updated management team serialization.
         """
         from orchestrator.config_reader import create_project
@@ -537,7 +585,17 @@ class TeaPartyBridge:
             return web.json_response({'error': 'name and path are required'}, status=400)
 
         try:
-            team = create_project(name, path, teaparty_home=self.teaparty_home)
+            team = create_project(
+                name, path,
+                teaparty_home=self.teaparty_home,
+                description=body.get('description', ''),
+                lead=body.get('lead', ''),
+                decider=body.get('decider', ''),
+                agents=body.get('agents') or [],
+                humans=body.get('humans') or [],
+                workgroups=body.get('workgroups') or [],
+                skills=body.get('skills') or [],
+            )
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 

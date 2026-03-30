@@ -482,8 +482,18 @@ def _load_management_yaml(
         return yaml.safe_load(f)
 
 
-def _scaffold_project_yaml(name: str, project_dir: str) -> None:
-    """Create .teaparty.local/project.yaml with a minimal scaffold if it doesn't exist."""
+def _scaffold_project_yaml(
+    name: str,
+    project_dir: str,
+    description: str = '',
+    lead: str = '',
+    decider: str = '',
+    agents: list | None = None,
+    humans: list | None = None,
+    workgroups: list | None = None,
+    skills: list | None = None,
+) -> None:
+    """Create .teaparty.local/project.yaml with provided frontmatter if it doesn't exist."""
     tp_dir = os.path.join(project_dir, '.teaparty.local')
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
@@ -491,13 +501,13 @@ def _scaffold_project_yaml(name: str, project_dir: str) -> None:
         return
     scaffold = {
         'name': name,
-        'description': '',
-        'lead': '',
-        'decider': '',
-        'agents': [],
-        'humans': [],
-        'workgroups': [],
-        'skills': [],
+        'description': description,
+        'lead': lead,
+        'decider': decider,
+        'agents': agents or [],
+        'humans': humans or [],
+        'workgroups': workgroups or [],
+        'skills': skills or [],
     }
     with open(project_yaml_path, 'w') as f:
         yaml.dump(scaffold, f, default_flow_style=False, sort_keys=False)
@@ -509,24 +519,27 @@ def add_project(
     name: str,
     path: str,
     teaparty_home: str | None = None,
+    description: str = '',
+    lead: str = '',
+    decider: str = '',
+    agents: list | None = None,
+    humans: list | None = None,
+    workgroups: list | None = None,
+    skills: list | None = None,
 ) -> ManagementTeam:
     """Add an existing directory as a TeaParty project.
 
-    Validates that the directory contains .git/ and .claude/, creates
-    .teaparty.local/project.yaml if missing, and adds a teams: entry to
-    teaparty.yaml.
+    Creates .teaparty.local/project.yaml with the provided frontmatter if
+    missing, and adds a teams: entry to teaparty.yaml.  Prerequisites (.git/,
+    .claude/) are not validated here — the OM handles bootstrapping.
 
-    Raises ValueError if the path is invalid, missing required markers,
-    or a team with this name already exists.
+    Raises ValueError if the path does not exist or a team with this name
+    already exists.
     """
     path = os.path.expanduser(os.path.realpath(path))
 
     if not os.path.isdir(path):
         raise ValueError(f'Path does not exist or is not a directory: {path}')
-    if not os.path.isdir(os.path.join(path, '.git')):
-        raise ValueError(f'Directory missing .git/: {path}')
-    if not os.path.isdir(os.path.join(path, '.claude')):
-        raise ValueError(f'Directory missing .claude/: {path}')
 
     data = _load_management_yaml(teaparty_home)
     teams = data.get('teams') or []
@@ -539,7 +552,16 @@ def add_project(
     data['teams'] = teams
     _save_management_yaml(data, teaparty_home)
 
-    _scaffold_project_yaml(name, path)
+    _scaffold_project_yaml(
+        name, path,
+        description=description,
+        lead=lead,
+        decider=decider,
+        agents=agents,
+        humans=humans,
+        workgroups=workgroups,
+        skills=skills,
+    )
 
     return load_management_team(teaparty_home=teaparty_home)
 
@@ -548,11 +570,19 @@ def create_project(
     name: str,
     path: str,
     teaparty_home: str | None = None,
+    description: str = '',
+    lead: str = '',
+    decider: str = '',
+    agents: list | None = None,
+    humans: list | None = None,
+    workgroups: list | None = None,
+    skills: list | None = None,
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
     Creates the directory, runs git init, creates .claude/ and
-    .teaparty.local/project.yaml, and adds a teams: entry to teaparty.yaml.
+    .teaparty.local/project.yaml with the provided frontmatter, and adds a
+    teams: entry to teaparty.yaml.
 
     Raises ValueError if the directory already exists or a team with
     this name already exists.
@@ -578,7 +608,16 @@ def create_project(
         capture_output=True,
     )
 
-    _scaffold_project_yaml(name, path)
+    _scaffold_project_yaml(
+        name, path,
+        description=description,
+        lead=lead,
+        decider=decider,
+        agents=agents,
+        humans=humans,
+        workgroups=workgroups,
+        skills=skills,
+    )
 
     teams.append({'name': name, 'path': path})
     data['teams'] = teams

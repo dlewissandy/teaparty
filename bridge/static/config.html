@@ -29,7 +29,12 @@ function configNav(level, projectSlug) {
 
 function sectionCard(title, items, opts) {
   var buttons = '';
-  if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
+  if (opts && opts.addProjectBtn) {
+    buttons += '<button class="action-btn" onclick="openChat(\'om:add-project\')">+ Add</button>';
+    buttons += '<button class="action-btn" onclick="openChat(\'om:new-project\')">+ New</button>';
+  } else {
+    if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
+  }
   if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
@@ -128,7 +133,7 @@ async function renderGlobal() {
     '<div class="pane-description">' + (m.description || 'Organization catalog. Workgroups, agents, and skills defined here can be assembled into projects.') + '</div>' +
     '<div class="pane-subtitle">' + subtitle + '</div>' +
     '<div class="sections">' +
-      sectionCard('Projects', projectItems, { addBtn: true }) +
+      sectionCard('Projects', projectItems, { addProjectBtn: true }) +
       sectionCard('Workgroup Catalog', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
       sectionCard('Agent Catalog', agentItems, { addBtn: true }) +
       sectionCard('Participants', participantItems) +
