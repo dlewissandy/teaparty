@@ -101,6 +101,26 @@ Only humans who are a decider on at least one team have a proxy to review.
 
 ---
 
+## Invocation Path
+
+The proxy review chat is invoked from the bridge, not the TUI (retired in #305).
+
+When the human clicks the Proxy entry in the dashboard's Participants card, the frontend opens a `proxy:{decider}` conversation and routes it to the bridge. The bridge maintains a persistent proxy message bus at `{teaparty_home}/proxy/proxy-messages.db` (analogous to the OM bus at `{teaparty_home}/om/om-messages.db`).
+
+On each POST to `proxy:{decider}`:
+1. The conversation is auto-created on the bus if it does not yet exist.
+2. The human message is written to the bus.
+3. `_invoke_proxy(qualifier)` is dispatched as a fire-and-forget asyncio task.
+4. `ProxyReviewSession.invoke()` builds the review prompt (ACT-R memory context + latest human message), runs `claude -p --agent proxy-review`, and writes the response to the bus.
+5. `[CORRECTION:...]` and `[REINFORCE:...]` signals are parsed from the response and stored in the ACT-R DB before the response is written to the bus.
+6. `MessageRelay` broadcasts the response to connected WebSocket clients.
+
+Multi-turn conversations resume via `--resume` with the Claude session ID persisted in `{teaparty_home}/proxy/.proxy-session-{decider}.json`.
+
+The proxy ACT-R memory used during review is the same database consulted at approval gates: `{teaparty_home}/proxy/.proxy-memory.db`. Corrections made in a review conversation take effect at the next gate.
+
+---
+
 ## Open Questions
 
 1. **Correction strength.** When the human corrects the proxy in a review session, how strong is the learning signal relative to a gate correction? Gate corrections come with full artifact context. Review corrections are abstract ("care more about X"). The activation boost may need to differ.

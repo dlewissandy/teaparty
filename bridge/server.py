@@ -27,6 +27,11 @@ from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
 from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession, read_om_session_title
+from orchestrator.proxy_review import (
+    proxy_bus_path as _proxy_bus_path,
+    ProxyReviewSession,
+    read_proxy_session_title,
+)
 from orchestrator.state_reader import StateReader
 from orchestrator.heartbeat import _heartbeat_three_state
 from orchestrator.config_reader import (
@@ -192,6 +197,12 @@ class TeaPartyBridge:
         # Per-qualifier OM session cache: keeps the OfficeManagerSession alive across invocations
         # so the --resume session ID is available in memory between turns.
         self._om_sessions: dict[str, OfficeManagerSession] = {}
+        # Proxy review bus (persistent, not session-scoped).
+        self._proxy_bus: SqliteMessageBus | None = None
+        # Per-qualifier asyncio locks for proxy review: queues concurrent invocations.
+        self._proxy_locks: dict[str, asyncio.Lock] = {}
+        # Per-qualifier proxy session cache: keeps ProxyReviewSession alive across invocations.
+        self._proxy_sessions: dict[str, ProxyReviewSession] = {}
         # StateReader uses registry-based project discovery.
         self._state_reader = StateReader(
             repo_root=self._repo_root,
@@ -290,6 +301,13 @@ class TeaPartyBridge:
         self._om_bus = SqliteMessageBus(om_path)
         self._buses['om'] = self._om_bus
 
+        # Open the proxy review bus (persistent, not session-scoped).
+        # The 'proxy' key is stable and will never collide with a session_id.
+        proxy_path = _proxy_bus_path(self.teaparty_home)
+        os.makedirs(os.path.dirname(proxy_path), exist_ok=True)
+        self._proxy_bus = SqliteMessageBus(proxy_path)
+        self._buses['proxy'] = self._proxy_bus
+
     async def _on_cleanup(self, app: web.Application) -> None:
         for key in ('_poller_task', '_relay_task'):
             task = app.get(key)
@@ -302,6 +320,7 @@ class TeaPartyBridge:
         for bus in self._buses.values():
             bus.close()
         # self._om_bus is in self._buses['om'] and closed above
+        # self._proxy_bus is in self._buses['proxy'] and closed above
 
     # ── State handlers ────────────────────────────────────────────────────────
 
@@ -506,6 +525,25 @@ class TeaPartyBridge:
                 result.append(d)
             return web.json_response(result)
 
+        # Route proxy_review type to the persistent proxy bus (issue #331)
+        if conv_type == ConversationType.PROXY_REVIEW:
+            bus = self._get_proxy_bus()
+            convs = bus.active_conversations(conv_type)
+            result = []
+            for c in convs:
+                d = self._serialize_conversation(c)
+                qualifier = c.id[len('proxy:'):] if c.id.startswith('proxy:') else ''
+                if qualifier:
+                    session = self._proxy_sessions.get(qualifier)
+                    title = (
+                        (session.conversation_title if session else None)
+                        or read_proxy_session_title(self.teaparty_home, qualifier)
+                    )
+                    if title:
+                        d['title'] = title
+                result.append(d)
+            return web.json_response(result)
+
         # Aggregate across all active session buses
         convs = []
         for bus in self._buses.values():
@@ -546,21 +584,26 @@ class TeaPartyBridge:
         if bus is None:
             return web.json_response({'error': f'conversation not found: {conv_id}'}, status=404)
 
-        # Auto-create the OM conversation on first POST so it appears in active_conversations()
+        # Auto-create the conversation on first POST so it appears in active_conversations()
         # (sidebar) and the human doesn't need to reload the page.
         if conv_id.startswith('om:'):
             qualifier = conv_id[len('om:'):]
             bus.create_conversation(ConversationType.OFFICE_MANAGER, qualifier)
+        elif conv_id.startswith('proxy:'):
+            qualifier = conv_id[len('proxy:'):]
+            bus.create_conversation(ConversationType.PROXY_REVIEW, qualifier)
 
         try:
             msg_id = bus.send(conv_id, 'human', content)
         except ValueError as exc:
             return web.json_response({'error': str(exc)}, status=409)
 
-        # Invoke the OM agent asynchronously for any om: conversation.
-        # The response will appear in the bus and be broadcast by MessageRelay.
+        # Invoke the agent asynchronously; reply will appear in the bus and
+        # be broadcast by MessageRelay.
         if conv_id.startswith('om:'):
             asyncio.create_task(self._invoke_om(qualifier))
+        elif conv_id.startswith('proxy:'):
+            asyncio.create_task(self._invoke_proxy(qualifier))
 
         return web.json_response({'id': msg_id})
 
@@ -597,6 +640,41 @@ class TeaPartyBridge:
                     )
                 except Exception:
                     _log.exception('Failed to write error message to OM bus for %r', qualifier)
+
+    async def _invoke_proxy(self, qualifier: str) -> None:
+        """Invoke the proxy review agent for the given conversation qualifier.
+
+        Runs as a fire-and-forget asyncio task. The proxy agent reads the
+        conversation history and ACT-R memory, responds, processes any
+        [CORRECTION:...] signals, and writes its reply to the proxy bus.
+        MessageRelay picks up the reply and broadcasts it to WebSocket clients.
+
+        Concurrent invocations for the same qualifier queue via an asyncio.Lock —
+        the second message begins only after the first completes, ensuring the
+        --resume session ID from the first turn is available to the second.
+
+        On runner failure, writes an error message to the bus so the human sees
+        feedback rather than silence.
+        """
+        if qualifier not in self._proxy_locks:
+            self._proxy_locks[qualifier] = asyncio.Lock()
+        lock = self._proxy_locks[qualifier]
+
+        async with lock:
+            if qualifier not in self._proxy_sessions:
+                self._proxy_sessions[qualifier] = ProxyReviewSession(self.teaparty_home, qualifier)
+            session = self._proxy_sessions[qualifier]
+            try:
+                await session.invoke(cwd=self._repo_root)
+            except Exception:
+                _log.exception('Proxy invocation failed for qualifier %r', qualifier)
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception('Failed to write error message to proxy bus for %r', qualifier)
 
     # ── Artifact handlers ─────────────────────────────────────────────────────
 
@@ -804,14 +882,25 @@ class TeaPartyBridge:
             self._om_bus = SqliteMessageBus(om_path)
         return self._om_bus
 
+    def _get_proxy_bus(self) -> SqliteMessageBus:
+        """Return the proxy review bus, creating it if needed."""
+        if self._proxy_bus is None:
+            proxy_path = _proxy_bus_path(self.teaparty_home)
+            os.makedirs(os.path.dirname(proxy_path), exist_ok=True)
+            self._proxy_bus = SqliteMessageBus(proxy_path)
+        return self._proxy_bus
+
     def _bus_for_conversation(self, conv_id: str) -> SqliteMessageBus | None:
         """Find the bus that owns a conversation.
 
         Office manager conversations (om:*) go to the OM bus.
+        Proxy review conversations (proxy:*) go to the proxy bus.
         All other conversations are searched across active session buses.
         """
         if conv_id.startswith('om:'):
             return self._get_om_bus()
+        if conv_id.startswith('proxy:'):
+            return self._get_proxy_bus()
         for bus in self._buses.values():
             try:
                 if bus.get_conversation(conv_id) is not None:

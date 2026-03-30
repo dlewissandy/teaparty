@@ -86,25 +86,26 @@ Conversation types: `office_manager`, `project_session`, `subteam`, `job`, `task
 
 #### Message routing
 
-The bridge maintains two distinct database connections:
+The bridge maintains three distinct database connections:
 
 | Type | Database path | Scope |
 |------|--------------|-------|
 | `office_manager` | `{teaparty_home}/om/om-messages.db` | Persistent — survives sessions, one per installation |
+| `proxy_review` | `{teaparty_home}/proxy/proxy-messages.db` | Persistent — survives sessions, one per installation |
 | All other types | `{infra_dir}/messages.db` | Session-scoped — one per active session |
 
-`?type=office_manager` queries the persistent OM database. All other `?type=` values aggregate across active session databases. This routing is mandatory: per-session databases never contain office manager conversations, so querying `?type=office_manager` against a session bus always returns an empty list.
+`?type=office_manager` queries the persistent OM database. `?type=proxy_review` queries the persistent proxy database. All other `?type=` values aggregate across active session databases. Querying a persistent-type against a session bus always returns an empty list.
 
 Conversation IDs encode their routing target via prefix:
 - `om:{human}` — office manager (routes to OM database)
+- `proxy:{decider}` — proxy review (routes to proxy database)
 - `session:{timestamp}` — project session
 - `job:{project}:{job_id}` — job conversation
 - `task:{project}:{job_id}:{task_id}` — task conversation (three-part qualifier)
-- `proxy:{decider}` — proxy review
 - `team:{slug}` — subteam
 - `liaison:{requester}:{target}` — liaison
 
-`GET /api/conversations/{id}` and `POST /api/conversations/{id}` use the `om:` prefix to route to the OM database without a type lookup. The canonical OM database path is provided by `om_bus_path(teaparty_home)` in `orchestrator.office_manager`.
+`GET /api/conversations/{id}` and `POST /api/conversations/{id}` use the prefix to route to the correct database without a type lookup. The canonical database paths are provided by `om_bus_path(teaparty_home)` in `orchestrator.office_manager` and `proxy_bus_path(teaparty_home)` in `orchestrator.proxy_review`.
 
 ### Artifacts
 
