@@ -23,7 +23,7 @@ Spec requirements tested (from cfa-extensions/proposal.md and issue #248):
   13. L1 dispatch .cfa-state.json set to WITHDRAWN
   14. L2 nested dispatch .cfa-state.json set to WITHDRAWN
   15. Sentinels cleaned at nested dispatch levels
-  16. history[] entry appended with actor='tui-withdraw'
+  16. history[] entry appended with actor='orchestrator-withdraw'
 
   Learning signal:
   17. LOG event emitted with withdrawal context (phase, task)
@@ -494,7 +494,7 @@ class TestStateCascade(unittest.TestCase):
         self.assertEqual(cfa['state'], 'WITHDRAWN')
 
     def test_history_entry_appended(self):
-        """history[] must have a withdraw entry with actor='tui-withdraw'."""
+        """history[] must have a withdraw entry with actor='orchestrator-withdraw'."""
         from orchestrator.withdraw import withdraw_session
 
         session = _make_session_state(self.infra_dir)
@@ -504,7 +504,7 @@ class TestStateCascade(unittest.TestCase):
         last_entry = cfa['history'][-1]
         self.assertEqual(last_entry['state'], 'WITHDRAWN')
         self.assertEqual(last_entry['action'], 'withdraw')
-        self.assertEqual(last_entry['actor'], 'tui-withdraw')
+        self.assertEqual(last_entry['actor'], 'orchestrator-withdraw')
         self.assertIn('timestamp', last_entry)
 
     def test_sentinels_cleaned_at_nested_levels(self):

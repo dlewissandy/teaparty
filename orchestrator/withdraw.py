@@ -306,7 +306,7 @@ def _set_state_withdrawn(infra_dir: str, phase: str) -> None:
     cfa.setdefault('history', []).append({
         'state': 'WITHDRAWN',
         'action': 'withdraw',
-        'actor': 'tui-withdraw',
+        'actor': 'orchestrator-withdraw',
         'timestamp': datetime.now(timezone.utc).isoformat(),
     })
     with open(cfa_path, 'w') as f:
