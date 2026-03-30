@@ -111,6 +111,14 @@ function rewriteInternalLinks(html) {
   });
 }
 
+// Make `filename.ext` code spans clickable — skills use backtick refs for progressive disclosure.
+function rewriteCodeFileRefs(html) {
+  return html.replace(/<code>([a-zA-Z0-9][a-zA-Z0-9_./-]*\.[a-zA-Z0-9]+)<\/code>/g, function(match, ref) {
+    if (/\s/.test(ref)) return match;  // skip anything with whitespace
+    return '<code class="file-ref" onclick="loadFile(' + JSON.stringify(ref) + ')" style="cursor:pointer">' + ref + '</code>';
+  });
+}
+
 function isJobArtifact(path) {
   return path.indexOf('.sessions/') !== -1;
 }
@@ -122,7 +130,9 @@ function jobConvId(path) {
 
 function renderMarkdown(content) {
   var html = marked.parse(content);
-  return rewriteInternalLinks(html);
+  html = rewriteInternalLinks(html);
+  html = rewriteCodeFileRefs(html);
+  return html;
 }
 
 function renderCode(content, ext) {
@@ -232,9 +242,28 @@ function renderFileView(path, content) {
 // ── Actions ───────────────────────────────────────────────────────────────────
 
 async function loadFile(path) {
+  // Resolve relative paths against the current file's directory.
+  if (selectedFile && !path.startsWith('/')) {
+    var dir = selectedFile.substring(0, selectedFile.lastIndexOf('/'));
+    path = dir + '/' + path;
+  }
   selectedFile = path;
   fileContent = null;
   loadError = null;
+
+  // Add to nav if not already present.
+  var inNav = sections.some(function(s) {
+    return s.items.some(function(i) { return i.path === path; });
+  });
+  if (!inNav) {
+    var name = path.split('/').pop();
+    if (sections.length === 0) {
+      sections = [{heading: 'File', items: [{name: name, path: path}]}];
+    } else {
+      sections[0].items.push({name: name, path: path});
+    }
+  }
+
   render();
 
   try {
