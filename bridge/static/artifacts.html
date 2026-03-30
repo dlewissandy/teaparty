@@ -115,7 +115,7 @@ function rewriteInternalLinks(html) {
 function rewriteCodeFileRefs(html) {
   return html.replace(/<code>([a-zA-Z0-9][a-zA-Z0-9_./-]*\.[a-zA-Z0-9]+)<\/code>/g, function(match, ref) {
     if (/\s/.test(ref)) return match;  // skip anything with whitespace
-    return '<code class="file-ref" onclick="loadFile(' + JSON.stringify(ref) + ')" style="cursor:pointer">' + ref + '</code>';
+    return '<code class="file-ref" onclick="loadFile(\'' + ref + '\')" style="cursor:pointer">' + ref + '</code>';
   });
 }
 
