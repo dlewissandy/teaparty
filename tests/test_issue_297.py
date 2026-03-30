@@ -26,12 +26,11 @@ def _make_tmpdir():
 
 
 def _make_bridge(tmpdir):
-    from projects.POC.bridge.server import TeaPartyBridge
+    from bridge.server import TeaPartyBridge
     static_dir = os.path.join(tmpdir, 'static')
     os.makedirs(static_dir, exist_ok=True)
     return TeaPartyBridge(
         teaparty_home=tmpdir,
-        projects_dir=tmpdir,
         static_dir=static_dir,
     )
 
@@ -58,24 +57,24 @@ class TestBridgePackageImports(unittest.TestCase):
     """Bridge package and all three modules must be importable."""
 
     def test_server_module_importable(self):
-        from projects.POC.bridge import server  # noqa: F401
+        from bridge import server  # noqa: F401
 
     def test_poller_module_importable(self):
-        from projects.POC.bridge import poller  # noqa: F401
+        from bridge import poller  # noqa: F401
 
     def test_message_relay_module_importable(self):
-        from projects.POC.bridge import message_relay  # noqa: F401
+        from bridge import message_relay  # noqa: F401
 
     def test_teaparty_bridge_class_importable(self):
-        from projects.POC.bridge.server import TeaPartyBridge  # noqa: F401
+        from bridge.server import TeaPartyBridge  # noqa: F401
 
     def test_bridge_has_run_method(self):
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
         self.assertTrue(callable(getattr(TeaPartyBridge, 'run', None)),
                         'TeaPartyBridge must expose a run() method')
 
     def test_bridge_has_build_app_method(self):
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
         self.assertTrue(callable(getattr(TeaPartyBridge, '_build_app', None)),
                         'TeaPartyBridge must expose a _build_app() method')
 
@@ -125,33 +124,33 @@ class TestConversationTypeResolution(unittest.TestCase):
     """?type= query param must be converted to ConversationType enum, not used as raw string."""
 
     def test_project_session_resolves_to_enum(self):
-        from projects.POC.bridge.server import _resolve_conversation_type
-        from projects.POC.orchestrator.messaging import ConversationType
+        from bridge.server import _resolve_conversation_type
+        from orchestrator.messaging import ConversationType
         ct = _resolve_conversation_type('project_session')
         self.assertEqual(ct, ConversationType.PROJECT_SESSION)
 
     def test_office_manager_resolves_to_enum(self):
-        from projects.POC.bridge.server import _resolve_conversation_type
-        from projects.POC.orchestrator.messaging import ConversationType
+        from bridge.server import _resolve_conversation_type
+        from orchestrator.messaging import ConversationType
         ct = _resolve_conversation_type('office_manager')
         self.assertEqual(ct, ConversationType.OFFICE_MANAGER)
 
     def test_subteam_resolves_to_enum(self):
-        from projects.POC.bridge.server import _resolve_conversation_type
-        from projects.POC.orchestrator.messaging import ConversationType
+        from bridge.server import _resolve_conversation_type
+        from orchestrator.messaging import ConversationType
         ct = _resolve_conversation_type('subteam')
         self.assertEqual(ct, ConversationType.SUBTEAM)
 
     def test_invalid_type_raises_key_error(self):
         """An unknown type string must raise KeyError, not silently return empty list."""
-        from projects.POC.bridge.server import _resolve_conversation_type
+        from bridge.server import _resolve_conversation_type
         with self.assertRaises(KeyError):
             _resolve_conversation_type('not_a_real_type')
 
     def test_type_string_is_case_insensitive(self):
         """Type strings should be uppercased before enum lookup."""
-        from projects.POC.bridge.server import _resolve_conversation_type
-        from projects.POC.orchestrator.messaging import ConversationType
+        from bridge.server import _resolve_conversation_type
+        from orchestrator.messaging import ConversationType
         ct = _resolve_conversation_type('PROJECT_SESSION')
         self.assertEqual(ct, ConversationType.PROJECT_SESSION)
 
@@ -168,7 +167,7 @@ class TestOfficManagerBusRouting(unittest.TestCase):
 
     def test_om_bus_path_is_under_teaparty_home(self):
         """OM bus path must be inside teaparty_home and contain om-messages.db."""
-        from projects.POC.bridge.server import _om_bus_path
+        from bridge.server import _om_bus_path
         path = _om_bus_path('/home/user/.teaparty')
         self.assertTrue(path.startswith('/home/user/.teaparty'),
                         'OM bus path must be under teaparty_home')
@@ -177,7 +176,7 @@ class TestOfficManagerBusRouting(unittest.TestCase):
 
     def test_om_bus_path_is_not_session_messages_db(self):
         """OM bus path must not be the session-scoped messages.db."""
-        from projects.POC.bridge.server import _om_bus_path
+        from bridge.server import _om_bus_path
         path = _om_bus_path('/home/user/.teaparty')
         # Must not use bare 'messages.db' (that's the per-session path)
         self.assertNotEqual(os.path.basename(path), 'messages.db',
@@ -185,7 +184,7 @@ class TestOfficManagerBusRouting(unittest.TestCase):
 
     def test_om_bus_path_differs_from_session_bus_path(self):
         """Two different sessions must not share the OM bus path."""
-        from projects.POC.bridge.server import _om_bus_path
+        from bridge.server import _om_bus_path
         path1 = _om_bus_path('/home/user/.teaparty')
         # Verify the OM path is deterministic (same input → same output)
         path2 = _om_bus_path('/home/user/.teaparty')
@@ -204,11 +203,11 @@ class TestHeartbeatClassification(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_classify_heartbeat_function_exists(self):
-        from projects.POC.bridge.server import _classify_heartbeat  # noqa: F401
+        from bridge.server import _classify_heartbeat  # noqa: F401
 
     def test_fresh_heartbeat_classified_as_alive(self):
         """A heartbeat updated within 30s must be 'alive'."""
-        from projects.POC.bridge.server import _classify_heartbeat
+        from bridge.server import _classify_heartbeat
         hb_path = os.path.join(self.tmpdir, '.heartbeat')
         hb_data = {'pid': os.getpid(), 'status': 'running', 'started': time.time()}
         with open(hb_path, 'w') as f:
@@ -219,13 +218,13 @@ class TestHeartbeatClassification(unittest.TestCase):
 
     def test_missing_heartbeat_classified_as_dead(self):
         """A missing heartbeat must be 'dead', not raise an exception."""
-        from projects.POC.bridge.server import _classify_heartbeat
+        from bridge.server import _classify_heartbeat
         status = _classify_heartbeat(self.tmpdir)
         self.assertEqual(status, 'dead')
 
     def test_terminal_heartbeat_classified_as_dead(self):
         """A heartbeat with status 'completed' must be 'dead'."""
-        from projects.POC.bridge.server import _classify_heartbeat
+        from bridge.server import _classify_heartbeat
         hb_path = os.path.join(self.tmpdir, '.heartbeat')
         hb_data = {'pid': os.getpid(), 'status': 'completed', 'started': time.time()}
         with open(hb_path, 'w') as f:
@@ -235,7 +234,7 @@ class TestHeartbeatClassification(unittest.TestCase):
 
     def test_classify_returns_three_state_not_raw_json(self):
         """_classify_heartbeat must return a string ('alive'|'stale'|'dead'), not a dict."""
-        from projects.POC.bridge.server import _classify_heartbeat
+        from bridge.server import _classify_heartbeat
         status = _classify_heartbeat(self.tmpdir)
         self.assertIsInstance(status, str)
         self.assertIn(status, ('alive', 'stale', 'dead'))
@@ -248,34 +247,34 @@ class TestWithdrawalSocketPath(unittest.TestCase):
 
     def test_withdrawal_socket_path_is_under_teaparty_home(self):
         """Socket must be under {teaparty_home}/sockets/."""
-        from projects.POC.bridge.server import _withdrawal_socket_path
+        from bridge.server import _withdrawal_socket_path
         path = _withdrawal_socket_path('/home/user/.teaparty', 'session-abc')
         self.assertTrue(path.startswith('/home/user/.teaparty/sockets/'),
                         f'Socket path must be under teaparty_home/sockets/, got: {path}')
 
     def test_withdrawal_socket_path_includes_session_id(self):
         """Socket path must embed the session_id."""
-        from projects.POC.bridge.server import _withdrawal_socket_path
+        from bridge.server import _withdrawal_socket_path
         path = _withdrawal_socket_path('/home/user/.teaparty', 'my-session-42')
         self.assertIn('my-session-42', path)
 
     def test_withdrawal_socket_path_ends_with_sock(self):
         """Socket path must end with .sock."""
-        from projects.POC.bridge.server import _withdrawal_socket_path
+        from bridge.server import _withdrawal_socket_path
         path = _withdrawal_socket_path('/home/user/.teaparty', 'session-abc')
         self.assertTrue(path.endswith('.sock'),
                         f'Socket path must end with .sock, got: {path}')
 
     def test_withdrawal_socket_path_is_stable(self):
         """Same session_id must always produce the same socket path."""
-        from projects.POC.bridge.server import _withdrawal_socket_path
+        from bridge.server import _withdrawal_socket_path
         p1 = _withdrawal_socket_path('/home/.teaparty', 'sess-1')
         p2 = _withdrawal_socket_path('/home/.teaparty', 'sess-1')
         self.assertEqual(p1, p2)
 
     def test_withdrawal_socket_path_differs_per_session(self):
         """Different session IDs must produce different socket paths."""
-        from projects.POC.bridge.server import _withdrawal_socket_path
+        from bridge.server import _withdrawal_socket_path
         p1 = _withdrawal_socket_path('/home/.teaparty', 'sess-1')
         p2 = _withdrawal_socket_path('/home/.teaparty', 'sess-2')
         self.assertNotEqual(p1, p2)
@@ -293,11 +292,11 @@ class TestCfaStateLoading(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_load_cfa_state_function_exists(self):
-        from projects.POC.bridge.server import _load_cfa_state  # noqa: F401
+        from bridge.server import _load_cfa_state  # noqa: F401
 
     def test_cfa_state_loaded_with_required_fields(self):
         """Response must include phase, state, actor, history, backtrack_count."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         cfa_path = os.path.join(self.tmpdir, '.cfa-state.json')
         cfa_data = {
             'phase': 'execution',
@@ -319,7 +318,7 @@ class TestCfaStateLoading(unittest.TestCase):
 
     def test_cfa_state_missing_file_returns_none_or_raises(self):
         """Missing .cfa-state.json must return None or raise — not a KeyError."""
-        from projects.POC.bridge.server import _load_cfa_state
+        from bridge.server import _load_cfa_state
         result = _load_cfa_state(self.tmpdir)
         # Either None or a dict — must not raise an unhandled exception
         self.assertTrue(result is None or isinstance(result, dict))
@@ -331,11 +330,11 @@ class TestArtifactsParsing(unittest.TestCase):
     """GET /api/artifacts/{project} parses project.md headings into sections."""
 
     def test_parse_artifacts_function_exists(self):
-        from projects.POC.bridge.server import _parse_artifacts  # noqa: F401
+        from bridge.server import _parse_artifacts  # noqa: F401
 
     def test_h2_headings_become_section_keys(self):
         """## headings must become section keys in the returned dict."""
-        from projects.POC.bridge.server import _parse_artifacts
+        from bridge.server import _parse_artifacts
         content = '# Title\n\n## Architecture\n\nDesign here.\n\n## Goals\n\nGoals here.\n'
         sections = _parse_artifacts(content)
         self.assertIn('Architecture', sections)
@@ -343,14 +342,14 @@ class TestArtifactsParsing(unittest.TestCase):
 
     def test_section_content_preserved(self):
         """Text under each heading must be included in that section's value."""
-        from projects.POC.bridge.server import _parse_artifacts
+        from bridge.server import _parse_artifacts
         content = '## Architecture\n\nDesign goes here.\n\nMore design.\n'
         sections = _parse_artifacts(content)
         arch = sections.get('Architecture', '')
         self.assertIn('Design goes here.', arch)
 
     def test_empty_content_returns_empty_dict(self):
-        from projects.POC.bridge.server import _parse_artifacts
+        from bridge.server import _parse_artifacts
         sections = _parse_artifacts('')
         self.assertIsInstance(sections, dict)
 
@@ -369,11 +368,11 @@ class TestBridgePathExpansion(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir)
 
-    def test_projects_dir_stored_on_bridge(self):
+    def test_teaparty_home_is_set_correctly(self):
         tmpdir = _make_tmpdir()
         try:
             bridge = _make_bridge(tmpdir)
-            self.assertEqual(bridge.projects_dir, tmpdir)
+            self.assertEqual(bridge.teaparty_home, tmpdir)
         finally:
             shutil.rmtree(tmpdir)
 
@@ -382,10 +381,9 @@ class TestBridgePathExpansion(unittest.TestCase):
         try:
             static_dir = os.path.join(tmpdir, 'static')
             os.makedirs(static_dir)
-            from projects.POC.bridge.server import TeaPartyBridge
+            from bridge.server import TeaPartyBridge
             bridge = TeaPartyBridge(
                 teaparty_home=tmpdir,
-                projects_dir=tmpdir,
                 static_dir=static_dir,
             )
             self.assertEqual(bridge.static_dir, static_dir)
@@ -433,7 +431,7 @@ class TestMessageRelaySessionId(unittest.TestCase):
     def test_session_id_is_registry_key_not_path(self):
         """When bus_registry is keyed by session_id, the event session_id must match."""
         import asyncio
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -464,7 +462,7 @@ class TestMessageRelayQuestionField(unittest.TestCase):
     def test_question_field_present(self):
         """input_requested event must include a 'question' field."""
         import asyncio
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -490,7 +488,7 @@ class TestMessageRelayQuestionField(unittest.TestCase):
     def test_question_is_latest_orchestrator_message(self):
         """question field must be the most recent orchestrator message."""
         import asyncio
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -518,7 +516,7 @@ class TestMessageRelayQuestionField(unittest.TestCase):
     def test_question_empty_when_no_orchestrator_message(self):
         """question field is empty string if no orchestrator message exists."""
         import asyncio
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 

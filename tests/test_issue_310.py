@@ -26,9 +26,9 @@ class TestFlatPackageLocations(unittest.TestCase):
     """orchestrator and bridge must be importable as top-level packages."""
 
     def test_orchestrator_importable_at_root(self):
-        """from orchestrator.engine import CfAEngine must work."""
-        from orchestrator.engine import CfAEngine
-        self.assertTrue(callable(CfAEngine))
+        """from orchestrator.engine import Orchestrator must work."""
+        from orchestrator.engine import Orchestrator
+        self.assertTrue(callable(Orchestrator))
 
     def test_bridge_importable_at_root(self):
         """from bridge.server import TeaPartyBridge must work."""

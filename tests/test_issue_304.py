@@ -56,12 +56,11 @@ def _make_session(projects_dir: str, project: str, session_id: str,
 
 
 def _make_bridge(tmpdir):
-    from projects.POC.bridge.server import TeaPartyBridge
+    from bridge.server import TeaPartyBridge
     static_dir = os.path.join(tmpdir, 'static')
     os.makedirs(static_dir, exist_ok=True)
     return TeaPartyBridge(
         teaparty_home=tmpdir,
-        projects_dir=tmpdir,
         static_dir=static_dir,
     )
 
@@ -102,8 +101,8 @@ class TestComputeStatsShape(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_returns_summary_key(self):
         result = self._compute()
@@ -150,8 +149,8 @@ class TestComputeStatsSummaryMetrics(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_jobs_done_counts_completed_work_sessions(self):
         result = self._compute()
@@ -194,8 +193,8 @@ class TestEscalationCounting(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_escalation_counts_human_actor_state_session(self):
         result = self._compute()
@@ -238,8 +237,8 @@ class TestSkillsLearnedCount(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_zero_skills_when_no_skills_dirs(self):
         result = self._compute()
@@ -290,8 +289,8 @@ class TestOpenIssueLimitations(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_proxy_accuracy_is_none(self):
         """proxy_accuracy is None until issue #281 resolves."""
@@ -318,8 +317,8 @@ class TestDailyTimeSeries(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_daily_has_7_entries(self):
         result = self._compute()
@@ -386,8 +385,8 @@ class TestPhaseEscalations(unittest.TestCase):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def _compute(self):
-        from projects.POC.bridge.stats import compute_stats
-        return compute_stats(self.tmpdir, self.tmpdir)
+        from bridge.stats import compute_stats
+        return compute_stats(self.tmpdir, projects_dir=self.tmpdir)
 
     def test_phase_escalations_groups_by_phase(self):
         result = self._compute()

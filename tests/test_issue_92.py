@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 def _load_json_machine() -> dict:
     """Load the canonical JSON state machine definition."""
     json_path = os.path.join(
-        os.path.dirname(__file__), '..', 'projects', 'POC', 'cfa-state-machine.json',
+        os.path.dirname(__file__), '..', 'cfa-state-machine.json',
     )
     with open(json_path) as f:
         return json.load(f)
@@ -46,7 +46,7 @@ class TestCfAMachineExists(unittest.TestCase):
 
     def test_cfa_machine_class_exists(self):
         """CfAMachine is importable from cfa_machine module."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         from statemachine import StateMachine
         self.assertTrue(
             issubclass(CfAMachine, StateMachine),
@@ -55,7 +55,7 @@ class TestCfAMachineExists(unittest.TestCase):
 
     def test_machine_has_correct_state_count(self):
         """CfAMachine has exactly the number of states defined in JSON."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         machine_json = _load_json_machine()
         expected_states = set()
         for phase_info in machine_json['phases'].values():
@@ -65,13 +65,13 @@ class TestCfAMachineExists(unittest.TestCase):
 
     def test_machine_initial_state_is_idea(self):
         """CfAMachine starts at IDEA."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         sm = CfAMachine()
         self.assertEqual(sm.current_state_value, 'IDEA')
 
     def test_machine_terminal_states(self):
         """COMPLETED_WORK and WITHDRAWN are final states."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         final_values = {s.value for s in CfAMachine.states if s.final}
         self.assertIn('COMPLETED_WORK', final_values)
         self.assertIn('WITHDRAWN', final_values)
@@ -82,7 +82,7 @@ class TestCfAMachineTransitions(unittest.TestCase):
 
     def test_every_json_transition_is_valid(self):
         """Every transition in the JSON is accepted by the machine."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         machine_json = _load_json_machine()
         failures = []
         for from_state, action, to_state, _actor in _all_transitions_from_json(machine_json):
@@ -101,14 +101,14 @@ class TestCfAMachineTransitions(unittest.TestCase):
 
     def test_invalid_transition_rejected(self):
         """An action not valid from the current state is rejected."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         sm = CfAMachine()  # starts at IDEA
         with self.assertRaises(Exception):
             sm.send('approve')  # not valid from IDEA
 
     def test_machine_start_value_resume(self):
         """Machine can be instantiated at any valid state via start_value."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         machine_json = _load_json_machine()
         all_states = set()
         for phase_info in machine_json['phases'].values():
@@ -125,14 +125,14 @@ class TestTransitionUsesMachine(unittest.TestCase):
 
     def test_transition_still_works(self):
         """Existing transition() API continues to work correctly."""
-        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        from scripts.cfa_state import make_initial_state, transition
         cfa = make_initial_state()
         cfa = transition(cfa, 'propose')
         self.assertEqual(cfa.state, 'PROPOSAL')
 
     def test_transition_raises_invalid_transition(self):
         """Invalid actions still raise InvalidTransition."""
-        from projects.POC.scripts.cfa_state import (
+        from scripts.cfa_state import (
             InvalidTransition, make_initial_state, transition,
         )
         cfa = make_initial_state()
@@ -141,7 +141,7 @@ class TestTransitionUsesMachine(unittest.TestCase):
 
     def test_transition_immutability(self):
         """transition() returns a new CfaState, never mutates the original."""
-        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        from scripts.cfa_state import make_initial_state, transition
         cfa = make_initial_state()
         new_cfa = transition(cfa, 'propose')
         self.assertEqual(cfa.state, 'IDEA')
@@ -149,7 +149,7 @@ class TestTransitionUsesMachine(unittest.TestCase):
 
     def test_transition_updates_history(self):
         """transition() appends to history list."""
-        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        from scripts.cfa_state import make_initial_state, transition
         cfa = make_initial_state()
         cfa = transition(cfa, 'propose')
         self.assertEqual(len(cfa.history), 1)
@@ -157,7 +157,7 @@ class TestTransitionUsesMachine(unittest.TestCase):
 
     def test_transition_tracks_backtracks(self):
         """Cross-phase backtracks increment backtrack_count."""
-        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        from scripts.cfa_state import make_initial_state, transition
         cfa = make_initial_state()
         cfa = transition(cfa, 'propose')
         cfa = transition(cfa, 'auto-approve')  # INTENT
@@ -167,7 +167,7 @@ class TestTransitionUsesMachine(unittest.TestCase):
 
     def test_available_actions_returns_hyphenated_names(self):
         """available_actions() returns hyphenated action names, not underscored."""
-        from projects.POC.scripts.cfa_state import available_actions
+        from scripts.cfa_state import available_actions
         actions = dict(available_actions('PROPOSAL'))
         self.assertIn('auto-approve', actions)
         self.assertNotIn('auto_approve', actions)
@@ -179,12 +179,12 @@ class TestTransitionsDictCompat(unittest.TestCase):
     """TRANSITIONS dict preserves the (action, target, actor) tuple interface."""
 
     def test_transitions_is_dict(self):
-        from projects.POC.scripts.cfa_state import TRANSITIONS
+        from scripts.cfa_state import TRANSITIONS
         self.assertIsInstance(TRANSITIONS, dict)
 
     def test_transitions_get_returns_tuples(self):
         """TRANSITIONS.get(state) returns list of (action, target, actor) tuples."""
-        from projects.POC.scripts.cfa_state import TRANSITIONS
+        from scripts.cfa_state import TRANSITIONS
         edges = TRANSITIONS.get('PROPOSAL', [])
         self.assertTrue(len(edges) > 0)
         for edge in edges:
@@ -196,7 +196,7 @@ class TestTransitionsDictCompat(unittest.TestCase):
 
     def test_transitions_action_names_are_hyphenated(self):
         """TRANSITIONS dict uses hyphenated action names (matching JSON)."""
-        from projects.POC.scripts.cfa_state import TRANSITIONS
+        from scripts.cfa_state import TRANSITIONS
         edges = TRANSITIONS.get('PROPOSAL', [])
         action_names = {a for a, _, _ in edges}
         self.assertIn('auto-approve', action_names)
@@ -209,7 +209,7 @@ class TestMachineHooks(unittest.TestCase):
 
     def test_history_recorded_by_hook(self):
         """Machine's after_transition hook records history entries."""
-        from projects.POC.scripts.cfa_machine import (
+        from scripts.cfa_machine import (
             CfAMachine, CfATransitionModel, PHASE_SETS,
         )
         model = CfATransitionModel(
@@ -227,7 +227,7 @@ class TestMachineHooks(unittest.TestCase):
 
     def test_backtrack_counted_by_hook(self):
         """Machine's after_transition hook increments backtrack_count on cross-phase."""
-        from projects.POC.scripts.cfa_machine import (
+        from scripts.cfa_machine import (
             CfAMachine, CfATransitionModel, PHASE_SETS,
         )
         # Start at DRAFT (planning), do refine-intent -> INTENT_RESPONSE (intent)
@@ -242,7 +242,7 @@ class TestMachineHooks(unittest.TestCase):
 
     def test_non_backtrack_not_counted(self):
         """Forward transitions don't increment backtrack_count."""
-        from projects.POC.scripts.cfa_machine import (
+        from scripts.cfa_machine import (
             CfAMachine, CfATransitionModel, PHASE_SETS,
         )
         model = CfATransitionModel(
@@ -256,7 +256,7 @@ class TestMachineHooks(unittest.TestCase):
 
     def test_history_via_transition_function(self):
         """transition() history comes from the machine hook, not manual code."""
-        from projects.POC.scripts.cfa_state import make_initial_state, transition
+        from scripts.cfa_state import make_initial_state, transition
         cfa = make_initial_state()
         cfa = transition(cfa, 'propose')
         cfa = transition(cfa, 'auto-approve')
@@ -272,28 +272,28 @@ class TestMachineGuards(unittest.TestCase):
 
     def test_backtrack_allowed_by_default(self):
         """Backtrack transitions work when suppress_backtracks=False (default)."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         sm = CfAMachine(start_value='DRAFT')
         sm.send('refine_intent')  # backtrack: DRAFT -> INTENT_RESPONSE
         self.assertEqual(sm.current_state_value, 'INTENT_RESPONSE')
 
     def test_backtrack_suppressed(self):
         """Backtrack transitions are blocked when suppress_backtracks=True."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         sm = CfAMachine(start_value='DRAFT', suppress_backtracks=True)
         with self.assertRaises(Exception):
             sm.send('refine_intent')
 
     def test_non_backtrack_unaffected_by_suppression(self):
         """Non-backtrack transitions work even with suppress_backtracks=True."""
-        from projects.POC.scripts.cfa_machine import CfAMachine
+        from scripts.cfa_machine import CfAMachine
         sm = CfAMachine(start_value='DRAFT', suppress_backtracks=True)
         sm.send('auto_approve')  # not a backtrack
         self.assertEqual(sm.current_state_value, 'PLAN')
 
     def test_backtrack_edges_match_json(self):
         """BACKTRACK_EDGES matches every edge with backtrack:true in JSON."""
-        from projects.POC.scripts.cfa_machine import BACKTRACK_EDGES
+        from scripts.cfa_machine import BACKTRACK_EDGES
         machine_json = _load_json_machine()
         expected = set()
         for from_state, edges in machine_json['transitions'].items():
@@ -310,7 +310,7 @@ class TestRunnerSMExists(unittest.TestCase):
 
     def test_runner_sm_class_exists(self):
         """RunnerSM is importable from runner_machine module."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         from statemachine import StateMachine
         self.assertTrue(
             issubclass(RunnerSM, StateMachine),
@@ -319,13 +319,13 @@ class TestRunnerSMExists(unittest.TestCase):
 
     def test_runner_sm_initial_state(self):
         """RunnerSM starts at idle."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         self.assertEqual(sm.current_state_value, 'idle')
 
     def test_runner_sm_happy_path(self):
         """RunnerSM: idle -> launching -> streaming -> done."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         sm.send('launch')
         self.assertEqual(sm.current_state_value, 'launching')
@@ -336,7 +336,7 @@ class TestRunnerSMExists(unittest.TestCase):
 
     def test_runner_sm_stall_kill_path(self):
         """RunnerSM: idle -> launching -> streaming -> stalled -> killed."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         sm.send('launch')
         sm.send('stream')
@@ -347,7 +347,7 @@ class TestRunnerSMExists(unittest.TestCase):
 
     def test_runner_sm_error_path(self):
         """RunnerSM: launching -> failed on error."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         sm.send('launch')
         sm.send('error')
@@ -355,7 +355,7 @@ class TestRunnerSMExists(unittest.TestCase):
 
     def test_runner_sm_invalid_transition(self):
         """RunnerSM rejects invalid transitions."""
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.runner_machine import RunnerSM
         sm = RunnerSM()
         with self.assertRaises(Exception):
             sm.send('stream')  # can't stream from idle
@@ -368,8 +368,8 @@ class TestClaudeRunnerHasSM(unittest.TestCase):
 
     def test_claude_runner_has_sm_attribute(self):
         """ClaudeRunner instances have a _sm attribute that is a RunnerSM."""
-        from projects.POC.orchestrator.claude_runner import ClaudeRunner
-        from projects.POC.orchestrator.runner_machine import RunnerSM
+        from orchestrator.claude_runner import ClaudeRunner
+        from orchestrator.runner_machine import RunnerSM
         runner = ClaudeRunner(
             prompt='test',
             cwd='/tmp',

@@ -210,12 +210,11 @@ class TestBridgeSessionSerializationContract(unittest.TestCase):
         import shutil
         import tempfile
         self.tmpdir = tempfile.mkdtemp()
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir)
         self.bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
 
@@ -306,12 +305,11 @@ class TestBridgeProjectSerializationContract(unittest.TestCase):
         import shutil
         import tempfile
         self.tmpdir = tempfile.mkdtemp()
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir)
         self.bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
 

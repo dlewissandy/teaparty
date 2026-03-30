@@ -56,26 +56,26 @@ class TestTeapartyShLaunchesBridge(unittest.TestCase):
     def test_script_launches_bridge_module(self):
         source = self._read_script()
         self.assertIn(
-            'projects.POC.bridge',
+            '-m bridge',
             source,
-            'teaparty.sh must invoke projects.POC.bridge',
+            'teaparty.sh must invoke bridge (python -m bridge)',
         )
 
 
 class TestBridgeHasMainEntryPoint(unittest.TestCase):
-    """projects/POC/bridge/__main__.py must exist to support python -m projects.POC.bridge."""
+    """bridge/__main__.py must exist to support python -m bridge."""
 
     def test_bridge_main_exists(self):
-        main = REPO_ROOT / 'projects' / 'POC' / 'bridge' / '__main__.py'
+        main = REPO_ROOT / 'bridge' / '__main__.py'
         self.assertTrue(
             main.exists(),
-            'projects/POC/bridge/__main__.py must exist for python -m projects.POC.bridge',
+            'bridge/__main__.py must exist for python -m bridge',
         )
 
     def test_bridge_main_importable(self):
         """bridge.__main__ must not raise on import."""
         import importlib.util
-        main_path = REPO_ROOT / 'projects' / 'POC' / 'bridge' / '__main__.py'
+        main_path = REPO_ROOT / 'bridge' / '__main__.py'
         if not main_path.exists():
             self.skipTest('__main__.py does not exist yet')
         spec = importlib.util.spec_from_file_location('bridge.__main__', main_path)
@@ -88,7 +88,7 @@ class TestNoProductionTUIImports(unittest.TestCase):
     """Production code in orchestrator/ and bridge/ must not import from projects.POC.tui."""
 
     def _source_files(self, subdir: str):
-        base = REPO_ROOT / 'projects' / 'POC' / subdir
+        base = REPO_ROOT / subdir
         return list(base.rglob('*.py'))
 
     def _check_no_tui_imports(self, files):

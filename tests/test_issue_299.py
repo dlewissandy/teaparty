@@ -57,7 +57,7 @@ class TestSinceTimestampTracking(unittest.TestCase):
 
     def test_last_ts_advances_after_messages_received(self):
         """After a poll returns a message, the next poll uses its timestamp."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -83,7 +83,7 @@ class TestSinceTimestampTracking(unittest.TestCase):
 
     def test_last_ts_unchanged_when_no_new_messages(self):
         """If no messages arrive, since_timestamp stays at 0.0."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -102,7 +102,7 @@ class TestSinceTimestampTracking(unittest.TestCase):
 
     def test_timestamps_tracked_independently_per_conversation(self):
         """Each conversation_id has its own last-seen timestamp."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -136,7 +136,7 @@ class TestReceiveUsesKeywordArgument(unittest.TestCase):
 
     def test_receive_called_with_since_timestamp_keyword(self):
         """receive() must be invoked as receive(id, since_timestamp=ts), not positionally."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         receive_kwargs = []
 
@@ -165,7 +165,7 @@ class TestMessageEventEmission(unittest.TestCase):
     """New messages must be pushed as `message` WebSocket events."""
 
     def test_message_event_emitted_for_each_new_message(self):
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -188,7 +188,7 @@ class TestMessageEventEmission(unittest.TestCase):
 
     def test_message_event_fields_match_spec(self):
         """Each `message` event must have conversation_id, sender, content, timestamp."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -213,7 +213,7 @@ class TestMessageEventEmission(unittest.TestCase):
 
     def test_already_seen_messages_not_re_emitted(self):
         """Messages with timestamp ≤ last-seen must not be emitted again."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -241,7 +241,7 @@ class TestInputRequestedDetection(unittest.TestCase):
     """Relay must emit input_requested when conversations_awaiting_input() fires."""
 
     def test_input_requested_event_emitted_when_awaiting(self):
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -262,7 +262,7 @@ class TestInputRequestedDetection(unittest.TestCase):
 
     def test_input_requested_not_re_emitted_on_subsequent_polls(self):
         """input_requested must be emitted once per waiting transition, not every poll."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -286,7 +286,7 @@ class TestInputRequestedDetection(unittest.TestCase):
 
     def test_input_requested_uses_structural_flag_not_heuristic(self):
         """Detection must use conversations_awaiting_input(), not message content inspection."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
         import inspect
 
         source = inspect.getsource(MessageRelay._poll_bus)
@@ -302,7 +302,7 @@ class TestOmBusPolling(unittest.TestCase):
 
     def test_om_bus_conversations_are_polled(self):
         """When bus_registry contains 'om' key, relay polls that bus too."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -323,7 +323,7 @@ class TestOmBusPolling(unittest.TestCase):
 
     def test_om_message_emitted_as_message_event(self):
         """Messages from OM conversations must be pushed as `message` events."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -345,7 +345,7 @@ class TestOmBusPolling(unittest.TestCase):
 
     def test_om_input_requested_uses_om_session_id(self):
         """input_requested events from OM conversations must have session_id='om'."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -369,7 +369,7 @@ class TestOmBusPolling(unittest.TestCase):
 
     def test_om_and_session_buses_polled_independently(self):
         """Both session buses and the OM bus must be polled in the same poll cycle."""
-        from projects.POC.bridge.message_relay import MessageRelay
+        from bridge.message_relay import MessageRelay
 
         events = []
 
@@ -407,13 +407,12 @@ class TestServerOmBusWiring(unittest.TestCase):
 
     def test_om_bus_in_buses_after_startup(self):
         """After _on_startup, self._buses must contain 'om' key pointing to the OM bus."""
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
 
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir)
         bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
 
@@ -442,13 +441,12 @@ class TestServerOmBusWiring(unittest.TestCase):
 
     def test_om_bus_in_buses_is_the_same_as_om_bus_attribute(self):
         """bridge._buses['om'] must be the same object as bridge._om_bus."""
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
 
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir)
         bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
 
@@ -479,13 +477,12 @@ class TestServerOmBusWiring(unittest.TestCase):
         When _buses['om'] is wired, the cleanup loop closes it. The explicit
         self._om_bus.close() must be removed to avoid a double-close.
         """
-        from projects.POC.bridge.server import TeaPartyBridge
+        from bridge.server import TeaPartyBridge
 
         static_dir = os.path.join(self.tmpdir, 'static')
         os.makedirs(static_dir)
         bridge = TeaPartyBridge(
             teaparty_home=self.tmpdir,
-            projects_dir=self.tmpdir,
             static_dir=static_dir,
         )
 
