@@ -219,6 +219,7 @@ class TeaPartyBridge:
             raise FileNotFoundError(
                 f'static_dir does not exist: {self.static_dir}'
             )
+        app.router.add_get('/', self._handle_index)
         app.router.add_static('/', self.static_dir, show_index=True)
 
         app.on_startup.append(self._on_startup)
@@ -570,6 +571,12 @@ class TeaPartyBridge:
             return web.json_response({'error': str(exc)}, status=502)
 
         return web.json_response(response)
+
+    # ── Index handler ─────────────────────────────────────────────────────────
+
+    async def _handle_index(self, request: web.Request) -> web.Response:
+        index_path = os.path.join(self.static_dir, 'index.html')
+        return web.FileResponse(index_path)
 
     # ── WebSocket handler ─────────────────────────────────────────────────────
 
