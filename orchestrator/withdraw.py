@@ -245,8 +245,8 @@ def _kill_pid(pid: int) -> None:
     back to SIGKILL."
 
     Guards against self-kill: when a session runs in-process, .heartbeat
-    contains the TUI's own PID.  Killing our own process group would
-    crash the TUI (issue #159).
+    contains the orchestrator's own PID.  Killing our own process group would
+    terminate the caller (issue #159).
     """
     if pid == os.getpid():
         return
