@@ -144,11 +144,6 @@ class ExperimentRunner:
 
         # Include cumulative proxy state from the model file (for corpus runs)
         proxy_path = config.proxy_model_path
-        if not proxy_path:
-            poc_root = self._find_poc_root()
-            projects_dir = os.path.join(os.path.dirname(poc_root), 'projects')
-            project_dir = os.path.join(projects_dir, config.project)
-            proxy_path = os.path.join(project_dir, '.proxy-confidence.json')
         if os.path.isfile(proxy_path):
             try:
                 with open(proxy_path) as f:
@@ -215,24 +210,14 @@ class ExperimentRunner:
 
     @staticmethod
     def _find_poc_root() -> str:
-        """Locate the POC project root (contains cfa-state-machine.json)."""
-        # Walk up from experiments/ to find the repo root, then into projects/POC
-        experiments_dir = os.path.dirname(os.path.abspath(__file__))
-        repo_root = os.path.dirname(experiments_dir)
-
-        # Try projects/POC first
-        poc = os.path.join(repo_root, 'projects', 'POC')
-        if os.path.exists(os.path.join(poc, 'cfa-state-machine.json')):
-            return poc
-
-        # Fallback: walk up from current file
-        d = experiments_dir
+        """Locate the repo root (contains cfa-state-machine.json)."""
+        d = os.path.dirname(os.path.abspath(__file__))
         while d != '/':
             if os.path.exists(os.path.join(d, 'cfa-state-machine.json')):
                 return d
             d = os.path.dirname(d)
 
-        raise RuntimeError('Could not find POC root (cfa-state-machine.json)')
+        raise RuntimeError('Could not find repo root (cfa-state-machine.json)')
 
 
 async def run_corpus(
