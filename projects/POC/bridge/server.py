@@ -212,7 +212,7 @@ class TeaPartyBridge:
             raise FileNotFoundError(
                 f'static_dir does not exist: {self.static_dir}'
             )
-        app.router.add_static('/', self.static_dir)
+        app.router.add_static('/', self.static_dir, show_index=True)
 
         app.on_startup.append(self._on_startup)
         app.on_cleanup.append(self._on_cleanup)

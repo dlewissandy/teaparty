@@ -70,6 +70,33 @@ class TestStaticRouteRegistered(unittest.TestCase):
                 f"{[r.canonical for r in resources]}",
             )
 
+    def test_static_route_has_show_index_enabled(self):
+        """Static route must use show_index=True so GET / serves index.html.
+
+        Without show_index=True, aiohttp returns 403 for directory requests
+        (including GET /) even when the static dir and index.html exist.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            static_dir = os.path.join(tmpdir, 'static')
+            os.makedirs(static_dir)
+            bridge = _make_bridge(tmpdir, tmpdir, static_dir)
+            app = bridge._build_app()
+            from aiohttp.web_urldispatcher import StaticResource
+            static_resources = [
+                r for r in app.router.resources()
+                if isinstance(r, StaticResource)
+            ]
+            self.assertTrue(
+                static_resources,
+                'No StaticResource registered — static route missing',
+            )
+            for r in static_resources:
+                self.assertTrue(
+                    r._show_index,
+                    'StaticResource must have show_index=True; '
+                    'without it GET / returns 403 instead of index.html',
+                )
+
 
 class TestStaticDirExists(unittest.TestCase):
     """projects/POC/bridge/static/ must exist and contain the required HTML pages."""
