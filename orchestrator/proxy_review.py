@@ -30,6 +30,10 @@ from orchestrator.messaging import (
     SqliteMessageBus,
     make_conversation_id,
 )
+from orchestrator.office_manager import (
+    NON_CONVERSATIONAL_SENDERS,
+    _iter_stream_events,
+)
 from orchestrator.proxy_memory import (
     MemoryChunk,
     add_trace,
@@ -259,6 +263,8 @@ def build_dialog_history(
 
     lines = []
     for msg in messages:
+        if msg.sender in NON_CONVERSATIONAL_SENDERS or msg.sender.startswith('unknown:'):
+            continue
         label = 'Human' if msg.sender != 'proxy' else 'Proxy'
         lines.append(f'{label}: {msg.content}')
 
@@ -436,32 +442,6 @@ def proxy_memory_path(teaparty_home: str) -> str:
     return os.path.join(teaparty_home, 'proxy', '.proxy-memory.db')
 
 
-# ── Stream helpers ───────────────────────────────────────────────────────────
-
-def _extract_assistant_text_from_stream(stream_path: str) -> str:
-    """Extract concatenated assistant text blocks from a stream-json JSONL file."""
-    parts = []
-    try:
-        with open(stream_path) as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    ev = json.loads(line)
-                except (ValueError, json.JSONDecodeError):
-                    continue
-                if ev.get('type') != 'assistant':
-                    continue
-                for block in ev.get('message', {}).get('content', []):
-                    if isinstance(block, dict) and block.get('type') == 'text':
-                        text = block.get('text', '').strip()
-                        if text:
-                            parts.append(text)
-    except OSError:
-        pass
-    return '\n'.join(parts)
-
 
 def _extract_slug_from_stream(stream_path: str, session_id: str, cwd: str) -> str:
     """Extract the conversation slug from a stream JSONL or Claude history file."""
@@ -576,6 +556,8 @@ class ProxyReviewSession:
         if messages:
             lines = []
             for msg in messages:
+                if msg.sender in NON_CONVERSATIONAL_SENDERS or msg.sender.startswith('unknown:'):
+                    continue
                 label = 'Human' if msg.sender != 'proxy' else 'Proxy'
                 lines.append(f'{label}: {msg.content}')
             dialog_history = '\n'.join(lines) + '\n'
@@ -681,6 +663,7 @@ class ProxyReviewSession:
                 lines = [
                     f'{"Human" if m.sender != "proxy" else "Proxy"}: {m.content}'
                     for m in messages
+                    if m.sender not in NON_CONVERSATIONAL_SENDERS and not m.sender.startswith('unknown:')
                 ]
                 dialog_history = '\n'.join(lines) + '\n'
             from orchestrator.proxy_memory import (
@@ -721,7 +704,8 @@ class ProxyReviewSession:
             )
             result = await runner.run()
 
-            response_text = _extract_assistant_text_from_stream(stream_path)
+            events = list(_iter_stream_events(stream_path, 'proxy'))
+            response_text = '\n'.join(c for s, c in events if s == 'proxy')
 
             if response_text:
                 # Process correction/reinforce signals before writing to bus
@@ -737,7 +721,8 @@ class ProxyReviewSession:
                     ))
                 finally:
                     conn.close()
-                self.send_agent_message(response_text)
+                for sender, content in events:
+                    self._bus.send(self.conversation_id, sender, content)
             else:
                 self.claude_session_id = None
                 self.save_state()

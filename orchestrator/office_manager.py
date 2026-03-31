@@ -275,6 +275,13 @@ def _iter_stream_events(stream_path: str, agent_role: str):
         pass
 
 
+# Senders that carry internal stream trace — not conversational history.
+# Shared with proxy_review.py for consistent dialog history filtering.
+NON_CONVERSATIONAL_SENDERS: frozenset[str] = frozenset({
+    'thinking', 'tool_use', 'tool_result', 'system', 'orchestrator',
+})
+
+
 # ── Liaison agent construction ──────────────────────────────────────────────
 
 def _project_slug(name: str) -> str:
@@ -473,11 +480,6 @@ class OfficeManagerSession:
         """Retrieve conversation messages, optionally since a timestamp."""
         return self._bus.receive(self.conversation_id, since_timestamp=since_timestamp)
 
-    # Senders that carry internal stream trace — not conversational history.
-    _NON_CONVERSATIONAL_SENDERS = frozenset({
-        'thinking', 'tool_use', 'tool_result', 'system', 'orchestrator',
-    })
-
     def build_context(self) -> str:
         """Build conversation history formatted for the agent prompt.
 
@@ -490,7 +492,7 @@ class OfficeManagerSession:
             return ''
         lines = []
         for msg in messages:
-            if (msg.sender in self._NON_CONVERSATIONAL_SENDERS
+            if (msg.sender in NON_CONVERSATIONAL_SENDERS
                     or msg.sender.startswith('unknown:')):
                 continue
             role = 'Human' if msg.sender == 'human' else 'Office Manager'
