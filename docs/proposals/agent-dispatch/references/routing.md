@@ -57,3 +57,16 @@ The bus dispatcher is a component in the TeaParty orchestrator process — a Pyt
 Routing rules are computed at session start from workgroup membership. The workgroup YAML — team members, lead, project scope — is the input; the routing table is the output.
 
 Changes to workgroup membership take effect at the start of the next session. Adding an agent to a workgroup grants it the appropriate routing access; removing it revokes access. No separate routing configuration to maintain.
+
+## Implementation Status
+
+The routing enforcement mechanism described in this document is designed but not yet implemented. None of the following exist in code:
+
+- The `agent_id` derivation algorithm (reads workgroup YAML, produces `{workgroup_name}/{role_name}` identifiers)
+- The routing table (set of `(sender_agent_id, recipient_agent_id)` pairs, computed at session start)
+- The bus dispatcher class (transport-level authorization check in `orchestrator/`)
+- The `RoutingError` raised by the `AskTeam` pre-check
+
+Until both the `AskTeam` pre-check and the bus dispatcher transport check are implemented, there is no enforcement of routing rules. An agent can post to any conversation ID without restriction. The cross-project isolation guarantee stated in this document is a design intent, not current behavior.
+
+Implementation is pending #345 (bus-mediated AskTeam blocking model) and #348 (routing derivation algorithm). The transport-level bus dispatcher cannot be built until the routing table derivation is complete (#348). The two-layer enforcement guarantee is only valid once both layers exist.
