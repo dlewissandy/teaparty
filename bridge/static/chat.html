@@ -490,16 +490,13 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<div style="display:flex;gap:6px;align-items:center">' + copyBtn + headerActions + '</div>' +
     '</div>' +
     '<div class="chat-filters">' + filterRow + '</div>' +
-    '<div class="chat-messages">' +
-    (pageState.messages.length > 0 ? renderMessages(pageState.messages) : '<div class="empty">No messages in this conversation</div>') +
-    '</div>' +
+    '<div class="chat-messages"></div>' +
     '<div class="chat-input-area">' +
     '<textarea rows="1" placeholder="Type a message..." onkeydown="chatKeydown(event)" oninput="autoGrow(this)"></textarea>' +
     '<button onclick="sendMessage(this.parentElement.querySelector(\'textarea\'))">Send</button>' +
     '</div></div></div>';
 
-  var msgsEl = document.querySelector('.chat-messages');
-  if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+  refilter();
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
