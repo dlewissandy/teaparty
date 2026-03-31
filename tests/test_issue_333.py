@@ -1225,6 +1225,10 @@ class TestConfigSkillsNoDirectWrite(unittest.TestCase):
 
 # ── AC6: Pybayes project.yaml has required fields ─────────────────────────────
 
+@unittest.skipUnless(
+    Path('/Users/darrell/git/pybayes/.teaparty.local/project.yaml').exists(),
+    'pybayes project.yaml not present in this environment',
+)
 class TestPybayesProjectYaml(unittest.TestCase):
     """Pybayes .teaparty.local/project.yaml must have required fields."""
 
