@@ -190,7 +190,7 @@ class TestSessionBusWriterStateSender(unittest.TestCase):
     """_make_stream_bus_writer must write STATE_CHANGED events to bus with sender='state'."""
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_state_changed_event_writes_state_sender_to_bus(self):
         """A STATE_CHANGED event must produce a message with sender='state' in the bus."""
@@ -247,7 +247,7 @@ class TestSessionBusWriterLogSender(unittest.TestCase):
     """_make_stream_bus_writer must write LOG events to bus with sender='log'."""
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_log_event_writes_log_sender_to_bus(self):
         """A LOG event must produce a message with sender='log' in the bus."""
@@ -299,7 +299,7 @@ class TestSessionBusWriterSessionFilter(unittest.TestCase):
     """_make_stream_bus_writer must ignore events from a different session_id."""
 
     def _run(self, coro):
-        return asyncio.get_event_loop().run_until_complete(coro)
+        return asyncio.run(coro)
 
     def test_event_from_different_session_is_ignored(self):
         """Events from a different session_id must not write to the bus."""

@@ -51,6 +51,30 @@ from orchestrator.worktree import (
 _log = logging.getLogger('orchestrator')
 
 
+def _make_stream_bus_writer(bus: SqliteMessageBus, conversation_id: str, session_id: str):
+    """Return an async event callback that writes typed stream events to the message bus.
+
+    Writes to conversation_id with senders:
+      state — from STATE_CHANGED events (CfA state transitions)
+      log   — from LOG events (diagnostic messages)
+
+    Events from a different session_id are ignored.
+    """
+    async def _on_event(event: Event) -> None:
+        if event.session_id and event.session_id != session_id:
+            return
+        if event.type == EventType.STATE_CHANGED:
+            prev = event.data.get('previous_state', '')
+            state = event.data.get('state', '')
+            action = event.data.get('action', '')
+            bus.send(conversation_id, 'state', f'{prev} → {state} [{action}]')
+        elif event.type == EventType.LOG:
+            msg = event.data.get('message', '')
+            if msg:
+                bus.send(conversation_id, 'log', msg)
+    return _on_event
+
+
 def _resolve_cost_tracker_impl(project_dir: str) -> CostTracker | None:
     """Create a CostTracker from the resolved budget configuration.
 
@@ -233,6 +257,12 @@ class Session:
         state_writer = StateWriter(infra_dir, self.event_bus)
         await state_writer.start()
 
+        # 5a. Start stream bus writer (typed senders → message bus)
+        bus_writer = _make_stream_bus_writer(
+            self._message_bus, self._conversation_id, self.session_id,
+        )
+        self.event_bus.subscribe(bus_writer)
+
         # 6. Publish session start
         await self.event_bus.publish(Event(
             type=EventType.SESSION_STARTED,
@@ -282,6 +312,7 @@ class Session:
                 session_id=self.session_id,
             ))
             await state_writer.stop()
+            self.event_bus.unsubscribe(bus_writer)
             return SessionResult(
                 terminal_state='DRY_RUN',
                 project=self.project_slug,
@@ -389,8 +420,9 @@ class Session:
             session_id=self.session_id,
         ))
 
-        # 16. Stop state writer
+        # 16. Stop state writer and bus writer
         await state_writer.stop()
+        self.event_bus.unsubscribe(bus_writer)
 
         return SessionResult(
             terminal_state=result.terminal_state,
@@ -746,6 +778,9 @@ class Session:
         state_writer = StateWriter(infra_dir, event_bus)
         await state_writer.start()
 
+        resume_bus_writer = _make_stream_bus_writer(message_bus, conversation_id, session_id)
+        event_bus.subscribe(resume_bus_writer)
+
         await event_bus.publish(Event(
             type=EventType.SESSION_STARTED,
             data={
@@ -883,6 +918,7 @@ class Session:
             session_id=session_id,
         ))
         await state_writer.stop()
+        event_bus.unsubscribe(resume_bus_writer)
 
         return SessionResult(
             terminal_state=result.terminal_state,
