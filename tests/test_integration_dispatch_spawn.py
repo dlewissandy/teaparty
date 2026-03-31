@@ -140,7 +140,7 @@ class TestProjectLeadSpawnsTeammateViaTask(unittest.TestCase):
             'claude', '-p',
             '--output-format', 'stream-json',
             '--verbose',
-            '--setting-sources', 'user',
+            '--bare',
             '--agents', agents_json,
             '--agent', 'project-lead',
             '--permission-mode', 'acceptEdits',

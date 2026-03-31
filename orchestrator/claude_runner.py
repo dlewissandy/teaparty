@@ -192,7 +192,7 @@ class ClaudeRunner:
             'claude', '-p',
             '--output-format', 'stream-json',
             '--verbose',
-            '--setting-sources', 'user',
+            '--bare',
         ]
         args.extend(['--permission-mode', self.permission_mode])
         if self.agents_file:

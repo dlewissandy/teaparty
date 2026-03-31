@@ -43,7 +43,7 @@ Each phase invokes an **AgentRunner** (which wraps `ClaudeRunner`) to run a Clau
 claude -p \
   --output-format stream-json \
   --verbose \
-  --setting-sources user \
+  --bare \
   --permission-mode acceptEdits \
   --agents '<team-definition-JSON>' \
   --agent intent-lead \
