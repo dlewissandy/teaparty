@@ -295,6 +295,21 @@ function sendMessage(ta) {
   }).catch(function() { ta.value = text; });
 }
 
+// ── Copy conversation ─────────────────────────────────────────────────────────
+function copyConversation() {
+  var btn = document.querySelector('.copy-btn');
+  var filtered = filterMessages(pageState.messages);
+  var text = filtered.map(function(m) {
+    return (m.sender || '') + ': ' + (m.content || m.text || '');
+  }).join('\n\n');
+  navigator.clipboard.writeText(text).then(function() {
+    if (btn) {
+      btn.textContent = 'Copied';
+      setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+    }
+  }).catch(function() {});
+}
+
 // ── Withdraw ──────────────────────────────────────────────────────────────────
 function showWithdrawModal() {
   document.getElementById('withdraw-modal').style.display = 'flex';
@@ -460,6 +475,10 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
       '" onclick="this.classList.toggle(\'on\');refilter()">' + f + '</button>';
   }).join('');
 
+  var copyBtn = '<button class="copy-btn" onclick="copyConversation()" ' +
+    'style="background:transparent;border:1px solid var(--border);color:var(--text-dim);' +
+    'padding:3px 10px;border-radius:3px;cursor:pointer;font-family:inherit;font-size:9px">Copy</button>';
+
   document.getElementById('content').innerHTML =
     '<div class="chat-layout">' + navHtml +
     '<div class="chat-main">' +
@@ -468,7 +487,7 @@ function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
     '<span class="session-status" style="display:none;font-size:8px;margin-left:6px;padding:1px 4px;border-radius:2px;border:1px solid currentColor"></span>' +
     '</div>' +
     '<div class="chat-header-scope">' + headerScope + '</div></div>' +
-    headerActions +
+    '<div style="display:flex;gap:6px;align-items:center">' + copyBtn + headerActions + '</div>' +
     '</div>' +
     '<div class="chat-filters">' + filterRow + '</div>' +
     '<div class="chat-messages">' +
