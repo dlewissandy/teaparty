@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sqlite3
 import time
 import uuid
@@ -417,6 +418,84 @@ def check_message_bus_request(
             bus.close()
     except Exception:
         return None
+
+
+def inject_composite_into_history(
+    session_file: str,
+    composite: str,
+    session_id: str,
+    cwd: str,
+    *,
+    version: str = '',
+) -> None:
+    """Inject a composite message into an agent's conversation history.
+
+    Appends a JSONL entry to the session file so the recipient's next
+    ``--resume`` invocation sees the composite as an incoming user message.
+
+    The entry follows the observed Claude Code JSONL schema (invocation-model.md,
+    Worktree Reuse section):
+    - ``type``: ``"user"``
+    - ``message.role``: ``"user"``
+    - ``message.content``: the composite message
+    - ``isSidechain``: ``True``
+    - ``userType``: ``"external"``
+    - ``parentUuid``: UUID of the last existing entry (``None`` for empty file)
+
+    The session file path follows the observed layout:
+    ``~/.claude/projects/{session_id}/subagents/{agent_id}.jsonl``.
+    Callers supply the fully-resolved path; this function does not derive it.
+
+    Args:
+        session_file: Absolute path to the recipient's ``.jsonl`` session file.
+        composite: The composite message (Task/Context envelope) to inject.
+        session_id: Claude Code session UUID for this conversation thread.
+        cwd: Working directory of the recipient's invocation.
+        version: Claude Code version string. Defaults to CLAUDE_VERSION env var,
+            then empty string if unset.
+    """
+    import json as _json
+    import uuid as _uuid
+    from datetime import datetime, timezone
+
+    last_uuid = None
+    if os.path.exists(session_file):
+        with open(session_file) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    try:
+                        entry = _json.loads(line)
+                        last_uuid = entry.get('uuid')
+                    except _json.JSONDecodeError:
+                        pass
+
+    if not version:
+        version = os.environ.get('CLAUDE_VERSION', '')
+
+    now = datetime.now(timezone.utc)
+    ms = now.microsecond // 1000
+    timestamp = now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{ms:03d}Z'
+
+    entry = {
+        'parentUuid': last_uuid,
+        'isSidechain': True,
+        'userType': 'external',
+        'cwd': cwd,
+        'sessionId': session_id,
+        'version': version,
+        'type': 'user',
+        'message': {
+            'role': 'user',
+            'content': composite,
+        },
+        'uuid': str(_uuid.uuid4()),
+        'timestamp': timestamp,
+    }
+
+    os.makedirs(os.path.dirname(session_file), exist_ok=True)
+    with open(session_file, 'a') as f:
+        f.write(_json.dumps(entry) + '\n')
 
 
 def send_message_bus_response(

@@ -637,5 +637,112 @@ class TestSendHandlerFlushBeforeRead(unittest.TestCase):
                       'ask_question_handler must have a flush_fn keyword parameter')
 
 
+# ── SC3: Recipient agent's spawned conversation history contains the composite ──
+
+
+class TestConversationHistoryInjection(unittest.TestCase):
+    """SC3: inject_composite_into_history writes composite to JSONL session file.
+
+    The composite assembled by send_handler must end up in the recipient's
+    conversation history so --resume sees it as an incoming user message.
+    inject_composite_into_history is the function that does this write.
+    """
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _session_file(self, name: str = 'sess') -> str:
+        return os.path.join(self.tmpdir, f'{name}.jsonl')
+
+    def test_injected_entry_is_user_type_with_composite_content(self):
+        """type=user and message.content equals the composite passed in."""
+        from orchestrator.messaging import inject_composite_into_history
+        import json
+
+        session_file = self._session_file()
+        composite = '## Task\ndo the thing\n\n## Context\njob state'
+        inject_composite_into_history(session_file, composite, 'sess-1', '/work')
+
+        with open(session_file) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry['type'], 'user')
+        self.assertEqual(entry['message']['role'], 'user')
+        self.assertEqual(entry['message']['content'], composite)
+
+    def test_injected_entry_structure_matches_jsonl_schema(self):
+        """Entry has isSidechain=True, userType=external, sessionId, cwd, uuid, timestamp."""
+        from orchestrator.messaging import inject_composite_into_history
+        import json
+
+        session_file = self._session_file()
+        inject_composite_into_history(session_file, 'composite', 'sess-2', '/cwd')
+
+        with open(session_file) as f:
+            entry = json.loads(f.readline())
+        self.assertTrue(entry['isSidechain'])
+        self.assertEqual(entry['userType'], 'external')
+        self.assertEqual(entry['sessionId'], 'sess-2')
+        self.assertEqual(entry['cwd'], '/cwd')
+        self.assertIn('uuid', entry)
+        self.assertIn('timestamp', entry)
+
+    def test_parent_uuid_is_none_for_empty_session_file(self):
+        """parentUuid is null when the session file has no prior entries."""
+        from orchestrator.messaging import inject_composite_into_history
+        import json
+
+        session_file = self._session_file()
+        inject_composite_into_history(session_file, 'composite', 'sess-3', '/work')
+
+        with open(session_file) as f:
+            entry = json.loads(f.readline())
+        self.assertIsNone(entry['parentUuid'])
+
+    def test_parent_uuid_chains_to_prior_entry(self):
+        """Second injection's parentUuid equals the first entry's uuid."""
+        from orchestrator.messaging import inject_composite_into_history
+        import json
+
+        session_file = self._session_file()
+        inject_composite_into_history(session_file, 'first', 'sess-4', '/work')
+        inject_composite_into_history(session_file, 'second', 'sess-4', '/work')
+
+        with open(session_file) as f:
+            entries = [json.loads(line) for line in f if line.strip()]
+        self.assertEqual(len(entries), 2)
+        self.assertIsNone(entries[0]['parentUuid'])
+        self.assertEqual(entries[1]['parentUuid'], entries[0]['uuid'])
+
+    def test_injected_composite_is_exactly_what_send_handler_produced(self):
+        """The composite in the session file matches send_handler's output verbatim."""
+        from orchestrator.messaging import inject_composite_into_history
+        from orchestrator.mcp_server import send_handler
+        import json
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['job: my-task', 'state: active'])
+        post_fn, captured = _make_captured_post()
+
+        _run(send_handler(
+            'worker', 'do the thing', '',
+            scratch_path=scratch_path,
+            post_fn=post_fn,
+        ))
+        composite = captured['composite']
+
+        session_file = self._session_file()
+        inject_composite_into_history(session_file, composite, 'sess-5', '/work')
+
+        with open(session_file) as f:
+            entry = json.loads(f.readline())
+        self.assertEqual(entry['message']['content'], composite)
+        self.assertIn('## Task', entry['message']['content'])
+        self.assertIn('## Context', entry['message']['content'])
+
+
 if __name__ == '__main__':
     unittest.main()
