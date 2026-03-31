@@ -48,6 +48,7 @@ function sectionCard(title, items, opts) {
     if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
   }
   if (opts && opts.catalogBtn) buttons += '<button class="action-btn" style="background:rgba(78,204,163,0.15);color:var(--green)" onclick="openChat(\'' + omConvId + '\')">+ Catalog</button>';
+  if (opts && opts.pinBtn) buttons += '<button class="action-btn" onclick="openChatWithSeed(\'' + omConvId + '\', \'Please pin a path to the artifact viewer for this project.\')">+ Pin</button>';
   var body = items.length === 0 ? '<div class="empty">' + (opts && opts.empty || 'None') + '</div>' : items.join('');
   return '<div class="section"><div class="section-header">' + title + '<span style="flex:1"></span>' + buttons + '</div><div class="section-scroll">' + body + '</div></div>';
 }
@@ -174,7 +175,7 @@ async function renderGlobal() {
 
 async function renderProject(slug) {
   showLoading();
-  var projectData, artifactsData;
+  var projectData, artifactsData, pinsData;
   try {
     var projResp = await fetch('/api/config/' + encodeURIComponent(slug));
     projectData = await projResp.json();
@@ -188,10 +189,15 @@ async function renderProject(slug) {
   }
 
   try {
-    var artResp = await fetch('/api/artifacts/' + encodeURIComponent(slug));
+    var [artResp, pinsResp] = await Promise.all([
+      fetch('/api/artifacts/' + encodeURIComponent(slug)),
+      fetch('/api/artifacts/' + encodeURIComponent(slug) + '/pins'),
+    ]);
     artifactsData = artResp.ok ? await artResp.json() : {};
+    pinsData = pinsResp.ok ? await pinsResp.json() : [];
   } catch (e) {
     artifactsData = {};
+    pinsData = [];
   }
 
   var team = projectData.team || {};
@@ -256,6 +262,12 @@ async function renderProject(slug) {
     return '<div class="item"' + click + '><div class="item-icon icon-cron">&#9200;</div><div class="item-body"><div class="item-title">' + c.name + '</div><div class="item-meta">' + c.schedule + '</div></div><span class="item-badge badge-' + badge + '">' + badge + '</span></div>';
   });
 
+  var pinItems = (pinsData || []).map(function(p) {
+    var icon = p.is_dir ? '&#9654;' : '&#9679;';
+    var click = ' onclick="window.open(\'artifacts.html?project=' + encodeURIComponent(slug) + '\',\'_blank\')" style="cursor:pointer"';
+    return '<div class="item"' + click + '><div class="item-icon" style="background:rgba(78,204,163,0.15);color:var(--green)">' + icon + '</div><div class="item-body"><div class="item-title">' + p.label + '</div><div class="item-meta">' + p.path + '</div></div></div>';
+  });
+
   document.getElementById('content').innerHTML =
     '<div class="breadcrumb-bar"><a onclick="configNav(\'global\')" style="cursor:pointer">Global Config</a> <span>/</span> <a>' + (team.name || slug) + '</a></div>' +
     '<div class="pane-title">' + (team.name || slug) + '</div>' +
@@ -266,6 +278,7 @@ async function renderProject(slug) {
       sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
       sectionCard('Participants', participantItems) +
       sectionCard('Artifacts', artifactItems, { empty: 'No project artifacts' }) +
+      sectionCard('Pins', pinItems, { addBtn: false, pinBtn: true, slug: slug, empty: 'No artifact pins' }) +
       sectionCard('Skills', skillItems, { addBtn: true, catalogBtn: true, empty: 'No skills' }) +
       sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No project-scoped hooks' }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true, empty: 'No project-scoped tasks' }) +
