@@ -26,6 +26,8 @@ The execution model is write-then-exit-then-resume. A lead that posts three para
 
 The bus must be a durable store, not just a message queue. Conversation context records persist across process restarts so that re-invocation can retrieve session IDs and pending state. This durability is a hard requirement placed on the Messaging proposal.
 
+> **Implementation status.** This is the target model. The current `AskTeam` delivery path is a synchronous Unix domain socket RPC to `DispatchListener`; no message bus involvement exists. Implementing this model requires replacing that RPC with bus-mediated tools and re-invocation plumbing. See the [conversation model](references/conversation-model.md) for the full implementation requirements.
+
 The [conversation model](references/conversation-model.md) covers context identity, multi-turn mechanics, the navigator hierarchy, and escalation routing.
 
 ---

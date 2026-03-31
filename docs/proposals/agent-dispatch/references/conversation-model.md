@@ -16,6 +16,8 @@ Multiple agent-to-agent conversations can be active simultaneously. A lead manag
 
 ## Multi-Turn Mechanics
 
+> **Target design.** A code path for this model does not yet exist. The current `AskTeam` implementation is a synchronous Unix domain socket RPC to `DispatchListener` that blocks the caller for the full dispatch duration. Implementing this model requires replacing that RPC with bus-mediated `AskTeam` and `ReplyTo` tools, re-invocation plumbing, and `pending_count` management in the bus context record.
+
 An agent-to-agent exchange works from the bus's perspective the same as a human-agent conversation. The execution model is write-then-exit-then-resume:
 
 1. Caller posts a message to the recipient's context ID via `AskTeam` and exits its current turn

@@ -114,29 +114,49 @@ class TestInvocationModelAskTeamDescription(unittest.TestCase):
 
 
 class TestConversationModelTargetDesignLabeling(unittest.TestCase):
-    """conversation-model.md multi-turn mechanics must be presented as target design, not implemented."""
+    """conversation-model.md multi-turn mechanics must be explicitly labeled as target design."""
 
-    def test_conversation_model_does_not_claim_current_implementation(self):
-        """conversation-model.md must not claim multi-turn mechanics are currently implemented.
+    def test_conversation_model_explicitly_labels_mechanics_as_target_design(self):
+        """conversation-model.md must explicitly label multi-turn mechanics as the target design.
 
-        The audit found that the multi-turn mechanics described in conversation-model.md
-        had no corresponding code path. They must be presented as the target design.
+        The issue required: "The multi-turn mechanics in conversation-model.md must not be
+        presented as implemented until a code path exists for them." Locating the file under
+        docs/proposals/ is not sufficient — the label must be explicit in the document.
         """
         content = _read(_CONVERSATION_MODEL)
-        # The model must describe write-then-exit as the execution model
         self.assertIn(
-            'write-then-exit',
+            'Target design',
             content,
-            'conversation-model.md must describe the write-then-exit execution model',
+            'conversation-model.md must contain an explicit "Target design" label in the '
+            'Multi-Turn Mechanics section to distinguish it from implemented behavior',
         )
 
-    def test_caller_exits_after_posting(self):
-        """conversation-model.md must state caller exits after posting, not continues running."""
+    def test_conversation_model_acknowledges_current_implementation_is_blocking_rpc(self):
+        """conversation-model.md must name the existing blocking RPC as the current implementation.
+
+        The target-design label must say what the current implementation actually is, so readers
+        can distinguish the design from what runs today.
+        """
         content = _read(_CONVERSATION_MODEL)
         self.assertIn(
-            'exits',
+            'DispatchListener',
             content,
-            'conversation-model.md must state that the caller exits after posting via AskTeam',
+            'conversation-model.md must acknowledge that the current implementation is the '
+            'synchronous DispatchListener RPC, not the bus-mediated model',
+        )
+
+    def test_proposal_explicitly_labels_agent_to_agent_as_target_model(self):
+        """agent-dispatch/proposal.md must explicitly label the agent-to-agent model as the target.
+
+        The issue required the proposal to acknowledge that write-then-exit is the design target,
+        not current behavior. The existing codebase uses a synchronous Unix socket RPC.
+        """
+        content = _read(_AGENT_DISPATCH_PROPOSAL)
+        self.assertIn(
+            'Implementation status',
+            content,
+            'agent-dispatch/proposal.md must contain an "Implementation status" note acknowledging '
+            'that write-then-exit is the target model, not yet implemented',
         )
 
 
