@@ -43,38 +43,43 @@ Routes requests from the office manager to the right specialist. Understands the
 
 ### Project Specialist
 
-Creates and manages project registrations. Understands project onboarding, the `.teaparty/projects/` hierarchy, and how projects are wired into the management team structure.
+Creates and manages project registrations. Understands project onboarding, the `.teaparty.local/` hierarchy, and how projects are wired into the management team structure.
 
 **Model:** sonnet
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
+**Tools:** Read, Glob, Grep, Bash
+**MCP tools:** AddProject, CreateProject, RemoveProject, ScaffoldProjectYaml
 
 ### Workgroup Specialist
 
 Creates and modifies workgroup definitions. Understands workgroup YAML structure, agent rosters, skills catalogs, norms, and delegation rules.
 
 **Model:** sonnet
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
+**Tools:** Read, Glob, Grep, Bash
+**MCP tools:** CreateWorkgroup, EditWorkgroup, RemoveWorkgroup
 
 ### Agent Specialist
 
 Creates agent definitions. Understands tool scoping, model selection, permission modes, MCP server assignment, the `skills:` allowlist field, and prompt design for agent roles.
 
 **Model:** opus
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
+**Tools:** Read, Glob, Grep, Bash
+**MCP tools:** CreateAgent, EditAgent, RemoveAgent
 
 ### Skills Specialist
 
 Creates and optimizes skills. Understands progressive disclosure, `!`command`` injection, supporting file decomposition, and frontmatter fields.
 
 **Model:** opus (skill design requires careful prompt engineering)
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
+**Tools:** Read, Glob, Grep, Bash
+**MCP tools:** CreateSkill, EditSkill, RemoveSkill
 
 ### Systems Engineer
 
 Creates and modifies hooks, MCP server configurations, scheduled tasks, and settings. Understands the hook event model, matcher syntax, handler types, and settings file hierarchy.
 
 **Model:** sonnet
-**Tools:** Read, Glob, Grep, Write, Edit, Bash
+**Tools:** Read, Glob, Grep, Bash
+**MCP tools:** CreateHook, EditHook, RemoveHook, CreateScheduledTask, EditScheduledTask, RemoveScheduledTask
 
 ---
 
@@ -173,20 +178,25 @@ The Configuration Lead's value is coordination and decomposition. For single-art
 
 ---
 
-## Execution Model: Direct Write
+## Execution Model: MCP Tools
 
-Content-producing teams (coding, writing, art) use the **worktree-isolated** execution model: dispatch creates a child worktree, the team works there, and results are squash-merged back into the session worktree. This model gives automatic rollback on failure and prevents partial work from contaminating the session.
+Content-producing teams (coding, writing, art) use the **worktree-isolated** execution model: dispatch creates a child worktree, the team works there, and results are squash-merged back into the session worktree.
 
-The Configuration Team uses the **direct** execution model instead. Configuration artifacts live in `.claude/` (agents, skills, hooks, settings) and `.teaparty/` (team YAML, norms) — these modify the runtime environment itself, not versioned project content. A worktree-merge model creates a chicken-and-egg problem: the configuration artifact doesn't take effect until merged, but the team may need to validate it before merging.
+The Configuration Team uses the **direct** execution model — configuration artifacts live in `.claude/` and `.teaparty/`, which modify the runtime environment itself. A worktree-merge model creates a chicken-and-egg problem: the artifact doesn't take effect until merged, but the team needs to validate it before merging. Specialists run in the session worktree without child worktree isolation.
 
-With the direct model, the Configuration Team runs in the session worktree without child worktree isolation. Dispatch skips `create_dispatch_worktree` and `squash_merge`, and the team's writes land immediately in the live environment.
+Within the direct model, specialists do not write configuration artifacts directly. Every write goes through an MCP tool registered in `orchestrator/mcp_server.py`. The tool validates required fields, enforces schema constraints, and returns a structured result — success with the file path written, or a typed error with the specific validation failure. The agent never touches the filesystem for configuration artifacts.
+
+**Why MCP tools, not direct writes:**
+- **Correctness by construction.** The tool is the implementation. An agent calling `CreateAgent` cannot produce a malformed agent definition — the tool rejects it before writing.
+- **No broad write access.** Specialists have Read, Glob, Grep, Bash. They gather information and call tools. They cannot write to arbitrary paths.
+- **Scoped per specialist.** Each specialist receives only the tools for its domain via `disallowedTools` in the agents bundle. A Skills Specialist cannot call `CreateAgent`; an Agent Specialist cannot call `CreateSkill`. The office manager and Configuration Lead have access to all config tools.
 
 **Trade-offs:**
-- No automatic rollback: a failed dispatch leaves partial config artifacts in place. The Configuration Lead validates artifacts before reporting completion; partial writes are detectable by the human.
-- No merge conflicts: config paths (`.claude/`, `.teaparty/`) are disjoint from content paths, so concurrent content-team dispatches don't interfere.
-- Immediate validation: the team can test its own output (e.g., invoke a newly created skill) without waiting for a merge step.
+- No automatic rollback: a failed dispatch after partial writes leaves artifacts in place. The Configuration Lead validates before reporting completion; the human can see what was and was not written.
+- No merge conflicts: config paths are disjoint from content paths.
+- Immediate validation: the team can test its output (e.g., invoke a newly created skill) without waiting for a merge step.
 
-The `execution_model` field is set in `phase-config.json` per team. All existing teams default to `"worktree"`; the configuration team is set to `"direct"`.
+The `execution_model` field in `phase-config.json` is set to `"direct"` for the configuration team.
 
 ---
 
@@ -238,7 +248,7 @@ Each specialist has skills that guide its work, loaded on demand rather than bur
 
 Skills are registered to agents, not the other way around. An agent may only invoke skills listed in its `skills:` field. An agent with no `skills:` field has access to no skills. A specialist's SOP skills live in `.claude/skills/` like any other skill, but are only accessible to the agent that declares them.
 
-**Enforcement:** This field is convention with explicit contract — Claude Code does not natively enforce it. The TeaParty dispatch layer is the intended enforcer: when dispatching an agent, the dispatch system configures the available skills from the `skills:` allowlist in the agent's definition. This field controls auto-invocation by the model only. User-triggered slash commands (e.g., `/create-workgroup`) are not restricted by this field — they require explicit human intent.
+**Enforcement:** MCP tool scoping is structural. Each specialist's agents bundle entry lists `disallowedTools` covering all MCP tools outside its domain. An agent cannot call a tool it does not have — there is no prompt instruction to override. The `skills:` allowlist on each agent definition controls which skills the agent can auto-invoke; user-triggered slash commands (e.g., `/create-workgroup`) are not restricted by this field and require explicit human intent.
 
 Each specialist owns the full CRUD surface for its domain:
 
