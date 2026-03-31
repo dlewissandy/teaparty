@@ -195,6 +195,16 @@ class TestAddProjectPhaseFiles(unittest.TestCase):
             'phase-register.md must call AddProject only; CreateProject belongs to create-project skill',
         )
 
+    def test_phase_register_mentions_withdraw_session_on_failure(self):
+        """phase-register.md must reference WithdrawSession for the failure/withdrawal path."""
+        content = self._phase('register')
+        self.assertIn(
+            'WithdrawSession',
+            content,
+            'phase-register.md must reference WithdrawSession — if AddProject fails and '
+            'the human withdraws, the skill must terminate cleanly',
+        )
+
     def test_phase_discover_asks_for_path(self):
         """phase-discover.md must ask for or verify the project directory path."""
         content = self._phase('discover')
@@ -264,6 +274,16 @@ class TestCreateProjectSkillPhases(unittest.TestCase):
             'AddProject',
             content,
             'phase-scaffold.md must call CreateProject only; AddProject belongs to add-project skill',
+        )
+
+    def test_phase_scaffold_mentions_withdraw_session_on_failure(self):
+        """phase-scaffold.md must reference WithdrawSession for the failure/withdrawal path."""
+        content = self._phase('scaffold')
+        self.assertIn(
+            'WithdrawSession',
+            content,
+            'phase-scaffold.md must reference WithdrawSession — if CreateProject fails and '
+            'the human withdraws, the skill must terminate cleanly',
         )
 
     def test_phase_dialog_mentions_withdraw_session(self):
