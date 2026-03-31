@@ -4,6 +4,16 @@ The agent calls AskQuestion(question, context).  The handler routes
 through the proxy: confident → return proxy answer; not confident →
 escalate to human, record the differential, return human's answer.
 
+The agent calls Send(member, message) to initiate a conversation with a
+roster member.  Before posting, the handler reads the caller's scratch
+file ({worktree}/.context/scratch.md) and wraps the message in a composite
+envelope (## Task / ## Context) so the recipient has full job context.
+SEND_SOCKET is the transport env var.
+
+The agent calls Reply(message) to respond in the current thread and close
+it.  No context injection — the context is already established.
+REPLY_SOCKET is the transport env var.
+
 The agent calls AskTeam(team, task) to dispatch work to a specialist
 subteam.  The handler sends the request to the DispatchListener via
 a Unix domain socket (ASK_TEAM_SOCKET env var) and returns the result.
@@ -24,7 +34,9 @@ defaults to os.path.join(os.getcwd(), '.teaparty').
 
 The MCP server communicates with the orchestrator via Unix domain
 sockets whose paths are passed in the ASK_QUESTION_SOCKET,
-ASK_TEAM_SOCKET, and INTERVENTION_SOCKET env vars.
+ASK_TEAM_SOCKET, SEND_SOCKET, REPLY_SOCKET, and INTERVENTION_SOCKET
+env vars.  The worktree path for scratch file access is read from
+TEAPARTY_WORKTREE (defaults to os.getcwd() when unset).
 """
 from __future__ import annotations
 
@@ -42,12 +54,19 @@ from mcp.server import FastMCP
 ProxyFn = Callable[[str, str], Awaitable[dict[str, Any]]]
 HumanFn = Callable[[str], Awaitable[str]]
 RecordDifferentialFn = Callable[[str, str, str, str], None]
+SendPostFn = Callable[[str, str, str], Awaitable[str]]
+ReplyPostFn = Callable[[str], Awaitable[str]]
+
+# Maximum lines of scratch file content to include in the Context section.
+# Oldest lines are dropped first when the file exceeds this limit.
+CONTEXT_BUDGET_LINES = 200
 
 
 async def ask_question_handler(
     question: str,
     context: str = '',
     *,
+    scratch_path: str = '',
     proxy_fn: ProxyFn | None = None,
     human_fn: HumanFn | None = None,
     record_differential_fn: RecordDifferentialFn | None = None,
@@ -59,9 +78,17 @@ async def ask_question_handler(
     differential (proxy prediction vs. human actual), and returns the
     human's answer.
 
+    When scratch_path is given, the handler builds a composite envelope
+    (## Task / ## Context) identical to Send's envelope before passing
+    the question to the proxy.  This ensures the escalation recipient
+    has full job context without the calling agent constructing a brief.
+
     Args:
         question: The question the agent is asking.
-        context: Optional context about what the agent is working on.
+        context: Optional extra context (ignored when scratch_path is set).
+        scratch_path: Path to the caller's scratch file.  When set, the
+            handler reads the file, truncates to CONTEXT_BUDGET_LINES,
+            and wraps question in the standard Task/Context envelope.
         proxy_fn: Async function that returns a dict with keys:
             confident (bool), answer (str), prediction (str).
         human_fn: Async function that takes a question and returns the
@@ -71,6 +98,11 @@ async def ask_question_handler(
     """
     if not question or not question.strip():
         raise ValueError('AskQuestion requires a non-empty question')
+
+    # Build composite envelope when a scratch file is available.
+    if scratch_path:
+        question = _build_composite(question, _read_scratch(scratch_path))
+        context = ''
 
     # Route through proxy
     if proxy_fn is None:
@@ -121,6 +153,150 @@ async def _default_human(question: str) -> str:
         response_line = await reader.readline()
         response = json.loads(response_line.decode())
         return response.get('answer', '')
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+# ── Scratch file helpers ─────────────────────────────────────────────��────────
+
+def _read_scratch(scratch_path: str) -> str:
+    """Read the scratch file and return its contents, truncated to CONTEXT_BUDGET_LINES.
+
+    When the file has more than CONTEXT_BUDGET_LINES lines, the oldest
+    (first) lines are dropped so the newest state is preserved.
+    Returns an empty string when the file does not exist.
+    """
+    try:
+        with open(scratch_path) as f:
+            lines = f.readlines()
+    except FileNotFoundError:
+        return ''
+    if len(lines) > CONTEXT_BUDGET_LINES:
+        lines = lines[-CONTEXT_BUDGET_LINES:]
+    return ''.join(lines)
+
+
+def _build_composite(message: str, scratch: str) -> str:
+    """Build the Task/Context composite envelope.
+
+    The composite structure per the agent-dispatch invocation model:
+
+        ## Task
+        [message]
+
+        ## Context
+        [scratch file contents]
+    """
+    return f'## Task\n{message}\n\n## Context\n{scratch}'
+
+
+def _scratch_path_from_env() -> str:
+    """Resolve the scratch file path from TEAPARTY_WORKTREE env var."""
+    worktree = os.environ.get('TEAPARTY_WORKTREE', os.getcwd())
+    return os.path.join(worktree, '.context', 'scratch.md')
+
+
+# ── Send / Reply handlers ────────────────────────────────���────────────────────
+
+async def send_handler(
+    member: str,
+    message: str,
+    context_id: str = '',
+    *,
+    scratch_path: str = '',
+    post_fn: SendPostFn | None = None,
+) -> str:
+    """Core handler logic for Send.
+
+    Reads the caller's scratch file, builds the composite Task/Context
+    envelope, and posts it to the named roster member.
+
+    The scratch file is read from scratch_path when given; otherwise
+    from {TEAPARTY_WORKTREE}/.context/scratch.md.  A missing scratch
+    file yields an empty Context section — the Task section is always
+    present.
+
+    Args:
+        member: Name of the roster member to send to.
+        message: The agent's message (becomes the Task section).
+        context_id: Optional existing context ID for continuing a thread.
+        scratch_path: Override path to the scratch file (for testing).
+        post_fn: Async function that posts (member, composite, context_id)
+            and returns a result string.  Defaults to the SEND_SOCKET
+            transport.
+    """
+    if not member or not member.strip():
+        raise ValueError('Send requires a non-empty member')
+    if not message or not message.strip():
+        raise ValueError('Send requires a non-empty message')
+
+    resolved = scratch_path or _scratch_path_from_env()
+    scratch = _read_scratch(resolved)
+    composite = _build_composite(message, scratch)
+
+    if post_fn is None:
+        post_fn = _default_send_post
+    return await post_fn(member, composite, context_id)
+
+
+async def _default_send_post(member: str, composite: str, context_id: str) -> str:
+    """Default Send transport: post via SEND_SOCKET Unix domain socket."""
+    socket_path = os.environ.get('SEND_SOCKET', '')
+    if not socket_path:
+        raise RuntimeError('SEND_SOCKET not set — cannot send to member')
+    reader, writer = await asyncio.open_unix_connection(socket_path)
+    try:
+        request = json.dumps({
+            'type': 'send', 'member': member,
+            'composite': composite, 'context_id': context_id,
+        })
+        writer.write(request.encode() + b'\n')
+        await writer.drain()
+        response_line = await reader.readline()
+        response = json.loads(response_line.decode())
+        return json.dumps(response)
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
+async def reply_handler(
+    message: str,
+    *,
+    post_fn: ReplyPostFn | None = None,
+) -> str:
+    """Core handler logic for Reply.
+
+    Posts the message unchanged to close the current conversation thread.
+    No context injection — the context is already established in the thread.
+
+    Args:
+        message: The reply message.
+        post_fn: Async function that posts the message and returns a result
+            string.  Defaults to the REPLY_SOCKET transport.
+    """
+    if not message or not message.strip():
+        raise ValueError('Reply requires a non-empty message')
+
+    if post_fn is None:
+        post_fn = _default_reply_post
+    return await post_fn(message)
+
+
+async def _default_reply_post(message: str) -> str:
+    """Default Reply transport: post via REPLY_SOCKET Unix domain socket."""
+    socket_path = os.environ.get('REPLY_SOCKET', '')
+    if not socket_path:
+        raise RuntimeError('REPLY_SOCKET not set — cannot reply')
+    reader, writer = await asyncio.open_unix_connection(socket_path)
+    try:
+        request = json.dumps({'type': 'reply', 'message': message})
+        writer.write(request.encode() + b'\n')
+        await writer.drain()
+        response_line = await reader.readline()
+        response = json.loads(response_line.decode())
+        return json.dumps(response)
     finally:
         writer.close()
         await writer.wait_closed()
@@ -957,12 +1133,58 @@ def create_server() -> FastMCP:
         intent, or need human input before proceeding.  The question will
         be answered — you do not need to write escalation files.
 
+        The tool automatically injects the caller's scratch file as context
+        so the proxy or human receives the full job state alongside the
+        question.
+
         Args:
             question: Your question. Be specific and concise.
-            context: Optional context about what you're working on and
-                why this question matters for your task.
+            context: Ignored when a scratch file is present; kept for
+                backward compatibility when the scratch file is absent.
         """
-        return await ask_question_handler(question=question, context=context)
+        return await ask_question_handler(
+            question=question,
+            context=context,
+            scratch_path=_scratch_path_from_env(),
+        )
+
+    @server.tool()
+    async def Send(member: str, message: str, context_id: str = '') -> str:
+        """Send a message to a roster member, opening or continuing a thread.
+
+        The tool automatically prepends the caller's scratch file as a
+        Context section so the recipient has full job state without the
+        caller constructing a manual brief.
+
+        After Send completes, the agent's turn ends.  TeaParty re-invokes
+        the caller when a response arrives on the thread.
+
+        Args:
+            member: Name key of a roster entry in your --agents object.
+            message: The task or question for the recipient.
+            context_id: Optional existing context ID to continue a thread.
+                Omit to open a new thread.
+        """
+        return await send_handler(
+            member=member,
+            message=message,
+            context_id=context_id,
+            scratch_path=_scratch_path_from_env(),
+        )
+
+    @server.tool()
+    async def Reply(message: str) -> str:
+        """Reply to the agent that opened the current thread and close it.
+
+        No context injection — the context is already established in the
+        thread.  Calling Reply ends the agent's turn and marks the thread
+        closed.  The calling agent's pending_count in the parent context
+        is decremented.
+
+        Args:
+            message: Your reply — result, answer, or completion notice.
+        """
+        return await reply_handler(message=message)
 
     @server.tool()
     async def AskTeam(team: str, task: str) -> str:
