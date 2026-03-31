@@ -284,6 +284,33 @@ class TestProjectToolValidation(unittest.TestCase):
         names = [t['name'] for t in data.get('teams', [])]
         self.assertNotIn('testproj', names)
 
+    def test_create_project_missing_name_returns_error(self):
+        """CreateProject with empty name must return error."""
+        from orchestrator.mcp_server import create_project_handler
+        result = create_project_handler(name='', path='/tmp/newproj',
+                                        teaparty_home=self.tp_home)
+        parsed = json.loads(result)
+        self.assertFalse(parsed['success'])
+        self.assertIn('name', parsed['error'].lower())
+
+    def test_create_project_missing_path_returns_error(self):
+        """CreateProject with empty path must return error."""
+        from orchestrator.mcp_server import create_project_handler
+        result = create_project_handler(name='newproj', path='',
+                                        teaparty_home=self.tp_home)
+        parsed = json.loads(result)
+        self.assertFalse(parsed['success'])
+
+    def test_create_project_existing_directory_returns_error(self):
+        """CreateProject on an existing directory must return error."""
+        from orchestrator.mcp_server import create_project_handler
+        result = create_project_handler(
+            name='newproj', path=self.proj_dir,  # already exists
+            teaparty_home=self.tp_home,
+        )
+        parsed = json.loads(result)
+        self.assertFalse(parsed['success'])
+
     def test_remove_project_nonexistent_returns_error(self):
         """RemoveProject for unknown name must return error."""
         from orchestrator.mcp_server import remove_project_handler
