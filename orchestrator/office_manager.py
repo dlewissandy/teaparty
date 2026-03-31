@@ -473,17 +473,26 @@ class OfficeManagerSession:
         """Retrieve conversation messages, optionally since a timestamp."""
         return self._bus.receive(self.conversation_id, since_timestamp=since_timestamp)
 
+    # Senders that carry internal stream trace — not conversational history.
+    _NON_CONVERSATIONAL_SENDERS = frozenset({
+        'thinking', 'tool_use', 'tool_result', 'system', 'orchestrator',
+    })
+
     def build_context(self) -> str:
         """Build conversation history formatted for the agent prompt.
 
-        Returns the message history as a string the office manager agent
-        can read to understand the conversation so far.
+        Returns human and agent-role messages only. Stream trace events
+        (thinking, tool_use, tool_result, system) are excluded — they are
+        internal diagnostics, not conversational history.
         """
         messages = self.get_messages()
         if not messages:
             return ''
         lines = []
         for msg in messages:
+            if (msg.sender in self._NON_CONVERSATIONAL_SENDERS
+                    or msg.sender.startswith('unknown:')):
+                continue
             role = 'Human' if msg.sender == 'human' else 'Office Manager'
             lines.append(f'{role}: {msg.content}')
         return '\n\n'.join(lines)

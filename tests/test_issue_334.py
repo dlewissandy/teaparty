@@ -485,24 +485,29 @@ class TestMessageOrdering(unittest.TestCase):
 class TestFilterPredicateRouting(unittest.TestCase):
     """Senders produced by _iter_stream_events must match chat.html filter predicates.
 
-    chat.html predicates (lines ~209-213):
+    chat.html predicates (updated for typed senders):
+      'agent':    s !== 'human' && s !== 'system' && s !== 'thinking' && s.indexOf('tool') < 0
       'thinking': s === 'thinking' || s.indexOf('thinking') >= 0
-      'tools':    s === 'tool' || s === 'tool_result' || s.indexOf('tool') >= 0
+      'tools':    s === 'tool_use' || (s.indexOf('tool') >= 0 && s !== 'tool_result')
+      'results':  s === 'tool_result'
       'system':   s === 'system'
-      'agent':    s !== 'human' && s !== 'system'
     """
 
     def _thinking_predicate(self, sender: str) -> bool:
         return sender == 'thinking' or 'thinking' in sender
 
     def _tools_predicate(self, sender: str) -> bool:
-        return sender == 'tool' or sender == 'tool_result' or 'tool' in sender
+        return sender == 'tool_use' or ('tool' in sender and sender != 'tool_result')
+
+    def _results_predicate(self, sender: str) -> bool:
+        return sender == 'tool_result'
 
     def _system_predicate(self, sender: str) -> bool:
         return sender == 'system'
 
     def _agent_predicate(self, sender: str) -> bool:
-        return sender != 'human' and sender != 'system'
+        return (sender != 'human' and sender != 'system'
+                and sender != 'thinking' and 'tool' not in sender)
 
     def test_thinking_sender_matches_thinking_filter(self):
         """sender='thinking' must match the thinking filter predicate."""
@@ -515,14 +520,18 @@ class TestFilterPredicateRouting(unittest.TestCase):
         """sender='tool_use' must match the tools filter predicate."""
         self.assertTrue(
             self._tools_predicate('tool_use'),
-            'sender="tool_use" must match the tools filter (contains "tool")',
+            'sender="tool_use" must match the tools filter',
         )
 
-    def test_tool_result_sender_matches_tools_filter(self):
-        """sender='tool_result' must match the tools filter predicate."""
+    def test_tool_result_sender_matches_results_filter(self):
+        """sender='tool_result' must match the results filter predicate (not tools)."""
         self.assertTrue(
+            self._results_predicate('tool_result'),
+            'sender="tool_result" must match the results filter',
+        )
+        self.assertFalse(
             self._tools_predicate('tool_result'),
-            'sender="tool_result" must match the tools filter (exact match)',
+            'sender="tool_result" must NOT match the tools filter (tools and results are separate)',
         )
 
     def test_system_sender_matches_system_filter(self):
@@ -533,7 +542,7 @@ class TestFilterPredicateRouting(unittest.TestCase):
         )
 
     def test_office_manager_sender_matches_agent_filter(self):
-        """sender='office-manager' must match the agent filter and not others."""
+        """sender='office-manager' must match the agent filter and not tool/thinking filters."""
         self.assertTrue(
             self._agent_predicate('office-manager'),
             'sender="office-manager" must match the agent filter',
@@ -547,8 +556,36 @@ class TestFilterPredicateRouting(unittest.TestCase):
             'sender="office-manager" must not match the tools filter',
         )
         self.assertFalse(
+            self._results_predicate('office-manager'),
+            'sender="office-manager" must not match the results filter',
+        )
+        self.assertFalse(
             self._system_predicate('office-manager'),
             'sender="office-manager" must not match the system filter',
+        )
+
+    def test_agent_filter_does_not_match_thinking_sender(self):
+        """sender='thinking' must NOT match the agent filter — thinking is only visible when explicitly enabled."""
+        self.assertFalse(
+            self._agent_predicate('thinking'),
+            'sender="thinking" must not match the agent filter; '
+            'thinking is hidden by default and should only appear when the thinking toggle is ON',
+        )
+
+    def test_agent_filter_does_not_match_tool_use_sender(self):
+        """sender='tool_use' must NOT match the agent filter — tools are only visible when explicitly enabled."""
+        self.assertFalse(
+            self._agent_predicate('tool_use'),
+            'sender="tool_use" must not match the agent filter; '
+            'tool activity is hidden by default per chat-windows.md spec',
+        )
+
+    def test_agent_filter_does_not_match_tool_result_sender(self):
+        """sender='tool_result' must NOT match the agent filter — results are only visible when explicitly enabled."""
+        self.assertFalse(
+            self._agent_predicate('tool_result'),
+            'sender="tool_result" must not match the agent filter; '
+            'tool results are hidden by default per chat-windows.md spec',
         )
 
     def test_iter_stream_events_thinking_sender_routes_to_thinking_filter(self):
@@ -587,8 +624,8 @@ class TestFilterPredicateRouting(unittest.TestCase):
             'At least one event from a tool_use block must match the tools filter predicate',
         )
 
-    def test_iter_stream_events_tool_result_sender_routes_to_tools_filter(self):
-        """The tool_result sender must match the chat.html tools filter predicate."""
+    def test_iter_stream_events_tool_result_sender_routes_to_results_filter(self):
+        """The tool_result sender must match the chat.html results filter predicate (not tools)."""
         from orchestrator.office_manager import _iter_stream_events
 
         path = _make_stream_path([
@@ -599,10 +636,17 @@ class TestFilterPredicateRouting(unittest.TestCase):
         finally:
             os.unlink(path)
 
-        tool_events = [(s, c) for s, c in events if self._tools_predicate(s)]
+        result_events = [(s, c) for s, c in events if self._results_predicate(s)]
         self.assertTrue(
-            len(tool_events) > 0,
-            'At least one event from a tool_result event must match the tools filter predicate',
+            len(result_events) > 0,
+            'At least one event from a tool_result event must match the results filter predicate',
+        )
+        # tool_result must NOT appear in the tools filter (they are separate)
+        tool_events = [(s, c) for s, c in events if self._tools_predicate(s)]
+        self.assertEqual(
+            len(tool_events), 0,
+            'tool_result sender must not match the tools filter; '
+            'tools and results are separate filters per chat-windows.md',
         )
 
 
@@ -931,3 +975,140 @@ class TestIterStreamEventsEdgeCases(unittest.TestCase):
 
         # Must produce an event for the valid line and not raise for the bad ones
         self.assertTrue(len(events) > 0, 'Valid events after malformed lines must still be yielded')
+
+
+# ── build_context() excludes non-conversational events ────────────────────────
+
+class TestBuildContextExcludesStreamTrace(unittest.TestCase):
+    """build_context() must exclude thinking, tool_use, tool_result, and system messages.
+
+    After invoke() writes typed stream events to the bus, build_context() would
+    include them in the agent's fresh-session prompt unless explicitly filtered.
+    The agent should see conversational history, not internal diagnostic events.
+    """
+
+    def _seed_conversation(self, session, events: list) -> None:
+        """Write a list of (sender, content) events directly to the bus."""
+        for sender, content in events:
+            session._bus.send(session.conversation_id, sender, content)
+
+    def test_build_context_excludes_thinking_messages(self):
+        """build_context() must not include thinking messages in the context string."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            self._seed_conversation(session, [
+                ('human', 'What is the status?'),
+                ('thinking', 'Let me reason about this.'),
+                ('office-manager', 'Everything is fine.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'Let me reason about this.',
+                context,
+                'build_context() must not include thinking block content in the agent prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_context_excludes_tool_use_messages(self):
+        """build_context() must not include tool_use messages in the context string."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            tool_json = json.dumps({'name': 'Bash', 'input': {'command': 'git log --oneline'}})
+            self._seed_conversation(session, [
+                ('human', 'What is the project status?'),
+                ('tool_use', tool_json),
+                ('office-manager', 'Done.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'git log --oneline',
+                context,
+                'build_context() must not include tool invocation content in the agent prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_context_excludes_tool_result_messages(self):
+        """build_context() must not include tool_result messages in the context string."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            self._seed_conversation(session, [
+                ('human', 'Show me the file.'),
+                ('tool_result', 'file contents: line 1\nline 2'),
+                ('office-manager', 'I read the file.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'file contents: line 1',
+                context,
+                'build_context() must not include tool_result content in the agent prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_context_excludes_system_messages(self):
+        """build_context() must not include system event messages in the context string."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            system_json = json.dumps({'type': 'system', 'session_id': 'sid-001'})
+            self._seed_conversation(session, [
+                ('system', system_json),
+                ('human', 'Hello.'),
+                ('office-manager', 'Hi there.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'sid-001',
+                context,
+                'build_context() must not include system event content in the agent prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_context_still_includes_human_and_agent_messages(self):
+        """build_context() must still include human and office-manager messages."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            self._seed_conversation(session, [
+                ('human', 'What projects are active?'),
+                ('thinking', 'Let me check the registry.'),
+                ('tool_use', json.dumps({'name': 'Glob', 'input': {'pattern': '*.yaml'}})),
+                ('tool_result', 'project-a.yaml\nproject-b.yaml'),
+                ('office-manager', 'There are two active projects.'),
+            ])
+            context = session.build_context()
+            self.assertIn(
+                'What projects are active?', context,
+                'build_context() must include human message content',
+            )
+            self.assertIn(
+                'There are two active projects.', context,
+                'build_context() must include office-manager message content',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_context_excludes_unknown_block_type_messages(self):
+        """build_context() must not include unknown:<type> messages in the context string."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_om_session(tmpdir)
+            self._seed_conversation(session, [
+                ('human', 'Proceed.'),
+                ('unknown:future_block', json.dumps({'type': 'future_block', 'data': 'xyz'})),
+                ('office-manager', 'Understood.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'future_block',
+                context,
+                'build_context() must not include unknown:<type> event content in the agent prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
