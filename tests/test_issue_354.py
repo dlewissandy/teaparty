@@ -100,19 +100,20 @@ class TestFilterStateAppliedOnInitialRender(unittest.TestCase):
         self.assertIn('renderMessages', body,
                       'refilter must call renderMessages (which uses filterMessages)')
 
-    def test_filterMessages_returns_all_when_no_buttons_in_dom(self):
-        """filterMessages fallback behavior is documented: returns all messages if no buttons found.
+    def test_filterMessages_has_no_dom_fallthrough(self):
+        """filterMessages must not have a fallthrough that returns all messages unfiltered.
 
-        This is the pre-fix behavior — tests confirm it is no longer reached at initial render
-        because renderMainArea now calls refilter() after DOM update, not before.
+        The original bug was: if no .filter-btn buttons found in DOM, return all messages.
+        Issue #352 removes this by decoupling filter state from DOM — activeFilters is
+        the authoritative source and is always initialized before filterMessages is called.
         """
         html = _read_chat()
         body = _get_function_body(html, 'filterMessages')
-        # The guard: if no buttons, return unfiltered — this is the known problematic path
-        self.assertIn('!btns.length', body,
-                      'filterMessages must have the no-buttons guard')
-        self.assertIn('return messages', body,
-                      'filterMessages must return all messages when no buttons found')
+        self.assertNotIn('!btns.length', body,
+                         'filterMessages must not have a no-buttons-in-DOM guard — '
+                         'activeFilters is the authoritative source, not DOM state')
+        self.assertNotIn('querySelectorAll', body,
+                         'filterMessages must not query the DOM for filter state')
 
 
 class TestRefilterBehaviorUnchanged(unittest.TestCase):

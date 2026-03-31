@@ -217,14 +217,12 @@ var FILTER_TESTS = {
   'log':      function(m) { return (m.sender || '') === 'log'; },
 };
 
+var activeFilters = { agent: true, human: true };
+
 function filterMessages(messages) {
-  var btns = document.querySelectorAll('.filter-btn');
-  if (!btns.length) return messages;
-  var on = {};
-  btns.forEach(function(b) { if (b.classList.contains('on')) on[b.dataset.f] = true; });
   return messages.filter(function(m) {
     for (var f in FILTER_TESTS) {
-      if (on[f] && FILTER_TESTS[f](m)) return true;
+      if (activeFilters[f] && FILTER_TESTS[f](m)) return true;
     }
     return false;
   });
@@ -470,9 +468,9 @@ function renderParticipantLayout() {
 
 function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
   var filterRow = ['agent', 'human', 'thinking', 'tools', 'results', 'system', 'state', 'cost', 'log'].map(function(f) {
-    var on = (f === 'agent' || f === 'human') ? ' on' : '';
+    var on = activeFilters[f] ? ' on' : '';
     return '<button class="filter-btn' + on + '" data-f="' + f +
-      '" onclick="this.classList.toggle(\'on\');refilter()">' + f + '</button>';
+      '" onclick="activeFilters[this.dataset.f]=!activeFilters[this.dataset.f];this.classList.toggle(\'on\');refilter()">' + f + '</button>';
   }).join('');
 
   var copyBtn = '<button class="copy-btn" onclick="copyConversation()" ' +
