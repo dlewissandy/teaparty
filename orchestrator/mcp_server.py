@@ -559,8 +559,17 @@ def create_skill_handler(
     return _ok(f"Skill '{name}' created at {path}", path=path)
 
 
-def edit_skill_handler(name: str, body: str, project_root: str = '') -> str:
-    """Update the body of an existing skill's SKILL.md (preserving frontmatter)."""
+def edit_skill_handler(
+    name: str,
+    field: str,
+    value: str,
+    project_root: str = '',
+) -> str:
+    """Edit a single frontmatter field (or body) in an existing skill's SKILL.md.
+
+    field may be 'body', 'description', 'allowed-tools', 'argument-hint',
+    'user-invocable', or any other frontmatter key.
+    """
     if not name or not name.strip():
         return _err('EditSkill requires a non-empty name')
 
@@ -569,10 +578,16 @@ def edit_skill_handler(name: str, body: str, project_root: str = '') -> str:
     if not os.path.exists(path):
         return _err(f"Skill '{name}' not found at {path}")
 
-    fm, _ = _parse_skill_file(path)
-    body_text = body if body.startswith('\n') else f'\n{body}'
-    _write_skill_file(path, fm, body_text)
-    return _ok(f"Skill '{name}' body updated")
+    fm, body = _parse_skill_file(path)
+    if field == 'body':
+        body = value if value.startswith('\n') else f'\n{value}'
+    elif field == 'allowed-tools':
+        fm['allowed-tools'] = value
+    else:
+        fm[field] = value
+
+    _write_skill_file(path, fm, body)
+    return _ok(f"Skill '{name}' field '{field}' updated")
 
 
 def remove_skill_handler(name: str, project_root: str = '') -> str:
@@ -976,6 +991,10 @@ def create_server() -> FastMCP:
         description: str = '',
         lead: str = '',
         decider: str = '',
+        agents: str = '',
+        humans: str = '',
+        workgroups: str = '',
+        skills: str = '',
         teaparty_home: str = '',
     ) -> str:
         """Create a new project directory with full scaffolding.
@@ -989,11 +1008,22 @@ def create_server() -> FastMCP:
             description: Short description.
             lead: Agent name for project lead.
             decider: Human decider name.
+            agents: Comma-separated agent names.
+            humans: YAML list of human entries.
+            workgroups: YAML list of workgroup entries.
+            skills: Comma-separated skill names.
             teaparty_home: Override for .teaparty/ directory path.
         """
+        agents_list = [a.strip() for a in agents.split(',') if a.strip()] if agents else None
+        humans_list = yaml.safe_load(humans) if humans else None
+        workgroups_list = yaml.safe_load(workgroups) if workgroups else None
+        skills_list = [s.strip() for s in skills.split(',') if s.strip()] if skills else None
         return create_project_handler(
             name=name, path=path, description=description,
-            lead=lead, decider=decider, teaparty_home=teaparty_home,
+            lead=lead, decider=decider,
+            agents=agents_list, humans=humans_list,
+            workgroups=workgroups_list, skills=skills_list,
+            teaparty_home=teaparty_home,
         )
 
     @server.tool()
@@ -1015,6 +1045,10 @@ def create_server() -> FastMCP:
         description: str = '',
         lead: str = '',
         decider: str = '',
+        agents: str = '',
+        humans: str = '',
+        workgroups: str = '',
+        skills: str = '',
     ) -> str:
         """Create or overwrite .teaparty.local/project.yaml for an existing project.
 
@@ -1027,10 +1061,20 @@ def create_server() -> FastMCP:
             description: Short description.
             lead: Agent name for project lead.
             decider: Human decider name.
+            agents: Comma-separated agent names.
+            humans: YAML list of human entries.
+            workgroups: YAML list of workgroup entries.
+            skills: Comma-separated skill names.
         """
+        agents_list = [a.strip() for a in agents.split(',') if a.strip()] if agents else None
+        humans_list = yaml.safe_load(humans) if humans else None
+        workgroups_list = yaml.safe_load(workgroups) if workgroups else None
+        skills_list = [s.strip() for s in skills.split(',') if s.strip()] if skills else None
         return scaffold_project_yaml_handler(
             project_path=project_path, name=name,
             description=description, lead=lead, decider=decider,
+            agents=agents_list, humans=humans_list,
+            workgroups=workgroups_list, skills=skills_list,
         )
 
     @server.tool()
@@ -1120,15 +1164,25 @@ def create_server() -> FastMCP:
         )
 
     @server.tool()
-    async def EditSkill(name: str, body: str, project_root: str = '') -> str:
-        """Update the body of an existing skill's SKILL.md (frontmatter preserved).
+    async def EditSkill(
+        name: str,
+        field: str,
+        value: str,
+        project_root: str = '',
+    ) -> str:
+        """Edit a single field of an existing skill's SKILL.md.
+
+        Use field='body' to update the skill body.  Use field='allowed-tools',
+        field='description', field='argument-hint', or field='user-invocable'
+        to update frontmatter.
 
         Args:
             name: Skill name.
-            body: New skill body (Markdown).
+            field: Field to update ('body', 'description', 'allowed-tools', etc.).
+            value: New value for the field.
             project_root: Override for project root directory.
         """
-        return edit_skill_handler(name=name, body=body, project_root=project_root)
+        return edit_skill_handler(name=name, field=field, value=value, project_root=project_root)
 
     @server.tool()
     async def RemoveSkill(name: str, project_root: str = '') -> str:

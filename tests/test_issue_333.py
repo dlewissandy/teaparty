@@ -357,6 +357,28 @@ class TestProjectToolValidation(unittest.TestCase):
         self.assertEqual(data['lead'], 'office-manager')
         self.assertEqual(data['decider'], 'darrell')
 
+    def test_scaffold_project_yaml_accepts_list_params(self):
+        """ScaffoldProjectYaml handler must write agents/humans/workgroups/skills."""
+        from orchestrator.mcp_server import scaffold_project_yaml_handler
+        result = scaffold_project_yaml_handler(
+            project_path=self.proj_dir,
+            name='testproj',
+            description='desc',
+            lead='office-manager',
+            decider='darrell',
+            agents=['agent-a', 'agent-b'],
+            humans=[{'name': 'darrell', 'role': 'decider'}],
+            workgroups=['wg-config'],
+            skills=['commit'],
+        )
+        parsed = json.loads(result)
+        self.assertTrue(parsed['success'], parsed.get('error'))
+        yaml_path = os.path.join(self.proj_dir, '.teaparty.local', 'project.yaml')
+        with open(yaml_path) as f:
+            data = yaml.safe_load(f)
+        self.assertEqual(data['agents'], ['agent-a', 'agent-b'])
+        self.assertEqual(data['humans'][0]['name'], 'darrell')
+
 
 class TestAgentToolValidation(unittest.TestCase):
     """Agent tools must validate required fields and write correct artifacts."""
@@ -555,14 +577,14 @@ class TestSkillToolValidation(unittest.TestCase):
         )
 
     def test_edit_skill_updates_body(self):
-        """EditSkill must update the body content of SKILL.md."""
+        """EditSkill with field='body' must update the body content of SKILL.md."""
         from orchestrator.mcp_server import create_skill_handler, edit_skill_handler
         create_skill_handler(
             name='test-skill', description='desc', body='Original body.',
             project_root=self.proj,
         )
         result = edit_skill_handler(
-            name='test-skill', body='Updated body.',
+            name='test-skill', field='body', value='Updated body.',
             project_root=self.proj,
         )
         parsed = json.loads(result)
@@ -573,11 +595,47 @@ class TestSkillToolValidation(unittest.TestCase):
         self.assertIn('Updated body.', content)
         self.assertNotIn('Original body.', content)
 
+    def test_edit_skill_updates_allowed_tools(self):
+        """EditSkill with field='allowed-tools' must update the frontmatter."""
+        from orchestrator.mcp_server import create_skill_handler, edit_skill_handler
+        create_skill_handler(
+            name='test-skill', description='desc', body='body.',
+            allowed_tools='Read, Glob', project_root=self.proj,
+        )
+        result = edit_skill_handler(
+            name='test-skill', field='allowed-tools', value='Read, Glob, Bash',
+            project_root=self.proj,
+        )
+        parsed = json.loads(result)
+        self.assertTrue(parsed['success'], parsed.get('error'))
+        skill_path = os.path.join(self.skills_dir, 'test-skill', 'SKILL.md')
+        with open(skill_path) as f:
+            content = f.read()
+        self.assertIn('Read, Glob, Bash', content)
+
+    def test_edit_skill_updates_description(self):
+        """EditSkill with field='description' must update the frontmatter."""
+        from orchestrator.mcp_server import create_skill_handler, edit_skill_handler
+        create_skill_handler(
+            name='test-skill', description='old desc', body='body.',
+            project_root=self.proj,
+        )
+        result = edit_skill_handler(
+            name='test-skill', field='description', value='new description',
+            project_root=self.proj,
+        )
+        parsed = json.loads(result)
+        self.assertTrue(parsed['success'], parsed.get('error'))
+        skill_path = os.path.join(self.skills_dir, 'test-skill', 'SKILL.md')
+        with open(skill_path) as f:
+            content = f.read()
+        self.assertIn('new description', content)
+
     def test_edit_skill_nonexistent_returns_error(self):
         """EditSkill on non-existent skill must return error."""
         from orchestrator.mcp_server import edit_skill_handler
         result = edit_skill_handler(
-            name='nonexistent', body='body', project_root=self.proj,
+            name='nonexistent', field='body', value='body', project_root=self.proj,
         )
         parsed = json.loads(result)
         self.assertFalse(parsed['success'])
