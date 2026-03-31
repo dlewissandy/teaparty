@@ -1112,3 +1112,285 @@ class TestBuildContextExcludesStreamTrace(unittest.TestCase):
             )
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Proxy path: invoke() writes typed events to bus ──────────────────────────
+
+def _make_proxy_session(tmpdir: str, decider: str = 'alice'):
+    from orchestrator.proxy_review import ProxyReviewSession, proxy_bus_path
+    path = proxy_bus_path(tmpdir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return ProxyReviewSession(tmpdir, decider)
+
+
+class TestProxyInvokeWritesAllEventTypesToBus(unittest.TestCase):
+    """ProxyReviewSession.invoke() must write every stream event type to the bus."""
+
+    def _run_proxy_invoke_with_stream(self, tmpdir: str, stream_events: list) -> list:
+        """Run proxy invoke() with a synthetic stream and return all bus messages."""
+        session = _make_proxy_session(tmpdir)
+        session.send_human_message('Is the issue resolved?')
+
+        stream_path = _make_stream_path(stream_events)
+        mock_result = MagicMock()
+        mock_result.session_id = 'sid-proxy-test'
+
+        try:
+            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
+                instance = MagicMock()
+                instance.run = AsyncMock(return_value=mock_result)
+                MockRunner.return_value = instance
+
+                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
+                    with patch('os.close'):
+                        with patch('os.unlink'):
+                            with patch('orchestrator.proxy_review._process_response_signals'):
+                                asyncio.run(session.invoke(cwd=tmpdir))
+
+            return session.get_messages()
+        finally:
+            if os.path.exists(stream_path):
+                os.unlink(stream_path)
+
+    def test_proxy_invoke_writes_thinking_to_bus(self):
+        """proxy invoke() must write thinking blocks to the bus as sender='thinking'."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_assistant_event(
+                    _make_thinking_block('Let me reconsider this carefully.'),
+                    _make_text_block('I think the issue is resolved.'),
+                ),
+            ])
+            thinking_msgs = [m for m in msgs if m.sender == 'thinking']
+            self.assertTrue(
+                len(thinking_msgs) > 0,
+                'proxy invoke() must write thinking blocks to the bus as sender="thinking"; '
+                f'bus senders: {[m.sender for m in msgs]}',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_invoke_writes_tool_use_to_bus(self):
+        """proxy invoke() must write tool_use blocks to the bus as sender='tool_use'."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_assistant_event(
+                    _make_tool_use_block('Read', {'file_path': '/session.json'}),
+                ),
+                _make_tool_result_event('tu_1', 'session data'),
+                _make_assistant_event(_make_text_block('Looks good.')),
+            ])
+            tool_use_msgs = [m for m in msgs if m.sender == 'tool_use']
+            self.assertTrue(
+                len(tool_use_msgs) > 0,
+                'proxy invoke() must write tool_use blocks to the bus as sender="tool_use"; '
+                f'bus senders: {[m.sender for m in msgs]}',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_invoke_writes_tool_result_to_bus(self):
+        """proxy invoke() must write tool_result events to the bus as sender='tool_result'."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_assistant_event(
+                    _make_tool_use_block('Read', {'file_path': '/x'}),
+                ),
+                _make_tool_result_event('tu_1', 'content read'),
+                _make_assistant_event(_make_text_block('Read it.')),
+            ])
+            tool_result_msgs = [m for m in msgs if m.sender == 'tool_result']
+            self.assertTrue(
+                len(tool_result_msgs) > 0,
+                'proxy invoke() must write tool_result events to the bus as sender="tool_result"; '
+                f'bus senders: {[m.sender for m in msgs]}',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_invoke_writes_system_to_bus(self):
+        """proxy invoke() must write system events to the bus as sender='system'."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_system_event('sid-proxy-sys'),
+                _make_assistant_event(_make_text_block('Acknowledged.')),
+            ])
+            system_msgs = [m for m in msgs if m.sender == 'system']
+            self.assertTrue(
+                len(system_msgs) > 0,
+                'proxy invoke() must write system events to the bus as sender="system"; '
+                f'bus senders: {[m.sender for m in msgs]}',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_invoke_writes_proxy_text_with_proxy_sender(self):
+        """proxy invoke() must write agent text to the bus as sender='proxy'."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_assistant_event(_make_text_block('My proxy response.')),
+            ])
+            proxy_msgs = [m for m in msgs if m.sender == 'proxy']
+            self.assertTrue(
+                len(proxy_msgs) > 0,
+                'proxy invoke() must write agent text to the bus as sender="proxy"; '
+                f'bus senders: {[m.sender for m in msgs]}',
+            )
+            self.assertIn(
+                'My proxy response.',
+                proxy_msgs[0].content,
+                f'proxy sender message must contain the response text; got: {proxy_msgs[0].content!r}',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_invoke_bus_ordering_preserved(self):
+        """proxy invoke() bus messages must appear in stream event order."""
+        tmpdir = _make_tmpdir()
+        try:
+            msgs = self._run_proxy_invoke_with_stream(tmpdir, [
+                _make_system_event('sid-proxy-order'),
+                _make_assistant_event(
+                    _make_thinking_block('think'),
+                    _make_tool_use_block('Glob', {'pattern': '*.md'}),
+                ),
+                _make_tool_result_event('tu_1', 'found docs'),
+                _make_assistant_event(_make_text_block('Here is the review.')),
+            ])
+            agent_msgs = [m for m in msgs if m.sender != 'human']
+            senders = [m.sender for m in agent_msgs]
+
+            expected = ['system', 'thinking', 'tool_use', 'tool_result', 'proxy']
+            for i in range(len(expected) - 1):
+                a, b = expected[i], expected[i + 1]
+                idx_a = next((j for j, s in enumerate(senders) if s == a), -1)
+                idx_b = next((j for j, s in enumerate(senders) if s == b), -1)
+                self.assertGreater(idx_a, -1, f'Expected "{a}" in proxy bus messages; got: {senders}')
+                self.assertGreater(idx_b, -1, f'Expected "{b}" in proxy bus messages; got: {senders}')
+                self.assertLess(
+                    idx_a, idx_b,
+                    f'"{a}" (pos {idx_a}) must come before "{b}" (pos {idx_b}) in proxy bus; '
+                    f'senders: {senders}',
+                )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+# ── Proxy path: dialog history builders exclude non-conversational events ─────
+
+class TestProxyDialogHistoryExcludesStreamTrace(unittest.TestCase):
+    """build_dialog_history(), build_context(), and fresh-session history in
+    ProxyReviewSession must all exclude thinking/tool/system events from the
+    proxy agent's prompt.
+    """
+
+    def _seed_proxy_bus(self, session, events: list) -> None:
+        """Write (sender, content) pairs directly to the proxy bus."""
+        for sender, content in events:
+            session._bus.send(session.conversation_id, sender, content)
+
+    def test_build_dialog_history_excludes_thinking(self):
+        """build_dialog_history() must skip thinking messages."""
+        from orchestrator.proxy_review import build_dialog_history
+        from orchestrator.messaging import SqliteMessageBus
+        from orchestrator.proxy_review import proxy_bus_path
+
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_proxy_session(tmpdir)
+            self._seed_proxy_bus(session, [
+                ('human', 'Are you confident?'),
+                ('thinking', 'Let me reconsider.'),
+                ('proxy', 'Yes, I am confident.'),
+            ])
+            history = build_dialog_history(session._bus, session.conversation_id)
+            self.assertNotIn(
+                'Let me reconsider.',
+                history,
+                'build_dialog_history() must not include thinking content in dialog history',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_dialog_history_excludes_tool_use(self):
+        """build_dialog_history() must skip tool_use messages."""
+        from orchestrator.proxy_review import build_dialog_history
+
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_proxy_session(tmpdir)
+            tool_json = json.dumps({'name': 'Read', 'input': {'file_path': '/proxy-notes.md'}})
+            self._seed_proxy_bus(session, [
+                ('human', 'Check the session.'),
+                ('tool_use', tool_json),
+                ('tool_result', 'proxy notes content'),
+                ('proxy', 'I reviewed the session.'),
+            ])
+            history = build_dialog_history(session._bus, session.conversation_id)
+            self.assertNotIn(
+                'proxy-notes.md',
+                history,
+                'build_dialog_history() must not include tool_use content in dialog history',
+            )
+            self.assertNotIn(
+                'proxy notes content',
+                history,
+                'build_dialog_history() must not include tool_result content in dialog history',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_build_dialog_history_preserves_human_and_proxy_messages(self):
+        """build_dialog_history() must include human and proxy messages."""
+        from orchestrator.proxy_review import build_dialog_history
+
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_proxy_session(tmpdir)
+            self._seed_proxy_bus(session, [
+                ('human', 'Does the fix look complete?'),
+                ('thinking', 'Let me read the diff.'),
+                ('proxy', 'Yes, it handles all cases.'),
+            ])
+            history = build_dialog_history(session._bus, session.conversation_id)
+            self.assertIn(
+                'Does the fix look complete?', history,
+                'build_dialog_history() must include human message',
+            )
+            self.assertIn(
+                'Yes, it handles all cases.', history,
+                'build_dialog_history() must include proxy message',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_proxy_build_context_excludes_stream_trace(self):
+        """ProxyReviewSession.build_context() must not include non-conversational events."""
+        tmpdir = _make_tmpdir()
+        try:
+            session = _make_proxy_session(tmpdir)
+            self._seed_proxy_bus(session, [
+                ('human', 'What do you think?'),
+                ('thinking', 'I should check the memory.'),
+                ('tool_use', json.dumps({'name': 'Read', 'input': {'file_path': '/mem.db'}})),
+                ('tool_result', 'memory database contents'),
+                ('proxy', 'I reviewed the prior corrections.'),
+            ])
+            context = session.build_context()
+            self.assertNotIn(
+                'I should check the memory.',
+                context,
+                'build_context() must not include thinking content in proxy prompt',
+            )
+            self.assertNotIn(
+                'memory database contents',
+                context,
+                'build_context() must not include tool_result content in proxy prompt',
+            )
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
