@@ -23,3 +23,4 @@ All proposals in this milestone are designed for single-machine, single-user ope
 | [Configuration Team](configuration-team/proposal.md) | Workgroup for creating and modifying Claude Code artifacts |
 | [Context Budget](context-budget/proposal.md) | Stream-based context extraction and compaction management |
 | [Proxy Review](proxy-review/proposal.md) | Direct channel to inspect and calibrate the proxy's model, plus liaison mode for async team communication |
+| [Agent Dispatch](agent-dispatch/proposal.md) | Single-agent invocations, bus-mediated agent-to-agent messaging, worktree skill isolation, routing rules replacing liaison agents |
