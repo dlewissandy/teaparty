@@ -217,9 +217,20 @@ def _extract_slug(stream_path: str, session_id: str, cwd: str) -> str:
     return ''
 
 
-def _extract_assistant_text(stream_path: str) -> str:
-    """Extract concatenated assistant text blocks from a stream-json JSONL file."""
-    parts = []
+def _iter_stream_events(stream_path: str, agent_role: str):
+    """Yield (sender, content) pairs for every event in a stream-json JSONL file.
+
+    Maps stream event types to bus sender labels:
+    - thinking block   → ('thinking', text)
+    - text block       → (agent_role, text)
+    - tool_use block   → ('tool_use', JSON of name+input)
+    - tool_result event → ('tool_result', content text or JSON)
+    - system event     → ('system', JSON of event)
+    - unknown block    → ('unknown:<type>', JSON of block)
+
+    Yields events in stream order. Unknown event types are skipped; unknown
+    block types within assistant events are written rather than dropped.
+    """
     try:
         with open(stream_path) as f:
             for line in f:
@@ -230,16 +241,38 @@ def _extract_assistant_text(stream_path: str) -> str:
                     ev = json.loads(line)
                 except (ValueError, json.JSONDecodeError):
                     continue
-                if ev.get('type') != 'assistant':
-                    continue
-                for block in ev.get('message', {}).get('content', []):
-                    if isinstance(block, dict) and block.get('type') == 'text':
-                        text = block.get('text', '').strip()
-                        if text:
-                            parts.append(text)
+                ev_type = ev.get('type', '')
+
+                if ev_type == 'assistant':
+                    for block in ev.get('message', {}).get('content', []):
+                        if not isinstance(block, dict):
+                            continue
+                        block_type = block.get('type', '')
+                        if block_type == 'thinking':
+                            text = block.get('thinking', '').strip()
+                            if text:
+                                yield 'thinking', text
+                        elif block_type == 'text':
+                            text = block.get('text', '').strip()
+                            if text:
+                                yield agent_role, text
+                        elif block_type == 'tool_use':
+                            yield 'tool_use', json.dumps({
+                                'name': block.get('name', ''),
+                                'input': block.get('input', {}),
+                            })
+                        else:
+                            yield f'unknown:{block_type}', json.dumps(block)
+
+                elif ev_type == 'tool_result':
+                    raw = ev.get('content', '')
+                    yield 'tool_result', raw if isinstance(raw, str) else json.dumps(raw)
+
+                elif ev_type == 'system':
+                    yield 'system', json.dumps(ev)
+
     except OSError:
         pass
-    return '\n'.join(parts)
 
 
 # ── Liaison agent construction ──────────────────────────────────────────────
@@ -557,20 +590,24 @@ class OfficeManagerSession:
             )
             result = await runner.run()
 
-            response_text = _extract_assistant_text(stream_path)
+            events = list(_iter_stream_events(stream_path, 'office-manager'))
+            response_text = '\n'.join(c for s, c in events if s == 'office-manager')
 
-            if response_text:
-                self.send_agent_message(response_text)
-            else:
+            for sender, content in events:
+                self._bus.send(self.conversation_id, sender, content)
+
+            if not response_text:
                 # Runner completed but produced no assistant text. Clear the
                 # saved session so the next invocation starts fresh rather than
                 # silently producing nothing again on --resume.
                 self.claude_session_id = None
                 self.save_state()
-                self.send_agent_message(
+                self._bus.send(
+                    self.conversation_id,
+                    'office-manager',
                     'I was unable to produce a response (the session may have '
                     'expired). Please send your message again to start a fresh '
-                    'session.'
+                    'session.',
                 )
 
             if response_text and result.session_id:
