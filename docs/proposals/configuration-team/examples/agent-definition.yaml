@@ -6,6 +6,7 @@ maxTurns: 20
 permissionMode: default
 tools: Read, Glob, Grep, Bash
 disallowedTools: Write, Edit, NotebookEdit
+skills: []
 ---
 
 You are a QA reviewer. You verify test coverage, run test suites, and
