@@ -4,17 +4,13 @@
 
 ## Bus Routing Rules
 
-Routing policy determines which agents can communicate with which others. An agent can only `Send` to members explicitly listed in its `--agents` roster. The roster is composed by TeaParty at spawn time — an agent has no visibility into, and no route to, any agent not in its roster.
+Routing policy determines which agents can communicate with which others. An agent can only `Send` to members explicitly listed in its `--agents` roster. TeaParty composes the roster at spawn time — an agent has no visibility into, and no route to, any agent not in its roster.
 
-The routing policy is expressed through what TeaParty puts in each agent's roster:
+Within a workgroup, each agent's roster includes all other agents in the same workgroup. The lead's roster includes all workers; each worker's roster includes the lead (via requestor injection) and, optionally, peer workers if peer communication is permitted for that workgroup. Cross-workgroup within a project, a workgroup lead's roster includes the project lead and vice versa; workers do not have the project lead in their roster and cross-workgroup requests go through the workgroup lead. Cross-project, only the project lead and OM have routes to each other — the project lead's roster includes the OM, and the OM's roster includes all project leads.
 
-**Within a workgroup:** each agent's roster includes all other agents in the same workgroup. The lead's roster includes all workers; each worker's roster includes the lead (via requestor injection) and, optionally, peer workers if peer communication is permitted for that workgroup.
+Routing is enforced at two layers. `Send` performs a client-side pre-check: if the named member is not in the agent's roster, it raises `UnknownMemberError` before touching the bus. The bus dispatcher performs a transport-level check independently: given the sender's `agent_id` and the target context ID, it verifies a routing entry exists for `(sender_agent_id, recipient_agent_id)`. A message that reaches the bus without going through `Send` is still rejected if no routing entry exists. The two checks are not redundant — `Send` gives the agent a clean error to handle in its own turn; the dispatcher ensures routing cannot be bypassed at the transport layer.
 
-**Cross-workgroup within a project:** a workgroup lead's roster includes the project lead. The project lead's roster includes all workgroup leads. Workers do not have the project lead in their roster — cross-workgroup requests go through the workgroup lead, who forwards to the project lead.
-
-**Cross-project:** the project lead's roster includes the OM. The OM's roster includes all project leads. No other agent has the OM in its roster.
-
-These rules are enforced at two layers. `Send` performs a client-side pre-check: if the named member is not in the agent's roster, it raises `UnknownMemberError` before touching the bus. The bus dispatcher performs a transport-level check independently: given the sender's `agent_id` and the target context ID, it verifies a routing entry exists for `(sender_agent_id, recipient_agent_id)`. A message that reaches the bus without going through `Send` is still rejected if no routing entry exists. The two checks are not redundant — `Send` gives the agent a clean error to handle in its own turn; the dispatcher ensures routing cannot be bypassed at the transport layer.
+Note that directed sends used for INTERVENE/escalation bypass both of these checks. Authorization for escalation is by conversation hierarchy position, not by routing table entry. Workers do not have project-lead routing entries, and the escalation path is deliberately carved out from normal routing enforcement to allow any spawned agent to reach its ancestry. This carve-out is described in [Escalation Routing](conversation-model.md#escalation-routing).
 
 ## Agent Identity
 
@@ -28,7 +24,7 @@ An `agent_id` is the stable, unique identifier for an agent within a session. Th
 - `project_name/lead` — the project lead's `agent_id`, assigned regardless of what agent definition name the `lead:` field in `project.yaml` points to
 - `om` — the office manager's `agent_id`, a hardcoded convention for the management team lead; it is registered unconditionally at session start regardless of what the `lead:` field in `teaparty.yaml` names
 
-`AskTeam` takes a `role` string (scoped to the caller's workgroup) and resolves it to a full `agent_id` by prepending the caller's project and workgroup context before performing the routing check.
+`Send` takes a `member` string (the name key of a roster entry) and resolves it to a full `agent_id` by looking up TeaParty's roster map for the calling agent. `AskTeam`, the current implementation, takes a `role` string (scoped to the caller's workgroup) and resolves it to a full `agent_id` by prepending the caller's project and workgroup context. `AskTeam`'s role-resolution logic is the current path; `Send`'s name-based lookup is the target. Both resolve to the same `agent_id` type and perform the same routing check against the routing table.
 
 ## Matrixed Workgroup Routing
 
@@ -40,7 +36,7 @@ The derivation algorithm processes each project's workgroup membership independe
 
 The routing table is the shared data structure between the roster composition step (reads workgroup YAML and participant config, writes the table) and the bus dispatcher (reads the table to authorize posts).
 
-The routing table is derived from the roster compositions. For every agent spawned in the session, TeaParty reads the `--agents` entries it was given and extracts the `(caller_agent_id, member_agent_id)` pairs — one pair per roster entry, where `caller_agent_id` is the spawned agent's identity and `member_agent_id` is the `agent_id` stored in the entry's `prompt` field. The union of all such pairs across all spawned agents is the routing table.
+Derived from roster compositions: for every agent spawned in the session, TeaParty reads its roster map entries and extracts `(caller_agent_id, member_agent_id)` pairs — one pair per roster entry, where `caller_agent_id` is the spawned agent's identity and `member_agent_id` is the `agent_id` from TeaParty's roster map for that entry. The union of all such pairs across all spawned agents is the routing table.
 
 The table is a set of `(sender_agent_id, recipient_agent_id)` pairs. Each pair encodes a permitted directed communication channel. Examples derived from roster composition:
 
@@ -50,11 +46,13 @@ The table is a set of `(sender_agent_id, recipient_agent_id)` pairs. Each pair e
 
 The table is keyed by `sender_agent_id`. The dispatcher's authorization check: given the sender's `agent_id` and the target context ID, does a routing entry exist for `(sender_agent_id, recipient_agent_id)`? Context ownership is tracked in the bus conversation context record, which stores both `initiator_agent_id` and `recipient_agent_id`. For `Reply` calls, the dispatcher resolves the target from the context record's `initiator_agent_id` field, then checks whether a `(sender, initiator)` routing pair exists.
 
-The table is built incrementally as agents are spawned and held in memory by the dispatcher for the session's duration. It is not persisted between sessions. An agent spawned mid-session has its roster entries added to the table at spawn time.
+The table is built incrementally as agents are spawned and held in memory by the bus event listener for the session's duration. It is not persisted between sessions. An agent spawned mid-session has its roster entries added to the table at spawn time.
+
+**Restart recovery.** Because the routing table is ephemeral but bus context records are durable, a restart leaves open contexts with no corresponding routing entries. Recovery rebuilds the routing table from configuration before re-invoking any waiting callers. Full recovery mechanics — including handling of cyclic graphs from mid-task clarification — are in [Routing Table Recovery After Restart](invocation-model.md#routing-table-recovery-after-restart).
 
 ## The OM as Cross-Project Gateway
 
-The office manager holds cross-project context. Project A's lead posts a cross-project request to the OM conversation. The OM receives it with full context about what Project A needs, then posts to Project B's lead on its own conversation context. The response flows back through the OM to Project A's lead. The OM provides framing in both directions — Project B's lead receives a request with sufficient context, not a raw message from an unknown caller. This is the liaison function, implemented as OM mediation rather than a dedicated agent role.
+The office manager holds cross-project context. Project A's lead posts a cross-project request to the OM conversation. The OM receives it with full context about what Project A needs, then posts to Project B's lead on its own conversation context. The response flows back through the OM to Project A's lead. The OM provides framing in both directions — Project B's lead receives a request with sufficient context, not a raw message from an unknown caller. The routing function is implemented as OM mediation rather than a dedicated agent role.
 
 ## Disposition of Liaison Agents
 
@@ -68,11 +66,11 @@ The current liaison agent definitions in `orchestrator/office_manager.py` (`_mak
 
 ## Bus Dispatcher Location
 
-The bus dispatcher is a component in the TeaParty orchestrator process — a Python class in `orchestrator/` that sits between the message bus transport and the agent invocation layer. It holds the routing table for the session and performs the transport-level authorization check on every incoming post. `AskTeam` calls it synchronously before writing to the bus; direct bus writes (via `ReplyTo` or any other path) go through the dispatcher's transport-level intercept. The dispatcher is not a separate server or process.
+The bus dispatcher is a component in the TeaParty orchestrator process — a Python class in `orchestrator/` that sits between the message bus transport and the agent invocation layer. It holds the routing table for the session and performs the transport-level authorization check on every incoming post. The `Send` MCP tool calls it synchronously before writing to the bus; direct bus writes go through the dispatcher's transport-level intercept. The dispatcher is not a separate server or process.
 
 ## Routing Rule Storage
 
-Routing rules are derived from roster compositions. The workgroup YAML and participant config are the inputs; the `--agents` roster entries are the intermediate representation; the routing table is the output.
+Routing rules are derived from roster compositions. The workgroup YAML and participant config are the inputs; the roster map entries are the intermediate representation; the routing table is the output.
 
 Changes to workgroup membership take effect at the start of the next session — roster compositions are computed at spawn time using the configuration as it stands when the session begins. Adding an agent to a workgroup causes it to appear in the appropriate rosters at next spawn; removing it causes it to disappear. No separate routing configuration to maintain.
 
@@ -83,8 +81,9 @@ The routing enforcement mechanism described in this document is designed but not
 - The `agent_id` derivation algorithm (reads workgroup YAML, produces `{workgroup_name}/{role_name}` identifiers)
 - The routing table (set of `(sender_agent_id, recipient_agent_id)` pairs, computed at session start)
 - The bus dispatcher class (transport-level authorization check in `orchestrator/`)
-- The `RoutingError` raised by the `AskTeam` pre-check
+- The `RoutingError` raised by the `Send` pre-check
+- The routing table recovery procedure (rebuilds from bus context records on restart)
 
-Until both the `AskTeam` pre-check and the bus dispatcher transport check are implemented, there is no enforcement of routing rules. An agent can post to any conversation ID without restriction. The cross-project isolation guarantee stated in this document is a design intent, not current behavior.
+Until both the `Send` pre-check and the bus dispatcher transport check are implemented, there is no enforcement of routing rules. An agent can post to any conversation ID without restriction. The cross-project isolation guarantee stated in this document is a design intent, not current behavior.
 
 Implementation is pending #345 (bus-mediated AskTeam blocking model) and #348 (routing derivation algorithm). The transport-level bus dispatcher cannot be built until the routing table derivation is complete (#348). The two-layer enforcement guarantee is only valid once both layers exist.

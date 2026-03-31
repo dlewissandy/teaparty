@@ -8,9 +8,9 @@ Agents are not subprocesses inside a lead's context. Each agent is an independen
 
 ## Single-Agent Invocations
 
-Every agent — lead or worker — runs as a standalone `claude -p` process. Each agent is spawned independently with its own agent definition file (`--agent`, singular). TeaParty uses `--agents` (plural) for roster composition, not for native in-process spawning — each entry defines a communication partner the agent can reach via `Send`, with a description that guides routing decisions and a prompt field that carries the recipient's `agent_id` for bus routing.
+Every agent — lead or worker — runs as a standalone `claude -p` process. Each agent is spawned independently with its own agent definition file (`--agent`, singular). TeaParty uses `--agents` (plural) for roster composition, not for native in-process spawning. Each roster entry defines a communication partner the agent can reach via `Send`, with a description that guides routing decisions and a field carrying the recipient's `agent_id` for bus routing.
 
-This changes the lead's role: it decomposes work, sends requests to named roster members, and synthesizes responses. It no longer needs to hold the whole team in context simultaneously.
+The lead decomposes work, sends requests to named roster members, and synthesizes responses. It no longer needs to hold the whole team in context simultaneously.
 
 The worktree composition step, roster composition, skill isolation via `--bare`, and MCP scoping via `--settings` are detailed in the [invocation model](references/invocation-model.md).
 
@@ -20,20 +20,20 @@ The worktree composition step, roster composition, skill isolation via `--bare`,
 
 Agent-to-agent communication goes through the message bus — the same bus that carries human-agent conversations. This supersedes the current messaging proposal's statement that agent-to-agent communication is "via MCP tools and dispatch, not through the message bus."
 
-When an agent posts a message to a teammate via the `AskTeam` MCP tool, the bus creates a conversation context. TeaParty spins up the receiving agent with that context. The exchange is multi-turn: the receiving agent can ask a follow-up, the caller can respond, all on the same context ID.
+When an agent posts a message to a teammate via `Send`, the bus creates a conversation context. TeaParty spins up the receiving agent with that context. The exchange is multi-turn: the receiving agent can ask a follow-up, the caller can respond, all on the same context ID.
 
 Every agent runs in an isolated context window with no visibility into any other agent's conversation history. Messages crossing a process boundary must carry enough context for the recipient to act. Two tools handle all inter-agent communication:
 
-- **`Send(member, message)`** — delivers a message to a named roster member, opening or continuing a thread. Before posting, the orchestrator flushes the current state to the job's scratch file (`{worktree}/.context/scratch.md`). The tool assembles a composite message: the agent's message as the Task section, the scratch file contents as the Context section. The recipient gets a current, self-contained brief structured for progressive disclosure — task first, job state below, pointers to detail files for anything that needs deeper reading.
+- **`Send(member, message)`** — delivers a message to a named roster member, opening a new thread by default. Before posting, the orchestrator flushes the current state to the job's scratch file (`{worktree}/.context/scratch.md`). The tool assembles a composite message: the agent's message as the Task section, the scratch file contents as the Context section. The recipient gets a current, self-contained brief structured for progressive disclosure — task first, job state below, pointers to detail files for anything that needs deeper reading.
 - **`Reply(message)`** — responds to whoever opened the current thread and closes it. No context injection — the context is already established.
 
-The calling agent writes naturally; the tool constructs the envelope. The scratch file is the prior: a distilled snapshot of decisions, human input, dead ends, and current state, maintained by the orchestrator from the stream. The flush-before-send ensures the snapshot includes everything up to and including the current turn.
+The calling agent writes naturally; the tool constructs the envelope. The scratch file is the prior: a distilled snapshot of decisions, human input, dead ends, and current state, maintained by the orchestrator from the stream. The flush-before-send ensures the snapshot reflects everything up to and including the current turn.
 
-The execution model is write-then-exit-then-resume. A lead that sends three parallel requests records all three outstanding threads in its conversation history before exiting its current turn. It is not running concurrently with its workers. When workers call `Reply`, TeaParty tracks completions via the `pending_count` field in the bus context record; the lead is re-invoked when all threads close. The lead's state lives on the bus, not in process memory — this is what makes it durable across restarts and partial failures.
+The execution model is write-then-exit-then-resume. A lead that sends three parallel requests records all three outstanding threads in its conversation history before exiting its current turn. It does not run concurrently with its workers. When workers call `Reply`, TeaParty tracks completions via the `pending_count` field in the bus context record; the lead is re-invoked when all threads close. The lead's state lives on the bus, not in process memory — durability across restarts and partial failures follows from that.
 
 The bus must be a durable store, not just a message queue. Conversation context records persist across process restarts so that re-invocation can retrieve session IDs and pending state. This durability is a hard requirement placed on the Messaging proposal.
 
-> **Implementation status.** This is the target model. The current `AskTeam` delivery path is a synchronous Unix domain socket RPC to `DispatchListener`; no message bus involvement exists. Implementing this model requires replacing that RPC with bus-mediated tools and re-invocation plumbing. See the [conversation model](references/conversation-model.md) for the full implementation requirements.
+> **Implementation status.** This is the target model. The current `AskTeam` delivery path is a synchronous Unix domain socket RPC to `DispatchListener`; no message bus involvement exists. `Send` and `Reply` are the target tools; `AskTeam` is the current implementation. Implementing this model requires replacing that RPC with bus-mediated tools and re-invocation plumbing. See the [conversation model](references/conversation-model.md) for the full implementation requirements.
 
 The [conversation model](references/conversation-model.md) covers context identity, multi-turn mechanics, the navigator hierarchy, and escalation routing.
 
@@ -53,9 +53,9 @@ The [routing reference](references/routing.md) covers the full routing rule stru
 
 ## Relationship to Native Agent Teams
 
-Claude Code's native agent teams feature (experimental, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) provides inter-agent messaging and shared task coordination. TeaParty uses `--agents` for roster composition but not for native in-process spawning. The distinction matters:
+Claude Code's agent teams feature provides inter-agent messaging and shared task coordination. TeaParty uses `--agents` for roster composition but not for native in-process spawning. The distinction matters:
 
-- **`--agents` in TeaParty** defines who an agent can communicate with and what they do. The `prompt` field carries the bus routing key. Actual communication goes through the bus — not through Claude's internal agent spawning mechanism. Each agent remains an independent `claude -p` process.
+- **`--agents` in TeaParty** defines who an agent can communicate with and what they do. Actual communication goes through the bus — not through Claude's internal agent spawning mechanism. Each agent remains an independent `claude -p` process.
 - **Native agent teams** spawn sub-agents inside the coordinating agent's session. Those agents share in-process state and exist only for the duration of the parent session. They cannot be resumed after restart.
 
 TeaParty's bus model is architecturally distinct on the dimensions that matter for durable coordination:
@@ -65,7 +65,9 @@ TeaParty's bus model is architecturally distinct on the dimensions that matter f
 - **OM-mediated cross-project routing.** The OM is a first-class coordination participant. Native agent teams have no cross-project gateway concept.
 - **CfA-based escalation into the human coordination protocol.** Escalation threads through the bus conversation hierarchy into existing CfA gates. Native agent teams have no equivalent.
 
-These differences are not incidental. They are what "durable, scalable agent coordination" requires that the platform's native primitives do not yet provide.
+These four distinctions are the design intent. None of the enforcement mechanisms exist in code yet — see the Implementation Status section of the [routing reference](references/routing.md). The comparison is forward-looking by design, not a claim about current behavior.
+
+**Positioning note: Temporal.io.** The write-then-exit-then-resume execution pattern, durable state on an external store, and `pending_count`-driven fan-in re-invocation are structurally similar to Temporal.io's workflow execution model — workflow workers write decisions to a persistent event history, exit, and are re-invoked when activities complete. The similarity is not coincidental; both designs solve the same durability problem. The key difference is the state carrier. Temporal's state is a deterministic, replayable event log — workflow logic must be deterministic so the engine can reconstruct execution state by replaying events. TeaParty's state carrier is LLM conversation history, which is not deterministic and cannot be replayed. An LLM inference call is not a deterministic function of its inputs; re-running it with the same history produces different output. This is why Temporal cannot be directly applied here: Temporal's replay guarantee is undefined for non-deterministic workers. TeaParty applies the same durable execution infrastructure to agents that maintain state as language rather than as code, and whose continuation is re-invocation with restored context rather than deterministic replay.
 
 ---
 
@@ -87,13 +89,26 @@ Each agent invocation gets a worktree with a composed `.claude/skills/` director
 
 ## Prerequisites
 
-- [Messaging](../messaging/proposal.md) — bus transport, conversation identity, adapter interface. The bus must be a durable persistent store; this is a hard requirement, not an optional capability.
-- [Office Manager](../office-manager/proposal.md) — OM as cross-project gateway. Cross-project routing requires the OM to expose an agent-addressable context. The OM proposal's on-demand invocation model must be extended to support a persistent listener mode — the OM must be addressable by project leads without a human-initiated conversation as the carrier. This work is in scope for this proposal's implementation; cross-project agent routing cannot be delivered without it.
+- [Messaging](../messaging/proposal.md) — bus transport, conversation identity, adapter interface. The bus must be a durable persistent store; this is a hard requirement, not an optional capability. The Agent Dispatch proposal places the following requirements on the bus: two-record atomicity for sub-context creation (writing a new sub-context record and incrementing the parent's `pending_count` must succeed or fail together — a single-field CAS is not sufficient), durable writes keyed by `context_id`, and key-value lookup by both `context_id` and `agent_id`. The Messaging proposal must confirm these properties before re-invocation and fan-in can be implemented.
+- [Office Manager](../office-manager/proposal.md) — OM as cross-project gateway. Cross-project routing requires the OM to expose an agent-addressable context. The OM proposal's on-demand invocation model must be extended to support a persistent listener mode. The minimal design for this mode: the OM maintains a stable session ID registered at TeaParty session start; project leads address it by the hardcoded `om` agent ID; TeaParty holds an open `--resume`-capable session for the OM independent of any human conversation. The session identity problem (who creates the initial conversation and what is its initial history) and the exit condition are open design questions that must be resolved in the OM proposal before cross-project routing can be delivered.
 
 ---
 
 ## Relationship to Other Proposals
 
 - [Team Configuration](../team-configuration/proposal.md) — workgroup membership is the input to routing rule derivation
-- [CfA Extensions](../cfa-extensions/proposal.md) — escalation events bubble up the conversation chain using the INTERVENE/WITHDRAW mechanics. Every agent spawn must inject the job-level context ID so that INTERVENE can propagate from sub-conversation contexts to the job-level conversation. CfA Extensions must also define the receptive state precondition — what the job-level conversation must be doing when INTERVENE arrives.
-- [Context Budget](../context-budget/proposal.md) — each agent invocation has its own context; the budget applies per-invocation
+- [CfA Extensions](../cfa-extensions/proposal.md) — escalation events bubble up the conversation chain using the INTERVENE/WITHDRAW mechanics. Every agent spawn must inject both the immediate parent context ID and the job-level context ID so that INTERVENE can propagate from any depth in the hierarchy to the job-level conversation. CfA Extensions must define the field names for both injections and the receptive state precondition — what the job-level conversation must be doing when INTERVENE arrives.
+- [Context Budget](../context-budget/proposal.md) — each agent invocation has its own context; the budget applies per-invocation. The maximum tokens injected into a freshly spawned worker (scratch file contents plus task message) is the primary constraint Agent Dispatch places on the Context Budget proposal. That ceiling must be specified before dispatch feasibility can be fully evaluated.
+
+---
+
+## Acceptance Criteria
+
+The durability claim is validated when the following hold empirically:
+
+- A session interrupted mid-fan-out (orchestrator killed while workers are active) recovers on restart: all in-flight context IDs are resumed, workers that had not replied are re-spawned, and the lead is re-invoked when the reconstituted fan-in completes.
+- Message delivery is at-least-once for all `Send` and `Reply` calls within a session. Duplicate delivery is acceptable; message loss is not.
+- A recovered lead's output on re-invocation is evaluated by interrupting a session at a defined checkpoint (after the lead has sent all `Send` calls and before any `Reply` arrives), recovering, and comparing the lead's final output against a control run (same session, no interruption). Equivalence is assessed by the engineer running the test against a checklist of required output properties specified before the run. The sample size for the first integration milestone is three interrupted sessions; the pass criterion is stated before the runs begin, not after.
+- The maximum tested parallelism is stated explicitly at the time of the first integration test run.
+
+These are the minimum conditions under which the durability claim is considered validated at the smoke-test milestone level — they confirm the mechanism functions, not that it reliably functions at scale. Full experimental design is out of scope for this proposal but must exist before the milestone is closed.
