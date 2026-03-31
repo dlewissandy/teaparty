@@ -206,12 +206,15 @@ function renderMarkdown(text) {
 // ── Message filters ───────────────────────────────────────────────────────────
 // Predicate per filter name, applied to message objects {sender, content}.
 var FILTER_TESTS = {
-  'agent':    function(m) { var s = m.sender || ''; return s !== 'human' && s !== 'system' && s !== 'thinking' && s.indexOf('tool') < 0; },
+  'agent':    function(m) { var s = m.sender || ''; return s !== 'human' && s !== 'system' && s !== 'thinking' && s !== 'state' && s !== 'cost' && s !== 'log' && s.indexOf('tool') < 0; },
   'human':    function(m) { return (m.sender || '') === 'human'; },
   'thinking': function(m) { var s = m.sender || ''; return s === 'thinking' || s.indexOf('thinking') >= 0; },
   'tools':    function(m) { var s = m.sender || ''; return s === 'tool_use' || (s.indexOf('tool') >= 0 && s !== 'tool_result'); },
   'results':  function(m) { return (m.sender || '') === 'tool_result'; },
   'system':   function(m) { return (m.sender || '') === 'system'; },
+  'state':    function(m) { return (m.sender || '') === 'state'; },
+  'cost':     function(m) { return (m.sender || '') === 'cost'; },
+  'log':      function(m) { return (m.sender || '') === 'log'; },
 };
 
 function filterMessages(messages) {
@@ -451,7 +454,7 @@ function renderParticipantLayout() {
 }
 
 function renderMainArea(navHtml, headerTitle, headerScope, headerActions) {
-  var filterRow = ['agent', 'human', 'thinking', 'tools', 'results', 'system'].map(function(f) {
+  var filterRow = ['agent', 'human', 'thinking', 'tools', 'results', 'system', 'state', 'cost', 'log'].map(function(f) {
     var on = (f === 'agent' || f === 'human') ? ' on' : '';
     return '<button class="filter-btn' + on + '" data-f="' + f +
       '" onclick="this.classList.toggle(\'on\');refilter()">' + f + '</button>';

@@ -271,6 +271,13 @@ def _iter_stream_events(stream_path: str, agent_role: str):
                 elif ev_type == 'system':
                     yield 'system', json.dumps(ev)
 
+                elif ev_type == 'result':
+                    stats = {k: ev[k] for k in (
+                        'total_cost_usd', 'duration_ms', 'input_tokens', 'output_tokens'
+                    ) if k in ev}
+                    if stats:
+                        yield 'cost', json.dumps(stats)
+
     except OSError:
         pass
 
@@ -279,6 +286,7 @@ def _iter_stream_events(stream_path: str, agent_role: str):
 # Shared with proxy_review.py for consistent dialog history filtering.
 NON_CONVERSATIONAL_SENDERS: frozenset[str] = frozenset({
     'thinking', 'tool_use', 'tool_result', 'system', 'orchestrator',
+    'state', 'cost', 'log',
 })
 
 
