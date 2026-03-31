@@ -35,6 +35,7 @@ class EventType(Enum):
     COST_WARNING = 'cost_warning'
     COST_LIMIT = 'cost_limit'
     CONTEXT_WARNING = 'context_warning'
+    TURN_COST = 'turn_cost'  # Per-actor-turn stats: total_cost_usd, input_tokens, output_tokens, duration_ms
 
 
 @dataclass

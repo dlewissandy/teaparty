@@ -29,6 +29,9 @@ class ClaudeResult:
     start_time: float = 0.0
     cost_usd: float = 0.0
     cost_per_model: dict[str, float] = field(default_factory=dict)
+    input_tokens: int = 0
+    output_tokens: int = 0
+    duration_ms: int = 0
     stderr_lines: list[str] = field(default_factory=list)
     context_budget: ContextBudget = field(default_factory=ContextBudget)
 
@@ -98,6 +101,9 @@ class ClaudeRunner:
         self._extracted_session_id: str = ''
         self._accumulated_cost: float = 0.0
         self._accumulated_model_costs: dict[str, float] = {}
+        self._accumulated_input_tokens: int = 0
+        self._accumulated_output_tokens: int = 0
+        self._last_duration_ms: int = 0
         self._sm = RunnerSM()
         self._context_budget = ContextBudget()
 
@@ -157,6 +163,9 @@ class ClaudeRunner:
                 start_time=start_time,
                 cost_usd=self._accumulated_cost,
                 cost_per_model=dict(self._accumulated_model_costs),
+                input_tokens=self._accumulated_input_tokens,
+                output_tokens=self._accumulated_output_tokens,
+                duration_ms=self._last_duration_ms,
                 stderr_lines=stderr_lines,
                 context_budget=self._context_budget,
             )
@@ -595,7 +604,7 @@ class ClaudeRunner:
             self._extracted_session_id = event.get('session_id', '')
 
     def _maybe_extract_cost(self, event: dict) -> None:
-        """Accumulate cost from result events (Issue #262)."""
+        """Accumulate cost and turn stats from result events (Issues #262, #341)."""
         if event.get('type') != 'result':
             return
         cost = event.get('total_cost_usd', 0.0)
@@ -607,6 +616,15 @@ class ClaudeRunner:
                 self._accumulated_model_costs[model] = (
                     self._accumulated_model_costs.get(model, 0.0) + model_cost
                 )
+        input_tokens = event.get('input_tokens', 0)
+        if input_tokens:
+            self._accumulated_input_tokens += input_tokens
+        output_tokens = event.get('output_tokens', 0)
+        if output_tokens:
+            self._accumulated_output_tokens += output_tokens
+        duration_ms = event.get('duration_ms', 0)
+        if duration_ms:
+            self._last_duration_ms = duration_ms
 
 
 # ── 529 overload detection ───────────────────────────────────────────────────

@@ -446,6 +446,15 @@ async def dispatch(
         exit_reason = 'completed'
     else:
         exit_reason = f'{escalation_type}_escalation' if escalation_type else 'failed'
+    # Read total cost from sidecar for task chat cost sender (Issue #341).
+    total_cost_usd = 0.0
+    cost_sidecar = os.path.join(dispatch_infra, '.cost')
+    try:
+        with open(cost_sidecar) as f:
+            total_cost_usd = float(f.read().strip())
+    except (OSError, ValueError):
+        pass
+
     result_dict = {
         'status': status,
         'exit_reason': exit_reason,
@@ -457,6 +466,8 @@ async def dispatch(
         'escalation_type': escalation_type,
         'api_overloaded': api_overloaded,
     }
+    if total_cost_usd:
+        result_dict['total_cost_usd'] = total_cost_usd
     if merge_failed:
         result_dict['reason'] = f'merge failed: {merge_error}'
     return result_dict

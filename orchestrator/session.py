@@ -72,6 +72,14 @@ def _make_stream_bus_writer(bus: SqliteMessageBus, conversation_id: str, session
             msg = event.data.get('message', '')
             if msg:
                 bus.send(conversation_id, 'log', msg)
+        elif event.type == EventType.TURN_COST:
+            stats = {}
+            for key in ('total_cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'):
+                val = event.data.get(key)
+                if val is not None:
+                    stats[key] = val
+            if stats:
+                bus.send(conversation_id, 'cost', json.dumps(stats))
     return _on_event
 
 
@@ -228,11 +236,13 @@ class Session:
         self._message_bus = SqliteMessageBus(bus_path)
         if self._role_enforcer:
             self._message_bus.role_enforcer = self._role_enforcer
+        # Use JOB conversation type so the job chat URL (job:{project}:{session_id})
+        # matches the conversation in the DB (Issue #341).
         self._conversation_id = make_conversation_id(
-            ConversationType.PROJECT_SESSION, self.session_id,
+            ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
         )
         self._message_bus.create_conversation(
-            ConversationType.PROJECT_SESSION, self.session_id,
+            ConversationType.JOB, f'{self.project_slug}:{self.session_id}',
         )
         if self.input_provider is not None:
             self._bus_input_provider = MessageBusInputProvider(
@@ -758,10 +768,11 @@ class Session:
         message_bus = SqliteMessageBus(bus_path)
         if role_enforcer:
             message_bus.role_enforcer = role_enforcer
+        # Use JOB conversation type to match the job chat URL (Issue #341).
         conversation_id = make_conversation_id(
-            ConversationType.PROJECT_SESSION, session_id,
+            ConversationType.JOB, f'{project_slug}:{session_id}',
         )
-        message_bus.create_conversation(ConversationType.PROJECT_SESSION, session_id)
+        message_bus.create_conversation(ConversationType.JOB, f'{project_slug}:{session_id}')
         if input_provider is not None:
             bus_input_provider = MessageBusInputProvider(
                 bus=message_bus,

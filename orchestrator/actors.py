@@ -287,6 +287,13 @@ class AgentRunner:
             actor_result.data['cost_usd'] = result.cost_usd
         if result.cost_per_model:
             actor_result.data['cost_per_model'] = result.cost_per_model
+        # Carry turn stats for job chat cost sender (Issue #341)
+        if result.input_tokens:
+            actor_result.data['input_tokens'] = result.input_tokens
+        if result.output_tokens:
+            actor_result.data['output_tokens'] = result.output_tokens
+        if result.duration_ms:
+            actor_result.data['duration_ms'] = result.duration_ms
 
         # Emit artifact detection for --verbose tracing
         await ctx.event_bus.publish(Event(
