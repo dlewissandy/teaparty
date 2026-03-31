@@ -18,6 +18,7 @@ Issues #200, #263, #288.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import sqlite3
@@ -418,6 +419,65 @@ def check_message_bus_request(
             bus.close()
     except Exception:
         return None
+
+
+class SessionRegistry:
+    """Maps (member, context_id) to session file information for --resume injection.
+
+    The registry is populated by the bus listener after it first spawns an agent
+    (capturing session_id from ``--output-format json`` output and the JSONL path
+    from the file system).  The MCP server's ``send_handler`` consults it when
+    continuing an existing thread: it looks up the session file, injects the
+    composite, then posts.  For first sends (no context_id), no session exists
+    yet and injection is skipped — the composite is delivered as ``$TASK`` by
+    the listener.
+
+    File-backed (JSON) so the registry survives across MCP server restarts
+    within a session.  The registry path is stored in ``SESSION_REGISTRY_PATH``.
+    """
+
+    def __init__(self, registry_path: str) -> None:
+        self._path = registry_path
+
+    def _load(self) -> dict:
+        if not os.path.exists(self._path):
+            return {}
+        with open(self._path) as f:
+            return json.load(f)
+
+    def _save(self, data: dict) -> None:
+        directory = os.path.dirname(self._path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        with open(self._path, 'w') as f:
+            json.dump(data, f)
+
+    def register(
+        self,
+        member: str,
+        context_id: str,
+        session_id: str,
+        session_file: str,
+        cwd: str,
+    ) -> None:
+        """Record session info for a (member, context_id) pair."""
+        data = self._load()
+        data[f'{member}:{context_id}'] = {
+            'session_id': session_id,
+            'session_file': session_file,
+            'cwd': cwd,
+        }
+        self._save(data)
+
+    def lookup(
+        self, member: str, context_id: str,
+    ) -> tuple[str, str, str] | None:
+        """Return (session_id, session_file, cwd) for the pair, or None."""
+        data = self._load()
+        entry = data.get(f'{member}:{context_id}')
+        if entry is None:
+            return None
+        return entry['session_id'], entry['session_file'], entry['cwd']
 
 
 def inject_composite_into_history(

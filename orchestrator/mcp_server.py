@@ -57,6 +57,10 @@ RecordDifferentialFn = Callable[[str, str, str, str], None]
 SendPostFn = Callable[[str, str, str], Awaitable[str]]
 ReplyPostFn = Callable[[str], Awaitable[str]]
 FlushFn = Callable[[str], Awaitable[None]]
+InjectFn = Callable[[str, str, str, str], Awaitable[None]]
+# (session_file, composite, session_id, cwd) -> None
+SessionLookupFn = Callable[[str, str], tuple[str, str, str] | None]
+# (member, context_id) -> (session_id, session_file, cwd) | None
 
 # Maximum lines of scratch file content to include in the Context section.
 # Oldest lines are dropped first when the file exceeds this limit.
@@ -231,6 +235,30 @@ async def _default_flush(scratch_path: str) -> None:
         await writer.wait_closed()
 
 
+def _default_session_lookup(member: str, context_id: str) -> tuple[str, str, str] | None:
+    """Look up session info for (member, context_id) from SESSION_REGISTRY_PATH.
+
+    Returns (session_id, session_file, cwd) when a matching entry exists,
+    or None when no session has been registered for this context.
+    """
+    from orchestrator.messaging import SessionRegistry
+    registry_path = os.environ.get('SESSION_REGISTRY_PATH', '')
+    if not registry_path:
+        return None
+    return SessionRegistry(registry_path).lookup(member, context_id)
+
+
+async def _default_inject(
+    session_file: str, composite: str, session_id: str, cwd: str,
+) -> None:
+    """Inject composite into the recipient's JSONL conversation history.
+
+    Delegates to inject_composite_into_history in orchestrator.messaging.
+    """
+    from orchestrator.messaging import inject_composite_into_history
+    inject_composite_into_history(session_file, composite, session_id, cwd)
+
+
 # ── Send / Reply handlers ───────────────────────────────────────────────
 
 async def send_handler(
@@ -241,18 +269,23 @@ async def send_handler(
     scratch_path: str = '',
     flush_fn: FlushFn | None = None,
     post_fn: SendPostFn | None = None,
+    session_lookup_fn: SessionLookupFn | None = None,
+    inject_fn: InjectFn | None = None,
 ) -> str:
     """Core handler logic for Send.
 
     Before assembling the composite, calls flush_fn so the orchestrator
     writes its current in-memory job state to the scratch file.  Then reads
-    the scratch file, builds the composite Task/Context envelope, and posts
-    it to the named roster member.
+    the scratch file, builds the composite Task/Context envelope.
 
-    The scratch file is read from scratch_path when given; otherwise
-    from {TEAPARTY_WORKTREE}/.context/scratch.md.  A missing scratch
-    file yields an empty Context section — the Task section is always
-    present.
+    For continuation sends (context_id provided), looks up the recipient's
+    session via session_lookup_fn and injects the composite into their
+    conversation history (JSONL file) before posting.  This satisfies SC3:
+    the recipient's spawned conversation history contains the composite.
+    For first sends (context_id=''), no session exists yet — the composite
+    is delivered as $TASK by the bus listener at spawn time.
+
+    Finally posts the composite to the named roster member via post_fn.
 
     Args:
         member: Name of the roster member to send to.
@@ -266,6 +299,13 @@ async def send_handler(
         post_fn: Async function that posts (member, composite, context_id)
             and returns a result string.  Defaults to the SEND_SOCKET
             transport.
+        session_lookup_fn: Sync function that returns (session_id,
+            session_file, cwd) for (member, context_id), or None if no
+            session exists.  Defaults to the SESSION_REGISTRY_PATH lookup.
+        inject_fn: Async function that injects (session_file, composite,
+            session_id, cwd) into the recipient's JSONL history.  Only
+            called when session_lookup_fn returns a result.  Defaults to
+            _default_inject.
     """
     if not member or not member.strip():
         raise ValueError('Send requires a non-empty member')
@@ -280,6 +320,21 @@ async def send_handler(
 
     scratch = _read_scratch(resolved)
     composite = _build_composite(message, scratch)
+
+    # Inject into existing session when continuing a thread (context_id set).
+    # For first sends, composite is delivered as $TASK at spawn time.
+    if session_lookup_fn is not None:
+        session_info = session_lookup_fn(member, context_id)
+    elif context_id:
+        session_info = _default_session_lookup(member, context_id)
+    else:
+        session_info = None
+
+    if session_info is not None:
+        session_id, session_file, cwd = session_info
+        if inject_fn is None:
+            inject_fn = _default_inject
+        await inject_fn(session_file, composite, session_id, cwd)
 
     if post_fn is None:
         post_fn = _default_send_post

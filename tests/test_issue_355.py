@@ -641,11 +641,10 @@ class TestSendHandlerFlushBeforeRead(unittest.TestCase):
 
 
 class TestConversationHistoryInjection(unittest.TestCase):
-    """SC3: inject_composite_into_history writes composite to JSONL session file.
+    """SC3 (part 1): inject_composite_into_history writes composite to JSONL.
 
-    The composite assembled by send_handler must end up in the recipient's
-    conversation history so --resume sees it as an incoming user message.
-    inject_composite_into_history is the function that does this write.
+    Verifies the JSONL entry structure: type, message fields, parentUuid
+    chaining, isSidechain, userType, sessionId, cwd fields.
     """
 
     def setUp(self):
@@ -718,30 +717,179 @@ class TestConversationHistoryInjection(unittest.TestCase):
         self.assertIsNone(entries[0]['parentUuid'])
         self.assertEqual(entries[1]['parentUuid'], entries[0]['uuid'])
 
-    def test_injected_composite_is_exactly_what_send_handler_produced(self):
-        """The composite in the session file matches send_handler's output verbatim."""
-        from orchestrator.messaging import inject_composite_into_history
-        from orchestrator.mcp_server import send_handler
-        import json
 
-        scratch_path = _make_scratch_file(self.tmpdir, ['job: my-task', 'state: active'])
-        post_fn, captured = _make_captured_post()
+class TestSC3WiredPath(unittest.TestCase):
+    """SC3 (part 2): send_handler injects composite into recipient's JSONL.
+
+    When a continuation send supplies a context_id and a session is registered
+    for that (member, context_id) pair, send_handler must inject the composite
+    into the JSONL before posting — so the recipient's --resume sees it.
+    """
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def _session_file(self, name: str = 'sess') -> str:
+        return os.path.join(self.tmpdir, f'{name}.jsonl')
+
+    def test_send_handler_calls_inject_fn_when_session_exists(self):
+        """inject_fn is called when session_lookup_fn returns session info."""
+        from orchestrator.mcp_server import send_handler
+
+        injected = {}
+
+        def session_lookup_fn(member, context_id):
+            return 'sess-id', self._session_file(), '/work'
+
+        async def inject_fn(session_file, composite, session_id, cwd):
+            injected['session_file'] = session_file
+            injected['composite'] = composite
+            injected['session_id'] = session_id
+            injected['cwd'] = cwd
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['job: task'])
+        post_fn, _ = _make_captured_post()
 
         _run(send_handler(
-            'worker', 'do the thing', '',
+            'worker', 'do something', 'ctx-1',
             scratch_path=scratch_path,
+            session_lookup_fn=session_lookup_fn,
+            inject_fn=inject_fn,
             post_fn=post_fn,
         ))
-        composite = captured['composite']
+
+        self.assertIn('composite', injected,
+                      'inject_fn must be called when session_lookup_fn returns a result')
+
+    def test_inject_fn_receives_composite_matching_post_fn(self):
+        """inject_fn and post_fn both receive the same composite."""
+        from orchestrator.mcp_server import send_handler
+
+        injected = {}
+
+        def session_lookup_fn(member, context_id):
+            return 'sess-id', self._session_file(), '/work'
+
+        async def inject_fn(session_file, composite, session_id, cwd):
+            injected['composite'] = composite
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['state: running'])
+        post_fn, posted = _make_captured_post()
+
+        _run(send_handler(
+            'worker', 'run task', 'ctx-2',
+            scratch_path=scratch_path,
+            session_lookup_fn=session_lookup_fn,
+            inject_fn=inject_fn,
+            post_fn=post_fn,
+        ))
+
+        self.assertEqual(injected['composite'], posted['composite'],
+                         'inject_fn must receive the same composite as post_fn')
+
+    def test_send_handler_skips_inject_when_no_session(self):
+        """inject_fn is not called when session_lookup_fn returns None."""
+        from orchestrator.mcp_server import send_handler
+
+        inject_called = []
+
+        def session_lookup_fn(member, context_id):
+            return None
+
+        async def inject_fn(session_file, composite, session_id, cwd):
+            inject_called.append(True)
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['state: init'])
+        post_fn, _ = _make_captured_post()
+
+        _run(send_handler(
+            'worker', 'do something', 'ctx-3',
+            scratch_path=scratch_path,
+            session_lookup_fn=session_lookup_fn,
+            inject_fn=inject_fn,
+            post_fn=post_fn,
+        ))
+
+        self.assertEqual(inject_called, [],
+                         'inject_fn must not be called when no session exists')
+
+    def test_send_handler_skips_inject_on_first_send(self):
+        """inject_fn is not called when context_id is empty (first send)."""
+        from orchestrator.mcp_server import send_handler
+
+        inject_called = []
+
+        async def inject_fn(session_file, composite, session_id, cwd):
+            inject_called.append(True)
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['state: init'])
+        post_fn, _ = _make_captured_post()
+
+        # context_id='' signals a first send — no lookup, no injection
+        _run(send_handler(
+            'worker', 'do something', '',
+            scratch_path=scratch_path,
+            inject_fn=inject_fn,
+            post_fn=post_fn,
+        ))
+
+        self.assertEqual(inject_called, [],
+                         'inject_fn must not be called on first send (no context_id)')
+
+    def test_composite_appears_in_jsonl_after_send(self):
+        """End-to-end: composite from send_handler appears in the session JSONL."""
+        from orchestrator.mcp_server import _default_inject, send_handler
+        import json
 
         session_file = self._session_file()
-        inject_composite_into_history(session_file, composite, 'sess-5', '/work')
+
+        def session_lookup_fn(member, context_id):
+            return 'sess-abc', session_file, self.tmpdir
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['job: my-job', 'phase: coding'])
+        post_fn, posted = _make_captured_post()
+
+        _run(send_handler(
+            'coding-specialist', 'implement the feature', 'ctx-99',
+            scratch_path=scratch_path,
+            session_lookup_fn=session_lookup_fn,
+            inject_fn=_default_inject,
+            post_fn=post_fn,
+        ))
 
         with open(session_file) as f:
-            entry = json.loads(f.readline())
-        self.assertEqual(entry['message']['content'], composite)
+            entries = [json.loads(line) for line in f if line.strip()]
+
+        self.assertEqual(len(entries), 1)
+        entry = entries[0]
+        self.assertEqual(entry['type'], 'user')
+        self.assertEqual(entry['message']['content'], posted['composite'],
+                         'JSONL entry content must match the composite posted')
         self.assertIn('## Task', entry['message']['content'])
         self.assertIn('## Context', entry['message']['content'])
+
+    def test_session_registry_register_and_lookup(self):
+        """SessionRegistry.register then lookup returns the stored session info."""
+        from orchestrator.messaging import SessionRegistry
+
+        registry_path = os.path.join(self.tmpdir, 'registry.json')
+        reg = SessionRegistry(registry_path)
+        reg.register('worker', 'ctx-A', 'sess-42', '/sessions/sess-42.jsonl', '/work')
+
+        result = reg.lookup('worker', 'ctx-A')
+        self.assertEqual(result, ('sess-42', '/sessions/sess-42.jsonl', '/work'))
+
+    def test_session_registry_lookup_returns_none_for_unknown(self):
+        """SessionRegistry.lookup returns None when no entry exists."""
+        from orchestrator.messaging import SessionRegistry
+
+        registry_path = os.path.join(self.tmpdir, 'registry.json')
+        reg = SessionRegistry(registry_path)
+
+        self.assertIsNone(reg.lookup('worker', 'ctx-unknown'))
 
 
 if __name__ == '__main__':
