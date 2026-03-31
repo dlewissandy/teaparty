@@ -390,18 +390,26 @@ class TestExistingAgentDefinitionsAssessed(unittest.TestCase):
             'that does not auto-invoke skills.',
         )
 
-    def test_office_manager_has_no_skills_field(self):
-        """The office-manager agent must not have a skills: field.
+    def test_office_manager_does_not_have_crud_configuration_skills(self):
+        """The office-manager agent must not have Configuration Team CRUD skills.
 
-        The office manager dispatches to the Configuration Team via the AskTeam tool,
-        not via the skills mechanism. It does not auto-invoke CRUD skills.
+        The office manager dispatches configuration work to the Configuration Team via
+        the AskTeam tool, not via skills. It does not auto-invoke CRUD skills like
+        create-agent, edit-skill, create-hook, etc.
+
+        It may have workflow dialog skills (add-project, create-project) for the
+        dashboard onboarding flow — these are not CRUD configuration skills.
         """
         fm = self._get_frontmatter('office-manager')
-        self.assertNotIn(
-            'skills', fm,
-            'office-manager.md must not have a skills: field — it dispatches via AskTeam '
-            'tool, not via skills. Omitting skills: correctly declares no skill access.',
-        )
+        crud_skills = ['create-agent', 'edit-agent', 'create-skill', 'edit-skill',
+                       'create-hook', 'create-workgroup', 'edit-workgroup']
+        skills = fm.get('skills') or []
+        for crud in crud_skills:
+            self.assertNotIn(
+                crud, skills,
+                f'office-manager.md must not have Configuration Team CRUD skill {crud!r} — '
+                'configuration work routes to the Configuration Team via AskTeam, not via skills.',
+            )
 
 
 if __name__ == '__main__':
