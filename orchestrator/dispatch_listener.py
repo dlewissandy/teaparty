@@ -173,14 +173,19 @@ class DispatchListener:
 
         _log.info('Dispatching to team %r: %s', team, task[:80])
 
-        # Create a subteam conversation in the session's message bus (Issue #200).
-        # This persists the dispatch task and result as an audit trail.
+        # Create conversations in the session's message bus for this dispatch (Issues #200, #341).
+        # - SUBTEAM: audit trail for the dispatch (existing)
+        # - TASK: task-chat conversation for the job chat sidebar (new)
         dispatch_id = f'{team}-{self.session_id}'
         conversation_id = make_conversation_id(ConversationType.SUBTEAM, dispatch_id)
+        task_conv_qualifier = f'{self.project_slug}:{self.session_id}:{team}'
+        task_conv_id = make_conversation_id(ConversationType.TASK, task_conv_qualifier)
         bus_path = os.path.join(self.infra_dir, 'messages.db')
         try:
             bus = SqliteMessageBus(bus_path)
             bus.send(conversation_id, 'orchestrator', f'Dispatch to {team}: {task}')
+            bus.create_conversation(ConversationType.TASK, task_conv_qualifier)
+            bus.send(task_conv_id, 'orchestrator', f'Task: {task}')
             bus.close()
         except Exception:
             _log.debug('Failed to record dispatch to message bus', exc_info=True)
@@ -226,12 +231,22 @@ class DispatchListener:
             session_id=self.session_id,
         ))
 
-        # Record dispatch result in subteam conversation (Issue #200).
+        # Record dispatch result in subteam conversation and write cost to task conversation (Issues #200, #341).
         try:
             bus = SqliteMessageBus(bus_path)
             status = result.get('status', 'unknown')
             terminal = result.get('terminal_state', '')
             bus.send(conversation_id, team, f'Dispatch {status}: {terminal}')
+            bus.send(task_conv_id, team, f'Result: {terminal}')
+            # Write cost-sender messages to task conversation so cost filter shows per-turn stats.
+            # Per-turn data comes from turn_costs (extracted from dispatch events.jsonl).
+            # Falls back to total_cost_usd sidecar if no per-turn records are available.
+            turn_costs = result.get('turn_costs', [])
+            if turn_costs:
+                for cost_rec in turn_costs:
+                    bus.send(task_conv_id, 'cost', json.dumps(cost_rec))
+            elif result.get('total_cost_usd'):
+                bus.send(task_conv_id, 'cost', json.dumps({'total_cost_usd': result['total_cost_usd']}))
             bus.close()
         except Exception:
             _log.debug('Failed to record dispatch result to message bus', exc_info=True)

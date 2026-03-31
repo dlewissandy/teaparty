@@ -648,22 +648,34 @@ class Orchestrator:
                         failure_reason=reason,
                     )
 
-            # Accumulate cost from this turn (Issue #262)
+            # Accumulate cost from this turn (Issues #262, #341)
             turn_cost = actor_result.data.get('cost_usd', 0.0)
-            if self._cost_tracker and turn_cost:
-                cost_event: dict[str, Any] = {
-                    'type': 'result',
-                    'total_cost_usd': turn_cost,
-                }
-                per_model = actor_result.data.get('cost_per_model')
-                if per_model:
-                    cost_event['cost_usd'] = per_model
-                self._cost_tracker.record(cost_event)
-                # Record to project-level ledger for cross-job aggregation
-                if self._project_cost_ledger:
-                    self._project_cost_ledger.record(self.session_id, turn_cost)
-                # Write running total for dashboard display
-                self._write_cost_sidecar()
+            if turn_cost:
+                if self._cost_tracker:
+                    cost_event: dict[str, Any] = {
+                        'type': 'result',
+                        'total_cost_usd': turn_cost,
+                    }
+                    per_model = actor_result.data.get('cost_per_model')
+                    if per_model:
+                        cost_event['cost_usd'] = per_model
+                    self._cost_tracker.record(cost_event)
+                    # Record to project-level ledger for cross-job aggregation
+                    if self._project_cost_ledger:
+                        self._project_cost_ledger.record(self.session_id, turn_cost)
+                    # Write running total for dashboard display
+                    self._write_cost_sidecar()
+                # Publish turn stats so job chat cost filter receives them (Issue #341)
+                turn_stats: dict[str, Any] = {'total_cost_usd': turn_cost}
+                for key in ('input_tokens', 'output_tokens', 'duration_ms'):
+                    val = actor_result.data.get(key)
+                    if val:
+                        turn_stats[key] = val
+                await self.event_bus.publish(Event(
+                    type=EventType.TURN_COST,
+                    data=turn_stats,
+                    session_id=self.session_id,
+                ))
 
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)
