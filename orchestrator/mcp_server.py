@@ -158,7 +158,7 @@ async def _default_human(question: str) -> str:
         await writer.wait_closed()
 
 
-# ── Scratch file helpers ─────────────────────────────────────────────��────────
+# ── Scratch file helpers ────────────────────────────────────────────────
 
 def _read_scratch(scratch_path: str) -> str:
     """Read the scratch file and return its contents, truncated to CONTEXT_BUDGET_LINES.
@@ -197,7 +197,7 @@ def _scratch_path_from_env() -> str:
     return os.path.join(worktree, '.context', 'scratch.md')
 
 
-# ── Send / Reply handlers ────────────────────────────────���────────────────────
+# ── Send / Reply handlers ───────────────────────────────────────────────
 
 async def send_handler(
     member: str,
