@@ -520,5 +520,122 @@ class TestHandlersExistAndAreCallable(unittest.TestCase):
             _run(send_handler(member='specialist', message='', post_fn=_make_captured_post()[0]))
 
 
+# ── Flush-before-send: flush_fn called before scratch file is read ────────────
+
+class TestSendHandlerFlushBeforeRead(unittest.TestCase):
+    """send_handler must call flush_fn before reading the scratch file."""
+
+    def setUp(self):
+        self.tmpdir = _make_tmpdir()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmpdir, ignore_errors=True)
+
+    def test_flush_fn_is_called_before_scratch_is_read(self):
+        """flush_fn must be called before send_handler reads the scratch file.
+
+        State written by flush_fn must appear in the composite — not stale
+        pre-existing content.  This is the freshness invariant: the composite
+        reflects the full current turn, not the last compaction boundary.
+        """
+        from orchestrator.mcp_server import send_handler
+
+        stale_path = os.path.join(self.tmpdir, '.context', 'scratch.md')
+        os.makedirs(os.path.dirname(stale_path), exist_ok=True)
+        with open(stale_path, 'w') as f:
+            f.write('stale content\n')
+
+        fresh_content = 'fresh content written by flush\n'
+
+        async def flush_fn(path):
+            with open(path, 'w') as f:
+                f.write(fresh_content)
+
+        post_fn, captured = _make_captured_post()
+
+        _run(send_handler(
+            member='specialist',
+            message='do something',
+            scratch_path=stale_path,
+            flush_fn=flush_fn,
+            post_fn=post_fn,
+        ))
+
+        composite = captured['composite']
+        self.assertIn('fresh content written by flush', composite,
+                      'Composite must contain content written by flush_fn, not stale pre-existing content')
+        self.assertNotIn('stale content', composite,
+                         'Composite must not contain stale content that predates the flush')
+
+    def test_flush_fn_called_for_escalation_path(self):
+        """ask_question_handler must also call flush_fn before reading the scratch file."""
+        from orchestrator.mcp_server import ask_question_handler
+
+        stale_path = os.path.join(self.tmpdir, '.context', 'scratch.md')
+        os.makedirs(os.path.dirname(stale_path), exist_ok=True)
+        with open(stale_path, 'w') as f:
+            f.write('stale escalation context\n')
+
+        fresh_content = 'fresh escalation context written by flush\n'
+
+        async def flush_fn(path):
+            with open(path, 'w') as f:
+                f.write(fresh_content)
+
+        proxy_fn, captured = _make_captured_proxy()
+
+        _run(ask_question_handler(
+            question='Which approach?',
+            scratch_path=stale_path,
+            flush_fn=flush_fn,
+            proxy_fn=proxy_fn,
+        ))
+
+        question_sent = captured['question']
+        self.assertIn('fresh escalation context written by flush', question_sent,
+                      'Escalation composite must contain content written by flush_fn')
+        self.assertNotIn('stale escalation context', question_sent,
+                         'Escalation composite must not contain stale content')
+
+    def test_flush_fn_receives_the_scratch_path(self):
+        """flush_fn must be called with the resolved scratch path."""
+        from orchestrator.mcp_server import send_handler
+
+        scratch_path = _make_scratch_file(self.tmpdir, ['some content'])
+        received_paths = []
+
+        async def flush_fn(path):
+            received_paths.append(path)
+
+        post_fn, _ = _make_captured_post()
+
+        _run(send_handler(
+            member='specialist',
+            message='do task',
+            scratch_path=scratch_path,
+            flush_fn=flush_fn,
+            post_fn=post_fn,
+        ))
+
+        self.assertEqual(received_paths, [scratch_path],
+                         'flush_fn must be called exactly once with the resolved scratch path')
+
+    def test_send_handler_accepts_flush_fn_parameter(self):
+        """send_handler must accept a flush_fn parameter."""
+        from orchestrator.mcp_server import send_handler
+        import inspect
+        sig = inspect.signature(send_handler)
+        self.assertIn('flush_fn', sig.parameters,
+                      'send_handler must have a flush_fn keyword parameter')
+
+    def test_ask_question_handler_accepts_flush_fn_parameter(self):
+        """ask_question_handler must accept a flush_fn parameter."""
+        from orchestrator.mcp_server import ask_question_handler
+        import inspect
+        sig = inspect.signature(ask_question_handler)
+        self.assertIn('flush_fn', sig.parameters,
+                      'ask_question_handler must have a flush_fn keyword parameter')
+
+
 if __name__ == '__main__':
     unittest.main()

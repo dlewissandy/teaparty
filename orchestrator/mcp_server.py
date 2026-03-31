@@ -56,6 +56,7 @@ HumanFn = Callable[[str], Awaitable[str]]
 RecordDifferentialFn = Callable[[str, str, str, str], None]
 SendPostFn = Callable[[str, str, str], Awaitable[str]]
 ReplyPostFn = Callable[[str], Awaitable[str]]
+FlushFn = Callable[[str], Awaitable[None]]
 
 # Maximum lines of scratch file content to include in the Context section.
 # Oldest lines are dropped first when the file exceeds this limit.
@@ -67,6 +68,7 @@ async def ask_question_handler(
     context: str = '',
     *,
     scratch_path: str = '',
+    flush_fn: FlushFn | None = None,
     proxy_fn: ProxyFn | None = None,
     human_fn: HumanFn | None = None,
     record_differential_fn: RecordDifferentialFn | None = None,
@@ -78,17 +80,21 @@ async def ask_question_handler(
     differential (proxy prediction vs. human actual), and returns the
     human's answer.
 
-    When scratch_path is given, the handler builds a composite envelope
-    (## Task / ## Context) identical to Send's envelope before passing
-    the question to the proxy.  This ensures the escalation recipient
-    has full job context without the calling agent constructing a brief.
+    When scratch_path is given, the handler requests a flush via flush_fn
+    (so the orchestrator writes its current in-memory state to disk), then
+    reads the file and builds a composite envelope (## Task / ## Context)
+    identical to Send's envelope before passing the question to the proxy.
 
     Args:
         question: The question the agent is asking.
         context: Optional extra context (ignored when scratch_path is set).
         scratch_path: Path to the caller's scratch file.  When set, the
-            handler reads the file, truncates to CONTEXT_BUDGET_LINES,
+            handler flushes, reads, truncates to CONTEXT_BUDGET_LINES,
             and wraps question in the standard Task/Context envelope.
+        flush_fn: Async function called with the scratch_path before the
+            file is read.  The orchestrator uses this to write its current
+            in-memory ScratchModel to disk so the composite reflects the
+            full current turn.  Defaults to _default_flush.
         proxy_fn: Async function that returns a dict with keys:
             confident (bool), answer (str), prediction (str).
         human_fn: Async function that takes a question and returns the
@@ -101,6 +107,9 @@ async def ask_question_handler(
 
     # Build composite envelope when a scratch file is available.
     if scratch_path:
+        if flush_fn is None:
+            flush_fn = _default_flush
+        await flush_fn(scratch_path)
         question = _build_composite(question, _read_scratch(scratch_path))
         context = ''
 
@@ -197,6 +206,31 @@ def _scratch_path_from_env() -> str:
     return os.path.join(worktree, '.context', 'scratch.md')
 
 
+async def _default_flush(scratch_path: str) -> None:
+    """Request the orchestrator to flush its current job state to the scratch file.
+
+    Sends a synchronous flush request to the orchestrator via FLUSH_SOCKET
+    and waits for acknowledgement before returning.  The orchestrator's
+    FlushListener writes the current in-memory ScratchModel to disk so the
+    composite reflects everything up to and including the current turn.
+
+    If FLUSH_SOCKET is not set (e.g. in environments without the orchestrator
+    running), the flush is skipped and the scratch file is read as-is.
+    """
+    socket_path = os.environ.get('FLUSH_SOCKET', '')
+    if not socket_path:
+        return
+    reader, writer = await asyncio.open_unix_connection(socket_path)
+    try:
+        request = json.dumps({'type': 'flush', 'scratch_path': scratch_path})
+        writer.write(request.encode() + b'\n')
+        await writer.drain()
+        await reader.readline()  # wait for ack
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+
 # ── Send / Reply handlers ───────────────────────────────────────────────
 
 async def send_handler(
@@ -205,12 +239,15 @@ async def send_handler(
     context_id: str = '',
     *,
     scratch_path: str = '',
+    flush_fn: FlushFn | None = None,
     post_fn: SendPostFn | None = None,
 ) -> str:
     """Core handler logic for Send.
 
-    Reads the caller's scratch file, builds the composite Task/Context
-    envelope, and posts it to the named roster member.
+    Before assembling the composite, calls flush_fn so the orchestrator
+    writes its current in-memory job state to the scratch file.  Then reads
+    the scratch file, builds the composite Task/Context envelope, and posts
+    it to the named roster member.
 
     The scratch file is read from scratch_path when given; otherwise
     from {TEAPARTY_WORKTREE}/.context/scratch.md.  A missing scratch
@@ -222,6 +259,10 @@ async def send_handler(
         message: The agent's message (becomes the Task section).
         context_id: Optional existing context ID for continuing a thread.
         scratch_path: Override path to the scratch file (for testing).
+        flush_fn: Async function called with the scratch_path before the
+            file is read.  Triggers the orchestrator to write its current
+            in-memory ScratchModel to disk so the composite is current.
+            Defaults to _default_flush.
         post_fn: Async function that posts (member, composite, context_id)
             and returns a result string.  Defaults to the SEND_SOCKET
             transport.
@@ -232,6 +273,11 @@ async def send_handler(
         raise ValueError('Send requires a non-empty message')
 
     resolved = scratch_path or _scratch_path_from_env()
+
+    if flush_fn is None:
+        flush_fn = _default_flush
+    await flush_fn(resolved)
+
     scratch = _read_scratch(resolved)
     composite = _build_composite(message, scratch)
 
@@ -1146,6 +1192,7 @@ def create_server() -> FastMCP:
             question=question,
             context=context,
             scratch_path=_scratch_path_from_env(),
+            flush_fn=_default_flush,
         )
 
     @server.tool()
@@ -1170,6 +1217,7 @@ def create_server() -> FastMCP:
             message=message,
             context_id=context_id,
             scratch_path=_scratch_path_from_env(),
+            flush_fn=_default_flush,
         )
 
     @server.tool()
