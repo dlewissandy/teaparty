@@ -17,6 +17,6 @@ Modify the skill `$ARGUMENTS`.
    - If structural: stop and use `optimize-skill` instead.
    - If content: continue.
 3. Read `schema.md` for frontmatter field reference if the frontmatter is changing.
-4. Call `EditSkill(name, body)` to update the skill body. Preserve frontmatter structure.
+4. Call `EditSkill(name, field, value)` — use `field='body'` to update the skill body, or `field='allowed-tools'`, `field='description'`, etc. to update frontmatter fields.
 5. Validate: frontmatter parses, referenced supporting files still exist.
 6. Report what changed.
