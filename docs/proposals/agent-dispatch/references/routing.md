@@ -16,13 +16,21 @@ These rules are enforced by the bus dispatcher. `AskTeam` checks routing authori
 
 ## Agent Identity
 
-An `agent_id` is the stable, unique identifier for an agent within a session. The format is project-scoped: `{project_name}/{workgroup_name}/{role_name}` (e.g., `teaparty/coding-team/lead`, `teaparty/config-team/specialist`). The project lead's `agent_id` is `{project_name}/lead` (e.g., `teaparty/lead`) — it has no workgroup component since it sits above the workgroups. The office manager is org-level and has no project prefix: its `agent_id` is `om`. Agent IDs are stable across all re-invocations within a session — not per-invocation UUIDs. The same agent processing three sequential `--resume` calls has the same `agent_id` throughout.
+An `agent_id` is the stable, unique identifier for an agent within a session. The format is project-scoped: `{project_name}/{workgroup_name}/{role_name}` (e.g., `my-backend/coding/team-lead`, `my-backend/coding/specialist`). The project lead's `agent_id` is `{project_name}/lead` (e.g., `my-backend/lead`) — it has no workgroup component since it sits above the workgroups. The office manager is org-level and has no project prefix: its `agent_id` is `om`. Agent IDs are stable across all re-invocations within a session — not per-invocation UUIDs. The same agent processing three sequential `--resume` calls has the same `agent_id` throughout.
 
-`agent_id` values are derived at session start. For each active project, the derivation algorithm reads that project's workgroup YAMLs and assigns `{project_name}/{workgroup_name}/{role_name}` to each agent and `{project_name}/lead` to the project lead. The OM is registered as `om`. `AskTeam` takes a `role` string (scoped to the caller's workgroup) and resolves it to a full `agent_id` by prepending the caller's project and workgroup context before performing the routing check.
+`agent_id` values are derived at session start from the configuration YAML files. For each active project:
+
+- `project_name` — the project's directory name (e.g., `my-backend` from `path: ~/git/my-backend` in `teaparty.yaml`)
+- `workgroup_name` — the workgroup's key in `project.yaml`: the `ref:` value for org-level shared workgroups (e.g., `ref: coding` → `coding`) or the inline `name:` slug for project-scoped workgroups
+- `role_name` — the `agents[].role` field in the workgroup YAML (e.g., `role: team-lead`, `role: specialist`)
+- `project_name/lead` — the project lead's `agent_id`, assigned regardless of what agent definition name the `lead:` field in `project.yaml` points to
+- `om` — the office manager's `agent_id`, a hardcoded convention for the management team lead; it is registered unconditionally at session start regardless of what the `lead:` field in `teaparty.yaml` names
+
+`AskTeam` takes a `role` string (scoped to the caller's workgroup) and resolves it to a full `agent_id` by prepending the caller's project and workgroup context before performing the routing check.
 
 ## Matrixed Workgroup Routing
 
-A matrixed (shared) workgroup can be deployed in multiple projects. When the same workgroup definition appears in project A and project B, the derivation algorithm produces distinct agent IDs for each deployment: `project-a/coding-team/lead` and `project-b/coding-team/lead` are different identities with no routing relationship. Shared workgroup membership does not create cross-project routes.
+A matrixed (shared) workgroup can be deployed in multiple projects. When the same workgroup definition appears in project A and project B, the derivation algorithm produces distinct agent IDs for each deployment: `project-a/coding/team-lead` and `project-b/coding/team-lead` are different identities with no routing relationship. Shared workgroup membership does not create cross-project routes.
 
 The derivation algorithm processes each project's workgroup membership independently and scopes all routing entries to that project. A coding agent deployed in project A gets within-workgroup routes to its project-A teammates and a cross-workgroup route to the project-A lead. It has no route to the coding agent in project B, even though both agents come from the same workgroup definition. Cross-project communication between them still flows through their respective project leads and the OM, exactly as it would for non-shared workgroups.
 
@@ -32,9 +40,9 @@ The routing table is the shared data structure between the derivation algorithm 
 
 The routing table is a set of `(sender_agent_id, recipient_agent_id)` pairs. Each pair encodes a permitted directed communication channel. The derivation algorithm produces one pair for each permitted channel:
 
-- Within-workgroup: one pair for each ordered (agent_a, agent_b) combination where both agents share a workgroup within the same project. This covers both directions: `(teaparty/coding-team/lead, teaparty/coding-team/specialist)` and `(teaparty/coding-team/specialist, teaparty/coding-team/lead)`. Workers can reply to leads because the `(worker, lead)` pair exists.
-- Cross-workgroup: one pair for each (workgroup_lead, project_lead) and (project_lead, workgroup_lead) combination across workgroups within a project. For example: `(teaparty/coding-team/lead, teaparty/lead)` and `(teaparty/lead, teaparty/coding-team/lead)`.
-- Cross-project: one pair for each (project_lead, om) and (om, project_lead) combination. For example: `(teaparty/lead, om)` and `(om, teaparty/lead)`.
+- Within-workgroup: one pair for each ordered (agent_a, agent_b) combination where both agents share a workgroup within the same project. This covers both directions: `(my-backend/coding/team-lead, my-backend/coding/specialist)` and `(my-backend/coding/specialist, my-backend/coding/team-lead)`. Workers can reply to leads because the `(worker, lead)` pair exists.
+- Cross-workgroup: one pair for each (workgroup_lead, project_lead) and (project_lead, workgroup_lead) combination across workgroups within a project. For example: `(my-backend/coding/team-lead, my-backend/lead)` and `(my-backend/lead, my-backend/coding/team-lead)`.
+- Cross-project: one pair for each (project_lead, om) and (om, project_lead) combination. For example: `(my-backend/lead, om)` and `(om, my-backend/lead)`.
 
 The table is keyed by `sender_agent_id`. The dispatcher's authorization check is: given the sender's agent ID and the target context ID, is there a routing entry that permits this sender to post to a context owned by the target agent? Context ownership is tracked in the bus conversation context record, which maps `context_id` to both `initiator_agent_id` and `recipient_agent_id`. For `ReplyTo` calls, the dispatcher resolves the target agent from the context record's `initiator_agent_id` field (the agent that created the context), then checks whether a `(sender, initiator)` routing pair exists.
 
