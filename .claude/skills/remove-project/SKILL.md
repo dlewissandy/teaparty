@@ -15,5 +15,5 @@ Remove `$ARGUMENTS` from the TeaParty registry.
 1. Read `~/.teaparty/teaparty.yaml` to locate the registry entry.
 2. Read the safety checklist before proceeding. Read `checklist.md`.
 3. Confirm with the human: removing a project from the registry does not delete files, but active sessions pointing to this project will lose their team context.
-4. Remove the `teams:` entry from `teaparty.yaml`.
-5. Report what was removed and note that the project directory and `.teaparty/project.yaml` are untouched.
+4. Call `RemoveProject(name)`. The tool removes the teams: entry from teaparty.yaml.
+5. Report what was removed and note that the project directory and `.teaparty.local/project.yaml` are untouched.

@@ -12,9 +12,9 @@ Remove the workgroup `$ARGUMENTS`.
 
 ## Steps
 
-1. Locate the workgroup YAML in `~/.teaparty/workgroups/` or `{project}/.teaparty/workgroups/`.
+1. Locate the workgroup YAML in `~/.teaparty/workgroups/` or `{project}/.teaparty.local/workgroups/`.
 2. Read the safety checklist. Read `checklist.md`.
 3. Confirm with the human: removing a workgroup deregisters it but does not delete agent definitions.
-4. Remove the workgroup YAML file.
+4. Call `RemoveWorkgroup(name)`. The tool removes the workgroup YAML file.
 5. Remove the `workgroups:` entry from the parent `teaparty.yaml` or `project.yaml`.
 6. Report what was removed.

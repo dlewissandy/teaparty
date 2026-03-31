@@ -15,7 +15,7 @@ Create the skill `$ARGUMENTS`.
 1. Understand what the skill does, who invokes it (user or model), and what tools it needs.
 2. Design the structure using progressive disclosure. Read `progressive-disclosure.md` for the design guide.
 3. Read `schema.md` for the SKILL.md frontmatter fields.
-4. Write `.claude/skills/{name}/SKILL.md` — entry point with frontmatter and high-level steps.
-5. Write supporting files for domain knowledge that should be loaded on demand rather than upfront.
-6. Validate: frontmatter parses, referenced supporting files exist, `!`command`` injections are syntactically valid.
-7. Report: file paths created, progressive disclosure design decisions made (what is upfront vs. deferred).
+4. Call `CreateSkill(name, description, body, allowed_tools, argument_hint, user_invocable)` with the collected fields. The tool creates the `SKILL.md` entry point.
+5. For supporting files (domain knowledge loaded on demand): the Skills Specialist writes them to `.claude/skills/{name}/` after the skill is created.
+6. Validate: frontmatter parses, referenced supporting files exist, `!`command`` injections are syntactically valid. Read `validation.md`.
+7. Report what was created.
