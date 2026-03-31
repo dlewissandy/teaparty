@@ -3,7 +3,7 @@ name: edit-skill
 description: Modify an existing skill's SKILL.md content or supporting files — fix instructions, update a schema, change behavior. Structural refactoring (decomposing a monolith) uses optimize-skill instead.
 argument-hint: <skill-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Skill

@@ -3,7 +3,7 @@ name: edit-workgroup
 description: Modify an existing workgroup definition — add or remove agents, update skills catalog, change norms or delegation rules.
 argument-hint: <workgroup-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Workgroup

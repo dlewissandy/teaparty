@@ -3,7 +3,7 @@ name: edit-project
 description: Modify an existing project's configuration in project.yaml or update its registry entry in teaparty.yaml.
 argument-hint: <project-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Project

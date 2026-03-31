@@ -3,7 +3,7 @@ name: remove-project
 description: Remove a project from the TeaParty registry. Does not delete the project directory — only removes the registration entry.
 argument-hint: <project-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Project

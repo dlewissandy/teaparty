@@ -3,7 +3,7 @@ name: remove-hook
 description: Remove a hook entry from .claude/settings.json or .claude/settings.local.json.
 argument-hint: <hook-description>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Hook

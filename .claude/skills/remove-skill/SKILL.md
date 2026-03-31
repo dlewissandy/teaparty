@@ -3,7 +3,7 @@ name: remove-skill
 description: "Remove a skill directory and clean up any agent definition skills: allowlist references."
 argument-hint: <skill-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Skill

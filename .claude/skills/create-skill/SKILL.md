@@ -3,7 +3,7 @@ name: create-skill
 description: Create a new skill as a .claude/skills/{name}/ directory with SKILL.md entry point and supporting files using progressive disclosure.
 argument-hint: <skill-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Skill

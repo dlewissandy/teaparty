@@ -3,7 +3,7 @@ name: edit-scheduled-task
 description: Modify an existing scheduled task entry — change the schedule, arguments, skill reference, or enabled state.
 argument-hint: <task-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Scheduled Task

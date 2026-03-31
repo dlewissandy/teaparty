@@ -3,7 +3,7 @@ name: create-scheduled-task
 description: Add a new scheduled task entry to teaparty.yaml or project.yaml and create the /schedule trigger. The referenced skill must exist before the task is created.
 argument-hint: <task-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Scheduled Task

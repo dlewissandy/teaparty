@@ -3,7 +3,7 @@ name: create-agent
 description: Create a new agent definition file at .claude/agents/{name}.md with frontmatter, tool scoping, model selection, and role description.
 argument-hint: <agent-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Agent

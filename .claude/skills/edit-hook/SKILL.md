@@ -3,7 +3,7 @@ name: edit-hook
 description: Modify an existing hook in .claude/settings.json — change the matcher, handler command, or handler type.
 argument-hint: <hook-description>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Hook

@@ -1015,12 +1015,12 @@ class TestOmSessionPassesMcpConfig(unittest.TestCase):
             bus = SqliteMessageBus(bus_path)
             # Add a human message so there's something to respond to
             from orchestrator.messaging import ConversationType, make_conversation_id
-            conv_id = make_conversation_id(ConversationType.OM, 'test')
-            bus.post_message(conv_id, 'human', 'Hello')
+            conv = bus.create_conversation(ConversationType.OFFICE_MANAGER, 'test')
+            bus.send(conv.id, 'human', 'Hello')
 
             session = OfficeManagerSession(
                 teaparty_home=tp_home,
-                qualifier='test',
+                user_id='test',
             )
 
             captured = {}
@@ -1035,7 +1035,7 @@ class TestOmSessionPassesMcpConfig(unittest.TestCase):
                 async def run(self):
                     return FakeResult()
 
-            with patch('orchestrator.office_manager.ClaudeRunner', FakeRunner):
+            with patch('orchestrator.claude_runner.ClaudeRunner', FakeRunner):
                 with patch('orchestrator.office_manager._extract_assistant_text',
                            return_value=''):
                     asyncio.run(session.invoke(cwd=tmpdir))

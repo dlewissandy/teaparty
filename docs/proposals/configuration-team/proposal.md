@@ -173,6 +173,38 @@ The Configuration Lead's value is coordination and decomposition. For single-art
 
 ---
 
+## Execution Layer: MCP Tools
+
+Configuration specialists no longer write configuration files directly. Instead, they call MCP tools registered in `orchestrator/mcp_server.py`. The tools implement each operation correctly once — with required-field validation — and return a structured JSON result (`{success, message/error}`). A tool either writes a complete, valid artifact or returns an error without writing anything.
+
+**19 configuration MCP tools** in `orchestrator/mcp_server.py`:
+
+| Domain | Tools |
+|--------|-------|
+| Project management | `AddProject`, `CreateProject`, `RemoveProject`, `ScaffoldProjectYaml` |
+| Agent definitions | `CreateAgent`, `EditAgent`, `RemoveAgent` |
+| Skills | `CreateSkill`, `EditSkill`, `RemoveSkill` |
+| Workgroups | `CreateWorkgroup`, `EditWorkgroup`, `RemoveWorkgroup` |
+| Hooks & scheduled tasks | `CreateHook`, `EditHook`, `RemoveHook`, `CreateScheduledTask`, `EditScheduledTask`, `RemoveScheduledTask` |
+
+**Skills become the reasoning layer.** Config skills (`create-agent`, `create-skill`, `create-hook`, etc.) collect requirements and call the appropriate MCP tool. They no longer have `Write` or `Edit` in their `allowed-tools` — the tools own the write.
+
+**Tool scoping via `disallowedTools`.** Each specialist's agent definition lists `disallowedTools` covering all MCP tools outside its sphere. An Agent Specialist cannot call `CreateSkill`. A Systems Engineer cannot call `CreateAgent`. The Configuration Lead and Office Manager have access to all config tools.
+
+| Specialist | Allowed tools |
+|------------|---------------|
+| Project Specialist | AddProject, CreateProject, RemoveProject, ScaffoldProjectYaml |
+| Agent Specialist | CreateAgent, EditAgent, RemoveAgent |
+| Skills Specialist | CreateSkill, EditSkill, RemoveSkill |
+| Workgroup Specialist | CreateWorkgroup, EditWorkgroup, RemoveWorkgroup |
+| Systems Engineer | CreateHook, EditHook, RemoveHook, CreateScheduledTask, EditScheduledTask, RemoveScheduledTask |
+| Configuration Lead | All config tools |
+| Office Manager | All config tools |
+
+**MCP config wiring.** `OfficeManagerSession.invoke()` builds an `mcp_config` dict pointing at `orchestrator.mcp_server` and passes it to `ClaudeRunner`. The config tools run as a stdio MCP subprocess and inherit the working directory, so path resolution works without additional environment setup.
+
+---
+
 ## Execution Model: Direct Write
 
 Content-producing teams (coding, writing, art) use the **worktree-isolated** execution model: dispatch creates a child worktree, the team works there, and results are squash-merged back into the session worktree. This model gives automatic rollback on failure and prevents partial work from contaminating the session.

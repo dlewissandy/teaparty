@@ -3,7 +3,7 @@ name: create-project
 description: Register a new project in the TeaParty registry and create its .teaparty/project.yaml configuration.
 argument-hint: <project-name> [--path <path>]
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Project

@@ -3,7 +3,7 @@ name: remove-scheduled-task
 description: Remove a scheduled task entry from teaparty.yaml or project.yaml.
 argument-hint: <task-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Scheduled Task

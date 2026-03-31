@@ -3,7 +3,7 @@ name: edit-agent
 description: Modify an existing agent definition — update tools, model, maxTurns, skills allowlist, or role description body.
 argument-hint: <agent-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Edit Agent

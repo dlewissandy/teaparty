@@ -3,7 +3,7 @@ name: remove-workgroup
 description: Remove a workgroup definition and its registration entry. Does not delete agent definitions used by the workgroup.
 argument-hint: <workgroup-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Workgroup

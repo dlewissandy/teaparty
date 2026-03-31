@@ -3,7 +3,7 @@ name: remove-agent
 description: Remove an agent definition from .claude/agents/ and clean up any workgroup roster references.
 argument-hint: <agent-name>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Remove Agent

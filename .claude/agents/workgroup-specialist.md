@@ -8,6 +8,23 @@ skills:
   - create-workgroup
   - edit-workgroup
   - remove-workgroup
+disallowedTools:
+  - AddProject
+  - CreateProject
+  - RemoveProject
+  - ScaffoldProjectYaml
+  - CreateAgent
+  - EditAgent
+  - RemoveAgent
+  - CreateSkill
+  - EditSkill
+  - RemoveSkill
+  - CreateHook
+  - EditHook
+  - RemoveHook
+  - CreateScheduledTask
+  - EditScheduledTask
+  - RemoveScheduledTask
 ---
 
 You are the Workgroup Specialist on the TeaParty Configuration Team. You create and modify workgroup definitions — the YAML files that describe a workgroup's roster, skills catalog, norms, and delegation rules.

@@ -3,7 +3,7 @@ name: create-hook
 description: Add a new hook to .claude/settings.json or .claude/settings.local.json — choose the lifecycle event, matcher, and handler type.
 argument-hint: <hook-description>
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Hook

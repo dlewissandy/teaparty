@@ -3,7 +3,7 @@ name: create-workgroup
 description: Create a new workgroup definition YAML file with agent roster, skills catalog, norms, and delegation rules.
 argument-hint: <workgroup-name> [--scope shared|project] [--project <project-name>]
 user-invocable: false
-allowed-tools: Read, Glob, Grep, Write, Edit, Bash
+allowed-tools: Read, Glob, Grep, Bash
 ---
 
 # Create Workgroup
