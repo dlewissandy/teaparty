@@ -1121,8 +1121,8 @@ class TestOmSessionPassesMcpConfig(unittest.TestCase):
                     return FakeResult()
 
             with patch('orchestrator.claude_runner.ClaudeRunner', FakeRunner):
-                with patch('orchestrator.office_manager._extract_assistant_text',
-                           return_value=''):
+                with patch('orchestrator.office_manager._iter_stream_events',
+                           return_value=[]):
                     asyncio.run(session.invoke(cwd=tmpdir))
 
             self.assertIn('mcp_config', captured,
