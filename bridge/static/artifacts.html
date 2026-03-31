@@ -258,13 +258,45 @@ function findNode(nodes, path) {
   return null;
 }
 
+// Expand all ancestor pinned folders that contain path, fetching children as needed.
+// Returns true if path is inside (or equal to) a pinned node.
+async function expandToPath(path, nodes) {
+  nodes = nodes || pinnedNodes;
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i];
+    if (node.path === path) return true;
+    if (node.is_dir && path.startsWith(node.path + '/')) {
+      node.expanded = true;
+      if (node.children === null) {
+        try {
+          var resp = await fetch('/api/fs/list?path=' + encodeURIComponent(node.path));
+          if (resp.ok) {
+            var data = await resp.json();
+            node.children = (data.entries || []).map(function(e) {
+              return {path: e.path, label: e.name, is_dir: e.is_dir, expanded: false, children: null};
+            });
+          } else {
+            node.children = [];
+          }
+        } catch(e) {
+          node.children = [];
+        }
+      }
+      await expandToPath(path, node.children);
+      return true;
+    }
+  }
+  return false;
+}
+
 function renderPinnedNodes(nodes, depth) {
   var html = '';
   var indent = (depth * 12) + 'px';
   nodes.forEach(function(node) {
+    var escapedPath = node.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     if (node.is_dir) {
       var icon = node.expanded ? '&#9660;' : '&#9654;';
-      html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="toggleFolder(' + JSON.stringify(node.path) + ')">' +
+      html += '<div class="artifact-nav-folder" style="padding-left:calc(10px + ' + indent + ')" onclick="toggleFolder(\'' + escapedPath + '\')">' +
         '<span class="artifact-nav-folder-icon">' + icon + '</span>' +
         '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
         '</div>';
@@ -275,7 +307,7 @@ function renderPinnedNodes(nodes, depth) {
       }
     } else {
       var isActive = selectedFile === node.path;
-      html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="loadFile(' + JSON.stringify(node.path) + ')">' +
+      html += '<div class="artifact-nav-item ' + (isActive ? 'active' : '') + '" style="padding-left:calc(16px + ' + indent + ')" onclick="loadFile(\'' + escapedPath + '\')">' +
         '<span class="artifact-nav-item-label">' + escHtml(node.label) + '</span>' +
         '</div>';
     }
@@ -424,12 +456,18 @@ async function loadFile(path) {
     var dir = selectedFile.substring(0, selectedFile.lastIndexOf('/'));
     path = dir + '/' + path;
   }
+  // Normalize away . and .. segments so sibling/cousin paths resolve correctly.
+  path = path.split('/').reduce(function(acc, seg) {
+    if (seg === '..') { acc.pop(); } else if (seg !== '.') { acc.push(seg); }
+    return acc;
+  }, []).join('/');
   selectedFile = path;
   fileContent = null;
   loadError = null;
 
-  // Add to nav if not already present.
-  var inNav = sections.some(function(s) {
+  // Expand ancestor pinned folders to reveal path, then check if it's in the nav.
+  var inPinned = await expandToPath(path);
+  var inNav = inPinned || sections.some(function(s) {
     return s.items.some(function(i) { return i.path === path; });
   });
   if (!inNav) {
@@ -493,6 +531,12 @@ async function refresh() {
       fetch('/api/artifacts/' + encodeURIComponent(currentProject)),
       fetch('/api/artifacts/' + encodeURIComponent(currentProject) + '/pins'),
     ]);
+    if (pinsResp.ok) {
+      var pinsData = await pinsResp.json();
+      pinnedNodes = pinsData.map(function(p) {
+        return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
+      });
+    }
     if (!artResp.ok) {
       loadError = artResp.status === 404
         ? 'No documentation found for project: ' + currentProject
@@ -504,12 +548,6 @@ async function refresh() {
     sections = Object.entries(data).map(function(entry) {
       return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
     });
-    if (pinsResp.ok) {
-      var pinsData = await pinsResp.json();
-      pinnedNodes = pinsData.map(function(p) {
-        return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-      });
-    }
   } catch(e) {
     loadError = 'Could not connect to bridge: ' + e.message;
     render();
@@ -536,6 +574,12 @@ async function init() {
       fetch('/api/artifacts/' + encodeURIComponent(currentProject)),
       fetch('/api/artifacts/' + encodeURIComponent(currentProject) + '/pins'),
     ]);
+    if (pinsResp.ok) {
+      var pinsData = await pinsResp.json();
+      pinnedNodes = pinsData.map(function(p) {
+        return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
+      });
+    }
     if (!artResp.ok) {
       loadError = artResp.status === 404
         ? 'No documentation found for project: ' + currentProject
@@ -547,12 +591,6 @@ async function init() {
     sections = Object.entries(data).map(function(entry) {
       return {heading: entry[0], items: parseMdLinks(entry[1]), body: entry[1]};
     });
-    if (pinsResp.ok) {
-      var pinsData = await pinsResp.json();
-      pinnedNodes = pinsData.map(function(p) {
-        return {path: p.path, label: p.label, is_dir: p.is_dir, expanded: false, children: null};
-      });
-    }
   } catch(e) {
     loadError = 'Could not connect to bridge: ' + e.message;
     render();

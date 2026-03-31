@@ -1,7 +1,7 @@
 ---
 name: office-manager
 description: Management team lead. Coordinates across projects, dispatches work, synthesizes status, and transmits the human's intent through the hierarchy. Use for cross-project coordination, status synthesis, and organizational-level decisions.
-tools: Read, Grep, Glob, Bash, WebSearch, WebFetch
+tools: Read, Grep, Glob, Bash, WebSearch, WebFetch, mcp__teaparty-config__PinArtifact
 model: opus
 maxTurns: 30
 skills:

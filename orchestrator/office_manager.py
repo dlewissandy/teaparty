@@ -604,6 +604,14 @@ class OfficeManagerSession:
                 agents_file=agents_path,
                 lead='office-manager',
                 permission_mode='default',
+                settings={
+                    'permissions': {
+                        'allow': [
+                            'mcp__teaparty-config__PinArtifact',
+                            'mcp__teaparty-config__UnpinArtifact',
+                        ],
+                    },
+                },
                 resume_session=self.claude_session_id,
                 mcp_config=_build_mcp_config(cwd),
             )
