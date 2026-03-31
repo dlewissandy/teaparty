@@ -8,11 +8,11 @@ Agents are not subprocesses inside a lead's context. Each agent is an independen
 
 ## Single-Agent Invocations
 
-Every agent — lead or worker — runs as a standalone `claude -p` process. TeaParty does not use `--agents` bundles; each agent is spawned independently with its own agent definition file. (The `--agent` flag, singular, selects the agent definition; `--agents`, plural, defines inline subagents for a single session — TeaParty does not use the latter.) When a lead needs a team member's work, it posts a message to the bus. TeaParty spins up the receiving agent independently.
+Every agent — lead or worker — runs as a standalone `claude -p` process. Each agent is spawned independently with its own agent definition file (`--agent`, singular). TeaParty uses `--agents` (plural) for roster composition, not for native in-process spawning — each entry defines a communication partner the agent can reach via `Send`, with a description that guides routing decisions and a prompt field that carries the recipient's `agent_id` for bus routing.
 
-This changes the lead's role: it decomposes work, posts requests, and synthesizes responses. It no longer needs to hold the whole team in context simultaneously.
+This changes the lead's role: it decomposes work, sends requests to named roster members, and synthesizes responses. It no longer needs to hold the whole team in context simultaneously.
 
-The worktree composition step, skill isolation via `--bare`, and MCP scoping via `--settings` are detailed in the [invocation model](references/invocation-model.md).
+The worktree composition step, roster composition, skill isolation via `--bare`, and MCP scoping via `--settings` are detailed in the [invocation model](references/invocation-model.md).
 
 ---
 
@@ -22,9 +22,14 @@ Agent-to-agent communication goes through the message bus — the same bus that 
 
 When an agent posts a message to a teammate via the `AskTeam` MCP tool, the bus creates a conversation context. TeaParty spins up the receiving agent with that context. The exchange is multi-turn: the receiving agent can ask a follow-up, the caller can respond, all on the same context ID.
 
-Every agent runs in an isolated context window with no visibility into any other agent's conversation history. Messages crossing a process boundary must carry enough context for the recipient to act. The MCP tools handle this automatically: `AskTeam` and escalation tools prepend the caller's filtered conversation history to every outbound message, structured for progressive disclosure — task first, context below. The calling agent writes naturally; the tool constructs the envelope. `ReplyTo` does not inject history; replies are continuation, not initiation.
+Every agent runs in an isolated context window with no visibility into any other agent's conversation history. Messages crossing a process boundary must carry enough context for the recipient to act. Two tools handle all inter-agent communication:
 
-The execution model is write-then-exit-then-resume. A lead that posts three parallel AskTeam requests records all three outstanding context IDs in its conversation history before exiting its current turn. It is not running concurrently with its workers. When responses arrive, TeaParty tracks them via the `pending_count` field in the bus context record; the lead is re-invoked when all sub-contexts close. The lead's state lives on the bus, not in process memory — this is what makes it durable across restarts and partial failures.
+- **`Send(member, message)`** — delivers a message to a named roster member, opening or continuing a thread. Before posting, the orchestrator flushes the current state to the job's scratch file (`{worktree}/.context/scratch.md`). The tool assembles a composite message: the agent's message as the Task section, the scratch file contents as the Context section. The recipient gets a current, self-contained brief structured for progressive disclosure — task first, job state below, pointers to detail files for anything that needs deeper reading.
+- **`Reply(message)`** — responds to whoever opened the current thread and closes it. No context injection — the context is already established.
+
+The calling agent writes naturally; the tool constructs the envelope. The scratch file is the prior: a distilled snapshot of decisions, human input, dead ends, and current state, maintained by the orchestrator from the stream. The flush-before-send ensures the snapshot includes everything up to and including the current turn.
+
+The execution model is write-then-exit-then-resume. A lead that sends three parallel requests records all three outstanding threads in its conversation history before exiting its current turn. It is not running concurrently with its workers. When workers call `Reply`, TeaParty tracks completions via the `pending_count` field in the bus context record; the lead is re-invoked when all threads close. The lead's state lives on the bus, not in process memory — this is what makes it durable across restarts and partial failures.
 
 The bus must be a durable store, not just a message queue. Conversation context records persist across process restarts so that re-invocation can retrieve session IDs and pending state. This durability is a hard requirement placed on the Messaging proposal.
 
@@ -48,10 +53,15 @@ The [routing reference](references/routing.md) covers the full routing rule stru
 
 ## Relationship to Native Agent Teams
 
-Claude Code's native agent teams feature (experimental, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) provides inter-agent messaging and shared task coordination. TeaParty's bus model covers similar ground but is architecturally distinct on several dimensions:
+Claude Code's native agent teams feature (experimental, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`) provides inter-agent messaging and shared task coordination. TeaParty uses `--agents` for roster composition but not for native in-process spawning. The distinction matters:
+
+- **`--agents` in TeaParty** defines who an agent can communicate with and what they do. The `prompt` field carries the bus routing key. Actual communication goes through the bus — not through Claude's internal agent spawning mechanism. Each agent remains an independent `claude -p` process.
+- **Native agent teams** spawn sub-agents inside the coordinating agent's session. Those agents share in-process state and exist only for the duration of the parent session. They cannot be resumed after restart.
+
+TeaParty's bus model is architecturally distinct on the dimensions that matter for durable coordination:
 
 - **Durable conversation history across restarts.** The bus is a persistent store. The native agent teams model uses in-memory coordination; `/resume` and `/rewind` do not restore in-process teammates.
-- **Project-scoped routing with access control.** Workgroup membership drives the routing table; the bus dispatcher enforces it at the transport layer. Native agent teams have no equivalent routing boundary.
+- **Project-scoped routing with access control.** Roster composition drives the routing table; the bus dispatcher enforces it at the transport layer. Native agent teams have no equivalent routing boundary.
 - **OM-mediated cross-project routing.** The OM is a first-class coordination participant. Native agent teams have no cross-project gateway concept.
 - **CfA-based escalation into the human coordination protocol.** Escalation threads through the bus conversation hierarchy into existing CfA gates. Native agent teams have no equivalent.
 

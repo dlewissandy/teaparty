@@ -4,15 +4,17 @@
 
 ## Bus Routing Rules
 
-Routing policy determines which agents can initiate conversations with which others. Rules are computed at session start from workgroup membership, not stored as static config.
+Routing policy determines which agents can communicate with which others. An agent can only `Send` to members explicitly listed in its `--agents` roster. The roster is composed by TeaParty at spawn time — an agent has no visibility into, and no route to, any agent not in its roster.
 
-**Within a workgroup:** any agent can message any other agent in the same workgroup. The lead can post to any worker; workers can post back to the lead on the existing conversation context using `ReplyTo`.
+The routing policy is expressed through what TeaParty puts in each agent's roster:
 
-**Cross-workgroup within a project:** requests go through the project lead. A coding worker has no direct bus route to a config specialist or a research agent. The project lead is the cross-workgroup routing hub and provides framing when forwarding requests between workgroups.
+**Within a workgroup:** each agent's roster includes all other agents in the same workgroup. The lead's roster includes all workers; each worker's roster includes the lead (via requestor injection) and, optionally, peer workers if peer communication is permitted for that workgroup.
 
-**Cross-project:** always mediated by the office manager. Project-scoped agents have no bus routes to other projects. The OM is the only agent with cross-project context.
+**Cross-workgroup within a project:** a workgroup lead's roster includes the project lead. The project lead's roster includes all workgroup leads. Workers do not have the project lead in their roster — cross-workgroup requests go through the workgroup lead, who forwards to the project lead.
 
-These rules are enforced by the bus dispatcher. `AskTeam` checks routing authorization before posting — if the caller has no route to the target role, it raises `RoutingError` in the caller's turn without writing to the bus. This is a client-side pre-check. The bus dispatcher performs the same check at the transport layer as an independent enforcement point; a message that bypasses `AskTeam` and posts directly to an unauthorized context ID is rejected at the transport level. The two checks are not redundant by accident — `AskTeam` gives the caller a clean error to handle; the bus dispatcher ensures enforcement does not depend on all callers going through `AskTeam`.
+**Cross-project:** the project lead's roster includes the OM. The OM's roster includes all project leads. No other agent has the OM in its roster.
+
+These rules are enforced at two layers. `Send` performs a client-side pre-check: if the named member is not in the agent's roster, it raises `UnknownMemberError` before touching the bus. The bus dispatcher performs a transport-level check independently: given the sender's `agent_id` and the target context ID, it verifies a routing entry exists for `(sender_agent_id, recipient_agent_id)`. A message that reaches the bus without going through `Send` is still rejected if no routing entry exists. The two checks are not redundant — `Send` gives the agent a clean error to handle in its own turn; the dispatcher ensures routing cannot be bypassed at the transport layer.
 
 ## Agent Identity
 
@@ -36,17 +38,19 @@ The derivation algorithm processes each project's workgroup membership independe
 
 ## Routing Table Format
 
-The routing table is the shared data structure between the derivation algorithm (reads workgroup YAML, writes the table) and the bus dispatcher (reads the table to authorize posts).
+The routing table is the shared data structure between the roster composition step (reads workgroup YAML and participant config, writes the table) and the bus dispatcher (reads the table to authorize posts).
 
-The routing table is a set of `(sender_agent_id, recipient_agent_id)` pairs. Each pair encodes a permitted directed communication channel. The derivation algorithm produces one pair for each permitted channel:
+The routing table is derived from the roster compositions. For every agent spawned in the session, TeaParty reads the `--agents` entries it was given and extracts the `(caller_agent_id, member_agent_id)` pairs — one pair per roster entry, where `caller_agent_id` is the spawned agent's identity and `member_agent_id` is the `agent_id` stored in the entry's `prompt` field. The union of all such pairs across all spawned agents is the routing table.
 
-- Within-workgroup: one pair for each ordered (agent_a, agent_b) combination where both agents share a workgroup within the same project. This covers both directions: `(my-backend/coding/team-lead, my-backend/coding/specialist)` and `(my-backend/coding/specialist, my-backend/coding/team-lead)`. Workers can reply to leads because the `(worker, lead)` pair exists.
-- Cross-workgroup: one pair for each (workgroup_lead, project_lead) and (project_lead, workgroup_lead) combination across workgroups within a project. For example: `(my-backend/coding/team-lead, my-backend/lead)` and `(my-backend/lead, my-backend/coding/team-lead)`.
-- Cross-project: one pair for each (project_lead, om) and (om, project_lead) combination. For example: `(my-backend/lead, om)` and `(om, my-backend/lead)`.
+The table is a set of `(sender_agent_id, recipient_agent_id)` pairs. Each pair encodes a permitted directed communication channel. Examples derived from roster composition:
 
-The table is keyed by `sender_agent_id`. The dispatcher's authorization check is: given the sender's agent ID and the target context ID, is there a routing entry that permits this sender to post to a context owned by the target agent? Context ownership is tracked in the bus conversation context record, which maps `context_id` to both `initiator_agent_id` and `recipient_agent_id`. For `ReplyTo` calls, the dispatcher resolves the target agent from the context record's `initiator_agent_id` field (the agent that created the context), then checks whether a `(sender, initiator)` routing pair exists.
+- Within-workgroup (bidirectional): `(my-backend/coding/team-lead, my-backend/coding/specialist)` and `(my-backend/coding/specialist, my-backend/coding/team-lead)` — present because each agent's roster includes the other.
+- Cross-workgroup: `(my-backend/coding/team-lead, my-backend/lead)` and `(my-backend/lead, my-backend/coding/team-lead)` — present because the workgroup lead's roster includes the project lead, and the project lead's roster includes the workgroup lead.
+- Cross-project: `(my-backend/lead, om)` and `(om, my-backend/lead)` — present because the project lead's roster includes the OM and vice versa.
 
-The table is computed once at session start and held in memory by the dispatcher for the session's duration. It is not persisted between sessions.
+The table is keyed by `sender_agent_id`. The dispatcher's authorization check: given the sender's `agent_id` and the target context ID, does a routing entry exist for `(sender_agent_id, recipient_agent_id)`? Context ownership is tracked in the bus conversation context record, which stores both `initiator_agent_id` and `recipient_agent_id`. For `Reply` calls, the dispatcher resolves the target from the context record's `initiator_agent_id` field, then checks whether a `(sender, initiator)` routing pair exists.
+
+The table is built incrementally as agents are spawned and held in memory by the dispatcher for the session's duration. It is not persisted between sessions. An agent spawned mid-session has its roster entries added to the table at spawn time.
 
 ## The OM as Cross-Project Gateway
 
@@ -68,9 +72,9 @@ The bus dispatcher is a component in the TeaParty orchestrator process — a Pyt
 
 ## Routing Rule Storage
 
-Routing rules are computed at session start from workgroup membership. The workgroup YAML — team members, lead, project scope — is the input; the routing table is the output.
+Routing rules are derived from roster compositions. The workgroup YAML and participant config are the inputs; the `--agents` roster entries are the intermediate representation; the routing table is the output.
 
-Changes to workgroup membership take effect at the start of the next session. Adding an agent to a workgroup grants it the appropriate routing access; removing it revokes access. No separate routing configuration to maintain.
+Changes to workgroup membership take effect at the start of the next session — roster compositions are computed at spawn time using the configuration as it stands when the session begins. Adding an agent to a workgroup causes it to appear in the appropriate rosters at next spawn; removing it causes it to disappear. No separate routing configuration to maintain.
 
 ## Implementation Status
 

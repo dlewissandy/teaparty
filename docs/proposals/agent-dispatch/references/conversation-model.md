@@ -16,21 +16,21 @@ Multiple agent-to-agent conversations can be active simultaneously. A lead manag
 
 ## Multi-Turn Mechanics
 
-> **Target design.** A code path for this model does not yet exist. The current `AskTeam` implementation is a synchronous Unix domain socket RPC to `DispatchListener` that blocks the caller for the full dispatch duration. Implementing this model requires replacing that RPC with bus-mediated `AskTeam` and `ReplyTo` tools, re-invocation plumbing, and `pending_count` management in the bus context record.
+> **Target design.** A code path for this model does not yet exist. The current `AskTeam` implementation is a synchronous Unix domain socket RPC to `DispatchListener` that blocks the caller for the full dispatch duration. Implementing this model requires replacing that RPC with bus-mediated `Send` and `Reply` tools, re-invocation plumbing, and `pending_count` management in the bus context record.
 
 An agent-to-agent exchange works from the bus's perspective the same as a human-agent conversation. The execution model is write-then-exit-then-resume:
 
-1. Caller posts a message to the recipient's context ID via `AskTeam` and exits its current turn
-2. TeaParty spins up the recipient agent with the conversation history
-3. Recipient responds via `ReplyTo`; the response is written to the bus on the same context ID; recipient exits
-4. TeaParty appends the response to the caller's local conversation history file, then re-invokes the caller via `--resume $SESSION_ID`
-5. Caller reads the response from conversation history and continues
+1. Caller calls `Send(member, message)`. Before posting, the orchestrator flushes the current state to `{worktree}/.context/scratch.md`. The tool assembles the composite message (Task + Context envelope) and posts it to the bus. Caller exits its current turn.
+2. TeaParty spawns the recipient agent with the conversation history, which includes the composite message and the injected parent context ID.
+3. Recipient does its work. When complete, it calls `Reply(message)`. The reply is written to the bus on the same context ID. Recipient exits.
+4. TeaParty appends the reply to the caller's local conversation history file, then re-invokes the caller via `--resume $SESSION_ID`.
+5. Caller reads the reply from conversation history and continues.
 
-The caller's `claude -p` process exits after posting. It does not run concurrently with the recipient. When the response is ready, TeaParty triggers re-invocation using the session ID captured from the caller's JSON output (`--output-format json` returns a `session_id` field). TeaParty stores the session ID in the conversation context record keyed by context ID, so it can match incoming responses to the correct caller for re-invocation.
+The caller's `claude -p` process exits after `Send`. It does not run concurrently with the recipient. When the reply arrives, TeaParty triggers re-invocation using the session ID captured from the caller's JSON output (`--output-format json` returns a `session_id` field). TeaParty stores the session ID in the conversation context record keyed by context ID, so it can match incoming replies to the correct caller for re-invocation.
 
-State that the caller needs on re-invocation — pending context IDs, task intent — must be recorded in the conversation before the caller exits. `--resume` restores the conversation history thread; it does not restore in-memory state. Recording this state in the conversation is how it survives across process boundaries.
+State that the caller needs on re-invocation — pending context IDs, task intent — must be recorded in the conversation before the caller exits. `--resume` restores the conversation history thread; it does not restore in-memory state.
 
-For follow-up turns, the caller posts again to the same context ID via `ReplyTo`; the recipient is re-invoked via `--resume` with the full updated history.
+For follow-up turns before `Reply`, the recipient calls `Send` targeting the requestor (injected into its roster); the caller responds via another `Send` to the same member. The thread stays open until `Reply` closes it.
 
 ## Navigator Hierarchy
 
@@ -59,6 +59,6 @@ For escalation propagation to work, each spawned agent must know its parent cont
 
 When a lead is re-invoked in a worker-level sub-conversation context and determines that the escalation cannot be resolved there, it takes two sequential actions: it records the unresolvable escalation in the sub-conversation, then posts the INTERVENE signal to the parent context ID via `ReplyTo`. That parent context ID was injected at the lead's spawn time. The lead is not simultaneously present in both contexts.
 
-**Escalation context.** When an agent posts an escalation — an INTERVENE or a question that crosses a context boundary — the escalating agent is responsible for writing a message that states what decision is needed and why. The MCP tool that delivers the escalation applies the same context boundary rule as `AskTeam`: it prepends the caller's filtered conversation history so the receiver has the situation without having to navigate back through the sub-conversation. The proxy receives a complete situation report. If it can answer confidently, it does. If not, it forwards the report unchanged to the human. The human sees exactly what the proxy received — no further synthesis occurs in the escalation chain.
+**Escalation context.** When an agent escalates — posting an INTERVENE or a question that crosses a context boundary — it uses `Send` targeting the appropriate roster member (workgroup lead, project lead, or human participant). `Send` applies the same flush-and-envelope construction as any other message: the orchestrator flushes the scratch file first, then assembles Task + Context. The receiver gets the escalating agent's message plus a current snapshot of the job state. The proxy receives a complete situation report. If it can answer confidently, it does. If not, it forwards the report unchanged via `Send` to the human participant in its own roster. The human sees exactly what the proxy received — no further synthesis or reframing occurs in the escalation chain.
 
 CfA Extensions is responsible for defining exactly what fields carry the parent context ID at spawn time and what the INTERVENE payload looks like in this cross-context case. This proposal places that requirement on CfA Extensions: every agent spawn must include the job-level context ID so that INTERVENE propagation has a target. CfA Extensions must also specify the receptive state precondition — what state the job-level conversation must be in when INTERVENE arrives.
