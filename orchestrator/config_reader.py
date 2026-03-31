@@ -114,6 +114,7 @@ class ProjectTeam:
     norms: dict[str, list[str]] = field(default_factory=dict)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
+    artifact_pins: list[dict[str, str]] = field(default_factory=list)
 
 
 # ── Parsers ──────────────────────────────────────────────────────────────────
@@ -254,6 +255,7 @@ def load_project_team(
         norms=data.get('norms', {}),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
+        artifact_pins=data.get('artifact_pins', []),
     )
 
 
@@ -567,6 +569,7 @@ def _scaffold_project_yaml(
         'humans': humans or [],
         'workgroups': workgroups or [],
         'skills': skills or [],
+        'artifact_pins': [],
     }
     with open(project_yaml_path, 'w') as f:
         yaml.dump(scaffold, f, default_flow_style=False, sort_keys=False)

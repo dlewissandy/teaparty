@@ -440,11 +440,24 @@ class TestArtifactsHtmlPinnedSection(unittest.TestCase):
     def test_artifacts_html_refresh_re_fetches_pins(self):
         """refresh() must re-fetch the /pins endpoint, not rely on session state."""
         html = self._read_html()
-        # The refresh function must also call the pins endpoint
-        # Find the refresh function body
-        match = re.search(r'async function refresh\(\)\s*\{([^}]+(?:\{[^}]*\}[^}]*)*)\}', html, re.DOTALL)
-        self.assertIsNotNone(match, 'refresh() function must be present')
-        body = match.group(1)
+        # Locate refresh() definition and verify /pins appears in the function
+        refresh_pos = html.find('async function refresh()')
+        self.assertGreater(refresh_pos, -1, 'refresh() function must be present')
+        # Find the opening brace position
+        start = html.find('{', refresh_pos)
+        self.assertGreater(start, -1)
+        # Walk forward tracking brace depth to find the function end
+        depth = 0
+        end = start
+        for i in range(start, len(html)):
+            if html[i] == '{':
+                depth += 1
+            elif html[i] == '}':
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        body = html[start:end]
         self.assertIn('/pins', body,
                       "refresh() must re-fetch /pins endpoint so pinned section survives refresh")
 

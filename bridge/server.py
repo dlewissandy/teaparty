@@ -241,6 +241,7 @@ class TeaPartyBridge:
 
         # ── Artifact endpoints ────────────────────────────────────────────────
         app.router.add_get('/api/artifacts/{project}', self._handle_artifacts)
+        app.router.add_get('/api/artifacts/{project}/pins', self._handle_artifact_pins)
         app.router.add_get('/api/file', self._handle_file)
 
         # ── Action endpoints ──────────────────────────────────────────────────
@@ -698,6 +699,31 @@ class TeaPartyBridge:
 
         sections = _parse_artifacts(content)
         return web.json_response(sections)
+
+    async def _handle_artifact_pins(self, request: web.Request) -> web.Response:
+        """GET /api/artifacts/{project}/pins — return artifact_pins with absolute paths and is_dir."""
+        from orchestrator.config_reader import load_project_team
+        project = request.match_info['project']
+        proj_path = self._lookup_project_path(project)
+        if proj_path is None:
+            return web.json_response({'error': f'project not found: {project}'}, status=404)
+
+        try:
+            team = load_project_team(project_dir=proj_path)
+        except FileNotFoundError:
+            return web.json_response([])
+
+        result = []
+        for pin in team.artifact_pins:
+            rel = pin.get('path', '')
+            label = pin.get('label') or os.path.basename(rel.rstrip('/\\')) or rel
+            abs_path = os.path.normpath(os.path.join(proj_path, rel))
+            result.append({
+                'path': abs_path,
+                'label': label,
+                'is_dir': os.path.isdir(abs_path),
+            })
+        return web.json_response(result)
 
     _BINARY_CONTENT_TYPES = {
         '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',

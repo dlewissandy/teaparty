@@ -437,6 +437,106 @@ def scaffold_project_yaml_handler(
     return _ok(f'Scaffolded {yaml_path}', path=yaml_path)
 
 
+# ── Artifact pin tools ────────────────────────────────────────────────────────
+
+def _find_project_path(name: str, teaparty_home: str) -> str | None:
+    """Return the project directory for a given project name, or None if not found."""
+    data = _load_teaparty_yaml(teaparty_home)
+    for team in data.get('teams', []):
+        if team.get('name') == name:
+            return team.get('path')
+    return None
+
+
+def _load_project_yaml(project_dir: str) -> dict:
+    """Load .teaparty.local/project.yaml, returning an empty dict if missing."""
+    path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    if not os.path.exists(path):
+        return {}
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def _save_project_yaml(project_dir: str, data: dict) -> None:
+    """Write data to .teaparty.local/project.yaml."""
+    tp_dir = os.path.join(project_dir, '.teaparty.local')
+    os.makedirs(tp_dir, exist_ok=True)
+    path = os.path.join(tp_dir, 'project.yaml')
+    with open(path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def pin_artifact_handler(
+    project: str,
+    path: str,
+    label: str = '',
+    teaparty_home: str = '',
+) -> str:
+    """Add or update an artifact pin in a project's artifact_pins list.
+
+    If a pin with the same path already exists, its label is updated.
+    Path is relative to the project root.
+    """
+    if not project or not project.strip():
+        return _err('PinArtifact requires a non-empty project')
+    if not path or not path.strip():
+        return _err('PinArtifact requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+
+    # Update existing or append new
+    for pin in pins:
+        if pin.get('path') == path:
+            if label:
+                pin['label'] = label
+            data['artifact_pins'] = pins
+            _save_project_yaml(project_dir, data)
+            return _ok(f"Updated pin '{path}' in project '{project}'")
+
+    entry: dict[str, str] = {'path': path}
+    if label:
+        entry['label'] = label
+    pins.append(entry)
+    data['artifact_pins'] = pins
+    _save_project_yaml(project_dir, data)
+    return _ok(f"Pinned '{path}' in project '{project}'")
+
+
+def unpin_artifact_handler(
+    project: str,
+    path: str,
+    teaparty_home: str = '',
+) -> str:
+    """Remove an artifact pin from a project's artifact_pins list by path."""
+    if not project or not project.strip():
+        return _err('UnpinArtifact requires a non-empty project')
+    if not path or not path.strip():
+        return _err('UnpinArtifact requires a non-empty path')
+
+    home = _teaparty_home(teaparty_home)
+    project_dir = _find_project_path(project, home)
+    if project_dir is None:
+        return _err(f"Project '{project}' not found in registry")
+
+    data = _load_project_yaml(project_dir)
+    pins = data.get('artifact_pins', [])
+    original_len = len(pins)
+    pins = [p for p in pins if p.get('path') != path]
+
+    if len(pins) == original_len:
+        return _err(f"Pin '{path}' not found in project '{project}'")
+
+    data['artifact_pins'] = pins
+    _save_project_yaml(project_dir, data)
+    return _ok(f"Unpinned '{path}' from project '{project}'")
+
+
 # ── Agent tools ───────────────────────────────────────────────────────────────
 
 def create_agent_handler(
@@ -1360,6 +1460,48 @@ def create_server() -> FastMCP:
             teaparty_home: Override for .teaparty/ directory path.
         """
         return remove_scheduled_task_handler(name=name, teaparty_home=teaparty_home)
+
+    # ── Artifact pin tools ────────────────────────────────────────────────────
+
+    @server.tool()
+    async def PinArtifact(
+        project: str,
+        path: str,
+        label: str = '',
+        teaparty_home: str = '',
+    ) -> str:
+        """Add or update an artifact pin in a project's artifact viewer navigator.
+
+        Pins a file or directory as a persistent entry in the project's artifact
+        viewer. File pins open immediately on click; folder pins render as
+        collapsible trees. If a pin with the same path exists, its label is updated.
+
+        Args:
+            project: Project name as registered in teaparty.yaml.
+            path: Path relative to the project root (e.g. 'docs/', 'tests/test_engine.py').
+            label: Display label for the navigator. Falls back to the last path component.
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return pin_artifact_handler(
+            project=project, path=path, label=label, teaparty_home=teaparty_home,
+        )
+
+    @server.tool()
+    async def UnpinArtifact(
+        project: str,
+        path: str,
+        teaparty_home: str = '',
+    ) -> str:
+        """Remove an artifact pin from a project's artifact viewer navigator.
+
+        Args:
+            project: Project name as registered in teaparty.yaml.
+            path: Path to remove (must match the path used when pinning).
+            teaparty_home: Override for .teaparty/ directory path.
+        """
+        return unpin_artifact_handler(
+            project=project, path=path, teaparty_home=teaparty_home,
+        )
 
     return server
 
