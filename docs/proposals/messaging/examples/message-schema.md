@@ -1,16 +1,30 @@
 # Message Schema
 
-A message carries five pieces of information:
+A message carries four pieces of information:
 
 ```
-sender:       who sent it (human, proxy, office-manager, project-lead, ...)
+sender:       who or what produced it (see sender vocabulary below)
 conversation: which conversation it belongs to
 timestamp:    when
-type:         what kind (message, escalation, intervention, system)
 content:      text
 ```
 
-The `type` field distinguishes messages that the system must handle differently. Escalations generate dashboard badges. Interventions trigger CfA reassessment by the lead. System messages carry state transitions and operational events. Normal messages are conversational turns.
+`sender` encodes both identity and content kind. The chat UI routes on sender to apply stream filters and render appropriately.
+
+## Sender Vocabulary
+
+| Sender | What it carries |
+|--------|----------------|
+| `human` | Human input — responses, interventions |
+| `office-manager` | OM conversational text response |
+| `proxy` | Proxy conversational text response |
+| `<agent-role>` | Any agent's conversational text (e.g. `project-lead`) |
+| `thinking` | Extended reasoning block from an agent turn |
+| `tool_use` | Tool invocation — name and input |
+| `tool_result` | Tool return value |
+| `system` | Session init, CfA state transitions, operational events |
+
+Escalations and interventions are carried as `human` and `proxy` messages respectively; the `awaiting_input` flag on the conversation (not the message) is the structural signal for escalation state. System messages carry state transitions and operational events.
 
 ## Awaiting Input
 

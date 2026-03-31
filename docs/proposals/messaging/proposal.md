@@ -41,7 +41,7 @@ Multiple conversations can be active simultaneously.
 
 **Human to Agent.** The human types in the chat. The message is delivered to the agent's `claude -p` session via `--resume` at the next turn boundary. A running `claude -p` process cannot receive input mid-turn; delivery is eventually consistent, bounded by the current turn's duration. This replaces the FIFO IPC; see [references/migration.md](references/migration.md).
 
-**Agent to Human.** Agent output from stream-json is parsed. Conversational content becomes messages. Stream filtering (see [dashboard-ui chat-windows](../dashboard-ui/references/chat-windows.md)) determines what the human sees.
+**Agent to Human.** Agent output from stream-json is parsed. Every event type is written to the bus with a typed sender — not just conversational text. A single agent turn produces multiple messages: thinking blocks (`sender: thinking`), tool invocations (`sender: tool_use`), tool results (`sender: tool_result`), and the final text response (`sender: <agent-role>`). System events (`sender: system`) carry session init and state transitions. Stream filtering (see [dashboard-ui chat-windows](../dashboard-ui/references/chat-windows.md)) determines what the human sees by default; all event types are stored and available.
 
 **Agent to Agent.** Via MCP tools (AskQuestion, AskTeam) and dispatch, not through the message bus.
 
