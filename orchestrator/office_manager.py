@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import time
 import uuid
@@ -241,6 +242,142 @@ def _extract_assistant_text(stream_path: str) -> str:
     return '\n'.join(parts)
 
 
+# ── Liaison agent construction ──────────────────────────────────────────────
+
+def _project_slug(name: str) -> str:
+    """Convert a project name to a liaison agent slug.
+
+    'TeaParty'  → 'teaparty'
+    'My Project' → 'my-project'
+    'foo_bar'   → 'foo-bar'
+    """
+    slug = name.lower()
+    slug = re.sub(r'[^a-z0-9]+', '-', slug)
+    return slug.strip('-')
+
+
+def _make_project_liaison_def(name: str, path: str) -> dict:
+    """Build an agent definition dict for a project liaison."""
+    return {
+        'description': (
+            f'Liaison for the {name} project. Answers status queries by reading '
+            'project state, git log, session state, and config files.'
+        ),
+        'prompt': (
+            f'You are the {name} project liaison on the management team. '
+            f'Your project is at: {path}\n\n'
+            'Your role:\n'
+            '1. Answer the office manager\'s status queries about your project by reading:\n'
+            f'   - {path}/.teaparty/ — project configuration\n'
+            f'   - {path}/.sessions/ — session state (if it exists)\n'
+            f'   - git log in {path} — recent activity\n'
+            f'   - Any CfA state JSON files under {path}\n'
+            '2. Report your findings to the office manager: '
+            'SendMessage(to="office-manager", content="<your answer>")\n\n'
+            'You do NOT dispatch execution or spawn sessions. '
+            'Execution dispatch requires session context that does not exist here. '
+            'Your job is answering questions.\n\n'
+            'POINT-NOT-PASTE: Reference files by path, not by pasting their contents.'
+        ),
+        'model': 'haiku',
+        'maxTurns': 10,
+        'disallowedTools': [
+            'Edit', 'Write', 'MultiEdit', 'WebSearch', 'WebFetch',
+            'Task', 'TaskOutput', 'TaskStop', 'TeamCreate', 'TeamDelete',
+            'NotebookEdit',
+        ],
+    }
+
+
+def _make_configuration_liaison_def() -> dict:
+    """Build an agent definition dict for the configuration workgroup liaison."""
+    return {
+        'description': (
+            'Liaison for the Configuration workgroup. Answers questions about '
+            'current Claude Code configuration and routes change requests.'
+        ),
+        'prompt': (
+            'You are the configuration workgroup liaison on the management team. '
+            'You represent the Configuration Team — the workgroup that creates and '
+            'modifies agents, skills, hooks, MCP servers, and other Claude Code artifacts.\n\n'
+            'Your role:\n'
+            '1. Answer the office manager\'s questions about current configuration:\n'
+            '   - What agents exist: .claude/agents/\n'
+            '   - What skills are defined: .claude/skills/\n'
+            '   - What hooks are active: .claude/settings.json\n'
+            '2. Dispatch configuration requests to the Configuration Team when asked:\n'
+            '   AskTeam(team="configuration", task="<specific configuration request>")\n'
+            '3. Report results to the office manager: '
+            'SendMessage(to="office-manager", content="<your answer>")\n\n'
+            'POINT-NOT-PASTE: Reference files by path, not by pasting their contents.'
+        ),
+        'model': 'haiku',
+        'maxTurns': 10,
+        'disallowedTools': [
+            'Edit', 'Write', 'MultiEdit', 'WebSearch', 'WebFetch',
+            'Task', 'TaskOutput', 'TaskStop', 'TeamCreate', 'TeamDelete',
+            'NotebookEdit',
+        ],
+    }
+
+
+def _build_liaison_agents_json(
+    teaparty_home: str,
+) -> tuple[dict, list[str]]:
+    """Build liaison agent definitions from the registry at teaparty_home.
+
+    Reads teaparty.yaml, discovers valid projects, and constructs one liaison
+    agent per valid project plus a configuration workgroup liaison. Called by
+    OfficeManagerSession.invoke() to populate the --agents flag on each
+    ClaudeRunner invocation.
+
+    Returns:
+        (agents_dict, warnings) where agents_dict maps agent name → definition
+        and warnings is a list of human-readable messages about degraded state.
+        The agents_dict always contains at least 'configuration-liaison'.
+    """
+    from orchestrator.config_reader import discover_projects, load_management_team
+
+    agents: dict = {}
+    warnings: list[str] = []
+
+    try:
+        team = load_management_team(teaparty_home)
+    except FileNotFoundError:
+        # Registry absent — new or unconfigured deployment. Proceed silently
+        # with configuration-liaison only; no warning (nothing misconfigured).
+        agents['configuration-liaison'] = _make_configuration_liaison_def()
+        return agents, warnings
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(
+            f'Could not load team registry ({exc}) — project liaisons unavailable.'
+        )
+        agents['configuration-liaison'] = _make_configuration_liaison_def()
+        return agents, warnings
+
+    projects = discover_projects(team)
+    skipped: list[str] = []
+    for project in projects:
+        if not project['valid']:
+            skipped.append(project['name'])
+            continue
+        slug = _project_slug(project['name'])
+        agent_name = f'{slug}-liaison'
+        agents[agent_name] = _make_project_liaison_def(
+            name=project['name'],
+            path=project['path'],
+        )
+
+    if skipped:
+        warnings.append(
+            f'Projects skipped (missing required markers: .git, .claude, .teaparty): '
+            + ', '.join(skipped)
+        )
+
+    agents['configuration-liaison'] = _make_configuration_liaison_def()
+    return agents, warnings
+
+
 # ── Office manager session ──────────────────────────────────────────────────
 
 class OfficeManagerSession:
@@ -368,11 +505,32 @@ class OfficeManagerSession:
         stream_fd, stream_path = tempfile.mkstemp(suffix='.jsonl', prefix='om-stream-')
         os.close(stream_fd)
 
+        # Build liaison team from registry. Degrade gracefully if registry is
+        # missing or malformed rather than failing the entire invocation.
+        agents_dict, registry_warnings = _build_liaison_agents_json(self.teaparty_home)
+        for warning in registry_warnings:
+            self.send_agent_message(
+                f'[Team configuration warning: {warning}]'
+            )
+
+        # Write agents JSON to a named path in the infra dir (not a temp file)
+        # so existing tests that mock tempfile.mkstemp for stream_path are unaffected.
+        safe_id = self.user_id.replace('/', '-').replace(':', '-').replace(' ', '-')
+        agents_path: str | None = os.path.join(
+            self._infra_dir, f'.om-agents-{safe_id}.json',
+        )
+        try:
+            with open(agents_path, 'w') as f:
+                json.dump(agents_dict, f)
+        except OSError:
+            agents_path = None
+
         try:
             runner = ClaudeRunner(
                 prompt=prompt,
                 cwd=cwd,
                 stream_file=stream_path,
+                agents_file=agents_path,
                 lead='office-manager',
                 permission_mode='default',
                 resume_session=self.claude_session_id,
@@ -411,6 +569,11 @@ class OfficeManagerSession:
                 os.unlink(stream_path)
             except OSError:
                 pass
+            if agents_path:
+                try:
+                    os.unlink(agents_path)
+                except OSError:
+                    pass
 
 
 def read_om_session_title(teaparty_home: str, qualifier: str) -> str | None:
