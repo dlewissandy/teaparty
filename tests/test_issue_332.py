@@ -342,8 +342,12 @@ class TestGracefulDegradationOnMissingRegistry(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmpdir, ignore_errors=True)
 
-    def test_missing_registry_returns_empty_agents_with_warning(self):
-        """Missing teaparty.yaml must return empty agents dict and at least one warning."""
+    def test_missing_registry_returns_config_liaison_without_warning(self):
+        """Missing teaparty.yaml must return the configuration-liaison without any warnings.
+
+        A missing registry means an unconfigured deployment — not an error.
+        The OM proceeds silently with just the configuration liaison.
+        """
         # No teaparty.yaml written — home exists but has no config
         from orchestrator.office_manager import _build_liaison_agents_json
         agents, warnings = _build_liaison_agents_json(self.home)
@@ -352,85 +356,66 @@ class TestGracefulDegradationOnMissingRegistry(unittest.TestCase):
             agents, dict,
             '_build_liaison_agents_json must return a dict even when registry is missing',
         )
-        self.assertTrue(
-            len(warnings) > 0,
-            '_build_liaison_agents_json must return at least one warning when registry is missing',
+        self.assertIn(
+            'configuration-liaison', agents,
+            'configuration-liaison must always be present even without a registry',
+        )
+        self.assertEqual(
+            len(warnings), 0,
+            '_build_liaison_agents_json must not warn when the registry file is simply absent '
+            '(that is a normal unconfigured state, not an error)',
         )
 
     def test_invoke_does_not_raise_when_registry_missing(self):
         """OfficeManagerSession.invoke() must not raise when teaparty.yaml is missing."""
         from orchestrator.office_manager import OfficeManagerSession
-        from orchestrator.messaging import SqliteMessageBus
-
-        om_dir = os.path.join(self.tmpdir, 'om')
-        os.makedirs(om_dir, exist_ok=True)
 
         session = OfficeManagerSession(self.tmpdir, 'darrell')
         session.send_human_message('Hello.')
 
-        stream_path = _make_stream_jsonl('Hello back.')
-        try:
-            mock_result = MagicMock()
-            mock_result.session_id = 'sid-degrade-test'
+        def stub_runner(*args, **kwargs):
+            inst = MagicMock()
+            inst.run = AsyncMock(return_value=MagicMock(session_id=None))
+            return inst
 
-            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
-                instance = MagicMock()
-                instance.run = AsyncMock(return_value=mock_result)
-                instance.stream_file = stream_path
-                MockRunner.return_value = instance
+        # Must not raise
+        with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=stub_runner):
+            result = asyncio.run(session.invoke(cwd=self.tmpdir))
 
-                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
-                    with patch('os.close'):
-                        with patch('os.unlink'):
-                            # Must not raise
-                            result = asyncio.run(session.invoke(cwd=self.tmpdir))
+        self.assertIsInstance(
+            result, str,
+            'invoke() must return a string even when registry is missing',
+        )
 
-            # Result should be a string (even if empty) — not an exception
-            self.assertIsInstance(
-                result, str,
-                'invoke() must return a string even when registry is missing',
-            )
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
-
-    def test_invoke_sends_warning_to_bus_when_registry_missing(self):
-        """When registry is missing, a warning about unavailable teammates must appear in the bus."""
+    def test_invoke_with_missing_registry_still_calls_claude_runner(self):
+        """When registry is missing, invoke() must still call ClaudeRunner (with config liaison)."""
         from orchestrator.office_manager import OfficeManagerSession
 
         session = OfficeManagerSession(self.tmpdir, 'darrell')
         session.send_human_message('Hello.')
 
-        stream_path = _make_stream_jsonl('')  # empty response
-        try:
-            mock_result = MagicMock()
-            mock_result.session_id = None
+        runner_calls: list[dict] = []
 
-            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
-                instance = MagicMock()
-                instance.run = AsyncMock(return_value=mock_result)
-                instance.stream_file = stream_path
-                MockRunner.return_value = instance
+        def capture_runner(*args, **kwargs):
+            runner_calls.append(kwargs)
+            inst = MagicMock()
+            inst.run = AsyncMock(return_value=MagicMock(session_id=None))
+            return inst
 
-                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
-                    with patch('os.close'):
-                        with patch('os.unlink'):
-                            asyncio.run(session.invoke(cwd=self.tmpdir))
+        with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=capture_runner):
+            asyncio.run(session.invoke(cwd=self.tmpdir))
 
-            # The bus must contain at least one message (human + some office-manager message)
-            msgs = session.get_messages()
-            all_content = ' '.join(m.content for m in msgs)
-            # At minimum the human message is there; the session may or may not write a degradation
-            # warning, but it must not be silent silence with no feedback.
-            # The contract: if the registry fails, the next invocation is unblocked (not hung).
-            self.assertIsNotNone(msgs, 'get_messages() must return a list, not None')
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
+        self.assertTrue(
+            len(runner_calls) > 0,
+            'When registry is missing, invoke() must still call ClaudeRunner',
+        )
+        # agents_file must be set (configuration-liaison is always included)
+        agents_file = runner_calls[0].get('agents_file')
+        self.assertIsNotNone(
+            agents_file,
+            'agents_file must be set even when project registry is missing '
+            '(configuration-liaison is always included)',
+        )
 
 
 # ── AC1 integration: agents_file passed to ClaudeRunner ──────────────────────
@@ -440,7 +425,7 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
 
     def setUp(self):
         self.tmpdir = _make_tmpdir()
-        self.home = _make_teaparty_home(self.tmpdir)
+        # teaparty.yaml goes directly in tmpdir (= teaparty_home for OfficeManagerSession)
         os.makedirs(os.path.join(self.tmpdir, 'om'), exist_ok=True)
 
     def tearDown(self):
@@ -449,8 +434,9 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
     def test_invoke_with_valid_registry_passes_agents_file_to_runner(self):
         """With a valid registry, invoke() must construct ClaudeRunner with agents_file != None."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
+        # Write YAML to teaparty_home (self.tmpdir) so load_management_team finds it
         _write_teaparty_yaml(
-            self.home,
+            self.tmpdir,
             teams=[{'name': 'TeaParty', 'path': project_dir}],
         )
 
@@ -459,89 +445,62 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
         session = OfficeManagerSession(self.tmpdir, 'darrell')
         session.send_human_message('What is the status of TeaParty?')
 
-        stream_path = _make_stream_jsonl('TeaParty looks good.')
         captured_kwargs: list[dict] = []
 
-        try:
-            mock_result = MagicMock()
-            mock_result.session_id = 'sid-agents-test'
+        def capture_runner(*args, **kwargs):
+            captured_kwargs.append(kwargs)
+            inst = MagicMock()
+            # session_id=None prevents state-save; empty stream avoids file read issues
+            inst.run = AsyncMock(return_value=MagicMock(session_id=None))
+            return inst
 
-            def capture_runner(*args, **kwargs):
-                captured_kwargs.append(kwargs)
-                inst = MagicMock()
-                inst.run = AsyncMock(return_value=mock_result)
-                inst.stream_file = stream_path
-                return inst
+        with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=capture_runner):
+            asyncio.run(session.invoke(cwd=self.tmpdir))
 
-            with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=capture_runner):
-                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
-                    with patch('os.close'):
-                        with patch('os.unlink'):
-                            asyncio.run(session.invoke(cwd=self.tmpdir))
-
-            self.assertTrue(
-                len(captured_kwargs) > 0,
-                'ClaudeRunner must have been called',
-            )
-            agents_file = captured_kwargs[0].get('agents_file')
-            self.assertIsNotNone(
-                agents_file,
-                'ClaudeRunner must be called with agents_file != None when the registry is valid; '
-                'currently no agents_file is passed (the core bug this issue fixes)',
-            )
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
+        self.assertTrue(
+            len(captured_kwargs) > 0,
+            'ClaudeRunner must have been called',
+        )
+        agents_file = captured_kwargs[0].get('agents_file')
+        self.assertIsNotNone(
+            agents_file,
+            'ClaudeRunner must be called with agents_file != None when the registry is valid; '
+            'currently no agents_file is passed (the core bug this issue fixes)',
+        )
 
     def test_agents_file_content_includes_configuration_liaison(self):
-        """The temp agents JSON written by invoke() must include configuration-liaison."""
+        """The agents JSON written by invoke() must include configuration-liaison."""
         project_dir = _make_valid_project(self.tmpdir, 'teaparty')
-        _write_teaparty_yaml(self.home, teams=[{'name': 'TeaParty', 'path': project_dir}])
+        _write_teaparty_yaml(self.tmpdir, teams=[{'name': 'TeaParty', 'path': project_dir}])
 
         from orchestrator.office_manager import OfficeManagerSession
 
         session = OfficeManagerSession(self.tmpdir, 'darrell')
         session.send_human_message('Hello.')
 
-        stream_path = _make_stream_jsonl('Hi.')
-        written_agents_files: list[str] = []
+        agents_content: list[dict] = []
 
-        try:
-            mock_result = MagicMock()
-            mock_result.session_id = 'sid-content-test'
+        def capture_runner(*args, **kwargs):
+            af = kwargs.get('agents_file')
+            if af and os.path.exists(af):
+                with open(af) as f:
+                    agents_content.append(json.load(f))
+            inst = MagicMock()
+            inst.run = AsyncMock(return_value=MagicMock(session_id=None))
+            return inst
 
-            def capture_runner(*args, **kwargs):
-                af = kwargs.get('agents_file')
-                if af:
-                    written_agents_files.append(af)
-                inst = MagicMock()
-                inst.run = AsyncMock(return_value=mock_result)
-                inst.stream_file = stream_path
-                return inst
+        with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=capture_runner):
+            asyncio.run(session.invoke(cwd=self.tmpdir))
 
-            with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=capture_runner):
-                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
-                    with patch('os.close'):
-                        with patch('os.unlink'):
-                            asyncio.run(session.invoke(cwd=self.tmpdir))
-
-            if written_agents_files:
-                agents_file_path = written_agents_files[0]
-                if os.path.exists(agents_file_path):
-                    with open(agents_file_path) as f:
-                        agents = json.load(f)
-                    self.assertIn(
-                        'configuration-liaison', agents,
-                        f'agents JSON must include configuration-liaison; '
-                        f'got keys: {list(agents.keys())}',
-                    )
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
+        self.assertTrue(
+            len(agents_content) > 0,
+            'ClaudeRunner must be called with a readable agents_file',
+        )
+        self.assertIn(
+            'configuration-liaison', agents_content[0],
+            f'agents JSON must include configuration-liaison; '
+            f'got keys: {list(agents_content[0].keys())}',
+        )
 
     def test_invoke_without_valid_registry_does_not_raise(self):
         """invoke() must not raise when the registry is missing — OM degrades gracefully."""
@@ -550,28 +509,15 @@ class TestInvokePassesAgentsFileToClaude(unittest.TestCase):
         session = OfficeManagerSession(self.tmpdir, 'darrell')
         session.send_human_message('Hello.')
 
-        stream_path = _make_stream_jsonl('Hello.')
-        try:
-            mock_result = MagicMock()
-            mock_result.session_id = 'sid-no-registry'
+        def stub_runner(*args, **kwargs):
+            inst = MagicMock()
+            inst.run = AsyncMock(return_value=MagicMock(session_id=None))
+            return inst
 
-            with patch('orchestrator.claude_runner.ClaudeRunner') as MockRunner:
-                instance = MagicMock()
-                instance.run = AsyncMock(return_value=mock_result)
-                instance.stream_file = stream_path
-                MockRunner.return_value = instance
+        with patch('orchestrator.claude_runner.ClaudeRunner', side_effect=stub_runner):
+            result = asyncio.run(session.invoke(cwd=self.tmpdir))
 
-                with patch('tempfile.mkstemp', return_value=(0, stream_path)):
-                    with patch('os.close'):
-                        with patch('os.unlink'):
-                            result = asyncio.run(session.invoke(cwd=self.tmpdir))
-
-            self.assertIsInstance(result, str, 'invoke() must return a string even without a registry')
-        finally:
-            try:
-                os.unlink(stream_path)
-            except OSError:
-                pass
+        self.assertIsInstance(result, str, 'invoke() must return a string even without a registry')
 
 
 # ── AC4: office-manager.md reflects naming convention ────────────────────────
