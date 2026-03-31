@@ -189,6 +189,24 @@ class TestPermissionModeAlwaysPresent(unittest.TestCase):
         self.assertEqual(args[idx + 1], 'dontAsk')
 
 
+class TestBareFlag(unittest.TestCase):
+    """_build_args must pass --bare for skill scope suppression (Issue #344)."""
+
+    def _get_args(self) -> list[str]:
+        runner = _make_runner()
+        return runner._build_args(None)
+
+    def test_bare_flag_present(self):
+        """--bare must appear in the CLI args to suppress skill auto-discovery."""
+        args = self._get_args()
+        self.assertIn('--bare', args)
+
+    def test_setting_sources_not_present(self):
+        """--setting-sources must not appear — it controls settings files, not skills."""
+        args = self._get_args()
+        self.assertNotIn('--setting-sources', args)
+
+
 class TestClaudeResultDataclass(unittest.TestCase):
     """ClaudeResult dataclass — default values and had_errors property."""
 
