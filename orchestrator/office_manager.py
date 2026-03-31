@@ -378,6 +378,25 @@ def _build_liaison_agents_json(
     return agents, warnings
 
 
+# ── MCP config ──────────────────────────────────────────────────────────────
+
+def _build_mcp_config(project_root: str) -> dict:
+    """Build the mcp_config dict for the office manager's ClaudeRunner.
+
+    Points at orchestrator.mcp_server (the config + escalation tool server).
+    Inherits the project_root via cwd so config tools resolve paths correctly.
+    """
+    venv_python = os.path.join(project_root, '.venv', 'bin', 'python3')
+    if not os.path.isfile(venv_python):
+        venv_python = 'python3'
+    return {
+        'teaparty-config': {
+            'command': venv_python,
+            'args': ['-m', 'orchestrator.mcp_server'],
+        },
+    }
+
+
 # ── Office manager session ──────────────────────────────────────────────────
 
 class OfficeManagerSession:
@@ -534,6 +553,7 @@ class OfficeManagerSession:
                 lead='office-manager',
                 permission_mode='default',
                 resume_session=self.claude_session_id,
+                mcp_config=_build_mcp_config(cwd),
             )
             result = await runner.run()
 

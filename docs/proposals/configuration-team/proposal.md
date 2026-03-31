@@ -180,6 +180,32 @@ The Configuration Lead's value is coordination and decomposition. For single-art
 
 ## Execution Model: MCP Tools
 
+**19 configuration MCP tools** in `orchestrator/mcp_server.py`:
+
+| Domain | Tools |
+|--------|-------|
+| Project management | `AddProject`, `CreateProject`, `RemoveProject`, `ScaffoldProjectYaml` |
+| Agent definitions | `CreateAgent`, `EditAgent`, `RemoveAgent` |
+| Skills | `CreateSkill`, `EditSkill`, `RemoveSkill` |
+| Workgroups | `CreateWorkgroup`, `EditWorkgroup`, `RemoveWorkgroup` |
+| Hooks & scheduled tasks | `CreateHook`, `EditHook`, `RemoveHook`, `CreateScheduledTask`, `EditScheduledTask`, `RemoveScheduledTask` |
+
+**Skills become the reasoning layer.** Config skills collect requirements and call the appropriate MCP tool. They no longer have `Write` or `Edit` in their `allowed-tools` — the tools own the write.
+
+**Tool scoping via `disallowedTools`:**
+
+| Specialist | Allowed tools |
+|------------|---------------|
+| Project Specialist | AddProject, CreateProject, RemoveProject, ScaffoldProjectYaml |
+| Agent Specialist | CreateAgent, EditAgent, RemoveAgent |
+| Skills Specialist | CreateSkill, EditSkill, RemoveSkill |
+| Workgroup Specialist | CreateWorkgroup, EditWorkgroup, RemoveWorkgroup |
+| Systems Engineer | CreateHook, EditHook, RemoveHook, CreateScheduledTask, EditScheduledTask, RemoveScheduledTask |
+| Configuration Lead | All config tools |
+| Office Manager | All config tools |
+
+**MCP config wiring.** `OfficeManagerSession.invoke()` passes `mcp_config` pointing at `orchestrator.mcp_server` to `ClaudeRunner`. Config tools run as a stdio MCP subprocess inheriting the working directory.
+
 Content-producing teams (coding, writing, art) use the **worktree-isolated** execution model: dispatch creates a child worktree, the team works there, and results are squash-merged back into the session worktree.
 
 The Configuration Team uses the **direct** execution model — configuration artifacts live in `.claude/` and `.teaparty/`, which modify the runtime environment itself. A worktree-merge model creates a chicken-and-egg problem: the artifact doesn't take effect until merged, but the team needs to validate it before merging. Specialists run in the session worktree without child worktree isolation.
