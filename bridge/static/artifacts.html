@@ -321,9 +321,15 @@ function render() {
   var displayName = currentProject.charAt(0).toUpperCase() + currentProject.slice(1);
   document.title = 'TeaParty \u2014 ' + displayName + ' Artifacts';
 
+  var showCopy = selectedFile !== null && fileContent !== null && fileContent !== '';
+  var copyBtn = showCopy
+    ? '<button id="copy-btn" class="artifact-header-btn" onclick="copyFileContent()" title="Copy file content">Copy</button>'
+    : '';
   var headerHtml = '<div class="artifact-header">' +
     '<span class="artifact-header-title">' + escHtml(displayName) + ' Artifacts</span>' +
+    '<div style="display:flex;gap:6px">' + copyBtn +
     '<button class="artifact-header-btn" onclick="refresh()" title="Reload from store">\u21ba Refresh</button>' +
+    '</div>' +
     '</div>';
 
   var navHtml = '<div class="artifact-nav">';
@@ -449,6 +455,18 @@ function renderFileView(path, content) {
 }
 
 // ── Actions ───────────────────────────────────────────────────────────────────
+
+function copyFileContent() {
+  navigator.clipboard.writeText(fileContent).then(function() {
+    var btn = document.getElementById('copy-btn');
+    if (!btn) return;
+    btn.textContent = 'Copied';
+    setTimeout(function() {
+      var b = document.getElementById('copy-btn');
+      if (b) b.textContent = 'Copy';
+    }, 1500);
+  });
+}
 
 async function loadFile(path) {
   // Resolve relative paths against the current file's directory.
