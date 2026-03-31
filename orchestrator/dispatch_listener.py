@@ -238,10 +238,15 @@ class DispatchListener:
             terminal = result.get('terminal_state', '')
             bus.send(conversation_id, team, f'Dispatch {status}: {terminal}')
             bus.send(task_conv_id, team, f'Result: {terminal}')
-            # Write cost-sender message to task conversation so cost filter works in task chats
-            total_cost_usd = result.get('total_cost_usd', 0.0)
-            if total_cost_usd:
-                bus.send(task_conv_id, 'cost', json.dumps({'total_cost_usd': total_cost_usd}))
+            # Write cost-sender messages to task conversation so cost filter shows per-turn stats.
+            # Per-turn data comes from turn_costs (extracted from dispatch events.jsonl).
+            # Falls back to total_cost_usd sidecar if no per-turn records are available.
+            turn_costs = result.get('turn_costs', [])
+            if turn_costs:
+                for cost_rec in turn_costs:
+                    bus.send(task_conv_id, 'cost', json.dumps(cost_rec))
+            elif result.get('total_cost_usd'):
+                bus.send(task_conv_id, 'cost', json.dumps({'total_cost_usd': result['total_cost_usd']}))
             bus.close()
         except Exception:
             _log.debug('Failed to record dispatch result to message bus', exc_info=True)

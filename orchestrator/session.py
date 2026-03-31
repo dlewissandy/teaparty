@@ -57,6 +57,7 @@ def _make_stream_bus_writer(bus: SqliteMessageBus, conversation_id: str, session
     Writes to conversation_id with senders:
       state — from STATE_CHANGED events (CfA state transitions)
       log   — from LOG events (diagnostic messages)
+      cost  — from TURN_COST events (per-actor-turn stats: total_cost_usd, input_tokens, output_tokens, duration_ms)
 
     Events from a different session_id are ignored.
     """

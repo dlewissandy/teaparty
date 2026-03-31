@@ -446,14 +446,41 @@ async def dispatch(
         exit_reason = 'completed'
     else:
         exit_reason = f'{escalation_type}_escalation' if escalation_type else 'failed'
-    # Read total cost from sidecar for task chat cost sender (Issue #341).
-    total_cost_usd = 0.0
-    cost_sidecar = os.path.join(dispatch_infra, '.cost')
+    # Extract per-turn cost events from child events.jsonl for task chat (Issue #341).
+    # Each TURN_COST record becomes a separate cost-sender message in the task conversation,
+    # giving per-actor-turn granularity rather than one aggregate per dispatch.
+    turn_costs: list[dict] = []
+    events_path = os.path.join(dispatch_infra, 'events.jsonl')
     try:
-        with open(cost_sidecar) as f:
-            total_cost_usd = float(f.read().strip())
-    except (OSError, ValueError):
+        with open(events_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get('type') == 'turn_cost':
+                        cost_rec: dict = {}
+                        for key in ('total_cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'):
+                            val = rec.get(key)
+                            if val is not None:
+                                cost_rec[key] = val
+                        if cost_rec:
+                            turn_costs.append(cost_rec)
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
         pass
+
+    # Fallback: if events.jsonl had no turn_cost records, read the .cost sidecar.
+    total_cost_usd = 0.0
+    if not turn_costs:
+        cost_sidecar = os.path.join(dispatch_infra, '.cost')
+        try:
+            with open(cost_sidecar) as f:
+                total_cost_usd = float(f.read().strip())
+        except (OSError, ValueError):
+            pass
 
     result_dict = {
         'status': status,
@@ -466,7 +493,9 @@ async def dispatch(
         'escalation_type': escalation_type,
         'api_overloaded': api_overloaded,
     }
-    if total_cost_usd:
+    if turn_costs:
+        result_dict['turn_costs'] = turn_costs
+    elif total_cost_usd:
         result_dict['total_cost_usd'] = total_cost_usd
     if merge_failed:
         result_dict['reason'] = f'merge failed: {merge_error}'

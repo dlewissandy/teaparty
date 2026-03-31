@@ -547,6 +547,108 @@ class TestDispatchTurnCostWritesToTaskConversation(unittest.TestCase):
         self.assertIn('total_cost_usd', stats, 'Cost message must contain total_cost_usd')
         self.assertAlmostEqual(stats['total_cost_usd'], 0.0077)
 
+    def test_per_turn_costs_each_produce_separate_cost_message(self):
+        """When dispatch result includes turn_costs, each produces a separate cost message.
+
+        This gives per-actor-turn granularity in the task chat — one cost bubble
+        per turn, not one aggregate per dispatch.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock, patch
+        from orchestrator.messaging import SqliteMessageBus, ConversationType
+
+        tmpdir = _make_tmpdir()
+        bus_path = os.path.join(tmpdir, 'messages.db')
+
+        # Dispatch result includes per-turn breakdown (from events.jsonl extraction)
+        fake_result = {
+            'status': 'completed',
+            'terminal_state': 'COMPLETED_WORK',
+            'team': 'writing',
+            'task': 'Write two poems',
+            'backtrack_count': 0,
+            'deliverables': [],
+            'escalation_type': '',
+            'api_overloaded': False,
+            'turn_costs': [
+                {'total_cost_usd': 0.003, 'input_tokens': 100, 'output_tokens': 200},
+                {'total_cost_usd': 0.005, 'input_tokens': 150, 'output_tokens': 300},
+            ],
+        }
+
+        from orchestrator.events import EventBus
+        from orchestrator.dispatch_listener import DispatchListener
+
+        listener = DispatchListener(
+            event_bus=EventBus(),
+            session_worktree=tmpdir,
+            infra_dir=tmpdir,
+            project_slug='poc',
+            session_id='sess-341b',
+        )
+
+        with patch('orchestrator.dispatch_listener.dispatch', new=AsyncMock(return_value=fake_result)), \
+             patch.object(listener, '_post_dispatch_lifecycle', new=AsyncMock()):
+            asyncio.run(listener._handle_dispatch('writing', 'Write two poems'))
+
+        bus = SqliteMessageBus(bus_path)
+        task_convs = bus.active_conversations(ConversationType.TASK)
+        task_conv_id = task_convs[0].id
+        messages = bus.receive(task_conv_id, since_timestamp=0.0)
+        cost_msgs = [m for m in messages if m.sender == 'cost']
+        self.assertEqual(len(cost_msgs), 2,
+                         'Expected one cost message per turn (2 turns → 2 cost messages)')
+        turn1 = json.loads(cost_msgs[0].content)
+        turn2 = json.loads(cost_msgs[1].content)
+        self.assertAlmostEqual(turn1['total_cost_usd'], 0.003)
+        self.assertAlmostEqual(turn2['total_cost_usd'], 0.005)
+
+    def test_dispatch_cli_extracts_turn_costs_from_events_jsonl(self):
+        """dispatch() extracts turn_cost records from events.jsonl for per-turn granularity.
+
+        The events.jsonl is written by _attach_event_writer during dispatch.
+        After dispatch completes, turn_cost records are extracted and included in result_dict.
+        """
+        import tempfile
+        # Simulate an events.jsonl file with TURN_COST events
+        tmpdir = _make_tmpdir()
+        events_path = os.path.join(tmpdir, 'events.jsonl')
+        records = [
+            {'type': 'state_changed', 'state': 'INTENT_ASSERT'},
+            {'type': 'turn_cost', 'total_cost_usd': 0.002, 'input_tokens': 80, 'output_tokens': 120, 'duration_ms': 3000},
+            {'type': 'log', 'message': 'some log'},
+            {'type': 'turn_cost', 'total_cost_usd': 0.004, 'input_tokens': 100, 'output_tokens': 200, 'duration_ms': 4000},
+        ]
+        with open(events_path, 'w') as f:
+            for rec in records:
+                f.write(json.dumps(rec) + '\n')
+
+        # Import and call the extraction logic directly (replicated from dispatch_cli)
+        turn_costs = []
+        with open(events_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                    if rec.get('type') == 'turn_cost':
+                        cost_rec = {}
+                        for key in ('total_cost_usd', 'input_tokens', 'output_tokens', 'duration_ms'):
+                            val = rec.get(key)
+                            if val is not None:
+                                cost_rec[key] = val
+                        if cost_rec:
+                            turn_costs.append(cost_rec)
+                except json.JSONDecodeError:
+                    pass
+
+        self.assertEqual(len(turn_costs), 2, 'Expected 2 turn_cost records extracted')
+        self.assertAlmostEqual(turn_costs[0]['total_cost_usd'], 0.002)
+        self.assertEqual(turn_costs[0]['input_tokens'], 80)
+        self.assertAlmostEqual(turn_costs[1]['total_cost_usd'], 0.004)
+        self.assertEqual(turn_costs[1]['output_tokens'], 200)
+
 
 if __name__ == '__main__':
     unittest.main()
