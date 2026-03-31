@@ -51,12 +51,14 @@ The caller's view in its own conversation shows that it sent a message and recei
 
 ## Escalation Routing
 
-Worker-level questions stay inside the workgroup. The workgroup lead receives the escalation and resolves it without human involvement. Lead-level questions go to the project lead or OM; if the proxy can handle it, it does. If not, the escalation surfaces to the human via the job conversation's escalation badge. OM-level questions surface directly to the human.
+Worker-level questions stay inside the workgroup. The workgroup lead receives the escalation and resolves it without human involvement. Lead-level questions go to the project lead or OM; if the proxy can handle it, it does. If not, the escalation surfaces to the human. OM-level questions surface directly to the human.
 
 The bus conversation hierarchy mirrors the workgroup hierarchy. CfA INTERVENE/WITHDRAW mechanics provide the propagation mechanism; gate logic applies at each conversation level independently.
 
 For escalation propagation to work, each spawned agent must know its parent context ID at invocation time. TeaParty injects the parent context ID as part of the spawn environment — specifically, in the agent's initial conversation history or as an environment variable accessible to the MCP tool layer.
 
 When a lead is re-invoked in a worker-level sub-conversation context and determines that the escalation cannot be resolved there, it takes two sequential actions: it records the unresolvable escalation in the sub-conversation, then posts the INTERVENE signal to the parent context ID via `ReplyTo`. That parent context ID was injected at the lead's spawn time. The lead is not simultaneously present in both contexts.
+
+**Escalation context.** When an agent posts an escalation — an INTERVENE or a question that crosses a context boundary — the escalating agent is responsible for writing a message that states what decision is needed and why. The MCP tool that delivers the escalation applies the same context boundary rule as `AskTeam`: it prepends the caller's filtered conversation history so the receiver has the situation without having to navigate back through the sub-conversation. The proxy receives a complete situation report. If it can answer confidently, it does. If not, it forwards the report unchanged to the human. The human sees exactly what the proxy received — no further synthesis occurs in the escalation chain.
 
 CfA Extensions is responsible for defining exactly what fields carry the parent context ID at spawn time and what the INTERVENE payload looks like in this cross-context case. This proposal places that requirement on CfA Extensions: every agent spawn must include the job-level context ID so that INTERVENE propagation has a target. CfA Extensions must also specify the receptive state precondition — what state the job-level conversation must be in when INTERVENE arrives.

@@ -22,6 +22,8 @@ Agent-to-agent communication goes through the message bus — the same bus that 
 
 When an agent posts a message to a teammate via the `AskTeam` MCP tool, the bus creates a conversation context. TeaParty spins up the receiving agent with that context. The exchange is multi-turn: the receiving agent can ask a follow-up, the caller can respond, all on the same context ID.
 
+Every agent runs in an isolated context window with no visibility into any other agent's conversation history. Messages crossing a process boundary must carry enough context for the recipient to act. The MCP tools handle this automatically: `AskTeam` and escalation tools prepend the caller's filtered conversation history to every outbound message, structured for progressive disclosure — task first, context below. The calling agent writes naturally; the tool constructs the envelope. `ReplyTo` does not inject history; replies are continuation, not initiation.
+
 The execution model is write-then-exit-then-resume. A lead that posts three parallel AskTeam requests records all three outstanding context IDs in its conversation history before exiting its current turn. It is not running concurrently with its workers. When responses arrive, TeaParty tracks them via the `pending_count` field in the bus context record; the lead is re-invoked when all sub-contexts close. The lead's state lives on the bus, not in process memory — this is what makes it durable across restarts and partial failures.
 
 The bus must be a durable store, not just a message queue. Conversation context records persist across process restarts so that re-invocation can retrieve session IDs and pending state. This durability is a hard requirement placed on the Messaging proposal.

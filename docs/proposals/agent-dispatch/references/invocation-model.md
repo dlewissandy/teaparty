@@ -28,6 +28,24 @@ Name collisions are resolved by composition order — project overrides role ove
 
 The orchestrator writes any required `.claude/settings.json` (hooks, permissions) into the worktree before spawning.
 
+## Context Boundaries
+
+Every `claude -p` invocation starts with a blank conversation history — no visibility into any other agent's prior turns. A worker spawned to implement a feature has no idea what the lead has been doing, what decisions were made, or what constraints were discovered — unless that information is in the message it receives.
+
+The MCP tools handle this automatically. The calling agent writes a natural message — the task it needs done, the question it needs answered. The tool constructs the full bus message by prepending the caller's filtered conversation history:
+
+```
+## Task
+[the agent's message]
+
+## Context
+[caller's filtered history: agent and human turns only, newest-last, up to context budget cap]
+```
+
+The recipient gets the task in context. It can act on the Task section alone; the Context section is there when it needs to understand why a constraint exists or what was already tried. The calling agent writes naturally; the tool handles the envelope.
+
+`ReplyTo` does not inject conversation history. A reply is continuation, not initiation — the context is already established in the conversation thread the recipient has been working in.
+
 ## AskTeam Tool
 
 `AskTeam` is a TeaParty MCP tool available to agents with bus-posting access. It initiates a new conversation with a recipient agent.
@@ -36,9 +54,11 @@ The orchestrator writes any required `.claude/settings.json` (hooks, permissions
 AskTeam(role: str, message: str) -> context_id: str
 ```
 
-`role` is the recipient's role name, scoped to the caller's own workgroup. If the same role name exists in another workgroup in the project, it is not a candidate — matching is confined to the workgroup the calling agent belongs to. `message` is the initial request.
+`role` is the recipient's role name, scoped to the caller's own workgroup. If the same role name exists in another workgroup in the project, it is not a candidate — matching is confined to the workgroup the calling agent belongs to. `message` is the task or request.
 
-The execution model is write-then-exit. `AskTeam` posts the message to the bus, records the returned `context_id` into the conversation history before the turn ends, and then the agent process exits. The `context_id` is not a live in-memory reference; it is a durable record of the outstanding request. TeaParty re-invokes the caller when a response arrives.
+The tool constructs the full bus message as described in [Context Boundaries](#context-boundaries) above — the agent's message leads, the caller's filtered history follows. The recipient sees a self-contained brief, not a decontextualized request.
+
+The execution model is write-then-exit. `AskTeam` posts the composite message to the bus, records the returned `context_id` into the conversation history before the turn ends, and then the agent process exits. The `context_id` is not a live in-memory reference; it is a durable record of the outstanding request. TeaParty re-invokes the caller when a response arrives.
 
 If the caller has no routing access to the specified role, `AskTeam` raises a `RoutingError` before posting. The message is never written to the bus; the caller handles the error in the same turn.
 
@@ -53,6 +73,8 @@ ReplyTo(context_id: str, message: str) -> None
 ```
 
 `context_id` is the conversation context to post on. The bus validates that the caller has access to this context ID before accepting the message. Posting to a context ID the caller did not participate in raises `RoutingError`. After calling `ReplyTo`, the agent's turn ends and the process exits.
+
+`ReplyTo` does not prepend conversation history. The context is already established; the message is a continuation, not a new brief.
 
 The distinction between `AskTeam` and `ReplyTo` is creation vs. continuation. `AskTeam` creates a new conversation and returns the context ID. `ReplyTo` posts onto an existing one. A recipient agent receives the context ID in its conversation history when TeaParty spawns it; that context ID is what it passes to `ReplyTo` when answering.
 
