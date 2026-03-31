@@ -43,7 +43,7 @@ Multiple conversations can be active simultaneously.
 
 **Agent to Human.** Agent output from stream-json is parsed. Every event type is written to the bus with a typed sender — not just conversational text. A single agent turn produces multiple messages: thinking blocks (`sender: thinking`), tool invocations (`sender: tool_use`), tool results (`sender: tool_result`), and the final text response (`sender: <agent-role>`). System events (`sender: system`) carry session init and state transitions. Stream filtering (see [dashboard-ui chat-windows](../dashboard-ui/references/chat-windows.md)) determines what the human sees by default; all event types are stored and available.
 
-**Agent to Agent.** Via MCP tools (AskQuestion, AskTeam) and dispatch, not through the message bus.
+**Agent to Agent.** Through the message bus, using the write-then-exit-then-resume model. An agent posts a message to a teammate via the `AskTeam` MCP tool; the bus creates a conversation context, TeaParty spins up the receiving agent, and re-invokes the caller when a response arrives. The caller's process exits after posting — it does not run concurrently with the recipient. See [agent-dispatch/proposal.md](../agent-dispatch/proposal.md) for the full execution model.
 
 ---
 
