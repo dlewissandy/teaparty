@@ -13,9 +13,9 @@ At each invocation, `OfficeManagerSession.invoke()` reads `teaparty.yaml` from t
 - One project liaison per valid entry in `teams:` — named `{slug}-liaison` where slug is the lowercased, hyphenated project name (e.g. `teaparty-liaison` for the TeaParty project). Each liaison receives the project path in its context so it can answer status queries.
 - A `configuration-liaison` for the Configuration workgroup — always present regardless of registry state.
 
-The team is serialized to a temp JSON file and passed as `--agents <json>` to the Claude CLI. This means a project registered in `teaparty.yaml` is automatically included in the next OM conversation without any manual configuration.
+The team is serialized to `.teaparty/om/.om-agents-{user}.json` and passed as `--agents <json>` to the Claude CLI. The file is cleaned up after each invocation. This means a project registered in `teaparty.yaml` is automatically included in the next OM conversation without any manual configuration.
 
-If the registry is missing or malformed, the OM degrades gracefully: a warning is written to the OM bus and the invocation continues without project liaisons. The `configuration-liaison` is always included.
+If the registry is missing, the OM proceeds silently with just the `configuration-liaison`. If the registry is malformed (present but unreadable), a warning is written to the OM bus and the invocation continues with only the `configuration-liaison`.
 
 ## Multi-Turn
 
