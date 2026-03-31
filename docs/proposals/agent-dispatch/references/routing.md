@@ -42,6 +42,8 @@ The office manager holds cross-project context. Project A's lead posts a cross-p
 
 Routing and context translation are handled by bus rules and OM mediation, without a dedicated liaison role.
 
+The current liaison agent definitions in `orchestrator/office_manager.py` (`_make_project_liaison_def()`, `_make_configuration_liaison_def()`, `_build_liaison_agents_json()`) implement this routing function as a dedicated agent layer. This proposal supersedes that approach: the routing function moves to the bus dispatcher and the context translation function moves to the OM. The existing liaison definitions will be removed when the bus routing implementation is complete.
+
 **Issue #332** (OM chat invocation missing liaisons): the fix is bus routing rules and OM cross-project mediation, not liaison agent definitions. The scope of #332 changes accordingly.
 
 **Chat Experience Pattern 4** (Liaison Chat): deferred in the original proposal for licensing reasons. With this architecture, the routing function does not require a separate agent. If future multi-user scenarios require a liaison *conversation* (human-visible channel between two teams), that is a navigator UI feature, not a new agent role.

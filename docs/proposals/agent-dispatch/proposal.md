@@ -67,7 +67,7 @@ Each agent invocation gets a worktree with a composed `.claude/skills/` director
 
 - [messaging/proposal.md](../messaging/proposal.md) — "Agent to Agent" section: agent-to-agent now goes through the bus
 - [chat-experience/proposal.md](../chat-experience/proposal.md) — Pattern 4 (Liaison Chat): replaced by bus routing rules and OM mediation
-- #332 — OM chat invocation missing liaisons: liaison agents are not implemented; bus routing rules cover the routing function
+- #332 — OM chat invocation missing liaisons: the liaison agent definitions in `orchestrator/office_manager.py` are superseded by bus routing rules; the routing function moves to the bus dispatcher and OM mediation
 
 ---
 
