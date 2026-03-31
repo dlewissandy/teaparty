@@ -131,24 +131,23 @@ class TestConfigHtmlProjectButtons(unittest.TestCase):
         )
 
     def test_add_button_passes_seed_message(self):
-        """config.html + Add button must pass a pre-seeded intent message for add flow."""
+        """config.html + Add button must pass a skill-referenced seed for the add-project flow."""
         html = self._get_config_html()
-        # The add-project conversation should be opened with a seed intent message
         self.assertIn(
             'openChatWithSeed', html,
             'config.html must use openChatWithSeed() for project buttons to pre-seed intent',
         )
         self.assertIn(
-            'add an existing project', html.lower(),
-            "config.html '+ Add' seed message must mention adding an existing project",
+            '/add-project skill', html,
+            "config.html '+ Add' seed must reference the /add-project skill",
         )
 
     def test_new_button_passes_seed_message(self):
-        """config.html + New button must pass a pre-seeded intent message for create flow."""
+        """config.html + New button must pass a skill-referenced seed for the create-project flow."""
         html = self._get_config_html()
         self.assertIn(
-            'create a new project', html.lower(),
-            "config.html '+ New' seed message must mention creating a new project",
+            '/create-project skill', html,
+            "config.html '+ New' seed must reference the /create-project skill",
         )
 
     def test_chat_html_reads_seed_param(self):

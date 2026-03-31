@@ -42,8 +42,8 @@ function configNav(level, nameOrSlug, extra) {
 function sectionCard(title, items, opts) {
   var buttons = '';
   if (opts && opts.addProjectBtn) {
-    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:add-project\', \'I would like to add an existing project to TeaParty.\')">+ Add</button>';
-    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:new-project\', \'I would like to create a new project.\')">+ New</button>';
+    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:add-project\', \'Please run the /add-project skill.\')">+ Add</button>';
+    buttons += '<button class="action-btn" onclick="openChatWithSeed(\'om:new-project\', \'Please run the /create-project skill.\')">+ New</button>';
   } else {
     if (opts && opts.addBtn) buttons += '<button class="action-btn" onclick="openChat(\'' + omConvId + '\')">+ New</button>';
   }

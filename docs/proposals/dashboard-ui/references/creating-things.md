@@ -5,7 +5,8 @@ Every dashboard card that represents configurable resources has a "+ New" button
 | Card | Pre-seeded message |
 |------|--------------------|
 | Sessions | (blank — new conversation) |
-| Projects | "I would like to create a new project" |
+| Projects (+ Add) | "Please run the /add-project skill." |
+| Projects (+ New) | "Please run the /create-project skill." |
 | Agents | "I would like to create a new agent" / "...add a new agent to the POC project" |
 | Skills | "I would like to create a new skill" / "...for the Coding workgroup" |
 | Scheduled Tasks | "I would like to create a new scheduled task" / "...for the POC Project project" |
