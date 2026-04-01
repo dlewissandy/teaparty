@@ -1,0 +1,193 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 680" width="960" height="680"
+  font-family="'Inter', 'Helvetica Neue', Arial, sans-serif">
+
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#6b7280"/>
+    </marker>
+    <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#388bfd"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#3fb950"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#d29922"/>
+    </marker>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#000" flood-opacity="0.4"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="960" height="680" fill="#0d1117" rx="12"/>
+
+  <!-- ── Title ── -->
+  <text x="480" y="38" text-anchor="middle" fill="#e6edf3" font-size="19" font-weight="700" letter-spacing="0.3">Message Bus Architecture</text>
+  <text x="480" y="58" text-anchor="middle" fill="#8b949e" font-size="12">Agent Dispatch · Independent Processes · Bus-Mediated Messaging · Write-Then-Exit-Then-Resume</text>
+  <line x1="30" y1="70" x2="930" y2="70" stroke="#21262d" stroke-width="1"/>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN FLOW PANEL
+  ══════════════════════════════════════════════════════════════ -->
+  <rect x="20" y="82" width="920" height="252" rx="8" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <text x="40" y="102" fill="#8b949e" font-size="11" font-weight="600" letter-spacing="1" text-transform="uppercase">WRITE · THEN · EXIT · THEN · RESUME</text>
+
+  <!-- Lead Agent box -->
+  <rect x="40" y="116" width="168" height="80" rx="8" fill="#0d2044" stroke="#388bfd" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="124" y="142" text-anchor="middle" fill="#388bfd" font-size="11" font-weight="700">LEAD AGENT</text>
+  <text x="124" y="160" text-anchor="middle" fill="#8b949e" font-size="10">claude -p invocation</text>
+  <text x="124" y="176" text-anchor="middle" fill="#6b7280" font-size="10">own context window</text>
+  <text x="124" y="191" text-anchor="middle" fill="#6b7280" font-size="10">own skill set</text>
+
+  <!-- Message Bus box (center) -->
+  <rect x="396" y="116" width="168" height="80" rx="8" fill="#1f1500" stroke="#d29922" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="480" y="142" text-anchor="middle" fill="#d29922" font-size="11" font-weight="700">MESSAGE BUS</text>
+  <text x="480" y="160" text-anchor="middle" fill="#8b949e" font-size="10">SQLite · durable store</text>
+  <text x="480" y="176" text-anchor="middle" fill="#6b7280" font-size="10">conversation context</text>
+  <text x="480" y="191" text-anchor="middle" fill="#6b7280" font-size="10">pending_count per ctx</text>
+
+  <!-- Worker Agent box -->
+  <rect x="752" y="116" width="168" height="80" rx="8" fill="#0d1f2d" stroke="#58a6ff" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="836" y="142" text-anchor="middle" fill="#58a6ff" font-size="11" font-weight="700">WORKER AGENT</text>
+  <text x="836" y="160" text-anchor="middle" fill="#8b949e" font-size="10">spawned independently</text>
+  <text x="836" y="176" text-anchor="middle" fill="#6b7280" font-size="10">own context window</text>
+  <text x="836" y="191" text-anchor="middle" fill="#6b7280" font-size="10">receives composite msg</text>
+
+  <!-- Bus Event Listener box (center bottom) -->
+  <rect x="396" y="256" width="168" height="64" rx="8" fill="#0d1f15" stroke="#3fb950" stroke-width="1.5" filter="url(#shadow)"/>
+  <text x="480" y="278" text-anchor="middle" fill="#3fb950" font-size="11" font-weight="700">BUS EVENT LISTENER</text>
+  <text x="480" y="296" text-anchor="middle" fill="#8b949e" font-size="10">orchestrator component</text>
+  <text x="480" y="311" text-anchor="middle" fill="#6b7280" font-size="10">watches for posts &amp; replies</text>
+
+  <!-- Arrow 1: Lead → Bus (Send) -->
+  <line x1="209" y1="154" x2="390" y2="154" stroke="#388bfd" stroke-width="1.5" marker-end="url(#arrow-blue)"/>
+  <rect x="228" y="130" width="145" height="18" rx="3" fill="#0d1117"/>
+  <text x="300" y="143" text-anchor="middle" fill="#388bfd" font-size="10" font-weight="600">① Send(member, message)</text>
+
+  <!-- Arrow 2: Bus → Worker (spawn) -->
+  <line x1="565" y1="154" x2="746" y2="154" stroke="#d29922" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  <rect x="578" y="130" width="138" height="18" rx="3" fill="#0d1117"/>
+  <text x="647" y="143" text-anchor="middle" fill="#d29922" font-size="10" font-weight="600">② spawns worker</text>
+
+  <!-- Lead exits label -->
+  <text x="124" y="216" text-anchor="middle" fill="#6b7280" font-size="10" font-style="italic">exits after Send →</text>
+
+  <!-- Arrow 3: Worker → Bus (Reply) — goes down then left -->
+  <path d="M836,197 L836,232 L565,232" stroke="#58a6ff" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <rect x="660" y="218" width="130" height="18" rx="3" fill="#0d1117"/>
+  <text x="725" y="231" text-anchor="middle" fill="#58a6ff" font-size="10" font-weight="600">③ Reply(message)</text>
+
+  <!-- Arrow 4: Bus → Event Listener (detect) -->
+  <line x1="480" y1="197" x2="480" y2="250" stroke="#6b7280" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="490" y="230" fill="#6b7280" font-size="10">④ detect</text>
+
+  <!-- Arrow 5: Event Listener → Lead (resume) — goes left and up -->
+  <path d="M396,288 L30,288 L30,156 L40,156" stroke="#3fb950" stroke-width="1.5" fill="none" marker-end="url(#arrow-green)" stroke-dasharray="5,3"/>
+  <rect x="58" y="264" width="170" height="18" rx="3" fill="#0d1117"/>
+  <text x="143" y="277" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">⑤ --resume $SESSION_ID</text>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       BOTTOM ROW — three panels
+  ══════════════════════════════════════════════════════════════ -->
+
+  <!-- Panel 1: Context Envelope -->
+  <rect x="20" y="350" width="290" height="308" rx="8" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <text x="40" y="372" fill="#8b949e" font-size="11" font-weight="600" letter-spacing="1">CONTEXT ENVELOPE</text>
+  <line x1="20" y1="380" x2="310" y2="380" stroke="#21262d" stroke-width="1"/>
+
+  <rect x="35" y="392" width="260" height="128" rx="6" fill="#0d1117" stroke="#30363d" stroke-width="1"/>
+  <text x="50" y="412" fill="#d29922" font-size="10" font-weight="700">## Task</text>
+  <text x="50" y="428" fill="#8b949e" font-size="10">[agent's natural message]</text>
+  <line x1="35" y1="440" x2="295" y2="440" stroke="#21262d" stroke-width="1" stroke-dasharray="3,3"/>
+  <text x="50" y="458" fill="#d29922" font-size="10" font-weight="700">## Context</text>
+  <text x="50" y="474" fill="#8b949e" font-size="10">[scratch.md contents]</text>
+  <text x="50" y="490" fill="#6b7280" font-size="9">  decisions · human input</text>
+  <text x="50" y="504" fill="#6b7280" font-size="9">  dead ends · current state</text>
+  <text x="50" y="518" fill="#6b7280" font-size="9">  → truncated at budget cap</text>
+
+  <text x="165" y="546" text-anchor="middle" fill="#6b7280" font-size="10">Orchestrator flushes scratch file</text>
+  <text x="165" y="560" text-anchor="middle" fill="#6b7280" font-size="10">before every Send call</text>
+
+  <line x1="20" y1="576" x2="310" y2="576" stroke="#21262d" stroke-width="1" stroke-dasharray="2,4"/>
+  <text x="165" y="594" text-anchor="middle" fill="#8b949e" font-size="10" font-style="italic">Caller writes naturally.</text>
+  <text x="165" y="610" text-anchor="middle" fill="#8b949e" font-size="10" font-style="italic">Tool constructs the envelope.</text>
+  <text x="165" y="630" text-anchor="middle" fill="#6b7280" font-size="10">ReplyTo: no injection — context</text>
+  <text x="165" y="645" text-anchor="middle" fill="#6b7280" font-size="10">already established</text>
+
+  <!-- Panel 2: Fan-In -->
+  <rect x="330" y="350" width="290" height="308" rx="8" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <text x="350" y="372" fill="#8b949e" font-size="11" font-weight="600" letter-spacing="1">FAN-IN · PARALLEL DISPATCH</text>
+  <line x1="330" y1="380" x2="620" y2="380" stroke="#21262d" stroke-width="1"/>
+
+  <!-- Fan-in diagram -->
+  <!-- Lead node -->
+  <rect x="435" y="392" width="90" height="36" rx="6" fill="#0d2044" stroke="#388bfd" stroke-width="1.5"/>
+  <text x="480" y="406" text-anchor="middle" fill="#388bfd" font-size="10" font-weight="700">Lead Agent</text>
+  <text x="480" y="420" text-anchor="middle" fill="#6b7280" font-size="9">pending_count = 3</text>
+
+  <!-- Arrows down to workers -->
+  <line x1="460" y1="428" x2="400" y2="478" stroke="#388bfd" stroke-width="1" marker-end="url(#arrow-blue)"/>
+  <line x1="480" y1="428" x2="480" y2="478" stroke="#388bfd" stroke-width="1" marker-end="url(#arrow-blue)"/>
+  <line x1="500" y1="428" x2="560" y2="478" stroke="#388bfd" stroke-width="1" marker-end="url(#arrow-blue)"/>
+
+  <!-- Worker nodes -->
+  <rect x="360" y="480" width="74" height="30" rx="5" fill="#0d1f2d" stroke="#58a6ff" stroke-width="1"/>
+  <text x="397" y="499" text-anchor="middle" fill="#58a6ff" font-size="9">Worker 1</text>
+
+  <rect x="443" y="480" width="74" height="30" rx="5" fill="#0d1f2d" stroke="#58a6ff" stroke-width="1"/>
+  <text x="480" y="499" text-anchor="middle" fill="#58a6ff" font-size="9">Worker 2</text>
+
+  <rect x="526" y="480" width="74" height="30" rx="5" fill="#0d1f2d" stroke="#58a6ff" stroke-width="1"/>
+  <text x="563" y="499" text-anchor="middle" fill="#58a6ff" font-size="9">Worker 3</text>
+
+  <!-- Reply arrows back -->
+  <line x1="397" y1="510" x2="460" y2="550" stroke="#3fb950" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrow-green)"/>
+  <line x1="480" y1="510" x2="480" y2="550" stroke="#3fb950" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrow-green)"/>
+  <line x1="563" y1="510" x2="500" y2="550" stroke="#3fb950" stroke-width="1" stroke-dasharray="4,2" marker-end="url(#arrow-green)"/>
+
+  <text x="480" y="548" text-anchor="middle" fill="#3fb950" font-size="9">Reply() · Reply() · Reply()</text>
+
+  <text x="480" y="572" text-anchor="middle" fill="#6b7280" font-size="9">pending_count → 0</text>
+
+  <!-- Re-invoke -->
+  <rect x="435" y="582" width="90" height="30" rx="6" fill="#0d1f15" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="480" y="601" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="700">Lead resumed</text>
+
+  <text x="480" y="628" text-anchor="middle" fill="#6b7280" font-size="10">Lead state lives on the bus,</text>
+  <text x="480" y="642" text-anchor="middle" fill="#6b7280" font-size="10">not in process memory.</text>
+  <text x="480" y="656" text-anchor="middle" fill="#8b949e" font-size="10" font-style="italic">Durable across restarts.</text>
+
+  <!-- Panel 3: Navigator + Routing -->
+  <rect x="640" y="350" width="300" height="308" rx="8" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <text x="660" y="372" fill="#8b949e" font-size="11" font-weight="600" letter-spacing="1">HIERARCHY &amp; ROUTING</text>
+  <line x1="640" y1="380" x2="940" y2="380" stroke="#21262d" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- Navigator tree -->
+  <text x="660" y="398" fill="#6b7280" font-size="10" font-weight="600">Navigator</text>
+  <text x="660" y="416" fill="#8b949e" font-size="10">Sessions</text>
+  <text x="674" y="432" fill="#8b949e" font-size="10">└── project / fix-auth-bug</text>
+  <rect x="689" y="436" width="8" height="8" rx="2" fill="#388bfd"/>
+  <text x="706" y="450" fill="#e6edf3" font-size="10">├── [job conversation]</text>
+  <text x="706" y="466" fill="#58a6ff" font-size="10">├── lead → worker-1</text>
+  <text x="706" y="482" fill="#58a6ff" font-size="10">├── lead → worker-2</text>
+  <text x="706" y="498" fill="#d29922" font-size="10">└── lead → worker-3 ⚑</text>
+  <text x="720" y="514" fill="#6b7280" font-size="9">escalation badge</text>
+
+  <line x1="640" y1="526" x2="940" y2="526" stroke="#21262d" stroke-width="1" stroke-dasharray="3,3"/>
+
+  <!-- Routing rules -->
+  <text x="660" y="544" fill="#6b7280" font-size="10" font-weight="600">Routing Rules</text>
+  <text x="660" y="560" fill="#8b949e" font-size="10">Derived from workgroup</text>
+  <text x="660" y="576" fill="#8b949e" font-size="10">membership at session start.</text>
+
+  <rect x="660" y="586" width="260" height="20" rx="4" fill="#0d1117"/>
+  <text x="790" y="600" text-anchor="middle" fill="#8b949e" font-size="10">within-project: lead mediates</text>
+
+  <rect x="660" y="610" width="260" height="20" rx="4" fill="#0d1117"/>
+  <text x="790" y="624" text-anchor="middle" fill="#8b949e" font-size="10">cross-project: OM gateway only</text>
+
+  <rect x="660" y="634" width="260" height="20" rx="4" fill="#1f1500" stroke="#d29922" stroke-width="1"/>
+  <text x="790" y="648" text-anchor="middle" fill="#d29922" font-size="10">bus dispatcher enforces at transport</text>
+
+</svg>
