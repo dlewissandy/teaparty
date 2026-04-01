@@ -189,6 +189,9 @@ class Orchestrator:
         # session/dispatch operations (Issue #249)
         self._intervention_listener: InterventionListener | None = None
         self._intervention_resolver: dict[str, str] = {}
+        # Bus event listener — bridges Send/Reply MCP calls to bus-mediated
+        # agent dispatch (Issue #351).  Started alongside other MCP listeners.
+        self._bus_event_listener: Any | None = None  # BusEventListener
         self._mcp_config: dict | None = None
 
         # Track resume session IDs per phase (for --resume on corrections).
@@ -271,6 +274,22 @@ class Orchestrator:
             intervention_socket = await self._intervention_listener.start()
             mcp_env['INTERVENTION_SOCKET'] = intervention_socket
 
+            # Start the bus event listener so agents can use Send/Reply for
+            # bus-mediated agent-to-agent dispatch (Issue #351).
+            from orchestrator.bus_event_listener import BusEventListener  # noqa: PLC0415
+            bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+            # Project lead agent ID: {project}/lead per routing.md Agent Identity spec
+            lead_agent_id = f'{self.project_slug}/lead' if self.project_slug else 'om'
+            self._bus_event_listener = BusEventListener(
+                bus_db_path=bus_db_path,
+                initiator_agent_id=lead_agent_id,
+                spawn_fn=self._bus_spawn_agent,
+                dispatcher=self._build_bus_dispatcher(),
+            )
+            send_socket, reply_socket = await self._bus_event_listener.start()
+            mcp_env['SEND_SOCKET'] = send_socket
+            mcp_env['REPLY_SOCKET'] = reply_socket
+
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
@@ -293,6 +312,94 @@ class Orchestrator:
                 await self._dispatch_listener.stop()
             if self._intervention_listener:
                 await self._intervention_listener.stop()
+            if self._bus_event_listener:
+                await self._bus_event_listener.stop()
+
+    def _build_bus_dispatcher(self) -> object | None:
+        """Build a BusDispatcher from project workgroup config, or None if not available.
+
+        Attempts to load workgroup definitions from project.yaml and derive the
+        routing table.  Returns None (no enforcement) when config is missing — this
+        is expected during bootstrap before workgroup YAML is present.
+        """
+        from orchestrator.bus_dispatcher import BusDispatcher, RoutingTable
+        from orchestrator.config_reader import resolve_workgroups, load_project_team
+
+        if not self.project_dir:
+            return None
+        try:
+            proj = load_project_team(self.project_dir)
+        except (FileNotFoundError, OSError):
+            return None
+
+        try:
+            workgroups = resolve_workgroups(
+                proj.workgroups,
+                project_dir=self.project_dir,
+                teaparty_home=self.poc_root,
+            )
+        except Exception:
+            return None
+
+        if not workgroups:
+            return None
+
+        wg_dicts = [
+            {'name': wg.name, 'lead': wg.lead, 'agents': wg.agents}
+            for wg in workgroups
+        ]
+        project_name = self.project_slug or os.path.basename(self.project_dir)
+        routing_table = RoutingTable.from_workgroups(wg_dicts, project_name=project_name)
+        return BusDispatcher(routing_table)
+
+    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> str:
+        """Spawn a recipient agent for bus-mediated dispatch (Issue #351).
+
+        Creates a git worktree for the agent, composes its skill set, launches it
+        as an independent claude -p process.  Runs the blocking subprocess call in
+        an executor so the event loop is not blocked.  Cleans up the worktree after
+        the agent exits.
+
+        Returns the session_id captured from claude's --output-format json output,
+        or an empty string if capture fails (non-fatal; context record is still created).
+        """
+        import subprocess
+        from orchestrator.agent_spawner import AgentSpawner
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
+        safe_id = context_id.replace(':', '_').replace('/', '_')
+        agent_dir = os.path.join(self.infra_dir, 'agents', safe_id)
+
+        def spawn_in_worktree() -> str:
+            # Create a git worktree so the agent has access to project files
+            wt_result = subprocess.run(
+                ['git', 'worktree', 'add', agent_dir, 'HEAD'],
+                cwd=self.project_workdir,
+                capture_output=True, text=True,
+            )
+            if wt_result.returncode != 0:
+                # Fall back to plain directory when git worktree is not available
+                _log.warning(
+                    'git worktree add failed for %s: %s — falling back to plain directory',
+                    agent_dir, wt_result.stderr.strip(),
+                )
+                os.makedirs(agent_dir, exist_ok=True)
+            try:
+                return spawner.spawn(
+                    composite,
+                    worktree=agent_dir,
+                    role=member,
+                    project_dir=self.project_workdir,
+                )
+            finally:
+                # Clean up the worktree after the agent process exits
+                subprocess.run(
+                    ['git', 'worktree', 'remove', agent_dir, '--force'],
+                    cwd=self.project_workdir,
+                    capture_output=True,
+                )
+
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, spawn_in_worktree)
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""
