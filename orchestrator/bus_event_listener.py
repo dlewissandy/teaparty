@@ -244,12 +244,18 @@ class BusEventListener:
 
             context_id = self.current_context_id
             caller_session_id = ''
+            parent_context_id = ''
 
             if context_id and self.bus_db_path:
                 ctx = self._get_context(context_id)
                 if ctx:
                     caller_session_id = ctx.get('session_id', '')
+                    parent_context_id = ctx.get('parent_context_id', '')
                 self._close_context(context_id)
+                # Decrement the parent's pending_count — when it reaches zero,
+                # all workers in this fan-out have replied and the lead can be re-invoked.
+                if parent_context_id:
+                    self._decrement_parent_pending_count(parent_context_id)
 
             response = {'status': 'ok'}
             writer.write(json.dumps(response).encode() + b'\n')
@@ -276,6 +282,20 @@ class BusEventListener:
         from orchestrator.messaging import SqliteMessageBus
         bus = SqliteMessageBus(self.bus_db_path)
         try:
+            parent = self.current_context_id
+            if parent:
+                # Atomic two-record write: create child + increment parent's pending_count
+                try:
+                    bus.create_agent_context_and_increment_parent(
+                        context_id,
+                        initiator_agent_id=self.initiator_agent_id or 'unknown',
+                        recipient_agent_id=recipient_agent_id,
+                        parent_context_id=parent,
+                    )
+                    return
+                except ValueError:
+                    # Parent does not exist in this DB — fall through to simple create
+                    pass
             bus.create_agent_context(
                 context_id,
                 initiator_agent_id=self.initiator_agent_id or 'unknown',
@@ -305,5 +325,14 @@ class BusEventListener:
         bus = SqliteMessageBus(self.bus_db_path)
         try:
             bus.close_agent_context(context_id)
+        finally:
+            bus.close()
+
+    def _decrement_parent_pending_count(self, parent_context_id: str) -> int:
+        """Decrement the parent context's pending_count and return the new count."""
+        from orchestrator.messaging import SqliteMessageBus
+        bus = SqliteMessageBus(self.bus_db_path)
+        try:
+            return bus.decrement_pending_count(parent_context_id)
         finally:
             bus.close()

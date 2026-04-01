@@ -174,6 +174,7 @@ class SqliteMessageBus:
                 context_id TEXT PRIMARY KEY,
                 initiator_agent_id TEXT NOT NULL,
                 recipient_agent_id TEXT NOT NULL,
+                parent_context_id TEXT NOT NULL DEFAULT '',
                 session_id TEXT NOT NULL DEFAULT '',
                 status TEXT NOT NULL DEFAULT 'open',
                 pending_count INTEGER NOT NULL DEFAULT 0,
@@ -352,6 +353,7 @@ class SqliteMessageBus:
         """Create a new agent-to-agent conversation context record.
 
         Status begins as 'open'; pending_count begins at 0.
+        parent_context_id is stored for fan-in tracking (empty string if no parent).
         """
         ts = time.time()
         self._conn.execute(
@@ -392,9 +394,11 @@ class SqliteMessageBus:
         with self._conn:
             self._conn.execute(
                 'INSERT INTO agent_contexts '
-                '(context_id, initiator_agent_id, recipient_agent_id, created_at) '
-                'VALUES (?, ?, ?, ?)',
-                (context_id, initiator_agent_id, recipient_agent_id, ts),
+                '(context_id, initiator_agent_id, recipient_agent_id, '
+                'parent_context_id, created_at) '
+                'VALUES (?, ?, ?, ?, ?)',
+                (context_id, initiator_agent_id, recipient_agent_id,
+                 parent_context_id, ts),
             )
             self._conn.execute(
                 'UPDATE agent_contexts SET pending_count = pending_count + 1 '
@@ -406,7 +410,7 @@ class SqliteMessageBus:
         """Return the agent context record as a dict, or None if not found."""
         row = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
-            'session_id, status, pending_count, created_at '
+            'parent_context_id, session_id, status, pending_count, created_at '
             'FROM agent_contexts WHERE context_id = ?',
             (context_id,),
         ).fetchone()
@@ -416,10 +420,11 @@ class SqliteMessageBus:
             'context_id': row[0],
             'initiator_agent_id': row[1],
             'recipient_agent_id': row[2],
-            'session_id': row[3],
-            'status': row[4],
-            'pending_count': row[5],
-            'created_at': row[6],
+            'parent_context_id': row[3],
+            'session_id': row[4],
+            'status': row[5],
+            'pending_count': row[6],
+            'created_at': row[7],
         }
 
     def set_agent_context_session_id(self, context_id: str, session_id: str) -> None:
@@ -469,7 +474,7 @@ class SqliteMessageBus:
         """Return all agent context records with status='open'."""
         cursor = self._conn.execute(
             'SELECT context_id, initiator_agent_id, recipient_agent_id, '
-            'session_id, status, pending_count, created_at '
+            'parent_context_id, session_id, status, pending_count, created_at '
             "FROM agent_contexts WHERE status = 'open' ORDER BY created_at"
         )
         return [
@@ -477,10 +482,11 @@ class SqliteMessageBus:
                 'context_id': row[0],
                 'initiator_agent_id': row[1],
                 'recipient_agent_id': row[2],
-                'session_id': row[3],
-                'status': row[4],
-                'pending_count': row[5],
-                'created_at': row[6],
+                'parent_context_id': row[3],
+                'session_id': row[4],
+                'status': row[5],
+                'pending_count': row[6],
+                'created_at': row[7],
             }
             for row in cursor.fetchall()
         ]
