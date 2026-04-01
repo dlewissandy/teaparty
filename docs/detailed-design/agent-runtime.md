@@ -138,7 +138,7 @@ Child CfA skips intent gathering (inherited from parent). This is a policy choic
 
 ## Event Bus and Observability
 
-The orchestrator publishes events to an `EventBus` (`events.py`), which serves as the pub-sub backbone for observability. The TUI and logging systems subscribe to these events.
+The orchestrator publishes events to an `EventBus` (`events.py`), which serves as the pub-sub backbone for observability. The bridge dashboard and logging systems subscribe to these events.
 
 Major event types:
 - `LOG` — text output (agent steps, orchestrator decisions)
@@ -149,7 +149,7 @@ Major event types:
 - `APPROVAL_REQUIRED` — human review requested
 - `ESCALATION` — decision escalated to human
 
-The EventBus is created in the main orchestrator entry point and flows through `Session` → `Orchestrator` → individual actors. It survives across all phases and is the mechanism that the TUI uses to display real-time progress.
+The EventBus is created in the main orchestrator entry point and flows through `Session` → `Orchestrator` → individual actors. It survives across all phases and is the mechanism that the bridge dashboard uses to display real-time progress.
 
 This is infrastructure detail, not core to understanding CfA or agent runtime, but important for observability and debugging.
 

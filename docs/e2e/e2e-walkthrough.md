@@ -15,9 +15,9 @@ The system executed the full CfA lifecycle autonomously: intent capture (2 quest
 
 The entire interaction — from the initial prompt through intent capture, planning, and all five execution phases — occurred within the TeaParty interactive console. The human typed the four-sentence prompt, answered six questions across two brief dialogs, and then watched.
 
-![TUI workspace showing eight parallel research dispatches running](../e2e-raw-files/e2e workspace.png)
+![Dashboard workspace showing eight parallel research dispatches running](../e2e-raw-files/e2e workspace.png)
 
-This is the TUI during the research phase. The top pane shows the original prompt and the CfA state history — each transition from IDEA through PLAN visible as it happened. The middle pane streams the uber team's execution in real time: dispatching research tracks into worktrees, confirming proxy approvals at sub-team gates, advancing phases as deliverables land on disk. The status bar at the bottom shows eight active dispatches running concurrently.
+This is the bridge dashboard during the research phase. The session panel shows the original prompt and the CfA state history — each transition from IDEA through PLAN visible as it happened. The activity stream shows the uber team's execution in real time: dispatching research tracks into worktrees, confirming proxy approvals at sub-team gates, advancing phases as deliverables land on disk. Eight active dispatches are running concurrently.
 
 From the human's side, the experience after the initial dialog was: watch the stream and review artifacts as they arrived. The console didn't just show progress — it provided direct links to the generated artifacts in their worktrees, making it easy to open a research brief, read a chapter draft, or inspect an editorial report without hunting through the file system. At approval gates, the human could click through to the relevant artifacts, review them, and approve or correct — all without leaving the console.
 

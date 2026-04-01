@@ -113,7 +113,7 @@ The `.running` sentinel appears in at least 12 production files and 5 test files
 
 `Orchestrator` gains a startup recovery scan that merges or re-dispatches orphaned children before MCP listeners start.
 
-The watchdog publishes events to the `EventBus` when it detects stale heartbeats, kills children, triggers recovery, or initiates retries. `state_reader.py` reads `.heartbeat` instead of `.running` for TUI display.
+The watchdog publishes events to the `EventBus` when it detects stale heartbeats, kills children, triggers recovery, or initiates retries. `state_reader.py` reads `.heartbeat` instead of `.running` for dashboard display.
 
 ## Testing strategy
 
