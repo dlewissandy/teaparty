@@ -93,6 +93,7 @@ def _make_project(slug='poc', sessions=None, active_count=0, attention_count=0):
     class FakeProject:
         slug: str
         path: str
+        name: str = ''
         sessions: list = field(default_factory=list)
         active_count: int = 0
         attention_count: int = 0

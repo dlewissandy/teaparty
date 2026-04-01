@@ -169,6 +169,7 @@ class ProjectState:
     """State of a project and its sessions."""
     slug: str                        # "POC", "hierarchical-memory-paper"
     path: str                        # projects/{slug}/
+    name: str = ''                   # display name from registry (e.g. "TeaParty")
     sessions: list = field(default_factory=list)
     active_count: int = 0
     attention_count: int = 0
@@ -227,15 +228,15 @@ class StateReader:
             elif entry.get('type') == 'dispatch':
                 dispatch_by_sid[sid] = entry
 
-        # Collect (slug, proj_path) pairs from registry or directory scan
-        project_paths: list[tuple[str, str]] = []
+        # Collect (slug, proj_path, name) tuples from registry or directory scan
+        project_paths: list[tuple[str, str, str]] = []
         if self.teaparty_home:
             # Registry-based: all registered projects, regardless of session state.
             from orchestrator.config_reader import load_management_team, discover_projects
             team = load_management_team(teaparty_home=self.teaparty_home)
             for entry in discover_projects(team):
                 slug = os.path.basename(entry['path'].rstrip('/'))
-                project_paths.append((slug, entry['path']))
+                project_paths.append((slug, entry['path'], entry.get('name', slug)))
             project_paths.sort(key=lambda t: t[0])
         elif self.projects_dir is not None:
             # Directory scan (used in tests and legacy contexts).
@@ -245,7 +246,7 @@ class StateReader:
                 for slug in sorted(os.listdir(self.projects_dir)):
                     proj_path = os.path.join(self.projects_dir, slug)
                     if os.path.isdir(os.path.join(proj_path, '.sessions')):
-                        project_paths.append((slug, proj_path))
+                        project_paths.append((slug, proj_path, slug))
             except OSError:
                 pass
         else:
@@ -255,7 +256,7 @@ class StateReader:
             )
 
         projects = []
-        for slug, proj_path in project_paths:
+        for slug, proj_path, name in project_paths:
             sessions_dir = os.path.join(proj_path, '.sessions')
 
             # Projects with their own .git write worktrees.json locally —
@@ -285,6 +286,7 @@ class StateReader:
             projects.append(ProjectState(
                 slug=slug,
                 path=proj_path,
+                name=name,
                 sessions=proj_sessions,
                 active_count=active,
                 attention_count=attention,

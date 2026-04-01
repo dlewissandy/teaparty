@@ -27,6 +27,7 @@ from aiohttp import web
 
 from orchestrator.messaging import ConversationType, SqliteMessageBus
 from orchestrator.office_manager import om_bus_path as _om_bus_path, OfficeManagerSession, read_om_session_title
+from orchestrator.project_manager import pm_bus_path as _pm_bus_path, ProjectManagerSession, read_pm_session_title
 from orchestrator.proxy_review import (
     proxy_bus_path as _proxy_bus_path,
     ProxyReviewSession,
@@ -198,6 +199,12 @@ class TeaPartyBridge:
         # Per-qualifier OM session cache: keeps the OfficeManagerSession alive across invocations
         # so the --resume session ID is available in memory between turns.
         self._om_sessions: dict[str, OfficeManagerSession] = {}
+        # Project manager bus (persistent, not session-scoped).
+        self._pm_bus: SqliteMessageBus | None = None
+        # Per-qualifier (project_slug:user_id) asyncio locks for PM invocations.
+        self._pm_locks: dict[str, asyncio.Lock] = {}
+        # Per-qualifier PM session cache.
+        self._pm_sessions: dict[str, ProjectManagerSession] = {}
         # Proxy review bus (persistent, not session-scoped).
         self._proxy_bus: SqliteMessageBus | None = None
         # Per-qualifier asyncio locks for proxy review: queues concurrent invocations.
@@ -302,6 +309,13 @@ class TeaPartyBridge:
         os.makedirs(os.path.dirname(om_path), exist_ok=True)
         self._om_bus = SqliteMessageBus(om_path)
         self._buses['om'] = self._om_bus
+
+        # Open the project manager bus (persistent, not session-scoped).
+        # The 'pm' key is stable and will never collide with a session_id.
+        pm_path = _pm_bus_path(self.teaparty_home)
+        os.makedirs(os.path.dirname(pm_path), exist_ok=True)
+        self._pm_bus = SqliteMessageBus(pm_path)
+        self._buses['pm'] = self._pm_bus
 
         # Open the proxy review bus (persistent, not session-scoped).
         # The 'proxy' key is stable and will never collide with a session_id.
@@ -527,6 +541,29 @@ class TeaPartyBridge:
                 result.append(d)
             return web.json_response(result)
 
+        # Route project_manager type to the persistent PM bus
+        if conv_type == ConversationType.PROJECT_MANAGER:
+            bus = self._get_pm_bus()
+            convs = bus.active_conversations(conv_type)
+            result = []
+            for c in convs:
+                d = self._serialize_conversation(c)
+                # qualifier is '{slug}:{user}' — strip the 'pm:' prefix
+                qualifier = c.id[len('pm:'):] if c.id.startswith('pm:') else ''
+                if qualifier:
+                    session = self._pm_sessions.get(qualifier)
+                    parts = qualifier.split(':', 1)
+                    project_slug = parts[0]
+                    user_id = parts[1] if len(parts) > 1 else ''
+                    title = (
+                        (session.conversation_title if session else None)
+                        or read_pm_session_title(self.teaparty_home, project_slug, user_id)
+                    )
+                    if title:
+                        d['title'] = title
+                result.append(d)
+            return web.json_response(result)
+
         # Route proxy_review type to the persistent proxy bus (issue #331)
         if conv_type == ConversationType.PROXY_REVIEW:
             bus = self._get_proxy_bus()
@@ -591,6 +628,9 @@ class TeaPartyBridge:
         if conv_id.startswith('om:'):
             qualifier = conv_id[len('om:'):]
             bus.create_conversation(ConversationType.OFFICE_MANAGER, qualifier)
+        elif conv_id.startswith('pm:'):
+            qualifier = conv_id[len('pm:'):]
+            bus.create_conversation(ConversationType.PROJECT_MANAGER, qualifier)
         elif conv_id.startswith('proxy:'):
             qualifier = conv_id[len('proxy:'):]
             bus.create_conversation(ConversationType.PROXY_REVIEW, qualifier)
@@ -604,6 +644,8 @@ class TeaPartyBridge:
         # be broadcast by MessageRelay.
         if conv_id.startswith('om:'):
             asyncio.create_task(self._invoke_om(qualifier))
+        elif conv_id.startswith('pm:'):
+            asyncio.create_task(self._invoke_pm(qualifier))
         elif conv_id.startswith('proxy:'):
             asyncio.create_task(self._invoke_proxy(qualifier))
 
@@ -632,9 +674,7 @@ class TeaPartyBridge:
                 self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier)
             session = self._om_sessions[qualifier]
             try:
-                project_path = self._lookup_project_path(qualifier)
-                cwd = project_path if project_path is not None else self._repo_root
-                await session.invoke(cwd=cwd)
+                await session.invoke(cwd=self._repo_root)
             except Exception:
                 _log.exception('OM invocation failed for qualifier %r', qualifier)
                 try:
@@ -644,6 +684,40 @@ class TeaPartyBridge:
                     )
                 except Exception:
                     _log.exception('Failed to write error message to OM bus for %r', qualifier)
+
+    async def _invoke_pm(self, qualifier: str) -> None:
+        """Invoke the project manager agent for the given conversation qualifier.
+
+        qualifier is '{project_slug}:{user_id}' e.g. 'jainai:darrell'.
+        Runs as a fire-and-forget asyncio task. Concurrent invocations for the
+        same qualifier queue via an asyncio.Lock.
+        """
+        if qualifier not in self._pm_locks:
+            self._pm_locks[qualifier] = asyncio.Lock()
+        lock = self._pm_locks[qualifier]
+
+        async with lock:
+            if qualifier not in self._pm_sessions:
+                parts = qualifier.split(':', 1)
+                project_slug = parts[0]
+                user_id = parts[1] if len(parts) > 1 else qualifier
+                self._pm_sessions[qualifier] = ProjectManagerSession(
+                    self.teaparty_home, project_slug, user_id,
+                )
+            session = self._pm_sessions[qualifier]
+            try:
+                project_path = self._lookup_project_path(session.project_slug)
+                cwd = project_path if project_path is not None else self._repo_root
+                await session.invoke(cwd=cwd)
+            except Exception:
+                _log.exception('PM invocation failed for qualifier %r', qualifier)
+                try:
+                    session.send_agent_message(
+                        'Sorry, I encountered an error and could not respond. '
+                        'Please try again.'
+                    )
+                except Exception:
+                    _log.exception('Failed to write error message to PM bus for %r', qualifier)
 
     async def _invoke_proxy(self, qualifier: str) -> None:
         """Invoke the proxy review agent for the given conversation qualifier.
@@ -911,6 +985,14 @@ class TeaPartyBridge:
             self._om_bus = SqliteMessageBus(om_path)
         return self._om_bus
 
+    def _get_pm_bus(self) -> SqliteMessageBus:
+        """Return the project manager bus, creating it if needed."""
+        if self._pm_bus is None:
+            pm_path = _pm_bus_path(self.teaparty_home)
+            os.makedirs(os.path.dirname(pm_path), exist_ok=True)
+            self._pm_bus = SqliteMessageBus(pm_path)
+        return self._pm_bus
+
     def _get_proxy_bus(self) -> SqliteMessageBus:
         """Return the proxy review bus, creating it if needed."""
         if self._proxy_bus is None:
@@ -928,6 +1010,8 @@ class TeaPartyBridge:
         """
         if conv_id.startswith('om:'):
             return self._get_om_bus()
+        if conv_id.startswith('pm:'):
+            return self._get_pm_bus()
         if conv_id.startswith('proxy:'):
             return self._get_proxy_bus()
         for bus in self._buses.values():
@@ -970,6 +1054,7 @@ class TeaPartyBridge:
     def _serialize_project(self, p) -> dict:
         return {
             'slug': p.slug,
+            'name': p.name,
             'path': p.path,
             'active_count': p.active_count,
             'attention_count': p.attention_count,

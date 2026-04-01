@@ -38,6 +38,7 @@ _log = logging.getLogger('orchestrator.messaging')
 
 class ConversationType(Enum):
     OFFICE_MANAGER = 'office_manager'    # One per human, persistent across days/weeks
+    PROJECT_MANAGER = 'project_manager'  # One per project+human, persistent
     PROJECT_SESSION = 'project_session'  # One per session, closes when session ends
     SUBTEAM = 'subteam'                  # One per dispatch, proxy participates
     JOB = 'job'                          # One per project+job, lives with the job
@@ -73,6 +74,7 @@ class Conversation:
 
 _PREFIXES = {
     ConversationType.OFFICE_MANAGER: 'om',
+    ConversationType.PROJECT_MANAGER: 'pm',
     ConversationType.PROJECT_SESSION: 'session',
     ConversationType.SUBTEAM: 'team',
     ConversationType.JOB: 'job',

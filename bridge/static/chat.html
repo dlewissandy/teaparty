@@ -43,6 +43,7 @@
 // ── URL params ────────────────────────────────────────────────────────────────
 var params = new URLSearchParams(window.location.search);
 var convId = params.get('conv') || '';
+var convProjectName = params.get('name') || '';
 var selectedItem = params.get('task') || params.get('session') || null;
 var seedMessage = params.get('seed') || '';
 
@@ -64,6 +65,7 @@ if (isJobChat) {
 // Map conv ID prefix to the API ?type= parameter for participant chat.
 var CONV_TYPE_MAP = {
   'om':      'office_manager',
+  'pm':      'project_manager',
   'proxy':   'proxy_review',
   'session': 'project_session',
   'team':    'subteam',
@@ -73,6 +75,7 @@ var CONV_TYPE_MAP = {
 // Map conv ID prefix to a human-readable participant name for the header.
 var PARTICIPANT_NAMES = {
   'om':      'Office Manager',
+  'pm':      'Project Manager',   // overridden below with project name when available
   'proxy':   'Proxy',
   'session': 'Session Manager',
   'team':    'Team',
@@ -137,7 +140,12 @@ function fetchAll() {
         fetch('/api/conversations?type=' + convType)
           .then(function(r) { return r.json(); })
           .then(function(convs) {
-            pageState.participantConvs = convs || [];
+            var all = convs || [];
+            // When opened from a project card (convProjectName set), show only
+            // conversations scoped to this project's conv ID, not all org-level ones.
+            pageState.participantConvs = convProjectName
+              ? all.filter(function(c) { return c.id === convId; })
+              : all;
             // Auto-select only if convId from the URL is already in the list.
             // If convId is a new/unseeded conversation (not yet in the DB),
             // leave selectedItem null so messages go to convId, not a different conv.
@@ -455,7 +463,16 @@ function buildParticipantNavHtml() {
 }
 
 function renderParticipantLayout() {
-  var headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
+  var headerTitle;
+  if (convPrefix === 'pm') {
+    // pm:{slug}:{user} — derive project label from URL name param or slug
+    var pmParts = convId.split(':');
+    var pmSlug = pmParts[1] || '';
+    var pmLabel = convProjectName || (pmSlug.charAt(0).toUpperCase() + pmSlug.slice(1));
+    headerTitle = pmLabel + ' Project Manager';
+  } else {
+    headerTitle = PARTICIPANT_NAMES[convPrefix] || convId;
+  }
   // Derive a human-readable scope from the selected session ID (strip prefix).
   var headerScope = 'All conversations';
   if (selectedItem) {

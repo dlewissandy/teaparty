@@ -320,12 +320,13 @@ function render() {
       projectsHtml += '</div>';
     }
 
-    // Action buttons — Manager opens a project-scoped OM conversation (cwd = project dir)
-    var managerConv = 'om:' + p.slug;
+    // Action buttons — Manager opens a project manager conversation (pm:{slug}:{user})
+    var currentUser = pageState.omConvId.split(':')[1] || 'darrell';
+    var managerConv = 'pm:' + p.slug + ':' + currentUser;
     projectsHtml += '<div class="pc-actions">';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
-    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=' + managerConv + '\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
+    projectsHtml += '<button class="pc-action" onclick="openPage(\'chat.html?conv=' + managerConv + '&name=' + encodeURIComponent(p.name) + '\')"><span class="pc-action-icon">&#9733;</span>Manager</button>';
     projectsHtml += '</div>';
 
     projectsHtml += '</div>';
