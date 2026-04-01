@@ -100,6 +100,9 @@ class BusEventListener:
         self._send_socket_path = ''
         self._reply_socket_path = ''
         self._sock_dir = ''
+        # Per-agent re-invocation locks: serializes concurrent --resume calls for
+        # the same agent (see conversation-model.md — Fan-In vs. Mid-Task Clarification).
+        self._reinvoke_locks: dict[str, asyncio.Lock] = {}
 
     async def start(self) -> tuple[str, str]:
         """Start both socket servers.
@@ -243,28 +246,36 @@ class BusEventListener:
             message = request.get('message', '')
 
             context_id = self.current_context_id
-            caller_session_id = ''
             parent_context_id = ''
+            parent_session_id = ''
+            should_reinvoke = False
 
             if context_id and self.bus_db_path:
                 ctx = self._get_context(context_id)
                 if ctx:
-                    caller_session_id = ctx.get('session_id', '')
                     parent_context_id = ctx.get('parent_context_id', '')
                 self._close_context(context_id)
-                # Decrement the parent's pending_count — when it reaches zero,
-                # all workers in this fan-out have replied and the lead can be re-invoked.
+                # Decrement the parent's pending_count.  When it reaches zero all
+                # workers in this fan-out have replied and the caller can be resumed.
                 if parent_context_id:
-                    self._decrement_parent_pending_count(parent_context_id)
+                    new_count = self._decrement_parent_pending_count(parent_context_id)
+                    if new_count == 0:
+                        parent_ctx = self._get_context(parent_context_id)
+                        if parent_ctx:
+                            parent_session_id = parent_ctx.get('session_id', '')
+                        should_reinvoke = True
 
             response = {'status': 'ok'}
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
 
-            # Re-invoke the caller if reinvoke_fn is provided
-            if self.reinvoke_fn is not None and context_id:
+            # Re-invoke the caller only when all fan-out workers have replied
+            # (pending_count reached zero) and a session_id is available to --resume.
+            # Use a per-agent lock so only one --resume per caller is active at a time
+            # (conversation-model.md — per-agent re-invocation lock).
+            if self.reinvoke_fn is not None and should_reinvoke and parent_session_id:
                 asyncio.create_task(
-                    self.reinvoke_fn(context_id, caller_session_id, message)
+                    self._locked_reinvoke(parent_context_id, parent_session_id, message)
                 )
 
         except Exception:
@@ -275,6 +286,22 @@ class BusEventListener:
                 await writer.wait_closed()
             except Exception:
                 pass
+
+    async def _locked_reinvoke(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Serialized wrapper for reinvoke_fn — enforces the per-agent re-invocation lock.
+
+        Ensures only one --resume call for a given context_id is active at a time.
+        A second re-invocation request for the same agent queues until the first
+        completes (conversation-model.md — Fan-In vs. Mid-Task Clarification).
+        """
+        if context_id not in self._reinvoke_locks:
+            self._reinvoke_locks[context_id] = asyncio.Lock()
+        lock = self._reinvoke_locks[context_id]
+        async with lock:
+            if self.reinvoke_fn is not None:
+                await self.reinvoke_fn(context_id, session_id, message)
 
     # ── Synchronous DB helpers (called from async context) ────────────────────
 
