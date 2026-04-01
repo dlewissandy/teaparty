@@ -193,6 +193,9 @@ class Orchestrator:
         # agent dispatch (Issue #351).  Started alongside other MCP listeners.
         self._bus_event_listener: Any | None = None  # BusEventListener
         self._mcp_config: dict | None = None
+        # Fan-in synchronization: set when the turn loop is waiting for all
+        # dispatched workers to complete; cleared and set by _bus_reinvoke.
+        self._fan_in_event: asyncio.Event | None = None
 
         # Track resume session IDs per phase (for --resume on corrections).
         # Pre-populated on session resume by parsing stream JSONL files.
@@ -284,6 +287,7 @@ class Orchestrator:
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
                 spawn_fn=self._bus_spawn_agent,
+                reinvoke_fn=self._bus_reinvoke,
                 dispatcher=self._build_bus_dispatcher(),
             )
             send_socket, reply_socket = await self._bus_event_listener.start()
@@ -400,6 +404,62 @@ class Orchestrator:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
+
+    async def _bus_reinvoke(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Signal fan-in completion when all dispatched workers have replied.
+
+        Called by BusEventListener as a background task each time a Reply
+        arrives.  Checks the bus for remaining open contexts; sets
+        _fan_in_event only when every worker has closed its context.
+        """
+        if not self._fan_in_event:
+            return
+        from orchestrator.messaging import SqliteMessageBus  # noqa: PLC0415
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        if not os.path.exists(bus_db_path):
+            return
+        bus = SqliteMessageBus(bus_db_path)
+        try:
+            remaining = bus.open_agent_contexts()
+        finally:
+            bus.close()
+        if not remaining:
+            self._fan_in_event.set()
+
+    def _has_open_agent_contexts(self) -> bool:
+        """True if any bus agent contexts are still open (workers not yet replied)."""
+        if not self._bus_event_listener:
+            return False
+        from orchestrator.messaging import SqliteMessageBus  # noqa: PLC0415
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        if not os.path.exists(bus_db_path):
+            return False
+        bus = SqliteMessageBus(bus_db_path)
+        try:
+            return bool(bus.open_agent_contexts())
+        finally:
+            bus.close()
+
+    async def _await_fan_in_and_reinvoke(
+        self,
+        spec: 'PhaseSpec',
+        phase_name: str,
+        phase_start_time: float,
+    ) -> 'ActorResult':
+        """Block until all dispatched workers have replied, then re-invoke the lead.
+
+        Called when the lead's turn completes but workers are still in flight.
+        Returns the actor_result from the lead's synthesis turn, which the caller
+        passes to _transition to advance the CfA state.
+        """
+        self._fan_in_event = asyncio.Event()
+        _log.info('Fan-in wait: blocking turn loop until all dispatched workers reply')
+        await self._fan_in_event.wait()
+        self._fan_in_event = None
+        _log.info('Fan-in complete: re-invoking lead for synthesis')
+        return await self._invoke_actor(spec, phase_name, phase_start_time)
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""
@@ -783,6 +843,18 @@ class Orchestrator:
                     data=turn_stats,
                     session_id=self.session_id,
                 ))
+
+            # Fan-in wait: if the lead dispatched workers via Send, hold the
+            # CfA transition until all workers have replied.  The lead is then
+            # re-invoked (--resume) so it can synthesize before the gate sees it.
+            # Checked BEFORE _transition so the CfA state does not advance until
+            # the synthesis turn returns.
+            if (actor_result.action != 'failed'
+                    and not is_globally_terminal(self.cfa.state)
+                    and self._has_open_agent_contexts()):
+                actor_result = await self._await_fan_in_and_reinvoke(
+                    spec, phase_name, phase_start_time,
+                )
 
             # Apply the CfA transition
             await self._transition(actor_result.action, actor_result)

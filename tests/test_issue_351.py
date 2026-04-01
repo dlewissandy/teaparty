@@ -918,5 +918,128 @@ class TestEngineMcpEnvWiring(unittest.TestCase):
         self.assertEqual(len(rejected), 1, 'Unauthorized route must return error status')
 
 
+class TestFanInEngineWiring(unittest.TestCase):
+    """Fan-in: engine must wire reinvoke_fn and implement the wait/signal protocol."""
+
+    def test_engine_wires_reinvoke_fn(self):
+        """engine.py must pass reinvoke_fn=self._bus_reinvoke to BusEventListener."""
+        engine_src = (_REPO_ROOT / 'orchestrator' / 'engine.py').read_text()
+        self.assertIn(
+            'reinvoke_fn',
+            engine_src,
+            'engine.py must pass reinvoke_fn to BusEventListener',
+        )
+        self.assertIn(
+            '_bus_reinvoke',
+            engine_src,
+            'engine.py must define _bus_reinvoke as the reinvoke_fn',
+        )
+
+    def test_engine_has_fan_in_event_attribute(self):
+        """Orchestrator must carry a _fan_in_event attribute for turn-loop synchronization."""
+        engine_src = (_REPO_ROOT / 'orchestrator' / 'engine.py').read_text()
+        self.assertIn(
+            '_fan_in_event',
+            engine_src,
+            'engine.py must declare _fan_in_event for fan-in synchronization',
+        )
+
+    def test_engine_checks_open_contexts_before_transition(self):
+        """engine.py must call _has_open_agent_contexts() before _transition."""
+        import ast
+
+        engine_src = (_REPO_ROOT / 'orchestrator' / 'engine.py').read_text()
+        # _has_open_agent_contexts is present
+        self.assertIn(
+            '_has_open_agent_contexts',
+            engine_src,
+            'engine.py must define and call _has_open_agent_contexts',
+        )
+        # The fan-in check appears before _transition in the source
+        fan_in_pos = engine_src.find('_has_open_agent_contexts')
+        transition_pos = engine_src.find('await self._transition(actor_result')
+        self.assertLess(
+            fan_in_pos, transition_pos,
+            '_has_open_agent_contexts() check must appear before _transition() call',
+        )
+
+    def test_bus_reinvoke_sets_event_only_when_all_contexts_closed(self):
+        """_bus_reinvoke must set _fan_in_event only when no open contexts remain."""
+        from orchestrator.messaging import SqliteMessageBus
+
+        tmp = tempfile.mkdtemp()
+        db_path = os.path.join(tmp, 'messages.db')
+
+        bus = SqliteMessageBus(db_path)
+        # Create two worker contexts
+        bus.create_agent_context('ctx-A', initiator_agent_id='proj/lead', recipient_agent_id='proj/coding/w1')
+        bus.create_agent_context('ctx-B', initiator_agent_id='proj/lead', recipient_agent_id='proj/coding/w2')
+        bus.close()
+
+        # Build a minimal mock engine with _bus_reinvoke
+        from orchestrator.engine import Orchestrator
+        import types
+
+        engine = object.__new__(Orchestrator)
+        engine.infra_dir = tmp
+        engine._fan_in_event = asyncio.Event()
+
+        async def run():
+            # First reply: ctx-A closes; ctx-B still open → event must NOT be set
+            bus2 = SqliteMessageBus(db_path)
+            bus2.close_agent_context('ctx-A')
+            bus2.close()
+            await engine._bus_reinvoke('ctx-A', '', 'done')
+            self.assertFalse(
+                engine._fan_in_event.is_set(),
+                '_fan_in_event must not be set while ctx-B is still open',
+            )
+
+            # Second reply: ctx-B closes; no more open contexts → event must be set
+            bus3 = SqliteMessageBus(db_path)
+            bus3.close_agent_context('ctx-B')
+            bus3.close()
+            await engine._bus_reinvoke('ctx-B', '', 'done')
+            self.assertTrue(
+                engine._fan_in_event.is_set(),
+                '_fan_in_event must be set when all contexts are closed',
+            )
+
+        asyncio.run(run())
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_has_open_agent_contexts_reflects_bus_state(self):
+        """_has_open_agent_contexts() must return True while contexts are open."""
+        from orchestrator.messaging import SqliteMessageBus
+        from orchestrator.engine import Orchestrator
+
+        tmp = tempfile.mkdtemp()
+        db_path = os.path.join(tmp, 'messages.db')
+
+        bus = SqliteMessageBus(db_path)
+        bus.create_agent_context('ctx-X', initiator_agent_id='proj/lead', recipient_agent_id='proj/coding/w1')
+        bus.close()
+
+        engine = object.__new__(Orchestrator)
+        engine.infra_dir = tmp
+        engine._bus_event_listener = object()  # truthy sentinel
+
+        self.assertTrue(
+            engine._has_open_agent_contexts(),
+            '_has_open_agent_contexts() must be True while ctx-X is open',
+        )
+
+        bus2 = SqliteMessageBus(db_path)
+        bus2.close_agent_context('ctx-X')
+        bus2.close()
+
+        self.assertFalse(
+            engine._has_open_agent_contexts(),
+            '_has_open_agent_contexts() must be False after ctx-X is closed',
+        )
+
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == '__main__':
     unittest.main()
