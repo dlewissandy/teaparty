@@ -7,7 +7,9 @@ AC3. Transition from AWAITING_REPLIES via 'resume' reaches TASK_IN_PROGRESS.
 AC4. engine._bus_reinvoke_agent exists and is wired as reinvoke_fn in BusEventListener.
 AC5. BusEventListener only calls reinvoke_fn when pending_count reaches 0 (not on every reply).
 AC6. reinvoke_fn is called with the PARENT context's session_id, not the worker's.
-AC7. engine._bus_reinvoke_agent calls AgentSpawner.spawn with resume_session=session_id.
+AC7. engine._bus_reinvoke_agent injects the reply into the lead's history and sets
+     _fan_in_event so _await_fan_in_and_reinvoke can resume the lead via --resume
+     (write-then-exit-then-resume model).
 """
 from __future__ import annotations
 
@@ -366,36 +368,37 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
 
 
 class TestEngineReinvokeAgent(unittest.TestCase):
-    """AC4/AC7: Orchestrator must have a reinvoke_fn wired to BusEventListener and
-    a fan-in mechanism that re-invokes the lead when all workers have replied.
+    """AC4/AC7: Orchestrator must wire _bus_reinvoke_agent as reinvoke_fn and
+    implement the write-then-exit-then-resume model.
 
-    Issue #351 implemented the fan-in mechanism as an in-process turn-loop wait
-    (_bus_reinvoke + _fan_in_event + _await_fan_in_and_reinvoke). This test class
-    verifies that wiring is present and correct.
+    Issue #358: when all dispatched workers reply, the engine:
+      1. Injects the composite reply into the lead's conversation history.
+      2. Signals _fan_in_event so the turn loop can resume the lead via --resume.
+    The CfA state machine traverses TASK_IN_PROGRESS → AWAITING_REPLIES → TASK_IN_PROGRESS.
     """
 
-    def test_engine_has_bus_reinvoke_method(self):
-        """AC4: Orchestrator must have a _bus_reinvoke async method (the reinvoke_fn)."""
+    def test_engine_has_bus_reinvoke_agent_method(self):
+        """AC4: Orchestrator must have a _bus_reinvoke_agent async method (the reinvoke_fn)."""
         from orchestrator.engine import Orchestrator
         self.assertTrue(
-            hasattr(Orchestrator, '_bus_reinvoke'),
-            'Orchestrator must have a _bus_reinvoke method',
+            hasattr(Orchestrator, '_bus_reinvoke_agent'),
+            'Orchestrator must have a _bus_reinvoke_agent method',
         )
         self.assertTrue(
-            asyncio.iscoroutinefunction(Orchestrator._bus_reinvoke),
-            '_bus_reinvoke must be an async method',
+            asyncio.iscoroutinefunction(Orchestrator._bus_reinvoke_agent),
+            '_bus_reinvoke_agent must be an async method',
         )
 
     def test_engine_wires_reinvoke_fn_to_bus_event_listener(self):
-        """AC4: Orchestrator.run must pass a reinvoke_fn to BusEventListener."""
+        """AC4: Orchestrator.run must pass reinvoke_fn=self._bus_reinvoke_agent to BusEventListener."""
         import inspect
         from orchestrator.engine import Orchestrator
 
         source = inspect.getsource(Orchestrator.run)
         self.assertIn(
-            'reinvoke_fn',
+            '_bus_reinvoke_agent',
             source,
-            'Orchestrator.run must pass reinvoke_fn= to BusEventListener',
+            'Orchestrator.run must wire reinvoke_fn=self._bus_reinvoke_agent to BusEventListener',
         )
 
     def test_engine_has_fan_in_wait_mechanism(self):
@@ -410,50 +413,101 @@ class TestEngineReinvokeAgent(unittest.TestCase):
             '_await_fan_in_and_reinvoke must be async',
         )
 
-    def test_bus_reinvoke_sets_fan_in_event_when_all_workers_done(self):
-        """AC7: _bus_reinvoke must set _fan_in_event when no open agent contexts remain."""
+    def test_bus_reinvoke_agent_sets_fan_in_event(self):
+        """AC7: _bus_reinvoke_agent must set _fan_in_event to unblock the fan-in wait."""
+        from orchestrator.engine import Orchestrator
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            orch = object.__new__(Orchestrator)
+            orch.infra_dir = tmpdir
+            orch.session_worktree = tmpdir
+            orch._fan_in_event = asyncio.Event()
+
+            asyncio.run(orch._bus_reinvoke_agent('ctx-1', '', 'done'))
+
+        self.assertTrue(
+            orch._fan_in_event.is_set(),
+            '_bus_reinvoke_agent must set _fan_in_event to unblock the turn loop',
+        )
+
+    def test_bus_reinvoke_agent_injects_composite_into_history(self):
+        """AC7: _bus_reinvoke_agent must call inject_composite_into_history with the reply.
+
+        The composite message is written into the lead's JSONL session file before
+        _fan_in_event is set so the --resume invocation sees the worker replies.
+        """
         from orchestrator.engine import Orchestrator
         import unittest.mock
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, 'messages.db')
-            # Create an empty bus DB (no open contexts)
-            from orchestrator.messaging import SqliteMessageBus
-            bus = SqliteMessageBus(db_path)
-            bus.close()
-
             orch = object.__new__(Orchestrator)
             orch.infra_dir = tmpdir
+            orch.session_worktree = tmpdir
             orch._fan_in_event = asyncio.Event()
 
-            asyncio.run(orch._bus_reinvoke('ctx-1', 'sess-1', 'done'))
+            injected = []
 
-        self.assertTrue(
-            orch._fan_in_event.is_set(),
-            '_bus_reinvoke must set _fan_in_event when no open agent contexts remain',
-        )
+            def fake_inject(session_file, composite, session_id, cwd, **kw):
+                injected.append({
+                    'session_file': session_file,
+                    'composite': composite,
+                    'session_id': session_id,
+                    'cwd': cwd,
+                })
 
-    def test_bus_reinvoke_does_not_set_event_when_contexts_still_open(self):
-        """AC7: _bus_reinvoke must NOT set _fan_in_event when other workers are still open."""
+            with unittest.mock.patch(
+                'orchestrator.messaging.inject_composite_into_history',
+                fake_inject,
+            ):
+                asyncio.run(
+                    orch._bus_reinvoke_agent('ctx-1', 'lead-session-abc', 'worker reply text')
+                )
+
+        self.assertEqual(len(injected), 1, '_bus_reinvoke_agent must inject the reply once')
+        call = injected[0]
+        self.assertEqual(call['composite'], 'worker reply text')
+        self.assertEqual(call['session_id'], 'lead-session-abc')
+        self.assertIn('lead-session-abc.jsonl', call['session_file'],
+            'session_file must include the session_id as filename')
+
+    def test_await_fan_in_transitions_cfa_to_awaiting_replies(self):
+        """AC7: _await_fan_in_and_reinvoke must transition CfA to AWAITING_REPLIES before blocking."""
         from orchestrator.engine import Orchestrator
+        from scripts.cfa_state import make_initial_state, set_state_direct
+
+        states_observed = []
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, 'messages.db')
-            from orchestrator.messaging import SqliteMessageBus
-            bus = SqliteMessageBus(db_path)
-            # Create an open context (simulates another worker still in flight)
-            bus.create_agent_context('ctx-open', 'proj/lead', 'proj/worker')
-            bus.close()
-
             orch = object.__new__(Orchestrator)
             orch.infra_dir = tmpdir
-            orch._fan_in_event = asyncio.Event()
+            orch.session_worktree = tmpdir
+            orch._fan_in_event = None
+            orch.cfa = set_state_direct(make_initial_state(), 'TASK_IN_PROGRESS')
 
-            asyncio.run(orch._bus_reinvoke('ctx-1', 'sess-1', 'partial'))
+            # Fake _invoke_actor to immediately return a result without actually running claude
+            from orchestrator.actors import ActorResult
+            async def fake_invoke(spec, phase_name, phase_start_time):
+                states_observed.append(orch.cfa.state)
+                return ActorResult(action='assert', data={})
 
-        self.assertFalse(
-            orch._fan_in_event.is_set(),
-            '_bus_reinvoke must NOT set _fan_in_event when open agent contexts remain',
+            orch._invoke_actor = fake_invoke
+
+            # Fire _fan_in_event immediately to avoid blocking
+            async def run():
+                async def set_event_soon():
+                    await asyncio.sleep(0.05)
+                    if orch._fan_in_event:
+                        orch._fan_in_event.set()
+                asyncio.create_task(set_event_soon())
+                return await orch._await_fan_in_and_reinvoke(None, 'task', 0.0)
+
+            asyncio.run(run())
+
+        self.assertIn(
+            'TASK_IN_PROGRESS',
+            states_observed,
+            '_await_fan_in_and_reinvoke must resume from TASK_IN_PROGRESS '
+            '(AWAITING_REPLIES → resume → TASK_IN_PROGRESS before calling _invoke_actor)',
         )
 
 

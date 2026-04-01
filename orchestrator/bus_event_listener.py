@@ -245,7 +245,10 @@ class BusEventListener:
             request = json.loads(line.decode())
             message = request.get('message', '')
 
-            context_id = self.current_context_id
+            # Workers include their own context_id in the Reply socket message
+            # (set via the CONTEXT_ID env var injected at spawn time).
+            # Fall back to current_context_id for callers that predate this field.
+            context_id = request.get('context_id', '') or self.current_context_id
             parent_context_id = ''
             parent_session_id = ''
             should_reinvoke = False
@@ -270,10 +273,12 @@ class BusEventListener:
             await writer.drain()
 
             # Re-invoke the caller only when all fan-out workers have replied
-            # (pending_count reached zero) and a session_id is available to --resume.
-            # Use a per-agent lock so only one --resume per caller is active at a time
+            # (pending_count reached zero).  Use a per-agent lock so only one
+            # --resume per caller is active at a time
             # (conversation-model.md — per-agent re-invocation lock).
-            if self.reinvoke_fn is not None and should_reinvoke and parent_session_id:
+            # parent_session_id may be empty when the caller is the orchestrator
+            # itself (session_id updated lazily); reinvoke_fn handles that case.
+            if self.reinvoke_fn is not None and should_reinvoke:
                 asyncio.create_task(
                     self._locked_reinvoke(parent_context_id, parent_session_id, message)
                 )

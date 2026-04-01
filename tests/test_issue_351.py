@@ -963,46 +963,28 @@ class TestFanInEngineWiring(unittest.TestCase):
             '_has_open_agent_contexts() check must appear before _transition() call',
         )
 
-    def test_bus_reinvoke_sets_event_only_when_all_contexts_closed(self):
-        """_bus_reinvoke must set _fan_in_event only when no open contexts remain."""
-        from orchestrator.messaging import SqliteMessageBus
+    def test_bus_reinvoke_agent_sets_fan_in_event(self):
+        """_bus_reinvoke_agent must set _fan_in_event to unblock the fan-in wait loop.
+
+        Issue #358: the 'only when all closed' guard moved into BusEventListener
+        (pending_count tracking).  _bus_reinvoke_agent is called only after
+        pending_count reaches zero, so it always sets _fan_in_event.
+        The guard logic is covered by TestBusEventListenerReinvokeTrigger in
+        test_issue_358.py.
+        """
+        from orchestrator.engine import Orchestrator
 
         tmp = tempfile.mkdtemp()
-        db_path = os.path.join(tmp, 'messages.db')
-
-        bus = SqliteMessageBus(db_path)
-        # Create two worker contexts
-        bus.create_agent_context('ctx-A', initiator_agent_id='proj/lead', recipient_agent_id='proj/coding/w1')
-        bus.create_agent_context('ctx-B', initiator_agent_id='proj/lead', recipient_agent_id='proj/coding/w2')
-        bus.close()
-
-        # Build a minimal mock engine with _bus_reinvoke
-        from orchestrator.engine import Orchestrator
-        import types
-
         engine = object.__new__(Orchestrator)
         engine.infra_dir = tmp
+        engine.session_worktree = tmp
         engine._fan_in_event = asyncio.Event()
 
         async def run():
-            # First reply: ctx-A closes; ctx-B still open → event must NOT be set
-            bus2 = SqliteMessageBus(db_path)
-            bus2.close_agent_context('ctx-A')
-            bus2.close()
-            await engine._bus_reinvoke('ctx-A', '', 'done')
-            self.assertFalse(
-                engine._fan_in_event.is_set(),
-                '_fan_in_event must not be set while ctx-B is still open',
-            )
-
-            # Second reply: ctx-B closes; no more open contexts → event must be set
-            bus3 = SqliteMessageBus(db_path)
-            bus3.close_agent_context('ctx-B')
-            bus3.close()
-            await engine._bus_reinvoke('ctx-B', '', 'done')
+            await engine._bus_reinvoke_agent('ctx-A', '', 'done')
             self.assertTrue(
                 engine._fan_in_event.is_set(),
-                '_fan_in_event must be set when all contexts are closed',
+                '_bus_reinvoke_agent must set _fan_in_event',
             )
 
         asyncio.run(run())
