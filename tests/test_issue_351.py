@@ -844,6 +844,79 @@ class TestEngineMcpEnvWiring(unittest.TestCase):
             'engine.py must reference BusEventListener',
         )
 
+    def test_engine_bus_db_path_uses_infra_dir(self):
+        """engine.py must derive bus_db_path from infra_dir, not a non-existent attribute."""
+        engine_src = (_REPO_ROOT / 'orchestrator' / 'engine.py').read_text()
+        self.assertIn(
+            'messages.db',
+            engine_src,
+            'engine.py must reference messages.db for bus_db_path',
+        )
+        self.assertNotIn(
+            '_bus_db_path',
+            engine_src,
+            'engine.py must not use _bus_db_path (attribute does not exist on Orchestrator)',
+        )
+
+    def test_engine_wires_spawn_fn(self):
+        """engine.py must pass a spawn_fn to BusEventListener so recipients are actually spawned."""
+        engine_src = (_REPO_ROOT / 'orchestrator' / 'engine.py').read_text()
+        self.assertIn(
+            'spawn_fn',
+            engine_src,
+            'engine.py must wire spawn_fn into BusEventListener',
+        )
+        self.assertIn(
+            '_bus_spawn_agent',
+            engine_src,
+            'engine.py must define _bus_spawn_agent as the spawn_fn',
+        )
+
+    def test_bus_dispatcher_called_by_listener(self):
+        """BusEventListener must call dispatcher.authorize() so routing is enforced."""
+        from orchestrator.bus_dispatcher import BusDispatcher, RoutingTable, RoutingError
+
+        routing_table = RoutingTable()
+        dispatcher = BusDispatcher(routing_table)  # empty table — all routes rejected
+
+        bus_db = os.path.join(tempfile.mkdtemp(), 'bus.db')
+
+        authorized = []
+        rejected = []
+
+        async def run():
+            from orchestrator.bus_event_listener import BusEventListener
+            listener = BusEventListener(
+                bus_db_path=bus_db,
+                dispatcher=dispatcher,
+                initiator_agent_id='proj/lead',
+            )
+            send_path, _ = await listener.start()
+            try:
+                reader, writer = await asyncio.open_unix_connection(send_path)
+                try:
+                    req = json.dumps({
+                        'type': 'send', 'member': 'proj/coding/worker',
+                        'composite': '## Task\ndo it', 'context_id': '',
+                    })
+                    writer.write(req.encode() + b'\n')
+                    await writer.drain()
+                    resp = json.loads((await reader.readline()).decode())
+                    if resp.get('status') == 'error':
+                        rejected.append(resp.get('reason', ''))
+                    else:
+                        authorized.append(True)
+                finally:
+                    writer.close()
+                    await writer.wait_closed()
+            finally:
+                await listener.stop()
+
+        _run(run())
+
+        self.assertEqual(authorized, [], 'Route with no routing entry must not be authorized')
+        self.assertEqual(len(rejected), 1, 'Unauthorized route must return error status')
+
 
 if __name__ == '__main__':
     unittest.main()

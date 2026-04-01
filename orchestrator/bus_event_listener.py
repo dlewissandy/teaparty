@@ -86,12 +86,14 @@ class BusEventListener:
         reinvoke_fn: ReinvokeFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
+        dispatcher: object | None = None,
     ) -> None:
         self.bus_db_path = bus_db_path
         self.spawn_fn = spawn_fn
         self.reinvoke_fn = reinvoke_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
+        self.dispatcher = dispatcher  # BusDispatcher | None
 
         self._send_server: asyncio.AbstractServer | None = None
         self._reply_server: asyncio.AbstractServer | None = None
@@ -168,6 +170,18 @@ class BusEventListener:
             member = request.get('member', '')
             composite = request.get('composite', '')
             context_id = request.get('context_id', '')
+
+            # Transport-level routing check — reject before touching the bus
+            if self.dispatcher is not None:
+                try:
+                    self.dispatcher.authorize(
+                        self.initiator_agent_id or 'unknown', member,
+                    )
+                except Exception as exc:
+                    err_response = {'status': 'error', 'reason': str(exc)}
+                    writer.write(json.dumps(err_response).encode() + b'\n')
+                    await writer.drain()
+                    return
 
             # Create the context record synchronously so the caller has a context_id
             if not context_id:

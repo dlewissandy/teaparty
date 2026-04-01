@@ -277,10 +277,11 @@ class Orchestrator:
             # Start the bus event listener so agents can use Send/Reply for
             # bus-mediated agent-to-agent dispatch (Issue #351).
             from orchestrator.bus_event_listener import BusEventListener  # noqa: PLC0415
-            bus_db_path = getattr(self, '_bus_db_path', '')
+            bus_db_path = os.path.join(self.infra_dir, 'messages.db')
             self._bus_event_listener = BusEventListener(
                 bus_db_path=bus_db_path,
                 initiator_agent_id=self.project_slug or '',
+                spawn_fn=self._bus_spawn_agent,
             )
             send_socket, reply_socket = await self._bus_event_listener.start()
             mcp_env['SEND_SOCKET'] = send_socket
@@ -310,6 +311,32 @@ class Orchestrator:
                 await self._intervention_listener.stop()
             if self._bus_event_listener:
                 await self._bus_event_listener.stop()
+
+    async def _bus_spawn_agent(self, member: str, composite: str, context_id: str) -> str:
+        """Spawn a recipient agent for bus-mediated dispatch (Issue #351).
+
+        Creates an isolated directory for the agent, composes its skill set, and
+        launches it as an independent claude -p process.  Runs the blocking subprocess
+        call in an executor so the event loop is not blocked.
+
+        Returns the session_id captured from claude's --output-format json output,
+        or an empty string if capture fails (non-fatal; context record is still created).
+        """
+        from orchestrator.agent_spawner import AgentSpawner
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
+        safe_id = context_id.replace(':', '_').replace('/', '_')
+        agent_dir = os.path.join(self.infra_dir, 'agents', safe_id)
+        os.makedirs(agent_dir, exist_ok=True)
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: spawner.spawn(
+                composite,
+                worktree=agent_dir,
+                role=member,
+                project_dir=self.project_workdir,
+            ),
+        )
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""
