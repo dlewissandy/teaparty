@@ -162,7 +162,7 @@ async function renderGlobal() {
       sectionCard('Workgroup Catalog', wgItems, { addBtn: true, empty: 'No org-level workgroups' }) +
       sectionCard('Agent Catalog', agentItems, { addBtn: true }) +
       sectionCard('Participants', participantItems) +
-      sectionCard('Artifacts', orgArtifactItems, { empty: 'No organizational artifacts' }) +
+      sectionCard('Sessions', orgArtifactItems, { empty: 'No organizational artifacts' }) +
       sectionCard('Skill Catalog', skillItems, { addBtn: true }) +
       sectionCard('Hooks', hookItems, { addBtn: true }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true }) +
@@ -271,8 +271,8 @@ async function renderProject(slug) {
       sectionCard('Workgroups', wgItems, { addBtn: true, catalogBtn: true, empty: 'No workgroups' }) +
       sectionCard('Agents', agentItems, { addBtn: true, catalogBtn: true, empty: 'No agents' }) +
       sectionCard('Participants', participantItems) +
-      sectionCard('Artifacts', artifactItems, { empty: 'No project artifacts' }) +
-      sectionCard('Pins', pinItems, { addBtn: false, pinBtn: true, slug: slug, empty: 'No artifact pins' }) +
+      sectionCard('Sessions', artifactItems, { empty: 'No project artifacts' }) +
+      sectionCard('Artifacts', pinItems, { addBtn: false, pinBtn: true, slug: slug, empty: 'No artifact pins' }) +
       sectionCard('Skills', skillItems, { addBtn: true, catalogBtn: true, empty: 'No skills' }) +
       sectionCard('Hooks', hookItems, { addBtn: true, empty: 'No project-scoped hooks' }) +
       sectionCard('Scheduled Tasks', cronItems, { addBtn: true, empty: 'No project-scoped tasks' }) +
