@@ -309,6 +309,7 @@ class Orchestrator:
                 initiator_agent_id=lead_agent_id,
                 current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
+                reply_fn=self._bus_inject_reply,
                 reinvoke_fn=self._bus_reinvoke_agent,
                 dispatcher=self._build_bus_dispatcher(),
             )
@@ -431,21 +432,18 @@ class Orchestrator:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
 
-    async def _bus_reinvoke_agent(
+    async def _bus_inject_reply(
         self, context_id: str, session_id: str, message: str,
     ) -> None:
-        """Inject worker reply into lead history and signal fan-in completion.
+        """Inject a worker reply into the lead's conversation history.
 
-        Called by BusEventListener (via _locked_reinvoke) when pending_count
-        reaches zero — all dispatched workers have replied.
+        Called by BusEventListener for EVERY Reply, including those from
+        workers that complete before the final one (fan-out N > 1).  This
+        ensures all worker replies are in the lead's JSONL history before
+        _await_fan_in_and_reinvoke triggers the --resume invocation.
 
-        Writes the composite reply message into the lead's Claude conversation
-        history file so the next --resume invocation picks it up.  Then sets
-        _fan_in_event to unblock _await_fan_in_and_reinvoke, which will
-        resume the lead via _invoke_actor (using _phase_session_ids for --resume).
-
-        session_id is the PARENT context's session_id (the lead's claude session
-        ID), fetched from the bus by BusEventListener._handle_reply_connection.
+        session_id is the PARENT context's session_id (the lead's latest
+        claude session ID), kept current by _update_lead_bus_session.
         """
         if session_id and self.session_worktree:
             cwd = self.session_worktree
@@ -456,6 +454,18 @@ class Orchestrator:
             )
             from orchestrator.messaging import inject_composite_into_history  # noqa: PLC0415
             inject_composite_into_history(lead_session_file, message, session_id, cwd)
+
+    async def _bus_reinvoke_agent(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Signal fan-in completion when all dispatched workers have replied.
+
+        Called by BusEventListener (via _locked_reinvoke) when pending_count
+        reaches zero — all workers have replied.  By this point all replies are
+        already in the lead's history (injected by _bus_inject_reply on each
+        individual Reply).  Sets _fan_in_event to unblock
+        _await_fan_in_and_reinvoke, which resumes the lead via --resume.
+        """
         if self._fan_in_event:
             self._fan_in_event.set()
 
