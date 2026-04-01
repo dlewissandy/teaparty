@@ -1,7 +1,7 @@
 """Tests for Issue #365: Config screen — unify "Artifacts" / "Pins" naming inconsistency.
 
 Acceptance criteria:
-1. Management config screen artifact store sections card labelled "Sessions" (not "Artifacts")
+1. Management config screen Artifacts card (orgArtifactItems) remains labelled "Artifacts"
 2. Project config screen artifact store sections card labelled "Sessions" (not "Artifacts")
 3. Project config screen pinned-items card labelled "Artifacts" (not "Pins")
 4. No remaining "Pins" labels in sectionCard calls in config.html
@@ -16,27 +16,27 @@ def _config_html_source() -> str:
     return _CONFIG_HTML.read_text()
 
 
-# ── AC1: Management screen artifact store card labelled "Sessions" ────────────
+# ── AC1: Management screen Artifacts card stays labelled "Artifacts" ──────────
 
 class TestManagementScreenArtifactCardLabel(unittest.TestCase):
-    """Management screen must label the artifact store sections card 'Sessions'."""
+    """Management screen must keep the orgArtifactItems card labelled 'Artifacts'."""
 
-    def test_management_orgArtifactItems_card_is_labelled_sessions(self):
-        """sectionCard containing orgArtifactItems must use 'Sessions', not 'Artifacts'."""
+    def test_management_orgArtifactItems_card_is_labelled_artifacts(self):
+        """sectionCard containing orgArtifactItems must use 'Artifacts'."""
         src = _config_html_source()
         self.assertIn(
-            "sectionCard('Sessions', orgArtifactItems",
-            src,
-            "Management screen artifact store card must be labelled 'Sessions'",
-        )
-
-    def test_management_screen_does_not_label_orgArtifactItems_as_artifacts(self):
-        """Management screen must not label the orgArtifactItems card 'Artifacts'."""
-        src = _config_html_source()
-        self.assertNotIn(
             "sectionCard('Artifacts', orgArtifactItems",
             src,
-            "Management screen must not use 'Artifacts' for the artifact store sections card; use 'Sessions'",
+            "Management screen Artifacts card must be labelled 'Artifacts'",
+        )
+
+    def test_management_screen_does_not_label_orgArtifactItems_as_sessions(self):
+        """Management screen must not label the orgArtifactItems card 'Sessions'."""
+        src = _config_html_source()
+        self.assertNotIn(
+            "sectionCard('Sessions', orgArtifactItems",
+            src,
+            "Management screen must not use 'Sessions' for the Artifacts card",
         )
 
 
