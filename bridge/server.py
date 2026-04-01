@@ -632,7 +632,9 @@ class TeaPartyBridge:
                 self._om_sessions[qualifier] = OfficeManagerSession(self.teaparty_home, qualifier)
             session = self._om_sessions[qualifier]
             try:
-                await session.invoke(cwd=self._repo_root)
+                project_path = self._lookup_project_path(qualifier)
+                cwd = project_path if project_path is not None else self._repo_root
+                await session.invoke(cwd=cwd)
             except Exception:
                 _log.exception('OM invocation failed for qualifier %r', qualifier)
                 try:

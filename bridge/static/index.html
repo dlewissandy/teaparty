@@ -320,9 +320,8 @@ function render() {
       projectsHtml += '</div>';
     }
 
-    // Action buttons — Manager links to most recent session conversation
-    var managerSession = activeSessions[0] || (p.sessions || [])[0];
-    var managerConv = managerSession ? 'job:' + p.slug + ':' + managerSession.session_id : 'om:darrell';
+    // Action buttons — Manager opens a project-scoped OM conversation (cwd = project dir)
+    var managerConv = 'om:' + p.slug;
     projectsHtml += '<div class="pc-actions">';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'config.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#9881;</span>Config</button>';
     projectsHtml += '<button class="pc-action" onclick="openPage(\'artifacts.html?project=' + p.slug + '\')"><span class="pc-action-icon">&#128196;</span>Artifacts</button>';
