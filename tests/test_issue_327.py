@@ -98,9 +98,9 @@ class TestManagementTeamSerializerUsesDiscoveredSkills(unittest.TestCase):
     """_serialize_management_team must return discovered skills, not the raw YAML list."""
 
     def _make_management_team(self, yaml_skills):
-        """Return a ManagementTeam stub with the given yaml-declared skills list."""
+        """Return a ManagementTeam stub (yaml_skills no longer used — removed in #362)."""
         from orchestrator.config_reader import ManagementTeam
-        return ManagementTeam(name='Test', skills=yaml_skills)
+        return ManagementTeam(name='Test')
 
     def test_returns_discovered_skills_when_provided(self):
         """When discovered_skills is passed, management team skills must match the discovered list."""
@@ -138,7 +138,7 @@ class TestProjectTeamSerializerMergesLocalAndOrgSkills(unittest.TestCase):
     def _make_project_team(self, yaml_skills):
         """Return a ProjectTeam stub with the given yaml-declared skills list."""
         from orchestrator.config_reader import ProjectTeam
-        return ProjectTeam(name='TestProject', skills=yaml_skills)
+        return ProjectTeam(name='TestProject')
 
     def _make_bridge(self, tmp):
         return _make_bridge(tmp, os.path.join(tmp, 'static'))
@@ -188,7 +188,7 @@ class TestLocalSkillOverridesOrgSkillOnNameCollision(unittest.TestCase):
 
     def _make_project_team(self, yaml_skills):
         from orchestrator.config_reader import ProjectTeam
-        return ProjectTeam(name='TestProject', skills=yaml_skills)
+        return ProjectTeam(name='TestProject')
 
     def test_local_skill_wins_on_name_collision(self):
         """When local and org both have 'fix-issue', only the local entry appears."""
@@ -235,7 +235,7 @@ class TestMissingOrgSkillIsFlagged(unittest.TestCase):
 
     def _make_project_team(self, yaml_skills):
         from orchestrator.config_reader import ProjectTeam
-        return ProjectTeam(name='TestProject', skills=yaml_skills)
+        return ProjectTeam(name='TestProject')
 
     def test_registered_but_uninstalled_org_skill_gets_missing_source(self):
         """A skill in project.yaml skills: absent from org catalog must have source='missing'."""
@@ -270,13 +270,17 @@ class TestMissingOrgSkillIsFlagged(unittest.TestCase):
             'Missing skill must not be silently dropped — it must appear with source="missing"')
 
 
-# ── Criterion 5: workgroup-level skills unaffected ────────────────────────────
+# ── Criterion 5: workgroup-level skills removed (issue #362) ──────────────────
 
-class TestWorkgroupLevelSkillsUnaffected(unittest.TestCase):
-    """Workgroup-level skills: (catalog declaration) must continue to load from YAML unchanged."""
+class TestWorkgroupLevelSkillsRemoved(unittest.TestCase):
+    """Workgroup YAML no longer declares skills — they are a per-agent concern.
 
-    def test_workgroup_skills_load_from_yaml_unchanged(self):
-        """load_workgroup() must still return the skills: list from YAML as-is."""
+    Issue #362 removed skills from the workgroup schema. load_workgroup() should
+    load cleanly even if old-schema YAML includes a skills: key (silently ignored).
+    """
+
+    def test_workgroup_with_old_skills_key_loads_without_error(self):
+        """load_workgroup() must not crash on old-schema YAML with skills: key."""
         with tempfile.TemporaryDirectory() as tmp:
             wg_yaml = os.path.join(tmp, 'coding.yaml')
             import yaml
@@ -288,9 +292,10 @@ class TestWorkgroupLevelSkillsUnaffected(unittest.TestCase):
                 }, f)
             from orchestrator.config_reader import load_workgroup
             wg = load_workgroup(wg_yaml)
-            self.assertEqual(wg.skills, ['fix-issue', 'code-cleanup'],
-                'Workgroup skills must be loaded from YAML unchanged — '
-                'the discovery model must not touch workgroup-level skills')
+            self.assertEqual(wg.name, 'Coding')
+            self.assertFalse(hasattr(wg, 'skills'),
+                'Workgroup dataclass must not have a skills field — '
+                'skills are no longer a workgroup-level concern (issue #362)')
 
 
 # ── Criterion 1 (integration): discover_skills wired into management team path ─

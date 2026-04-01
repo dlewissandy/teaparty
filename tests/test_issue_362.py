@@ -10,8 +10,18 @@ Acceptance criteria:
 7. Existing tests updated; new tests cover the schema distinctions
 """
 import os
+import sys
 import unittest
 import yaml
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from orchestrator.config_reader import (
+    load_management_team,
+    load_project_team,
+    load_workgroup,
+)
 
 # Path to the repo root — the worktree is two levels above tests/
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -357,3 +367,130 @@ class TestRegistrationAndMembershipAreDistinctInProjectYaml(unittest.TestCase):
         members = set(data.get('members', {}).get('workgroups', []))
         self.assertTrue(members.issubset(registered),
             "members.workgroups must be a subset of registered workgroups")
+
+
+# ── Criterion 7: config_reader round-trip tests ──────────────────────────────
+
+class TestLoadManagementTeamRoundTrip(unittest.TestCase):
+    """load_management_team() must parse the new schema into the correct dataclass fields."""
+
+    def setUp(self):
+        self.team = load_management_team(teaparty_home=_TEAPARTY_HOME)
+
+    def test_projects_registration_loaded(self):
+        """team.projects contains the registration catalog."""
+        self.assertGreater(len(self.team.projects), 0,
+            "ManagementTeam.projects must be populated from projects: block")
+        for p in self.team.projects:
+            self.assertIn('name', p)
+            self.assertIn('path', p)
+            self.assertIn('config', p)
+
+    def test_members_projects_loaded(self):
+        """team.members_projects contains the active dispatch roster."""
+        self.assertIsInstance(self.team.members_projects, list)
+        self.assertGreater(len(self.team.members_projects), 0,
+            "ManagementTeam.members_projects must be populated from members.projects:")
+        for name in self.team.members_projects:
+            self.assertIsInstance(name, str)
+
+    def test_members_agents_loaded(self):
+        """team.members_agents contains any directly dispatched agents."""
+        self.assertIsInstance(self.team.members_agents, list)
+
+    def test_members_projects_subset_of_projects(self):
+        """Every name in members_projects must appear in the projects catalog."""
+        registered = {p['name'] for p in self.team.projects}
+        for name in self.team.members_projects:
+            self.assertIn(name, registered,
+                f"members_projects entry '{name}' must be in projects catalog")
+
+    def test_no_teams_field(self):
+        """ManagementTeam must not have old-schema teams field."""
+        self.assertFalse(hasattr(self.team, 'teams'),
+            "ManagementTeam must not have 'teams' field — schema migrated to 'projects'")
+
+    def test_no_decider_field(self):
+        """ManagementTeam must not have top-level decider field."""
+        self.assertFalse(hasattr(self.team, 'decider'),
+            "ManagementTeam must not have 'decider' field — now in humans list")
+
+    def test_decider_in_humans(self):
+        """The decider is accessible via team.humans."""
+        decider = next((h.name for h in self.team.humans if h.role == 'decider'), None)
+        self.assertIsNotNone(decider, "ManagementTeam must have a decider in humans list")
+
+
+class TestLoadProjectTeamRoundTrip(unittest.TestCase):
+    """load_project_team() must parse the new schema into the correct dataclass fields."""
+
+    def setUp(self):
+        self.team = load_project_team(_REPO_ROOT)
+
+    def test_workgroups_registration_loaded(self):
+        """team.workgroups contains the registration catalog."""
+        self.assertGreater(len(self.team.workgroups), 0,
+            "ProjectTeam.workgroups must be populated from workgroups: block")
+
+    def test_members_workgroups_loaded(self):
+        """team.members_workgroups contains the active dispatch roster."""
+        self.assertIsInstance(self.team.members_workgroups, list)
+        self.assertGreater(len(self.team.members_workgroups), 0,
+            "ProjectTeam.members_workgroups must be populated from members.workgroups:")
+        for name in self.team.members_workgroups:
+            self.assertIsInstance(name, str)
+
+    def test_no_agents_field(self):
+        """ProjectTeam must not have old-schema agents field."""
+        self.assertFalse(hasattr(self.team, 'agents'),
+            "ProjectTeam must not have 'agents' field — removed in schema migration")
+
+    def test_no_skills_field(self):
+        """ProjectTeam must not have skills field."""
+        self.assertFalse(hasattr(self.team, 'skills'),
+            "ProjectTeam must not have 'skills' field — removed in schema migration")
+
+    def test_decider_in_humans(self):
+        """The decider is accessible via team.humans."""
+        decider = next((h.name for h in self.team.humans if h.role == 'decider'), None)
+        self.assertIsNotNone(decider, "ProjectTeam must have a decider in humans list")
+
+
+class TestLoadWorkgroupRoundTrip(unittest.TestCase):
+    """load_workgroup() must parse the new schema into the correct dataclass fields."""
+
+    def setUp(self):
+        self.wg = load_workgroup(_CODING_YAML)
+
+    def test_members_agents_loaded(self):
+        """wg.members_agents contains the agent roster."""
+        self.assertIsInstance(self.wg.members_agents, list)
+        self.assertGreater(len(self.wg.members_agents), 0,
+            "Workgroup.members_agents must be populated from members.agents:")
+        for name in self.wg.members_agents:
+            self.assertIsInstance(name, str)
+
+    def test_members_hooks_loaded(self):
+        """wg.members_hooks is a list (may be empty)."""
+        self.assertIsInstance(self.wg.members_hooks, list)
+
+    def test_artifacts_loaded(self):
+        """wg.artifacts contains the pinned artifacts."""
+        self.assertIsInstance(self.wg.artifacts, list)
+        self.assertGreater(len(self.wg.artifacts), 0,
+            "Workgroup.artifacts must be populated from artifacts: block in coding.yaml")
+
+    def test_no_agents_field(self):
+        """Workgroup must not have old-schema flat agents field."""
+        self.assertFalse(hasattr(self.wg, 'agents'),
+            "Workgroup must not have 'agents' field — now at members.agents")
+
+    def test_no_skills_field(self):
+        """Workgroup must not have skills field."""
+        self.assertFalse(hasattr(self.wg, 'skills'),
+            "Workgroup must not have 'skills' field — removed in schema migration")
+
+    def test_no_team_file_field(self):
+        """Workgroup must not have team_file field."""
+        self.assertFalse(hasattr(self.wg, 'team_file'),
+            "Workgroup must not have 'team_file' field — removed in schema migration")

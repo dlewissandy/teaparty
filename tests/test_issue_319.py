@@ -509,8 +509,9 @@ class TestRelativeTeamPathResolution(unittest.TestCase):
             yaml.dump({
                 'name': 'Org',
                 'lead': 'boss',
-                'decider': 'boss',
-                'teams': [{'name': 'Self', 'path': '.'}],
+                'humans': {'decider': 'boss'},
+                'members': {'agents': []},
+                'projects': [{'name': 'Self', 'path': '.', 'config': ''}],
             }, f)
 
         team = load_management_team(teaparty_home=tp_dir)

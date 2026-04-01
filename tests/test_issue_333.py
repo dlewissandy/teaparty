@@ -56,12 +56,10 @@ def _make_teaparty_home(tmpdir: str) -> str:
         'name': 'Test Team',
         'description': 'test',
         'lead': 'office-manager',
-        'decider': 'darrell',
-        'agents': [],
-        'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'teams': [],
+        'humans': {'decider': 'darrell'},
+        'members': {'agents': [], 'projects': []},
+        'projects': [],
         'workgroups': [],
-        'skills': [],
         'scheduled': [],
     }
     with open(os.path.join(tp_home, 'teaparty.yaml'), 'w') as f:
@@ -238,7 +236,7 @@ class TestProjectToolValidation(unittest.TestCase):
         # Verify registry entry
         with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
-        names = [t['name'] for t in data.get('teams', [])]
+        names = [t['name'] for t in data.get('projects', [])]
         self.assertIn('testproj', names)
 
     def test_add_project_creates_project_yaml(self):
@@ -258,7 +256,7 @@ class TestProjectToolValidation(unittest.TestCase):
             data = yaml.safe_load(f)
         self.assertEqual(data['name'], 'testproj')
         self.assertEqual(data['lead'], 'office-manager')
-        self.assertEqual(data['decider'], 'darrell')
+        self.assertEqual(data['humans']['decider'], 'darrell')
 
     def test_add_project_duplicate_name_returns_error(self):
         """AddProject with a name already in teaparty.yaml must return error."""
@@ -281,7 +279,7 @@ class TestProjectToolValidation(unittest.TestCase):
         self.assertTrue(parsed['success'], parsed.get('error'))
         with open(os.path.join(self.tp_home, 'teaparty.yaml')) as f:
             data = yaml.safe_load(f)
-        names = [t['name'] for t in data.get('teams', [])]
+        names = [t['name'] for t in data.get('projects', [])]
         self.assertNotIn('testproj', names)
 
     def test_create_project_missing_name_returns_error(self):

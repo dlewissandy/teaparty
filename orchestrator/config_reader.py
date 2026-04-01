@@ -71,9 +71,10 @@ class Workgroup:
     name: str
     description: str = ''
     lead: str = ''
-    team_file: str = ''
-    agents: list[dict[str, Any]] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
+    members_agents: list[str] = field(default_factory=list)
+    members_hooks: list[str] = field(default_factory=list)
+    humans: list[Human] = field(default_factory=list)
+    artifacts: list[dict[str, str]] = field(default_factory=list)
     norms: dict[str, list[str]] = field(default_factory=dict)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
@@ -85,15 +86,14 @@ class ManagementTeam:
     name: str
     description: str = ''
     lead: str = ''
-    decider: str = ''
-    agents: list[str] = field(default_factory=list)
     humans: list[Human] = field(default_factory=list)
-    teams: list[dict[str, str]] = field(default_factory=list)
+    projects: list[dict[str, str]] = field(default_factory=list)
+    members_projects: list[str] = field(default_factory=list)
+    members_agents: list[str] = field(default_factory=list)
     workgroups: list[WorkgroupEntry] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
+    norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
     hooks: list[dict[str, str]] = field(default_factory=list)
-    norms: dict[str, list[str]] = field(default_factory=dict)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
 
@@ -104,14 +104,12 @@ class ProjectTeam:
     name: str
     description: str = ''
     lead: str = ''
-    decider: str = ''
-    agents: list[str] = field(default_factory=list)
     humans: list[Human] = field(default_factory=list)
     workgroups: list[WorkgroupRef | WorkgroupEntry] = field(default_factory=list)
-    skills: list[str] = field(default_factory=list)
+    members_workgroups: list[str] = field(default_factory=list)
+    norms: dict[str, list[str]] = field(default_factory=dict)
     scheduled: list[ScheduledTask] = field(default_factory=list)
     hooks: list[dict[str, str]] = field(default_factory=list)
-    norms: dict[str, list[str]] = field(default_factory=dict)
     budget: dict[str, float] = field(default_factory=dict)
     stats: dict[str, str] = field(default_factory=dict)
     artifact_pins: list[dict[str, str]] = field(default_factory=list)
@@ -179,7 +177,7 @@ def _parse_management_workgroups(raw: list[dict] | None) -> list[WorkgroupEntry]
     ]
 
 
-def _parse_teams(raw: list[dict] | None, repo_root: str | None = None) -> list[dict[str, str]]:
+def _parse_projects(raw: list[dict] | None, repo_root: str | None = None) -> list[dict[str, str]]:
     if not raw:
         return []
     result = []
@@ -187,7 +185,7 @@ def _parse_teams(raw: list[dict] | None, repo_root: str | None = None) -> list[d
         path = os.path.expanduser(t['path'])
         if not os.path.isabs(path) and repo_root:
             path = os.path.normpath(os.path.join(repo_root, path))
-        result.append({'name': t['name'], 'path': path})
+        result.append({'name': t['name'], 'path': path, 'config': t.get('config', '')})
     return result
 
 
@@ -212,19 +210,19 @@ def load_management_team(
     with open(path) as f:
         data = yaml.safe_load(f)
 
+    members = data.get('members') or {}
     return ManagementTeam(
         name=data['name'],
         description=data.get('description', ''),
         lead=data.get('lead', ''),
-        decider=data.get('decider', ''),
-        agents=data.get('agents', []),
         humans=_parse_humans(data.get('humans')),
-        teams=_parse_teams(data.get('teams'), repo_root=repo_root),
+        projects=_parse_projects(data.get('projects'), repo_root=repo_root),
+        members_projects=members.get('projects') or [],
+        members_agents=members.get('agents') or [],
         workgroups=_parse_management_workgroups(data.get('workgroups')),
-        skills=data.get('skills', []),
+        norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
         hooks=data.get('hooks', []),
-        norms=data.get('norms', {}),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
     )
@@ -251,18 +249,17 @@ def load_project_team(
     with open(path) as f:
         data = yaml.safe_load(f)
 
+    members = data.get('members') or {}
     return ProjectTeam(
         name=data['name'],
         description=data.get('description', ''),
         lead=data.get('lead', ''),
-        decider=data.get('decider', ''),
-        agents=data.get('agents', []),
         humans=_parse_humans(data.get('humans')),
         workgroups=_parse_workgroup_entries(data.get('workgroups')),
-        skills=data.get('skills', []),
+        members_workgroups=members.get('workgroups') or [],
+        norms=data.get('norms', {}),
         scheduled=_parse_scheduled(data.get('scheduled')),
         hooks=data.get('hooks', []),
-        norms=data.get('norms', {}),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
         artifact_pins=data.get('artifact_pins', []),
@@ -281,13 +278,15 @@ def load_workgroup(path: str) -> Workgroup:
     with open(path) as f:
         data = yaml.safe_load(f)
 
+    members = data.get('members') or {}
     return Workgroup(
         name=data['name'],
         description=data.get('description', ''),
         lead=data.get('lead', ''),
-        team_file=data.get('team_file', ''),
-        agents=data.get('agents', []),
-        skills=data.get('skills', []),
+        members_agents=members.get('agents') or [],
+        members_hooks=members.get('hooks') or [],
+        humans=_parse_humans(data.get('humans')),
+        artifacts=data.get('artifacts') or [],
         norms=data.get('norms', {}),
         budget=data.get('budget', {}),
         stats=data.get('stats', {}),
@@ -355,11 +354,11 @@ def discover_hooks(settings_json_path: str) -> list[dict[str, str]]:
 
 
 def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
-    """Walk teams: entries and check which paths are valid TeaParty projects.
+    """Walk projects: entries and check which paths are valid TeaParty projects.
 
     A directory is a TeaParty project if it contains .git/, .claude/, and
     .teaparty/ (per the design doc). Each returned entry has:
-      - name: the team name from teaparty.yaml
+      - name: the project name from teaparty.yaml
       - path: the expanded absolute path
       - valid: True if the path exists and contains required markers
 
@@ -368,7 +367,7 @@ def discover_projects(team: ManagementTeam) -> list[dict[str, Any]]:
     """
     required_markers = ['.git', '.claude', '.teaparty']
     result: list[dict[str, Any]] = []
-    for entry in team.teams:
+    for entry in team.projects:
         path = entry['path']
         valid = os.path.isdir(path) and all(
             os.path.isdir(os.path.join(path, m)) for m in required_markers
@@ -562,26 +561,23 @@ def _scaffold_project_yaml(
     description: str = '',
     lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
     workgroups: list | None = None,
-    skills: list | None = None,
+    config: str = '.teaparty/project.yaml',
 ) -> None:
-    """Create .teaparty.local/project.yaml with provided frontmatter if it doesn't exist."""
+    """Create .teaparty.local/project.yaml with new-schema frontmatter if it doesn't exist."""
     tp_dir = os.path.join(project_dir, '.teaparty.local')
     os.makedirs(tp_dir, exist_ok=True)
     project_yaml_path = os.path.join(tp_dir, 'project.yaml')
     if os.path.exists(project_yaml_path):
         return
+    humans_block = {'decider': decider} if decider else {}
     scaffold = {
         'name': name,
         'description': description,
         'lead': lead,
-        'decider': decider,
-        'agents': agents or [],
-        'humans': humans or [],
+        'humans': humans_block,
         'workgroups': workgroups or [],
-        'skills': skills or [],
+        'members': {'workgroups': []},
         'artifact_pins': [],
     }
     with open(project_yaml_path, 'w') as f:
@@ -597,18 +593,16 @@ def add_project(
     description: str = '',
     lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
     workgroups: list | None = None,
-    skills: list | None = None,
+    config: str = '.teaparty/project.yaml',
 ) -> ManagementTeam:
     """Add an existing directory as a TeaParty project.
 
     Creates .teaparty.local/project.yaml with the provided frontmatter if
-    missing, and adds a teams: entry to teaparty.yaml.  Prerequisites (.git/,
+    missing, and adds a projects: entry to teaparty.yaml.  Prerequisites (.git/,
     .claude/) are not validated here — the OM handles bootstrapping.
 
-    Raises ValueError if the path does not exist or a team with this name
+    Raises ValueError if the path does not exist or a project with this name
     already exists.
     """
     path = os.path.expanduser(os.path.realpath(path))
@@ -617,14 +611,14 @@ def add_project(
         raise ValueError(f'Path does not exist or is not a directory: {path}')
 
     data = _load_management_yaml(teaparty_home)
-    teams = data.get('teams') or []
+    projects = data.get('projects') or []
 
-    for t in teams:
-        if t['name'] == name:
-            raise ValueError(f"Team '{name}' already exists in teaparty.yaml")
+    for p in projects:
+        if p['name'] == name:
+            raise ValueError(f"Project '{name}' already exists in teaparty.yaml")
 
-    teams.append({'name': name, 'path': path})
-    data['teams'] = teams
+    projects.append({'name': name, 'path': path, 'config': config})
+    data['projects'] = projects
     _save_management_yaml(data, teaparty_home)
 
     _scaffold_project_yaml(
@@ -632,10 +626,8 @@ def add_project(
         description=description,
         lead=lead,
         decider=decider,
-        agents=agents,
-        humans=humans,
         workgroups=workgroups,
-        skills=skills,
+        config=config,
     )
 
     return load_management_team(teaparty_home=teaparty_home)
@@ -648,18 +640,16 @@ def create_project(
     description: str = '',
     lead: str = '',
     decider: str = '',
-    agents: list | None = None,
-    humans: list | None = None,
     workgroups: list | None = None,
-    skills: list | None = None,
+    config: str = '.teaparty/project.yaml',
 ) -> ManagementTeam:
     """Create a new project directory with full scaffolding.
 
     Creates the directory, runs git init, creates .claude/ and
     .teaparty.local/project.yaml with the provided frontmatter, and adds a
-    teams: entry to teaparty.yaml.
+    projects: entry to teaparty.yaml.
 
-    Raises ValueError if the directory already exists or a team with
+    Raises ValueError if the directory already exists or a project with
     this name already exists.
     """
     path = os.path.expanduser(os.path.realpath(path))
@@ -668,11 +658,11 @@ def create_project(
         raise ValueError(f'Directory already exists: {path}')
 
     data = _load_management_yaml(teaparty_home)
-    teams = data.get('teams') or []
+    projects = data.get('projects') or []
 
-    for t in teams:
-        if t['name'] == name:
-            raise ValueError(f"Team '{name}' already exists in teaparty.yaml")
+    for p in projects:
+        if p['name'] == name:
+            raise ValueError(f"Project '{name}' already exists in teaparty.yaml")
 
     # Create directory structure
     os.makedirs(path)
@@ -688,14 +678,12 @@ def create_project(
         description=description,
         lead=lead,
         decider=decider,
-        agents=agents,
-        humans=humans,
         workgroups=workgroups,
-        skills=skills,
+        config=config,
     )
 
-    teams.append({'name': name, 'path': path})
-    data['teams'] = teams
+    projects.append({'name': name, 'path': path, 'config': config})
+    data['projects'] = projects
     _save_management_yaml(data, teaparty_home)
 
     return load_management_team(teaparty_home=teaparty_home)
@@ -705,23 +693,23 @@ def remove_project(
     name: str,
     teaparty_home: str | None = None,
 ) -> ManagementTeam:
-    """Remove a project from teams: in teaparty.yaml.
+    """Remove a project from projects: in teaparty.yaml.
 
-    The project directory itself is left untouched. Only the teams:
+    The project directory itself is left untouched. Only the projects:
     entry in teaparty.yaml is removed.
 
-    Raises ValueError if no team with this name exists.
+    Raises ValueError if no project with this name exists.
     """
     data = _load_management_yaml(teaparty_home)
-    teams = data.get('teams') or []
+    projects = data.get('projects') or []
 
-    original_len = len(teams)
-    teams = [t for t in teams if t['name'] != name]
+    original_len = len(projects)
+    projects = [p for p in projects if p['name'] != name]
 
-    if len(teams) == original_len:
-        raise ValueError(f"Team '{name}' not found in teaparty.yaml")
+    if len(projects) == original_len:
+        raise ValueError(f"Project '{name}' not found in teaparty.yaml")
 
-    data['teams'] = teams
+    data['projects'] = projects
     _save_management_yaml(data, teaparty_home)
 
     return load_management_team(teaparty_home=teaparty_home)

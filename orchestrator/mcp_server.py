@@ -613,10 +613,7 @@ def add_project_handler(
             description=description,
             lead=lead,
             decider=decider,
-            agents=agents,
-            humans=humans,
             workgroups=workgroups,
-            skills=skills,
         )
     except ValueError as e:
         return _err(str(e))
@@ -651,10 +648,7 @@ def create_project_handler(
             description=description,
             lead=lead,
             decider=decider,
-            agents=agents,
-            humans=humans,
             workgroups=workgroups,
-            skills=skills,
         )
     except ValueError as e:
         return _err(str(e))
@@ -719,7 +713,7 @@ def scaffold_project_yaml_handler(
 def _find_project_path(name: str, teaparty_home: str) -> str | None:
     """Return the project directory for a given project name, or None if not found."""
     data = _load_teaparty_yaml(teaparty_home)
-    for team in data.get('teams', []):
+    for team in data.get('projects', []):
         if team.get('name') == name:
             return team.get('path')
     return None

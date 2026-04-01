@@ -52,22 +52,27 @@ MINIMAL_YAML = textwrap.dedent("""\
     name: Management Team
     description: Test management team.
     lead: office-manager
-    decider: darrell
-    agents:
-      - office-manager
-    teams: []
+    humans:
+      decider: darrell
+    members:
+      agents:
+        - office-manager
+    projects: []
 """)
 
 YAML_WITH_ONE_TEAM = textwrap.dedent("""\
     name: Management Team
     description: Test management team.
     lead: office-manager
-    decider: darrell
-    agents:
-      - office-manager
-    teams:
+    humans:
+      decider: darrell
+    members:
+      agents:
+        - office-manager
+    projects:
       - name: Existing
         path: {project_path}
+        config: ''
 """)
 
 
@@ -83,9 +88,9 @@ class TestAddProject(unittest.TestCase):
 
         team = add_project('My Backend', proj, teaparty_home=tp_home)
 
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'My Backend')
-        self.assertEqual(team.teams[0]['path'], os.path.realpath(proj))
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'My Backend')
+        self.assertEqual(team.projects[0]['path'], os.path.realpath(proj))
 
     def test_creates_teaparty_local_dir_and_project_yaml(self):
         proj = _make_existing_project()
@@ -121,8 +126,8 @@ class TestAddProject(unittest.TestCase):
 
         # Reload from disk — should see the new entry
         reloaded = load_management_team(teaparty_home=tp_home)
-        self.assertEqual(len(reloaded.teams), 1)
-        self.assertEqual(reloaded.teams[0]['name'], 'My Backend')
+        self.assertEqual(len(reloaded.projects), 1)
+        self.assertEqual(reloaded.projects[0]['name'], 'My Backend')
 
     def test_succeeds_without_git_dir(self):
         """add_project() must succeed without .git/ — OM handles git init (#322)."""
@@ -131,8 +136,8 @@ class TestAddProject(unittest.TestCase):
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
         team = add_project('No Git', d, teaparty_home=tp_home)
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'No Git')
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'No Git')
 
     def test_succeeds_without_claude_dir(self):
         """add_project() must succeed without .claude/ — OM handles scaffolding (#322)."""
@@ -141,8 +146,8 @@ class TestAddProject(unittest.TestCase):
         home = _make_teaparty_home(MINIMAL_YAML)
         tp_home = os.path.join(home, '.teaparty')
         team = add_project('No Claude', d, teaparty_home=tp_home)
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'No Claude')
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'No Claude')
 
     def test_rejects_nonexistent_path(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -167,7 +172,7 @@ class TestAddProject(unittest.TestCase):
 
         # Use the actual path (tilde expansion tested via the storage format)
         team = add_project('Tilde Test', proj, teaparty_home=tp_home)
-        self.assertTrue(os.path.isabs(team.teams[0]['path']))
+        self.assertTrue(os.path.isabs(team.projects[0]['path']))
 
 
 # ── 2. create_project ───────────────────────────────────────────────────────
@@ -193,8 +198,8 @@ class TestCreateProject(unittest.TestCase):
 
         team = create_project('New Project', new_dir, teaparty_home=tp_home)
 
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'New Project')
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'New Project')
 
     def test_persists_to_yaml_file(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -204,8 +209,8 @@ class TestCreateProject(unittest.TestCase):
         create_project('New Project', new_dir, teaparty_home=tp_home)
 
         reloaded = load_management_team(teaparty_home=tp_home)
-        self.assertEqual(len(reloaded.teams), 1)
-        self.assertEqual(reloaded.teams[0]['name'], 'New Project')
+        self.assertEqual(len(reloaded.projects), 1)
+        self.assertEqual(reloaded.projects[0]['name'], 'New Project')
 
     def test_project_yaml_has_name(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -251,7 +256,7 @@ class TestRemoveProject(unittest.TestCase):
 
         team = remove_project('Existing', teaparty_home=tp_home)
 
-        self.assertEqual(len(team.teams), 0)
+        self.assertEqual(len(team.projects), 0)
 
     def test_leaves_project_directory_intact(self):
         proj = _make_existing_project()
@@ -275,7 +280,7 @@ class TestRemoveProject(unittest.TestCase):
         remove_project('Existing', teaparty_home=tp_home)
 
         reloaded = load_management_team(teaparty_home=tp_home)
-        self.assertEqual(len(reloaded.teams), 0)
+        self.assertEqual(len(reloaded.projects), 0)
 
     def test_rejects_unknown_name(self):
         home = _make_teaparty_home(MINIMAL_YAML)
@@ -292,20 +297,25 @@ class TestRemoveProject(unittest.TestCase):
             name: Management Team
             description: Test.
             lead: x
-            decider: x
-            teams:
+            humans:
+              decider: x
+            members:
+              agents: []
+            projects:
               - name: Alpha
                 path: {proj1}
+                config: ''
               - name: Beta
                 path: {proj2}
+                config: ''
         """)
         home = _make_teaparty_home(yaml_text)
         tp_home = os.path.join(home, '.teaparty')
 
         team = remove_project('Alpha', teaparty_home=tp_home)
 
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'Beta')
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'Beta')
 
 
 if __name__ == '__main__':

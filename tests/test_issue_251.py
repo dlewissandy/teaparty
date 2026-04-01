@@ -78,30 +78,27 @@ MINIMAL_TEAPARTY_YAML = textwrap.dedent("""\
     name: Management Team
     description: Cross-project coordination.
     lead: office-manager
-    decider: darrell
-
-    agents:
-      - office-manager
-      - auditor
 
     humans:
-      - name: darrell
-        role: decider
-      - name: alice
-        role: advisor
+      decider: darrell
+      advisors:
+        - alice
 
-    teams:
+    members:
+      agents:
+        - office-manager
+        - auditor
+      projects:
+        - My Backend
+
+    projects:
       - name: My Backend
         path: {project_path}
+        config: ''
 
     workgroups:
       - name: Configuration
         config: workgroups/configuration.yaml
-        status: active
-
-    skills:
-      - sprint-plan
-      - audit
 
     scheduled:
       - name: nightly-test-sweep
@@ -115,17 +112,15 @@ MINIMAL_PROJECT_YAML = textwrap.dedent("""\
     name: My Backend
     description: Backend API service.
     lead: project-lead
-    decider: darrell
-
-    agents:
-      - project-lead
-      - qa-reviewer
 
     humans:
-      - name: darrell
-        role: decider
-      - name: bob
-        role: informed
+      decider: darrell
+      inform:
+        - bob
+
+    members:
+      workgroups:
+        - Coding
 
     workgroups:
       - ref: coding
@@ -133,9 +128,6 @@ MINIMAL_PROJECT_YAML = textwrap.dedent("""\
       - name: Research
         config: workgroups/research.yaml
         status: idle
-
-    skills:
-      - fix-issue
 
     norms:
       quality:
@@ -148,19 +140,17 @@ MINIMAL_WORKGROUP_YAML = textwrap.dedent("""\
     description: Implementation, testing, and code review.
     lead: coding-lead
 
-    team_file: .claude/agents/coding-team.json
+    humans:
+      decider: darrell
 
-    agents:
-      - name: Coding Lead
-        role: team-lead
-        model: claude-sonnet-4
-      - name: Developer
-        role: specialist
-        model: claude-sonnet-4
+    members:
+      agents:
+        - coding-lead
+        - developer
+      hooks: []
 
-    skills:
-      - fix-issue
-      - code-cleanup
+    artifacts:
+      - path: NORMS.md
 
     norms:
       quality:
@@ -174,24 +164,25 @@ class TestLoadManagementTeam(unittest.TestCase):
     """Load teaparty.yaml into ManagementTeam dataclass."""
 
     def test_basic_fields(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
         self.assertEqual(team.name, 'Management Team')
         self.assertEqual(team.description, 'Cross-project coordination.')
         self.assertEqual(team.lead, 'office-manager')
-        self.assertEqual(team.decider, 'darrell')
+        decider = next((h.name for h in team.humans if h.role == 'decider'), None)
+        self.assertEqual(decider, 'darrell')
 
     def test_agents_list(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
-        self.assertEqual(team.agents, ['office-manager', 'auditor'])
+        self.assertEqual(team.members_agents, ['office-manager', 'auditor'])
 
     def test_humans_parsed(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
@@ -201,24 +192,24 @@ class TestLoadManagementTeam(unittest.TestCase):
         self.assertEqual(team.humans[1].name, 'alice')
         self.assertEqual(team.humans[1].role, 'advisor')
 
-    def test_teams_with_paths(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+    def test_projects_with_paths(self):
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
-        self.assertEqual(len(team.teams), 1)
-        self.assertEqual(team.teams[0]['name'], 'My Backend')
-        self.assertEqual(team.teams[0]['path'], proj)
+        self.assertEqual(len(team.projects), 1)
+        self.assertEqual(team.projects[0]['name'], 'My Backend')
+        self.assertEqual(team.projects[0]['path'], proj)
 
-    def test_skills_list(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+    def test_members_projects(self):
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
-        self.assertEqual(team.skills, ['sprint-plan', 'audit'])
+        self.assertEqual(team.members_projects, ['My Backend'])
 
     def test_scheduled_tasks(self):
-        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\ndecider: x\n")
+        proj = _make_project_dir("name: Dummy\ndescription: d\nlead: x\n")
         yaml_text = MINIMAL_TEAPARTY_YAML.format(project_path=proj)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))
@@ -244,12 +235,13 @@ class TestLoadProjectTeam(unittest.TestCase):
         self.assertEqual(team.name, 'My Backend')
         self.assertEqual(team.description, 'Backend API service.')
         self.assertEqual(team.lead, 'project-lead')
-        self.assertEqual(team.decider, 'darrell')
+        decider = next((h.name for h in team.humans if h.role == 'decider'), None)
+        self.assertEqual(decider, 'darrell')
 
-    def test_agents(self):
+    def test_members_workgroups(self):
         proj = _make_project_dir(MINIMAL_PROJECT_YAML)
         team = load_project_team(proj)
-        self.assertEqual(team.agents, ['project-lead', 'qa-reviewer'])
+        self.assertEqual(team.members_workgroups, ['Coding'])
 
     def test_humans(self):
         proj = _make_project_dir(MINIMAL_PROJECT_YAML)
@@ -267,11 +259,6 @@ class TestLoadProjectTeam(unittest.TestCase):
         self.assertIsInstance(ref_entry, WorkgroupRef)
         self.assertEqual(ref_entry.ref, 'coding')
         self.assertEqual(ref_entry.status, 'active')
-
-    def test_skills(self):
-        proj = _make_project_dir(MINIMAL_PROJECT_YAML)
-        team = load_project_team(proj)
-        self.assertEqual(team.skills, ['fix-issue'])
 
     def test_norms(self):
         proj = _make_project_dir(MINIMAL_PROJECT_YAML)
@@ -300,31 +287,22 @@ class TestLoadWorkgroup(unittest.TestCase):
         self.assertEqual(wg.description, 'Implementation, testing, and code review.')
         self.assertEqual(wg.lead, 'coding-lead')
 
-    def test_agents(self):
+    def test_members_agents(self):
         d = tempfile.mkdtemp()
         path = os.path.join(d, 'coding.yaml')
         with open(path, 'w') as f:
             f.write(MINIMAL_WORKGROUP_YAML)
         wg = load_workgroup(path)
-        self.assertEqual(len(wg.agents), 2)
-        self.assertEqual(wg.agents[0]['name'], 'Coding Lead')
-        self.assertEqual(wg.agents[0]['role'], 'team-lead')
+        self.assertEqual(wg.members_agents, ['coding-lead', 'developer'])
 
-    def test_team_file(self):
+    def test_artifacts(self):
         d = tempfile.mkdtemp()
         path = os.path.join(d, 'coding.yaml')
         with open(path, 'w') as f:
             f.write(MINIMAL_WORKGROUP_YAML)
         wg = load_workgroup(path)
-        self.assertEqual(wg.team_file, '.claude/agents/coding-team.json')
-
-    def test_skills(self):
-        d = tempfile.mkdtemp()
-        path = os.path.join(d, 'coding.yaml')
-        with open(path, 'w') as f:
-            f.write(MINIMAL_WORKGROUP_YAML)
-        wg = load_workgroup(path)
-        self.assertEqual(wg.skills, ['fix-issue', 'code-cleanup'])
+        self.assertEqual(len(wg.artifacts), 1)
+        self.assertEqual(wg.artifacts[0]['path'], 'NORMS.md')
 
     def test_missing_file_raises(self):
         with self.assertRaises(FileNotFoundError):
@@ -370,10 +348,10 @@ class TestDiscoverProjects(unittest.TestCase):
             name: Test
             description: test
             lead: x
-            decider: x
-            teams:
+            projects:
               - name: Tilde Project
                 path: ~/nonexistent-teaparty-test-path
+                config: ''
         """)
         home = _make_teaparty_home(yaml_text)
         team = load_management_team(teaparty_home=os.path.join(home, '.teaparty'))

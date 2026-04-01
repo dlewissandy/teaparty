@@ -39,12 +39,10 @@ def _write_teaparty_yaml(home: str, teams: list | None = None) -> None:
         'name': 'Test Management Team',
         'description': '',
         'lead': '',
-        'decider': '',
-        'agents': [],
-        'humans': [],
-        'teams': teams or [],
+        'humans': {'decider': ''},
+        'members': {'agents': [], 'projects': []},
+        'projects': [],
         'workgroups': [],
-        'skills': [],
     }
     with open(os.path.join(home, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
@@ -292,37 +290,12 @@ class TestAddProjectFrontmatter(unittest.TestCase):
         self.assertEqual(data.get('lead'), 'alice')
 
     def test_add_project_accepts_decider(self):
-        """add_project() must accept a decider kwarg and write it to project.yaml."""
+        """add_project() must accept a decider kwarg and write it to project.yaml humans block."""
         from orchestrator.config_reader import add_project
         proj = _make_project_dir(self.tmpdir, 'proj-c')
         add_project('proj-c', proj, decider='bob', teaparty_home=self.home)
         data = _read_project_yaml(proj)
-        self.assertEqual(data.get('decider'), 'bob')
-
-    def test_add_project_accepts_agents(self):
-        """add_project() must accept an agents list and write it to project.yaml."""
-        from orchestrator.config_reader import add_project
-        proj = _make_project_dir(self.tmpdir, 'proj-d')
-        add_project('proj-d', proj, agents=['agent-x', 'agent-y'], teaparty_home=self.home)
-        data = _read_project_yaml(proj)
-        self.assertEqual(data.get('agents'), ['agent-x', 'agent-y'])
-
-    def test_add_project_accepts_humans(self):
-        """add_project() must accept a humans list and write it to project.yaml."""
-        from orchestrator.config_reader import add_project
-        proj = _make_project_dir(self.tmpdir, 'proj-e')
-        humans = [{'name': 'Alice', 'role': 'decider'}]
-        add_project('proj-e', proj, humans=humans, teaparty_home=self.home)
-        data = _read_project_yaml(proj)
-        self.assertEqual(data.get('humans'), humans)
-
-    def test_add_project_accepts_skills(self):
-        """add_project() must accept a skills list and write it to project.yaml."""
-        from orchestrator.config_reader import add_project
-        proj = _make_project_dir(self.tmpdir, 'proj-f')
-        add_project('proj-f', proj, skills=['skill-a'], teaparty_home=self.home)
-        data = _read_project_yaml(proj)
-        self.assertEqual(data.get('skills'), ['skill-a'])
+        self.assertEqual(data.get('humans', {}).get('decider'), 'bob')
 
     def test_add_project_writes_full_frontmatter_together(self):
         """add_project() must write all frontmatter fields in a single call."""
@@ -333,18 +306,12 @@ class TestAddProjectFrontmatter(unittest.TestCase):
             description='Full project',
             lead='manager-agent',
             decider='carol',
-            agents=['agent-1'],
-            humans=[{'name': 'Carol', 'role': 'decider'}],
-            skills=['fix-issue'],
             teaparty_home=self.home,
         )
         data = _read_project_yaml(proj)
         self.assertEqual(data['description'], 'Full project')
         self.assertEqual(data['lead'], 'manager-agent')
-        self.assertEqual(data['decider'], 'carol')
-        self.assertEqual(data['agents'], ['agent-1'])
-        self.assertEqual(data['humans'], [{'name': 'Carol', 'role': 'decider'}])
-        self.assertEqual(data['skills'], ['fix-issue'])
+        self.assertEqual(data.get('humans', {}).get('decider'), 'carol')
 
 
 class TestAddProjectLoosensPrereqs(unittest.TestCase):
@@ -423,12 +390,12 @@ class TestCreateProjectFrontmatter(unittest.TestCase):
         self.assertEqual(data.get('lead'), 'team-lead')
 
     def test_create_project_accepts_decider(self):
-        """create_project() must accept a decider kwarg and write it to project.yaml."""
+        """create_project() must accept a decider kwarg and write it to project.yaml humans block."""
         from orchestrator.config_reader import create_project
         proj = os.path.join(self.tmpdir, 'new-proj-c')
         create_project('new-proj-c', proj, decider='decider-name', teaparty_home=self.home)
         data = _read_project_yaml(proj)
-        self.assertEqual(data.get('decider'), 'decider-name')
+        self.assertEqual(data.get('humans', {}).get('decider'), 'decider-name')
 
     def test_create_project_writes_full_frontmatter(self):
         """create_project() must write all frontmatter fields in a single call."""
@@ -439,17 +406,12 @@ class TestCreateProjectFrontmatter(unittest.TestCase):
             description='Created by OM',
             lead='om-agent',
             decider='dave',
-            agents=['builder-agent'],
-            humans=[{'name': 'Dave', 'role': 'decider'}],
-            skills=['sprint'],
             teaparty_home=self.home,
         )
         data = _read_project_yaml(proj)
         self.assertEqual(data['description'], 'Created by OM')
         self.assertEqual(data['lead'], 'om-agent')
-        self.assertEqual(data['decider'], 'dave')
-        self.assertEqual(data['agents'], ['builder-agent'])
-        self.assertEqual(data['skills'], ['sprint'])
+        self.assertEqual(data.get('humans', {}).get('decider'), 'dave')
 
 
 # ── AC4 & AC5: /api/projects/add and /api/projects/create accept full frontmatter ──

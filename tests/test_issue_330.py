@@ -41,14 +41,12 @@ def _make_management_team(tmpdir: str, agents=None, hooks=None, scheduled=None):
         'name': 'Management Team',
         'description': 'Test org',
         'lead': 'office-manager',
-        'decider': 'darrell',
-        'agents': agents or ['office-manager', 'auditor'],
-        'humans': [{'name': 'darrell', 'role': 'decider'}],
-        'skills': ['sprint-plan'],
+        'humans': {'decider': 'darrell'},
+        'members': {'agents': agents or ['office-manager', 'auditor'], 'projects': []},
+        'projects': [],
         'hooks': hooks if hooks is not None else [{'event': 'PreToolUse', 'matcher': 'Bash', 'type': 'command'}],
         'scheduled': scheduled if scheduled is not None else [{'name': 'nightly', 'schedule': '0 2 * * *', 'skill': 'audit', 'enabled': True}],
         'workgroups': [],
-        'teams': [],
     }
     with open(os.path.join(teaparty_home, 'teaparty.yaml'), 'w') as f:
         yaml.dump(data, f)
@@ -64,10 +62,8 @@ def _make_project_team(project_dir: str, agents=None, hooks=None, scheduled=None
         'name': 'Test Project',
         'description': 'A test project',
         'lead': 'project-lead',
-        'decider': 'darrell',
-        'agents': agents or ['project-lead', 'reviewer'],
-        'humans': [{'name': 'Alice', 'role': 'advisor'}],
-        'skills': skills or ['fix-issue'],
+        'humans': {'decider': 'darrell', 'advisors': ['Alice']},
+        'members': {'workgroups': []},
         'hooks': hooks if hooks is not None else [{'event': 'Stop', 'type': 'agent'}],
         'scheduled': scheduled if scheduled is not None else [{'name': 'health', 'schedule': '*/30 * * * *', 'skill': 'audit', 'enabled': True}],
         'workgroups': [],
@@ -150,7 +146,11 @@ class TestManagementTeamAgentsHaveFilePath(unittest.TestCase):
 # ── Criterion 2: Project team agents have 'file' ─────────────────────────────
 
 class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
-    """_serialize_project_team must include 'file' for each agent entry."""
+    """_serialize_project_team agents field — project teams no longer have direct agents.
+
+    In the new schema (issue #362), project teams dispatch to workgroups, not directly
+    to agents. The agents field in the serialized response is empty for project teams.
+    """
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -158,63 +158,19 @@ class TestProjectTeamAgentsHaveFilePath(unittest.TestCase):
         self.bridge = _make_bridge(self.tmp)
         self.project_dir = os.path.join(self.tmp, 'my-project')
         os.makedirs(self.project_dir)
-        # Org has auditor; project has project-lead (local) and auditor (shared)
-        self.org_agents = ['auditor']
-        self.team = _make_project_team(
-            self.project_dir,
-            agents=['project-lead', 'auditor'],
-        )
+        self.team = _make_project_team(self.project_dir)
 
-    def test_project_agent_entries_are_dicts_with_file(self):
-        """All project agent entries must include 'file'."""
+    def test_project_agents_empty_in_new_schema(self):
+        """Project team serialization returns empty agents list — agents are in workgroups."""
         result = self.bridge._serialize_project_team(
             self.team,
-            org_agents=self.org_agents,
             local_skills=[],
             teaparty_home=self.teaparty_home,
             project_dir=self.project_dir,
         )
-        for a in result['agents']:
-            self.assertIn('file', a, f'Agent entry missing "file": {a}')
-
-    def test_local_agent_file_resolves_from_project_dir(self):
-        """A local (non-org) agent's 'file' resolves under project_dir/.claude/agents/."""
-        result = self.bridge._serialize_project_team(
-            self.team,
-            org_agents=['auditor'],  # project-lead is local
-            local_skills=[],
-            teaparty_home=self.teaparty_home,
-            project_dir=self.project_dir,
-        )
-        agent = next(a for a in result['agents'] if a['name'] == 'project-lead')
-        expected = os.path.join(self.project_dir, '.claude', 'agents', 'project-lead.md')
-        self.assertEqual(agent['file'], expected)
-
-    def test_shared_agent_file_resolves_from_teaparty_home(self):
-        """A shared (org) agent's 'file' resolves under the repo-root .claude/agents/."""
-        result = self.bridge._serialize_project_team(
-            self.team,
-            org_agents=['auditor'],  # auditor is shared
-            local_skills=[],
-            teaparty_home=self.teaparty_home,
-            project_dir=self.project_dir,
-        )
-        agent = next(a for a in result['agents'] if a['name'] == 'auditor')
-        expected = os.path.join(self.tmp, '.claude', 'agents', 'auditor.md')
-        self.assertEqual(agent['file'], expected)
-
-    def test_generated_lead_agent_file_resolves_from_project_dir(self):
-        """The generated project lead agent's 'file' resolves under project_dir."""
-        result = self.bridge._serialize_project_team(
-            self.team,
-            org_agents=['auditor'],
-            local_skills=[],
-            teaparty_home=self.teaparty_home,
-            project_dir=self.project_dir,
-        )
-        lead_agent = next(a for a in result['agents'] if a['name'] == self.team.lead)
-        expected = os.path.join(self.project_dir, '.claude', 'agents', f'{self.team.lead}.md')
-        self.assertEqual(lead_agent['file'], expected)
+        self.assertIsInstance(result['agents'], list)
+        self.assertEqual(result['agents'], [],
+            'Project team has no direct agents in new schema — agents are in workgroups')
 
 
 # ── Criterion 3: Management team skills have 'file' ──────────────────────────

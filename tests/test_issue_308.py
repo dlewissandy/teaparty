@@ -586,13 +586,11 @@ class TestRestConfig(unittest.TestCase):
 name: Test Org
 description: Test organization
 lead: lead-agent
-decider: darrell
-agents:
-  - lead-agent
 humans:
-  - name: darrell
-    role: decider
-skills: []
+  decider: darrell
+members:
+  agents:
+    - lead-agent
 hooks: []
 scheduled: []
 projects: []

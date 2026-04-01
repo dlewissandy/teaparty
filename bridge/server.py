@@ -108,7 +108,7 @@ def _load_cfa_state(infra_dir: str) -> dict | None:
 def _detect_workgroup_overrides(org_workgroup, project_workgroup) -> list[str]:
     """Return a list of field names where the project workgroup diverges from org.
 
-    Compares norms, budget, lead, agents, and skills.  Returns names of
+    Compares norms, budget, lead, and agents.  Returns names of
     overridden categories, e.g. ['norms', 'budget'].
     """
     overrides: list[str] = []
@@ -118,10 +118,8 @@ def _detect_workgroup_overrides(org_workgroup, project_workgroup) -> list[str]:
         overrides.append('budget')
     if project_workgroup.lead != org_workgroup.lead:
         overrides.append('lead')
-    if project_workgroup.agents != org_workgroup.agents:
+    if project_workgroup.members_agents != org_workgroup.members_agents:
         overrides.append('agents')
-    if project_workgroup.skills != org_workgroup.skills:
-        overrides.append('skills')
     return overrides
 
 
@@ -407,7 +405,7 @@ class TeaPartyBridge:
 
         try:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
-            org_agents: list[str] = mgmt.agents
+            org_agents: list[str] = mgmt.members_agents
             org_catalog_skills: list[str] = discover_skills(
                 os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
             )
@@ -454,7 +452,7 @@ class TeaPartyBridge:
                 team,
                 org_agents=org_agents,
                 local_skills=local_skills,
-                registered_org_skills=team.skills,
+                registered_org_skills=org_catalog_skills,
                 org_catalog_skills=org_catalog_skills,
                 teaparty_home=self.teaparty_home,
                 project_dir=project_dir,
@@ -490,7 +488,7 @@ class TeaPartyBridge:
 
         try:
             mgmt = load_management_team(teaparty_home=self.teaparty_home)
-            org_agents: set[str] = set(mgmt.agents)
+            org_agents: set[str] = set(mgmt.members_agents)
             org_skills: list[str] = discover_skills(
                 os.path.join(os.path.dirname(self.teaparty_home), '.claude', 'skills')
             )
@@ -1142,12 +1140,13 @@ class TeaPartyBridge:
         settings_hooks = discover_hooks(os.path.join(claude_base, '.claude', 'settings.json'))
         all_hooks = t.hooks + settings_hooks
 
+        decider = next((h.name for h in t.humans if h.role == 'decider'), '')
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
-            'decider': t.decider,
-            'agents': [{'name': n, 'file': _agent_file(n)} for n in t.agents],
+            'decider': decider,
+            'agents': [{'name': n, 'file': _agent_file(n)} for n in t.members_agents],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': [{'name': n, 'file': _skill_file(n)} for n in (discovered_skills or [])],
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
@@ -1217,9 +1216,9 @@ class TeaPartyBridge:
             path = os.path.join(org_skills_dir, skill_name, 'SKILL.md')
             return path if os.path.isfile(path) else None
 
-        # Build merged skill list: local first, then registered org skills.
-        # Local takes precedence on name collision.
-        # Registered org skills absent from the org catalog are flagged as 'missing'.
+        # Build merged skill list: local first, then any explicitly passed org skills.
+        # Project-level registered_org_skills no longer come from the YAML schema
+        # (removed in issue #362) but the parameter is kept for backward compatibility.
         skills_result = []
         for name in sorted(local_skills or []):
             source = 'local'
@@ -1233,12 +1232,13 @@ class TeaPartyBridge:
         settings_hooks = discover_hooks(proj_settings) if proj_settings else []
         all_hooks = t.hooks + settings_hooks
 
+        decider = next((h.name for h in t.humans if h.role == 'decider'), '')
         return {
             'name': t.name,
             'description': t.description,
             'lead': t.lead,
-            'decider': t.decider,
-            'agents': [{'name': n, 'source': _agent_source(n), 'file': _agent_file(n)} for n in t.agents],
+            'decider': decider,
+            'agents': [],
             'humans': [{'name': h.name, 'role': h.role} for h in t.humans],
             'skills': skills_result,
             'hooks': [{**h, 'file': _hook_file(h)} for h in all_hooks],
@@ -1259,20 +1259,15 @@ class TeaPartyBridge:
             'name': w.name,
             'description': w.description,
             'lead': w.lead,
-            'agents_count': len(w.agents),
+            'agents_count': len(w.members_agents),
             'source': source,
             'overrides': overrides or [],
         }
         if detail:
             org_agents_set = org_agents or set()
-            org_skills_set = set(org_catalog_skills or [])
             result['agents'] = [
-                {**agent, 'source': 'shared' if agent.get('name', '') in org_agents_set else 'local'}
-                for agent in w.agents
-            ]
-            result['skills'] = [
-                {'name': s, 'source': 'shared' if s in org_skills_set else 'local'}
-                for s in w.skills
+                {'name': n, 'source': 'shared' if n in org_agents_set else 'local'}
+                for n in w.members_agents
             ]
             result['norms'] = dict(w.norms)
             result['budget'] = dict(w.budget)

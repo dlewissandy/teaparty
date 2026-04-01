@@ -26,7 +26,7 @@ def _make_bridge(teaparty_home, static_dir=None):
 
 def _make_management_team(yaml_skills):
     from orchestrator.config_reader import ManagementTeam
-    return ManagementTeam(name='Test', skills=yaml_skills)
+    return ManagementTeam(name='Test')
 
 
 # ── Criterion 1: no fallback to YAML list ─────────────────────────────────────
