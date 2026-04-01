@@ -189,6 +189,9 @@ class Orchestrator:
         # session/dispatch operations (Issue #249)
         self._intervention_listener: InterventionListener | None = None
         self._intervention_resolver: dict[str, str] = {}
+        # Bus event listener — bridges Send/Reply MCP calls to bus-mediated
+        # agent dispatch (Issue #351).  Started alongside other MCP listeners.
+        self._bus_event_listener: Any | None = None  # BusEventListener
         self._mcp_config: dict | None = None
 
         # Track resume session IDs per phase (for --resume on corrections).
@@ -271,6 +274,18 @@ class Orchestrator:
             intervention_socket = await self._intervention_listener.start()
             mcp_env['INTERVENTION_SOCKET'] = intervention_socket
 
+            # Start the bus event listener so agents can use Send/Reply for
+            # bus-mediated agent-to-agent dispatch (Issue #351).
+            from orchestrator.bus_event_listener import BusEventListener  # noqa: PLC0415
+            bus_db_path = getattr(self, '_bus_db_path', '')
+            self._bus_event_listener = BusEventListener(
+                bus_db_path=bus_db_path,
+                initiator_agent_id=self.project_slug or '',
+            )
+            send_socket, reply_socket = await self._bus_event_listener.start()
+            mcp_env['SEND_SOCKET'] = send_socket
+            mcp_env['REPLY_SOCKET'] = reply_socket
+
             self._mcp_config = {
                 'ask-question': {
                     'command': venv_python,
@@ -293,6 +308,8 @@ class Orchestrator:
                 await self._dispatch_listener.stop()
             if self._intervention_listener:
                 await self._intervention_listener.stop()
+            if self._bus_event_listener:
+                await self._bus_event_listener.stop()
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""

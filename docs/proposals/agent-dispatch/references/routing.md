@@ -8,7 +8,7 @@ Routing policy determines which agents can communicate with which others. An age
 
 Within a workgroup, each agent's roster includes all other agents in the same workgroup. The lead's roster includes all workers; each worker's roster includes the lead (via requestor injection) and, optionally, peer workers if peer communication is permitted for that workgroup. Cross-workgroup within a project, a workgroup lead's roster includes the project lead and vice versa; workers do not have the project lead in their roster and cross-workgroup requests go through the workgroup lead. Cross-project, only the project lead and OM have routes to each other — the project lead's roster includes the OM, and the OM's roster includes all project leads.
 
-Routing is enforced at two layers. `Send` performs a client-side pre-check: if the named member is not in the agent's roster, it raises `UnknownMemberError` before touching the bus. The bus dispatcher performs a transport-level check independently: given the sender's `agent_id` and the target context ID, it verifies a routing entry exists for `(sender_agent_id, recipient_agent_id)`. A message that reaches the bus without going through `Send` is still rejected if no routing entry exists. The two checks are not redundant — `Send` gives the agent a clean error to handle in its own turn; the dispatcher ensures routing cannot be bypassed at the transport layer.
+Routing is enforced at two layers. `Send` performs a client-side pre-check: if the named member is not in the agent's roster, it raises `UnknownMemberError` before touching the bus. The bus dispatcher is an independent enforcement point: it performs a transport level check on every post, verifying a routing entry exists for `(sender_agent_id, recipient_agent_id)`. A message that reaches the bus without going through `Send` is still rejected at the transport level if no routing entry exists. The two checks are not redundant — `Send` gives the agent a clean error to handle in its own turn; the dispatcher ensures routing cannot be bypassed even when callers post directly to the bus transport.
 
 Note that directed sends used for INTERVENE/escalation bypass both of these checks. Authorization for escalation is by conversation hierarchy position, not by routing table entry. Workers do not have project-lead routing entries, and the escalation path is deliberately carved out from normal routing enforcement to allow any spawned agent to reach its ancestry. This carve-out is described in [Escalation Routing](conversation-model.md#escalation-routing).
 
@@ -76,14 +76,16 @@ Changes to workgroup membership take effect at the start of the next session —
 
 ## Implementation Status
 
-The routing enforcement mechanism described in this document is designed but not yet implemented. None of the following exist in code:
+The following are implemented in `orchestrator/bus_dispatcher.py` (Issue #351):
 
-- The `agent_id` derivation algorithm (reads workgroup YAML, produces `{workgroup_name}/{role_name}` identifiers)
-- The routing table (set of `(sender_agent_id, recipient_agent_id)` pairs, computed at session start)
-- The bus dispatcher class (transport-level authorization check in `orchestrator/`)
-- The `RoutingError` raised by the `Send` pre-check
+- The routing table (`RoutingTable` class — set of `(sender_agent_id, recipient_agent_id)` pairs, built at session start via `RoutingTable.from_workgroups()`)
+- The bus dispatcher class (`BusDispatcher` — transport-level authorization check; raises `RoutingError` for unauthorized pairs)
+- The `RoutingError` raised when a message violates routing policy
+
+Not yet implemented:
+
+- The `agent_id` derivation algorithm from workgroup YAML (routing table is currently built from explicit workgroup dicts; full YAML-driven derivation is a follow-on)
 - The routing table recovery procedure (rebuilds from bus context records on restart)
+- `Send`'s client-side `UnknownMemberError` pre-check (the `BusDispatcher` transport check is the active enforcement layer)
 
-Until both the `Send` pre-check and the bus dispatcher transport check are implemented, there is no enforcement of routing rules. An agent can post to any conversation ID without restriction. The cross-project isolation guarantee stated in this document is a design intent, not current behavior.
-
-Implementation is pending #345 (bus-mediated AskTeam blocking model) and #348 (routing derivation algorithm). The transport-level bus dispatcher cannot be built until the routing table derivation is complete (#348). The two-layer enforcement guarantee is only valid once both layers exist.
+Until both the `Send` pre-check and the bus dispatcher transport check are fully wired into the MCP tool layer, routing enforcement is implemented at the class level but not yet active at runtime for all call paths. The cross-project isolation guarantee stated in this document is a design intent that the dispatcher enforces when called.

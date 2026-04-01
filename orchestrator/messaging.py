@@ -167,6 +167,19 @@ class SqliteMessageBus:
             )
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Agent context records for bus-mediated agent-to-agent dispatch (issue #351)
+        self._conn.execute('''
+            CREATE TABLE IF NOT EXISTS agent_contexts (
+                context_id TEXT PRIMARY KEY,
+                initiator_agent_id TEXT NOT NULL,
+                recipient_agent_id TEXT NOT NULL,
+                session_id TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'open',
+                pending_count INTEGER NOT NULL DEFAULT 0,
+                created_at REAL NOT NULL
+            )
+        ''')
         self._conn.commit()
         self.role_enforcer = None
 
@@ -327,6 +340,150 @@ class SqliteMessageBus:
 
     def close(self) -> None:
         self._conn.close()
+
+    # ── Agent context records (issue #351) ───────────────────────────────────
+
+    def create_agent_context(
+        self,
+        context_id: str,
+        initiator_agent_id: str,
+        recipient_agent_id: str,
+    ) -> None:
+        """Create a new agent-to-agent conversation context record.
+
+        Status begins as 'open'; pending_count begins at 0.
+        """
+        ts = time.time()
+        self._conn.execute(
+            'INSERT INTO agent_contexts '
+            '(context_id, initiator_agent_id, recipient_agent_id, created_at) '
+            'VALUES (?, ?, ?, ?)',
+            (context_id, initiator_agent_id, recipient_agent_id, ts),
+        )
+        self._conn.commit()
+
+    def create_agent_context_and_increment_parent(
+        self,
+        context_id: str,
+        initiator_agent_id: str,
+        recipient_agent_id: str,
+        parent_context_id: str,
+    ) -> None:
+        """Atomically create a sub-context and increment the parent's pending_count.
+
+        Both writes succeed or both fail (SQLite transaction).  A crash between
+        them would leave the fan-in counter permanently wrong; the transaction
+        prevents that.
+
+        Raises ValueError if parent_context_id does not exist.
+        """
+        # Verify parent exists before starting the transaction
+        row = self._conn.execute(
+            'SELECT context_id FROM agent_contexts WHERE context_id = ?',
+            (parent_context_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(
+                f'Parent context {parent_context_id!r} does not exist; '
+                'cannot create child context'
+            )
+
+        ts = time.time()
+        with self._conn:
+            self._conn.execute(
+                'INSERT INTO agent_contexts '
+                '(context_id, initiator_agent_id, recipient_agent_id, created_at) '
+                'VALUES (?, ?, ?, ?)',
+                (context_id, initiator_agent_id, recipient_agent_id, ts),
+            )
+            self._conn.execute(
+                'UPDATE agent_contexts SET pending_count = pending_count + 1 '
+                'WHERE context_id = ?',
+                (parent_context_id,),
+            )
+
+    def get_agent_context(self, context_id: str) -> dict | None:
+        """Return the agent context record as a dict, or None if not found."""
+        row = self._conn.execute(
+            'SELECT context_id, initiator_agent_id, recipient_agent_id, '
+            'session_id, status, pending_count, created_at '
+            'FROM agent_contexts WHERE context_id = ?',
+            (context_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            'context_id': row[0],
+            'initiator_agent_id': row[1],
+            'recipient_agent_id': row[2],
+            'session_id': row[3],
+            'status': row[4],
+            'pending_count': row[5],
+            'created_at': row[6],
+        }
+
+    def set_agent_context_session_id(self, context_id: str, session_id: str) -> None:
+        """Record the Claude session ID captured from the first invocation."""
+        self._conn.execute(
+            'UPDATE agent_contexts SET session_id = ? WHERE context_id = ?',
+            (session_id, context_id),
+        )
+        self._conn.commit()
+
+    def increment_pending_count(self, context_id: str) -> None:
+        """Increment pending_count by 1 (fan-out: one more worker in flight)."""
+        self._conn.execute(
+            'UPDATE agent_contexts SET pending_count = pending_count + 1 '
+            'WHERE context_id = ?',
+            (context_id,),
+        )
+        self._conn.commit()
+
+    def decrement_pending_count(self, context_id: str) -> int:
+        """Decrement pending_count by 1 and return the new count.
+
+        When the count reaches 0, the fan-in is complete and the caller
+        should be re-invoked.
+        """
+        self._conn.execute(
+            'UPDATE agent_contexts SET pending_count = pending_count - 1 '
+            'WHERE context_id = ?',
+            (context_id,),
+        )
+        self._conn.commit()
+        row = self._conn.execute(
+            'SELECT pending_count FROM agent_contexts WHERE context_id = ?',
+            (context_id,),
+        ).fetchone()
+        return row[0] if row else 0
+
+    def close_agent_context(self, context_id: str) -> None:
+        """Transition the context to status='closed'."""
+        self._conn.execute(
+            "UPDATE agent_contexts SET status = 'closed' WHERE context_id = ?",
+            (context_id,),
+        )
+        self._conn.commit()
+
+    def open_agent_contexts(self) -> list[dict]:
+        """Return all agent context records with status='open'."""
+        cursor = self._conn.execute(
+            'SELECT context_id, initiator_agent_id, recipient_agent_id, '
+            'session_id, status, pending_count, created_at '
+            "FROM agent_contexts WHERE status = 'open' ORDER BY created_at"
+        )
+        return [
+            {
+                'context_id': row[0],
+                'initiator_agent_id': row[1],
+                'recipient_agent_id': row[2],
+                'session_id': row[3],
+                'status': row[4],
+                'pending_count': row[5],
+                'created_at': row[6],
+            }
+            for row in cursor.fetchall()
+        ]
 
 
 class MessageBusInputProvider:
