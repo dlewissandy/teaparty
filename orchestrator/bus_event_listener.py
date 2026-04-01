@@ -243,28 +243,34 @@ class BusEventListener:
             message = request.get('message', '')
 
             context_id = self.current_context_id
-            caller_session_id = ''
             parent_context_id = ''
+            parent_session_id = ''
+            should_reinvoke = False
 
             if context_id and self.bus_db_path:
                 ctx = self._get_context(context_id)
                 if ctx:
-                    caller_session_id = ctx.get('session_id', '')
                     parent_context_id = ctx.get('parent_context_id', '')
                 self._close_context(context_id)
-                # Decrement the parent's pending_count — when it reaches zero,
-                # all workers in this fan-out have replied and the lead can be re-invoked.
+                # Decrement the parent's pending_count.  When it reaches zero all
+                # workers in this fan-out have replied and the caller can be resumed.
                 if parent_context_id:
-                    self._decrement_parent_pending_count(parent_context_id)
+                    new_count = self._decrement_parent_pending_count(parent_context_id)
+                    if new_count == 0:
+                        parent_ctx = self._get_context(parent_context_id)
+                        if parent_ctx:
+                            parent_session_id = parent_ctx.get('session_id', '')
+                        should_reinvoke = True
 
             response = {'status': 'ok'}
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
 
-            # Re-invoke the caller if reinvoke_fn is provided
-            if self.reinvoke_fn is not None and context_id:
+            # Re-invoke the caller only when all fan-out workers have replied
+            # (pending_count reached zero) and a session_id is available to --resume.
+            if self.reinvoke_fn is not None and should_reinvoke and parent_session_id:
                 asyncio.create_task(
-                    self.reinvoke_fn(context_id, caller_session_id, message)
+                    self.reinvoke_fn(parent_context_id, parent_session_id, message)
                 )
 
         except Exception:

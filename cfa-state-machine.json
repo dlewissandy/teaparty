@@ -11,7 +11,7 @@
     },
     "execution": {
       "description": "Execution: PLAN → COMPLETED_WORK. Execute the plan and deliver completed work.",
-      "states": ["TASK", "TASK_IN_PROGRESS", "TASK_QUESTION", "TASK_ESCALATE", "TASK_ASSERT", "TASK_RESPONSE", "FAILED_TASK", "COMPLETED_TASK", "WORK_IN_PROGRESS", "WORK_ASSERT", "COMPLETED_WORK", "WITHDRAWN"]
+      "states": ["TASK", "TASK_IN_PROGRESS", "TASK_QUESTION", "TASK_ESCALATE", "TASK_ASSERT", "TASK_RESPONSE", "FAILED_TASK", "COMPLETED_TASK", "WORK_IN_PROGRESS", "WORK_ASSERT", "AWAITING_REPLIES", "COMPLETED_WORK", "WITHDRAWN"]
     }
   },
   "terminal_states": ["COMPLETED_WORK", "WITHDRAWN"],
@@ -84,7 +84,11 @@
       { "action": "question", "to": "TASK_QUESTION", "actor": "execution_worker" },
       { "action": "escalate", "to": "TASK_ESCALATE", "actor": "execution_worker" },
       { "action": "failed", "to": "FAILED_TASK", "actor": "execution_worker" },
+      { "action": "send-and-wait", "to": "AWAITING_REPLIES", "actor": "execution_lead" },
       { "action": "withdraw", "to": "WITHDRAWN", "actor": "approval_gate" }
+    ],
+    "AWAITING_REPLIES": [
+      { "action": "resume", "to": "TASK_IN_PROGRESS", "actor": "system" }
     ],
     "TASK_QUESTION": [
       { "action": "answer", "to": "TASK_RESPONSE", "actor": "research_team" },

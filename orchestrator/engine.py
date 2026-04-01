@@ -284,6 +284,7 @@ class Orchestrator:
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
                 spawn_fn=self._bus_spawn_agent,
+                reinvoke_fn=self._bus_reinvoke_agent,
                 dispatcher=self._build_bus_dispatcher(),
             )
             send_socket, reply_socket = await self._bus_event_listener.start()
@@ -400,6 +401,67 @@ class Orchestrator:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
+
+    async def _bus_reinvoke_agent(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Re-invoke a caller agent after all fan-out workers have replied (Issue #358).
+
+        Called by BusEventListener when pending_count reaches zero, meaning all
+        workers in a fan-out have replied.  Resumes the caller's claude session
+        via --resume so it can read the replies and continue.
+
+        Creates a fresh worktree for the resumed session (the original worktree was
+        cleaned up when the caller's previous turn exited).
+
+        Args:
+            context_id: The caller's context_id (parent context, keyed by their spawn).
+            session_id: The caller's claude session_id, used for --resume.
+            message:    The last reply message (informational; caller reads from bus).
+        """
+        if not session_id:
+            _log.warning('reinvoke: no session_id for context %s — cannot resume', context_id)
+            return
+
+        import subprocess
+        from orchestrator.agent_spawner import AgentSpawner
+        spawner = AgentSpawner(teaparty_home=self.poc_root, env_vars=self._mcp_config or {})
+        # Extract caller's agent role from context_id: agent:{initiator_id}:{recipient_id}:{uuid}
+        parts = context_id.split(':')
+        role = parts[1] if len(parts) >= 2 else 'unknown'
+
+        safe_id = context_id.replace(':', '_').replace('/', '_')
+        resume_dir = os.path.join(self.infra_dir, 'agents', f'{safe_id}_resume')
+
+        def resume_in_worktree() -> None:
+            wt_result = subprocess.run(
+                ['git', 'worktree', 'add', resume_dir, 'HEAD'],
+                cwd=self.project_workdir,
+                capture_output=True, text=True,
+            )
+            if wt_result.returncode != 0:
+                _log.warning(
+                    'git worktree add failed for reinvoke %s: %s — falling back to plain directory',
+                    resume_dir, wt_result.stderr.strip(),
+                )
+                os.makedirs(resume_dir, exist_ok=True)
+            try:
+                spawner.spawn(
+                    '',
+                    worktree=resume_dir,
+                    role=role,
+                    project_dir=self.project_workdir,
+                    resume_session=session_id,
+                )
+            finally:
+                subprocess.run(
+                    ['git', 'worktree', 'remove', resume_dir, '--force'],
+                    cwd=self.project_workdir,
+                    capture_output=True,
+                )
+
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, resume_in_worktree)
 
     async def _run_loop(self) -> OrchestratorResult:
         """Inner loop — separated so the listener cleanup is guaranteed."""

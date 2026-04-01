@@ -144,14 +144,26 @@ class TestBusEventListenerReinvokeTrigger(unittest.TestCase):
         worker_session: str,
         num_workers: int = 1,
     ):
-        """Create parent context (with pending_count = num_workers) and one worker context."""
+        """Create parent context (with pending_count = num_workers) and one worker context.
+
+        Uses create_agent_context_and_increment_parent so the worker's
+        parent_context_id is set and the parent's pending_count is incremented
+        atomically — matching how BusEventListener creates contexts in production.
+        """
         bus = _make_bus(self.tmpdir)
         bus.create_agent_context(parent_ctx, 'proj/lead', 'proj/worker')
         bus.set_agent_context_session_id(parent_ctx, parent_session)
-        for _ in range(num_workers):
-            bus.increment_pending_count(parent_ctx)
-        bus.create_agent_context(worker_ctx, 'proj/worker', 'proj/sub')
+        # Create worker(s) with parent linkage; increment parent's pending_count
+        bus.create_agent_context_and_increment_parent(
+            worker_ctx,
+            initiator_agent_id='proj/worker',
+            recipient_agent_id='proj/sub',
+            parent_context_id=parent_ctx,
+        )
         bus.set_agent_context_session_id(worker_ctx, worker_session)
+        # If num_workers > 1, add extra pending_count increments (simulating additional workers)
+        for _ in range(num_workers - 1):
+            bus.increment_pending_count(parent_ctx)
         bus.close()
 
     async def _captured_reinvoke(self, context_id: str, session_id: str, message: str) -> None:
