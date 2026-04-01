@@ -194,8 +194,11 @@ class Orchestrator:
         self._bus_event_listener: Any | None = None  # BusEventListener
         self._mcp_config: dict | None = None
         # Fan-in synchronization: set when the turn loop is waiting for all
-        # dispatched workers to complete; cleared and set by _bus_reinvoke.
+        # dispatched workers to complete; cleared and set by _bus_reinvoke_agent.
         self._fan_in_event: asyncio.Event | None = None
+        # Context ID of the orchestrator's own bus context record.
+        # Workers spawned via Send have this as their parent_context_id.
+        self._bus_lead_context_id: str = ''
 
         # Track resume session IDs per phase (for --resume on corrections).
         # Pre-populated on session resume by parsing stream JSONL files.
@@ -278,16 +281,36 @@ class Orchestrator:
             mcp_env['INTERVENTION_SOCKET'] = intervention_socket
 
             # Start the bus event listener so agents can use Send/Reply for
-            # bus-mediated agent-to-agent dispatch (Issue #351).
+            # bus-mediated agent-to-agent dispatch (Issue #351, #358).
             from orchestrator.bus_event_listener import BusEventListener  # noqa: PLC0415
             bus_db_path = os.path.join(self.infra_dir, 'messages.db')
             # Project lead agent ID: {project}/lead per routing.md Agent Identity spec
             lead_agent_id = f'{self.project_slug}/lead' if self.project_slug else 'om'
+            # Create the orchestrator's own context record so workers spawned
+            # via Send have a valid parent_context_id to decrement pending_count against.
+            self._bus_lead_context_id = (
+                f'agent:{lead_agent_id}:lead:{self.session_id}'
+                if self.session_id
+                else ''
+            )
+            if self._bus_lead_context_id:
+                from orchestrator.messaging import SqliteMessageBus  # noqa: PLC0415
+                _bus = SqliteMessageBus(bus_db_path)
+                try:
+                    _bus.create_agent_context(
+                        self._bus_lead_context_id,
+                        initiator_agent_id=lead_agent_id,
+                        recipient_agent_id=lead_agent_id,
+                    )
+                finally:
+                    _bus.close()
             self._bus_event_listener = BusEventListener(
                 bus_db_path=bus_db_path,
                 initiator_agent_id=lead_agent_id,
+                current_context_id=self._bus_lead_context_id,
                 spawn_fn=self._bus_spawn_agent,
-                reinvoke_fn=self._bus_reinvoke,
+                reply_fn=self._bus_inject_reply,
+                reinvoke_fn=self._bus_reinvoke_agent,
                 dispatcher=self._build_bus_dispatcher(),
             )
             send_socket, reply_socket = await self._bus_event_listener.start()
@@ -393,6 +416,10 @@ class Orchestrator:
                     worktree=agent_dir,
                     role=member,
                     project_dir=self.project_workdir,
+                    # CONTEXT_ID lets the worker include its context_id in the
+                    # Reply socket message so BusEventListener can identify
+                    # which context to close (Issue #358).
+                    extra_env={'CONTEXT_ID': context_id},
                 )
             finally:
                 # Clean up the worktree after the agent process exits
@@ -405,27 +432,41 @@ class Orchestrator:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, spawn_in_worktree)
 
-    async def _bus_reinvoke(
+    async def _bus_inject_reply(
+        self, context_id: str, session_id: str, message: str,
+    ) -> None:
+        """Inject a worker reply into the lead's conversation history.
+
+        Called by BusEventListener for EVERY Reply, including those from
+        workers that complete before the final one (fan-out N > 1).  This
+        ensures all worker replies are in the lead's JSONL history before
+        _await_fan_in_and_reinvoke triggers the --resume invocation.
+
+        session_id is the PARENT context's session_id (the lead's latest
+        claude session ID), kept current by _update_lead_bus_session.
+        """
+        if session_id and self.session_worktree:
+            cwd = self.session_worktree
+            project_hash = cwd.replace('/', '-')
+            lead_session_file = os.path.join(
+                os.path.expanduser('~'), '.claude', 'projects',
+                project_hash, f'{session_id}.jsonl',
+            )
+            from orchestrator.messaging import inject_composite_into_history  # noqa: PLC0415
+            inject_composite_into_history(lead_session_file, message, session_id, cwd)
+
+    async def _bus_reinvoke_agent(
         self, context_id: str, session_id: str, message: str,
     ) -> None:
         """Signal fan-in completion when all dispatched workers have replied.
 
-        Called by BusEventListener as a background task each time a Reply
-        arrives.  Checks the bus for remaining open contexts; sets
-        _fan_in_event only when every worker has closed its context.
+        Called by BusEventListener (via _locked_reinvoke) when pending_count
+        reaches zero — all workers have replied.  By this point all replies are
+        already in the lead's history (injected by _bus_inject_reply on each
+        individual Reply).  Sets _fan_in_event to unblock
+        _await_fan_in_and_reinvoke, which resumes the lead via --resume.
         """
-        if not self._fan_in_event:
-            return
-        from orchestrator.messaging import SqliteMessageBus  # noqa: PLC0415
-        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
-        if not os.path.exists(bus_db_path):
-            return
-        bus = SqliteMessageBus(bus_db_path)
-        try:
-            remaining = bus.open_agent_contexts()
-        finally:
-            bus.close()
-        if not remaining:
+        if self._fan_in_event:
             self._fan_in_event.set()
 
     def _has_open_agent_contexts(self) -> bool:
@@ -442,23 +483,74 @@ class Orchestrator:
         finally:
             bus.close()
 
+    def _update_lead_bus_session(self, session_id: str) -> None:
+        """Update the orchestrator's bus context record with the latest lead session_id.
+
+        Called after each agent turn so BusEventListener._handle_reply_connection
+        can retrieve the session_id needed to call reinvoke_fn when all workers
+        have replied (Issue #358).
+        """
+        if not self._bus_lead_context_id:
+            return
+        from orchestrator.messaging import SqliteMessageBus  # noqa: PLC0415
+        bus_db_path = os.path.join(self.infra_dir, 'messages.db')
+        if not os.path.exists(bus_db_path):
+            return
+        bus = SqliteMessageBus(bus_db_path)
+        try:
+            bus.set_agent_context_session_id(self._bus_lead_context_id, session_id)
+        finally:
+            bus.close()
+
     async def _await_fan_in_and_reinvoke(
         self,
         spec: 'PhaseSpec',
         phase_name: str,
         phase_start_time: float,
     ) -> 'ActorResult':
-        """Block until all dispatched workers have replied, then re-invoke the lead.
+        """Advance to AWAITING_REPLIES, block until all workers reply, then resume the lead.
 
-        Called when the lead's turn completes but workers are still in flight.
-        Returns the actor_result from the lead's synthesis turn, which the caller
-        passes to _transition to advance the CfA state.
+        Called when the lead's turn completes but dispatched workers are still in
+        flight.  Transitions the CfA state machine through the write-then-exit-then-
+        resume cycle (Issue #358):
+
+          TASK_IN_PROGRESS → send-and-wait → AWAITING_REPLIES
+          (block: waiting for all workers to reply via Reply socket)
+          _bus_reinvoke_agent injects each reply into the lead's history file
+          AWAITING_REPLIES → resume → TASK_IN_PROGRESS
+          (lead re-invoked via --resume, picking up injected messages from history)
+
+        Returns the synthesis actor_result; the caller's _transition call then
+        advances the CfA normally from TASK_IN_PROGRESS.
         """
+        # TASK_IN_PROGRESS → send-and-wait → AWAITING_REPLIES
+        try:
+            self.cfa = transition(self.cfa, 'send-and-wait')
+            save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+        except InvalidTransition:
+            _log.warning(
+                'send-and-wait transition failed from state=%s — fan-in proceeding',
+                self.cfa.state,
+            )
+
         self._fan_in_event = asyncio.Event()
-        _log.info('Fan-in wait: blocking turn loop until all dispatched workers reply')
+        _log.info(
+            'Fan-in wait: AWAITING_REPLIES — blocking until all dispatched workers reply',
+        )
         await self._fan_in_event.wait()
         self._fan_in_event = None
-        _log.info('Fan-in complete: re-invoking lead for synthesis')
+        _log.info('Fan-in complete: resuming lead via --resume for synthesis')
+
+        # AWAITING_REPLIES → resume → TASK_IN_PROGRESS
+        try:
+            self.cfa = transition(self.cfa, 'resume')
+            save_state(self.cfa, os.path.join(self.infra_dir, '.cfa-state.json'))
+        except InvalidTransition:
+            _log.warning(
+                'resume transition failed from state=%s — continuing',
+                self.cfa.state,
+            )
+
         return await self._invoke_actor(spec, phase_name, phase_start_time)
 
     async def _run_loop(self) -> OrchestratorResult:
@@ -1352,6 +1444,10 @@ class Orchestrator:
         if claude_sid:
             phase = phase_for_state(self.cfa.state)
             self._phase_session_ids[phase] = claude_sid
+            # Keep the orchestrator's bus context record up to date so
+            # BusEventListener._handle_reply_connection can retrieve the
+            # latest session_id when all workers reply (Issue #358).
+            self._update_lead_bus_session(claude_sid)
 
         # Persist and emit
         state_path = os.path.join(self.infra_dir, '.cfa-state.json')

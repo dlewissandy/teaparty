@@ -668,7 +668,7 @@ def inject_composite_into_history(
     - ``parentUuid``: UUID of the last existing entry (``None`` for empty file)
 
     The session file path follows the observed layout:
-    ``~/.claude/projects/{session_id}/subagents/{agent_id}.jsonl``.
+    ``~/.claude/projects/{cwd.replace('/', '-')}/{session_id}.jsonl``.
     Callers supply the fully-resolved path; this function does not derive it.
 
     Args:

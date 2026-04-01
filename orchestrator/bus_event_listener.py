@@ -71,8 +71,14 @@ class BusEventListener:
         spawn_fn:          Async function called to spawn the recipient agent.
                            Signature: (member, composite, context_id) -> session_id.
                            Called as a background task — Send returns before it completes.
-        reinvoke_fn:       Async function called when a Reply is received to resume
-                           the caller.  Signature: (context_id, session_id, message).
+        reply_fn:          Async function called for EVERY Reply — injects the worker's
+                           message into the caller's conversation history.
+                           Signature: (context_id, session_id, message).
+                           Called before reinvoke_fn so all replies are in history
+                           before the caller resumes.
+        reinvoke_fn:       Async function called when ALL workers have replied
+                           (pending_count reaches zero) — triggers caller re-invocation.
+                           Signature: (context_id, session_id, message).
         current_context_id: The context ID this agent was spawned into (used by Reply
                            to know which context to close).  May be set after construction.
         initiator_agent_id: The agent ID of the caller (stored in context records).
@@ -83,6 +89,7 @@ class BusEventListener:
         *,
         bus_db_path: str = '',
         spawn_fn: SpawnFn | None = None,
+        reply_fn: ReinvokeFn | None = None,
         reinvoke_fn: ReinvokeFn | None = None,
         current_context_id: str = '',
         initiator_agent_id: str = '',
@@ -90,6 +97,7 @@ class BusEventListener:
     ) -> None:
         self.bus_db_path = bus_db_path
         self.spawn_fn = spawn_fn
+        self.reply_fn = reply_fn
         self.reinvoke_fn = reinvoke_fn
         self.current_context_id = current_context_id
         self.initiator_agent_id = initiator_agent_id
@@ -245,7 +253,10 @@ class BusEventListener:
             request = json.loads(line.decode())
             message = request.get('message', '')
 
-            context_id = self.current_context_id
+            # Workers include their own context_id in the Reply socket message
+            # (set via the CONTEXT_ID env var injected at spawn time).
+            # Fall back to current_context_id for callers that predate this field.
+            context_id = request.get('context_id', '') or self.current_context_id
             parent_context_id = ''
             parent_session_id = ''
             should_reinvoke = False
@@ -269,11 +280,21 @@ class BusEventListener:
             writer.write(json.dumps(response).encode() + b'\n')
             await writer.drain()
 
+            # Inject this worker's reply into the caller's history on EVERY reply
+            # (regardless of pending_count) so that in fan-out scenarios all N
+            # worker replies are in the history before the caller resumes.
+            # conversation-model.md: "appends it to the caller's local conversation
+            # history file" — per Reply, not just the last.
+            if self.reply_fn is not None and parent_context_id:
+                asyncio.create_task(
+                    self.reply_fn(parent_context_id, parent_session_id, message)
+                )
+
             # Re-invoke the caller only when all fan-out workers have replied
-            # (pending_count reached zero) and a session_id is available to --resume.
-            # Use a per-agent lock so only one --resume per caller is active at a time
+            # (pending_count reached zero).  Use a per-agent lock so only one
+            # --resume per caller is active at a time
             # (conversation-model.md — per-agent re-invocation lock).
-            if self.reinvoke_fn is not None and should_reinvoke and parent_session_id:
+            if self.reinvoke_fn is not None and should_reinvoke:
                 asyncio.create_task(
                     self._locked_reinvoke(parent_context_id, parent_session_id, message)
                 )

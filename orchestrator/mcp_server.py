@@ -392,7 +392,8 @@ async def _default_reply_post(message: str) -> str:
         raise RuntimeError('REPLY_SOCKET not set — cannot reply')
     reader, writer = await asyncio.open_unix_connection(socket_path)
     try:
-        request = json.dumps({'type': 'reply', 'message': message})
+        context_id = os.environ.get('CONTEXT_ID', '')
+        request = json.dumps({'type': 'reply', 'message': message, 'context_id': context_id})
         writer.write(request.encode() + b'\n')
         await writer.drain()
         response_line = await reader.readline()
