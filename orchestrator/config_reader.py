@@ -286,6 +286,23 @@ def load_workgroup(path: str) -> Workgroup:
 
 # ── Discovery & resolution ──────────────────────────────────────────────────
 
+def discover_agents(agents_dir: str) -> list[str]:
+    """Scan a .claude/agents/ directory and return agent names (without .md extension).
+
+    Returns an empty list if the directory does not exist.
+
+    Args:
+        agents_dir: Absolute path to a .claude/agents/ directory.
+    """
+    if not os.path.isdir(agents_dir):
+        return []
+    names = []
+    for entry in sorted(os.scandir(agents_dir), key=lambda e: e.name):
+        if entry.is_file() and entry.name.endswith('.md'):
+            names.append(entry.name[:-3])
+    return names
+
+
 def discover_skills(skills_dir: str) -> list[str]:
     """Scan a .claude/skills/ directory and return skill names.
 
@@ -541,6 +558,70 @@ def _load_management_yaml(
         raise FileNotFoundError(f'Management team config not found: {path}')
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+_MEMBERSHIP_KEYS = {'agent': 'agents', 'skill': 'skills'}
+
+
+def toggle_management_membership(
+    teaparty_home: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add or remove an item from the management team's active list in teaparty.yaml.
+
+    Args:
+        teaparty_home: Path to the .teaparty/ directory.
+        kind: 'agent' or 'skill'.
+        name: Name of the item to toggle.
+        active: True to add, False to remove.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    key = _MEMBERSHIP_KEYS[kind]
+    data = _load_management_yaml(teaparty_home)
+    current: list = data.get(key) or []
+    if active:
+        if name not in current:
+            current = current + [name]
+    else:
+        current = [x for x in current if x != name]
+    data[key] = current
+    _save_management_yaml(data, teaparty_home)
+
+
+def toggle_project_membership(
+    project_dir: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add or remove an item from a project team's active list in project.yaml.
+
+    Args:
+        project_dir: Path to the project root directory.
+        kind: 'agent' or 'skill'.
+        name: Name of the item to toggle.
+        active: True to add, False to remove.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    key = _MEMBERSHIP_KEYS[kind]
+    yaml_path = os.path.join(project_dir, '.teaparty.local', 'project.yaml')
+    if not os.path.exists(yaml_path):
+        raise FileNotFoundError(f'project.yaml not found: {yaml_path}')
+    with open(yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    current: list = data.get(key) or []
+    if active:
+        if name not in current:
+            current = current + [name]
+    else:
+        current = [x for x in current if x != name]
+    data[key] = current
+    with open(yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
 def _scaffold_project_yaml(
