@@ -150,7 +150,7 @@ The earlier sections of this document proposed baseline priors, half-life parame
 
 **Forgetting.** The human stops promoting containment findings (maybe the security sprint ended). No new traces. The existing traces decay. After enough time, "human values containment" drops below the retrieval threshold. The agent's behavior drifts back toward its baseline expertise — not because of a configured half-life, but because the activation equation naturally produces that behavior.
 
-**Context sensitivity.** The human is working on the proxy this week. Conversations about the proxy create traces that spread activation to related concepts — learning, confidence, escalation. The agent's nightly review is primed to notice proxy-related patterns because the activation network is lit up in that region. Next week, when the human shifts to the TUI, the activation shifts with them.
+**Context sensitivity.** The human is working on the proxy this week. Conversations about the proxy create traces that spread activation to related concepts — learning, confidence, escalation. The agent's nightly review is primed to notice proxy-related patterns because the activation network is lit up in that region. Next week, when the human shifts to the bridge dashboard, the activation shifts with them.
 
 **No special cases.** The same equation handles the favorite-color problem (frequent reinforcement → stable), the mood problem (single trace → fast decay), and the intellectual-preference problem (context-dependent reinforcement → drifts with context). No tagging, no type system, no separate decay parameters.
 
