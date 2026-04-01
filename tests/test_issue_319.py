@@ -7,7 +7,7 @@ Acceptance criteria:
 3. load_project_team() reads from .teaparty.local/project.yaml by default
 4. _scaffold_project_yaml() creates .teaparty.local/project.yaml
 5. bridge/static/ exists at repo root and is served by bridge/__main__.py
-6. .teaparty/teaparty.yaml has TeaParty in teams:, darrell in humans:,
+6. .teaparty/teaparty.yaml has TeaParty in projects:, darrell in humans:,
    lead: office-manager, and Configuration workgroup
 7. .teaparty.local/project.yaml exists at repo root
 8. resolve_workgroups uses .teaparty.local/workgroups/ for project-level overrides
@@ -206,7 +206,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -229,7 +229,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -258,7 +258,7 @@ class TestScaffoldProjectYaml(unittest.TestCase):
         tp_dir = os.path.join(home, '.teaparty')
         os.makedirs(tp_dir)
         with open(os.path.join(tp_dir, 'teaparty.yaml'), 'w') as f:
-            yaml.dump({'name': 'Org', 'lead': 'boss', 'decider': 'boss', 'teams': []}, f)
+            yaml.dump({'name': 'Org', 'lead': 'boss', 'humans': {'decider': 'boss'}, 'members': {'agents': []}, 'projects': []}, f)
 
         add_project('TestProj', proj, teaparty_home=tp_dir)
 
@@ -491,10 +491,10 @@ class TestResolveWorkgroupsLocalPath(unittest.TestCase):
 # ── Relative team path resolution ─────────────────────────────────────────────
 
 class TestRelativeTeamPathResolution(unittest.TestCase):
-    """teams: entries with relative paths must be resolved relative to teaparty_home parent."""
+    """projects: entries with relative paths must be resolved relative to teaparty_home parent."""
 
     def test_relative_team_path_resolved_to_repo_root(self):
-        """A teams: entry with path '.' resolves to the repo root directory."""
+        """A projects: entry with path '.' resolves to the repo root directory."""
         import yaml
         from orchestrator.config_reader import load_management_team, discover_projects
 

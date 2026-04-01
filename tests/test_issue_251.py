@@ -5,7 +5,7 @@ Covers:
  1. Load teaparty.yaml into ManagementTeam dataclass
  2. Load project.yaml into ProjectTeam dataclass
  3. Load workgroup YAML into Workgroup dataclass
- 4. Project discovery from teams: entries with path:
+ 4. Project discovery from projects: entries with path:
  5. ref: workgroup entries resolve to org-level workgroup files
  6. Path expansion (~ → home directory)
  7. Missing file error handling
@@ -145,7 +145,6 @@ MINIMAL_WORKGROUP_YAML = textwrap.dedent("""\
 
     members:
       agents:
-        - coding-lead
         - developer
       hooks: []
 
@@ -293,7 +292,7 @@ class TestLoadWorkgroup(unittest.TestCase):
         with open(path, 'w') as f:
             f.write(MINIMAL_WORKGROUP_YAML)
         wg = load_workgroup(path)
-        self.assertEqual(wg.members_agents, ['coding-lead', 'developer'])
+        self.assertEqual(wg.members_agents, ['developer'])
 
     def test_artifacts(self):
         d = tempfile.mkdtemp()
