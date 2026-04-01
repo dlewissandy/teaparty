@@ -624,6 +624,45 @@ def toggle_project_membership(
         yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
 
+def toggle_workgroup_membership(
+    workgroup_yaml_path: str,
+    kind: str,
+    name: str,
+    active: bool,
+) -> None:
+    """Add or remove an agent or skill from a workgroup YAML file.
+
+    Args:
+        workgroup_yaml_path: Absolute path to the workgroup's .yaml file.
+        kind: 'agent' or 'skill'.
+        name: Name of the item to toggle.
+        active: True to add, False to remove.
+    """
+    if kind not in _MEMBERSHIP_KEYS:
+        raise ValueError(f'Invalid membership kind: {kind!r}')
+    if not os.path.exists(workgroup_yaml_path):
+        raise FileNotFoundError(f'workgroup YAML not found: {workgroup_yaml_path}')
+    with open(workgroup_yaml_path) as f:
+        data = yaml.safe_load(f) or {}
+    if kind == 'agent':
+        agents = data.get('agents') or []
+        agent_names = {(a['name'] if isinstance(a, dict) else a) for a in agents}
+        if active and name not in agent_names:
+            agents = agents + [{'name': name}]
+        elif not active:
+            agents = [a for a in agents if (a.get('name') if isinstance(a, dict) else a) != name]
+        data['agents'] = agents
+    else:
+        skills = data.get('skills') or []
+        if active and name not in skills:
+            skills = skills + [name]
+        elif not active:
+            skills = [s for s in skills if s != name]
+        data['skills'] = skills
+    with open(workgroup_yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
 def _scaffold_project_yaml(
     name: str,
     project_dir: str,

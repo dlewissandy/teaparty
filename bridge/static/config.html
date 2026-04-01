@@ -39,10 +39,17 @@ function configNav(level, nameOrSlug, extra) {
   }
 }
 
-async function toggleMembership(scope, type, name, active) {
-  var url = scope === 'global'
-    ? '/api/config/management/toggle'
-    : '/api/config/' + encodeURIComponent(scope) + '/toggle';
+async function toggleMembership(scope, type, name, active, projectSlug) {
+  var url;
+  if (scope === 'global') {
+    url = '/api/config/management/toggle';
+  } else if (scope.startsWith('wg:')) {
+    var wgName = scope.slice(3);
+    url = '/api/workgroups/' + encodeURIComponent(wgName) + '/toggle';
+    if (projectSlug) url += '?project=' + encodeURIComponent(projectSlug);
+  } else {
+    url = '/api/config/' + encodeURIComponent(scope) + '/toggle';
+  }
   await fetch(url, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
@@ -50,6 +57,8 @@ async function toggleMembership(scope, type, name, active) {
   });
   if (scope === 'global') {
     renderGlobal();
+  } else if (scope.startsWith('wg:')) {
+    renderWorkgroup(scope.slice(3), projectSlug || null);
   } else {
     renderProject(scope);
   }
@@ -164,7 +173,7 @@ async function renderGlobal() {
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
     var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    return '<div class="item item-catalog-active"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (m.scheduled || []).map(function(c) {
@@ -275,7 +284,7 @@ async function renderProject(slug) {
       (h.matcher ? '&hook_matcher=' + encodeURIComponent(h.matcher) : '') +
       (h.type ? '&hook_type=' + encodeURIComponent(h.type) : '');
     var click = h.file ? ' onclick="window.open(\'artifacts.html?file=\' + encodeURIComponent(\'' + h.file + '\') + \'' + meta + '\',\'_blank\')" style="cursor:pointer"' : '';
-    return '<div class="item"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
+    return '<div class="item item-catalog-active"' + click + '><div class="item-icon icon-hook">&#9889;</div><div class="item-body"><div class="item-title">' + (h.event || '') + (h.matcher ? ' [' + h.matcher + ']' : '') + '</div><div class="item-meta">' + (h.type || '') + '</div></div></div>';
   });
 
   var cronItems = (team.scheduled || []).map(function(c) {
@@ -327,14 +336,25 @@ async function renderWorkgroup(name, projectSlug) {
   document.title = 'TeaParty \u2014 ' + name + ' Workgroup';
 
   var agentItems = (wgData.agents || []).map(function(a) {
-    var src = sourceBadge(a.source);
-    return '<div class="item"><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + (a.name || a) + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
+    var aName = typeof a === 'object' ? a.name : a;
+    var isActive = typeof a === 'object' ? a.active !== false : true;
+    var src = sourceBadge(typeof a === 'object' ? a.source : null);
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', false, \'' + (projectSlug || '') + '\')"'
+      : ' onclick="toggleMembership(\'wg:' + name + '\', \'agent\', \'' + aName + '\', true, \'' + (projectSlug || '') + '\')"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-member">&#9672;</div><div class="item-body"><div class="item-title">' + aName + ' ' + src + '</div><div class="item-meta">' + (a.role || '') + (a.model ? ' &middot; ' + a.model : '') + '</div></div></div>';
   });
 
   var skillItems = (wgData.skills || []).map(function(s) {
-    var name = typeof s === 'object' ? s.name : s;
+    var sName = typeof s === 'object' ? s.name : s;
+    var isActive = typeof s === 'object' ? s.active !== false : true;
     var src = typeof s === 'object' ? sourceBadge(s.source) : '';
-    return '<div class="item"><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + name + ' ' + src + '</div></div></div>';
+    var cls = isActive ? ' item-catalog-active' : ' item-catalog-inactive';
+    var click = isActive
+      ? ' onclick="toggleMembership(\'wg:' + name + '\', \'skill\', \'' + sName + '\', false, \'' + (projectSlug || '') + '\')"'
+      : ' onclick="toggleMembership(\'wg:' + name + '\', \'skill\', \'' + sName + '\', true, \'' + (projectSlug || '') + '\')"';
+    return '<div class="item' + cls + '"' + click + '><div class="item-icon icon-skill">&#9881;</div><div class="item-body"><div class="item-title">' + sName + ' ' + src + '</div></div></div>';
   });
 
   var normItems = [];

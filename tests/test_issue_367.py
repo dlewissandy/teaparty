@@ -699,6 +699,289 @@ class TestConfigHtmlCatalogRendering(unittest.TestCase):
         )
 
 
+# ── toggle_workgroup_membership ──────────────────────────────────────────────
+
+def _make_workgroup_yaml(workgroup_yaml_path: str, agents: list, skills: list | None = None):
+    os.makedirs(os.path.dirname(workgroup_yaml_path), exist_ok=True)
+    data = {
+        'name': os.path.basename(workgroup_yaml_path).replace('.yaml', ''),
+        'description': 'Test workgroup',
+        'lead': 'auditor',
+        'agents': [{'name': a} for a in agents],
+        'skills': skills or [],
+    }
+    with open(workgroup_yaml_path, 'w') as f:
+        yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+
+
+def _read_workgroup_yaml(workgroup_yaml_path: str) -> dict:
+    with open(workgroup_yaml_path) as f:
+        return yaml.safe_load(f)
+
+
+class TestToggleWorkgroupMembership(unittest.TestCase):
+    """toggle_workgroup_membership must add/remove agents and skills from workgroup YAML."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.yaml_path = os.path.join(self.tmp, 'backlog.yaml')
+        _make_workgroup_yaml(self.yaml_path, agents=['auditor'], skills=['commit'])
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_activate_agent_adds_to_agents(self):
+        """toggle_workgroup_membership with active=True adds agent to workgroup YAML."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        toggle_workgroup_membership(self.yaml_path, 'agent', 'researcher', True)
+        data = _read_workgroup_yaml(self.yaml_path)
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        self.assertIn('researcher', agent_names)
+
+    def test_deactivate_agent_removes_from_agents(self):
+        """toggle_workgroup_membership with active=False removes agent from workgroup YAML."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        toggle_workgroup_membership(self.yaml_path, 'agent', 'auditor', False)
+        data = _read_workgroup_yaml(self.yaml_path)
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        self.assertNotIn('auditor', agent_names)
+
+    def test_activate_skill_adds_to_skills(self):
+        """toggle_workgroup_membership with active=True adds skill to workgroup YAML."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        toggle_workgroup_membership(self.yaml_path, 'skill', 'review-pr', True)
+        data = _read_workgroup_yaml(self.yaml_path)
+        self.assertIn('review-pr', data.get('skills', []))
+
+    def test_deactivate_skill_removes_from_skills(self):
+        """toggle_workgroup_membership with active=False removes skill from workgroup YAML."""
+        from orchestrator.config_reader import toggle_workgroup_membership
+        toggle_workgroup_membership(self.yaml_path, 'skill', 'commit', False)
+        data = _read_workgroup_yaml(self.yaml_path)
+        self.assertNotIn('commit', data.get('skills', []))
+
+
+# ── _serialize_workgroup catalog expansion ────────────────────────────────────
+
+class TestWorkgroupCatalogSerialization(unittest.TestCase):
+    """_serialize_workgroup must emit full org catalog with active flags when detail=True."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _make_workgroup(self, agents: list, skills: list | None = None):
+        from orchestrator.config_reader import Workgroup
+        return Workgroup(
+            name='backlog',
+            description='Test',
+            lead='auditor',
+            agents=[{'name': a} for a in agents],
+            skills=skills or [],
+        )
+
+    def test_inactive_catalog_agents_appear_with_active_false(self):
+        """Agents in org catalog but not in workgroup must appear with active=False."""
+        bridge = _make_bridge(self.tmp)
+        w = self._make_workgroup(agents=['auditor'])
+        result = bridge._serialize_workgroup(
+            w, detail=True,
+            org_catalog_agents=['auditor', 'researcher'],
+            org_catalog_skills=[],
+        )
+        active_states = {a['name']: a['active'] for a in result['agents']}
+        self.assertTrue(active_states['auditor'])
+        self.assertFalse(active_states['researcher'])
+
+    def test_active_workgroup_agents_have_active_true(self):
+        """Agents in the workgroup must appear with active=True."""
+        bridge = _make_bridge(self.tmp)
+        w = self._make_workgroup(agents=['auditor', 'researcher'])
+        result = bridge._serialize_workgroup(
+            w, detail=True,
+            org_catalog_agents=['auditor', 'researcher', 'strategist'],
+            org_catalog_skills=[],
+        )
+        active_states = {a['name']: a['active'] for a in result['agents']}
+        self.assertTrue(active_states['auditor'])
+        self.assertTrue(active_states['researcher'])
+        self.assertFalse(active_states['strategist'])
+
+    def test_inactive_catalog_skills_appear_with_active_false(self):
+        """Skills in org catalog but not in workgroup must appear with active=False."""
+        bridge = _make_bridge(self.tmp)
+        w = self._make_workgroup(agents=[], skills=['commit'])
+        result = bridge._serialize_workgroup(
+            w, detail=True,
+            org_catalog_agents=[],
+            org_catalog_skills=['commit', 'review-pr'],
+        )
+        skill_states = {s['name']: s['active'] for s in result['skills']}
+        self.assertTrue(skill_states['commit'])
+        self.assertFalse(skill_states['review-pr'])
+
+
+# ── Workgroup toggle endpoint ─────────────────────────────────────────────────
+
+class TestToggleWorkgroupEndpoint(unittest.TestCase):
+    """POST /api/workgroups/{name}/toggle must add/remove membership and return 200."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
+        wg_dir = os.path.join(self.teaparty_home, 'workgroups')
+        os.makedirs(wg_dir, exist_ok=True)
+        self.wg_path = os.path.join(wg_dir, 'backlog.yaml')
+        _make_workgroup_yaml(self.wg_path, agents=['auditor'], skills=['commit'])
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, name: str, body: dict) -> tuple[int, dict]:
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge(
+            teaparty_home=self.teaparty_home,
+            static_dir=os.path.join(self.tmp, 'static'),
+        )
+
+        async def _call():
+            request = MagicMock()
+            request.match_info = {'name': name}
+            request.rel_url.query.get = MagicMock(return_value=None)
+            request.json = AsyncMock(return_value=body)
+            response = await bridge._handle_workgroup_toggle(request)
+            return response.status, json.loads(response.body)
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_call())
+        finally:
+            loop.close()
+
+    def test_activate_agent_returns_200(self):
+        """POST /api/workgroups/{name}/toggle returns 200 when activating an agent."""
+        status, _ = self._run('backlog', {'type': 'agent', 'name': 'researcher', 'active': True})
+        self.assertEqual(status, 200)
+
+    def test_activate_agent_writes_workgroup_yaml(self):
+        """POST /api/workgroups/{name}/toggle writes updated agents to workgroup YAML."""
+        self._run('backlog', {'type': 'agent', 'name': 'researcher', 'active': True})
+        data = _read_workgroup_yaml(self.wg_path)
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        self.assertIn('researcher', agent_names)
+
+    def test_deactivate_agent_writes_workgroup_yaml(self):
+        """POST /api/workgroups/{name}/toggle removes agent from workgroup YAML."""
+        self._run('backlog', {'type': 'agent', 'name': 'auditor', 'active': False})
+        data = _read_workgroup_yaml(self.wg_path)
+        agent_names = [a['name'] if isinstance(a, dict) else a for a in data.get('agents', [])]
+        self.assertNotIn('auditor', agent_names)
+
+
+# ── Local project skills active flag ─────────────────────────────────────────
+
+class TestLocalProjectSkillsActiveFlag(unittest.TestCase):
+    """Local project skills must reflect actual YAML membership, not always-active."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.teaparty_home = os.path.join(self.tmp, '.teaparty')
+        self.project_dir = os.path.join(self.tmp, 'myproject')
+        os.makedirs(self.project_dir)
+        # Make management team with no skills
+        _make_management_yaml(self.teaparty_home, agents=[])
+        # Make project with only 'commit' registered in skills:
+        _make_project_yaml(self.project_dir, agents=[], skills=['commit'])
+        # Create two local skills on filesystem; only 'commit' is registered
+        local_skills_dir = os.path.join(self.project_dir, '.claude', 'skills')
+        _make_skill(local_skills_dir, 'commit')
+        _make_skill(local_skills_dir, 'review-pr')
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _get_skills(self):
+        from orchestrator.config_reader import load_project_team, discover_skills
+        from bridge.server import TeaPartyBridge
+        bridge = TeaPartyBridge(
+            teaparty_home=self.teaparty_home,
+            static_dir=os.path.join(self.tmp, 'static'),
+        )
+        team = load_project_team(self.project_dir)
+        local_skills = discover_skills(os.path.join(self.project_dir, '.claude', 'skills'))
+        result = bridge._serialize_project_team(
+            team,
+            org_agents=[],
+            org_catalog_agents=[],
+            local_skills=local_skills,
+            registered_org_skills=team.skills,
+            org_catalog_skills=[],
+            teaparty_home=self.teaparty_home,
+            project_dir=self.project_dir,
+        )
+        return {s['name']: s['active'] for s in result['skills']}
+
+    def test_registered_local_skill_is_active(self):
+        """A local skill that appears in project.yaml skills: must be active=True."""
+        skill_states = self._get_skills()
+        self.assertTrue(skill_states.get('commit'), 'commit is registered and must be active')
+
+    def test_unregistered_local_skill_is_inactive(self):
+        """A local skill NOT in project.yaml skills: must be active=False."""
+        skill_states = self._get_skills()
+        self.assertFalse(skill_states.get('review-pr'), 'review-pr is not registered and must be inactive')
+
+
+# ── Hooks CSS highlighting ────────────────────────────────────────────────────
+
+class TestHooksCatalogHighlighting(unittest.TestCase):
+    """config.html must render hook items with item-catalog-active CSS class."""
+
+    def setUp(self):
+        self.content = _read_config_html()
+
+    def test_hooks_rendered_with_catalog_active_in_render_global(self):
+        """renderGlobal() hook items must use item-catalog-active CSS class."""
+        # The class is applied to all shown hooks since they are all active
+        self.assertIn(
+            'item-catalog-active',
+            self.content,
+            'Hook items must use item-catalog-active to indicate they are active',
+        )
+
+    def test_render_workgroup_uses_active_flag_for_agents(self):
+        """renderWorkgroup() must check a.active to render active/inactive agents."""
+        self.assertIn(
+            'a.active',
+            self.content,
+            'renderWorkgroup() must use a.active for catalog rendering',
+        )
+
+    def test_render_workgroup_uses_active_flag_for_skills(self):
+        """renderWorkgroup() must check s.active to render active/inactive skills."""
+        self.assertIn(
+            's.active',
+            self.content,
+            'renderWorkgroup() must use s.active for catalog rendering',
+        )
+
+    def test_toggle_membership_handles_workgroup_scope(self):
+        """toggleMembership must handle workgroup scope (wg: prefix)."""
+        self.assertIn(
+            "startsWith('wg:')",
+            self.content,
+            "toggleMembership must handle 'wg:' scope for workgroup toggle",
+        )
+
+
 class TestStylesCssCatalogClasses(unittest.TestCase):
     """styles.css must define item-catalog-active and item-catalog-inactive classes."""
 
