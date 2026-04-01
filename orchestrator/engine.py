@@ -425,13 +425,14 @@ class Orchestrator:
 
         import subprocess
         from orchestrator.agent_spawner import AgentSpawner
-        spawner = AgentSpawner(teaparty_home=self.poc_root, env_vars=self._mcp_config or {})
+        spawner = AgentSpawner(teaparty_home=self.poc_root)
         # Extract caller's agent role from context_id: agent:{initiator_id}:{recipient_id}:{uuid}
         parts = context_id.split(':')
         role = parts[1] if len(parts) >= 2 else 'unknown'
 
         safe_id = context_id.replace(':', '_').replace('/', '_')
         resume_dir = os.path.join(self.infra_dir, 'agents', f'{safe_id}_resume')
+        mcp_config = self._mcp_config
 
         def resume_in_worktree() -> None:
             wt_result = subprocess.run(
@@ -447,10 +448,11 @@ class Orchestrator:
                 os.makedirs(resume_dir, exist_ok=True)
             try:
                 spawner.spawn(
-                    '',
+                    'All workers have replied. Continue from where you left off.',
                     worktree=resume_dir,
                     role=role,
                     project_dir=self.project_workdir,
+                    mcp_config=mcp_config,
                     resume_session=session_id,
                 )
             finally:
